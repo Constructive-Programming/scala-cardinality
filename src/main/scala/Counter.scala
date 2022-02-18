@@ -24,6 +24,14 @@ object Counter {
 
   def `type`: Type => Size = {
     case Type.Name("Boolean") => BooleanSize
+    case Type.Name("Byte") => ByteSize
+    case Type.Name("Short") => ShortSize
+    case Type.Name("Char") => CharSize
     case Type.Name("Int") => IntSize
+    case Type.Name("Long") => LongSize
+    case Type.Name("Float") => FloatSize
+    case Type.Name("Double") => DoubleSize
+    case Type.Name("String") => EffectiveOmega
+    case Type.Name("List") => EffectiveOmega
   }
 }
