@@ -60,9 +60,9 @@ and the heavier reports in
 | [scalafmt](https://scalameta.org/scalafmt/) | Formatting | `sbt scalafmtAll` | `ci.yml`, check-only, gating |
 | [scalafix](https://scalafix.com/) | Semantic rewrites (unused/organized imports, syntax bans) | `sbt scalafixAll` | `ci.yml`, check-only, gating |
 | [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
-| [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, report only |
+| [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, on PRs, report only |
 | [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating |
-| [CodeScene](https://codescene.com/) | Code Health and hotspots | `cs delta` | `quality.yml`, token-gated |
+| [CodeScene](https://codescene.com/) | Code Health and hotspots | `cs delta` | `quality.yml`, on PRs, gating once `CS_ACCESS_TOKEN` is set |
 
 Configuration lives in `.scalafmt.conf`, `.scalafix.conf`, `stryker4s.conf` and
 `.codescene/custom-quality-gates.json`. Coverage is gated just below the current
@@ -85,6 +85,7 @@ sbt mutationAll     # mutation report under target/stryker4s-report/
 
 CodeScene's primary integration is its GitHub App, which reviews pull requests
 against the quality gates in `.codescene/custom-quality-gates.json`. The
-`quality.yml` job adds a CLI `cs delta` gate on top of that; it runs only when the
+`quality.yml` job adds a CLI `cs delta` gate on top of that, on pull requests and
+pushes to main. It fails on any Code Health finding, runs only when the
 `CS_ACCESS_TOKEN` repository secret is set, and otherwise posts a notice and
 skips.

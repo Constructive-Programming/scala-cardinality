@@ -1,16 +1,17 @@
-# Quality report: the signals too heavy or too external for the per-PR path.
+# Quality report: the heavier / external signals, kept out of `ci.yml`.
 #
 #   - stryker4s — mutation testing (a full sandbox build + a test run per mutant)
 #   - CodeScene — Code Health delta analysis (needs CS_ACCESS_TOKEN)
 #
-# Both are REPORTS, not gates: stryker's `break` threshold is 0 (see
-# stryker4s.conf), and the CodeScene job is skipped entirely when the access
-# token is absent. They fire on release tags so each release ships a fresh
-# snapshot, on pushes to main, and on demand. Mirrors `quality.yml` in the
-# sister project `eo`.
+# stryker4s is a REPORT, not a gate: its `break` threshold is 0 (see
+# stryker4s.conf). CodeScene is a gate once the access token is present and is
+# skipped with a notice otherwise. Both run on pull requests, on pushes to main,
+# on release tags (so each release ships a fresh snapshot), and on demand.
+# Mirrors `quality.yml` in the sister project `eo`.
 name: Quality
 
 on:
+  pull_request:
   push:
     branches: [main]
     tags: ['v*']
@@ -64,7 +65,7 @@ jobs:
     timeout-minutes: 15
     # Secrets cannot be read in `if:` directly; surface the token through the
     # job env so the steps below can test it (same pattern eo uses for its
-    # signing key).
+    # signing key). Pull requests from forks never receive it, so they skip.
     env:
       CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
     steps:
@@ -85,16 +86,18 @@ jobs:
         if: env.CS_ACCESS_TOKEN != ''
         run: curl -sSL https://downloads.codescene.io/enterprise/cli/install-cs-tool.sh | sh
 
-      # Delta analysis over the change this event introduced. `cs delta` exits
-      # non-zero when the Code Health gate in `.codescene/` is violated, so this
-      # is a gate once the token is present.
+      # Delta analysis over the change this event introduced: the PR's base on
+      # pull requests, the previous tip on pushes. `cs delta` exits 0 regardless
+      # of findings unless `--error-on-warnings` is passed, which fails the step
+      # on any Code Health finding, so this is a gate once the token is present.
       - name: Delta analysis (Code Health gate)
         if: env.CS_ACCESS_TOKEN != ''
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          BASE="${{ github.event.before }}"
           if [ -z "$BASE" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             BASE=$(git rev-parse --verify -q HEAD~1 || echo HEAD)
           fi
           echo "Analysing ${BASE}..HEAD"
-          cs delta "$BASE" HEAD --output-format json --pretty
+          cs delta "$BASE" HEAD --error-on-warnings --output-format json --pretty
