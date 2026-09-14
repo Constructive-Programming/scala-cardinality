@@ -1,0 +1,17 @@
+{
+  "usage": "Persist this file inside your repositories as .codescene/custom-quality-gates.json",
+  "rule_sets": [
+    {
+      "quality_gates": "clean_code_collective",
+      "quality_gates_doc": "Our Scala sources must hold a healthy Code Health: no decline on hotspots, no new complexity or cohesion violations. This is the research-backed profile (Code Red), matching the standard the sister project `eo` holds itself to.",
+      "matching_content_path": "src/**",
+      "matching_content_path_doc": "The code we own and review."
+    },
+    {
+      "quality_gates": "bare_minimum",
+      "quality_gates_doc": "Build definition and repository metadata only need the safety net.",
+      "matching_content_path": "*/**",
+      "matching_content_path_doc": "Everything outside src/ (build.sbt, project/, CI workflows)."
+    }
+  ]
+}

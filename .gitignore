@@ -1,0 +1,20 @@
+# sbt build output
+/target/
+/project/target/
+/project/project/
+
+# Tooling / IDE metadata
+.bloop/
+.bsp/
+.metals/
+.idea/
+.vscode/
+metals.sbt
+
+# Generated quality reports. All of these also land under target/ (already
+# ignored above); the extra patterns keep them ignored if a tool is ever
+# configured to write elsewhere.
+**/scoverage-report/
+**/stryker4s-report/
+**/stryker4s-tmpDir/
+/cpd/

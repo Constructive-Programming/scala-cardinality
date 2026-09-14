@@ -45,3 +45,46 @@ The calculator is an early work in progress. It currently parses Scala source
 with [scalameta](https://scalameta.org/) and computes the cardinality of
 constructor parameters for classes and case classes, reasoning about product
 types and a handful of primitive types.
+
+## Quality toolchain
+
+The build mirrors the sister project
+[`eo`](https://github.com/Constructive-Programming/eo): the same formatter,
+linter, coverage, mutation-testing and duplicate-detection tools, split between
+the always-on gates in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+and the heavier reports in
+[`.github/workflows/quality.yml`](.github/workflows/quality.yml).
+
+| Tool | Purpose | Local command | CI |
+|---|---|---|---|
+| [scalafmt](https://scalameta.org/scalafmt/) | Formatting | `sbt scalafmtAll` | `ci.yml`, check-only, gating |
+| [scalafix](https://scalafix.com/) | Semantic rewrites (unused/organized imports, syntax bans) | `sbt scalafixAll` | `ci.yml`, check-only, gating |
+| [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
+| [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, report only |
+| [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating |
+| [CodeScene](https://codescene.com/) | Code Health and hotspots | `cs delta` | `quality.yml`, token-gated |
+
+Configuration lives in `.scalafmt.conf`, `.scalafix.conf`, `stryker4s.conf` and
+`.codescene/custom-quality-gates.json`. Coverage is gated just below the current
+baseline (a regression floor, expected to ratchet up); mutation testing never
+fails the build and exists to guide test investment.
+
+```bash
+sbt scalafmtAll     # apply formatting
+sbt scalafixAll     # apply semantic fixes
+sbt coverageAll     # tests + coverage report under target/
+sbt mutationAll     # mutation report under target/stryker4s-report/
+```
+
+> [!NOTE]
+> sbt 2 keeps a **machine-wide** task cache (`~/.cache/sbt`) that `clean` does
+> not clear. Re-running a gate can therefore report "no tests to run" and skip
+> the coverage check — a cache hit, not a failure. For a cold run, pass a fresh
+> cache: `sbt --sbt-cache "$TMPDIR/sbt-cold" coverageAll`. CI is unaffected: the
+> runner starts with an empty cache.
+
+CodeScene's primary integration is its GitHub App, which reviews pull requests
+against the quality gates in `.codescene/custom-quality-gates.json`. The
+`quality.yml` job adds a CLI `cs delta` gate on top of that; it runs only when the
+`CS_ACCESS_TOKEN` repository secret is set, and otherwise posts a notice and
+skips.

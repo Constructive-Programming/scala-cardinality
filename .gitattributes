@@ -1,0 +1,5 @@
+# Store every text file with LF in the repository and check it out with LF on
+# every platform. scalafmt is configured `lineEndings = unix`, so without this a
+# Windows checkout (core.autocrlf=true) would hand scalafmt CRLF sources and the
+# formatting gate would fail on CRLF rather than on real formatting drift.
+* text=auto eol=lf

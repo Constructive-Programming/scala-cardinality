@@ -1,0 +1,100 @@
+# Quality report: the signals too heavy or too external for the per-PR path.
+#
+#   - stryker4s — mutation testing (a full sandbox build + a test run per mutant)
+#   - CodeScene — Code Health delta analysis (needs CS_ACCESS_TOKEN)
+#
+# Both are REPORTS, not gates: stryker's `break` threshold is 0 (see
+# stryker4s.conf), and the CodeScene job is skipped entirely when the access
+# token is absent. They fire on release tags so each release ships a fresh
+# snapshot, on pushes to main, and on demand. Mirrors `quality.yml` in the
+# sister project `eo`.
+name: Quality
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: Mutation testing (stryker4s)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Setup Java (temurin 21)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: sbt
+
+      # `mutationAll` = stryker, configured from stryker4s.conf. A low score is
+      # logged, never fatal (thresholds/break = 0), so this step always passes.
+      - name: Mutation testing
+        run: sbt -batch mutationAll
+
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stryker4s-reports
+          path: '**/stryker4s-report/**'
+          retention-days: 14
+          if-no-files-found: warn
+
+  codescene:
+    name: Code Health (CodeScene)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Secrets cannot be read in `if:` directly; surface the token through the
+    # job env so the steps below can test it (same pattern eo uses for its
+    # signing key).
+    env:
+      CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Note when CodeScene is not configured
+        if: env.CS_ACCESS_TOKEN == ''
+        run: |
+          echo "::notice title=CodeScene::CS_ACCESS_TOKEN is not set, skipping the CodeScene CLI gate."
+          echo "The in-repo Code Health configuration (.codescene/custom-quality-gates.json) is"
+          echo "consumed by the CodeScene GitHub App on pull requests; set the CS_ACCESS_TOKEN"
+          echo "secret to enable the CLI delta gate as well."
+
+      - name: Install CodeScene CLI
+        if: env.CS_ACCESS_TOKEN != ''
+        run: curl -sSL https://downloads.codescene.io/enterprise/cli/install-cs-tool.sh | sh
+
+      # Delta analysis over the change this event introduced. `cs delta` exits
+      # non-zero when the Code Health gate in `.codescene/` is violated, so this
+      # is a gate once the token is present.
+      - name: Delta analysis (Code Health gate)
+        if: env.CS_ACCESS_TOKEN != ''
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          BASE="${{ github.event.before }}"
+          if [ -z "$BASE" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            BASE=$(git rev-parse --verify -q HEAD~1 || echo HEAD)
+          fi
+          echo "Analysing ${BASE}..HEAD"
+          cs delta "$BASE" HEAD --output-format json --pretty
