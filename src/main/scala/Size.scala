@@ -10,8 +10,7 @@ sealed trait Size { self =>
 }
 
 object Size {
-  def bits(cardinality: Long): Int =
-    (Math.log10(cardinality) / Math.log10(2)).toInt
+  def bits(cardinality: BigInt): Int = (cardinality - 1).bitLength
 }
 
 sealed trait TinySize extends Size { self =>
@@ -21,28 +20,31 @@ sealed trait TinySize extends Size { self =>
     case s => !s.larger(self)
   }
   override def equals(obj: Any): Boolean = obj match {
-    case t: TinySize => t.repr == t.repr
+    case t: TinySize => self.repr == t.repr
     case _ => false
   }
+  override def hashCode(): Int = repr.hashCode
   override def toString() = s"TinySize($repr)"
   def add: Size => Size = {
-    case t: TinySize => checkRepr(t, self.repr.toInt + t.repr)
+    case t: TinySize => checkRepr(self.repr + t.repr)
     case s => s.add(self)
   }
   def mul: Size => Size = {
-    case t: TinySize => checkRepr(t, self.repr.toInt * t.repr)
+    case t: TinySize => checkRepr(self.repr * t.repr)
     case s => s.mul(self)
   }
   def pow: Size => Size = {
-    case t: TinySize => checkRepr(t, Math.pow(self.repr, t.repr).toInt)
-    case s => s.exp(self)
+    case t: TinySize => checkRepr(BigInt(self.repr).pow(t.repr))
+    case _ if self.repr <= 1 => self
+    case f: FiniteSize if f.bits.isValidInt =>
+      FiniteSize((BigInt(1) << f.bits.toInt) * Size.bits(BigInt(self.repr)))
+    case _: FiniteSize => EffectiveOmega
+    case _ => EffectiveTau
   }
 
-  private def checkRepr(t: TinySize, nrepr: Int) = {
-    if (nrepr < 256) TinySize(nrepr.toByte)
+  private def checkRepr(nrepr: BigInt): Size =
+    if (nrepr.isValidByte) TinySize(nrepr.toByte)
     else FiniteSize(Size.bits(nrepr))
-  }
-
 }
 
 object TinySize {
@@ -55,6 +57,7 @@ sealed trait FiniteSize extends Size { self =>
   def bits: BigInt
   def larger: Size => Boolean = {
     case _: TinySize => true
+    case _: LossyInfiniteSize => false
     case f: FiniteSize => bits > f.bits
     case _ => false
   }
@@ -63,25 +66,25 @@ sealed trait FiniteSize extends Size { self =>
     case f: FiniteSize => bits == f.bits
     case _ => false
   }
+  override def hashCode(): Int = bits.hashCode
   override def toString() = s"FiniteSize($bits)"
   def add: Size => Size = {
     case NothingSize => self
-    case s if larger(s) => FiniteSize(bits + 1)
+    case t: TinySize => FiniteSize(bits.max(Size.bits(BigInt(t.repr))) + 1)
+    case f: FiniteSize => FiniteSize(bits.max(f.bits) + 1)
     case s => s.add(self)
   }
   def mul: Size => Size = {
-    case t: TinySize => FiniteSize(bits + Size.bits(t.repr))
+    case NothingSize => NothingSize
+    case t: TinySize => FiniteSize(bits + Size.bits(BigInt(t.repr)))
     case f: FiniteSize => FiniteSize(bits + f.bits)
     case s => s.mul(self)
   }
   def pow: Size => Size = {
     case t: TinySize => FiniteSize(bits * BigInt(t.repr))
-    case f: FiniteSize if f.bits.isValidInt =>
-        FiniteSize (bits * (BigInt(1) << f.bits.toInt) )
-    case f: FiniteSize =>
-      if (bits.isValidInt) FiniteSize (f.bits * (BigInt(1) << bits.toInt) )
-      else EffectiveOmega
-    case s => s.exp(self)
+    case f: FiniteSize if f.bits.isValidInt => FiniteSize(bits * (BigInt(1) << f.bits.toInt))
+    case _: FiniteSize => EffectiveOmega
+    case _ => EffectiveTau
   }
 }
 
@@ -108,7 +111,7 @@ object LossyInfiniteSize {
 case object NothingSize extends TinySize { val repr = 0 }
 case object UnitSize extends TinySize { val repr = 1 }
 case object BooleanSize extends TinySize { val repr = 2 }
-case object ByteSize extends TinySize { val repr = 8 }
+case object ByteSize extends FiniteSize { val bits = 8 }
 case object ShortSize extends FiniteSize { val bits = 16 }
 case object CharSize extends FiniteSize { val bits = 16 }
 case object IntSize extends FiniteSize { val bits = 32 }
@@ -118,39 +121,37 @@ case object DoubleSize extends LossyInfiniteSize { val bits = 64 }
 
 case object EffectiveOmega extends Size {
   def larger: Size => Boolean = {
-    case _: TinySize | _: FiniteSize | EffectiveOmega => false
-    case _ => true
+    case _: TinySize | _: FiniteSize => true
+    case _ => false
   }
   def add: Size => Size = {
-    case _: TinySize | _: FiniteSize | EffectiveOmega => EffectiveOmega
-    case s => s.add(EffectiveOmega)
+    case EffectiveTau => EffectiveTau
+    case _ => EffectiveOmega
   }
   def mul: Size => Size = {
-    case _: TinySize | _: FiniteSize | EffectiveOmega => EffectiveOmega
-    case s => s.add(EffectiveOmega)
+    case NothingSize => NothingSize
+    case EffectiveTau => EffectiveTau
+    case _ => EffectiveOmega
   }
-  override def pow: Size => Size = {
+  def pow: Size => Size = {
+    case NothingSize => UnitSize
     case _: TinySize | _: FiniteSize => EffectiveOmega
-    case EffectiveOmega => EffectiveTau
-    case s => s.exp(EffectiveOmega)
+    case _ => EffectiveTau
   }
 }
 
 case object EffectiveTau extends Size {
   def larger: Size => Boolean = {
-    case _: TinySize | _: FiniteSize | EffectiveOmega | EffectiveTau => false
+    case EffectiveTau => false
     case _ => true
   }
-  def add: Size => Size = {
-    case _: TinySize | _: FiniteSize | EffectiveOmega | EffectiveTau => EffectiveTau
-    case s => s.add(EffectiveTau)
-  }
+  def add: Size => Size = _ => EffectiveTau
   def mul: Size => Size = {
-    case _: TinySize | _: FiniteSize | EffectiveOmega | EffectiveTau => EffectiveTau
-    case s => s.add(EffectiveTau)
+    case NothingSize => NothingSize
+    case _ => EffectiveTau
   }
-  override def pow: Size => Size = {
-    case _: TinySize | _: FiniteSize | EffectiveOmega | EffectiveTau => EffectiveTau
-    case s => s.exp(EffectiveTau)
+  def pow: Size => Size = {
+    case NothingSize => UnitSize
+    case _ => EffectiveTau
   }
 }
