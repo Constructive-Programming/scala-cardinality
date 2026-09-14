@@ -1,26 +1,24 @@
 import scala.meta._
 
 object Counter {
-  def source: Source => Size = {
-    case Source(sts) => sts.foldLeft(NothingSize:Size)(_ + stat(_))
-  }
+  def source: Source => Size = s => sum(s.stats)
 
   def stat: Stat => Size = {
-    case d : Defn => defn(d)
+    case p: Pkg => sum(p.body.stats)
+    case d: Defn => defn(d)
+    case _ => NothingSize
   }
 
   def defn: Defn => Size = {
-    case Defn.Class(_, _, _, c, _) => ctor(c)
-    case _ : Defn.Val => UnitSize
+    case c: Defn.Class => ctor(c.ctor)
+    case _: Defn.Val => UnitSize
+    case _ => NothingSize
   }
 
-  def ctor: Ctor => Size = {
-    case Ctor.Primary(_, _, paramss) => paramss.flatten.foldLeft(UnitSize:Size)(_ * param(_))
-  }
+  def ctor: Ctor.Primary => Size =
+    _.paramClauses.flatMap(_.values).foldLeft(UnitSize: Size)(_ * param(_))
 
-  def param: Term.Param => Size = {
-    case Term.Param(_, _, Some(t), _) => `type`(t)
-  }
+  def param: Term.Param => Size = _.decltpe.fold(EffectiveOmega: Size)(`type`)
 
   def `type`: Type => Size = {
     case Type.Name("Boolean") => BooleanSize
@@ -31,7 +29,9 @@ object Counter {
     case Type.Name("Long") => LongSize
     case Type.Name("Float") => FloatSize
     case Type.Name("Double") => DoubleSize
-    case Type.Name("String") => EffectiveOmega
-    case Type.Name("List") => EffectiveOmega
+    // ponytail: String, List[_], user-defined types all count as effectively infinite; resolve sealed hierarchies when needed
+    case _ => EffectiveOmega
   }
+
+  private def sum(stats: Seq[Stat]): Size = stats.foldLeft(NothingSize: Size)(_ + stat(_))
 }
