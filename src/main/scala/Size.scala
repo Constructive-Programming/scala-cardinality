@@ -75,7 +75,7 @@ sealed trait FiniteSize extends Size { self =>
     case s => s.mul(self)
   }
   def pow: Size => Size = {
-    case t: TinySize => FiniteSize(bits * t.repr)
+    case t: TinySize => FiniteSize(bits * BigInt(t.repr))
     case f: FiniteSize if f.bits.isValidInt =>
         FiniteSize (bits * (BigInt(1) << f.bits.toInt) )
     case f: FiniteSize =>

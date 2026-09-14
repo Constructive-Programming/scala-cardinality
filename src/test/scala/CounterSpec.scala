@@ -7,7 +7,9 @@ class CounterSpec extends Specification {
   override def is =
     s2"""
       Can parse simple products $parseProduct
-      Can parse lists $parseProduct
+      Can parse lists $parseListOfSomething
+      Looks inside packages $parsePackage
+      Skips unknown statements, bounds unknown types $parseUnknown
       """
 
   def parseProduct: MatchResult[Size] = {
@@ -23,6 +25,16 @@ class CounterSpec extends Specification {
 
   def parseListOfSomething: MatchResult[Size] = {
     (Counter.source("case class NinetySix(a: List[Double])".parse[Source].get) must
+      beEqualTo(EffectiveOmega))
+  }
+
+  def parsePackage: MatchResult[Size] = {
+    (Counter.source("package foo\ncase class Four(a: Boolean, b: Boolean)".parse[Source].get) must
+      beEqualTo(TinySize(4)))
+  }
+
+  def parseUnknown: MatchResult[Size] = {
+    (Counter.source("import a.b\ntrait T\ncase class X(a: Color)".parse[Source].get) must
       beEqualTo(EffectiveOmega))
   }
 }
