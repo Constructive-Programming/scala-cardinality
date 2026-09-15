@@ -46,6 +46,20 @@ with [scalameta](https://scalameta.org/) and computes the cardinality of
 constructor parameters for classes and case classes, reasoning about product
 types and a handful of primitive types.
 
+The build has two modules:
+
+- `core` — the calculator itself (`Counter`, the `Size` algebra): a pure
+  library with no sbt types, tested with specs2.
+- `plugin` — `sbt-cardinality`, an sbt 2 plugin that runs the calculator over
+  every Scala source of the build it is added to. Its `cardinalityReport` task
+  is a walking skeleton today: one line per file with the raw size and a
+  total. It is tested end-to-end with sbt's scripted framework
+  (`sbt plugin/scripted`).
+
+Everything builds with the Scala version sbt 2.0.x itself runs on (3.8.4),
+because the plugin — and `core`, which it loads — must be binary-loadable
+inside sbt, and Scala 3 binary compatibility is backward only.
+
 ## Quality toolchain
 
 The build mirrors the sister project
@@ -60,6 +74,7 @@ and the heavier reports in
 | [scalafmt](https://scalameta.org/scalafmt/) | Formatting | `sbt scalafmtAll` | `ci.yml`, check-only, gating |
 | [scalafix](https://scalafix.com/) | Semantic rewrites (unused/organized imports, syntax bans) | `sbt scalafixAll` | `ci.yml`, check-only, gating |
 | [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
+| [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted` | `ci.yml`, gating |
 | [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, on PRs, report only |
 | [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating |
 | [CodeScene](https://codescene.com/) | Code Health and hotspots | `cs delta` | `quality.yml`, on PRs, gating once `CS_ACCESS_TOKEN` is set |
@@ -75,10 +90,11 @@ coverage rates and any CPD duplicates, `quality.yml` the mutation score and the
 CodeScene delta. Other runs write the same table to the run summary.
 
 ```bash
-sbt scalafmtAll     # apply formatting
-sbt scalafixAll     # apply semantic fixes
-sbt coverageAll     # tests + coverage report under target/
-sbt mutationAll     # mutation report under target/stryker4s-report/
+sbt scalafmtAll        # apply formatting
+sbt scalafixAll        # apply semantic fixes
+sbt coverageAll        # tests + coverage report under target/
+sbt plugin/scripted    # plugin end-to-end tests (fresh sbt per test project)
+sbt mutationAll        # core mutation report under target/stryker4s-report/
 ```
 
 > [!NOTE]

@@ -1,6 +1,7 @@
-# sbt build output
-/target/
-/project/target/
+# sbt build output. sbt 2 writes every module's output under the root
+# `target/out/...`, but tools occasionally write module-local target dirs, so
+# the pattern is unanchored.
+target/
 /project/project/
 
 # Tooling / IDE metadata
