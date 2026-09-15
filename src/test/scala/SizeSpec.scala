@@ -29,7 +29,7 @@ class SizeSpec extends Specification {
     tiny to a finite power terminates          ${(BooleanSize ^ IntSize) === FiniteSize(
       BigInt(1) << 32
     )}
-    finite to an infinite power terminates     ${(IntSize ^ EffectiveOmega) === EffectiveTau}
+    finite to an infinite power terminates     ${(IntSize ^ EffectiveOmega) === EffectiveOmega}
     Omega to the Tau terminates                ${(EffectiveOmega ^ EffectiveTau) === EffectiveTau}
     huge finite exponents become Omega         ${(IntSize ^ FiniteSize(
       BigInt(Int.MaxValue) + 1
