@@ -62,8 +62,8 @@ object Counter {
     // arguments are shared state, not extra inhabitants.
     case e: Defn.Enum => enumSize(scope)(e)
     // A module (including a `case object`) is a single instance.
-    case _: Defn.Object => UnitSize
-    case _: Defn.Val    => UnitSize
+    case _: Defn.Object            => UnitSize
+    case _: Defn.Val | _: Defn.Var => UnitSize
     // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
     // exhaustive match is impossible. Every other member — type members, methods, givens,
     // enum cases — defines no values of its own.
@@ -144,14 +144,18 @@ object Counter {
     case _ => EffectiveOmega
   }
 
+  // `Set` is the powerset (`2 ^ element`), and `Map`/`PartialFunction` are functions into
+  // an Option of the codomain (`(|V| + 1) ^ |K|`). `Size.pow` already has the arithmetic
+  // `Set` and `Map` need: a finite base over an infinite exponent stays countable (the
+  // finite subsets of `String`), and only an infinite base over an infinite exponent is
+  // uncountable.
   private def applied(scope: Scope): (Type, List[Type]) => Size = {
     case (Type.Name("Option"), List(t))    => UnitSize + typeIn(scope)(t)
     case (Type.Name("Either"), List(l, r)) => typeIn(scope)(l) + typeIn(scope)(r)
-    case (Type.Name("Set"), List(t))       => finiteStructures(BooleanSize, typeIn(scope)(t))
-    case (Type.Name("Map"), List(k, v))    =>
-      finiteStructures(typeIn(scope)(v) + UnitSize, typeIn(scope)(k))
+    case (Type.Name("Set"), List(t))       => BooleanSize.pow(typeIn(scope)(t))
+    case (Type.Name("Map"), List(k, v))    => (typeIn(scope)(v) + UnitSize).pow(typeIn(scope)(k))
     case (Type.Name("PartialFunction"), List(a, b)) =>
-      finiteStructures(typeIn(scope)(b) + UnitSize, typeIn(scope)(a))
+      (typeIn(scope)(b) + UnitSize).pow(typeIn(scope)(a))
     // A linear collection of an empty element type has a single inhabitant (the empty
     // collection); otherwise its unbounded length makes it effectively infinite, which
     // the fallback returns.
@@ -159,19 +163,6 @@ object Counter {
         if typeIn(scope)(t) == NothingSize =>
       UnitSize
     case _ => EffectiveOmega
-  }
-
-  // `Set`, `Map` and `PartialFunction` collect *finite* structures: `base ^ exponent` of
-  // them over a finite exponent, or as many as the exponent has elements when that is
-  // infinite (the finite subsets of `String` are countable, those of an uncountable type
-  // are uncountable). The degenerate exponents collapse to the single empty structure
-  // (`UnitSize`) and to one structure per choice of element (`base`).
-  private def finiteStructures(base: Size, exponent: Size): Size = exponent match {
-    case NothingSize                 => UnitSize
-    case UnitSize                    => base
-    case _: TinySize | _: FiniteSize => base.pow(exponent)
-    case EffectiveOmega              => EffectiveOmega
-    case EffectiveTau                => EffectiveTau
   }
 
   // A function's domain is the product of its parameter types; `Unit` (a single empty

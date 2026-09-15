@@ -71,7 +71,7 @@ class CardinalitySpec extends Specification {
     )}
     Boolean ?=> Boolean                      ${tpe("Boolean ?=> Boolean") === TinySize(4)}
     Int => String                            ${tpe("Int => String") === EffectiveOmega}
-    String => Boolean                        ${tpe("String => Boolean") === EffectiveTau}
+    String => Boolean                        ${tpe("String => Boolean") === EffectiveOmega}
     Set[Boolean]                             ${tpe("Set[Boolean]") === TinySize(4)}
     Set[Byte]                                ${tpe("Set[Byte]") === FiniteSize(256)}
     Map[Boolean, Boolean]                    ${tpe("Map[Boolean, Boolean]") === TinySize(9)}

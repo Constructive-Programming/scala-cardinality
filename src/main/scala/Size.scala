@@ -47,8 +47,9 @@ sealed trait TinySize extends Size { self =>
     case _ if self.repr <= 1                => self
     case f: FiniteSize if f.bits.isValidInt =>
       FiniteSize((BigInt(1) << f.bits.toInt) * Size.bits(BigInt(self.repr)))
-    case _: FiniteSize => EffectiveOmega
-    case _             => EffectiveTau
+    // A finite base to an infinite (or unrepresentably large) power stays countable; only
+    // an infinite base to an infinite power is uncountable.
+    case _ => EffectiveOmega
   }
 
   private def checkRepr(nrepr: BigInt): Size =
@@ -104,8 +105,8 @@ sealed trait FiniteSize extends Size { self =>
     case NothingSize                        => UnitSize
     case t: TinySize                        => FiniteSize(bits * BigInt(t.repr))
     case f: FiniteSize if f.bits.isValidInt => FiniteSize(bits * (BigInt(1) << f.bits.toInt))
-    case _: FiniteSize                      => EffectiveOmega
-    case _                                  => EffectiveTau
+    // As above, a finite base to an infinite power stays countable.
+    case _ => EffectiveOmega
   }
 
 }
