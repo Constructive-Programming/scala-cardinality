@@ -47,7 +47,10 @@ object Counter {
   private def statIn(scope: Scope): Stat => Size = {
     case p: Pkg  => body(p.body.stats, scope)
     case d: Defn => defnIn(scope)(d)
-    case _       => NothingSize
+    // scalameta's `Stat` is not sealed and hides `Stat.Quasi` as `private[meta]`, so an
+    // exhaustive match is impossible. Every other statement — declarations, imports and
+    // exports, bare terms — defines no values of its own.
+    case _ => NothingSize
   }
 
   private def defnIn(scope: Scope): Defn => Size = {
@@ -61,7 +64,10 @@ object Counter {
     // A module (including a `case object`) is a single instance.
     case _: Defn.Object => UnitSize
     case _: Defn.Val    => UnitSize
-    case _              => NothingSize
+    // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
+    // exhaustive match is impossible. Every other member — type members, methods, givens,
+    // enum cases — defines no values of its own.
+    case _ => NothingSize
   }
 
   private def enumSize(scope: Scope): Defn.Enum => Size =
@@ -129,7 +135,12 @@ object Counter {
     // A name the source defines takes the cardinality of its definition.
     case Type.Name(name) if scope.contains(name) => scope(name)
 
-    // ponytail: String, BigInt and other unbounded or unresolved types count as effectively infinite; resolve sealed hierarchies when needed
+    // scalameta's `Type` is not sealed, and several variants (`Type.And`, `Type.Or`,
+    // `Type.Method`, `Type.ImplicitFunction`, `Type.Quasi`) are `private[meta]`, so an
+    // exhaustive match is impossible. Every remaining form is unbounded or not yet
+    // modelled — an unresolved name such as `String` or `BigInt`, a refinement, an
+    // existential, a Scala 3 capture type — and counts as effectively infinite.
+    // ponytail: resolve sealed hierarchies when needed
     case _ => EffectiveOmega
   }
 
@@ -154,8 +165,8 @@ object Counter {
   // formulas hold only over finite arguments; an infinite argument leaves only countably
   // many of them (e.g. the finite subsets of `String` are countable), not `EffectiveTau`.
   private def finiteStructures(base: Size, exponent: Size): Size = exponent match {
-    case _: TinySize | _: FiniteSize => base.pow(exponent)
-    case _                           => EffectiveOmega
+    case _: TinySize | _: FiniteSize   => base.pow(exponent)
+    case EffectiveOmega | EffectiveTau => EffectiveOmega
   }
 
   // A function's domain is the product of its parameter types; `Unit` (a single empty
