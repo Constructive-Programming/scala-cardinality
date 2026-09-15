@@ -82,9 +82,12 @@ jobs:
           echo "consumed by the CodeScene GitHub App on pull requests; set the CS_ACCESS_TOKEN"
           echo "secret to enable the CLI delta gate as well."
 
+      # `-y` is the script's headless mode: without it the script stops to ask
+      # before editing ~/.bashrc, reading the answer from /dev/tty, which a
+      # runner does not have (exit 2). The PATH export below makes that edit moot.
       - name: Install CodeScene CLI
         if: env.CS_ACCESS_TOKEN != ''
-        run: curl -sSL https://downloads.codescene.io/enterprise/cli/install-cs-tool.sh | sh
+        run: curl -sSL https://downloads.codescene.io/enterprise/cli/install-cs-tool.sh | sh -s -- -y
 
       # Delta analysis over the change this event introduced: the PR's base on
       # pull requests, the previous tip on pushes. `cs delta` exits 0 regardless
