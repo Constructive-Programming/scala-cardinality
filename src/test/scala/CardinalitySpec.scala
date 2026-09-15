@@ -140,9 +140,9 @@ class CardinalitySpec extends Specification {
     type alias                               ${src(
       "type Flag = Boolean; case class F(f: Flag)"
     ) === BooleanSize}
-    opaque type                              ${src(
+    opaque type hides cardinality           ${src(
       "opaque type Id = Byte; case class User(id: Id)"
-    ) === ByteSize}
+    ) === UnitSize}
   """
 
 }
