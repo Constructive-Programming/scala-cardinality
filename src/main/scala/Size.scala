@@ -8,9 +8,8 @@ sealed trait Size { self =>
   def *(other: Size): Size = mul(other)
   def ^(other: Size): Size = pow(other)
 
-  // The meet of two sizes: the more specific of the two types, i.e. the operand with
-  // fewer inhabitants when one is a subtype of the other. This is what `&` selects.
-  def max(other: Size): Size = if (self.larger(other)) other else self
+  def max(other: Size): Size = if (self.larger(other)) self else other
+  def min(other: Size): Size = if (self.larger(other)) other else self
 }
 
 object Size {

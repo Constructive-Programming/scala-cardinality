@@ -52,7 +52,7 @@ object Counter {
 
     // Intersection: the overlap of two types is their meet, which is exact when (as here)
     // one is a subtype of the other.
-    case Type.ApplyInfix(l, Type.Name("&"), r) => `type`(l).max(`type`(r))
+    case Type.ApplyInfix(l, Type.Name("&"), r) => `type`(l).min(`type`(r))
 
     // Exponentials: a function type's cardinality is codomain ^ domain; multi-argument
     // and curried functions multiply/nest the same way. Context functions behave as functions.
