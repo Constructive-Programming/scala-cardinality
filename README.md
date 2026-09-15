@@ -46,6 +46,20 @@ with [scalameta](https://scalameta.org/) and computes the cardinality of
 constructor parameters for classes and case classes, reasoning about product
 types and a handful of primitive types.
 
+Definitions that hold a single value (`val`, `def`, `object`) each count as
+one; a statement that introduces no value of its own (a `trait`, a `type`
+alias, an `import`) counts as none, and the sizes of the top-level statements
+are summed.
+
+## Testing
+
+The suite mixes example-based tests (`SizeSpec`, `CounterSpec`) with
+property-based ones (`CounterProps`, on
+[ScalaCheck](https://scalacheck.org/)): `CodeGen` generates Scala sources
+together with the size the counter must report for them, and each property
+drives the full `parse -> count` path against those expectations. Run them
+with `sbt test`.
+
 ## Quality toolchain
 
 The build mirrors the sister project

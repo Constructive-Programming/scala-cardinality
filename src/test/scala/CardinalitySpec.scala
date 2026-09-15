@@ -3,7 +3,8 @@ import scala.meta.*
 import org.specs2.Specification
 
 // Expected values are the true cardinalities, not what Counter returns today.
-// A source's cardinality is the sum over the concrete data types it defines:
+// A source's cardinality is the sum over the concrete data types it defines,
+// plus one for each definition that binds a value (a `val`, `var` or `def`);
 // abstract traits/classes and type aliases add nothing on their own.
 class CardinalitySpec extends Specification {
 
@@ -109,6 +110,38 @@ class CardinalitySpec extends Specification {
     ) === BooleanSize}
     case object                              ${src("case object Singleton") === UnitSize}
     object                                   ${src("object Module") === UnitSize}
+
+  Value definitions
+    val                                      ${src("val a = 1") === UnitSize}
+    var                                      ${src("var a = 1") === UnitSize}
+    def                                      ${src("def f = 1") === UnitSize}
+    method is an exponential                 ${src("def f(a: Boolean): Boolean = a") === TinySize(
+      4
+    )}
+    method declaration is an exponential     ${src("def f(a: Boolean): Boolean") === TinySize(4)}
+
+  Polymorphic methods
+    identity                                 ${src("def f[A](a: A): A") === UnitSize}
+    constant result                          ${src("def f[A](a: A): Boolean") === TinySize(2)}
+    choose a supplied value                  ${src("def f[A](a: A, b: A): A") === TinySize(2)}
+    duplicate the supplied value             ${src("def f[A](a: A): (A, A)") === UnitSize}
+
+  Functor methods
+    map                                      ${src(
+      "def f[F[_]: Functor, A, B](fa: F[A])(f: A => B): F[B]"
+    ) === UnitSize}
+    a chain of functions composes            ${src(
+      "def f[F[_]: Functor, A, B, C](fa: F[A])(f: A => B, g: B => C): F[C]"
+    ) === UnitSize}
+    the given value                          ${src(
+      "def f[F[_]: Functor, A](fa: F[A]): F[A]"
+    ) === UnitSize}
+    two routes to the result                 ${src(
+      "def f[F[_]: Functor, A, B](fa: F[A])(f: A => B, g: A => B): F[B]"
+    ) === TinySize(2)}
+    a cycle is unbounded                     ${src(
+      "def f[F[_]: Functor, A, B, C](fa: F[A])(f: A => B, g: B => A, h: A => C): F[C]"
+    ) === EffectiveOmega}
 
   Algebraic data types
     sealed trait of case objects             ${src(
