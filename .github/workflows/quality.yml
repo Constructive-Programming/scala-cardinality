@@ -7,6 +7,8 @@
 # stryker4s.conf). CodeScene is a gate once the access token is present and is
 # skipped with a notice otherwise. Both run on pull requests, on pushes to main,
 # on release tags (so each release ships a fresh snapshot), and on demand.
+# The `report` job posts both results, good or bad, to the pull request as one
+# comment that is edited in place on each push.
 # Mirrors `quality.yml` in the sister project `eo`.
 name: Quality
 
@@ -29,6 +31,9 @@ jobs:
     name: Mutation testing (stryker4s)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      result: ${{ steps.mutation.outcome }}
+      score: ${{ steps.score.outputs.score }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -48,7 +53,29 @@ jobs:
       # `mutationAll` = stryker, configured from stryker4s.conf. A low score is
       # logged, never fatal (thresholds/break = 0), so this step always passes.
       - name: Mutation testing
+        id: mutation
         run: sbt -batch mutationAll
+
+      # One line for the PR report, scored the way stryker4s logs it: detected
+      # (killed or timed out) over all mutants, then over covered ones only.
+      - name: Read mutation score
+        id: score
+        if: ${{ !cancelled() }}
+        run: |
+          json=$(find target/stryker4s-report -name report.json 2>/dev/null | sort | tail -1)
+          [ -z "$json" ] && exit 0
+          score=$(jq -r '
+            (reduce .files[].mutants[].status as $s ({}; .[$s] += 1)) as $c
+            | (($c.Killed // 0) + ($c.Timeout // 0)) as $d
+            | ($c.Survived // 0) as $sv
+            | ($c.NoCoverage // 0) as $nc
+            | (if $d + $sv + $nc == 0 then 0 else 100 * $d / ($d + $sv + $nc) end) as $total
+            | (if $d + $sv == 0 then 0 else 100 * $d / ($d + $sv) end) as $covered
+            | (if $total >= .thresholds.high then "✅" elif $total >= .thresholds.low then "⚠️" else "🔴" end)
+              + " \($total * 100 | round / 100)% of all mutants, \($covered * 100 | round / 100)% of covered code"
+              + " (\($d) killed, \($sv) survived, \($nc) not covered; low \(.thresholds.low)%, high \(.thresholds.high)%)"
+          ' "$json")
+          echo "score=$score" >> "$GITHUB_OUTPUT"
 
       - name: Upload mutation reports
         if: always()
@@ -63,6 +90,10 @@ jobs:
     name: Code Health (CodeScene)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      install: ${{ steps.install.outcome }}
+      delta: ${{ steps.delta.outcome }}
+      output: ${{ steps.delta.outputs.output }}
     # Secrets cannot be read in `if:` directly; surface the token through the
     # job env so the steps below can test it (same pattern eo uses for its
     # signing key). Pull requests from forks never receive it, so they skip.
@@ -86,6 +117,7 @@ jobs:
       # before editing ~/.bashrc, reading the answer from /dev/tty, which a
       # runner does not have (exit 2). The PATH export below makes that edit moot.
       - name: Install CodeScene CLI
+        id: install
         if: env.CS_ACCESS_TOKEN != ''
         run: curl -sSL https://downloads.codescene.io/enterprise/cli/install-cs-tool.sh | sh -s -- -y
 
@@ -93,7 +125,10 @@ jobs:
       # pull requests, the previous tip on pushes. `cs delta` exits 0 regardless
       # of findings unless `--error-on-warnings` is passed, which fails the step
       # on any Code Health finding, so this is a gate once the token is present.
+      # The human-readable output (improvements as well as findings) goes to the
+      # `report` job base64-encoded, keeping it a one-line output.
       - name: Delta analysis (Code Health gate)
+        id: delta
         if: env.CS_ACCESS_TOKEN != ''
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -103,4 +138,80 @@ jobs:
             BASE=$(git rev-parse --verify -q HEAD~1 || echo HEAD)
           fi
           echo "Analysing ${BASE}..HEAD"
-          cs delta "$BASE" HEAD --error-on-warnings --output-format json --pretty
+          set +e
+          cs delta "$BASE" HEAD --error-on-warnings > delta.txt 2>&1
+          status=$?
+          cat delta.txt
+          echo "output=$(sed 's/\x1b\[[0-9;]*m//g' delta.txt | base64 -w0)" >> "$GITHUB_OUTPUT"
+          exit $status
+
+  # Writes the results above to the run summary and, on pull requests, to one
+  # comment edited in place. A separate job so the jobs that run the PR's build
+  # never hold a token that can write to the PR. Pull requests from forks only
+  # get a read-only token, so they get the summary but no comment.
+  report:
+    name: Report
+    needs: [mutation, codescene]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    env:
+      MARKER: '<!-- quality-report -->'
+    steps:
+      # Outputs arrive through env, never `${{ }}` inside the script, because
+      # the CodeScene output quotes code from the pull request.
+      - name: Write report
+        env:
+          MUTATION: ${{ needs.mutation.outputs.result }}
+          SCORE: ${{ needs.mutation.outputs.score }}
+          INSTALL: ${{ needs.codescene.outputs.install }}
+          DELTA: ${{ needs.codescene.outputs.delta }}
+          DELTA_OUTPUT: ${{ needs.codescene.outputs.output }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          icon() { case "$1" in success) echo '✅' ;; failure) echo '❌' ;; *) echo '⏭️' ;; esac; }
+          line() { echo "| $1 | $(icon "$2") ${3:-${2:-not run}} |"; }
+          # shellcheck disable=SC2016 # backticks below are markdown, not substitutions
+          {
+            echo "$MARKER"
+            echo "### Quality · \`${HEAD_SHA:0:7}\`"
+            echo
+            echo '| Report | Result |'
+            echo '|---|---|'
+            if [ -n "$SCORE" ]; then
+              echo "| Mutation testing (stryker4s, report only) | $SCORE |"
+            elif [ "$MUTATION" = success ]; then
+              echo '| Mutation testing (stryker4s, report only) | ⚠️ passed without a report |'
+            else
+              line 'Mutation testing (stryker4s, report only)' "$MUTATION"
+            fi
+            case "$INSTALL:$DELTA" in
+              skipped:skipped) echo '| Code Health (CodeScene) | ⏭️ skipped: `CS_ACCESS_TOKEN` is not set |' ;;
+              failure:*) echo '| Code Health (CodeScene) | ❌ CLI install failed |' ;;
+              *) line 'Code Health (CodeScene)' "$DELTA" \
+                "$(case "$DELTA" in success) echo 'no new findings' ;; failure) echo 'new findings, or the CLI failed' ;; esac)" ;;
+            esac
+            output=$(echo "$DELTA_OUTPUT" | base64 -d | head -c 20000)
+            if [ -n "$output" ]; then
+              printf '\n<details><summary>CodeScene delta</summary>\n\n```text\n%s\n```\n</details>\n' "$output"
+            fi
+            echo
+            echo "[Workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) · mutation report in the \`stryker4s-reports\` artifact"
+          } > report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on the pull request
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith(env.MARKER))) | .id' | head -1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@report.md > /dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@report.md > /dev/null
+          fi
