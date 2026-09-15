@@ -161,12 +161,17 @@ object Counter {
     case _ => EffectiveOmega
   }
 
-  // `Set`, `Map` and `PartialFunction` collect *finite* structures, so their exponential
-  // formulas hold only over finite arguments; an infinite argument leaves only countably
-  // many of them (e.g. the finite subsets of `String` are countable), not `EffectiveTau`.
+  // `Set`, `Map` and `PartialFunction` collect *finite* structures: `base ^ exponent` of
+  // them over a finite exponent, or as many as the exponent has elements when that is
+  // infinite (the finite subsets of `String` are countable, those of an uncountable type
+  // are uncountable). The degenerate exponents collapse to the single empty structure
+  // (`UnitSize`) and to one structure per choice of element (`base`).
   private def finiteStructures(base: Size, exponent: Size): Size = exponent match {
-    case _: TinySize | _: FiniteSize   => base.pow(exponent)
-    case EffectiveOmega | EffectiveTau => EffectiveOmega
+    case NothingSize                 => UnitSize
+    case UnitSize                    => base
+    case _: TinySize | _: FiniteSize => base.pow(exponent)
+    case EffectiveOmega              => EffectiveOmega
+    case EffectiveTau                => EffectiveTau
   }
 
   // A function's domain is the product of its parameter types; `Unit` (a single empty
