@@ -10,9 +10,14 @@ object Counter {
   }
 
   def defn: Defn => Size = {
-    case c: Defn.Class => ctor(c.ctor)
-    case _: Defn.Val   => UnitSize
-    case _             => NothingSize
+    // Abstract classes contribute no inhabitants of their own; only their concrete
+    // subclasses do.
+    case c: Defn.Class if c.mods.exists(_.is[Mod.Abstract]) => NothingSize
+    case c: Defn.Class                                      => ctor(c.ctor)
+    // A module (including a `case object`) is a single instance.
+    case _: Defn.Object => UnitSize
+    case _: Defn.Val    => UnitSize
+    case _              => NothingSize
   }
 
   def ctor: Ctor.Primary => Size =
@@ -40,6 +45,9 @@ object Counter {
     // one inhabitant: the value itself.
     case _: Lit            => UnitSize
     case _: Type.Singleton => UnitSize
+
+    // A by-name parameter has the cardinality of its underlying type.
+    case Type.ByName(tpe) => `type`(tpe)
 
     // Products: tuples (and named tuples) multiply the sizes of their fields.
     case Type.Tuple(elems) => elems.foldLeft(UnitSize: Size)((acc, e) => acc * `type`(tupleElem(e)))
@@ -76,6 +84,12 @@ object Counter {
     case (Type.Name("Map"), List(k, v))    => finiteStructures(`type`(v) + UnitSize, `type`(k))
     case (Type.Name("PartialFunction"), List(a, b)) =>
       finiteStructures(`type`(b) + UnitSize, `type`(a))
+    // A linear collection of an empty element type has a single inhabitant (the empty
+    // collection); otherwise its unbounded length makes it effectively infinite, which
+    // the fallback returns.
+    case (Type.Name("List" | "Vector" | "Seq" | "IndexedSeq" | "Array" | "LazyList"), List(t))
+        if `type`(t) == NothingSize =>
+      UnitSize
     case _ => EffectiveOmega
   }
 
