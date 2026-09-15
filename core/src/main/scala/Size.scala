@@ -1,3 +1,5 @@
+package cardinality
+
 import cats.kernel.Order
 
 /** How many values a type can hold: a natural-sum polynomial over three tiers.
@@ -54,6 +56,7 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
     // reports it as countable.
     else finite.pow(other.finite).fold(EffectiveOmega: Size)(Size(0, 0, _))
 
+=  def larger(other: Size): Boolean = Size.order.compare(self, other) > 0
   def exp: Size => Size = _.pow(self)
 
   def +(other: Size): Size = add(other)

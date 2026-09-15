@@ -1,3 +1,5 @@
+package cardinality
+
 import org.specs2.Specification
 
 // The size algebra: `aε₀ + bω + n`, added componentwise and compared lexicographically, with

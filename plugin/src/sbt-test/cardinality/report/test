@@ -1,0 +1,3 @@
+# Walking skeleton (M0): the task exists, runs the core Counter over every
+# Compile source inside a real sbt build, and succeeds.
+> cardinalityReport

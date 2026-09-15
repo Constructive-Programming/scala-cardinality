@@ -62,7 +62,7 @@ jobs:
         id: score
         if: ${{ !cancelled() }}
         run: |
-          json=$(find target/stryker4s-report -name report.json 2>/dev/null | sort | tail -1)
+          json=$(find . -path '*/stryker4s-report/*' -name report.json 2>/dev/null | sort | tail -1)
           [ -z "$json" ] && exit 0
           score=$(jq -r '
             (reduce .files[].mutants[].status as $s ({}; .[$s] += 1)) as $c

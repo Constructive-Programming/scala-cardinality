@@ -1,3 +1,5 @@
+package cardinality
+
 import scala.annotation.tailrec
 import scala.meta.*
 
