@@ -15,8 +15,7 @@ libraryDependencies ++= Seq(
 // A subset of the flag set the sister project `eo` enables through
 // sbt-typelevel-settings, spelled out here so the small build does not need that
 // plugin. `-Wunused:all` is the broadest unused-warning surface; unlike `eo` we
-// do not turn warnings into errors yet, because the `Size` algebra currently
-// compiles with unreachable-case warnings (see the `pow` arms).
+// do not turn warnings into errors yet.
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
   "-feature",
@@ -42,16 +41,15 @@ ThisBuild / scalafixDependencies +=
 // ----------------------------------------------------------------
 // Coverage (scoverage)
 // ----------------------------------------------------------------
-// A regression floor, not an aspiration: the `Size` algebra still carries a
-// lot of untested surface (the LossyInfiniteSize / EffectiveOmega / EffectiveTau
-// escalation arms), so the current baseline is ~43% statements / ~33% branches.
-// Statements are gated just below that; the number should ratchet up as the
-// algebra gains tests, not be treated as a target. Report-only would let
-// coverage rot silently, and an aspirational number here would be red on day
-// one.
+// A regression floor, not an aspiration: `SizeSpec` covers the `Size` algebra
+// but not every escalation arm, so the current baseline is ~68% statements /
+// ~56% branches. Statements are gated just below that; the number should
+// ratchet up as the algebra gains tests, not be treated as a target.
+// Report-only would let coverage rot silently, and an aspirational number here
+// would be red on day one.
 coverageHighlighting := true
 coverageFailOnMinimum := true
-coverageMinimumStmtTotal := 40
+coverageMinimumStmtTotal := 65
 
 // Full coverage sweep used by CI (`sbt coverageAll`). `clean` first so a
 // rebuild starts from the sources: on a cold sbt cache this discards any stale
