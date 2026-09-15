@@ -99,6 +99,9 @@ sealed trait FiniteSize extends Size { self =>
   }
 
   def pow: Size => Size = {
+    // x ^ 0 is 1 however large x is; `bits * 0` would instead give `FiniteSize(0)`, which
+    // is cardinality 1 but not equal to `UnitSize`.
+    case NothingSize                        => UnitSize
     case t: TinySize                        => FiniteSize(bits * BigInt(t.repr))
     case f: FiniteSize if f.bits.isValidInt => FiniteSize(bits * (BigInt(1) << f.bits.toInt))
     case _: FiniteSize                      => EffectiveOmega
