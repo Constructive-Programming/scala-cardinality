@@ -69,6 +69,11 @@ Configuration lives in `.scalafmt.conf`, `.scalafix.conf`, `stryker4s.conf` and
 baseline (a regression floor, expected to ratchet up); mutation testing never
 fails the build and exists to guide test investment.
 
+On pull requests each workflow posts its results, passing and failing alike, as
+one comment that is edited in place on every push: `ci.yml` the gates with the
+coverage rates and any CPD duplicates, `quality.yml` the mutation score and the
+CodeScene delta. Other runs write the same table to the run summary.
+
 ```bash
 sbt scalafmtAll     # apply formatting
 sbt scalafixAll     # apply semantic fixes
