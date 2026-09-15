@@ -1,3 +1,5 @@
+package cardinality
+
 import scala.meta.*
 
 import org.specs2.Specification

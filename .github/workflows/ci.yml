@@ -40,6 +40,7 @@ jobs:
       scalafmt: ${{ steps.scalafmt.outcome }}
       scalafix: ${{ steps.scalafix.outcome }}
       coverage: ${{ steps.coverage.outcome }}
+      scripted: ${{ steps.scripted.outcome }}
       statements: ${{ steps.rates.outputs.statements }}
       branches: ${{ steps.rates.outputs.branches }}
       floor: ${{ steps.rates.outputs.floor }}
@@ -69,19 +70,30 @@ jobs:
 
       # `coverageAll` = clean; coverage; test; coverageReport. Tests run under
       # instrumentation and the run fails if statement coverage drops below the
-      # floor set in build.sbt (`coverageMinimumStmtTotal`).
+      # floor set in build.sbt (`coverageMinimumStmtTotal`, gating `core` only:
+      # the `plugin` module is exercised by scripted tests, which run outside
+      # scoverage's instrumentation).
       - name: Test with coverage (scoverage)
         id: coverage
         run: sbt -batch coverageAll
 
+      # The plugin's end-to-end tests: each project under plugin/src/sbt-test
+      # runs in a fresh sbt against the locally published plugin. A separate
+      # sbt invocation so the publish never sees coverage-instrumented classes.
+      - name: Plugin scripted tests
+        id: scripted
+        run: sbt -batch plugin/scripted
+
       # Rates for the PR report. They stay empty when no scoverage.xml was
       # written: the tests failed, or sbt served the run from its cache.
+      # `core` publishes as scala-cardinality; the pattern must not also match
+      # the plugin module's (untested, 0%) report under sbt-cardinality.
       - name: Read coverage rates
         id: rates
         if: ${{ !cancelled() }}
         run: |
           echo "floor=$(grep -oP 'coverageMinimumStmtTotal := \K\d+' build.sbt)" >> "$GITHUB_OUTPUT"
-          xml=$(find target -path '*scoverage-report/scoverage.xml' 2>/dev/null | head -1)
+          xml=$(find target -path '*/scala-cardinality/scoverage-report/scoverage.xml' 2>/dev/null | head -1)
           if [ -n "$xml" ]; then
             echo "statements=$(grep -oP 'statement-rate="\K[\d.]+' "$xml" | head -1)" >> "$GITHUB_OUTPUT"
             echo "branches=$(grep -oP 'branch-rate="\K[\d.]+' "$xml" | head -1)" >> "$GITHUB_OUTPUT"
@@ -133,9 +145,11 @@ jobs:
           fi
 
       # CPD exits non-zero when it finds a duplicate above the token threshold,
-      # so this is a gate. `src/main/scala` only: duplication between tests is
-      # usually deliberate. The report goes to the `report` job base64-encoded,
-      # which keeps it a one-line output whatever the duplicated code contains.
+      # so this is a gate. Main sources only: duplication between tests is
+      # usually deliberate, and the scripted fixtures under plugin/src/sbt-test
+      # are deliberately repetitive. The report goes to the `report` job
+      # base64-encoded, which keeps it a one-line output whatever the
+      # duplicated code contains.
       - name: Run CPD
         id: cpd
         run: |
@@ -143,7 +157,8 @@ jobs:
           "$HOME/pmd/pmd-bin-$PMD_VERSION/bin/pmd" cpd \
             --minimum-tokens=100 \
             --language=scala \
-            --dir=src/main/scala \
+            --dir=core/src/main/scala \
+            --dir=plugin/src/main/scala \
             --format=text > cpd.txt
           status=$?
           cat cpd.txt
@@ -172,6 +187,7 @@ jobs:
           SCALAFMT: ${{ needs.build.outputs.scalafmt }}
           SCALAFIX: ${{ needs.build.outputs.scalafix }}
           COVERAGE: ${{ needs.build.outputs.coverage }}
+          SCRIPTED: ${{ needs.build.outputs.scripted }}
           STATEMENTS: ${{ needs.build.outputs.statements }}
           BRANCHES: ${{ needs.build.outputs.branches }}
           FLOOR: ${{ needs.build.outputs.floor }}
@@ -196,6 +212,7 @@ jobs:
               line 'Tests + coverage (scoverage)' "$COVERAGE" \
                 "${STATEMENTS:+$STATEMENTS% statements (floor $FLOOR%), $BRANCHES% branches}"
             fi
+            line 'Plugin tests (scripted)' "$SCRIPTED"
             line 'Duplicate code (CPD)' "$CPD" "$([ "$CPD" = success ] && echo 'no duplicates over 100 tokens')"
             dups=$(echo "$CPD_REPORT" | base64 -d | head -c 20000)
             if [ -n "$dups" ]; then

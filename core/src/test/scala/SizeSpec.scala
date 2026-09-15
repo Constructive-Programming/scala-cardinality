@@ -1,3 +1,5 @@
+package cardinality
+
 import org.specs2.Specification
 
 class SizeSpec extends Specification {

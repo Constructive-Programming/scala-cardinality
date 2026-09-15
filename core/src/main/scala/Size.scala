@@ -1,3 +1,5 @@
+package cardinality
+
 sealed trait Size { self =>
   def larger: Size => Boolean
   def add: Size => Size
