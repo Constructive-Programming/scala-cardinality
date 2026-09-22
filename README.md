@@ -41,24 +41,68 @@ Key references motivating this work:
 
 ## Status
 
-The calculator is an early work in progress. It currently parses Scala source
-with [scalameta](https://scalameta.org/) and computes the cardinality of
-constructor parameters for classes and case classes, reasoning about product
-types and a handful of primitive types.
+The calculator is an early work in progress. It parses Scala source with
+[scalameta](https://scalameta.org/) and computes the cardinality of the
+definitions a source introduces — classes, enums, modules, type aliases and
+opaque types, nested definitions included — reasoning about products, sums,
+exponentials and the collections that carry them.
+
+What it cannot bound, it names: every size it had to leave unbounded comes with
+the type names that stopped it, so a report says both the number and the reason
+(`unbounded by: A, NonNull`), and distinguishes the definitions that are
+unbounded only because of their own type parameters.
 
 The build has two modules:
 
-- `core` — the calculator itself (`Counter`, the `Size` algebra): a pure
-  library with no sbt types, tested with specs2.
-- `plugin` — `sbt-cardinality`, an sbt 2 plugin that runs the calculator over
-  every Scala source of the build it is added to. Its `cardinalityReport` task
-  is a walking skeleton today: one line per file with the raw size and a
-  total. It is tested end-to-end with sbt's scripted framework
-  (`sbt plugin/scripted`).
+- `core` — the calculator itself (`Counter`, the `Size` algebra, `Report`): a
+  pure library with no sbt types, tested with specs2.
+- `plugin` — `sbt-cardinality`, an sbt 2 plugin that reports on the build it is
+  added to, and on any Scala sources it is pointed at. It is tested end-to-end
+  with sbt's scripted framework (`sbt plugin/scripted`).
 
 Everything builds with the Scala version sbt 2.0.x itself runs on (3.8.4),
 because the plugin — and `core`, which it loads — must be binary-loadable
 inside sbt, and Scala 3 binary compatibility is backward only.
+
+## Reports
+
+`sbt cardinalityReport` measures every definition the project's `Compile`
+sources introduce and logs a report: one line per definition, ordered by how
+many values it holds, with the cardinality it holds and the type names the
+calculator could not bound. The same report is written to
+`target/cardinality/report.txt` (`cardinalityReportFile`), so a build can keep
+it, diff it, or post it as an artifact.
+
+```
+scala-cardinality — 1 source, 5 definitions
+  sizes: exact up to 1024, 2^n above, ω countable, τ uncountable
+  1 unbounded · 2 with more than one value · 1 with one value · 1 abstract
+  generic: 1 of the unbounded depend on their own type parameters
+
+ω  example.Holder[A]  class     Light.scala:11  unbounded by: A
+2  example.Custom     class     Light.scala:5
+2  example.Mode       enum      Light.scala:7
+1  example.Red        object    Light.scala:4
+—  example.Light      abstract  Light.scala:3
+```
+
+`sbt "cardinalityReportOf <path>..."` runs the same report over sources the
+build does not compile itself — a directory, a single file, or the
+`-sources.jar` a published library ships. That is how a dependency's types get
+measured from outside its build:
+
+```bash
+# eo-core, the `core` module of the sister project `eo`, as published
+cs fetch --sources dev.constructive:cats-eo_3:0.16.0
+sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
+```
+
+Its first real run over `eo-core` 0.16.0 (53 sources, 134 definitions): 37
+unbounded — 17 of them generic, unbounded only because their own type
+parameters are — 2 finite (`IntArrBuilder` and `ObjArrBuilder`, 2^32 each), 56
+holding a single value, 34 abstract. A library of generic optics has no small
+state spaces to find; what the report says about it is *why* each one is
+unbounded, which is what a smaller type would have to replace.
 
 ## Quality toolchain
 

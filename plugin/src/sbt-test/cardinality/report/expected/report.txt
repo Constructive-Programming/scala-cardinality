@@ -1,0 +1,10 @@
+scala-cardinality — 1 source, 5 definitions
+  sizes: exact up to 1024, 2^n above, ω countable, τ uncountable
+  1 unbounded · 2 with more than one value · 1 with one value · 1 abstract
+  generic: 1 of the unbounded depend on their own type parameters
+
+ω  example.Holder[A]  class     Light.scala:11  unbounded by: A
+2  example.Custom     class     Light.scala:5
+2  example.Mode       enum      Light.scala:7
+1  example.Red        object    Light.scala:4
+—  example.Light      abstract  Light.scala:3

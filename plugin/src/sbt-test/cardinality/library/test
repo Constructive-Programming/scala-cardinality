@@ -1,0 +1,5 @@
+# A library's published sources jar: cardinalityReportOf reports on sources the build does not
+# compile itself, which is how a dependency's types get measured.
+> librarySources
+> cardinalityReportOf library-sources.jar
+$ must-mirror report.txt expected/report.txt
