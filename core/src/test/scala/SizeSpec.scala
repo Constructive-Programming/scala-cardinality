@@ -121,6 +121,22 @@ class SizeSpec extends Specification {
     a polynomial keeps its highest tier        ${(Size.tiers(3, 4) + TinySize(
       9
     )).widen === EffectiveEpsilon0}
+
+  Rendering for a report
+    counts render as counts                    ${(NothingSize.render === "0")
+      .and(
+        UnitSize.render === "1"
+      )
+      .and(BooleanSize.render === "2")}
+    a capacity renders as the bound it is      ${(FiniteSize(9).render === "2^9").and(
+      IntSize.render === "2^32"
+    )}
+    a lossy size says so                       ${FloatSize.render === "2^32 (lossy)"}
+    the tiers render as ε₀ and ω               ${(EffectiveOmega.render === "ω").and(
+      EffectiveEpsilon0.render === "ε₀"
+    )}
+    a polynomial renders every term            ${(Size
+      .tiers(2, 1) + TinySize(3)).render === "2ε₀ + ω + 3"}
   """
 
 }

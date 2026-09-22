@@ -1,10 +1,21 @@
 package cardinality
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 import scala.meta.*
 
 object Counter {
-  def source: Source => Size = s => body(s.stats, Scope.empty)
+
+  /** What every definition a source introduces holds together: the sum over the concrete classes,
+    * enums, modules and top-level values it defines, nested definitions included.
+    */
+  def source: Source => Size = s => walk(s.stats, Scope.empty, Nil, top = true).contributes
+
+  /** Every definition a source introduces, in source order, each with the cardinality of its type
+    * and the names that stopped the calculator from bounding it — the number and the reason.
+    */
+  def definitions: Source => List[Definition] = s =>
+    walk(s.stats, Scope.empty, Nil, top = true).definitions
 
   /** What the definitions of a source declare: every typed field, term and method contributes the
     * size of its declared type, and the contributions are added up rather than multiplied, so an
@@ -27,19 +38,249 @@ object Counter {
 
   def `type`: Type => Size = typeIn(Scope.empty)
 
-  // The names of the types a source defines, each mapped to its cardinality, so that a
-  // field can refer to a sibling, forward or recursive definition by name. The system of
-  // equations is solved by Kleene iteration from the empty type — see `solve`.
-  private type Scope = Map[String, Size]
+  // The names of the types a source defines, each mapped to its cardinality, so that a field can
+  // refer to a sibling, forward or recursive definition by name. The system of equations is
+  // solved by Kleene iteration from the empty type — see `solve` — so the scope is a solved
+  // one: the walk hands every definition the value a reference to it has, not a fresh reading of
+  // the same syntax. The scope also collects the names it could not resolve, which is what lets
+  // a report say why a size is unbounded instead of just printing ω.
+  //
+  // The notes are shared by the scopes one body's iteration derives from — the solver threads a
+  // scope through every equation — while `measured` starts a fresh record for a definition whose
+  // reasons are about to be read, so one definition's reasons are not read as another's.
+  final private class Scope(
+      private val names: Map[String, Size],
+      private val notes: mutable.LinkedHashSet[String],
+  ) {
+    def size(name: String): Option[Size] = names.get(name)
+
+    def contains(name: String): Boolean = names.contains(name)
+
+    def apply(name: String): Size = names(name)
+
+    def getOrElse(name: String, default: => Size): Size = names.getOrElse(name, default)
+
+    def updated(name: String, size: Size): Scope = new Scope(names.updated(name, size), notes)
+
+    def ++(other: Scope): Scope = new Scope(names ++ other.names, notes)
+
+    /** Names added by the solver's own round, which carries no notes of its own. */
+    def ++(entries: Iterable[(String, Size)]): Scope = new Scope(names ++ entries, notes)
+    /** The same names with a fresh record of unresolved ones. */
+    def measured: Scope = new Scope(names, mutable.LinkedHashSet.empty)
+
+    /** The names this scope could not bound, sorted for a report. */
+    def unresolved: List[String] = notes.toList.sorted
+
+    /** Records a type the calculator could not bound: an unknown name or an unmodelled type
+      * constructor.
+      */
+    def note(tpe: Type): Unit = { notes += describe(tpe); () }
+  }
 
   private object Scope {
-    val empty: Scope = Map.empty
+    val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty)
   }
 
-  private def body(stats: List[Stat], scope: Scope): Size = {
-    val solved = solve(equations(stats), stats, scope)
-    stats.foldLeft(NothingSize: Size)((acc, st) => acc + statIn(solved)(st))
+  // What one statement adds to its body: the cardinality it contributes and the definitions it
+  // introduces, which a report lists.
+  final private case class Introduced(contributes: Size, definitions: List[Definition]) {
+
+    /** Adds what the body of this definition introduces. Nested definitions are their own
+      * inhabitants — and their own rows — so they add to both: `object Wrapper { case class
+      * Pair(a: Boolean, b: Boolean) }` holds five values, the module and the four pairs.
+      */
+    def inside(scope: Scope, prefix: List[String], stats: List[Stat]): Introduced = {
+      val body = walk(stats, scope, prefix, top = false)
+      copy(
+        contributes = contributes + body.contributes,
+        definitions = definitions ++ body.definitions
+      )
+    }
   }
+
+  private object Introduced {
+    val none: Introduced = Introduced(NothingSize, Nil)
+  }
+
+  // Walks statements in source order, solving each body's equations once so that a definition's
+  // size is the value a reference to it has — recursion, forward references and cycles included —
+  // and returns what the body holds together with the definitions it introduces, named relative
+  // to `prefix` (the enclosing packages and definitions). `top` marks the body of a source or
+  // package, where a value definition is an inhabitant of the program rather than state derived
+  // inside a class.
+  private def walk(
+      stats: List[Stat],
+      scope: Scope,
+      prefix: List[String],
+      top: Boolean
+  ): Introduced = {
+    val solved = solve(equations(stats), stats, scope)
+    stats.foldLeft(Introduced.none) { (acc, st) =>
+      val introduced = statement(solved, prefix, top)(st)
+      Introduced(
+        contributes = acc.contributes + introduced.contributes,
+        definitions = acc.definitions ++ introduced.definitions
+      )
+    }
+  }
+
+  // A statement in a body: a package opens a nested one, a definition is measured and named, and
+  // every other statement — declarations, imports and exports, bare terms — introduces nothing.
+  private def statement(scope: Scope, prefix: List[String], top: Boolean): Stat => Introduced = {
+    case p: Pkg        => walk(p.body.stats, scope, prefix ++ p.ref.syntax.split('.'), top)
+    case p: Pkg.Object => walk(p.templ.body.stats, scope, prefix :+ p.name.value, top)
+    case d: Defn       => defnWalk(scope, prefix, top)(d)
+    case _             => Introduced.none
+  }
+
+  // One definition: the row a report reads, the cardinality it contributes to its body, and the
+  // definitions its own body introduces. Where a row shows something else than the contribution it
+  // is because a reference to the definition is worth more than the definition itself adds: an
+  // alias names another type's values, an opaque type hides them, an abstract type has none of its
+  // own.
+  private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
+    case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) =>
+      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
+        .inside(scope, prefix :+ d.name.value, d.templ.body.stats)
+    case d: Defn.Class =>
+      measured(scope) { s =>
+        val size = sizeOf(s)(d)
+        introduced(prefix, d, Definition.Kind.Class, Some(size), size, s.unresolved)
+          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
+      }
+    case d: Defn.Trait =>
+      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
+        .inside(scope, prefix :+ d.name.value, d.templ.body.stats)
+    // An enum's cardinality is the sum over its cases, which the solver gives it; the enum's own
+    // constructor arguments are shared state, not extra inhabitants.
+    case d: Defn.Enum =>
+      measured(scope) { s =>
+        val size = sizeOf(s)(d)
+        introduced(prefix, d, Definition.Kind.Enum, Some(size), size, s.unresolved)
+          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
+      }
+    // A module (including a `case object`) is a single instance.
+    case d: Defn.Object =>
+      measured(scope) { s =>
+        val size = sizeOf(s)(d)
+        introduced(prefix, d, Definition.Kind.Object, Some(size), size, Nil)
+          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
+      }
+    // An opaque type hides what it holds: a reference to it is worth a single value outside the
+    // scope that defines it, and the definition adds none of its own.
+    case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
+      measured(scope) { s =>
+        introduced(prefix, d, Definition.Kind.Opaque, Some(UnitSize), defnIn(s)(d), Nil)
+      }
+    // A reference to the alias holds the aliased type's values; the alias itself adds none.
+    case d: Defn.Type =>
+      measured(scope) { s =>
+        val aliased = sizeOf(s)(d)
+        introduced(prefix, d, Definition.Kind.Alias, Some(aliased), NothingSize, s.unresolved)
+      }
+    // An enum case is counted by its enum; it has no body of its own.
+    case _: Defn.EnumCase | _: Defn.RepeatedEnumCase => Introduced.none
+    // A value at the top level of a source is one inhabitant. A value inside a class or object
+    // body is state derived from the fields, which already count it, so it adds nothing.
+    case d @ (_: Defn.Val | _: Defn.Var) if top =>
+      measured(scope) { s =>
+        val size = sizeOf(s)(d)
+        introduced(prefix, d, Definition.Kind.Value, Some(size), size, Nil)
+      }
+    // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
+    // exhaustive match is impossible. Every other member — nested values, methods, givens —
+    // defines no inhabitants of its own.
+    case _ => Introduced.none
+  }
+
+  // The cardinality a reference to a definition has, and the names that stopped the calculator
+  // from bounding *this* definition. A definition the body's equations named — a class, enum,
+  // module or alias — is read from the solved scope, so a definition and a reference to it always
+  // agree; its own syntax is evaluated anyway, in a scope that records only this definition's
+  // unresolved names, which is what a report row reads. Anything the equations did not name — a
+  // top-level value in particular — is worth what its own syntax is worth.
+  private def sizeOf(scope: Scope)(d: Defn): Size = d match {
+    case t: Defn.Type =>
+      val aliased = typeIn(scope)(t.body)
+      scope.size(t.name.value).getOrElse(aliased)
+    case other =>
+      val measured = defnIn(scope)(other)
+      scope.size(named(other)).getOrElse(measured)
+  }
+
+  // What a report can point at when the calculator cannot bound a type: the type's name where it
+  // has one — `String`, `A`, `NonEmptyList` — and what kind of type it is where it has none, since
+  // a match type or a refinement has no name to print. Anything left is described by its source
+  // text on one line, so that a report row stays a row.
+  private def describe(tpe: Type): String = tpe match {
+    case name: Type.Name               => name.value
+    case select: Type.Select           => select.name.value
+    case applied: Type.Apply           => describe(applied.tpe)
+    case infix: Type.ApplyInfix        => infix.op.value
+    case annotate: Type.Annotate       => describe(annotate.tpe)
+    case existential: Type.Existential => describe(existential.tpe)
+    case refine: Type.Refine           =>
+      refine.tpe.fold("a refinement")(inner => s"a refinement of ${describe(inner)}")
+    case _: Type.Match        => "a match type"
+    case _: Type.Lambda       => "a type lambda"
+    case _: Type.PolyFunction => "a polymorphic function type"
+    case _: Type.Wildcard     => "a wildcard"
+    case other                => other.syntax.replaceAll("\\s+", " ")
+  }
+
+  // Measures one definition with a scope that records only its own unresolved names.
+  private def measured(scope: Scope)(f: Scope => Introduced): Introduced = f(scope.measured)
+
+  // A definition as its source sees it: the row a report lists it as, and the cardinality it
+  // contributes. The row carries the definition's own unresolved names, kept apart from its
+  // siblings'.
+  private def introduced(
+      prefix: List[String],
+      d: Defn,
+      kind: Definition.Kind,
+      size: Option[Size],
+      contributes: Size,
+      unresolved: List[String],
+  ): Introduced =
+    Introduced(contributes, List(row(prefix, d, kind, size, unresolved)))
+
+  private def row(
+      prefix: List[String],
+      d: Defn,
+      kind: Definition.Kind,
+      size: Option[Size],
+      unresolved: List[String] = Nil,
+  ): Definition =
+    Definition((prefix :+ named(d)).mkString("."), kind, params(d), size, unresolved, line(d))
+
+  // scalameta counts lines from zero; a report points at the line an editor shows.
+  private def line(d: Defn): Int = d.pos.startLine + 1
+
+  // The type parameters a definition declares; a value declares none.
+  private def params(d: Defn): List[String] = d match {
+    case c: Defn.Class => c.tparamClause.values.map(_.name.value)
+    case c: Defn.Trait => c.tparamClause.values.map(_.name.value)
+    case c: Defn.Enum  => c.tparamClause.values.map(_.name.value)
+    case c: Defn.Type  => c.tparamClause.values.map(_.name.value)
+    case _             => Nil
+  }
+
+  // Values and variables are named by the patterns they bind; every other definition the report
+  // lists carries its name directly. `Defn` is not sealed, so the last case stands in for the
+  // members the walk never names.
+  private def named(d: Defn): String = d match {
+    case v: Defn.Val => v.pats.map(_.syntax).mkString(", ")
+    case v: Defn.Var => v.pats.map(_.syntax).mkString(", ")
+    case m: Member   => m.name.value
+    case other       => other.syntax
+  }
+
+  // What a body holds together: what `Counter.source` reports for a source is this walk over its
+  // top-level statements, and what `stat` reports for a package statement is the same walk over
+  // the statements the package contains.
+  private def body(stats: List[Stat], scope: Scope): Size =
+    walk(stats, scope, Nil, top = true).contributes
 
   // The equations a body defines: one per named type, plus one per sealed parent the body
   // provides subtypes for. Each equation recomputes its cardinality from a scope, so the
@@ -544,7 +785,8 @@ object Counter {
   // definition's base summand twice — `Q = 1 + Q` would contribute `ω + 2` where a reference
   // to `Q` contributes `ω + 1`.
   private def statIn(scope: Scope): Stat => Size = {
-    case p: Pkg                                              => body(p.body.stats, scope)
+    case p: Pkg        => body(p.body.stats, scope)
+    case p: Pkg.Object => body(p.templ.body.stats, scope)
     case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
       scope.getOrElse(d.name.value, ctorIn(scope)(d.ctor))
     case d: Defn.Enum   => scope.getOrElse(d.name.value, enumSize(scope)(d))
@@ -705,17 +947,20 @@ object Counter {
     // and Map/PartialFunction (functions into an Option of the codomain).
     case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => applied(scope)(callee, args)
 
-    // A name the source defines takes the cardinality of its definition.
-    case Type.Name(name) if scope.contains(name) => scope(name)
+    // A name the source defines takes the cardinality of its definition. Any other name is
+    // unbounded, and is recorded so that a report can say which name it was.
+    case t: Type.Name => scope.size(t.value).getOrElse { scope.note(t); EffectiveOmega }
 
     // scalameta's `Type` is not sealed, and several variants (`Type.And`, `Type.Or`,
     // `Type.Method`, `Type.ImplicitFunction`, `Type.Quasi`) are `private[meta]`, so an
     // exhaustive match is impossible. Every remaining form is unbounded or not yet
-    // modelled — an unresolved name such as `String` or `BigInt`, a name defined in another
-    // file, a refinement, an existential, a Scala 3 capture type — and counts as
-    // effectively infinite.
+    // modelled — a name defined in another file, a refinement, an existential, a Scala 3
+    // capture type — and counts as effectively infinite. Each one is recorded, so that a report
+    // can name what it could not bound.
     // ponytail: resolve sealed hierarchies and type parameters across files when needed
-    case _ => EffectiveOmega
+    case t =>
+      scope.note(t)
+      EffectiveOmega
   }
 
   // `codomain ^ domain`, except that an empty domain gives 0 rather than the set-theoretic 1,
@@ -739,11 +984,11 @@ object Counter {
     case (Type.Name("PartialFunction"), List(a, b)) =>
       (typeIn(scope)(b) + UnitSize).pow(typeIn(scope)(a))
     // A linear collection of an empty element type has a single inhabitant (the empty
-    // collection); otherwise its unbounded length makes it effectively infinite, which
-    // the fallback returns.
-    case (Type.Name("List" | "Vector" | "Seq" | "IndexedSeq" | "Array"), List(t))
-        if typeIn(scope)(t) == NothingSize =>
-      UnitSize
+    // collection); over any other element type its unbounded length makes it countably
+    // infinite, which is a number the algebra knows rather than an unknown, so it reports no
+    // reason of its own — an unresolved element type reports its own.
+    case (Type.Name("List" | "Vector" | "Seq" | "IndexedSeq" | "Array"), List(t)) =>
+      if (typeIn(scope)(t) == NothingSize) UnitSize else EffectiveOmega
     // `LazyList` and `Stream` are the greatest fixed point `νX. 1 + A*X` (§8): all the
     // finite ones — ℵ₀ over any nonempty finitely-countable alphabet — plus the infinite
     // streams, the alphabet's choice space per position raised to ℵ₀. Collapse that completed
@@ -753,7 +998,11 @@ object Counter {
       val elem = typeIn(scope)(t)
       if (elem == NothingSize) UnitSize
       else completeCoinduction(EffectiveOmega, elem.pow(EffectiveOmega))
-    case _ => EffectiveOmega
+    // A type constructor the calculator does not model is recorded by name, so that a report can
+    // say what it could not bound.
+    case (callee, _) =>
+      scope.note(callee)
+      EffectiveOmega
   }
 
   // A function's domain is the product of its parameter types; `Unit` (a single empty
