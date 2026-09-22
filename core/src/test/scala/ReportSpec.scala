@@ -25,6 +25,8 @@ class ReportSpec extends Specification {
       entry points size one node at a time      $entryPoints
       package objects qualify their members     $packageObjects
       enum bodies contribute their cases        $enumBodies
+      a source counts its top-level values       $sourceTotals
+      signatures carry their parameters         $signatures
 
     Report
       reads a directory of sources              $directory
@@ -133,6 +135,22 @@ class ReportSpec extends Specification {
   def packageObjects =
     definitions("package object p { case class X(a: Boolean) }").map(_.name) === List("p.X")
 
+  def sourceTotals = {
+    val source = dialects
+      .Scala3("val flag: Boolean = true\ncase class Pair(a: Boolean, b: Boolean)")
+      .parse[Source]
+      .get
+    (Counter.source(source) === TinySize(5))
+      .and(
+        Counter.source(dialects.Scala3("val flag: Boolean = true").parse[Source].get) === UnitSize
+      )
+  }
+
+  def signatures = {
+    val found = definitions("case class Pair[A, B](a: A, b: B)")
+    found.map(Definition.signature) === List("Pair[A, B]")
+  }
+
   def enumBodies = {
     val found = definitions("enum E[A] { case One(a: A)\n  def flag: Boolean = true }")
     found.map(d => (d.name, d.params, d.size)) === List(("E", List("A"), Some(EffectiveOmega)))
@@ -173,6 +191,7 @@ class ReportSpec extends Specification {
     val report = Report.of(List(archive))
     (report.sources.map(_.path) === List("p/Light.scala"))
       .and(report.definitions.map(_.name) === List("p.Light"))
+      .and(report.errors === Nil)
   }
 
   def singleFile = {
@@ -203,6 +222,7 @@ class ReportSpec extends Specification {
       "Types.scala" ->
         """|case class Huge(f: String => String)
            |case class Many(xs: List[Boolean])
+           |case class Partial[A, B](a: A, b: Boolean)
            |case class Lossy(d: Double)
            |case class Big(n: Int)
            |type Zero = Nothing
@@ -212,10 +232,12 @@ class ReportSpec extends Specification {
     val table = rendered.linesIterator.toList.dropWhile(_.nonEmpty).drop(1)
     (table(0) must contain("Huge"))
       .and(table(1) must contain("Many"))
-      .and(table(2) must contain("Lossy"))
-      .and(table(3) must contain("Big"))
-      .and(table(4) must contain("Zero"))
+      .and(table(2) must contain("Partial"))
+      .and(table(3) must contain("Lossy"))
+      .and(table(4) must contain("Big"))
+      .and(table(5) must contain("Zero"))
       .and(rendered must contain("1 with no values"))
+      .and(rendered must contain("generic: 1 of the unbounded"))
   }
 
   def empty = {
@@ -246,7 +268,9 @@ class ReportSpec extends Specification {
       .and(lines(5) must contain("p.Box[A]"))
       .and(lines(5) must contain("unbounded by: A"))
       .and(lines(5) must contain("Types.scala:4"))
+      .and(lines(6) must not(contain("unbounded by")))
       .and(lines.last must contain("abstract"))
+      .and(lines.last must not(contain("unbounded by")))
   }
 
 }
