@@ -1,3 +1,4 @@
-# Walking skeleton (M0): the task exists, runs the core Counter over every
-# Compile source inside a real sbt build, and succeeds.
+# The report lists every definition the project's Compile sources introduce, with the cardinality
+# each holds, and writes the same report to the file the build asks for.
 > cardinalityReport
+$ must-mirror report.txt expected/report.txt
