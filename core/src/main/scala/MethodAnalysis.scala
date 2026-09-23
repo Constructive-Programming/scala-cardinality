@@ -135,128 +135,42 @@ object MethodAnalysis {
         Some(node)
       )
 
+    // One pass over a frame's statements, naming what each declaration introduces for the second
+    // pass to resolve. Each kind gets its own method: what differs between them is the body a
+    // definition opens, its binders, and the parameters it takes.
     private def index(input: String, frame: Frame): Unit =
       frame.stats.foreach {
-        case p: Pkg =>
-          val nested = frame.copy(
-            id = s"$input:${p.pos.start}:package",
-            path = frame.path ++ p.ref.syntax.split('.'),
-            parent = Some(frame),
-            stats = p.body.stats
-          )
-          packages += nested
-          index(input, nested)
-        case p: Pkg.Object =>
-          val nested = child(input, p, p.name.value, frame, p.templ.body.stats, Nil, Nil)
-          packages += nested
-          index(input, nested)
-        case d: Defn.Type  => types += TypeEntry(d.name.value, d, frame)
-        case d: Decl.Type  => types += TypeEntry(d.name.value, d, frame)
-        case d: Defn.Class =>
-          types += TypeEntry(d.name.value, d, frame)
-          val nested = child(
+        case p: Pkg        => indexPackage(input, frame, p)
+        case p: Pkg.Object => indexPackageObject(input, frame, p)
+        case d: Defn.Type  => named(d.name.value, d, frame)
+        case d: Decl.Type  => named(d.name.value, d, frame)
+        case d: Defn.Class => indexClass(input, frame, d)
+        case d: Defn.Trait =>
+          indexTemplate(
             input,
+            frame,
             d,
             d.name.value,
-            frame,
             d.templ.body.stats,
             d.tparamClause.values,
             d.ctor.paramClauses.toList.flatMap(_.values),
-            parents = d.templ.inits
+            d.templ.inits
           )
-          if (!d.mods.exists(_.is[Mod.Abstract])) {
-            // A constructor's inputs are available when choosing its output fields. The instance
-            // and its members do not exist yet, so they are not constructor captures.
-            val construction = nested.copy(stats = Nil, parents = Nil)
-            targets += Target(
-              input,
-              d,
-              (nested.path :+ "<init>").mkString("."),
-              d.name.syntax + d.tparamClause.syntax + d.ctor.paramClauses.map(_.syntax).mkString,
-              construction,
-              None,
-              constructor = true
-            )
-          }
-          index(input, nested)
-        case d: Defn.Trait =>
-          types += TypeEntry(d.name.value, d, frame)
-          index(
+        case d: Defn.Object => indexObject(input, frame, d)
+        case d: Defn.Enum   =>
+          indexTemplate(
             input,
-            child(
-              input,
-              d,
-              d.name.value,
-              frame,
-              d.templ.body.stats,
-              d.tparamClause.values,
-              d.ctor.paramClauses.toList.flatMap(_.values),
-              parents = d.templ.inits
-            )
-          )
-        case d: Defn.Object =>
-          val module = child(
-            input,
+            frame,
             d,
             d.name.value,
-            frame,
             d.templ.body.stats,
-            Nil,
-            Nil,
-            parents = d.templ.inits
+            d.tparamClause.values,
+            d.ctor.paramClauses.toList.flatMap(_.values),
+            d.templ.inits
           )
-          modules += module
-          index(input, module)
-        case d: Defn.Enum =>
-          types += TypeEntry(d.name.value, d, frame)
-          index(
-            input,
-            child(
-              input,
-              d,
-              d.name.value,
-              frame,
-              d.templ.body.stats,
-              d.tparamClause.values,
-              d.ctor.paramClauses.toList.flatMap(_.values),
-              parents = d.templ.inits
-            )
-          )
-        case d: Defn.Given =>
-          val name = if (d.name.value.isEmpty) s"<given@${d.pos.startLine + 1}>" else d.name.value
-          index(
-            input,
-            child(
-              input,
-              d,
-              name,
-              frame,
-              d.templ.body.stats,
-              d.paramClauseGroups.flatMap(_.tparamClause.values),
-              d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values),
-              parents = d.templ.inits
-            )
-          )
-        case d: Defn.ExtensionGroup =>
-          val groups = d.paramClauseGroup.toList
-          val stats = d.body match {
-            case b: Term.Block => b.stats
-            case s             => List(s)
-          }
-          index(
-            input,
-            child(
-              input,
-              d,
-              s"<extension@${d.pos.startLine + 1}>",
-              frame,
-              stats,
-              groups.flatMap(_.tparamClause.values),
-              groups.flatMap(_.paramClauses).flatMap(_.values),
-              local = true
-            )
-          )
-        case d: Defn.Def =>
+        case d: Defn.Given          => indexGiven(input, frame, d)
+        case d: Defn.ExtensionGroup => indexExtension(input, frame, d)
+        case d: Defn.Def            =>
           method(input, d, d.name.value, d.paramClauseGroups, d.decltpe, Some(d.body), frame)
         case d: Decl.Def =>
           method(
@@ -271,6 +185,113 @@ object MethodAnalysis {
           )
         case _ => ()
       }
+
+    private def named(name: String, tree: Stat, frame: Frame): Unit =
+      types += TypeEntry(name, tree, frame)
+
+    private def indexPackage(input: String, frame: Frame, pkg: Pkg): Unit = {
+      val nested = frame.copy(
+        id = s"$input:${pkg.pos.start}:package",
+        path = frame.path ++ pkg.ref.syntax.split('.'),
+        parent = Some(frame),
+        stats = pkg.body.stats
+      )
+      packages += nested
+      index(input, nested)
+    }
+
+    private def indexPackageObject(input: String, frame: Frame, pkg: Pkg.Object): Unit = {
+      val nested = child(input, pkg, pkg.name.value, frame, pkg.templ.body.stats, Nil, Nil)
+      packages += nested
+      index(input, nested)
+    }
+
+    private def indexClass(input: String, frame: Frame, d: Defn.Class): Unit = {
+      named(d.name.value, d, frame)
+      val nested = indexTemplate(
+        input,
+        frame,
+        d,
+        d.name.value,
+        d.templ.body.stats,
+        d.tparamClause.values,
+        d.ctor.paramClauses.toList.flatMap(_.values),
+        d.templ.inits
+      )
+      if (!d.mods.exists(_.is[Mod.Abstract]))
+        // A constructor's inputs are available when choosing its output fields. The instance and
+        // its members do not exist yet, so they are not constructor captures.
+        targets += Target(
+          input,
+          d,
+          (nested.path :+ "<init>").mkString("."),
+          d.name.syntax + d.tparamClause.syntax + d.ctor.paramClauses.map(_.syntax).mkString,
+          nested.copy(stats = Nil, parents = Nil),
+          None,
+          constructor = true
+        )
+    }
+
+    // A template is the body a definition opens, with its own binders and constructor inputs.
+    private def indexTemplate(
+        input: String,
+        frame: Frame,
+        node: Tree,
+        name: String,
+        stats: List[Stat],
+        tparams: List[Type.Param],
+        params: List[Term.Param],
+        parents: List[Init]
+    ): Frame = {
+      val nested = child(input, node, name, frame, stats, tparams, params, parents = parents)
+      index(input, nested)
+      nested
+    }
+
+    private def indexObject(input: String, frame: Frame, d: Defn.Object): Unit = {
+      val module =
+        child(input, d, d.name.value, frame, d.templ.body.stats, Nil, Nil, parents = d.templ.inits)
+      modules += module
+      index(input, module)
+    }
+
+    private def indexGiven(input: String, frame: Frame, d: Defn.Given): Unit = {
+      val name = if (d.name.value.isEmpty) s"<given@${d.pos.startLine + 1}>" else d.name.value
+      index(
+        input,
+        child(
+          input,
+          d,
+          name,
+          frame,
+          d.templ.body.stats,
+          d.paramClauseGroups.flatMap(_.tparamClause.values),
+          d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values),
+          parents = d.templ.inits
+        )
+      )
+    }
+
+    private def indexExtension(input: String, frame: Frame, d: Defn.ExtensionGroup): Unit = {
+      val groups = d.paramClauseGroup.toList
+      val stats = d.body match {
+        case b: Term.Block => b.stats
+        case s             => List(s)
+      }
+      index(
+        input,
+        child(
+          input,
+          d,
+          s"<extension@${d.pos.startLine + 1}>",
+          frame,
+          stats,
+          groups.flatMap(_.tparamClause.values),
+          groups.flatMap(_.paramClauses).flatMap(_.values),
+          local = true
+        )
+      )
+    }
 
     private def method(
         input: String,
@@ -451,7 +472,9 @@ object MethodAnalysis {
       if (visiting(key)) Left(s"recursive type requires a structural proof: $key")
       else {
         val (parameters, bodies) = representation(entry, key)
-        bodies.flatMap(tpes => parameterized(name, args, parameters, tpes, entry, visiting, key))
+        bodies.flatMap(tpes =>
+          parameterized(Applied(name, args, parameters, tpes, entry, visiting, key))
+        )
       }
     }
 
@@ -498,7 +521,9 @@ object MethodAnalysis {
       else Left(s"missing field type: $key")
     }
 
-    private def parameterized(
+    // One application of a source type: what it is applied to, and what its declaration says it
+    // is built from.
+    private case class Applied(
         name: String,
         args: List[Shape],
         parameters: List[Type.Param],
@@ -506,7 +531,10 @@ object MethodAnalysis {
         entry: TypeEntry,
         visiting: Set[String],
         key: String
-    ): Resolved =
+    )
+
+    private def parameterized(applied: Applied): Resolved = {
+      import applied.{args, entry, key, name, parameters, tpes, visiting}
       if (parameters.exists(constrained)) Left(s"constrained type constructor: $name")
       else if (parameters.size != args.size) Left(s"type argument arity: $name")
       else {
@@ -514,6 +542,7 @@ object MethodAnalysis {
         val env = typeParameters(entry.owner) ++ replacements
         sequence(tpes.map(resolve(_, entry.owner, env, visiting + key))).map(shapeOf(entry, _))
       }
+    }
 
     // A case class denotes the product of its fields; an alias the single type it names.
     private def shapeOf(entry: TypeEntry, fields: List[Shape]): Shape =
