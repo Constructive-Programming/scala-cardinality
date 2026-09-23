@@ -31,6 +31,13 @@ class MethodAnalysisSpec extends Specification {
       do not construct through a private constructor              $privateConstructor
       do not project an abstract case class as a product          $abstractCase
       report a package's concrete producers as unresolved         $concreteProducers
+      count a declared slot as a supplied value                   $declaredSlot
+      let a declared callable be applied repeatedly               $declaredCallable
+      count an inherited declared slot                            $inheritedSlot
+      ignore a concrete method whose value the scope already has  $concreteMethod
+      read an enum the source set defines                         $sourceEnum
+      refuse a builtin an import could shadow                     $shadowedBuiltin
+      keep a nested module's binders in scope                     $nestedModule
   """
 
   private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
@@ -131,6 +138,57 @@ class MethodAnalysisSpec extends Specification {
       )
       .map(_.count)
       .forall(_.isInstanceOf[Count.Unresolved]) must beTrue
+
+  def declaredSlot =
+    // `seed` is not implemented here: the caller supplies it, so it is a value this scope has.
+    entry("abstract class Env[A] { def seed: A\ndef pick(): A = seed }", "Env.pick").count === Count
+      .Finite(1)
+
+  def declaredCallable =
+    // `step` is supplied too, and nothing in its type says it is the identity: it can be applied
+    // to its own result, which is a countable family.
+    entry(
+      "abstract class Env[A] { def step(a: A): A\ndef pick(x: A): A = step(x) }",
+      "Env.pick"
+    ).count === Count.Countable
+
+  def inheritedSlot =
+    entry(
+      "trait Base[A] { val seed: A }\nabstract class Env[A] extends Base[A] " +
+        "{ def pick(x: A): A = x }",
+      "Env.pick"
+    ).count === Count.Finite(2)
+
+  def concreteMethod =
+    // A total parametric method is a specific inhabitant of its type, and what it can compute is
+    // already in the environment: `id` adds nothing that x and y do not already supply.
+    entry(
+      "class Env[A](x: A, y: A) { def id(a: A): A = a\ndef pick(): A = x }",
+      "Env.pick"
+    ).count === Count.Finite(2)
+
+  def sourceEnum =
+    entry("enum Unit { case One, Two, Three }\ndef pick(): Unit = Unit.One", "pick").count === Count
+      .Finite(3)
+
+  def shadowedBuiltin =
+    // `import Types.Option` puts a different type behind the name the model reads as the builtin.
+    MethodAnalysis
+      .analyze(
+        inputs(
+          "types.scala" -> "object Types { type Option[A] = (A, A) }",
+          "use.scala" -> "import Types.Option\ndef pick[A](x: Option[A]): A = x._1"
+        )
+      )
+      .find(_.name == "pick")
+      .get
+      .count must beLike { case Count.Unresolved(_) => ok }
+
+  def nestedModule =
+    entry(
+      "class Env[A](seed: A) { object Inner { val get: A = seed }\ndef pick(): A = Inner.get }",
+      "Env.pick"
+    ).count === Count.Finite(1)
 
   def concreteProducers = {
     val flagged = MethodAnalysis

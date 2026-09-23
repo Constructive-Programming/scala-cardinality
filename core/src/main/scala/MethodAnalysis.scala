@@ -53,7 +53,10 @@ object MethodAnalysis {
 
   // A source type's parameters and the types its representation is built from: an alias body, a
   // case class's fields, or a reason the model cannot read the declaration at all.
-  private type Representation = (List[Type.Param], Either[String, List[Type]])
+  // A source type's parameters and the cases its representation is built from: one case of one
+  // type for an alias, one case of its fields for a case class, one per case for an enum. A
+  // declaration the model cannot read carries the reason instead.
+  private type Representation = (List[Type.Param], Either[String, List[List[Type]]])
 
   final private case class Frame(
       id: String,
@@ -69,7 +72,12 @@ object MethodAnalysis {
     def chain: List[Frame] = this :: parent.toList.flatMap(_.chain)
   }
 
-  final private case class TypeEntry(name: String, tree: Stat, owner: Frame)
+  final private case class TypeEntry(
+      name: String,
+      tree: Tree,
+      owner: Frame,
+      self: Option[Frame] = None
+  )
 
   final private case class Target(
       input: String,
@@ -140,14 +148,16 @@ object MethodAnalysis {
     // definition opens, its binders, and the parameters it takes.
     private def index(input: String, frame: Frame): Unit =
       frame.stats.foreach {
-        case p: Pkg                 => indexPackage(input, frame, p)
-        case p: Pkg.Object          => indexPackageObject(input, frame, p)
-        case d: Defn.Type           => named(d.name.value, d, frame)
-        case d: Decl.Type           => named(d.name.value, d, frame)
-        case d: Defn.Class          => indexClass(input, frame, d)
-        case d: Defn.Trait          => indexTemplate(input, frame, templateOf(d))
-        case d: Defn.Object         => indexObject(input, frame, d)
-        case d: Defn.Enum           => indexTemplate(input, frame, templateOf(d))
+        case p: Pkg         => indexPackage(input, frame, p)
+        case p: Pkg.Object  => indexPackageObject(input, frame, p)
+        case d: Defn.Type   => named(d.name.value, d, frame)
+        case d: Decl.Type   => named(d.name.value, d, frame)
+        case d: Defn.Class  => indexClass(input, frame, d)
+        case d: Defn.Trait  => indexTemplate(input, frame, templateOf(d))
+        case d: Defn.Object => indexObject(input, frame, d)
+        case d: Defn.Enum   => indexTemplate(input, frame, templateOf(d))
+        // NOTE both kind methods above register the name: an enum's cases and a trait's members
+        // are resolved through the declaration this puts in `types`.
         case d: Defn.Given          => indexGiven(input, frame, d)
         case d: Defn.ExtensionGroup => indexExtension(input, frame, d)
         case d: Defn.Def            =>
@@ -187,7 +197,6 @@ object MethodAnalysis {
     }
 
     private def indexClass(input: String, frame: Frame, d: Defn.Class): Unit = {
-      named(d.name.value, d, frame)
       val nested = indexTemplate(input, frame, templateOf(d))
       if (!d.mods.exists(_.is[Mod.Abstract]))
         // A constructor's inputs are available when choosing its output fields. The instance and
@@ -224,6 +233,10 @@ object MethodAnalysis {
         template.params,
         parents = template.parents
       )
+      // Named in the enclosing frame, so a sibling reference resolves as before; its own frame
+      // travels with it, because a member of it — a declared field a subclass inherits — reads in
+      // the scope that declares it.
+      types += TypeEntry(template.name, template.node, frame, Some(nested))
       index(input, nested)
       nested
     }
@@ -364,8 +377,10 @@ object MethodAnalysis {
         }
       }
 
-    private def sequence(values: List[Resolved]): Either[String, List[Shape]] =
-      values.foldRight(Right(Nil): Either[String, List[Shape]]) { (head, tail) =>
+    // Traverse a list of resolutions: the first failure wins, and the successful ones keep their
+    // order. (Used both for a case's fields and for the cases of an enum.)
+    private def sequence[A](values: List[Either[String, A]]): Either[String, List[A]] =
+      values.foldRight(Right(Nil): Either[String, List[A]]) { (head, tail) =>
         for {
           h <- head
           t <- tail
@@ -483,8 +498,8 @@ object MethodAnalysis {
       if (visiting(key)) Left(s"recursive type requires a structural proof: $key")
       else {
         val (parameters, bodies) = representation(entry, key)
-        bodies.flatMap(tpes =>
-          parameterized(Applied(name, args, parameters, tpes, entry, visiting, key))
+        bodies.flatMap(cases =>
+          parameterized(Applied(name, args, parameters, cases, entry, visiting, key))
         )
       }
     }
@@ -492,10 +507,21 @@ object MethodAnalysis {
     private def representation(entry: TypeEntry, key: String): Representation =
       entry.tree match {
         case a: Defn.Type if !a.mods.exists(_.is[Mod.Opaque]) =>
-          (a.tparamClause.values, Right(List(a.body)))
+          (a.tparamClause.values, Right(List(List(a.body))))
         case c: Defn.Class => caseClassRepresentation(c, key)
+        case e: Defn.Enum  => enumRepresentation(e, key)
         case _             => abstractRepresentation(key)
       }
+
+    // An enum is the sum of its cases; a repeated case is one constructor per name, and a case
+    // whose field type is not declared leaves the representation unreadable.
+    private def enumRepresentation(e: Defn.Enum, key: String): Representation =
+      if (e.mods.exists(_.is[Mod.Abstract])) abstractRepresentation(key)
+      else
+        enumCases(e, key).fold(
+          reason => (e.tparamClause.values, Left(reason)),
+          cases => (e.tparamClause.values, Right(cases))
+        )
 
     private def abstractRepresentation(key: String): Representation =
       (Nil, Left(s"abstract type or method-valued representation: $key"))
@@ -504,10 +530,13 @@ object MethodAnalysis {
     // list, no constructor modifiers, no parents, no members and no hidden parameter.
     private def caseClassRepresentation(c: Defn.Class, key: String): Representation =
       if (!isCaseClass(c) || !isPlainProduct(c)) abstractRepresentation(key)
-      else {
-        val fields = c.ctor.paramClauses.toList.flatMap(_.values)
-        (c.tparamClause.values, declaredFields(fields, key))
-      }
+      else
+        declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key)
+          .map(fields => List(fields))
+          .fold(
+            reason => (c.tparamClause.values, Left(reason)),
+            fields => (c.tparamClause.values, Right(fields))
+          )
 
     private def isCaseClass(c: Defn.Class): Boolean =
       c.mods.exists(_.is[Mod.Case]) && !c.mods.exists(_.is[Mod.Abstract])
@@ -538,29 +567,47 @@ object MethodAnalysis {
         name: String,
         args: List[Shape],
         parameters: List[Type.Param],
-        tpes: List[Type],
+        cases: List[List[Type]],
         entry: TypeEntry,
         visiting: Set[String],
         key: String
     )
 
     private def parameterized(applied: Applied): Resolved = {
-      import applied.{args, entry, key, name, parameters, tpes, visiting}
+      import applied.{args, cases, entry, key, name, parameters, visiting}
       if (parameters.exists(constrained)) Left(s"constrained type constructor: $name")
       else if (parameters.size != args.size) Left(s"type argument arity: $name")
       else {
         val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
         val env = typeParameters(entry.owner) ++ replacements
-        sequence(tpes.map(resolve(_, entry.owner, env, visiting + key))).map(shapeOf(entry, _))
+        sequence(
+          cases.map(fields => sequence(fields.map(resolve(_, entry.owner, env, visiting + key))))
+        )
+          .map(shapeOf(entry, _))
       }
     }
 
     // A case class denotes the product of its fields; an alias the single type it names.
-    private def shapeOf(entry: TypeEntry, fields: List[Shape]): Shape =
+    // A case class and an alias are one case; an enum is as many cases as it declares.
+    private def shapeOf(entry: TypeEntry, cases: List[List[Shape]]): Shape =
       entry.tree match {
-        case _: Defn.Class => Shape.Product(fields)
-        case _             => fields.head
+        case _: Defn.Enum => Shape.Sum(cases.map(Shape.Product(_)))
+        case _: Defn.Type => cases.head.head
+        case _            => Shape.Product(cases.head)
       }
+
+    private def enumCases(e: Defn.Enum, key: String): Either[String, List[List[Type]]] = {
+      val cases = mutable.ListBuffer.empty[List[Type]]
+      val missing = mutable.ListBuffer.empty[String]
+      e.templ.body.stats.foreach {
+        case c: Defn.EnumCase =>
+          val declared = c.ctor.paramClauses.toList.flatMap(_.values).map(_.decltpe)
+          if (declared.forall(_.isDefined)) cases += declared.flatten else missing += c.name.value
+        case r: Defn.RepeatedEnumCase => r.cases.foreach(_ => cases += Nil)
+        case _                        => ()
+      }
+      if (missing.nonEmpty) Left(s"missing field type: $key") else Right(cases.toList)
+    }
 
     // The concrete atoms a signature or a tree mentions, written either bare or qualified: a
     // producer of one of these could change the count of a signature that mentions it.
@@ -595,6 +642,7 @@ object MethodAnalysis {
       def entry(): Entry = {
         variables.values.collect { case Left(reason) => reason }.foreach(errors += _)
         owners.foreach(scan)
+        scanParents()
         flagReachableModules()
         // Parameters of the target hide outer names, but their type binders keep their identities.
         target.frame.params.foreach(p => add(p.name.value, p.decltpe, target.frame))
@@ -610,6 +658,70 @@ object MethodAnalysis {
           captures.toList.distinct.sorted
         )
       }
+
+      // A declaration inherited from a parent the source set defines is a slot as well: the caller
+      // fills it through the subclass. Only declarations travel — a parent's concrete members hold
+      // values built from the environment it already shares — and an external parent is left
+      // alone rather than guessed at.
+      private def scanParents(): Unit = {
+        val seen = mutable.Set.empty[String]
+        var pending = owners.flatMap(owner => owner.parents.map(owner -> _))
+        while (pending.nonEmpty) {
+          val found = mutable.ListBuffer.empty[(Frame, Init)]
+          pending.foreach {
+            case (from, parent) =>
+              lookup(typeName(parent.tpe), target.frame).headOption.foreach { entry =>
+                entry.self.foreach { declared =>
+                  if (seen.add(declared.id)) {
+                    val env = typeParameters(declared) ++ inheritedEnv(declared, parent, from)
+                    declared.stats.foreach(declaration(declared, env, _))
+                    found ++= declared.parents.map(declared -> _)
+                  }
+                }
+              }
+          }
+          pending = found.toList
+        }
+      }
+
+      // The parent's type arguments, resolved where the parent is named: `extends Base[A]` reads an
+      // inherited `Base[A].seed` as this scope's A, not as a second binder that happens to share
+      // the name.
+      private def inheritedEnv(declared: Frame, parent: Init, from: Frame): Map[String, Resolved] =
+        arguments(parent) match {
+          case None       => Map.empty
+          case Some(args) =>
+            declared.typeParams
+              .map(_.name.value)
+              .zip(args)
+              .flatMap {
+                case (name, arg) =>
+                  resolve(arg, from, typeParameters(from)).toOption.map(name -> Right(_))
+              }
+              .toMap
+        }
+
+      private def arguments(parent: Init): Option[List[Type]] = parent.tpe match {
+        case Type.Apply.After_4_6_0(_, Type.ArgClause(args)) => Some(args)
+        case _                                               => None
+      }
+
+      // The name a parent is resolved by: `Base` in `Base[A]`, the last segment of `Outer.Base`.
+      // `Init.name` is anonymous for a plain type parent, so the type is the source of the name.
+      private def typeName(tpe: Type): String = tpe match {
+        case Type.Name(name)                   => name
+        case Type.Select(_, name)              => name.value
+        case Type.Apply.After_4_6_0(callee, _) => typeName(callee)
+        case other                             => other.syntax
+      }
+
+      private def declaration(scope: Frame, env: Map[String, Resolved], stat: Stat): Unit =
+        stat match {
+          case v: Decl.Val       => addDeclaredValue(scope, env, v)
+          case d: Decl.Def       => addDeclaredCallable(scope, env, d)
+          case d: Decl.GivenLike => addDeclaredGiven(scope, env, d)
+          case _                 => ()
+        }
 
       // One owner's bindings: its own parameters, then every scope that shares its path.
       private def scan(owner: Frame): Unit = {
@@ -644,32 +756,80 @@ object MethodAnalysis {
       }
 
       private def add(name: String, tpe: Option[Type], owner: Frame): Unit =
+        add(name, tpe, owner, typeParameters(owner))
+
+      private def add(
+          name: String,
+          tpe: Option[Type],
+          owner: Frame,
+          env: Map[String, Resolved]
+      ): Unit =
         tpe
           .toRight(s"missing type of accessible value: $name")
-          .flatMap(resolve(_, owner, typeParameters(owner))) match {
+          .flatMap(resolve(_, owner, env)) match {
           case Left(reason) => errors += reason
           case Right(shape) => bind(name, Binding(s"${owner.id}:$name", shape), owner)
         }
-
-      private def isOwner(tree: Tree): Boolean =
-        (tree eq target.tree) || owners.flatMap(_.tree).exists(_ eq tree)
 
       // A scope's declarations by kind: a value binds, a variable or an unreadable given is a
       // diagnostic, and a body only matters where a concrete type is at stake.
       private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
         case v: Defn.Val               => flagVal(v)
-        case v: Decl.Val               => addDeclaredValue(scope, v)
+        case v: Decl.Val               => addDeclaredValue(scope, typeParameters(scope), v)
+        case d: Decl.Def               => addDeclaredCallable(scope, typeParameters(scope), d)
+        case d: Decl.GivenLike         => addDeclaredGiven(scope, typeParameters(scope), d)
         case _: Defn.Var | _: Decl.Var => errors += "mutable capture"
         case other                     => flagEnvironment(other)
       }
 
       private def flagVal(value: Defn.Val): Unit =
+        // A concrete value's body may compute, but what it can compute is already reachable from
+        // the environment: its own inhabitants are named by the values in scope, so it neither
+        // adds a choice nor hides one. Only a binding the scope cannot read at all does. (That is
+        // the parametricity argument: a total parametric body cannot invent a value it is not
+        // given, so leaving it out of the environment loses nothing.)
         if (!value.pats.forall(_.is[Pat.Var])) errors += "destructured capture not resolved"
 
-      private def addDeclaredValue(scope: Frame, declaration: Decl.Val): Unit =
+      private def addDeclaredValue(
+          scope: Frame,
+          env: Map[String, Resolved],
+          declaration: Decl.Val
+      ): Unit =
         declaration.pats.foreach {
-          case Pat.Var(name) => add(name.value, Some(declaration.decltpe), scope)
+          case Pat.Var(name) => add(name.value, Some(declaration.decltpe), scope, env)
           case _             => errors += "destructured capture not resolved"
+        }
+
+      // A declaration is not an implementation: someone else supplies it, so its result is a
+      // value this scope has, and a callable declaration is a callable it can apply.
+      private def addDeclaredCallable(
+          scope: Frame,
+          env: Map[String, Resolved],
+          declaration: Decl.Def
+      ): Unit = {
+        val groups = declaration.paramClauseGroups
+        val params = groups.flatMap(_.paramClauses).flatMap(_.values)
+        val tpes = params.map(_.decltpe)
+        // A declared callable is a capability whose *type* is what the fragment can count with:
+        // `def modify(f: A => B): S => T` is expressible and applies like any other callable,
+        // while `def get[M](): M` reads as an unresolved type because its own parameter M is not a
+        // shape this scope has. Resolution decides, not the mere presence of parameters.
+        if (!params.forall(_.decltpe.isDefined))
+          errors += s"missing callable parameter type: ${declaration.name.value}"
+        else {
+          val callable = Type.Function(Type.FuncParamClause(tpes.flatten), declaration.decltpe)
+          add(declaration.name.value, Some(callable), scope, env)
+        }
+      }
+
+      private def addDeclaredGiven(
+          scope: Frame,
+          env: Map[String, Resolved],
+          declaration: Decl.GivenLike
+      ): Unit =
+        declaration.name match {
+          case name: Term.Name => add(name.value, Some(declaration.decltpe), scope, env)
+          case _               => errors += "anonymous given not resolved"
         }
 
       // A method that is only declared, in this scope or an inherited one, cannot invent a value:
@@ -678,27 +838,29 @@ object MethodAnalysis {
       // Only what can carry a *concrete* type this signature mentions is worth a diagnostic, since
       // that is where an outside producer could change the count.
       private def flagEnvironment(stat: Stat): Unit = stat match {
-        case d: Defn.Def   => flagMethodBody(d)
-        case i: Import     => flagImport(i)
-        case d: Defn.Given => flagGiven(d)
-        case other         => flagGivenLike(other)
+        case _: Defn.Def => ()
+        case i: Import   => flagShadowing(i)
+        case _: Export   => flagShadowing(stat)
+        case _           => ()
       }
 
-      private def flagMethodBody(definition: Defn.Def): Unit =
-        if (!isOwner(definition) && mentions.nonEmpty)
-          errors += s"accessible method body not normalized: ${definition.name.value}"
-
-      private def flagImport(imported: Import): Unit =
-        if (mentions.nonEmpty) errors += s"imported environment not resolved: ${imported.syntax}"
-
-      private def flagGiven(definition: Defn.Given): Unit =
-        if (!owners.exists(_.id == s"${target.input}:${definition.pos.start}"))
-          errors += "given environment not resolved"
-
-      private def flagGivenLike(stat: Stat): Unit = stat match {
-        case _: Defn.GivenAlias | _: Decl.GivenLike => errors += "given environment not resolved"
-        case _                                      => ()
+      // An import or an export can put a *different* type behind a name this resolution reads as a
+      // builtin (`Option`, `Boolean`), so a builtin is only trustworthy while nothing shadows it.
+      // That is the one way a name outside the lexical chain changes an answer here: a value
+      // outside the chain cannot hold this method's binders, so it cannot add one of their values.
+      private def flagShadowing(tree: Tree): Unit = {
+        val shadowed = shadowable.filter(names(tree).contains)
+        if (shadowed.nonEmpty)
+          errors += s"imported environment not resolved: ${tree.syntax.replaceAll("\\s+", " ")}"
       }
+
+      // Every identifier a tree spells, which is what an import or an export can put a new meaning
+      // behind.
+      private def names(tree: Tree): Set[String] =
+        tree.syntax.split("[^\\p{L}\\p{N}_$]+").toSet
+
+      private def shadowable: Set[String] =
+        Set("Unit", "Nothing", "Boolean", "Option", "Either", "EmptyTuple")
 
       private def flagReachableModules(): Unit = {
         val reachable = modules.filterNot(inChain).filter(moduleVisible).toList
@@ -708,7 +870,18 @@ object MethodAnalysis {
       private def inChain(module: Frame): Boolean = owners.exists(_.id == module.id)
 
       private def moduleVisible(module: Frame): Boolean =
-        mentions.nonEmpty && module.stats.exists(accessible(_, module, target.frame))
+        !withinChain(module) && mentions.nonEmpty && module.stats.exists(
+          accessible(_, module, target.frame)
+        )
+
+      // A module nested inside the class, given or method this target lives in shares its binders:
+      // its members can hold the target's type parameters, so it is part of the scope rather than
+      // an outside producer. Package and file frames are not binders — sharing those means only
+      // that two declarations sit in the same package.
+      private def withinChain(module: Frame): Boolean = {
+        val binders = owners.filterNot(owner => packages.exists(_.id == owner.id))
+        module.chain.exists(frame => binders.exists(_.id == frame.id))
+      }
 
       private def qualifiedMemberMessage(reachable: List[Frame]): String = {
         val rest = if (reachable.size == 1) "" else s" and ${reachable.size - 1} more"
