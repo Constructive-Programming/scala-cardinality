@@ -104,6 +104,40 @@ holding a single value, 34 abstract. A library of generic optics has no small
 state spaces to find; what the report says about it is *why* each one is
 unbounded, which is what a smaller type would have to replace.
 
+### Method and constructor cardinality
+
+The other number a report gives is the count of canonical **pure, total, parametric
+implementations** a signature admits with everything in scope — what the method can access, capture
+or call. `def choose[A](x: A, y: A): A` has 2 (`x` or `y`); the constructor of a case class
+`Pair[A](x: A, y: A)` has 4 ways to build its product. That is a different question from the
+stored-value estimate on the data type: `Pair[Int]` still holds `2^64` values.
+
+`ω` is a productive cycle: `def use[A](x: A, step: A => A): A` can return `x`, `step(x)`,
+`step(step(x))`, … — countably many. A cycle with no starting inhabitant is `0`, not `ω`. An
+enclosing value, a callable producer and a product projection all count as captures, and a type
+parameter's identity is per binder, so a shadowed `A` is not an outer `A`.
+
+What the analysis cannot read is `?`, with the reason, and the section header sums the reasons
+into the triage list:
+
+```
+Generic method / constructor implementation cardinalities
+  53 signatures: 41 finite · 3 countably infinite · 9 unresolved
+  8 unresolved on: unresolved type
+  1 unresolved on: given environment not resolved
+
+4  example.Pair.<init>  Pair[A](left: A, right: A)  Light.scala:11  [constructor]
+1  example.Accessor.get  get[X, A](fa: (X, A)): A  Accessor.scala:18  [method]
+    captures: tupleAccessor
+```
+
+Over eo-core 0.16.0 (480 signatures) the run reads: 41 finite, 3 countably infinite, 436
+unresolved — unresolved because of an unresolved type (249), a given environment (184), an
+abstract or method-valued representation (148: eo's traits, where a sealed hierarchy's cases are
+not yet summed), a higher-kinded parameter (174 across `F[_]`, `F[_, _]`, …), an unnormalized body
+or capture (138), or an import or qualified member (114). Each of those is a named next step
+rather than a claim about the code.
+
 ## Quality toolchain
 
 The build mirrors the sister project

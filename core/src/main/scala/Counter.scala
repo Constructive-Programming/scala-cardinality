@@ -5,6 +5,10 @@ import scala.meta.*
 
 object Counter {
 
+  // Trees are parsed as Scala 3; printing one with any other dialect makes scalameta reprint it
+  // under Scala 2 rules, which cannot spell Scala 3's modifiers at all.
+  private given scala3: Dialect = dialects.Scala3
+
   /** What every definition a source introduces holds together: the sum over the concrete classes,
     * enums, modules and top-level values it defines, nested definitions included.
     */

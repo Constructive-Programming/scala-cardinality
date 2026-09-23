@@ -19,28 +19,26 @@ final case class Report(sources: List[Report.Source], errors: List[Report.Error]
 
   def definitions: List[Definition] = sources.flatMap(_.definitions)
 
-  /** The report as it reads: what was measured, one line per definition ordered by how many values
-    * it holds, and the sources that could not be read.
+  def methods: List[MethodAnalysis.Entry] = sources.flatMap(_.methods)
+
+  /** The report as it reads: the generic method and constructor implementation cardinalities, then
+    * the stored-value estimate over the definitions a source introduces.
+    *
+    * They answer different questions. A method's number is how many canonical pure, total,
+    * parametric implementations its signature admits with everything in scope; a definition's is
+    * how many values its constructor parameters can hold, the estimate this calculator carried
+    * before method counts existed. Neither is a proof of infinity: what the analysis could not
+    * bound is `?`, with the reason.
     */
-  def render: String = {
-    val rows = sources
-      .flatMap(source => source.definitions.map(definition => (source, definition)))
-      .sortBy(row => Report.order(row._2))
-      .map(Report.row)
-    val columns = List(
-      rows.map(_._1.length).maxOption.getOrElse(0),
-      rows.map(_._2.length).maxOption.getOrElse(0),
-      rows.map(_._3.length).maxOption.getOrElse(0),
-    )
-    val table = rows.map {
-      case (size, name, kind, location, unbounded) =>
-        val row =
-          s"${Report.padded(size, columns(0))}  ${Report.padded(name, columns(1))}  ${Report.padded(kind, columns(2))}  $location"
-        if (unbounded.isEmpty) row else s"$row  unbounded by: $unbounded"
-    }
-    (Report.summary(this) ++ errors.map(Report.failed) ++ (if (table.isEmpty) Nil else "" :: table))
-      .mkString("\n")
-  }
+  def render: String =
+    (Report.methods(models) ++ Report.summary(this) ++ Report.estimate(this) ++
+      errors.map(Report.failed)).mkString("\n")
+
+  // The method and constructor rows, ordered by file so a reader can walk the sources.
+  private def models: List[(Report.Source, MethodAnalysis.Entry)] =
+    sources
+      .flatMap(source => source.methods.map(method => (source, method)))
+      .sortBy(entry => (entry._1.path, entry._2.line, entry._2.name))
 
 }
 
@@ -49,7 +47,11 @@ object Report {
   /** One Scala source the report read: where it was read from — a file, or an entry of a sources
     * jar — and the definitions it introduces.
     */
-  final case class Source(path: String, definitions: List[Definition])
+  final case class Source(
+      path: String,
+      definitions: List[Definition],
+      methods: List[MethodAnalysis.Entry] = Nil
+  )
 
   /** A source the report could not read or parse, and what went wrong. */
   final case class Error(path: String, message: String)
@@ -58,25 +60,29 @@ object Report {
     * as the `-sources.jar` a library publishes — and measures the definitions it finds.
     */
   def of(paths: Seq[Path]): Report = {
-    val parsed = paths.toList.distinct.flatMap { path =>
+    val parsed: List[Either[Error, MethodAnalysis.Input]] = paths.toList.distinct.flatMap { path =>
       read(path) match {
-        case Left(error)  => List((None, Some(error)))
+        case Left(error)  => List(Left(error))
         case Right(found) => found.map(parse)
       }
     }
+    val inputs = parsed.collect { case Right(input) => input }
+    val methods = MethodAnalysis.analyze(inputs).groupBy(_.path)
     Report(
-      parsed.collect { case (Some(source), _) => source },
-      parsed.collect { case (_, Some(error)) => error }
+      inputs.map(input =>
+        Source(input.path, Counter.definitions(input.tree), methods.getOrElse(input.path, Nil))
+      ),
+      parsed.collect { case Left(error) => error }
     )
   }
 
   // Parses one source, and reports either what it defines or what stopped the parser.
-  private def parse(source: (String, String)): (Option[Source], Option[Error]) = {
+  private def parse(source: (String, String)): Either[Error, MethodAnalysis.Input] = {
     val (path, text) = source
     dialects.Scala3(text).parse[ScalaSource].toEither match {
-      case Right(tree) => (Some(Source(path, Counter.definitions(tree))), None)
+      case Right(tree) => Right(MethodAnalysis.Input(path, tree))
       case Left(error) =>
-        (None, Some(Error(path, s"${error.message} (line ${error.pos.startLine + 1})")))
+        Left(Error(path, s"${error.message} (line ${error.pos.startLine + 1})"))
     }
   }
 
@@ -125,40 +131,99 @@ object Report {
 
   private def isScala(name: String): Boolean = name.endsWith(".scala")
 
-  // What was measured: how many sources, how many definitions, how those fall out by size, and
-  // how many of the unbounded ones are generic — a definition whose own type parameters are among
-  // the names the calculator could not bound has a size that depends on what it is instantiated
-  // with, which is the usual reason a library's types are unbounded.
+  // The legacy data estimate remains separate from implementation counts. Its fallback values
+  // are not proofs of infinity, and an opaque representation is not a singleton.
   private def summary(report: Report): List[String] = {
     val definitions = report.definitions
     val counts = SizeClass.order.flatMap { sizeClass =>
-      val count = definitions.count(definition => SizeClass(definition.size) == sizeClass)
+      val count = definitions.count(definition => SizeClass(definition) == sizeClass)
       if (count == 0) Nil else List(s"$count ${sizeClass.label}")
     }
-    val generic = definitions.count(genericUnbounded)
     List(
       s"scala-cardinality — ${plural(report.sources.size, "source")}, ${plural(definitions.size, "definition")}",
-      "  sizes: exact up to 1024, 2^n above, ω countable, τ uncountable",
+      "  stored-value estimates: constructor inputs only; finite bit counts are rounded bounds",
+      "  ?: unresolved, not a proof of infinity; opaque representations are not singletons",
     ) ++
-      (if (counts.isEmpty) Nil else List(s"  ${counts.mkString(" · ")}")) ++
-      (if (generic == 0) Nil
-       else List(s"  generic: $generic of the unbounded depend on their own type parameters"))
+      (if (counts.isEmpty) Nil else List(s"  ${counts.mkString(" · ")}"))
   }
 
   private def plural(count: Int, noun: String): String =
     s"$count $noun${if (count == 1) "" else "s"}"
 
-  private def genericUnbounded(definition: Definition): Boolean =
-    SizeClass(definition.size) == SizeClass.Unbounded && definition.params.exists(
-      definition.unresolved.contains
-    )
+  private def uncertain(definition: Definition): Boolean =
+    definition.unresolved.nonEmpty || definition.kind == Definition.Kind.Opaque ||
+      definition.size.exists(s => s == EffectiveOmega || s == EffectiveTau)
+
+  // The generic method and constructor counts, with what stands between the report and a number
+  // for the rest: the triage list a reader works down.
+  private def methods(models: List[(Source, MethodAnalysis.Entry)]): List[String] = {
+    import Inhabitation.Count
+    if (models.isEmpty) Nil
+    else {
+      val entries = models.map(_._2)
+      val finite = entries.count(_.count.isInstanceOf[Count.Finite])
+      val countable = entries.count(_.count == Count.Countable)
+      val unresolved = entries.size - finite - countable
+      val blocking = entries
+        .flatMap(entry =>
+          entry.count match {
+            case Count.Unresolved(reasons) => reasons.map(reason => entry -> reason)
+            case _                         => Nil
+          }
+        )
+        .groupBy { case (_, reason) => reason.split(':').head }
+        .toList
+        .map { case (kind, blocked) => (blocked.map(_._1).distinct.size, kind) }
+        .sortBy { case (count, kind) => (-count, kind) }
+        .map { case (count, kind) => s"  $count unresolved on: $kind" }
+      val rows = models.flatMap {
+        case (source, entry) =>
+          List(
+            s"${entry.count.render}  ${entry.name}  ${entry.signature}  ${fileName(source.path)}:${entry.line}  [${entry.kind}]"
+          ) ++
+            (if (entry.captures.isEmpty) Nil
+             else List(s"    captures: ${entry.captures.mkString(", ")}")) ++
+            (entry.count match {
+              case Count.Unresolved(reasons) => reasons.map(reason => s"    unresolved: $reason")
+              case _                         => Nil
+            })
+      }
+      List(
+        "Generic method / constructor implementation cardinalities",
+        s"  ${plural(entries.size, "signature")}: $finite finite · $countable countably infinite · $unresolved unresolved",
+      ) ++ blocking ++ List("") ++ rows
+    }
+  }
+
+  // The stored-value estimate over the definitions a source introduces, ordered by cardinality.
+  private def estimate(report: Report): List[String] = {
+    val rows = report.sources
+      .flatMap(source => source.definitions.map(definition => (source, definition)))
+      .sortBy(entry => order(entry._2))
+      .map(row)
+    if (rows.isEmpty) Nil
+    else {
+      val widths = List(
+        rows.map(_._1.length).maxOption.getOrElse(0),
+        rows.map(_._2.length).maxOption.getOrElse(0),
+        rows.map(_._3.length).maxOption.getOrElse(0),
+      )
+      val table = rows.map {
+        case (size, name, kind, location, unresolved) =>
+          val line =
+            s"${padded(size, widths(0))}  ${padded(name, widths(1))}  ${padded(kind, widths(2))}  $location"
+          if (unresolved.isEmpty) line else s"$line  unresolved: $unresolved"
+      }
+      List("Stored-value estimates (constructor inputs; `?` = unresolved)", "") ++ table
+    }
+  }
 
   private def failed(error: Error): String = s"  could not read ${error.path}: ${error.message}"
 
   private def row(entry: (Source, Definition)): (String, String, String, String, String) = {
     val (source, definition) = entry
     (
-      definition.size.fold("—")(_.render),
+      if (uncertain(definition)) "?" else definition.size.fold("—")(_.render),
       Definition.signature(definition),
       definition.kind.toString.toLowerCase,
       s"${fileName(source.path)}:${definition.line}",
@@ -171,21 +236,23 @@ object Report {
   // Jar entries are always named with `/`; a path read from disk may use either separator.
   private def fileName(path: String): String = path.split("[/\\\\]").last
 
-  // The order the report reads in: the unbounded definitions first, then the finite sizes from the
-  // largest down, the abstract ones — no cardinality of their own — last, and names breaking ties.
+  // The order the report reads in: what the estimate could not bound first, then the finite sizes
+  // from the largest down, the abstract ones — no cardinality of their own — last, names breaking
+  // ties.
   private def order(definition: Definition): (Int, BigInt, String) = definition.size match {
-    case Some(EffectiveTau)         => (0, BigInt(0), definition.name)
-    case Some(EffectiveOmega)       => (0, BigInt(1), definition.name)
-    case Some(l: LossyInfiniteSize) => (1, -l.bits, definition.name)
-    case Some(f: FiniteSize)        => (2, -f.bits, definition.name)
-    case Some(t: TinySize)          => (3, -BigInt(t.repr), definition.name)
-    case None                       => (4, BigInt(0), definition.name)
+    case _ if definition.unresolved.nonEmpty => (0, BigInt(0), definition.name)
+    case Some(EffectiveTau)                  => (0, BigInt(1), definition.name)
+    case Some(EffectiveOmega)                => (0, BigInt(2), definition.name)
+    case Some(l: LossyInfiniteSize)          => (1, -l.bits, definition.name)
+    case Some(f: FiniteSize)                 => (2, -f.bits, definition.name)
+    case Some(t: TinySize)                   => (3, -BigInt(t.repr), definition.name)
+    case None                                => (4, BigInt(0), definition.name)
   }
 
-  // How the summary counts a definition: by the cardinality of its type, with the abstract ones
-  // — no cardinality of their own — held apart.
+  // How the summary counts a definition: by the cardinality of its type, with what the estimate
+  // could not bound held apart from the abstract types that have no cardinality of their own.
   private enum SizeClass(val label: String) {
-    case Unbounded extends SizeClass("unbounded")
+    case Unresolved extends SizeClass("unresolved")
     case Many extends SizeClass("with more than one value")
     case One extends SizeClass("with one value")
     case Empty extends SizeClass("with no values")
@@ -195,15 +262,17 @@ object Report {
   private object SizeClass {
 
     /** The classes in the order the summary reads them: what needs attention first. */
-    val order: List[SizeClass] = List(Unbounded, Many, One, Empty, Abstract)
+    val order: List[SizeClass] = List(Unresolved, Many, One, Empty, Abstract)
 
-    def apply(size: Option[Size]): SizeClass = size match {
-      case None                                => Abstract
-      case Some(EffectiveOmega | EffectiveTau) => Unbounded
-      case Some(UnitSize)                      => One
-      case Some(NothingSize)                   => Empty
-      case Some(_)                             => Many
-    }
+    def apply(definition: Definition): SizeClass =
+      if (uncertain(definition)) Unresolved
+      else
+        definition.size match {
+          case None              => Abstract
+          case Some(UnitSize)    => One
+          case Some(NothingSize) => Empty
+          case Some(_)           => Many
+        }
 
   }
 
