@@ -210,13 +210,20 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // A scope's declarations by kind: a value binds, a variable or an unreadable given is a
   // diagnostic, and a body only matters where a concrete type is at stake.
   private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
-    case v: Defn.Val               => flagVal(v)
-    case v: Decl.Val               => addDeclaredValue(scope, resolver.typeParameters(scope), v)
-    case d: Decl.Def               => addDeclaredCallable(scope, resolver.typeParameters(scope), d)
-    case d: Decl.GivenLike         => addDeclaredGiven(scope, resolver.typeParameters(scope), d)
+    case v: Defn.Val => flagVal(v)
+    case v: Decl.Val =>
+      if (!isTarget(v)) addDeclaredValue(scope, resolver.typeParameters(scope), v)
+    case d: Decl.Def =>
+      if (!isTarget(d)) addDeclaredCallable(scope, resolver.typeParameters(scope), d)
+    case d: Decl.GivenLike =>
+      if (!isTarget(d)) addDeclaredGiven(scope, resolver.typeParameters(scope), d)
     case _: Defn.Var | _: Decl.Var => errors += "mutable capture"
     case other                     => flagEnvironment(other)
   }
+
+  // The signature being measured is not one of its own slots: binding it would let a declaration
+  // delegate to itself and claim an implementation it does not have.
+  private def isTarget(stat: Stat): Boolean = stat.pos.start == target.tree.pos.start
 
   private def flagVal(value: Defn.Val): Unit =
     // A concrete value's body may compute, but what it can compute is already reachable from the
