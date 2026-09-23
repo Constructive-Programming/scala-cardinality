@@ -1,3 +1,5 @@
+package cardinality
+
 import org.specs2.Specification
 
 class SizeSpec extends Specification {
@@ -35,6 +37,21 @@ class SizeSpec extends Specification {
       BigInt(Int.MaxValue) + 1
     )) === EffectiveOmega}
     tiny times finite rounds up                ${TinySize(3) * IntSize === FiniteSize(34)}
+
+  Rendering
+    counts render as counts                    ${(NothingSize.render === "0")
+      .and(
+        UnitSize.render === "1"
+      )
+      .and(BooleanSize.render === "2")}
+    small finite sizes render exactly          ${FiniteSize(9).render === "512"}
+    larger finite sizes render as powers       ${(FiniteSize(10).render === "2^10").and(
+      IntSize.render === "2^32"
+    )}
+    lossy sizes say so                         ${FloatSize.render === "2^32 (lossy)"}
+    the infinities render as ω and τ           ${(EffectiveOmega.render === "ω").and(
+      EffectiveTau.render === "τ"
+    )}
   """
 
 }

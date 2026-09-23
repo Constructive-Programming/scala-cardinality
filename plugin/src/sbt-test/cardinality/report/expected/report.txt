@@ -1,0 +1,18 @@
+Generic method / constructor implementation cardinalities
+  2 signatures: 1 finite · 0 countably infinite · 1 unresolved
+  1 unresolved on: unresolved type
+
+4  example.Custom.<init>  Custom(on: Boolean)  Light.scala:5  [constructor]
+?  example.Holder.<init>  Holder[A](value: A, count: Int)  Light.scala:11  [constructor]
+    unresolved: unresolved type: Int
+scala-cardinality — 1 source, 5 definitions
+  stored-value estimates: constructor inputs only; finite bit counts are rounded bounds
+  ?: unresolved, not a proof of infinity; opaque representations are not singletons
+  1 unresolved · 2 with more than one value · 1 with one value · 1 abstract
+Stored-value estimates (constructor inputs; `?` = unresolved)
+
+?  example.Holder[A]  class     Light.scala:11  unresolved: A
+2  example.Custom     class     Light.scala:5
+2  example.Mode       enum      Light.scala:7
+1  example.Red        object    Light.scala:4
+—  example.Light      abstract  Light.scala:3

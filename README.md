@@ -41,10 +41,102 @@ Key references motivating this work:
 
 ## Status
 
-The calculator is an early work in progress. It currently parses Scala source
-with [scalameta](https://scalameta.org/) and computes the cardinality of
-constructor parameters for classes and case classes, reasoning about product
-types and a handful of primitive types.
+The calculator is an early work in progress. It parses Scala source with
+[scalameta](https://scalameta.org/) and computes the cardinality of the
+definitions a source introduces — classes, enums, modules, type aliases and
+opaque types, nested definitions included — reasoning about products, sums,
+exponentials and the collections that carry them.
+
+What it cannot bound, it names: every size it had to leave unbounded comes with
+the type names that stopped it, so a report says both the number and the reason
+(`unbounded by: A, NonNull`), and distinguishes the definitions that are
+unbounded only because of their own type parameters.
+
+The build has two modules:
+
+- `core` — the calculator itself (`Counter`, the `Size` algebra, `Report`): a
+  pure library with no sbt types, tested with specs2.
+- `plugin` — `sbt-cardinality`, an sbt 2 plugin that reports on the build it is
+  added to, and on any Scala sources it is pointed at. It is tested end-to-end
+  with sbt's scripted framework (`sbt plugin/scripted`).
+
+Everything builds with the Scala version sbt 2.0.x itself runs on (3.8.4),
+because the plugin — and `core`, which it loads — must be binary-loadable
+inside sbt, and Scala 3 binary compatibility is backward only.
+
+## Reports
+
+`sbt cardinalityReport` measures every definition the project's `Compile`
+sources introduce and logs a report: one line per definition, ordered by how
+many values it holds, with the cardinality it holds and the type names the
+calculator could not bound. The same report is written to
+`target/cardinality/report.txt` (`cardinalityReportFile`), so a build can keep
+it, diff it, or post it as an artifact.
+
+```
+scala-cardinality — 1 source, 5 definitions
+  sizes: exact up to 1024, 2^n above, ω countable, τ uncountable
+  1 unbounded · 2 with more than one value · 1 with one value · 1 abstract
+  generic: 1 of the unbounded depend on their own type parameters
+
+ω  example.Holder[A]  class     Light.scala:11  unbounded by: A
+2  example.Custom     class     Light.scala:5
+2  example.Mode       enum      Light.scala:7
+1  example.Red        object    Light.scala:4
+—  example.Light      abstract  Light.scala:3
+```
+
+`sbt "cardinalityReportOf <path>..."` runs the same report over sources the
+build does not compile itself — a directory, a single file, or the
+`-sources.jar` a published library ships. That is how a dependency's types get
+measured from outside its build:
+
+```bash
+# eo-core, the `core` module of the sister project `eo`, as published
+cs fetch --sources dev.constructive:cats-eo_3:0.16.0
+sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
+```
+
+Its first real run over `eo-core` 0.16.0 (53 sources, 134 definitions): 37
+unbounded — 17 of them generic, unbounded only because their own type
+parameters are — 2 finite (`IntArrBuilder` and `ObjArrBuilder`, 2^32 each), 56
+holding a single value, 34 abstract. A library of generic optics has no small
+state spaces to find; what the report says about it is *why* each one is
+unbounded, which is what a smaller type would have to replace.
+
+### Method and constructor cardinality
+
+The other number a report gives is the count of canonical **pure, total, parametric
+implementations** a signature admits with everything in scope — what the method can access, capture
+or call. `def choose[A](x: A, y: A): A` has 2 (`x` or `y`); the constructor of a case class
+`Pair[A](x: A, y: A)` has 4 ways to build its product. That is a different question from the
+stored-value estimate on the data type: `Pair[Int]` still holds `2^64` values.
+
+`ω` is a productive cycle: `def use[A](x: A, step: A => A): A` can return `x`, `step(x)`,
+`step(step(x))`, … — countably many. A cycle with no starting inhabitant is `0`, not `ω`. An
+enclosing value, a callable producer and a product projection all count as captures, and a type
+parameter's identity is per binder, so a shadowed `A` is not an outer `A`.
+
+What the analysis cannot read is `?`, with the reason, and the section header sums the reasons
+into the triage list:
+
+```
+Generic method / constructor implementation cardinalities
+  53 signatures: 41 finite · 3 countably infinite · 9 unresolved
+  8 unresolved on: unresolved type
+  1 unresolved on: given environment not resolved
+
+4  example.Pair.<init>  Pair[A](left: A, right: A)  Light.scala:11  [constructor]
+1  example.Accessor.get  get[X, A](fa: (X, A)): A  Accessor.scala:18  [method]
+    captures: tupleAccessor
+```
+
+Over eo-core 0.16.0 (480 signatures) the run reads: 41 finite, 3 countably infinite, 436
+unresolved — unresolved because of an unresolved type (249), a given environment (184), an
+abstract or method-valued representation (148: eo's traits, where a sealed hierarchy's cases are
+not yet summed), a higher-kinded parameter (174 across `F[_]`, `F[_, _]`, …), an unnormalized body
+or capture (138), or an import or qualified member (114). Each of those is a named next step
+rather than a claim about the code.
 
 ## Quality toolchain
 
@@ -60,6 +152,7 @@ and the heavier reports in
 | [scalafmt](https://scalameta.org/scalafmt/) | Formatting | `sbt scalafmtAll` | `ci.yml`, check-only, gating |
 | [scalafix](https://scalafix.com/) | Semantic rewrites (unused/organized imports, syntax bans) | `sbt scalafixAll` | `ci.yml`, check-only, gating |
 | [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
+| [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted` | `ci.yml`, gating |
 | [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, on PRs, report only |
 | [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating |
 | [CodeScene](https://codescene.com/) | Code Health and hotspots | `cs delta` | `quality.yml`, on PRs, gating once `CS_ACCESS_TOKEN` is set |
@@ -75,10 +168,11 @@ coverage rates and any CPD duplicates, `quality.yml` the mutation score and the
 CodeScene delta. Other runs write the same table to the run summary.
 
 ```bash
-sbt scalafmtAll     # apply formatting
-sbt scalafixAll     # apply semantic fixes
-sbt coverageAll     # tests + coverage report under target/
-sbt mutationAll     # mutation report under target/stryker4s-report/
+sbt scalafmtAll        # apply formatting
+sbt scalafixAll        # apply semantic fixes
+sbt coverageAll        # tests + coverage report under target/
+sbt plugin/scripted    # plugin end-to-end tests (fresh sbt per test project)
+sbt mutationAll        # core mutation report under target/stryker4s-report/
 ```
 
 > [!NOTE]

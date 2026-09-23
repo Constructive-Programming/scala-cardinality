@@ -1,0 +1,13 @@
+Generic method / constructor implementation cardinalities
+  1 signature: 1 finite · 0 countably infinite · 0 unresolved
+
+4  optics.Composed.<init>  Composed[A](left: A, right: A)  Optic.scala:5  [constructor]
+scala-cardinality — 1 source, 3 definitions
+  stored-value estimates: constructor inputs only; finite bit counts are rounded bounds
+  ?: unresolved, not a proof of infinity; opaque representations are not singletons
+  1 unresolved · 1 with one value · 1 abstract
+Stored-value estimates (constructor inputs; `?` = unresolved)
+
+?  optics.Composed[A]  class     Optic.scala:5  unresolved: A
+1  optics.Id           object    Optic.scala:4
+—  optics.Optic        abstract  Optic.scala:3

@@ -1,3 +1,5 @@
+package cardinality
+
 sealed trait Size { self =>
   def larger: Size => Boolean
   def add: Size => Size
@@ -10,10 +12,32 @@ sealed trait Size { self =>
 
   def max(other: Size): Size = if (self.larger(other)) self else other
   def min(other: Size): Size = if (self.larger(other)) other else self
+
+  /** How many values this size holds, written the way a reader counts them: an exact number while
+    * the cardinality is small, a power of two once it is not, and `ω` (countable) or `τ`
+    * (uncountable) for the two infinities.
+    *
+    * Sizes above the tiny range are held in bits, not values, so a power of two is the honest
+    * rendering there — `FiniteSize(33)` is "2^33", not the exact count of an arbitrary sum.
+    */
+  def render: String = Size.render(self)
 }
 
 object Size {
   def bits(cardinality: BigInt): Int = (cardinality - 1).bitLength
+
+  def render(size: Size): String = size match {
+    case t: TinySize => t.repr.toString
+    // Float and Double hold 2^32 / 2^64 bit patterns but repeat values among them (NaN
+    // payloads, +0 and -0), so their count is an upper bound rather than a cardinality.
+    case l: LossyInfiniteSize => s"2^${l.bits} (lossy)"
+    // Exact below 1024 (2^10), a power of two from there on.
+    case f: FiniteSize if f.bits < 10 => (BigInt(1) << f.bits.toInt).toString
+    case f: FiniteSize                => s"2^${f.bits}"
+    case EffectiveOmega               => "ω"
+    case EffectiveTau                 => "τ"
+  }
+
 }
 
 sealed trait TinySize extends Size { self =>
