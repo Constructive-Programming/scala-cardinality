@@ -51,6 +51,10 @@ object MethodAnalysis {
 
   private type Resolved = Either[String, Shape]
 
+  // A source type's parameters and the types its representation is built from: an alias body, a
+  // case class's fields, or a reason the model cannot read the declaration at all.
+  private type Representation = (List[Type.Param], Either[String, List[Type]])
+
   final private case class Frame(
       id: String,
       path: List[String],
@@ -312,14 +316,17 @@ object MethodAnalysis {
       }
     }
 
+    // A parameter whose bounds or type constructor make its shape unreadable: a diagnostic wherever
+    // it appears, never an atom.
+    private def constrained(p: Type.Param): Boolean =
+      p.bounds.lo.nonEmpty || p.bounds.hi.nonEmpty ||
+        p.bounds.context.nonEmpty || p.bounds.view.nonEmpty || p.tparamClause.values.nonEmpty
+
     private def typeParameters(frame: Frame): Map[String, Resolved] =
       frame.chain.reverse.foldLeft(Map.empty[String, Resolved]) { (env, f) =>
         env ++ f.typeParams.map { p =>
-          val constrained = p.bounds.lo.nonEmpty || p.bounds.hi.nonEmpty ||
-            p.bounds.context.nonEmpty || p.bounds.view.nonEmpty
           val resolved =
-            if (constrained || p.tparamClause.values.nonEmpty)
-              Left(s"bounded or higher-kinded parameter ${p.syntax}")
+            if (constrained(p)) Left(s"bounded or higher-kinded parameter ${p.syntax}")
             else Right(Shape.Atom(s"${f.id}:${p.name.value}"))
           p.name.value -> resolved
         }
@@ -393,72 +400,127 @@ object MethodAnalysis {
         args: List[Shape],
         frame: Frame,
         visiting: Set[String]
-    ): Resolved = {
-      val entries = lookup(name, frame)
-      if (entries.size > 1) Left(s"ambiguous type: $name")
-      else
-        entries.headOption match {
-          case Some(entry) =>
-            val key = (entry.owner.path :+ entry.name).mkString(".")
-            if (visiting(key)) Left(s"recursive type requires a structural proof: $key")
-            else {
-              val (parameters, bodies) = entry.tree match {
-                case a: Defn.Type if !a.mods.exists(_.is[Mod.Opaque]) =>
-                  (a.tparamClause.values, Right(List(a.body)))
-                case c: Defn.Class
-                    if c.mods.exists(_.is[Mod.Case]) &&
-                      !c.mods.exists(_.is[Mod.Abstract]) &&
-                      c.ctor.paramClauses.size == 1 && c.ctor.mods.isEmpty &&
-                      c.templ.inits.isEmpty && c.templ.body.stats.isEmpty &&
-                      !c.ctor.paramClauses
-                        .flatMap(_.values)
-                        .exists(p =>
-                          p.mods.exists(m =>
-                            m.is[Mod.Private] || m.is[Mod.Protected] || m.is[Mod.VarParam]
-                          )
-                        ) =>
-                  val fields = c.ctor.paramClauses.toList.flatMap(_.values)
-                  val declared = fields.flatMap(_.decltpe)
-                  val shape =
-                    if (fields.size == declared.size) Right(declared)
-                    else Left(s"missing field type: $key")
-                  (c.tparamClause.values, shape)
-                case _ => (Nil, Left(s"abstract type or method-valued representation: $key"))
-              }
-              bodies.flatMap { tpes =>
-                if (
-                  parameters.exists(p =>
-                    p.bounds.lo.nonEmpty || p.bounds.hi.nonEmpty ||
-                      p.bounds.context.nonEmpty || p.bounds.view.nonEmpty || p.tparamClause.values.nonEmpty
-                  )
-                )
-                  Left(s"constrained type constructor: $name")
-                else if (parameters.size != args.size) Left(s"type argument arity: $name")
-                else {
-                  val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
-                  val env = typeParameters(entry.owner) ++ replacements
-                  val fields = sequence(tpes.map(resolve(_, entry.owner, env, visiting + key)))
-                  entry.tree match {
-                    case _: Defn.Class => fields.map(Shape.Product(_))
-                    case _             => fields.map(_.head)
-                  }
-                }
-              }
-            }
-          case None =>
-            (name, args) match {
-              case ("Unit" | "scala.Unit", Nil)       => Right(Shape.Product(Nil))
-              case ("Nothing" | "scala.Nothing", Nil) => Right(Shape.Sum(Nil))
-              case ("Boolean" | "scala.Boolean", Nil) =>
-                Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil))))
-              case ("Option" | "scala.Option", List(a)) =>
-                Right(Shape.Sum(List(Shape.Product(Nil), a)))
-              case ("Either" | "scala.Either" | "scala.util.Either", List(a, b)) =>
-                Right(Shape.Sum(List(a, b)))
-              case _ => Left(s"unresolved type: $name")
-            }
-        }
+    ): Resolved =
+      lookup(name, frame) match {
+        case Nil         => builtin(name, args)
+        case List(entry) => sourceType(name, args, entry, visiting)
+        case _           => Left(s"ambiguous type: $name")
+      }
+
+    // The primitives and structural constructors the shape model spells itself, by the arity of
+    // their application. `Unit` is one construction, `Nothing` none and `Boolean` one bit;
+    // `Option` and `Either` are a count of cases, and stay countable wherever they appear.
+    private def builtin(name: String, args: List[Shape]): Resolved = args match {
+      case Nil        => nullaryBuiltin(name)
+      case List(a)    => unaryBuiltin(name, a)
+      case List(a, b) => binaryBuiltin(name, a, b)
+      case _          => Left(s"unresolved type: $name")
     }
+
+    private def nullaryBuiltin(name: String): Resolved = name match {
+      case "Unit" | "scala.Unit"       => Right(Shape.Product(Nil))
+      case "Nothing" | "scala.Nothing" => Right(Shape.Sum(Nil))
+      case _                           => booleanBuiltin(name)
+    }
+
+    private def booleanBuiltin(name: String): Resolved = name match {
+      case "Boolean" | "scala.Boolean" =>
+        Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil))))
+      case _ => Left(s"unresolved type: $name")
+    }
+
+    private def unaryBuiltin(name: String, arg: Shape): Resolved = name match {
+      case "Option" | "scala.Option" => Right(Shape.Sum(List(Shape.Product(Nil), arg)))
+      case _                         => Left(s"unresolved type: $name")
+    }
+
+    private def binaryBuiltin(name: String, left: Shape, right: Shape): Resolved = name match {
+      case "Either" | "scala.Either" | "scala.util.Either" => Right(Shape.Sum(List(left, right)))
+      case _                                               => Left(s"unresolved type: $name")
+    }
+
+    // A source type resolves through its own declaration: an alias body, a case class's fields, or
+    // a representation the model cannot read. Its identity guards against a resolution cycle.
+    private def sourceType(
+        name: String,
+        args: List[Shape],
+        entry: TypeEntry,
+        visiting: Set[String]
+    ): Resolved = {
+      val key = (entry.owner.path :+ entry.name).mkString(".")
+      if (visiting(key)) Left(s"recursive type requires a structural proof: $key")
+      else {
+        val (parameters, bodies) = representation(entry, key)
+        bodies.flatMap(tpes => parameterized(name, args, parameters, tpes, entry, visiting, key))
+      }
+    }
+
+    private def representation(entry: TypeEntry, key: String): Representation =
+      entry.tree match {
+        case a: Defn.Type if !a.mods.exists(_.is[Mod.Opaque]) =>
+          (a.tparamClause.values, Right(List(a.body)))
+        case c: Defn.Class => caseClassRepresentation(c, key)
+        case _             => abstractRepresentation(key)
+      }
+
+    private def abstractRepresentation(key: String): Representation =
+      (Nil, Left(s"abstract type or method-valued representation: $key"))
+
+    // Only a case class whose single parameter list *is* the product can be projected: no second
+    // list, no constructor modifiers, no parents, no members and no hidden parameter.
+    private def caseClassRepresentation(c: Defn.Class, key: String): Representation =
+      if (!isCaseClass(c) || !isPlainProduct(c)) abstractRepresentation(key)
+      else {
+        val fields = c.ctor.paramClauses.toList.flatMap(_.values)
+        (c.tparamClause.values, declaredFields(fields, key))
+      }
+
+    private def isCaseClass(c: Defn.Class): Boolean =
+      c.mods.exists(_.is[Mod.Case]) && !c.mods.exists(_.is[Mod.Abstract])
+
+    private def isPlainProduct(c: Defn.Class): Boolean =
+      c.ctor.paramClauses.size == 1 &&
+        c.ctor.mods.isEmpty &&
+        c.templ.inits.isEmpty &&
+        c.templ.body.stats.isEmpty &&
+        !c.ctor.paramClauses.flatMap(_.values).exists(hiddenParameter)
+
+    private def hiddenParameter(p: Term.Param): Boolean =
+      p.mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected] || m.is[Mod.VarParam])
+
+    // A field without a declared type leaves the product unreadable.
+    private def declaredFields(
+        fields: List[Term.Param],
+        key: String
+    ): Either[String, List[Type]] = {
+      val declared = fields.flatMap(_.decltpe)
+      if (fields.size == declared.size) Right(declared)
+      else Left(s"missing field type: $key")
+    }
+
+    private def parameterized(
+        name: String,
+        args: List[Shape],
+        parameters: List[Type.Param],
+        tpes: List[Type],
+        entry: TypeEntry,
+        visiting: Set[String],
+        key: String
+    ): Resolved =
+      if (parameters.exists(constrained)) Left(s"constrained type constructor: $name")
+      else if (parameters.size != args.size) Left(s"type argument arity: $name")
+      else {
+        val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
+        val env = typeParameters(entry.owner) ++ replacements
+        sequence(tpes.map(resolve(_, entry.owner, env, visiting + key))).map(shapeOf(entry, _))
+      }
+
+    // A case class denotes the product of its fields; an alias the single type it names.
+    private def shapeOf(entry: TypeEntry, fields: List[Shape]): Shape =
+      entry.tree match {
+        case _: Defn.Class => Shape.Product(fields)
+        case _             => fields.head
+      }
 
     // The concrete atoms a signature or a tree mentions, written either bare or qualified: a
     // producer of one of these could change the count of a signature that mentions it.
@@ -471,22 +533,68 @@ object MethodAnalysis {
     private def kindOf(target: Target): String =
       if (target.constructor) "constructor" else if (target.declaration) "declaration" else "method"
 
-    private def measurement(target: Target): Entry = {
-      val errors = mutable.ListBuffer.empty[String]
-      val values = mutable.LinkedHashMap.empty[String, Binding]
-      val qualifiedValues = mutable.LinkedHashMap.empty[String, Binding]
-      val captures = mutable.ListBuffer.empty[String]
-      val variables = typeParameters(target.frame)
-      variables.values.collect { case Left(reason) => reason }.foreach(errors += _)
-      val owners = target.frame.chain.reverse
+    private def measurement(target: Target): Entry = new Measurement(target).entry()
+
+    /** One signature's environment: the bindings visible from its frame, the diagnostics that make
+      * that environment incomplete, and the count the two admit.
+      */
+    private class Measurement(target: Target) {
+      private val errors = mutable.ListBuffer.empty[String]
+      private val values = mutable.LinkedHashMap.empty[String, Binding]
+      private val qualifiedValues = mutable.LinkedHashMap.empty[String, Binding]
+      private val captures = mutable.ListBuffer.empty[String]
+      private val variables = typeParameters(target.frame)
+      private val owners = target.frame.chain.reverse
       // Members of a module outside the lexical chain can never hold or produce this method's
       // type parameters — a module's scope is fixed, and no method's binders reach it. They can
       // only matter where a signature mentions a concrete, modelled type (a Boolean, an Option),
       // so those modules, imports and sibling bodies are the ones to report rather than every
       // companion object and every import in the file.
-      val mentions = mentionedConcrete(target)
+      private val mentions = mentionedConcrete(target)
 
-      def bind(name: String, binding: Binding, owner: Frame): Unit = {
+      def entry(): Entry = {
+        variables.values.collect { case Left(reason) => reason }.foreach(errors += _)
+        owners.foreach(scan)
+        flagReachableModules()
+        // Parameters of the target hide outer names, but their type binders keep their identities.
+        target.frame.params.foreach(p => add(p.name.value, p.decltpe, target.frame))
+        val result = resultShape()
+        result.left.foreach(errors += _)
+        Entry(
+          target.input,
+          target.name,
+          target.signature.replaceAll("\\s+", " "),
+          target.tree.pos.startLine + 1,
+          kindOf(target),
+          count(result),
+          captures.toList.distinct.sorted
+        )
+      }
+
+      // One owner's bindings: its own parameters, then every scope that shares its path.
+      private def scan(owner: Frame): Unit = {
+        owner.params.foreach(p => add(p.name.value, p.decltpe, owner))
+        frames(owner).foreach(scanFrame)
+      }
+
+      // Package-level declarations are indexed across all files. Unrelated class parameters are
+      // never pooled just because both happen to be named A.
+      private def frames(owner: Frame): List[Frame] = {
+        val peers = packages.filter(_.path == owner.path).toList
+        if (peers.exists(_.id == owner.id)) peers else List(owner)
+      }
+
+      private def scanFrame(scope: Frame): Unit = {
+        val visible = scope.stats.filter(visibleIn(scope, _))
+        new Aliases(visible, scope).report()
+        visible.foreach(flagStat(scope, _))
+      }
+
+      private def visibleIn(scope: Frame, stat: Stat): Boolean =
+        (!scope.local || stat.pos.start < target.tree.pos.start) &&
+          accessible(stat, scope, target.frame)
+
+      private def bind(name: String, binding: Binding, owner: Frame): Unit = {
         values.update(name, binding)
         if (owner.id != target.frame.id) {
           captures += name
@@ -495,7 +603,7 @@ object MethodAnalysis {
         }
       }
 
-      def add(name: String, tpe: Option[Type], owner: Frame): Unit =
+      private def add(name: String, tpe: Option[Type], owner: Frame): Unit =
         tpe
           .toRight(s"missing type of accessible value: $name")
           .flatMap(resolve(_, owner, typeParameters(owner))) match {
@@ -503,96 +611,74 @@ object MethodAnalysis {
           case Right(shape) => bind(name, Binding(s"${owner.id}:$name", shape), owner)
         }
 
-      def isOwner(tree: Tree): Boolean =
+      private def isOwner(tree: Tree): Boolean =
         (tree eq target.tree) || owners.flatMap(_.tree).exists(_ eq tree)
 
-      def aliases(stats: List[Stat], owner: Frame): Unit = {
-        val declared = stats
-          .collect { case v: Defn.Val => v }
-          .flatMap { v =>
-            v.pats.collect { case Pat.Var(n) => n.value -> v }
-          }
-          .toMap
-        val done = mutable.Map.empty[String, Either[String, Binding]]
-        def value(name: String, active: Set[String]): Either[String, Binding] =
-          if (active(name)) Left(s"recursive capture alias: $name")
-          else
-            done.getOrElseUpdate(
-              name, {
-                val v = declared(name)
-                val source = v.rhs match {
-                  case Term.Name(n) if declared.contains(n) => value(n, active + name)
-                  case Term.Name(n)                         =>
-                    values.get(n).toRight(s"capture alias not resolved: $name -> $n")
-                  case _ => Left(s"accessible value body not normalized: $name")
-                }
-                source.flatMap { binding =>
-                  v.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
-                    resolve(tpe, owner, typeParameters(owner)).flatMap { shape =>
-                      if (binding.shape == shape) Right(binding)
-                      else Left(s"capture alias type conversion not resolved: $name")
-                    }
-                  }
-                }
-              }
-            )
-        declared.keys.toList.sorted.foreach { name =>
-          value(name, Set.empty) match {
-            case Right(binding) => bind(name, binding, owner)
-            case Left(reason)   => errors += reason
-          }
-        }
+      // A scope's declarations by kind: a value binds, a variable or an unreadable given is a
+      // diagnostic, and a body only matters where a concrete type is at stake.
+      private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
+        case v: Defn.Val               => flagVal(v)
+        case v: Decl.Val               => addDeclaredValue(scope, v)
+        case _: Defn.Var | _: Decl.Var => errors += "mutable capture"
+        case other                     => flagEnvironment(other)
       }
 
-      owners.foreach { owner =>
-        owner.params.foreach(p => add(p.name.value, p.decltpe, owner))
-        // Package-level declarations are indexed across all files. Unrelated class parameters
-        // are never pooled just because both happen to be named A.
-        val peers = packages.filter(_.path == owner.path).toList
-        val frames = if (peers.exists(_.id == owner.id)) peers else List(owner)
-        frames.foreach { f =>
-          val visible = f.stats.filter(s =>
-            (!f.local || s.pos.start < target.tree.pos.start) &&
-              accessible(s, f, target.frame)
-          )
-          aliases(visible, f)
-          visible.foreach {
-            case v: Defn.Val if !v.pats.forall(_.is[Pat.Var]) =>
-              errors += "destructured capture not resolved"
-            case v: Decl.Val =>
-              v.pats.foreach {
-                case Pat.Var(name) => add(name.value, Some(v.decltpe), f)
-                case _             => errors += "destructured capture not resolved"
-              }
-            case _: Defn.Var | _: Decl.Var => errors += "mutable capture"
-            // A method that is only declared, in this scope or an inherited one, cannot invent a
-            // value: a total parametric body builds its result from arguments and captures, and
-            // both are already in the environment. An import of a type or a typeclass is the same
-            // shape of thing. Only what can carry a *concrete* type this signature mentions is
-            // worth a diagnostic, since that is where an outside producer could change the count.
-            case d: Defn.Def if !isOwner(d) && mentions.nonEmpty =>
-              errors += s"accessible method body not normalized: ${d.name.value}"
-            case i: Import if mentions.nonEmpty =>
-              errors += s"imported environment not resolved: ${i.syntax}"
-            case _: Export                                                                 => ()
-            case d: Defn.Given if owners.exists(_.id == s"${target.input}:${d.pos.start}") => ()
-            case _: Defn.Given | _: Defn.GivenAlias | _: Decl.GivenLike                    =>
-              errors += "given environment not resolved"
-            case _ => ()
-          }
+      private def flagVal(value: Defn.Val): Unit =
+        if (!value.pats.forall(_.is[Pat.Var])) errors += "destructured capture not resolved"
+
+      private def addDeclaredValue(scope: Frame, declaration: Decl.Val): Unit =
+        declaration.pats.foreach {
+          case Pat.Var(name) => add(name.value, Some(declaration.decltpe), scope)
+          case _             => errors += "destructured capture not resolved"
         }
+
+      // A method that is only declared, in this scope or an inherited one, cannot invent a value:
+      // a total parametric body builds its result from arguments and captures, and both are
+      // already in the environment. An import of a type or a typeclass is the same shape of thing.
+      // Only what can carry a *concrete* type this signature mentions is worth a diagnostic, since
+      // that is where an outside producer could change the count.
+      private def flagEnvironment(stat: Stat): Unit = stat match {
+        case d: Defn.Def   => flagMethodBody(d)
+        case i: Import     => flagImport(i)
+        case d: Defn.Given => flagGiven(d)
+        case other         => flagGivenLike(other)
       }
-      val reachable = modules.filterNot(m => owners.exists(_.id == m.id)).filter { module =>
-        mentions.nonEmpty && module.stats.exists(s => accessible(s, module, target.frame))
+
+      private def flagMethodBody(definition: Defn.Def): Unit =
+        if (!isOwner(definition) && mentions.nonEmpty)
+          errors += s"accessible method body not normalized: ${definition.name.value}"
+
+      private def flagImport(imported: Import): Unit =
+        if (mentions.nonEmpty) errors += s"imported environment not resolved: ${imported.syntax}"
+
+      private def flagGiven(definition: Defn.Given): Unit =
+        if (!owners.exists(_.id == s"${target.input}:${definition.pos.start}"))
+          errors += "given environment not resolved"
+
+      private def flagGivenLike(stat: Stat): Unit = stat match {
+        case _: Defn.GivenAlias | _: Decl.GivenLike => errors += "given environment not resolved"
+        case _                                      => ()
       }
-      if (reachable.nonEmpty) {
-        val first = reachable.head.path.mkString(".")
+
+      private def flagReachableModules(): Unit = {
+        val reachable = modules.filterNot(inChain).filter(moduleVisible).toList
+        if (reachable.nonEmpty) errors += qualifiedMemberMessage(reachable)
+      }
+
+      private def inChain(module: Frame): Boolean = owners.exists(_.id == module.id)
+
+      private def moduleVisible(module: Frame): Boolean =
+        mentions.nonEmpty && module.stats.exists(accessible(_, module, target.frame))
+
+      private def qualifiedMemberMessage(reachable: List[Frame]): String = {
         val rest = if (reachable.size == 1) "" else s" and ${reachable.size - 1} more"
-        errors += s"qualified member environment not resolved: $first$rest"
+        s"qualified member environment not resolved: ${reachable.head.path.mkString(".")}$rest"
       }
-      // Parameters of the target hide outer names, but their type binders keep their identities.
-      target.frame.params.foreach(p => add(p.name.value, p.decltpe, target.frame))
-      val result = if (target.constructor) {
+
+      private def resultShape(): Resolved =
+        if (target.constructor) constructorShape() else declaredShape()
+
+      private def constructorShape(): Resolved =
         sequence(
           target.frame.params.map(p =>
             p.decltpe
@@ -600,29 +686,78 @@ object MethodAnalysis {
               .flatMap(resolve(_, target.frame, variables))
           )
         ).map(Shape.Product(_))
-      } else
+
+      private def declaredShape(): Resolved =
         target.result
           .toRight("inferred result type not resolved")
           .flatMap(resolve(_, target.frame, variables))
-      result.left.foreach(errors += _)
-      val count =
+
+      private def count(result: Resolved): Count =
         if (errors.nonEmpty) Count.Unresolved(errors.toList.distinct.sorted)
-        else
-          result.fold(
-            reason => Count.Unresolved(List(reason)),
-            shape =>
-              Inhabitation
-                .count((values.values ++ qualifiedValues.values).toList, shape, limits.maxStates)
-          )
-      Entry(
-        target.input,
-        target.name,
-        target.signature.replaceAll("\\s+", " "),
-        target.tree.pos.startLine + 1,
-        kindOf(target),
-        count,
-        captures.toList.distinct.sorted
-      )
+        else result.fold(unresolved, inhabitation)
+
+      private def unresolved(reason: String): Count = Count.Unresolved(List(reason))
+
+      private def inhabitation(shape: Shape): Count =
+        Inhabitation.count(
+          (values.values ++ qualifiedValues.values).toList,
+          shape,
+          limits.maxStates
+        )
+
+      /** One scope's value declarations, each resolved to the binding it names.
+        *
+        * A forward alias chain folds onto the value at its end; a chain that loops, names something
+        * invisible, or has a body the model cannot read fails closed, as a diagnostic.
+        */
+      private class Aliases(stats: List[Stat], owner: Frame) {
+
+        private val declared = stats
+          .collect { case v: Defn.Val => v }
+          .flatMap(v => v.pats.collect { case Pat.Var(n) => n.value -> v })
+          .toMap
+
+        private val done = mutable.Map.empty[String, Either[String, Binding]]
+
+        def report(): Unit = declared.keys.toList.sorted.foreach(reportOne)
+
+        private def reportOne(name: String): Unit =
+          value(name, Set.empty) match {
+            case Right(binding) => bind(name, binding, owner)
+            case Left(reason)   => errors += reason
+          }
+
+        private def value(name: String, active: Set[String]): Either[String, Binding] =
+          if (active(name)) Left(s"recursive capture alias: $name")
+          else done.getOrElseUpdate(name, source(name, active))
+
+        private def source(name: String, active: Set[String]): Either[String, Binding] = {
+          val declaration = declared(name)
+          val named = declaration.rhs match {
+            case Term.Name(n) if declared.contains(n) => value(n, active + name)
+            case Term.Name(n)                         =>
+              values.get(n).toRight(s"capture alias not resolved: $name -> $n")
+            case _ => Left(s"accessible value body not normalized: $name")
+          }
+          named.flatMap(binding => checked(name, binding, declaration))
+        }
+
+        // A declared type must agree with the binding the alias names; a mismatch is a conversion
+        // the model cannot follow.
+        private def checked(
+            name: String,
+            binding: Binding,
+            declaration: Defn.Val
+        ): Either[String, Binding] =
+          declaration.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
+            resolve(tpe, owner, typeParameters(owner)).flatMap { shape =>
+              if (binding.shape == shape) Right(binding)
+              else Left(s"capture alias type conversion not resolved: $name")
+            }
+          }
+
+      }
+
     }
 
   }
