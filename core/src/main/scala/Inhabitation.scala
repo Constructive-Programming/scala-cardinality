@@ -2,7 +2,7 @@ package cardinality
 
 import scala.collection.mutable
 
-/** Counts canonical pure constructions, not runtime equality.
+/** Counts observationally distinct inhabitants in a restricted pure, total parametric calculus.
   *
   * Supported: free atoms, products, finite sums in the context, arrow introduction, and reusable
   * first-order producers (including curried ones and projections of product results). Products are
@@ -59,25 +59,37 @@ object Inhabitation {
   private class Solver(maxStates: Int) {
     private val nodes = mutable.ArrayBuffer.empty[List[Rule]]
     private val memo = mutable.Map.empty[(List[Value], Shape), Int]
+    private val absurd = mutable.Map.empty[Int, Int]
     private var work = 0
 
     def run(bindings: List[Binding], result: Shape): Count = {
       val env = bindings.distinct.map(binding => Value(List("input", binding.id), binding.shape))
       val root = goal(env, result)
-      val productive = leastProductive()
+      val productive = leastProductive(allowUnresolved = true)
       // A root with no productive rule has no implementation at all, not an unknown one.
       if (!productive(root)) Finite(0)
-      else new Live(nodes.toVector.map(_.filter(_.children.forall(productive)))).result(root)
+      else {
+        val proved = leastProductive(allowUnresolved = false)
+        val live = nodes.indices.map { id =>
+          // An inhabited empty type proves the context impossible. All expressions under that
+          // assumption are observationally equal (the unique map out of the empty type). In
+          // particular, two different ways to call an A => Nothing are not two inhabitants.
+          if (absurd.get(id).exists(proved)) List(Rule(Nil))
+          else nodes(id).filter(_.children.forall(productive))
+        }.toVector
+        new Live(live).result(root)
+      }
     }
 
     // The least set of goals that can be built from nothing: a rule counts once every child does.
-    private def leastProductive(): mutable.Set[Int] = {
+    private def leastProductive(allowUnresolved: Boolean): mutable.Set[Int] = {
       val productive = mutable.Set.empty[Int]
       var changed = true
       while (changed) {
         changed = false
         nodes.indices.foreach { id =>
-          if (!productive(id) && nodes(id).exists(_.children.forall(productive))) {
+          val available = nodes(id).filter(r => allowUnresolved || r.reason.isEmpty)
+          if (!productive(id) && available.exists(_.children.forall(productive))) {
             productive += id
             changed = true
           }
@@ -101,9 +113,22 @@ object Inhabitation {
       val id = nodes.size
       nodes += Nil
       memo((env, target)) = id
-      nodes(id) = rules(env, target, id)
+      val ordinary = rules(env, target, id)
+      nodes(id) = ordinary ++ absurdRule(env, target, id)
       id
     }
+
+    private def absurdRule(env: List[Value], target: Shape, id: Int): List[Rule] =
+      target match {
+        case Product(Nil) => Nil // Unit already has its unique construction.
+        case Sum(Nil)     =>
+          absurd(id) = id
+          Nil
+        case _ =>
+          val impossible = goal(env, Sum(Nil))
+          absurd(id) = impossible
+          List(Rule(List(impossible)))
+      }
 
     private def rules(env: List[Value], target: Shape, id: Int): List[Rule] =
       split(env, target) match {
@@ -154,7 +179,12 @@ object Inhabitation {
     // may be inhabited without being synthesised, which the fragment records as a reason.
     private def application(env: List[Value], target: Shape, function: Function): List[Rule] =
       producer(function).flatMap { value =>
-        val opaque = value.output.isInstanceOf[Sum]
+        // Empty-result callables are negations, not opaque tagged choices. A proved call to one
+        // is handled by absurd elimination above; only nonempty sum results need case analysis.
+        val opaque = value.output match {
+          case Sum(alternatives) => alternatives.nonEmpty
+          case _                 => false
+        }
         if (value.output != target && !opaque) Nil
         else {
           val dependencies = value.parameters.filterNot(higherOrder).map(goal(env, _))
