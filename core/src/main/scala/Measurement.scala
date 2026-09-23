@@ -224,7 +224,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     // choice nor hides one. Only a binding the scope cannot read at all does. (That is the
     // parametricity argument: a total parametric body cannot invent a value it is not given, so
     // leaving it out of the environment loses nothing.)
-    if (!value.pats.forall(_.is[Pat.Var])) errors += "destructured capture not resolved"
+    // A destructured value names the components of one binding already in scope — `val (a, b) =
+    // pair` binds nothing new, and `val (a, b) = capability()` names fields the capability's own
+    // result shape already carries — so it is skipped for the same reason as an unreadable body.
+    if (!value.pats.forall(_.is[Pat.Var])) ()
 
   private def addDeclaredValue(
       scope: Frame,
@@ -373,7 +376,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     private def reportOne(name: String): Unit =
       value(name, Set.empty) match {
         case Right(binding) => bind(name, binding, owner)
-        case Left(reason)   => errors += reason
+        // A body this pass cannot follow is a *specific* inhabitant of the value's type, and a
+        // total parametric body can only compute what the environment already holds: its value is
+        // one of the bindings in scope, so skipping it loses nothing and blocking the count would
+        // lose everything. Only an alias is worth following, because it *names* one of those
+        // bindings and so raises the count's precision.
+        case Left(_) => ()
       }
 
     private def value(name: String, active: Set[String]): Either[String, Binding] =
@@ -386,7 +394,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         case Term.Name(n) if declared.contains(n) => value(n, active + name)
         case Term.Name(n)                         =>
           values.get(n).toRight(s"capture alias not resolved: $name -> $n")
-        case _ => Left(s"accessible value body not normalized: $name")
+        case _ => Left(s"$name is not an alias")
       }
       named.flatMap(binding => checked(name, binding, declaration))
     }

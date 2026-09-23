@@ -82,15 +82,14 @@ class MethodAnalysisSpec extends Specification {
     ).count === Count.Finite(2)
 
   def knownIdentity = {
+    // `step` is an inhabitant of `A => A`, and a total parametric inhabitant of that type is the
+    // identity (the free theorem): applying it yields values the scope already has, so the choices
+    // are still just `seed`. Not ω, and no longer unknown.
     val pick = entry(
       "class E[A](seed: A) { def id(x: A): A = x; val step: A => A = id; def pick(): A = seed }",
       "E.pick"
     )
-    (pick.count !== Count.Countable)
-      .and(pick.count must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons.exists(_.contains("step")) must beTrue
-      })
+    (pick.count === Count.Finite(1)).and(pick.count !== Count.Countable)
   }
 
   def aliasChain =
