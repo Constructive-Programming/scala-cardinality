@@ -140,34 +140,14 @@ object MethodAnalysis {
     // definition opens, its binders, and the parameters it takes.
     private def index(input: String, frame: Frame): Unit =
       frame.stats.foreach {
-        case p: Pkg        => indexPackage(input, frame, p)
-        case p: Pkg.Object => indexPackageObject(input, frame, p)
-        case d: Defn.Type  => named(d.name.value, d, frame)
-        case d: Decl.Type  => named(d.name.value, d, frame)
-        case d: Defn.Class => indexClass(input, frame, d)
-        case d: Defn.Trait =>
-          indexTemplate(
-            input,
-            frame,
-            d,
-            d.name.value,
-            d.templ.body.stats,
-            d.tparamClause.values,
-            d.ctor.paramClauses.toList.flatMap(_.values),
-            d.templ.inits
-          )
-        case d: Defn.Object => indexObject(input, frame, d)
-        case d: Defn.Enum   =>
-          indexTemplate(
-            input,
-            frame,
-            d,
-            d.name.value,
-            d.templ.body.stats,
-            d.tparamClause.values,
-            d.ctor.paramClauses.toList.flatMap(_.values),
-            d.templ.inits
-          )
+        case p: Pkg                 => indexPackage(input, frame, p)
+        case p: Pkg.Object          => indexPackageObject(input, frame, p)
+        case d: Defn.Type           => named(d.name.value, d, frame)
+        case d: Decl.Type           => named(d.name.value, d, frame)
+        case d: Defn.Class          => indexClass(input, frame, d)
+        case d: Defn.Trait          => indexTemplate(input, frame, templateOf(d))
+        case d: Defn.Object         => indexObject(input, frame, d)
+        case d: Defn.Enum           => indexTemplate(input, frame, templateOf(d))
         case d: Defn.Given          => indexGiven(input, frame, d)
         case d: Defn.ExtensionGroup => indexExtension(input, frame, d)
         case d: Defn.Def            =>
@@ -208,16 +188,7 @@ object MethodAnalysis {
 
     private def indexClass(input: String, frame: Frame, d: Defn.Class): Unit = {
       named(d.name.value, d, frame)
-      val nested = indexTemplate(
-        input,
-        frame,
-        d,
-        d.name.value,
-        d.templ.body.stats,
-        d.tparamClause.values,
-        d.ctor.paramClauses.toList.flatMap(_.values),
-        d.templ.inits
-      )
+      val nested = indexTemplate(input, frame, templateOf(d))
       if (!d.mods.exists(_.is[Mod.Abstract]))
         // A constructor's inputs are available when choosing its output fields. The instance and
         // its members do not exist yet, so they are not constructor captures.
@@ -233,20 +204,60 @@ object MethodAnalysis {
     }
 
     // A template is the body a definition opens, with its own binders and constructor inputs.
-    private def indexTemplate(
-        input: String,
-        frame: Frame,
+    private case class Template(
         node: Tree,
         name: String,
         stats: List[Stat],
-        tparams: List[Type.Param],
-        params: List[Term.Param],
-        parents: List[Init]
-    ): Frame = {
-      val nested = child(input, node, name, frame, stats, tparams, params, parents = parents)
+        tparams: List[Type.Param] = Nil,
+        params: List[Term.Param] = Nil,
+        parents: List[Init] = Nil
+    )
+
+    private def indexTemplate(input: String, frame: Frame, template: Template): Frame = {
+      val nested = child(
+        input,
+        template.node,
+        template.name,
+        frame,
+        template.stats,
+        template.tparams,
+        template.params,
+        parents = template.parents
+      )
       index(input, nested)
       nested
     }
+
+    private def templateOf(d: Defn.Class | Defn.Trait | Defn.Enum): Template =
+      d match {
+        case c: Defn.Class =>
+          Template(
+            c,
+            c.name.value,
+            c.templ.body.stats,
+            c.tparamClause.values,
+            c.ctor.paramClauses.toList.flatMap(_.values),
+            c.templ.inits
+          )
+        case t: Defn.Trait =>
+          Template(
+            t,
+            t.name.value,
+            t.templ.body.stats,
+            t.tparamClause.values,
+            t.ctor.paramClauses.toList.flatMap(_.values),
+            t.templ.inits
+          )
+        case e: Defn.Enum =>
+          Template(
+            e,
+            e.name.value,
+            e.templ.body.stats,
+            e.tparamClause.values,
+            e.ctor.paramClauses.toList.flatMap(_.values),
+            e.templ.inits
+          )
+      }
 
     private def indexObject(input: String, frame: Frame, d: Defn.Object): Unit = {
       val module =
