@@ -21,7 +21,7 @@ class ReportSpec extends Specification {
       values inside a body add nothing          $bodyValues
       unresolved names are the reason           $unresolved
       a definition resolves inside its body     $enclosing
-      a forward reference stays unknown         $forward
+      a forward reference resolves through the body  $forward
       entry points size one node at a time      $entryPoints
       package objects qualify their members     $packageObjects
       enum bodies contribute their cases        $enumBodies
@@ -239,21 +239,30 @@ class ReportSpec extends Specification {
            |""".stripMargin,
     )
     val rendered = Report.of(List(root)).render
-    val table = rendered.linesIterator.toList.dropWhile(_.nonEmpty).drop(1)
+    val table = rendered.linesIterator.toList
+      .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
+      .drop(2)
+    // What the calculator could not bound leads the table — `Huge` (the unresolved `String`) and
+    // `Partial` (the unresolved `A`) — then the bounded sizes from the largest down: the countable
+    // `Many`, the lossy `Lossy`, the capacity `Big`, and the empty `Zero` last. A size whose tier
+    // is known is not a question: `Many` is ω exactly.
     (table(0) must contain("Huge"))
-      .and(table(1) must contain("Many"))
-      .and(table(2) must contain("Partial"))
+      .and(table(1) must contain("Partial"))
+      .and(table(2) must contain("Many"))
       .and(table(3) must contain("Lossy"))
       .and(table(4) must contain("Big"))
       .and(table(5) must contain("Zero"))
+      .and(table(0) must contain("?"))
+      .and(table(1) must contain("?"))
+      .and(table(2) must contain("ω"))
       .and(rendered must contain("1 with no values"))
-      .and(rendered must contain("generic: 1 of the unbounded"))
   }
 
   def empty = {
     val rendered = Report.of(Nil).render
     rendered === """scala-cardinality — 0 sources, 0 definitions
-                  |  sizes: exact counts, 2^n bounds above, ω countable, ε₀ the tier beyond""".stripMargin
+                  |  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+                  |  ?: unresolved, not a proof of infinity; opaque representations are not singletons""".stripMargin
   }
 
   def renders = {
@@ -267,18 +276,20 @@ class ReportSpec extends Specification {
            |type Flag = Boolean
            |""".stripMargin,
     )
-    val lines = Report.of(List(root)).render.linesIterator.toList
-    (lines.head === "scala-cardinality — 1 source, 5 definitions")
-      .and(lines(1) === "  sizes: exact counts, 2^n bounds above, ω countable, ε₀ the tier beyond")
-      .and(lines(2) === "  1 unresolved · 2 with more than one value · 1 with one value · 1 abstract")
-      .and(lines(3) === "  generic: 1 of the unresolved depend on their own type parameters")
-      .and(lines(4) === "")
-      .and(lines(5) must contain("p.Box[A]"))
-      .and(lines(5) must contain("unbounded by: A"))
-      .and(lines(5) must contain("Types.scala:4"))
-      .and(lines(6) must not(contain("unbounded by")))
-      .and(lines.last must contain("abstract"))
-      .and(lines.last must not(contain("unbounded by")))
+    val rendered = Report.of(List(root)).render
+    val lines = rendered.linesIterator.toList
+    val estimate = lines
+      .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
+      .drop(2)
+    (lines.head === "Generic method / constructor implementation cardinalities")
+      .and(rendered must contain("scala-cardinality — 1 source, 5 definitions"))
+      .and(rendered must contain("stored-value estimates: constructor inputs only"))
+      .and(rendered must contain("1  p.Box.<init>  Box[A](a: A)  Types.scala:4  [constructor]"))
+      .and(estimate(0) must contain("?  p.Box[A]"))
+      .and(estimate(0) must contain("Types.scala:4"))
+      .and(estimate(0) must contain("unresolved: A"))
+      .and(estimate.last must contain("abstract"))
+      .and(estimate.last must not(contain("unresolved:")))
   }
 
 }

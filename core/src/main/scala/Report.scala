@@ -19,28 +19,26 @@ final case class Report(sources: List[Report.Source], errors: List[Report.Error]
 
   def definitions: List[Definition] = sources.flatMap(_.definitions)
 
-  /** The report as it reads: what was measured, one line per definition ordered by how many values
-    * it holds, and the sources that could not be read.
+  def methods: List[MethodAnalysis.Entry] = sources.flatMap(_.methods)
+
+  /** The report as it reads: the generic method and constructor implementation cardinalities, then
+    * the stored-value estimate over the definitions a source introduces.
+    *
+    * They answer different questions. A method's number is how many canonical pure, total,
+    * parametric implementations its signature admits with everything in scope; a definition's is
+    * how many values its constructor parameters can hold, the estimate this calculator carried
+    * before method counts existed. Neither is a proof of infinity: what the analysis could not
+    * bound is `?`, with the reason.
     */
-  def render: String = {
-    val rows = sources
-      .flatMap(source => source.definitions.map(definition => (source, definition)))
-      .sortBy(row => Report.order(row._2))
-      .map(Report.row)
-    val columns = List(
-      rows.map(_._1.length).maxOption.getOrElse(0),
-      rows.map(_._2.length).maxOption.getOrElse(0),
-      rows.map(_._3.length).maxOption.getOrElse(0),
-    )
-    val table = rows.map {
-      case (size, name, kind, location, unbounded) =>
-        val row =
-          s"${Report.padded(size, columns(0))}  ${Report.padded(name, columns(1))}  ${Report.padded(kind, columns(2))}  $location"
-        if (unbounded.isEmpty) row else s"$row  unbounded by: $unbounded"
-    }
-    (Report.summary(this) ++ errors.map(Report.failed) ++ (if (table.isEmpty) Nil else "" :: table))
-      .mkString("\n")
-  }
+  def render: String =
+    (Report.methods(models) ++ Report.summary(this) ++ Report.estimate(this) ++
+      errors.map(Report.failed)).mkString("\n")
+
+  // The method and constructor rows, ordered by file so a reader can walk the sources.
+  private def models: List[(Report.Source, MethodAnalysis.Entry)] =
+    sources
+      .flatMap(source => source.methods.map(method => (source, method)))
+      .sortBy(entry => (entry._1.path, entry._2.line, entry._2.name))
 
 }
 
@@ -49,7 +47,11 @@ object Report {
   /** One Scala source the report read: where it was read from — a file, or an entry of a sources
     * jar — and the definitions it introduces.
     */
-  final case class Source(path: String, definitions: List[Definition])
+  final case class Source(
+      path: String,
+      definitions: List[Definition],
+      methods: List[MethodAnalysis.Entry] = Nil
+  )
 
   /** A source the report could not read or parse, and what went wrong. */
   final case class Error(path: String, message: String)
@@ -58,25 +60,29 @@ object Report {
     * as the `-sources.jar` a library publishes — and measures the definitions it finds.
     */
   def of(paths: Seq[Path]): Report = {
-    val parsed = paths.toList.distinct.flatMap { path =>
+    val parsed: List[Either[Error, MethodAnalysis.Input]] = paths.toList.distinct.flatMap { path =>
       read(path) match {
-        case Left(error)  => List((None, Some(error)))
+        case Left(error)  => List(Left(error))
         case Right(found) => found.map(parse)
       }
     }
+    val inputs = parsed.collect { case Right(input) => input }
+    val methods = MethodAnalysis.analyze(inputs).groupBy(_.path)
     Report(
-      parsed.collect { case (Some(source), _) => source },
-      parsed.collect { case (_, Some(error)) => error }
+      inputs.map(input =>
+        Source(input.path, Counter.definitions(input.tree), methods.getOrElse(input.path, Nil))
+      ),
+      parsed.collect { case Left(error) => error }
     )
   }
 
   // Parses one source, and reports either what it defines or what stopped the parser.
-  private def parse(source: (String, String)): (Option[Source], Option[Error]) = {
+  private def parse(source: (String, String)): Either[Error, MethodAnalysis.Input] = {
     val (path, text) = source
     dialects.Scala3(text).parse[ScalaSource].toEither match {
-      case Right(tree) => (Some(Source(path, Counter.definitions(tree))), None)
+      case Right(tree) => Right(MethodAnalysis.Input(path, tree))
       case Left(error) =>
-        (None, Some(Error(path, s"${error.message} (line ${error.pos.startLine + 1})")))
+        Left(Error(path, s"${error.message} (line ${error.pos.startLine + 1})"))
     }
   }
 
@@ -125,24 +131,21 @@ object Report {
 
   private def isScala(name: String): Boolean = name.endsWith(".scala")
 
-  // What was measured: how many sources, how many definitions, how those fall out by size, and
-  // how many of the unresolved ones are generic — a definition whose own type parameters are
-  // among the names the calculator could not bound has a size that depends on what it is
-  // instantiated with, which is the usual reason a library's types are unresolved.
+  // What the report says, above the table: what was measured, what the sizes mean, and that a
+  // question mark is an unresolved name rather than a proof of infinity. The stored-value estimate
+  // stays separate from the implementation counts the method section gives.
   private def summary(report: Report): List[String] = {
     val definitions = report.definitions
     val counts = SizeClass.order.flatMap { sizeClass =>
       val count = definitions.count(definition => SizeClass(definition) == sizeClass)
       if (count == 0) Nil else List(s"$count ${sizeClass.label}")
     }
-    val generic = definitions.count(genericUnresolved)
     List(
       s"scala-cardinality — ${plural(report.sources.size, "source")}, ${plural(definitions.size, "definition")}",
-      "  sizes: exact counts, 2^n bounds above, ω countable, ε₀ the tier beyond",
+      "  stored-value estimates: constructor inputs only; finite capacities are upper bounds",
+      "  ?: unresolved, not a proof of infinity; opaque representations are not singletons",
     ) ++
-      (if (counts.isEmpty) Nil else List(s"  ${counts.mkString(" · ")}")) ++
-      (if (generic == 0) Nil
-       else List(s"  generic: $generic of the unresolved depend on their own type parameters"))
+      (if (counts.isEmpty) Nil else List(s"  ${counts.mkString(" · ")}"))
   }
 
   private def plural(count: Int, noun: String): String =
@@ -156,17 +159,76 @@ object Report {
   private def unresolved(definition: Definition): Boolean =
     definition.unresolved.nonEmpty || definition.kind == Definition.Kind.Opaque
 
-  private def genericUnresolved(definition: Definition): Boolean =
-    SizeClass(definition) == SizeClass.Unresolved && definition.params.exists(
-      definition.unresolved.contains
-    )
+  // The generic method and constructor counts, with what stands between the report and a number
+  // for the rest: the triage list a reader works down.
+  private def methods(models: List[(Source, MethodAnalysis.Entry)]): List[String] = {
+    import Inhabitation.Count
+    if (models.isEmpty) Nil
+    else {
+      val entries = models.map(_._2)
+      val finite = entries.count(_.count.isInstanceOf[Count.Finite])
+      val countable = entries.count(_.count == Count.Countable)
+      val unresolved = entries.size - finite - countable
+      val blocking = entries
+        .flatMap(entry =>
+          entry.count match {
+            case Count.Unresolved(reasons) => reasons.map(reason => entry -> reason)
+            case _                         => Nil
+          }
+        )
+        .groupBy { case (_, reason) => reason.split(':').head }
+        .toList
+        .map { case (kind, blocked) => (blocked.map(_._1).distinct.size, kind) }
+        .sortBy { case (count, kind) => (-count, kind) }
+        .map { case (count, kind) => s"  $count unresolved on: $kind" }
+      val rows = models.flatMap {
+        case (source, entry) =>
+          List(
+            s"${entry.count.render}  ${entry.name}  ${entry.signature}  ${fileName(source.path)}:${entry.line}  [${entry.kind}]"
+          ) ++
+            (if (entry.captures.isEmpty) Nil
+             else List(s"    captures: ${entry.captures.mkString(", ")}")) ++
+            (entry.count match {
+              case Count.Unresolved(reasons) => reasons.map(reason => s"    unresolved: $reason")
+              case _                         => Nil
+            })
+      }
+      List(
+        "Generic method / constructor implementation cardinalities",
+        s"  ${plural(entries.size, "signature")}: $finite finite · $countable countably infinite · $unresolved unresolved",
+      ) ++ blocking ++ List("") ++ rows
+    }
+  }
+
+  // The stored-value estimate over the definitions a source introduces, ordered by cardinality.
+  private def estimate(report: Report): List[String] = {
+    val rows = report.sources
+      .flatMap(source => source.definitions.map(definition => (source, definition)))
+      .sortBy(entry => order(entry._2))
+      .map(row)
+    if (rows.isEmpty) Nil
+    else {
+      val widths = List(
+        rows.map(_._1.length).maxOption.getOrElse(0),
+        rows.map(_._2.length).maxOption.getOrElse(0),
+        rows.map(_._3.length).maxOption.getOrElse(0),
+      )
+      val table = rows.map {
+        case (size, name, kind, location, unresolved) =>
+          val line =
+            s"${padded(size, widths(0))}  ${padded(name, widths(1))}  ${padded(kind, widths(2))}  $location"
+          if (unresolved.isEmpty) line else s"$line  unresolved: $unresolved"
+      }
+      List("Stored-value estimates (constructor inputs; `?` = unresolved)", "") ++ table
+    }
+  }
 
   private def failed(error: Error): String = s"  could not read ${error.path}: ${error.message}"
 
   private def row(entry: (Source, Definition)): (String, String, String, String, String) = {
     val (source, definition) = entry
     (
-      definition.size.fold("—")(_.render),
+      if (unresolved(definition)) "?" else definition.size.fold("—")(_.render),
       Definition.signature(definition),
       definition.kind.toString.toLowerCase,
       s"${fileName(source.path)}:${definition.line}",
