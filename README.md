@@ -73,9 +73,10 @@ of being compiled from the pages.
 
 CI renders the site on every pull request (`ci.yml`, "Documentation site" job, artifact
 `docs-site`), and [deploy-site.yml](.github/workflows/deploy-site.yml) publishes it to
-Cloudflare Pages — a preview per pull request, production on `v*` tags — once the
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist together with the
-`scala-cardinality-docs` Pages project. Until then that workflow skips with a notice.
+GitHub Pages from the `gh-pages` branch, the way the organisation website does: every
+push to `main` updates <https://constructive-programming.github.io/scala-cardinality/>,
+and every pull request gets a preview under `pr-preview/pr-<number>/`, linked from a PR
+comment and removed when the PR closes.
 
 ## Quality toolchain
 
