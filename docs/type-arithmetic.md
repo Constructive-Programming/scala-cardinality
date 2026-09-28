@@ -37,12 +37,12 @@ Important boundaries:
 
 | Type or construction | Cardinality | Reason |
 | --- | --- | --- |
-| `Nothing` (Haskell `Void`) | `0` | No total values |
+| `Nothing` | `0` | No total values |
 | `Unit`, `EmptyTuple`, a singleton | `1` | One value |
 | `Boolean` | `2` | `false` or `true` |
 | `Byte`; `Short` or `Char`; `Int`; `Long` | `2^8`; `2^16`; `2^32`; `2^64` | Fixed-width integral values |
 | `Either[A, B]` | `a + b` | Disjoint, tagged alternatives |
-| `Option[A]` (Haskell `Maybe`) | `1 + a` | `None` plus each `Some(a)` |
+| `Option[A]` | `1 + a` | `None` plus each `Some(a)` |
 | `(A, B)` | `a * b` | Independent choices of both fields |
 | `(A, B, C)` | `a * b * c` | Extend the product to all fields |
 | ADT with constructors `Cᵢ(fieldsᵢ)` | `Σᵢ Πⱼ \|fieldᵢⱼ\|` | Sum of constructor products |
@@ -86,13 +86,17 @@ The zero and one rules are essential, not exceptional failures:
 
 ```text
 |A => Unit|    = 1^a = 1
-|Nothing => B| = b^0 = 1       including 0^0 = 1
+|Nothing => B| = 0             including 0^0 = 0
 |A => Nothing| = 0^a = 0       when a > 0
 |Unit => B|    = b^1 = b
 ```
 
-There is exactly one empty function, including `Nothing => Nothing`; no inputs
-exist on which two implementations could differ.
+The empty-domain rule departs from set-theoretic arithmetic, where `b^0 = 1`
+counts the single empty function. Scala is eager: applying a function evaluates
+its argument first, and no argument of type `Nothing` can ever be evaluated. A
+function from `Nothing` can therefore never run, so it contributes no values,
+`Nothing => Nothing` included. This applies to function types only: `Set[Nothing]`
+and `Map[Nothing, V]` still hold their one empty value.
 
 Normalize function types with these isomorphisms:
 
@@ -134,8 +138,9 @@ For a **finite** element type with `a` values:
 |Set[A]|  = Σₖ choose(a, k) = 2^a
 ```
 
-Sets ignore order and repeated elements. Equivalently, a subset is represented
-by its membership predicate `A => Boolean`. Thus `Set[Nothing]`, `Set[Unit]`,
+Sets ignore order and repeated elements. For a nonempty `A`, a subset is
+equivalently represented by its membership predicate `A => Boolean`; for
+`Nothing` the empty set still exists while the predicate does not (§3). Thus `Set[Nothing]`, `Set[Unit]`,
 `Set[Boolean]`, and `Set[Option[Boolean]]` have `1`, `2`, `4`, and `8` values.
 These are abstract sets with observational equality, not object-identity-based
 sets.
@@ -169,16 +174,19 @@ specified before reusing the same exponentiation operation.
 
 ## 5. Negation and inhabitance
 
-Let `Not[A] = A => Nothing`. Negation only records whether `A` is inhabited:
+Let `Not[A] = A => Nothing`. With the eager empty-domain rule of §3, negation
+is uninhabited for every `A`:
 
 | Condition | Cardinality of `Not[A]` | Cardinality of `Not[Not[A]]` |
 | --- | --- | --- |
-| `a = 0` | `1` | `0` |
-| `a > 0` | `0` | `1` |
+| `a = 0` | `0` (empty domain) | `0` (empty domain) |
+| `a > 0` | `0` (no result) | `0` (empty domain) |
 
-Double negation detects **nonemptiness**, not cardinality. In particular,
-`Not[Not[Boolean]]` has one inhabitant, not two. These tests are useful when
-deciding whether a recursive constructor can produce any finite value.
+So negation does not detect inhabitance here: `Not[Not[Boolean]]` has no
+inhabitants, and neither does `Not[Not[Nothing]]`. The set-theoretic reading,
+where `0^0 = 1` makes double negation `1` exactly for nonempty `A`, is
+deliberately not the model. Decide whether a recursive constructor can produce a
+finite value with the fixed-point rule of §8 instead.
 
 ## 6. Universal quantification and Yoneda
 
@@ -230,10 +238,10 @@ uses the article's `∀` notation; the Scala 3 spelling of `∀ A. A => A` is `[
 | `∀ A B. (A => B) => B => A => B` | `2` | Apply the function or return the supplied `B` |
 | `∀ A B C. (A => B) => B => A => C` | `0` | Cannot manufacture `C` |
 | `∀ A. (Nothing => A) => A => Nothing` | `0` | Cannot manufacture `Nothing` |
-| `∀ A B. ((A => Nothing, B)) => (Boolean, B)` | `2` | Choose a Boolean and preserve `B` |
+| `∀ A B. ((A => Nothing, B)) => (Boolean, B)` | `0` | `A => Nothing` is empty for every `A` (§5) |
 | `∀ A. (A => Nothing) => Nothing` | `0` | No universally available `A` |
-| `∀ A. (A => Nothing) => A => Nothing` | `1` | Apply the supplied contradiction |
-| `∀ A. ((A => Nothing, A => Nothing)) => (A => Nothing)` | `1` | The two apparent choices are indistinguishable |
+| `∀ A. (A => Nothing) => A => Nothing` | `0` | No contradiction can be supplied (§5) |
+| `∀ A. ((A => Nothing, A => Nothing)) => (A => Nothing)` | `0` | Neither can a pair of them |
 | `∀ A. Option[A] => Option[A]` | `2` | Identity or always `None` |
 | `∀ A B. (A => B) => Option[A] => Option[B]` | `2` | Ordinary map or always `None` |
 

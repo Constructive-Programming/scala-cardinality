@@ -57,7 +57,7 @@ class CardinalitySpec extends Specification {
     Boolean => Boolean                       ${tpe("Boolean => Boolean") === TinySize(4)}
     Boolean => Unit                          ${tpe("Boolean => Unit") === UnitSize}
     Unit => Boolean                          ${tpe("Unit => Boolean") === BooleanSize}
-    Nothing => Boolean                       ${tpe("Nothing => Boolean") === UnitSize}
+    Nothing => Boolean                       ${tpe("Nothing => Boolean") === NothingSize}
     Boolean => Nothing                       ${tpe("Boolean => Nothing") === NothingSize}
     (Boolean, Boolean) => Boolean            ${tpe("(Boolean, Boolean) => Boolean") === TinySize(
       16

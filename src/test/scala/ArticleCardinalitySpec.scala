@@ -74,14 +74,14 @@ class ArticleCardinalitySpec extends Specification {
     two Boolean args, a four-way sum         ${tpe(
       "Boolean => Boolean => Either[Boolean, Boolean] => Boolean"
     ) === FiniteSize(16)} (2^16)
-    an empty domain leaves one function      ${tpe("Nothing => Boolean") === UnitSize}
-    including into Nothing (0^0)             ${tpe("Nothing => Nothing") === UnitSize}
+    an empty domain can never be applied     ${tpe("Nothing => Boolean") === NothingSize}
+    including into Nothing (0^0 = 0)         ${tpe("Nothing => Nothing") === NothingSize}
     a non-empty domain into Nothing          ${tpe("Int => Nothing") === NothingSize}
     a one-element domain                     ${tpe("Unit => Boolean") === BooleanSize}
     a Unit result collapses any domain       ${tpe("Boolean => Unit") === UnitSize}
     an unknown domain into Unit              ${tpe("String => Unit") === UnitSize}
     an unknown domain into Nothing           ${tpe("String => Nothing") === NothingSize}
-    an empty domain into an unknown          ${tpe("Nothing => String") === UnitSize}
+    an empty domain into an unknown          ${tpe("Nothing => String") === NothingSize}
     curried matches tupled                   ${tpe(
       "Boolean => Boolean => Boolean"
     ) === TinySize(16)}
@@ -99,9 +99,9 @@ class ArticleCardinalitySpec extends Specification {
     ) === TinySize(16)}
 
   Negation (section 5)
-    double negation of Boolean is a Unit     ${tpe(
+    double negation of Boolean is empty      ${tpe(
       "(Boolean => Nothing) => Nothing"
-    ) === UnitSize}
+    ) === NothingSize}
     double negation of Nothing is empty      ${tpe(
       "(Nothing => Nothing) => Nothing"
     ) === NothingSize}
@@ -162,9 +162,9 @@ class ArticleCardinalitySpec extends Specification {
       NothingSize,
       needsParametricity
     )}
-    pick a Boolean and keep B                ${target(
+    a negated argument empties the domain    ${target(
       tpe("[A, B] => ((A => Nothing, B)) => (Boolean, B)"),
-      BooleanSize,
+      NothingSize,
       needsParametricity
     )}
     no A is available for every A            ${target(
@@ -172,14 +172,14 @@ class ArticleCardinalitySpec extends Specification {
       NothingSize,
       needsParametricity
     )}
-    apply the supplied contradiction         ${target(
+    a contradiction can never be supplied    ${target(
       tpe("[A] => (A => Nothing) => A => Nothing"),
-      UnitSize,
+      NothingSize,
       needsParametricity
     )}
-    the two contradictions are one value     ${target(
+    nor can a pair of them                   ${target(
       tpe("[A] => ((A => Nothing, A => Nothing)) => (A => Nothing)"),
-      UnitSize,
+      NothingSize,
       needsParametricity
     )}
     Option's natural transformation          ${target(

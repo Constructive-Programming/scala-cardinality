@@ -124,9 +124,9 @@ object Counter {
     // Exponentials: a function type's cardinality is codomain ^ domain; multi-argument
     // and curried functions multiply/nest the same way. Context functions behave as functions.
     case Type.Function.After_4_6_0(Type.FuncParamClause(params), result) =>
-      typeIn(scope)(result).pow(domain(scope)(params))
+      arrow(typeIn(scope)(result), domain(scope)(params))
     case Type.ContextFunction.After_4_6_0(Type.FuncParamClause(params), result) =>
-      typeIn(scope)(result).pow(domain(scope)(params))
+      arrow(typeIn(scope)(result), domain(scope)(params))
 
     // Type constructors that add to the algebra: Option/Either (sums), Set (powerset),
     // and Map/PartialFunction (functions into an Option of the codomain).
@@ -143,6 +143,13 @@ object Counter {
     // ponytail: resolve sealed hierarchies when needed
     case _ => EffectiveOmega
   }
+
+  // `codomain ^ domain`, except that an empty domain gives 0 rather than the set-theoretic 1,
+  // `0^0` included. Scala is eager: a call evaluates its argument first, and no argument of an
+  // uninhabited type can be evaluated, so a function from one can never run. Only function
+  // types take this rule; `Set` and `Map` over `Nothing` still hold their one empty value.
+  private def arrow(codomain: Size, domain: Size): Size =
+    if (domain == NothingSize) NothingSize else codomain.pow(domain)
 
   // `Set` is the powerset (`2 ^ element`), and `Map`/`PartialFunction` are functions into
   // an Option of the codomain (`(|V| + 1) ^ |K|`). `Size.pow` already has the arithmetic
