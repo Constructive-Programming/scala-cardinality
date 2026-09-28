@@ -375,6 +375,7 @@ fields no longer need a base case.
 | Conaturals (`pred: => Option[CoNat]`) | `ν X. (1 + X)` | `ℵ₀`: every finite depth, plus one infinite one |
 | `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a` is finite and `>=1`; `τ` if `a=ℵ₀` |
 | Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; `ℵ₀` if `a` is finite and `>=2`; `τ` if `a=ℵ₀` |
+| Unfolding that branches per argument (`One(e: => E)`, `Two(i: Int => E)`) | `ν X. (X + (Int → X))` | `ℵ₀` under the §4 finite-program reading — a function field is also never demanded while constructing, so `lazy val e = One(Two(_ => e))` and per-`int` choices all unfold further |
 
 Compare the eager rows: `μ X. X` is `0` but `ν X. X` is `1`, and a stream without
 an end has no finite values at all. With `a>=2` an infinite stream is a function
@@ -444,6 +445,7 @@ it separates implemented rules from executable **targets**:
 | Recursive types (eager) with a base constructor | Asserted: productive recursion pinned at ℵ₀ |
 | Lazy (coinductive) recursion through a single recognized hole | Asserted: `νX.X` counts `1`, conatural `νX.(1+X)` ℵ₀, endless `νX.(2·X)` ℵ₀, `LazyList[String]` `τ` |
 | Lazy recursion with branching holes, or a hole nested past the recognized forms | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
+| Cycles continued through a function field (`D => X`, `D` inhabited), or labeled by a reference back into the cycle | Targets: derived `ℵ₀` (§8, §4 reading); only recognized lazy holes continue a cycle today |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at `ℵ₀` into a finite codomain and `τ` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |

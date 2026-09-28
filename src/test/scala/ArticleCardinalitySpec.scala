@@ -22,6 +22,12 @@ class ArticleCardinalitySpec extends Specification {
   private val needsSubtyping =
     "a union or intersection count needs overlap and subtyping information (section 2)"
 
+  private val needsFunctionFieldHoles =
+    "a cycle continued through an inhabited-domain function field (`Int => X`) needs hole recognition beyond the lazy-parameter forms of section 8"
+
+  private val needsCycleLabelFixpoint =
+    "a cycle whose non-hole fields refer back into it needs the per-lap label space as a self-referential fixpoint (section 8)"
+
   // The article's `data Foo = Bar | Baz Bool | Baf Int`: 1 + 2 + 2^32, which the size algebra
   // rounds up to a 33-bit capacity.
   private val adt = "enum Foo { case Bar; case Baz(b: Boolean); case Baf(i: Int) }"
@@ -205,6 +211,18 @@ class ArticleCardinalitySpec extends Specification {
     LazyList over a countable alphabet       ${tpe(
       "LazyList[String]"
     ) === EffectiveTau} (ℵ₀^ℵ₀)
+    a function field also unfolds the cycle  ${target(
+      src(
+        "sealed trait E; case class One(e: => E) extends E; case class Two(i: Int => E) extends E"
+      ),
+      EffectiveOmega,
+      needsFunctionFieldHoles
+    )}
+    a self-referring label still unfolds     ${target(
+      src("case class M3(m: => M3, o: Option[M3])"),
+      EffectiveOmega,
+      needsCycleLabelFixpoint
+    )}
     recursion without a seed                 ${target(
       tpe("[A] => (A => A) => A"),
       NothingSize,

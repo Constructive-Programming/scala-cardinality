@@ -214,15 +214,12 @@ class CardinalitySpec extends Specification {
     enum arms to different successors     ${src(
       "enum B8 { case X(t: => B8); case Y(t: => C8) }; case class C8(b: Boolean)"
     ) === EffectiveOmega} (the X arm makes μ productive already)
-    pass-through picks the continuing child  ${src(
-      "sealed trait E; case class One(e: => E) extends E; case class Two(i: Int => E) extends E"
-    ) === TinySize(2)}
+    only recognized holes continue the cycle  ${src(
+      "sealed trait E; case class One(e: => E) extends E; case class Void(n: Nothing) extends E"
+    ) === UnitSize} (the single One-tower; a Void sibling continues nothing)
     lazy cycle through a sealed abstract  ${src(
       "sealed abstract class Nxt(v: Boolean); case class Go(next: => Nxt) extends Nxt(true)"
     ) === UnitSize}
-    label referring into the cycle is skipped  ${src(
-      "case class M3(m: => M3, o: Option[M3])"
-    ) === NothingSize}
     a tail into another's cycle is no cycle  ${src(
       "case class Wrap(w: => Loop2); case class Loop2(next: => Loop2)"
     ) === TinySize(2)} (Wrap = Loop2 = 1 each)
