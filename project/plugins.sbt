@@ -17,3 +17,20 @@ addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.4.4")
 // so it runs on demand and at release via `mutationAll`, never as a per-PR
 // gate. Cross-cutting knobs live in `stryker4s.conf`.
 addSbtPlugin("io.stryker-mutator" % "sbt-stryker4s" % "1.1.1")
+
+// Documentation site. Laika renders the markdown in `docs/` into a static site with
+// its Helium theme; the `siteRender` task in build.sbt calls it, and `project/
+// SiteRenderer.scala` is the wiring. Laika runs inside the build JVM, like it does for
+// the sister project `eo`, which gets the whole pipeline (mdoc + Laika) from
+// `sbt-typelevel-site`.
+//
+// Two things are deliberately not used here:
+//   - `sbt-typelevel-site` and Laika's own sbt plugin, neither of which has an sbt 2 build.
+//   - `sbt-mdoc`, for compiling `scala mdoc` fences in the docs. It puts mdoc 2.13 and
+//     its `scalameta_2.13` on this project's classpath, and `Counter` depends on
+//     `scalameta_3`: same package names, different artifacts, so neither sbt nor a
+//     compiler classpath can hold both. Compiling docs examples needs either an mdoc
+//     release that follows scalameta's Scala 3 artifacts, or a separate build. Until
+//     then `docs/` examples are pinned by the test suite instead.
+libraryDependencies +=
+  "org.typelevel" %% "laika-io" % "1.3.2"
