@@ -26,6 +26,22 @@ class SizeSpec extends Specification {
     larger is antisymmetric for lossy sizes    ${FloatSize
       .larger(LongSize)
       .and(!LongSize.larger(FloatSize))}
+    tiny larger is irreflexive                   ${!TinySize(4).larger(TinySize(4))}
+    finite larger orders by bits                 ${IntSize
+      .larger(ByteSize)
+      .and(!ByteSize.larger(IntSize))
+      .and(!IntSize.larger(IntSize))}
+    finite is larger than tiny                   ${ByteSize.larger(BooleanSize)}
+    lossy larger is strict and irreflexive       ${DoubleSize
+      .larger(FloatSize)
+      .and(!FloatSize.larger(DoubleSize))
+      .and(!FloatSize.larger(FloatSize))}
+    lossy is not larger than omega               ${!FloatSize.larger(EffectiveOmega)}
+    lossy equality compares bits                 ${(FloatSize === FloatSize)
+      .and(FloatSize !== DoubleSize)}
+    tau larger is irreflexive                    ${!EffectiveTau.larger(EffectiveTau)}
+    tiny prints its cardinality                  ${TinySize(7).toString === "TinySize(7)"}
+    finite prints its bit width                  ${ByteSize.toString === "FiniteSize(8)"}
     tiny to a finite power terminates          ${(BooleanSize ^ IntSize) === FiniteSize(
       BigInt(1) << 32
     )}

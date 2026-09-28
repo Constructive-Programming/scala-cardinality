@@ -70,9 +70,9 @@ object Counter {
       .toSet
       .diff(defined)
     val subtypes = stats.collect {
-      case d: Defn.Class  => (d.name.value, d.templ.inits.map(_.name.syntax))
-      case d: Defn.Object => (d.name.value, d.templ.inits.map(_.name.syntax))
-      case d: Defn.Enum   => (d.name.value, d.templ.inits.map(_.name.syntax))
+      case d: Defn.Class  => (d.name.value, d.templ.inits.map(initParent))
+      case d: Defn.Object => (d.name.value, d.templ.inits.map(initParent))
+      case d: Defn.Enum   => (d.name.value, d.templ.inits.map(initParent))
     }
     sealedNames.iterator
       .map(parent =>
@@ -180,13 +180,13 @@ object Counter {
             }
       }
 
-    def walk(start: String, at: String, seen: Set[String], steps: Int): Option[Set[String]] =
+    def walk(start: String, at: String, seen: Set[String]): Option[Set[String]] =
       if (at == start) Some(seen)
-      else if (steps <= 0 || seen.contains(at)) None
-      else resolve(at).flatMap(next => walk(start, next, seen + at, steps - 1))
+      else if (seen.contains(at)) None
+      else resolve(at).flatMap(next => walk(start, next, seen + at))
 
     val cycles = edges.keys.toList
-      .flatMap(name => resolve(name).flatMap(next => walk(name, next, Set(name), edges.size)))
+      .flatMap(name => resolve(name).flatMap(next => walk(name, next, Set(name))))
       .distinct
       .map { members =>
         val passThrough =
@@ -241,7 +241,7 @@ object Counter {
         holed match {
           case Nil => None
           case (target, _, _) :: others
-              if others.forall(o => o._1 == target && o._2 == 1) && holed.forall(_._2 == 1) =>
+              if others.forall(_._1 == target) && holed.forall(_._2 == 1) =>
             Some(name -> (target, holed.size, holed.map(_._3)))
           case _ => None
         }
@@ -267,6 +267,14 @@ object Counter {
     case Type.Name(n)                 => n
     case Type.Select(_, Type.Name(n)) => n
     case _                            => ""
+  }
+
+  // The parent type of an `extends` clause: `Init`'s *name* field is the anonymous
+  // method-name slot, not the parent — the type is the first `Init` field. `extends S`,
+  // `extends S(1)` and `extends a.b.S` all yield `S`; anything shaped differently is
+  // ignored (""), matching no local name.
+  private def initParent: Init => String = {
+    case Init(tpe, _, _) => bareName(tpe)
   }
 
   // The per-lap label space of a cycle: every member contributes the sum over its hole

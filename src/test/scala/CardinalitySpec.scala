@@ -52,6 +52,7 @@ class CardinalitySpec extends Specification {
     true | false                             ${tpe("true | false") === BooleanSize}
     Boolean | Boolean (unions overlap)       ${tpe("Boolean | Boolean") === BooleanSize}
     Boolean & true                           ${tpe("Boolean & true") === UnitSize}
+    true & Boolean (min is the other side)   ${tpe("true & Boolean") === UnitSize}
 
   Exponentials
     Boolean => Boolean                       ${tpe("Boolean => Boolean") === TinySize(4)}
@@ -82,9 +83,15 @@ class CardinalitySpec extends Specification {
   Unbounded collections
     List[Boolean]                            ${tpe("List[Boolean]") === EffectiveOmega}
     List[Nothing] (only Nil)                 ${tpe("List[Nothing]") === UnitSize}
+    Vector[Nothing] (only empty)             ${tpe("Vector[Nothing]") === UnitSize}
+    Seq[Nothing] (only empty)                ${tpe("Seq[Nothing]") === UnitSize}
+    IndexedSeq[Nothing] (only empty)         ${tpe("IndexedSeq[Nothing]") === UnitSize}
+    Array[Nothing] (only empty)              ${tpe("Array[Nothing]") === UnitSize}
     Vector[Unit]                             ${tpe("Vector[Unit]") === EffectiveOmega}
     Array[Byte]                              ${tpe("Array[Byte]") === EffectiveOmega}
     Set[String] (finite subsets)             ${tpe("Set[String]") === EffectiveOmega}
+    Stream[Boolean] (countable)              ${tpe("Stream[Boolean]") === EffectiveOmega}
+    Stream[String] (infinite streams)        ${tpe("Stream[String]") === EffectiveTau}
 
   Classes and objects
     case class                               ${src(
@@ -132,6 +139,21 @@ class CardinalitySpec extends Specification {
     recursive ADT                            ${src(
       "sealed trait Nat; case object Zero extends Nat; case class Succ(n: Nat) extends Nat"
     ) === EffectiveOmega}
+    abstract class recursion stays unknown   ${src(
+      "abstract class Abs(n: Abs); case class Uses(a: Abs)"
+    ) === EffectiveOmega}
+    unsealed trait is not a sum              ${src(
+      "trait C2; case object R2 extends C2; case class P2(c: C2)"
+    ) === EffectiveOmega}
+    unsealed abstract parent is not a sum    ${src(
+      "abstract class B6(y: Boolean); case class S6(z: Boolean) extends B6(z); case class R6(b: B6)"
+    ) === EffectiveOmega}
+    sealed parent with abstract child        ${src(
+      "sealed trait Q; abstract class Qa(x: Boolean) extends Q; case class Qb(y: Boolean) extends Q; case class Uq(q: Q)"
+    ) === EffectiveOmega}
+    growth revival after settling is finite  ${src(
+      "case class X(o: Option[G], h: H); type G = A1; type A1 = A2; type A2 = A3; type A3 = A4; type A4 = Boolean; type H = Boolean"
+    ) === TinySize(6)} (grows twice, never in consecutive rounds)
     field of a type defined in the source    ${src(
       "enum Color { case Red, Green, Blue }; case class Pixel(c: Color, on: Boolean)"
     ) === TinySize(9)} (Color 3 + Pixel 6)
@@ -179,6 +201,21 @@ class CardinalitySpec extends Specification {
     ) === EffectiveOmega}
     branching holes stay at the μ under-count  ${src(
       "case class R(l: => R, r: => R)"
+    ) === NothingSize}
+    holes with different successors       ${src(
+      "case class B7(x: => B7, y: => C7); case class C7(z: Boolean)"
+    ) === TinySize(2)}
+    enum arms to different successors     ${src(
+      "enum B8 { case X(t: => B8); case Y(t: => C8) }; case class C8(b: Boolean)"
+    ) === EffectiveOmega} (the X arm makes μ productive already)
+    pass-through picks the continuing child  ${src(
+      "sealed trait E; case class One(e: => E) extends E; case class Two(i: Int => E) extends E"
+    ) === TinySize(2)}
+    lazy cycle through a sealed abstract  ${src(
+      "sealed abstract class Nxt(v: Boolean); case class Go(next: => Nxt) extends Nxt(true)"
+    ) === UnitSize}
+    label referring into the cycle is skipped  ${src(
+      "case class M3(m: => M3, o: Option[M3])"
     ) === NothingSize}
     strict stream still has no base            ${src(
       "case class S2(head: Boolean, tail: S2)"
