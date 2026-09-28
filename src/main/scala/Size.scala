@@ -48,7 +48,8 @@ sealed trait TinySize extends Size { self =>
     case f: FiniteSize if f.bits.isValidInt =>
       FiniteSize((BigInt(1) << f.bits.toInt) * Size.bits(BigInt(self.repr)))
     // A finite base to an infinite (or unrepresentably large) power stays countable: only
-    // what a finite program can produce is counted, and there are countably many of those.
+    // what a finite program can produce is counted. Only an infinite base to an infinite
+    // power reaches `EffectiveTau`.
     case _ => EffectiveOmega
   }
 
@@ -145,8 +146,7 @@ case object LongSize extends FiniteSize { val bits = 64 }
 case object FloatSize extends LossyInfiniteSize { val bits = 32 }
 case object DoubleSize extends LossyInfiniteSize { val bits = 64 }
 
-// Countable infinity, `ℵ₀`. Only what a finite program can produce is counted, so every infinite
-// result is countable and there is no uncountable size.
+// Countable infinity, `ℵ₀`.
 case object EffectiveOmega extends Size {
 
   def larger: Size => Boolean = {
@@ -154,16 +154,45 @@ case object EffectiveOmega extends Size {
     case _                           => false
   }
 
-  def add: Size => Size = _ => EffectiveOmega
+  def add: Size => Size = {
+    case EffectiveTau => EffectiveTau
+    case _            => EffectiveOmega
+  }
+
+  def mul: Size => Size = {
+    case NothingSize  => NothingSize
+    case EffectiveTau => EffectiveTau
+    case _            => EffectiveOmega
+  }
+
+  def pow: Size => Size = {
+    case NothingSize                 => UnitSize
+    case _: TinySize | _: FiniteSize => EffectiveOmega
+    case _                           => EffectiveTau
+  }
+
+}
+
+// `ℵ₀^ℵ₀`, the size of a function space whose domain and codomain are both infinite. Cardinal
+// arithmetic would make this `2^ℵ₀` and the finite-program reading `ℵ₀`; the calculator keeps
+// it one step above `EffectiveOmega` on purpose, so such spaces stay distinguishable.
+case object EffectiveTau extends Size {
+
+  def larger: Size => Boolean = {
+    case EffectiveTau => false
+    case _            => true
+  }
+
+  def add: Size => Size = _ => EffectiveTau
 
   def mul: Size => Size = {
     case NothingSize => NothingSize
-    case _           => EffectiveOmega
+    case _           => EffectiveTau
   }
 
   def pow: Size => Size = {
     case NothingSize => UnitSize
-    case _           => EffectiveOmega
+    case _           => EffectiveTau
   }
 
 }

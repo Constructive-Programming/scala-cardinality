@@ -31,10 +31,12 @@ Important boundaries:
   cardinality depends on their exposed operations and representation access.
 - Finite function spaces can be enumerated. For infinite types, distinguish all
   mathematical functions from functions expressible by finite programs; there
-  are only countably many finite programs. This page counts the latter, so every
-  infinite count is `ℵ₀`. That follows the constructivist approach of §3, and it
-  is the practical reality: a running program only ever holds values that some
-  finite program produced. Use this reading everywhere; do not switch silently.
+  are only countably many finite programs. This page counts the latter, so a
+  finite base over an infinite domain is `ℵ₀`. That follows the constructivist
+  approach of §3, and it is the practical reality: a running program only ever
+  holds values that some finite program produced. One step is kept above it:
+  `ℵ₀^ℵ₀`, a function space whose domain and codomain are both infinite, is `τ`
+  (§4). Use these readings everywhere; do not switch silently.
 
 ## 2. Base types, sums, and products
 
@@ -170,15 +172,19 @@ For infinite sets of values, cardinal arithmetic and this page part ways:
   full space of Boolean predicates, has `2^ℵ₀` values, strictly more than `ℵ₀`.
   So do `n^ℵ₀` for finite `n >= 2` and `ℵ₀^ℵ₀`.
 - This page counts only what a finite program can produce (§1), and there are
-  countably many of those. So `String => Boolean`, `String => String`, and every
-  other function space or powerset over a countably infinite type count `ℵ₀`.
+  countably many of those. So `String => Boolean`, and every other finite base
+  over a countably infinite domain, counts `ℵ₀`.
+- `ℵ₀^ℵ₀`, as in `String => String`, counts `τ`: one step above `ℵ₀`. This is a
+  deliberate distinction, not cardinal arithmetic (where `ℵ₀^ℵ₀ = n^ℵ₀ = 2^ℵ₀`)
+  nor the finite-program reading (where it is `ℵ₀`). It keeps
+  a function space between two infinite types apart from one into a finite type.
 - The **finite subsets** of a countably infinite type are countable under either
   reading; Scala's finite `Set[String]` is `ℵ₀`.
 - `ℵ₀^n = ℵ₀` for positive finite `n`, and finite sums/products of countable
   sets remain countable, apart from zero annihilating a product.
 
 The article's predicate/powerset shortcut is safe for finite element types. For
-infinite types the same exponentiation applies, with every infinite result `ℵ₀`.
+infinite types the same exponentiation applies, with the two rules above.
 
 ## 5. Negation and inhabitance
 
@@ -367,14 +373,13 @@ fields no longer need a base case.
 | --- | --- | --- |
 | Lazy wrapper that requires another (`next: => Loop`) | `ν X. X` | `1`: the value `lazy val l: Loop = Loop(l)` |
 | Conaturals (`pred: => Option[CoNat]`) | `ν X. (1 + X)` | `ℵ₀`: every finite depth, plus one infinite one |
-| `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a>=1` |
-| Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; `ℵ₀` if `a>=2` |
+| `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a` is finite and `>=1`; `τ` if `a=ℵ₀` |
+| Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; `ℵ₀` if `a` is finite and `>=2`; `τ` if `a=ℵ₀` |
 
 Compare the eager rows: `μ X. X` is `0` but `ν X. X` is `1`, and a stream without
 an end has no finite values at all. With `a>=2` an infinite stream is a function
-`ℕ => A`. Cardinal arithmetic gives `a^ℵ₀ = 2^ℵ₀`; this page counts only the
-streams a finite program can produce, which is `ℵ₀` (§1), the same reading as
-functions from infinite domains.
+`ℕ => A`, so it follows §4 exactly: `ℵ₀` for a finite `A` (only the streams a
+finite program can produce), `τ` for a countably infinite `A` (`ℵ₀^ℵ₀`).
 
 ## 9. Higher kinds and rank-N types
 
@@ -407,14 +412,15 @@ The current API and representation have important limits:
   and algebraically equal expressions can round differently. `FloatSize` and `DoubleSize`
   are lossy stand-ins for the real types, not consequences of the integral-width rules.
 - `EffectiveOmega` conflates unresolved and unsupported types, countable infinity, and some
-  very large finite results. A result that equals it is not by itself a mathematical result.
+  very large finite results; `EffectiveTau` (`τ`) is coarse in the same way. A result that
+  equals either marker is not by itself a mathematical result.
 - The traversal estimates unions by addition (deduplicating identical syntax only) and
   intersections by minimum, so it cannot see overlap or subtyping. It does not resolve
   forward references, generic definitions, or recursion, and its opaque-type singleton
   treatment is an approximation.
-- `Size.pow` reports every infinite result as `EffectiveOmega`, the finite-program reading of
-  §1 and §4, including those where cardinal arithmetic gives `2^ℵ₀`. There is no uncountable
-  size.
+- `Size.pow` reports a finite base over an infinite exponent as `EffectiveOmega`, the
+  finite-program reading of §1 and §4, and an infinite base over an infinite exponent as
+  `EffectiveTau`.
 
 [`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/src/test/scala/ArticleCardinalitySpec.scala)
 is the article-focused regression suite. Together with
@@ -431,7 +437,7 @@ it separates implemented rules from executable **targets**:
 | Recursive types with no base constructor | Pending: needs least-fixed-point analysis |
 | Lazy (coinductive) recursive types | Targets with nothing behind them yet; `LazyList` is counted like `List` today |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
-| Functions from countably infinite domains | Asserted at `ℵ₀`, the reading chosen in §1 |
+| Functions from countably infinite domains | Asserted at `ℵ₀` into a finite codomain and `τ` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |
 
 A pending example is a keyed expectation: it fails today, so specs2 reports it as pending and

@@ -16,10 +16,13 @@ class SizeSpec extends Specification {
     Nothing absorbs products                   ${(NothingSize * IntSize === NothingSize).and(
       EffectiveOmega * NothingSize === NothingSize
     )}
-    Omega times Omega is Omega                 ${EffectiveOmega * EffectiveOmega === EffectiveOmega}
+    Omega times Tau is Tau                     ${EffectiveOmega * EffectiveTau === EffectiveTau}
     Omega is larger than finite                ${EffectiveOmega
       .larger(IntSize)
       .and(!IntSize.larger(EffectiveOmega))}
+    Tau is larger than Omega                   ${EffectiveTau
+      .larger(EffectiveOmega)
+      .and(!EffectiveOmega.larger(EffectiveTau))}
     larger is antisymmetric for lossy sizes    ${FloatSize
       .larger(LongSize)
       .and(!LongSize.larger(FloatSize))}
@@ -27,7 +30,7 @@ class SizeSpec extends Specification {
       BigInt(1) << 32
     )}
     finite to an infinite power terminates     ${(IntSize ^ EffectiveOmega) === EffectiveOmega}
-    Omega to the Omega stays countable         ${(EffectiveOmega ^ EffectiveOmega) === EffectiveOmega}
+    Omega to the Tau terminates                ${(EffectiveOmega ^ EffectiveTau) === EffectiveTau}
     huge finite exponents become Omega         ${(IntSize ^ FiniteSize(
       BigInt(Int.MaxValue) + 1
     )) === EffectiveOmega}

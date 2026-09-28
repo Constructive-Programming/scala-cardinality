@@ -110,7 +110,7 @@ class ArticleCardinalitySpec extends Specification {
     Set[Option[Boolean]] is 2^3              ${tpe("Set[Option[Boolean]]") === TinySize(8)}
     finite subsets stay countable            ${tpe("Set[String]") === EffectiveOmega}
     a predicate on a countable domain        ${tpe("String => Boolean") === EffectiveOmega} (ℵ₀)
-    a function between countable types       ${tpe("String => String") === EffectiveOmega} (ℵ₀)
+    a function between countable types       ${tpe("String => String") === EffectiveTau} (ℵ₀^ℵ₀)
     List[Nothing] is only Nil                ${tpe("List[Nothing]") === UnitSize}
     List[Unit] is one list per length        ${tpe("List[Unit]") === EffectiveOmega}
     List[Boolean] is countable               ${tpe("List[Boolean]") === EffectiveOmega}
