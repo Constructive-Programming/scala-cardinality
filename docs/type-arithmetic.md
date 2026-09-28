@@ -95,8 +95,11 @@ The empty-domain rule departs from set-theoretic arithmetic, where `b^0 = 1`
 counts the single empty function. Scala is eager: applying a function evaluates
 its argument first, and no argument of type `Nothing` can ever be evaluated. A
 function from `Nothing` can therefore never run, so it contributes no values,
-`Nothing => Nothing` included. This applies to function types only: `Set[Nothing]`
-and `Map[Nothing, V]` still hold their one empty value.
+`Nothing => Nothing` included. This is a constructivist approach: a value counts
+only when it can be exhibited in use, and a function is exhibited only by
+applying it to an argument someone has actually constructed. This applies to
+function types only: `Set[Nothing]` and `Map[Nothing, V]` still hold their one
+empty value.
 
 Normalize function types with these isomorphisms:
 
@@ -185,7 +188,9 @@ is uninhabited for every `A`:
 So negation does not detect inhabitance here: `Not[Not[Boolean]]` has no
 inhabitants, and neither does `Not[Not[Nothing]]`. The set-theoretic reading,
 where `0^0 = 1` makes double negation `1` exactly for nonempty `A`, is
-deliberately not the model. Decide whether a recursive constructor can produce a
+deliberately not the model: under the constructivist approach of §3, a
+negation would have to be applied to a constructed `A` to be exhibited, and it
+has no result to give back. Decide whether a recursive constructor can produce a
 finite value with the fixed-point rule of §8 instead.
 
 ## 6. Universal quantification and Yoneda

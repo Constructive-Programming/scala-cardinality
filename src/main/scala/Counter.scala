@@ -145,9 +145,10 @@ object Counter {
   }
 
   // `codomain ^ domain`, except that an empty domain gives 0 rather than the set-theoretic 1,
-  // `0^0` included. Scala is eager: a call evaluates its argument first, and no argument of an
-  // uninhabited type can be evaluated, so a function from one can never run. Only function
-  // types take this rule; `Set` and `Map` over `Nothing` still hold their one empty value.
+  // `0^0` included. This is a constructivist approach: Scala is eager, a call evaluates its
+  // argument first, and no argument of an uninhabited type can be constructed, so a function
+  // from one can never run. Only function types take this rule; `Set` and `Map` over
+  // `Nothing` still hold their one empty value.
   private def arrow(codomain: Size, domain: Size): Size =
     if (domain == NothingSize) NothingSize else codomain.pow(domain)
 
