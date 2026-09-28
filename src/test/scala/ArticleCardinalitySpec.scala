@@ -25,9 +25,6 @@ class ArticleCardinalitySpec extends Specification {
   private val needsSubtyping =
     "a union or intersection count needs overlap and subtyping information (section 2)"
 
-  private val openFunctionSpace =
-    "the model for functions from infinite domains is an open decision (sections 1 and 4)"
-
   // The article's `data Foo = Bar | Baz Bool | Baf Int`: 1 + 2 + 2^32, which the size algebra
   // rounds up to a 33-bit capacity.
   private val adt = "enum Foo { case Bar; case Baz(b: Boolean); case Baf(i: Int) }"
@@ -112,6 +109,8 @@ class ArticleCardinalitySpec extends Specification {
     Set[Boolean] is a powerset               ${tpe("Set[Boolean]") === TinySize(4)}
     Set[Option[Boolean]] is 2^3              ${tpe("Set[Option[Boolean]]") === TinySize(8)}
     finite subsets stay countable            ${tpe("Set[String]") === EffectiveOmega}
+    a predicate on a countable domain        ${tpe("String => Boolean") === EffectiveOmega} (ℵ₀)
+    a function between countable types       ${tpe("String => String") === EffectiveOmega} (ℵ₀)
     List[Nothing] is only Nil                ${tpe("List[Nothing]") === UnitSize}
     List[Unit] is one list per length        ${tpe("List[Unit]") === EffectiveOmega}
     List[Boolean] is countable               ${tpe("List[Boolean]") === EffectiveOmega}
@@ -214,7 +213,7 @@ class ArticleCardinalitySpec extends Specification {
       "[A, B] => (A => B => A) => A => B => A"
     ) === EffectiveOmega} (the fallback is the right count for the wrong reason)
 
-  Targets (sections 2 and 4): overlap and infinite function spaces
+  Targets (section 2): overlap
     a union with an overlapping member       ${target(
       tpe("Boolean | true"),
       BooleanSize,
@@ -224,11 +223,6 @@ class ArticleCardinalitySpec extends Specification {
       tpe("Byte & Boolean"),
       NothingSize,
       needsSubtyping
-    )}
-    a predicate on a countable domain        ${target(
-      tpe("String => Boolean"),
-      EffectiveTau,
-      openFunctionSpace
     )}
   """
 

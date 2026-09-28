@@ -47,8 +47,8 @@ sealed trait TinySize extends Size { self =>
     case _ if self.repr <= 1                => self
     case f: FiniteSize if f.bits.isValidInt =>
       FiniteSize((BigInt(1) << f.bits.toInt) * Size.bits(BigInt(self.repr)))
-    // A finite base to an infinite (or unrepresentably large) power stays countable; only
-    // an infinite base to an infinite power is uncountable.
+    // A finite base to an infinite (or unrepresentably large) power stays countable: only
+    // what a finite program can produce is counted, and there are countably many of those.
     case _ => EffectiveOmega
   }
 
@@ -145,6 +145,8 @@ case object LongSize extends FiniteSize { val bits = 64 }
 case object FloatSize extends LossyInfiniteSize { val bits = 32 }
 case object DoubleSize extends LossyInfiniteSize { val bits = 64 }
 
+// Countable infinity, `ℵ₀`. Only what a finite program can produce is counted, so every infinite
+// result is countable and there is no uncountable size.
 case object EffectiveOmega extends Size {
 
   def larger: Size => Boolean = {
@@ -152,42 +154,16 @@ case object EffectiveOmega extends Size {
     case _                           => false
   }
 
-  def add: Size => Size = {
-    case EffectiveTau => EffectiveTau
-    case _            => EffectiveOmega
-  }
-
-  def mul: Size => Size = {
-    case NothingSize  => NothingSize
-    case EffectiveTau => EffectiveTau
-    case _            => EffectiveOmega
-  }
-
-  def pow: Size => Size = {
-    case NothingSize                 => UnitSize
-    case _: TinySize | _: FiniteSize => EffectiveOmega
-    case _                           => EffectiveTau
-  }
-
-}
-
-case object EffectiveTau extends Size {
-
-  def larger: Size => Boolean = {
-    case EffectiveTau => false
-    case _            => true
-  }
-
-  def add: Size => Size = _ => EffectiveTau
+  def add: Size => Size = _ => EffectiveOmega
 
   def mul: Size => Size = {
     case NothingSize => NothingSize
-    case _           => EffectiveTau
+    case _           => EffectiveOmega
   }
 
   def pow: Size => Size = {
     case NothingSize => UnitSize
-    case _           => EffectiveTau
+    case _           => EffectiveOmega
   }
 
 }

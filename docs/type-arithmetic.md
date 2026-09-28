@@ -31,7 +31,10 @@ Important boundaries:
   cardinality depends on their exposed operations and representation access.
 - Finite function spaces can be enumerated. For infinite types, distinguish all
   mathematical functions from functions expressible by finite programs; there
-  are only countably many finite programs. Do not switch interpretations silently.
+  are only countably many finite programs. This page counts the latter, so every
+  infinite count is `ℵ₀`. That follows the constructivist approach of §3, and it
+  is the practical reality: a running program only ever holds values that some
+  finite program produced. Use this reading everywhere; do not switch silently.
 
 ## 2. Base types, sums, and products
 
@@ -161,20 +164,21 @@ infinite (`ℵ₀`). This is a least-fixed-point/finite-value interpretation, no
 statement about potentially infinite lazy streams; those are greatest fixed points
 (§8).
 
-For infinite sets of values, distinguish:
+For infinite sets of values, cardinal arithmetic and this page part ways:
 
-- The full powerset of a countably infinite type has `2^ℵ₀` values, strictly more
-  than `ℵ₀`. So does its full space of Boolean predicates.
-- The **finite subsets** of a countably infinite type are only countable.
-  Scala's finite `Set[String]` should not be conflated with that full powerset.
-- A finite base `n >= 2` raised to `ℵ₀` is `2^ℵ₀`, not `ℵ₀`, in cardinal
-  arithmetic. Also `ℵ₀^ℵ₀ = 2^ℵ₀`; `ℵ₀^n = ℵ₀` for positive finite `n`.
-- Finite sums/products of countable sets remain countable, apart from zero
-  annihilating a product. Infinite exponentiation needs its own rules.
+- In cardinal arithmetic the full powerset of a countably infinite type, and its
+  full space of Boolean predicates, has `2^ℵ₀` values, strictly more than `ℵ₀`.
+  So do `n^ℵ₀` for finite `n >= 2` and `ℵ₀^ℵ₀`.
+- This page counts only what a finite program can produce (§1), and there are
+  countably many of those. So `String => Boolean`, `String => String`, and every
+  other function space or powerset over a countably infinite type count `ℵ₀`.
+- The **finite subsets** of a countably infinite type are countable under either
+  reading; Scala's finite `Set[String]` is `ℵ₀`.
+- `ℵ₀^n = ℵ₀` for positive finite `n`, and finite sums/products of countable
+  sets remain countable, apart from zero annihilating a product.
 
-The article's predicate/powerset shortcut is safe for finite element types.
-For infinite types, collection semantics and the chosen function model must be
-specified before reusing the same exponentiation operation.
+The article's predicate/powerset shortcut is safe for finite element types. For
+infinite types the same exponentiation applies, with every infinite result `ℵ₀`.
 
 ## 5. Negation and inhabitance
 
@@ -363,16 +367,14 @@ fields no longer need a base case.
 | --- | --- | --- |
 | Lazy wrapper that requires another (`next: => Loop`) | `ν X. X` | `1`: the value `lazy val l: Loop = Loop(l)` |
 | Conaturals (`pred: => Option[CoNat]`) | `ν X. (1 + X)` | `ℵ₀`: every finite depth, plus one infinite one |
-| `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a=1`; see below if `a>=2` |
-| Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; see below if `a>=2` |
+| `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a>=1` |
+| Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; `ℵ₀` if `a>=2` |
 
 Compare the eager rows: `μ X. X` is `0` but `ν X. X` is `1`, and a stream without
 an end has no finite values at all. With `a>=2` an infinite stream is a function
-`ℕ => A`, so its count is the open decision of §1 and §4: `a^ℵ₀ = 2^ℵ₀` if every
-mathematical stream counts, `ℵ₀` if only the streams a finite program can produce
-count. The constructivist approach of §3, which counts only what can be
-exhibited, points to `ℵ₀`, but the calculator must make the same choice for
-streams and for functions from infinite domains.
+`ℕ => A`. Cardinal arithmetic gives `a^ℵ₀ = 2^ℵ₀`; this page counts only the
+streams a finite program can produce, which is `ℵ₀` (§1), the same reading as
+functions from infinite domains.
 
 ## 9. Higher kinds and rank-N types
 
@@ -405,15 +407,14 @@ The current API and representation have important limits:
   and algebraically equal expressions can round differently. `FloatSize` and `DoubleSize`
   are lossy stand-ins for the real types, not consequences of the integral-width rules.
 - `EffectiveOmega` conflates unresolved and unsupported types, countable infinity, and some
-  very large finite results; `EffectiveTau` is coarse in the same way. A result that equals
-  either marker is not by itself a mathematical result.
+  very large finite results. A result that equals it is not by itself a mathematical result.
 - The traversal estimates unions by addition (deduplicating identical syntax only) and
   intersections by minimum, so it cannot see overlap or subtyping. It does not resolve
   forward references, generic definitions, or recursion, and its opaque-type singleton
   treatment is an approximation.
-- `Size.pow` keeps a finite base over an infinite exponent at `EffectiveOmega`, the
-  enumerable-values reading of §4, where pure cardinal arithmetic gives `2^ℵ₀`. Which reading
-  the calculator should report is an open decision, not something to change silently.
+- `Size.pow` reports every infinite result as `EffectiveOmega`, the finite-program reading of
+  §1 and §4, including those where cardinal arithmetic gives `2^ℵ₀`. There is no uncountable
+  size.
 
 [`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/src/test/scala/ArticleCardinalitySpec.scala)
 is the article-focused regression suite. Together with
@@ -430,7 +431,7 @@ it separates implemented rules from executable **targets**:
 | Recursive types with no base constructor | Pending: needs least-fixed-point analysis |
 | Lazy (coinductive) recursive types | Targets with nothing behind them yet; `LazyList` is counted like `List` today |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
-| Functions from countably infinite domains | Pending: the countable-versus-`2^ℵ₀` decision above |
+| Functions from countably infinite domains | Asserted at `ℵ₀`, the reading chosen in §1 |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |
 
 A pending example is a keyed expectation: it fails today, so specs2 reports it as pending and
@@ -442,9 +443,8 @@ also means "unresolved".
 
 Implementation priorities are: keep exact, approximate, and unknown results distinct; apply
 the finite algebra and the empty-type identities; resolve names and constructor structure;
-analyze recursive dependencies as least fixed points, or greatest ones through lazy positions; then add binding- and variance-aware
-polymorphic reductions. Keep full infinite function spaces separate from finite collections
-throughout.
+analyze recursive dependencies as least fixed points, or greatest ones through lazy
+positions; then add binding- and variance-aware polymorphic reductions.
 
 Run the focused regressions or the full suite with:
 
