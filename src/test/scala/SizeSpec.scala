@@ -39,6 +39,8 @@ class SizeSpec extends Specification {
     lossy is not larger than omega               ${!FloatSize.larger(EffectiveOmega)}
     lossy equality compares bits                 ${(FloatSize === FloatSize)
       .and(FloatSize !== DoubleSize)}
+    lossy never equals an exact width            ${(IntSize !== FloatSize)
+      .and(ByteSize !== DoubleSize)}
     tau larger is irreflexive                    ${!EffectiveTau.larger(EffectiveTau)}
     tiny prints its cardinality                  ${TinySize(7).toString === "TinySize(7)"}
     finite prints its bit width                  ${ByteSize.toString === "FiniteSize(8)"}

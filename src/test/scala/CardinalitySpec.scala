@@ -154,6 +154,12 @@ class CardinalitySpec extends Specification {
     growth revival after settling is finite  ${src(
       "case class X(o: Option[G], h: H); type G = A1; type A1 = A2; type A2 = A3; type A3 = A4; type A4 = Boolean; type H = Boolean"
     ) === TinySize(6)} (grows twice, never in consecutive rounds)
+    revival pinning is observable by a consumer  ${src(
+      "case class W2(x: X); case class X(o: Option[G], h: H); type G = A1; type A1 = A2; type A2 = A3; type A3 = A4; type A4 = Boolean; type H = Boolean"
+    ) === TinySize(12)} (W2 6 + X 6; the grewEver window must not pin revival growth)
+    abstract lazy arm gets no cycle          ${src(
+      "abstract class A9(n: => A9); case class Uses9(a: A9)"
+    ) === EffectiveOmega}
     field of a type defined in the source    ${src(
       "enum Color { case Red, Green, Blue }; case class Pixel(c: Color, on: Boolean)"
     ) === TinySize(9)} (Color 3 + Pixel 6)
@@ -217,6 +223,9 @@ class CardinalitySpec extends Specification {
     label referring into the cycle is skipped  ${src(
       "case class M3(m: => M3, o: Option[M3])"
     ) === NothingSize}
+    a tail into another's cycle is no cycle  ${src(
+      "case class Wrap(w: => Loop2); case class Loop2(next: => Loop2)"
+    ) === TinySize(2)} (Wrap = Loop2 = 1 each)
     strict stream still has no base            ${src(
       "case class S2(head: Boolean, tail: S2)"
     ) === NothingSize}
