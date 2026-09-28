@@ -158,7 +158,8 @@ Lists preserve order and repetition and permit every finite length:
 
 Finite lists over a nonempty finite or countably infinite alphabet are countably
 infinite (`ℵ₀`). This is a least-fixed-point/finite-value interpretation, not a
-statement about potentially infinite lazy streams.
+statement about potentially infinite lazy streams; those are greatest fixed points
+(§8).
 
 For infinite sets of values, distinguish:
 
@@ -286,11 +287,31 @@ map. A lawful-functor count is a different question from a signature-only count;
 do not silently impose such laws. The article does not give a general algorithm
 for counting implementations subject to arbitrary laws.
 
-## 8. Recursive types are least fixed points
+## 8. Recursive types are fixed points: least when eager, greatest when lazy
+
+The evaluation strategy of the recursive position decides which fixed point a
+recursive type denotes. Do not merely solve the numeric equation `x = F(x)`;
+that can have multiple solutions, and the least and greatest ones differ exactly
+by the infinite values.
+
+- **Eager recursion** (a strict field, the default): constructing a value
+  evaluates its fields first, so construction must bottom out. Only finite values
+  exist, and the type is the least fixed point `μ X. F[X]`.
+- **Lazy recursion** (a by-name `=> A`, a `lazy val`, a `LazyList`, a thunk
+  `() => A`): a field is evaluated only when observed, so a value can unfold
+  forever. Infinite values exist too, and the type is the greatest fixed point
+  `ν X. F[X]`.
+
+A recursive type is coinductive only through its lazy positions: a cycle through
+at least one lazy occurrence admits infinite values, while recursion through
+strict positions alone stays inductive. `case class Rose(label: Int, kids:
+LazyList[Rose])` has trees of infinite depth and width; `case class Tree(l: Tree,
+r: Tree)` has no values at all.
+
+### Eager recursion: least fixed points
 
 Write `μ X. F[X]` for the least fixed point: values built by finitely many
-constructor applications. Do not merely solve the numeric equation `x = F(x)`;
-that can have multiple solutions or lose the least/inductive interpretation.
+constructor applications.
 
 For the covariant inductive constructions considered in the article:
 
@@ -319,6 +340,39 @@ large values. Concluding **countably** infinite additionally needs countably man
 constructor/label choices and finite arity. Do not generalize the article's
 informal infinity argument to infinitely branching trees or uncountable labels.
 An impossible recursive branch, such as `Nothing * X`, adds no values.
+
+### Lazy recursion: greatest fixed points
+
+Write `ν X. F[X]` for the greatest fixed point: every value that can be observed
+one constructor at a time, including values that never bottom out. Laziness does
+not change the count of a non-recursive use: `=> A` behaves as `Unit => A`, whose
+cardinality is `a^1 = a` (§3). It changes only what recursion can build.
+
+For the covariant coinductive constructions:
+
+```text
+ν X. F[X] ≅ ∃ X. (X, X => F[X])      a seed and a step that unfolds it
+ν X. F[X] is inhabited iff F[Unit] is inhabited
+```
+
+The inhabitance rule is the dual of the eager one: a constructor whose
+non-recursive fields are all inhabited can be repeated forever, so the recursive
+fields no longer need a base case.
+
+| Construction | Equation | Count |
+| --- | --- | --- |
+| Lazy wrapper that requires another (`next: => Loop`) | `ν X. X` | `1`: the value `lazy val l: Loop = Loop(l)` |
+| Conaturals (`pred: => Option[CoNat]`) | `ν X. (1 + X)` | `ℵ₀`: every finite depth, plus one infinite one |
+| `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a=1`; see below if `a>=2` |
+| Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; see below if `a>=2` |
+
+Compare the eager rows: `μ X. X` is `0` but `ν X. X` is `1`, and a stream without
+an end has no finite values at all. With `a>=2` an infinite stream is a function
+`ℕ => A`, so its count is the open decision of §1 and §4: `a^ℵ₀ = 2^ℵ₀` if every
+mathematical stream counts, `ℵ₀` if only the streams a finite program can produce
+count. The constructivist approach of §3, which counts only what can be
+exhibited, points to `ℵ₀`, but the calculator must make the same choice for
+streams and for functions from infinite domains.
 
 ## 9. Higher kinds and rank-N types
 
@@ -374,6 +428,7 @@ it separates implemented rules from executable **targets**:
 | Finite powersets and finite-list boundary cases | Asserted for empty, singleton, and nontrivial element types |
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
 | Recursive types with no base constructor | Pending: needs least-fixed-point analysis |
+| Lazy (coinductive) recursive types | Targets with nothing behind them yet; `LazyList` is counted like `List` today |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Pending: the countable-versus-`2^ℵ₀` decision above |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |
@@ -387,7 +442,7 @@ also means "unresolved".
 
 Implementation priorities are: keep exact, approximate, and unknown results distinct; apply
 the finite algebra and the empty-type identities; resolve names and constructor structure;
-analyze recursive dependencies as least fixed points; then add binding- and variance-aware
+analyze recursive dependencies as least fixed points, or greatest ones through lazy positions; then add binding- and variance-aware
 polymorphic reductions. Keep full infinite function spaces separate from finite collections
 throughout.
 
