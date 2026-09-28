@@ -1,53 +1,78 @@
-# Publishes the documentation site to GitHub Pages, the way the organisation site
-# (`Constructive-Programming/website`) does it: everything lives on the `gh-pages`
-# branch, which Pages serves as-is.
+# Publishes the documentation site to Cloudflare Pages.
 #
-#   - push to `main`  → the site root, https://constructive-programming.github.io/scala-cardinality/
-#   - pull request    → a preview under `pr-preview/pr-<number>/`, announced with a sticky
-#                       comment on the PR and removed again when the PR closes
+# The site itself is built by `sbt siteRender` (see the "Documentation site" job in
+# ci.yml, which renders it on every pull request). This workflow adds the deployment:
 #
-# The site is built by `sbt siteRender` (the "Documentation site" job in ci.yml renders it
-# on every pull request as well). Laika emits relative links, so the same output works at
-# the root and under a preview directory without a base-URL setting.
+#   - pull request   → preview deployment tagged with the head branch, plus a sticky
+#                      comment on the PR with the preview URL
+#   - push to `main` → preview deployment tagged `main-<sha>`
+#   - tag push `v*`  → production deployment for that release
 #
-# No secrets needed: the job's own GITHUB_TOKEN pushes to `gh-pages`. Pages has to be set
-# to "Deploy from a branch" → `gh-pages` / `(root)` once, in the repository settings.
+# Mirrors the sister project `eo` (same wrangler action, same comment, same trigger
+# set). The one addition is the guard below: secrets cannot be read in an `if:`
+# expression, so `CLOUDFLARE_API_TOKEN` is surfaced through `env` first and the
+# workflow skips with a notice when it is absent — the pattern `quality.yml` uses for
+# `CS_ACCESS_TOKEN`. Create the Pages project (`scala-cardinality-docs` by default,
+# overridable with a `CLOUDFLARE_PAGES_PROJECT` repository variable) and set the two
+# secrets to turn this on.
 name: Deploy docs site
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, closed]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [main]
+    tags: [v*]
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
-# Every run writes to the same branch, so runs queue instead of racing on `gh-pages`.
 concurrency:
-  group: gh-pages
-  cancel-in-progress: false
+  # Group by branch / PR so a new push to the same PR cancels the in-flight build.
+  # `github.head_ref` is set on PR events; `github.ref` covers pushes and tags.
+  group: deploy-site-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Build and deploy to GitHub Pages
+    name: Build and deploy to Cloudflare Pages
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Fork PRs get a read-only token and could not push the preview.
+    # Fork PRs never receive the secrets and would fail noisily.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # `ready` gates every following step, so a half-configured repository skips the
+      # deployment instead of failing inside wrangler.
+      - name: Check for the Cloudflare secrets
+        id: cloudflare
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy docs site::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set, skipping the deployment."
+            echo "Set both repository secrets, and create the"
+            echo "'${{ vars.CLOUDFLARE_PAGES_PROJECT || 'scala-cardinality-docs' }}' Pages project, to publish this site."
+          fi
+
       - name: Setup sbt
-        if: github.event.action != 'closed'
+        if: steps.cloudflare.outputs.ready == 'true'
         uses: sbt/setup-sbt@v1
 
       - name: Setup Java (temurin 21)
-        if: github.event.action != 'closed'
+        if: steps.cloudflare.outputs.ready == 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -55,27 +80,31 @@ jobs:
           cache: sbt
 
       - name: Render the site
-        if: github.event.action != 'closed'
+        if: steps.cloudflare.outputs.ready == 'true'
         run: sbt -batch siteRender
 
-      - name: Deploy the site
-        if: github.event_name != 'pull_request'
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        if: steps.cloudflare.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/site
-          publish_branch: gh-pages
-          # Keeps the pr-preview/ directories maintained by the step below.
-          keep_files: true
-          commit_message: "Deploy ${{ github.sha }}"
-          user_name: github-actions[bot]
-          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # `github.head_ref` is the source branch on PR events; falls back to
+          # `github.ref_name` (`main`, `v0.1.0`, ...) on push events.
+          command: >-
+            pages deploy target/site
+            --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT || 'scala-cardinality-docs' }}
+            --branch=${{ github.head_ref || github.ref_name }}
 
-      - name: Deploy or remove the pull request preview
-        if: github.event_name == 'pull_request'
-        uses: rossjrw/pr-preview-action@v1
+      - name: Comment the preview URL on the pull request
+        if: github.event_name == 'pull_request' && steps.cloudflare.outputs.ready == 'true'
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
-          source-dir: ./target/site
-          preview-branch: gh-pages
-          umbrella-dir: pr-preview
-          action: auto
+          header: cloudflare-pages-preview
+          message: |
+            :rocket: **Cloudflare Pages preview** for `${{ github.head_ref }}` is live:
+
+            ${{ steps.deploy.outputs.deployment-url }}
+
+            <sub>Built from `${{ github.event.pull_request.head.sha }}` · updated on every push.</sub>
