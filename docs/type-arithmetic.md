@@ -308,9 +308,9 @@ by the infinite values.
   evaluates its fields first, so construction must bottom out. Only finite values
   exist, and the type is the least fixed point `μ X. F[X]`.
 - **Lazy recursion** (a by-name `=> A`, a `lazy val`, a `LazyList`, a thunk
-  `() => A`): a field is evaluated only when observed, so a value can unfold
-  forever. Infinite values exist too, and the type is the greatest fixed point
-  `ν X. F[X]`.
+  `() => A`, an `Option[A]` field, or a function field `D => A`): a field is
+  evaluated only when observed, so a value can unfold forever. Infinite values
+  exist too, and the type is the greatest fixed point `ν X. F[X]`.
 
 A recursive type is coinductive only through its lazy positions: a cycle through
 at least one lazy occurrence admits infinite values, while recursion through
@@ -421,9 +421,15 @@ The current API and representation have important limits:
   references and recursion within a single compilation unit are resolved: `Counter.source`
   solves the definitions as a system of equations by Kleene iteration from the empty type
   (§8), and abstract traits and sealed classes are folded from their concrete subtypes in
-  the same unit. Cycles through a recognized lazy hole (`=> X`, `=> Option[X]`, `() => X`)
-  also take the greatest fixed point, adding the per-lap label space raised to ℵ₀; `LazyList`
-  and `Stream` follow the same rule. Branching or otherwise unrecognized lazy cycles stay at
+  the same unit. Cycles through recognized continuations — holes (`=> X`,
+  `=> Option[X]`, `() => X`), strict `Option[X]` fields, and function fields
+  `D => X` with inhabited `D` — also take the greatest fixed point: a
+  deterministic cycle adds its per-lap label space raised to ℵ₀, any branch (two
+  continuations in one arm, an `Option` field beside a hole, a domain with two or
+  more inputs, a sealed parent with several continuing children) saturates at ℵ₀
+  under the §4 finite-program reading, one program per unfolding; `LazyList` and
+  `Stream` follow the same rule. A cycle demanded outright — strict self
+  argument, tuple, `Set[X]`, function domain — blocks coiteration and is left at
   the sound least-fixed-point under-count.
 - `Size.pow` reports a finite base over an infinite exponent as `EffectiveOmega`, the
   finite-program reading of §1 and §4, and an infinite base over an infinite exponent as
@@ -443,9 +449,8 @@ it separates implemented rules from executable **targets**:
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
 | Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; `μX.X` counts `0` |
 | Recursive types (eager) with a base constructor | Asserted: productive recursion pinned at ℵ₀ |
-| Lazy (coinductive) recursion through a single recognized hole | Asserted: `νX.X` counts `1`, conatural `νX.(1+X)` ℵ₀, endless `νX.(2·X)` ℵ₀, `LazyList[String]` `τ` |
-| Lazy recursion with branching holes, or a hole nested past the recognized forms | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
-| Cycles continued through a function field (`D => X`, `D` inhabited), or labeled by a reference back into the cycle | Targets: derived `ℵ₀` (§8, §4 reading); only recognized lazy holes continue a cycle today |
+| Lazy (coinductive) recursion through recognized continuations — holes, strict `Option[X]` fields, inhabited function fields `D => X`, sealed-parent pass-throughs | Asserted: deterministic cycles add their label space raised to ℵ₀ (`νX.X` = 1, endless `νX.(2·X)` ℵ₀, `LazyList[String]` `τ`); branching cycles saturate at ℵ₀ (§4 finite-program reading) |
+| Coiteration blocked by a strict self argument (`x: X`) or a mention nested past the recognized forms (tuples, `Set[X]`, function domains, `Either`) | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at `ℵ₀` into a finite codomain and `τ` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |
@@ -459,9 +464,9 @@ also means "unresolved".
 
 Implementation priorities are: keep exact, approximate, and unknown results distinct; apply
 the finite algebra and the empty-type identities; resolve names and constructor structure
-across compilation units; widen the greatest-fixed-point analysis past the single-recognized-
-hole shapes (branching holes, `Either`/nested lazy positions); then add binding- and
-variance-aware polymorphic reductions.
+across compilation units; carry the greatest-fixed-point analysis through `Either`
+and deeper-nested lazy continuations, and let a cycle's label space depend on its
+own unfolding; then add binding- and variance-aware polymorphic reductions.
 
 Run the focused regressions or the full suite with:
 

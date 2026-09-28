@@ -205,18 +205,34 @@ class CardinalitySpec extends Specification {
     mutual lazy streams                        ${src(
       "case class A(h: Boolean, b: => B); case class B(x: Int, a: => A)"
     ) === EffectiveOmega}
-    branching holes stay at the μ under-count  ${src(
+    branching holes saturate at ℵ₀            ${src(
       "case class R(l: => R, r: => R)"
-    ) === NothingSize}
+    ) === EffectiveOmega} (computably infinite binary trees)
     holes with different successors       ${src(
       "case class B7(x: => B7, y: => C7); case class C7(z: Boolean)"
-    ) === TinySize(2)}
+    ) === EffectiveOmega} (the external tail labels each node; the path stays deterministic)
     enum arms to different successors     ${src(
       "enum B8 { case X(t: => B8); case Y(t: => C8) }; case class C8(b: Boolean)"
     ) === EffectiveOmega} (the X arm makes μ productive already)
     only recognized holes continue the cycle  ${src(
       "sealed trait E; case class One(e: => E) extends E; case class Void(n: Nothing) extends E"
     ) === UnitSize} (the single One-tower; a Void sibling continues nothing)
+    function fields continue too          ${src(
+      "sealed trait E2; case class One(e: => E2) extends E2; case class Two(i: Int => E2) extends E2"
+    ) === EffectiveOmega} (One(Two(_ => e)) unfolds through Two; branchy ⇒ ℵ₀)
+    pure function-field cycle             ${src("case class F10(k: Int => F10)") === EffectiveOmega}
+    a singleton domain is a thunk in disguise  ${src(
+      "case class S10(k: Unit => S10)"
+    ) === UnitSize}
+    deterministic mutual towers, one each  ${src(
+      "case class A11(b: => B11); case class B11(a: => A11)"
+    ) === TinySize(2)}
+    strict self-argument blocks coiteration  ${src(
+      "case class K9(k: K9, m: => K9)"
+    ) === NothingSize} (no knot without a lazy tie)
+    deep mentions block it too            ${src(
+      "case class H9(m: => H9, s: Set[H9])"
+    ) === NothingSize}
     lazy cycle through a sealed abstract  ${src(
       "sealed abstract class Nxt(v: Boolean); case class Go(next: => Nxt) extends Nxt(true)"
     ) === UnitSize}

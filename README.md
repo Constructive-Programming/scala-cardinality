@@ -53,11 +53,15 @@ Recursive types are counted as fixed points: each source is solved as a system o
 equations by Kleene iteration from the empty type, so a strict
 `case class Loop(next: Loop)` comes out empty while Peano-style `Nat` is countably
 infinite (ℵ₀), and forward references resolve exactly. Laziness is what separates
-the least fixed point from the greatest: a cycle through a lazy hole (`=> X`,
-`() => X`) also counts its infinite values, so `case class Stream(h: Boolean, t: =>
-Stream)` reaches ℵ₀ and `LazyList[String]` the uncountable τ. Open work: recursion
-through branching holes (kept at a sound under-count), parametric counts and sealed
-hierarchies spanning files — pinned as pending targets in the test suite.
+the least fixed point from the greatest: a cycle through a position the
+constructor never demands — a hole (`=> X`, `() => X`), a strict `Option[X]`
+field, or a function field `D => X` — also counts its infinite values, so
+`case class Stream(h: Boolean, t: => Stream)` reaches ℵ₀, `LazyList[String]` the
+uncountable τ, and any *branching* cycle saturates at ℵ₀ (the §4 finite-program
+reading: one program per unfolding). Open work: coinduction blocked by a strict
+self argument or a deeply nested mention (kept at a sound under-count),
+parametric counts and sealed hierarchies spanning files — pinned as pending
+targets in the test suite.
 
 ## Documentation
 
