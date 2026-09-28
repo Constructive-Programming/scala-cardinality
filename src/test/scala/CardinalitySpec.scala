@@ -136,6 +136,35 @@ class CardinalitySpec extends Specification {
       "enum Color { case Red, Green, Blue }; case class Pixel(c: Color, on: Boolean)"
     ) === TinySize(9)} (Color 3 + Pixel 6)
 
+  Recursive types (solved as least fixed points)
+    degenerate self-recursion (μX.X, no base)  ${src("case class Loop(next: Loop)") === NothingSize}
+    mutual recursion without base              ${src(
+      "case class A(b: B); case class B(a: A)"
+    ) === NothingSize}
+    productive self-recursion (Option tail)    ${src(
+      "case class Q(b: Boolean, opt: Option[Q])"
+    ) === EffectiveOmega}
+    recursive enum                             ${src(
+      "enum Chain { case Link(next: Chain); case Stop }"
+    ) === EffectiveOmega}
+    mutual sealed ADTs                         ${src(
+      "sealed trait L; case object L0 extends L; case class L1(r: R) extends L; sealed trait R; case object R0 extends R; case class R1(l: L) extends R"
+    ) === EffectiveOmega}
+    recursion in a function domain                   ${src(
+      "case class P(b: Boolean, t: P => P)"
+    ) === NothingSize} (F[Nothing] is uninhabited, so μX.F is — section 8 of docs/type-arithmetic.md)
+    sealed parent without concrete subtypes    ${src(
+      "sealed trait Open; trait Aux extends Open; case class Ref(o: Open)"
+    ) === EffectiveOmega} (hierarchy open elsewhere)
+
+  Forward references
+    field of a type defined later              ${src(
+      "case class Use(d: Def); case class Def(x: Boolean)"
+    ) === TinySize(4)} (Use 2 + Def 2)
+    alias chain defined bottom-up              ${src(
+      "case class Uses(a: A); type A = B; type B = C; type C = D; type D = E; type E = F; type F = G; type G = Boolean"
+    ) === BooleanSize}
+
   Aliases
     type alias                               ${src(
       "type Flag = Boolean; case class F(f: Flag)"

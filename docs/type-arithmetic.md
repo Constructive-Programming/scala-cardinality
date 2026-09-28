@@ -416,8 +416,11 @@ The current API and representation have important limits:
   equals either marker is not by itself a mathematical result.
 - The traversal estimates unions by addition (deduplicating identical syntax only) and
   intersections by minimum, so it cannot see overlap or subtyping. It does not resolve
-  forward references, generic definitions, or recursion, and its opaque-type singleton
-  treatment is an approximation.
+  generic definitions, and its opaque-type singleton treatment is an approximation. Forward
+  references and recursion within a single compilation unit are resolved: `Counter.source`
+  solves the definitions as a system of equations by Kleene iteration from the empty type
+  (§8), and abstract traits and sealed classes are folded from their concrete subtypes in
+  the same unit.
 - `Size.pow` reports a finite base over an infinite exponent as `EffectiveOmega`, the
   finite-program reading of §1 and §4, and an infinite base over an infinite exponent as
   `EffectiveTau`.
@@ -434,7 +437,8 @@ it separates implemented rules from executable **targets**:
 | Exponentials, currying, distributivity, the `0`/`1` rules, double negation | Asserted against independently known results |
 | Finite powersets and finite-list boundary cases | Asserted for empty, singleton, and nontrivial element types |
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
-| Recursive types with no base constructor | Pending: needs least-fixed-point analysis |
+| Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; `μX.X` counts `0` |
+| Recursive types (eager) with a base constructor | Asserted: productive recursion pinned at ℵ₀ |
 | Lazy (coinductive) recursive types | Targets with nothing behind them yet; `LazyList` is counted like `List` today |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at `ℵ₀` into a finite codomain and `τ` into an infinite one (§4) |
@@ -448,9 +452,9 @@ polymorphic or recursive type is not evidence that the rule is implemented: the 
 also means "unresolved".
 
 Implementation priorities are: keep exact, approximate, and unknown results distinct; apply
-the finite algebra and the empty-type identities; resolve names and constructor structure;
-analyze recursive dependencies as least fixed points, or greatest ones through lazy
-positions; then add binding- and variance-aware polymorphic reductions.
+the finite algebra and the empty-type identities; resolve names and constructor structure
+across compilation units; take greatest fixed points through lazy positions; then add
+binding- and variance-aware polymorphic reductions.
 
 Run the focused regressions or the full suite with:
 

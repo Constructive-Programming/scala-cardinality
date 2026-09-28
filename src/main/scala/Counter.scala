@@ -1,3 +1,4 @@
+import scala.annotation.tailrec
 import scala.meta.*
 
 object Counter {
@@ -14,9 +15,8 @@ object Counter {
   def `type`: Type => Size = typeIn(Scope.empty)
 
   // The names of the types a source defines, each mapped to its cardinality, so that a
-  // field can refer to a sibling definition by name. A definition is added as its
-  // statement is passed, so a forward or recursive reference stays unknown — and falls
-  // back to `EffectiveOmega` — rather than looping.
+  // field can refer to a sibling, forward or recursive definition by name. The system of
+  // equations is solved by Kleene iteration from the empty type — see `solve`.
   private type Scope = Map[String, Size]
 
   private object Scope {
@@ -24,24 +24,112 @@ object Counter {
   }
 
   private def body(stats: List[Stat], scope: Scope): Size = {
-    val (total, _) = stats.foldLeft((NothingSize: Size, scope)) {
-      case ((acc, sc), st) =>
-        val extended = definitions(sc)(st).fold(sc) { case (name, size) => sc.updated(name, size) }
-        (acc + statIn(sc)(st), extended)
-    }
-    total
+    val solved = solve(stats, scope)
+    stats.foldLeft(NothingSize: Size)((acc, st) => acc + statIn(solved)(st))
   }
 
-  // The named types a statement introduces, with their cardinality. Abstract traits and
-  // classes have no cardinality of their own, so they are not named.
-  private def definitions(scope: Scope): Stat => Option[(String, Size)] = {
-    case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) => Some(d.name.value -> UnitSize)
-    case d: Defn.Type => Some(d.name.value -> typeIn(scope)(d.body))
-    case d: Defn.Enum => Some(d.name.value -> enumSize(scope)(d))
-    case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
-      Some(d.name.value -> ctorIn(scope)(d.ctor))
-    case d: Defn.Object => Some(d.name.value -> UnitSize)
-    case _              => None
+  // The equations a body defines: one per named type, plus one per sealed parent the body
+  // provides subtypes for. Each equation recomputes its cardinality from a scope, so the
+  // system can be iterated as a whole. Abstract traits and classes have no cardinality of
+  // their own and get an equation only when their subtypes appear in the same body.
+  private def equations(stats: List[Stat]): List[(String, Scope => Size)] = {
+    val defined = stats.flatMap {
+      case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
+        Some(d.name.value -> ((_: Scope) => UnitSize))
+      case d: Defn.Type => Some(d.name.value -> ((sc: Scope) => typeIn(sc)(d.body)))
+      case d: Defn.Enum => Some(d.name.value -> ((sc: Scope) => enumSize(sc)(d)))
+      case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
+        Some(d.name.value -> ((sc: Scope) => ctorIn(sc)(d.ctor)))
+      case d: Defn.Object => Some(d.name.value -> ((_: Scope) => UnitSize))
+      case _              => None
+    }
+    defined ++ sealedParents(stats, defined.map(_._1).toSet)
+  }
+
+  // A sealed trait or sealed abstract class stands for the sum of the body's subtypes that
+  // extend it, so a recursive reference through the parent (`Succ(n: Nat)`) resolves. The
+  // sum is complete only when every local subtype is concrete: an abstract or trait subtype
+  // (or subtypes defined elsewhere) leaves the parent unknown, which keeps the old
+  // `EffectiveOmega` fallback instead of claiming a too-small sum. Cross-file sealed
+  // hierarchies are future work.
+  private def sealedParents(
+      stats: List[Stat],
+      defined: Set[String]
+  ): List[(String, Scope => Size)] = {
+    val sealedNames: Set[String] = stats
+      .collect {
+        case d: Defn.Trait if d.mods.exists(_.is[Mod.Sealed]) => d.name.value
+        case d: Defn.Class
+            if d.mods.exists(_.is[Mod.Sealed]) && d.mods.exists(_.is[Mod.Abstract]) =>
+          d.name.value
+      }
+      .toSet
+      .diff(defined)
+    val subtypes = stats.collect {
+      case d: Defn.Class  => (d.name.value, d.templ.inits.map(_.name.syntax))
+      case d: Defn.Object => (d.name.value, d.templ.inits.map(_.name.syntax))
+      case d: Defn.Enum   => (d.name.value, d.templ.inits.map(_.name.syntax))
+    }
+    sealedNames.toList.flatMap { parent =>
+      val children = subtypes.collect { case (child, parents) if parents.contains(parent) => child }
+      if (children.isEmpty || !children.forall(defined.contains)) None
+      else
+        Some(
+          parent -> ((sc: Scope) =>
+            children.foldLeft(NothingSize: Size)((acc, child) =>
+              acc + sc.getOrElse(child, NothingSize)
+            )
+          )
+        )
+    }
+  }
+
+  // Solves the body's system of equations by Kleene iteration: every name starts at the
+  // empty type and all equations are re-evaluated together (so the order of mutual and
+  // forward references does not matter) until the map is stable. A stable value is the
+  // least fixed point — finite types land there immediately, and degenerate recursion with
+  // no base constructor (`case class Loop(next: Loop)`, i.e. `μX.X`) lands on `NothingSize`
+  // rather than the old unknown-name `EffectiveOmega`.
+  //
+  // A name that grows in two consecutive rounds is productive recursion: its chain
+  // (`1, 2, 3, …` for `Nat`) is strictly increasing forever but its least fixed point is
+  // countable, so it is pinned straight to `EffectiveOmega` (ℵ₀) and dependents re-evaluate
+  // once more; the algebra already saturates the genuinely uncountable payloads on its
+  // own. The `budget` only accelerates mutual recursion, where two names take turns
+  // growing and never grow in consecutive rounds: once it expires, a name that grew
+  // earlier is pinned on its next growth, while one growing for the first time (a long
+  // forward-reference chain still settling) is left alone. Either branch shrinks the set
+  // of unpinned names that may still grow, so the iteration terminates.
+  private def solve(stats: List[Stat], base: Scope): Scope = {
+    val eqs = equations(stats)
+    val seeded = base ++ eqs.map { case (name, _) => name -> (NothingSize: Size) }
+
+    @tailrec
+    def iterate(
+        scope: Scope,
+        grewLastRound: Set[String],
+        grewEver: Set[String],
+        pinned: Set[String],
+        budget: Int
+    ): Scope = {
+      val evaluated =
+        eqs.collect { case (name, equation) if !pinned(name) => name -> equation(scope) }.toMap
+      val grown = evaluated.collect { case (name, size) if scope(name) != size => name }.toSet
+      if (grown.isEmpty) scope ++ evaluated
+      else {
+        val lastRounds = if (budget > 0) grewLastRound else grewEver
+        val toPin = grown.intersect(lastRounds)
+        iterate(
+          scope = scope ++ evaluated ++ toPin.map(_ -> (EffectiveOmega: Size)),
+          grewLastRound = grown,
+          grewEver = grewEver.union(grown),
+          pinned = pinned.union(toPin),
+          budget = budget - 1
+        )
+      }
+    }
+
+    iterate(seeded, grewLastRound = Set.empty, grewEver = Set.empty, pinned = Set.empty, budget = 8)
   }
 
   private def statIn(scope: Scope): Stat => Size = {
@@ -138,9 +226,10 @@ object Counter {
     // scalameta's `Type` is not sealed, and several variants (`Type.And`, `Type.Or`,
     // `Type.Method`, `Type.ImplicitFunction`, `Type.Quasi`) are `private[meta]`, so an
     // exhaustive match is impossible. Every remaining form is unbounded or not yet
-    // modelled — an unresolved name such as `String` or `BigInt`, a refinement, an
-    // existential, a Scala 3 capture type — and counts as effectively infinite.
-    // ponytail: resolve sealed hierarchies when needed
+    // modelled — an unresolved name such as `String` or `BigInt`, a name defined in another
+    // file, a refinement, an existential, a Scala 3 capture type — and counts as
+    // effectively infinite.
+    // ponytail: resolve sealed hierarchies and type parameters across files when needed
     case _ => EffectiveOmega
   }
 

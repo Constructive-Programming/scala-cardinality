@@ -19,9 +19,6 @@ class ArticleCardinalitySpec extends Specification {
   private val needsParametricity =
     "a polymorphic count needs parametricity, which the traversal does not model (section 6)"
 
-  private val needsFixedPoint =
-    "a recursive count needs least-fixed-point analysis, which the traversal cannot do (section 8)"
-
   private val needsSubtyping =
     "a union or intersection count needs overlap and subtyping information (section 2)"
 
@@ -192,20 +189,18 @@ class ArticleCardinalitySpec extends Specification {
       needsParametricity
     )}
 
-  Targets (section 8): recursive types
-    a wrapper with no base case              ${target(
-      src("enum Loop { case Next(next: Loop) }"),
-      NothingSize,
-      needsFixedPoint
-    )}
+  Recursive types (section 8)
+    a wrapper with no base case              ${src(
+      "enum Loop { case Next(next: Loop) }"
+    ) === NothingSize} (μX.X solved as a least fixed point)
     recursion without a seed                 ${target(
       tpe("[A] => (A => A) => A"),
       NothingSize,
-      needsFixedPoint
+      needsParametricity
     )}
     naturals are countable                   ${src(
       "enum Nat { case Zero; case Succ(n: Nat) }"
-    ) === EffectiveOmega} (the fallback is the right count for the wrong reason)
+    ) === EffectiveOmega} (μX.(1 + X), pinned at ℵ₀ by iteration)
     Church numerals are countable            ${tpe(
       "[A] => (A => A) => A => A"
     ) === EffectiveOmega} (the fallback is the right count for the wrong reason)
