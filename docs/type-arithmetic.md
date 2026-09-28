@@ -420,7 +420,10 @@ The current API and representation have important limits:
   references and recursion within a single compilation unit are resolved: `Counter.source`
   solves the definitions as a system of equations by Kleene iteration from the empty type
   (§8), and abstract traits and sealed classes are folded from their concrete subtypes in
-  the same unit.
+  the same unit. Cycles through a recognized lazy hole (`=> X`, `=> Option[X]`, `() => X`)
+  also take the greatest fixed point, adding the per-lap label space raised to ℵ₀; `LazyList`
+  and `Stream` follow the same rule. Branching or otherwise unrecognized lazy cycles stay at
+  the sound least-fixed-point under-count.
 - `Size.pow` reports a finite base over an infinite exponent as `EffectiveOmega`, the
   finite-program reading of §1 and §4, and an infinite base over an infinite exponent as
   `EffectiveTau`.
@@ -439,7 +442,8 @@ it separates implemented rules from executable **targets**:
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
 | Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; `μX.X` counts `0` |
 | Recursive types (eager) with a base constructor | Asserted: productive recursion pinned at ℵ₀ |
-| Lazy (coinductive) recursive types | Targets with nothing behind them yet; `LazyList` is counted like `List` today |
+| Lazy (coinductive) recursion through a single recognized hole | Asserted: `νX.X` counts `1`, conatural `νX.(1+X)` ℵ₀, endless `νX.(2·X)` ℵ₀, `LazyList[String]` `τ` |
+| Lazy recursion with branching holes, or a hole nested past the recognized forms | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at `ℵ₀` into a finite codomain and `τ` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |
@@ -453,8 +457,9 @@ also means "unresolved".
 
 Implementation priorities are: keep exact, approximate, and unknown results distinct; apply
 the finite algebra and the empty-type identities; resolve names and constructor structure
-across compilation units; take greatest fixed points through lazy positions; then add
-binding- and variance-aware polymorphic reductions.
+across compilation units; widen the greatest-fixed-point analysis past the single-recognized-
+hole shapes (branching holes, `Either`/nested lazy positions); then add binding- and
+variance-aware polymorphic reductions.
 
 Run the focused regressions or the full suite with:
 

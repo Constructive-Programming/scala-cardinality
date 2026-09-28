@@ -157,6 +157,36 @@ class CardinalitySpec extends Specification {
       "sealed trait Open; trait Aux extends Open; case class Ref(o: Open)"
     ) === EffectiveOmega} (hierarchy open elsewhere)
 
+  Lazy recursion (solved as greatest fixed points)
+    lazy wrapper: the one infinite tower       ${src("case class Loop(next: => Loop)") === UnitSize}
+    conaturals, limit absorbed by the depths   ${src(
+      "case class CoNat(pred: => Option[CoNat])"
+    ) === EffectiveOmega}
+    endless Boolean stream, program-countable  ${src(
+      "case class St(head: Boolean, tail: => St)"
+    ) === EffectiveOmega}
+    thunk tail `() => X`                       ${src(
+      "case class T2(head: Boolean, next: () => T2)"
+    ) === EffectiveOmega}
+    cycle through a sealed parent              ${src(
+      "sealed trait Lz; case class Node(h: Boolean, next: => Lz) extends Lz"
+    ) === EffectiveOmega}
+    consumers see the ν count                  ${src(
+      "case class Inf(next: => Inf); case class Use(i: Inf)"
+    ) === TinySize(2)} (1 finite + 1 infinite each)
+    mutual lazy streams                        ${src(
+      "case class A(h: Boolean, b: => B); case class B(x: Int, a: => A)"
+    ) === EffectiveOmega}
+    branching holes stay at the μ under-count  ${src(
+      "case class R(l: => R, r: => R)"
+    ) === NothingSize}
+    strict stream still has no base            ${src(
+      "case class S2(head: Boolean, tail: S2)"
+    ) === NothingSize}
+    LazyList over a countable alphabet         ${tpe("LazyList[String]") === EffectiveTau}
+    LazyList of finitely-producible values     ${tpe("LazyList[Boolean]") === EffectiveOmega}
+    LazyList[Nothing] is only empty            ${tpe("LazyList[Nothing]") === UnitSize}
+
   Forward references
     field of a type defined later              ${src(
       "case class Use(d: Def); case class Def(x: Boolean)"

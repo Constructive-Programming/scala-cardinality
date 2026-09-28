@@ -193,6 +193,18 @@ class ArticleCardinalitySpec extends Specification {
     a wrapper with no base case              ${src(
       "enum Loop { case Next(next: Loop) }"
     ) === NothingSize} (μX.X solved as a least fixed point)
+    a lazy wrapper is one infinite tower     ${src(
+      "case class Loop(next: => Loop)"
+    ) === UnitSize} (νX.X, §8)
+    conaturals: every depth, plus the limit  ${src(
+      "case class CoNat(pred: => Option[CoNat])"
+    ) === EffectiveOmega} (νX.(1 + X))
+    an endless stream is program-countable   ${src(
+      "case class Stream(h: Boolean, t: => Stream)"
+    ) === EffectiveOmega} (νX.(2*X), ℵ₀ by the §4 finite-program reading)
+    LazyList over a countable alphabet       ${tpe(
+      "LazyList[String]"
+    ) === EffectiveTau} (ℵ₀^ℵ₀)
     recursion without a seed                 ${target(
       tpe("[A] => (A => A) => A"),
       NothingSize,

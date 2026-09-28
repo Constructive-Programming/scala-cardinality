@@ -49,12 +49,15 @@ The calculator is an early work in progress. It parses Scala source with
 exponentials, powersets and primitives, following the type arithmetic condensed
 in [docs/type-arithmetic.md](docs/type-arithmetic.md).
 
-Recursive types are counted as least fixed points: each source is solved as a
-system of equations by Kleene iteration from the empty type, so
-`case class Loop(next: Loop)` comes out empty, Peano-style `Nat` countably
-infinite (ℵ₀), and forward references resolve exactly. Open work: coinductive
-(lazy) recursion, parametric counts and sealed hierarchies spanning files —
-pinned as pending targets in the test suite.
+Recursive types are counted as fixed points: each source is solved as a system of
+equations by Kleene iteration from the empty type, so a strict
+`case class Loop(next: Loop)` comes out empty while Peano-style `Nat` is countably
+infinite (ℵ₀), and forward references resolve exactly. Laziness is what separates
+the least fixed point from the greatest: a cycle through a lazy hole (`=> X`,
+`() => X`) also counts its infinite values, so `case class Stream(h: Boolean, t: =>
+Stream)` reaches ℵ₀ and `LazyList[String]` the uncountable τ. Open work: recursion
+through branching holes (kept at a sound under-count), parametric counts and sealed
+hierarchies spanning files — pinned as pending targets in the test suite.
 
 ## Documentation
 
