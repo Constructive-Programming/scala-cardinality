@@ -44,6 +44,10 @@ Key references motivating this work:
 
 ## Status
 
+The [v1 implementation plan](docs/plans/v1.md) tracks the agreed counting contract,
+the latest recorded eo baseline, and the remaining work. Report snapshots below
+are historical.
+
 The calculator is an early work in progress. It parses Scala source with
 [scalameta](https://scalameta.org/) and counts products, tagged sums,
 exponentials, powersets and primitives, following the type arithmetic condensed
