@@ -41,15 +41,15 @@ ThisBuild / scalafixDependencies +=
 // ----------------------------------------------------------------
 // Coverage (scoverage)
 // ----------------------------------------------------------------
-// A regression floor, not an aspiration: `SizeSpec` covers the `Size` algebra
-// but not every escalation arm, so the current baseline is ~68% statements /
-// ~56% branches. Statements are gated just below that; the number should
-// ratchet up as the algebra gains tests, not be treated as a target.
-// Report-only would let coverage rot silently, and an aspirational number here
-// would be red on day one.
+// A regression floor, not an aspiration: the suites cover the `Size` algebra and
+// the arithmetic in `docs/type-arithmetic.md`, but not every escalation arm, so
+// the current baseline is ~85% statements / ~82% branches. Statements are gated
+// just below that; the number should ratchet up as the algebra gains tests, not
+// be treated as a target. Report-only would let coverage rot silently, and an
+// aspirational number here would be red on day one.
 coverageHighlighting := true
 coverageFailOnMinimum := true
-coverageMinimumStmtTotal := 65
+coverageMinimumStmtTotal := 80
 
 // Full coverage sweep used by CI (`sbt coverageAll`). `clean` first so a
 // rebuild starts from the sources: on a cold sbt cache this discards any stale
@@ -64,3 +64,29 @@ addCommandAlias(
 // Single module, so this is just the plugin's `stryker` task with the
 // cross-cutting config from `stryker4s.conf`.
 addCommandAlias("mutationAll", "stryker")
+
+// ----------------------------------------------------------------
+// Documentation site
+// ----------------------------------------------------------------
+// `docs/` is the source of truth for the repository and for the site, so there is no
+// copy to keep in sync: `siteRender` runs Laika (the same engine and Helium theme the
+// sister project `eo` uses) over that directory and writes `target/site`.
+//
+// Two deviations from `eo`'s setup, both forced by sbt 2: its `sbt-typelevel-site`
+// plugin has no sbt 2 build, so the render step lives in `project/SiteRenderer.scala`
+// instead of a plugin; and `sbt-mdoc` cannot be used here at all, because it puts
+// `scalameta_2.13` on the classpath of a project that depends on `scalameta_3` (see
+// `project/plugins.sbt`). Docs examples are therefore pinned by the test suite rather
+// than compiled from the pages.
+lazy val siteRender = taskKey[Unit]("Render docs/ into the static site under target/site")
+
+// Uncached on purpose: writing the site is a side effect, so it must re-read `docs/` on
+// every run rather than trust a cache entry that only tracks a directory path.
+siteRender := Def.uncached {
+  // Not `target.value`: sbt 2 nests that under `target/out/jvm/...`, and the deploy
+  // workflow wants one path it can point at.
+  val output = (ThisBuild / baseDirectory).value / "target" / "site"
+  IO.delete(output)
+  SiteRenderer.render((ThisBuild / baseDirectory).value / "docs", output)
+  streams.value.log.info(s"Site written to ${output.getAbsolutePath}")
+}

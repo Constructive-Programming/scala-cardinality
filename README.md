@@ -36,6 +36,9 @@ https://slides.com/rodolfohansen/keep-your-types-small
 
 Key references motivating this work:
 
+- [Counting type inhabitants](https://web.archive.org/web/20181221193229/https://alexknvl.com/posts/counting-type-inhabitants.html)
+  (Alex Knvl, 2018): the type arithmetic condensed in
+  [docs/type-arithmetic.md](docs/type-arithmetic.md)
 - [The Hidden Powers of Total Program Cardinality](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-9351ba774d4d)
 - [The Hidden Powers of Total Program Cardinality (2 of 2)](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-2-of-2-ceb0a3af13dd)
 
@@ -45,6 +48,34 @@ The calculator is an early work in progress. It currently parses Scala source
 with [scalameta](https://scalameta.org/) and computes the cardinality of
 constructor parameters for classes and case classes, reasoning about product
 types and a handful of primitive types.
+
+## Documentation
+
+[`docs/`](docs) holds the pages that get published as the documentation site — currently
+[type arithmetic](docs/type-arithmetic.md), the counting rules the calculator targets and
+the tests that pin them down. The README stays the entry point for the repository itself.
+
+```bash
+sbt siteRender                      # renders docs/ into target/site
+python3 -m http.server -d target/site 8000
+```
+
+The renderer is [Laika](https://typelevel.org/Laika/) with its Helium theme — the same
+engine the sister project [`eo`](https://github.com/Constructive-Programming/eo) uses.
+Two pieces of eo's pipeline are missing here, both because this build runs on sbt 2:
+`sbt-typelevel-site` (which wraps Laika for sbt) and `sbt-mdoc` (which compiles
+`scala mdoc` fences) have no sbt 2 builds, and mdoc would additionally collide with this
+project's `scalameta_3` dependency (`scalameta_2.13` and `scalameta_3` share package
+names). So the render step is a task in [build.sbt](build.sbt) plus
+[project/SiteRenderer.scala](project/SiteRenderer.scala), and the numbers shown in the
+pages are pinned by [the test suite](src/test/scala/ArticleCardinalitySpec.scala) instead
+of being compiled from the pages.
+
+CI renders the site on every pull request (`ci.yml`, "Documentation site" job, artifact
+`docs-site`), and [deploy-site.yml](.github/workflows/deploy-site.yml) publishes it to
+Cloudflare Pages — a preview per pull request, production on `v*` tags — once the
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist together with the
+`scala-cardinality-docs` Pages project. Until then that workflow skips with a notice.
 
 ## Quality toolchain
 
@@ -82,11 +113,16 @@ sbt mutationAll     # mutation report under target/stryker4s-report/
 ```
 
 > [!NOTE]
-> sbt 2 keeps a **machine-wide** task cache (`~/.cache/sbt`) that `clean` does
-> not clear. Re-running a gate can therefore report "no tests to run" and skip
-> the coverage check — a cache hit, not a failure. For a cold run, pass a fresh
-> cache: `sbt --sbt-cache "$TMPDIR/sbt-cold" coverageAll`. CI is unaffected: the
-> runner starts with an empty cache.
+> sbt 2 keeps a **machine-wide** task cache (`$XDG_CACHE_HOME/sbt`, usually
+> `~/.cache/sbt`) that `clean` does not clear. Re-running a gate can therefore
+> report "no tests to run" and skip the coverage check — a cache hit, not a
+> failure. Force a cold run with a cache namespace you have not used yet:
+> `sbt -Dsbt.cacheversion=1 coverageAll` (reusing a value resolves to the same
+> entries). Restored instrumentation that outlives its `scoverage-data/`
+> directory can also surface as a scoverage `FileNotFoundException` during a real
+> test run; a fresh namespace clears that too. (`sbt --sbt-cache <dir>` needs the
+> stock sbt launcher rather than the sbt-launch jar, so it is rejected here.) CI is
+> unaffected: the runner starts with an empty cache.
 
 CodeScene's primary integration is its GitHub App, which reviews pull requests
 against the quality gates in `.codescene/custom-quality-gates.json`. The

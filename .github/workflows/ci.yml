@@ -96,6 +96,42 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  docs:
+    name: Documentation site
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      result: ${{ steps.site.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Setup Java (temurin 21)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: sbt
+
+      # Renders `docs/` with Laika (`siteRender` in build.sbt). More than a smoke
+      # test: Laika fails the render on a broken internal link or a missing home
+      # target, so this is what keeps the published site buildable.
+      - name: Render the documentation site (Laika)
+        id: site
+        run: sbt -batch siteRender
+
+      - name: Upload the rendered site
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site
+          path: target/site
+          retention-days: 14
+          if-no-files-found: warn
+
   cpd:
     name: Duplicate code (CPD)
     runs-on: ubuntu-latest
@@ -156,7 +192,7 @@ jobs:
   # get a read-only token, so they get the summary but no comment.
   report:
     name: Report
-    needs: [build, cpd]
+    needs: [build, docs, cpd]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -177,6 +213,7 @@ jobs:
           FLOOR: ${{ needs.build.outputs.floor }}
           CPD: ${{ needs.cpd.outputs.result }}
           CPD_REPORT: ${{ needs.cpd.outputs.report }}
+          DOCS: ${{ needs.docs.outputs.result }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           icon() { case "$1" in success) echo '✅' ;; failure) echo '❌' ;; *) echo '⏭️' ;; esac; }
@@ -197,6 +234,7 @@ jobs:
                 "${STATEMENTS:+$STATEMENTS% statements (floor $FLOOR%), $BRANCHES% branches}"
             fi
             line 'Duplicate code (CPD)' "$CPD" "$([ "$CPD" = success ] && echo 'no duplicates over 100 tokens')"
+            line 'Documentation site (Laika)' "$DOCS" "$([ "$DOCS" = success ] && echo 'renders under target/site')"
             dups=$(echo "$CPD_REPORT" | base64 -d | head -c 20000)
             if [ -n "$dups" ]; then
               printf '\n<details><summary>CPD report</summary>\n\n```text\n%s\n```\n</details>\n' "$dups"

@@ -47,8 +47,9 @@ sealed trait TinySize extends Size { self =>
     case _ if self.repr <= 1                => self
     case f: FiniteSize if f.bits.isValidInt =>
       FiniteSize((BigInt(1) << f.bits.toInt) * Size.bits(BigInt(self.repr)))
-    // A finite base to an infinite (or unrepresentably large) power stays countable; only
-    // an infinite base to an infinite power is uncountable.
+    // A finite base to an infinite (or unrepresentably large) power stays countable: only
+    // what a finite program can produce is counted. Only an infinite base to an infinite
+    // power reaches `EffectiveTau`.
     case _ => EffectiveOmega
   }
 
@@ -145,6 +146,7 @@ case object LongSize extends FiniteSize { val bits = 64 }
 case object FloatSize extends LossyInfiniteSize { val bits = 32 }
 case object DoubleSize extends LossyInfiniteSize { val bits = 64 }
 
+// Countable infinity, `ℵ₀`.
 case object EffectiveOmega extends Size {
 
   def larger: Size => Boolean = {
@@ -171,6 +173,9 @@ case object EffectiveOmega extends Size {
 
 }
 
+// `ℵ₀^ℵ₀`, the size of a function space whose domain and codomain are both infinite. Cardinal
+// arithmetic would make this `2^ℵ₀` and the finite-program reading `ℵ₀`; the calculator keeps
+// it one step above `EffectiveOmega` on purpose, so such spaces stay distinguishable.
 case object EffectiveTau extends Size {
 
   def larger: Size => Boolean = {
