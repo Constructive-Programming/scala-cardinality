@@ -215,6 +215,25 @@ object Counter {
         }
         .distinct
 
+    // The infinite part a strongly-connected group contributes at the given scope, or None
+    // when it is blocked: some member has no continuing arm, or a continuing arm demands
+    // the cycle outright. A deterministic cycle gets its per-lap label space raised to ℵ₀;
+    // any branch — two continuations in one arm, a strict `Option[X]` field, an inhabited
+    // function field, or a sealed parent with several continuing children — saturates at ℵ₀
+    // under the §4 finite-program reading, which counts one program per unfolding.
+    def infiniteOf(members: Set[String], attached: Set[String], scope: Scope): Option[Size] = {
+      val cyc = members.union(attached)
+      val perMember =
+        members.toList.flatMap(name => continuingArms(classified(name), cyc, scope).toList)
+      if (perMember.length != members.size) None
+      else {
+        val branchy =
+          attached.exists(parent => holedChildren(parent).size >= 2) || perMember.exists(_._2)
+        val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _)
+        Some(if (branchy) EffectiveOmega else lap.pow(EffectiveOmega))
+      }
+    }
+
     // Recompute from μ each round, using the previous round's estimates for label
     // spaces: the additions stay idempotent and the loop converges (values only grow,
     // and the lattice has finite height above the finite counts).
@@ -222,7 +241,7 @@ object Counter {
     def refine(estimates: Scope): Scope = {
       val next = groups.foldLeft(mu) {
         case (sc, (members, attached)) =>
-          infiniteOf(classified, holedChildren, members, attached, estimates).fold(sc)(infinite =>
+          infiniteOf(members, attached, estimates).fold(sc)(infinite =>
             members.union(attached).foldLeft(sc)((s, name) => s.updated(name, s(name) + infinite))
           )
       }
@@ -230,31 +249,6 @@ object Counter {
     }
 
     refine(mu)
-  }
-
-  // The infinite part a strongly-connected group contributes at the given scope, or None
-  // when it is blocked: some member has no continuing arm, or a continuing arm demands
-  // the cycle outright. A deterministic cycle gets its per-lap label space raised to ℵ₀;
-  // any branch — two continuations in one arm, a strict `Option[X]` field, an inhabited
-  // function field, or a sealed parent with several continuing children — saturates at ℵ₀
-  // under the §4 finite-program reading, which counts one program per unfolding.
-  private def infiniteOf(
-      classified: Map[String, List[ClassifiedArm]],
-      holedChildren: Map[String, Set[String]],
-      members: Set[String],
-      attached: Set[String],
-      scope: Scope
-  ): Option[Size] = {
-    val cyc = members.union(attached)
-    val perMember =
-      members.toList.flatMap(name => continuingArms(classified(name), cyc, scope).toList)
-    if (perMember.length != members.size) None
-    else {
-      val branchy =
-        attached.exists(parent => holedChildren(parent).size >= 2) || perMember.exists(_._2)
-      val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _)
-      Some(if (branchy) EffectiveOmega else lap.pow(EffectiveOmega))
-    }
   }
 
   // A member's per-lap space and branch flag, or None when blocked: no arm continues the
