@@ -159,6 +159,37 @@ object Counter {
   // continuing through it is itself the per-node branch. Label spaces are re-evaluated
   // until the scope stabilises, so a cycle may consume another cycle's ν.
   private def greatestFixpoint(stats: List[Stat], mu: Scope): Scope = {
+    val ctx = nuContext(stats)
+    val groups = cycleGroups(ctx)
+
+    // Recompute from μ each round, using the previous round's estimates for label
+    // spaces: the additions stay idempotent and the loop converges (values only grow,
+    // and the lattice has finite height above the finite counts).
+    @tailrec
+    def refine(estimates: Scope): Scope = {
+      val next = groups.foldLeft(mu) {
+        case (sc, (members, attached)) =>
+          infiniteOf(ctx)(members, attached, estimates).fold(sc)(infinite =>
+            members.union(attached).foldLeft(sc)((s, name) => s.updated(name, s(name) + infinite))
+          )
+      }
+      if (next == estimates) estimates else refine(next)
+    }
+
+    refine(mu)
+  }
+
+  // The solver's fixed context: constructor arms, the sealed parents they pass through,
+  // the arms classified into continuations, and the resulting parent -> holed children
+  // map.
+  final private case class NuContext(
+      arms: Map[String, List[List[Type]]],
+      parents: Map[String, List[String]],
+      classified: Map[String, List[ClassifiedArm]],
+      holedChildren: Map[String, Set[String]]
+  )
+
+  private def nuContext(stats: List[Stat]): NuContext = {
     val arms = constructorArms(stats)
     // Names with an equation of their own (a sealed parent does not — its equation is
     // exactly the sum sealedSums computes), matching the guard `equations` uses so a
@@ -170,22 +201,28 @@ object Counter {
       case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) => d.name.value
     }.toSet
     val parents = sealedSums(stats, defined)
-    val allNames = arms.keySet.union(parents.keySet)
-    val classified = classifyArms(arms, allNames)
-
+    val classified = classifyArms(arms, arms.keySet.union(parents.keySet))
     val holedChildren: Map[String, Set[String]] = parents.keySet.toList.map { parent =>
       parent -> classified.collect {
         case (name, memberArms) if memberArms.exists(_.continuations.exists(_.target == parent)) =>
           name
       }.toSet
     }.toMap
+    NuContext(arms, parents, classified, holedChildren)
+  }
 
+  // Strongly-connected groups of the continuation graph that actually cycle (a self edge
+  // counts), paired with the sealed parents they pass through. A parent leading to a
+  // child outside the group breaks the cycle's determinism in a way the label space
+  // cannot express: drop the group.
+  private def cycleGroups(ctx: NuContext): List[(Set[String], Set[String])] = {
     def successors(name: String): Set[String] =
-      classified(name)
+      ctx
+        .classified(name)
         .flatMap(_.continuations)
         .flatMap { edge =>
-          if (arms.contains(edge.target)) Some(edge.target)
-          else holedChildren.getOrElse(edge.target, Set.empty)
+          if (ctx.arms.contains(edge.target)) Some(edge.target)
+          else ctx.holedChildren.getOrElse(edge.target, Set.empty)
         }
         .toSet
 
@@ -195,60 +232,43 @@ object Counter {
       if (next.isEmpty) seen else close(next, seen.union(next))
     }
 
-    val reach = arms.keySet.map(name => name -> close(Set(name), Set(name))).toMap
-
-    // Strongly-connected groups that actually cycle (a self edge counts), with the sealed
-    // parents they pass through. A parent leading to a child outside the group breaks the
-    // cycle's determinism in a way the label space cannot express: drop the group.
-    val groups: List[(Set[String], Set[String])] =
-      arms.keySet.toList
-        .map(name => arms.keySet.filter(m => reach(name).contains(m) && reach(m).contains(name)))
-        .filter(group => group.exists(name => successors(name).intersect(group).nonEmpty))
-        .toList
-        .distinct
-        .flatMap { group =>
-          val targets =
-            group.flatMap(name => classified(name).flatMap(_.continuations).map(_.target))
-          val attached = targets.filter(parents.contains)
-          if (attached.exists(parent => !group.subsetOf(holedChildren(parent)))) None
-          else Some((group, attached))
-        }
-        .distinct
-
-    // The infinite part a strongly-connected group contributes at the given scope, or None
-    // when it is blocked: some member has no continuing arm, or a continuing arm demands
-    // the cycle outright. A deterministic cycle gets its per-lap label space raised to ℵ₀;
-    // any branch — two continuations in one arm, a strict `Option[X]` field, an inhabited
-    // function field, or a sealed parent with several continuing children — saturates at ℵ₀
-    // under the §4 finite-program reading, which counts one program per unfolding.
-    def infiniteOf(members: Set[String], attached: Set[String], scope: Scope): Option[Size] = {
-      val cyc = members.union(attached)
-      val perMember =
-        members.toList.flatMap(name => continuingArms(classified(name), cyc, scope).toList)
-      if (perMember.length != members.size) None
-      else {
-        val branchy =
-          attached.exists(parent => holedChildren(parent).size >= 2) || perMember.exists(_._2)
-        val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _)
-        Some(if (branchy) EffectiveOmega else lap.pow(EffectiveOmega))
+    val reach = ctx.arms.keySet.map(name => name -> close(Set(name), Set(name))).toMap
+    ctx.arms.keySet.toList
+      .map(name => ctx.arms.keySet.filter(m => reach(name).contains(m) && reach(m).contains(name)))
+      .filter(group => group.exists(name => successors(name).intersect(group).nonEmpty))
+      .toList
+      .distinct
+      .flatMap { group =>
+        val targets =
+          group.flatMap(name => ctx.classified(name).flatMap(_.continuations).map(_.target))
+        val attached = targets.filter(ctx.parents.contains)
+        if (attached.exists(parent => !group.subsetOf(ctx.holedChildren(parent)))) None
+        else Some((group, attached))
       }
-    }
+      .distinct
+  }
 
-    // Recompute from μ each round, using the previous round's estimates for label
-    // spaces: the additions stay idempotent and the loop converges (values only grow,
-    // and the lattice has finite height above the finite counts).
-    @tailrec
-    def refine(estimates: Scope): Scope = {
-      val next = groups.foldLeft(mu) {
-        case (sc, (members, attached)) =>
-          infiniteOf(members, attached, estimates).fold(sc)(infinite =>
-            members.union(attached).foldLeft(sc)((s, name) => s.updated(name, s(name) + infinite))
-          )
-      }
-      if (next == estimates) estimates else refine(next)
+  // The infinite part a strongly-connected group contributes at the given scope, or None
+  // when it is blocked: some member has no continuing arm, or a continuing arm demands
+  // the cycle outright. A deterministic cycle gets its per-lap label space raised to ℵ₀;
+  // any branch — two continuations in one arm, a strict `Option[X]` field, an inhabited
+  // function field, or a sealed parent with several continuing children — saturates at ℵ₀
+  // under the §4 finite-program reading, which counts one program per unfolding.
+  private def infiniteOf(ctx: NuContext)(
+      members: Set[String],
+      attached: Set[String],
+      scope: Scope
+  ): Option[Size] = {
+    val cyc = members.union(attached)
+    val perMember =
+      members.toList.flatMap(name => continuingArms(ctx.classified(name), cyc, scope).toList)
+    if (perMember.length != members.size) None
+    else {
+      val branchy =
+        attached.exists(parent => ctx.holedChildren(parent).size >= 2) || perMember.exists(_._2)
+      val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _)
+      Some(if (branchy) EffectiveOmega else lap.pow(EffectiveOmega))
     }
-
-    refine(mu)
   }
 
   // A member's per-lap space and branch flag, or None when blocked: no arm continues the
