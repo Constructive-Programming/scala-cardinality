@@ -8,7 +8,6 @@ sealed trait Size { self =>
   def *(other: Size): Size = mul(other)
   def ^(other: Size): Size = pow(other)
 
-  def max(other: Size): Size = if (self.larger(other)) self else other
   def min(other: Size): Size = if (self.larger(other)) other else self
 }
 

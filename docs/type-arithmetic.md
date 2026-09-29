@@ -375,6 +375,7 @@ fields no longer need a base case.
 | Conaturals (`pred: => Option[CoNat]`) | `ν X. (1 + X)` | `ℵ₀`: every finite depth, plus one infinite one |
 | `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a` is finite and `>=1`; `τ` if `a=ℵ₀` |
 | Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; `ℵ₀` if `a` is finite and `>=2`; `τ` if `a=ℵ₀` |
+| Unfolding that branches per argument (`One(e: => E)`, `Two(i: Int => E)`) | `ν X. (X + (Int → X))` | `ℵ₀` under the §4 finite-program reading — a function field is also never demanded while constructing, so `lazy val e = One(Two(_ => e))` and per-`int` choices all unfold further |
 
 Compare the eager rows: `μ X. X` is `0` but `ν X. X` is `1`, and a stream without
 an end has no finite values at all. With `a>=2` an infinite stream is a function
@@ -416,8 +417,14 @@ The current API and representation have important limits:
   equals either marker is not by itself a mathematical result.
 - The traversal estimates unions by addition (deduplicating identical syntax only) and
   intersections by minimum, so it cannot see overlap or subtyping. It does not resolve
-  forward references, generic definitions, or recursion, and its opaque-type singleton
-  treatment is an approximation.
+  generic definitions, and its opaque-type singleton treatment is an approximation. Forward
+  references and recursion within a single compilation unit are resolved: `Counter.source`
+  solves the definitions as a system of equations by Kleene iteration from the empty type
+  (§8), and abstract traits and sealed classes are folded from their concrete subtypes in
+  the same unit. Cycles through a recognized lazy hole (`=> X`, `=> Option[X]`, `() => X`)
+  also take the greatest fixed point, adding the per-lap label space raised to ℵ₀; `LazyList`
+  and `Stream` follow the same rule. Branching or otherwise unrecognized lazy cycles stay at
+  the sound least-fixed-point under-count.
 - `Size.pow` reports a finite base over an infinite exponent as `EffectiveOmega`, the
   finite-program reading of §1 and §4, and an infinite base over an infinite exponent as
   `EffectiveTau`.
@@ -434,8 +441,11 @@ it separates implemented rules from executable **targets**:
 | Exponentials, currying, distributivity, the `0`/`1` rules, double negation | Asserted against independently known results |
 | Finite powersets and finite-list boundary cases | Asserted for empty, singleton, and nontrivial element types |
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
-| Recursive types with no base constructor | Pending: needs least-fixed-point analysis |
-| Lazy (coinductive) recursive types | Targets with nothing behind them yet; `LazyList` is counted like `List` today |
+| Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; `μX.X` counts `0` |
+| Recursive types (eager) with a base constructor | Asserted: productive recursion pinned at ℵ₀ |
+| Lazy (coinductive) recursion through a single recognized hole | Asserted: `νX.X` counts `1`, conatural `νX.(1+X)` ℵ₀, endless `νX.(2·X)` ℵ₀, `LazyList[String]` `τ` |
+| Lazy recursion with branching holes, or a hole nested past the recognized forms | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
+| Cycles continued through a function field (`D => X`, `D` inhabited), or labeled by a reference back into the cycle | Targets: derived `ℵ₀` (§8, §4 reading); only recognized lazy holes continue a cycle today |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at `ℵ₀` into a finite codomain and `τ` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |
@@ -448,9 +458,10 @@ polymorphic or recursive type is not evidence that the rule is implemented: the 
 also means "unresolved".
 
 Implementation priorities are: keep exact, approximate, and unknown results distinct; apply
-the finite algebra and the empty-type identities; resolve names and constructor structure;
-analyze recursive dependencies as least fixed points, or greatest ones through lazy
-positions; then add binding- and variance-aware polymorphic reductions.
+the finite algebra and the empty-type identities; resolve names and constructor structure
+across compilation units; widen the greatest-fixed-point analysis past the single-recognized-
+hole shapes (branching holes, `Either`/nested lazy positions); then add binding- and
+variance-aware polymorphic reductions.
 
 Run the focused regressions or the full suite with:
 

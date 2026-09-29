@@ -52,6 +52,7 @@ class CardinalitySpec extends Specification {
     true | false                             ${tpe("true | false") === BooleanSize}
     Boolean | Boolean (unions overlap)       ${tpe("Boolean | Boolean") === BooleanSize}
     Boolean & true                           ${tpe("Boolean & true") === UnitSize}
+    true & Boolean (min is the other side)   ${tpe("true & Boolean") === UnitSize}
 
   Exponentials
     Boolean => Boolean                       ${tpe("Boolean => Boolean") === TinySize(4)}
@@ -82,9 +83,15 @@ class CardinalitySpec extends Specification {
   Unbounded collections
     List[Boolean]                            ${tpe("List[Boolean]") === EffectiveOmega}
     List[Nothing] (only Nil)                 ${tpe("List[Nothing]") === UnitSize}
+    Vector[Nothing] (only empty)             ${tpe("Vector[Nothing]") === UnitSize}
+    Seq[Nothing] (only empty)                ${tpe("Seq[Nothing]") === UnitSize}
+    IndexedSeq[Nothing] (only empty)         ${tpe("IndexedSeq[Nothing]") === UnitSize}
+    Array[Nothing] (only empty)              ${tpe("Array[Nothing]") === UnitSize}
     Vector[Unit]                             ${tpe("Vector[Unit]") === EffectiveOmega}
     Array[Byte]                              ${tpe("Array[Byte]") === EffectiveOmega}
     Set[String] (finite subsets)             ${tpe("Set[String]") === EffectiveOmega}
+    Stream[Boolean] (countable)              ${tpe("Stream[Boolean]") === EffectiveOmega}
+    Stream[String] (infinite streams)        ${tpe("Stream[String]") === EffectiveTau}
 
   Classes and objects
     case class                               ${src(
@@ -132,9 +139,104 @@ class CardinalitySpec extends Specification {
     recursive ADT                            ${src(
       "sealed trait Nat; case object Zero extends Nat; case class Succ(n: Nat) extends Nat"
     ) === EffectiveOmega}
+    abstract class recursion stays unknown   ${src(
+      "abstract class Abs(n: Abs); case class Uses(a: Abs)"
+    ) === EffectiveOmega}
+    unsealed trait is not a sum              ${src(
+      "trait C2; case object R2 extends C2; case class P2(c: C2)"
+    ) === EffectiveOmega}
+    unsealed abstract parent is not a sum    ${src(
+      "abstract class B6(y: Boolean); case class S6(z: Boolean) extends B6(z); case class R6(b: B6)"
+    ) === EffectiveOmega}
+    sealed parent with abstract child        ${src(
+      "sealed trait Q; abstract class Qa(x: Boolean) extends Q; case class Qb(y: Boolean) extends Q; case class Uq(q: Q)"
+    ) === EffectiveOmega}
+    growth revival after settling is finite  ${src(
+      "case class X(o: Option[G], h: H); type G = A1; type A1 = A2; type A2 = A3; type A3 = A4; type A4 = Boolean; type H = Boolean"
+    ) === TinySize(6)} (grows twice, never in consecutive rounds)
+    revival pinning is observable by a consumer  ${src(
+      "case class W2(x: X); case class X(o: Option[G], h: H); type G = A1; type A1 = A2; type A2 = A3; type A3 = A4; type A4 = Boolean; type H = Boolean"
+    ) === TinySize(12)} (W2 6 + X 6; the grewEver window must not pin revival growth)
+    abstract lazy arm gets no cycle          ${src(
+      "abstract class A9(n: => A9); case class Uses9(a: A9)"
+    ) === EffectiveOmega}
     field of a type defined in the source    ${src(
       "enum Color { case Red, Green, Blue }; case class Pixel(c: Color, on: Boolean)"
     ) === TinySize(9)} (Color 3 + Pixel 6)
+
+  Recursive types (solved as least fixed points)
+    degenerate self-recursion (μX.X, no base)  ${src("case class Loop(next: Loop)") === NothingSize}
+    mutual recursion without base              ${src(
+      "case class A(b: B); case class B(a: A)"
+    ) === NothingSize}
+    productive self-recursion (Option tail)    ${src(
+      "case class Q(b: Boolean, opt: Option[Q])"
+    ) === EffectiveOmega}
+    recursive enum                             ${src(
+      "enum Chain { case Link(next: Chain); case Stop }"
+    ) === EffectiveOmega}
+    mutual sealed ADTs                         ${src(
+      "sealed trait L; case object L0 extends L; case class L1(r: R) extends L; sealed trait R; case object R0 extends R; case class R1(l: L) extends R"
+    ) === EffectiveOmega}
+    recursion in a function domain                   ${src(
+      "case class P(b: Boolean, t: P => P)"
+    ) === NothingSize} (F[Nothing] is uninhabited, so μX.F is — section 8 of docs/type-arithmetic.md)
+    sealed parent without concrete subtypes    ${src(
+      "sealed trait Open; trait Aux extends Open; case class Ref(o: Open)"
+    ) === EffectiveOmega} (hierarchy open elsewhere)
+
+  Lazy recursion (solved as greatest fixed points)
+    lazy wrapper: the one infinite tower       ${src("case class Loop(next: => Loop)") === UnitSize}
+    conaturals, limit absorbed by the depths   ${src(
+      "case class CoNat(pred: => Option[CoNat])"
+    ) === EffectiveOmega}
+    endless Boolean stream, program-countable  ${src(
+      "case class St(head: Boolean, tail: => St)"
+    ) === EffectiveOmega}
+    thunk tail `() => X`                       ${src(
+      "case class T2(head: Boolean, next: () => T2)"
+    ) === EffectiveOmega}
+    cycle through a sealed parent              ${src(
+      "sealed trait Lz; case class Node(h: Boolean, next: => Lz) extends Lz"
+    ) === EffectiveOmega}
+    consumers see the ν count                  ${src(
+      "case class Inf(next: => Inf); case class Use(i: Inf)"
+    ) === TinySize(2)} (1 finite + 1 infinite each)
+    mutual lazy streams                        ${src(
+      "case class A(h: Boolean, b: => B); case class B(x: Int, a: => A)"
+    ) === EffectiveOmega}
+    branching holes stay at the μ under-count  ${src(
+      "case class R(l: => R, r: => R)"
+    ) === NothingSize}
+    holes with different successors       ${src(
+      "case class B7(x: => B7, y: => C7); case class C7(z: Boolean)"
+    ) === TinySize(2)}
+    enum arms to different successors     ${src(
+      "enum B8 { case X(t: => B8); case Y(t: => C8) }; case class C8(b: Boolean)"
+    ) === EffectiveOmega} (the X arm makes μ productive already)
+    only recognized holes continue the cycle  ${src(
+      "sealed trait E; case class One(e: => E) extends E; case class Void(n: Nothing) extends E"
+    ) === UnitSize} (the single One-tower; a Void sibling continues nothing)
+    lazy cycle through a sealed abstract  ${src(
+      "sealed abstract class Nxt(v: Boolean); case class Go(next: => Nxt) extends Nxt(true)"
+    ) === UnitSize}
+    a tail into another's cycle is no cycle  ${src(
+      "case class Wrap(w: => Loop2); case class Loop2(next: => Loop2)"
+    ) === TinySize(2)} (Wrap = Loop2 = 1 each)
+    strict stream still has no base            ${src(
+      "case class S2(head: Boolean, tail: S2)"
+    ) === NothingSize}
+    LazyList over a countable alphabet         ${tpe("LazyList[String]") === EffectiveTau}
+    LazyList of finitely-producible values     ${tpe("LazyList[Boolean]") === EffectiveOmega}
+    LazyList[Nothing] is only empty            ${tpe("LazyList[Nothing]") === UnitSize}
+
+  Forward references
+    field of a type defined later              ${src(
+      "case class Use(d: Def); case class Def(x: Boolean)"
+    ) === TinySize(4)} (Use 2 + Def 2)
+    alias chain defined bottom-up              ${src(
+      "case class Uses(a: A); type A = B; type B = C; type C = D; type D = E; type E = F; type F = G; type G = Boolean"
+    ) === BooleanSize}
 
   Aliases
     type alias                               ${src(

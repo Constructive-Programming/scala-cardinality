@@ -19,11 +19,14 @@ class ArticleCardinalitySpec extends Specification {
   private val needsParametricity =
     "a polymorphic count needs parametricity, which the traversal does not model (section 6)"
 
-  private val needsFixedPoint =
-    "a recursive count needs least-fixed-point analysis, which the traversal cannot do (section 8)"
-
   private val needsSubtyping =
     "a union or intersection count needs overlap and subtyping information (section 2)"
+
+  private val needsFunctionFieldHoles =
+    "a cycle continued through an inhabited-domain function field (`Int => X`) needs hole recognition beyond the lazy-parameter forms of section 8"
+
+  private val needsCycleLabelFixpoint =
+    "a cycle whose non-hole fields refer back into it needs the per-lap label space as a self-referential fixpoint (section 8)"
 
   // The article's `data Foo = Bar | Baz Bool | Baf Int`: 1 + 2 + 2^32, which the size algebra
   // rounds up to a 33-bit capacity.
@@ -192,20 +195,42 @@ class ArticleCardinalitySpec extends Specification {
       needsParametricity
     )}
 
-  Targets (section 8): recursive types
-    a wrapper with no base case              ${target(
-      src("enum Loop { case Next(next: Loop) }"),
-      NothingSize,
-      needsFixedPoint
+  Recursive types (section 8)
+    a wrapper with no base case              ${src(
+      "enum Loop { case Next(next: Loop) }"
+    ) === NothingSize} (μX.X solved as a least fixed point)
+    a lazy wrapper is one infinite tower     ${src(
+      "case class Loop(next: => Loop)"
+    ) === UnitSize} (νX.X, §8)
+    conaturals: every depth, plus the limit  ${src(
+      "case class CoNat(pred: => Option[CoNat])"
+    ) === EffectiveOmega} (νX.(1 + X))
+    an endless stream is program-countable   ${src(
+      "case class Stream(h: Boolean, t: => Stream)"
+    ) === EffectiveOmega} (νX.(2*X), ℵ₀ by the §4 finite-program reading)
+    LazyList over a countable alphabet       ${tpe(
+      "LazyList[String]"
+    ) === EffectiveTau} (ℵ₀^ℵ₀)
+    a function field also unfolds the cycle  ${target(
+      src(
+        "sealed trait E; case class One(e: => E) extends E; case class Two(i: Int => E) extends E"
+      ),
+      EffectiveOmega,
+      needsFunctionFieldHoles
+    )}
+    a self-referring label still unfolds     ${target(
+      src("case class M3(m: => M3, o: Option[M3])"),
+      EffectiveOmega,
+      needsCycleLabelFixpoint
     )}
     recursion without a seed                 ${target(
       tpe("[A] => (A => A) => A"),
       NothingSize,
-      needsFixedPoint
+      needsParametricity
     )}
     naturals are countable                   ${src(
       "enum Nat { case Zero; case Succ(n: Nat) }"
-    ) === EffectiveOmega} (the fallback is the right count for the wrong reason)
+    ) === EffectiveOmega} (μX.(1 + X), pinned at ℵ₀ by iteration)
     Church numerals are countable            ${tpe(
       "[A] => (A => A) => A => A"
     ) === EffectiveOmega} (the fallback is the right count for the wrong reason)
