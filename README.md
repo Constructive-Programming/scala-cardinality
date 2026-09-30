@@ -104,7 +104,7 @@ Two pieces of eo's pipeline are missing here, both because this build runs on sb
 project's `scalameta_3` dependency (`scalameta_2.13` and `scalameta_3` share package
 names). So the render step is a task in [build.sbt](build.sbt) plus
 [project/SiteRenderer.scala](project/SiteRenderer.scala), and the numbers shown in the
-pages are pinned by [the test suite](src/test/scala/ArticleCardinalitySpec.scala) instead
+pages are pinned by [the test suite](core/src/test/scala/ArticleCardinalitySpec.scala) instead
 of being compiled from the pages.
 
 CI renders the site on every pull request (`ci.yml`, "Documentation site" job, artifact
@@ -113,14 +113,9 @@ Cloudflare Pages — a preview per pull request, production on `v*` tags — onc
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist together with the
 `scala-cardinality-docs` Pages project. Until then that workflow skips with a notice.
 
-What the calculator cannot bound, it names: every size it had to leave unbounded comes
-with the type names that stopped it, so a report says both the number and the reason
-(`unbounded by: A, NonNull`), and distinguishes the definitions that are unbounded
-only because of their own type parameters.
-
 The build has two modules:
 
-- `core` — the calculator itself (`Counter`, the `Size` algebra, `Report`): a
+- `core` — the calculator itself (`Counter`, the `Size` algebra, `Report`, the method analysis): a
   pure library with no sbt types, tested with specs2.
 - `plugin` — `sbt-cardinality`, an sbt 2 plugin that reports on the build it is
   added to, and on any Scala sources it is pointed at. It is tested end-to-end
@@ -133,24 +128,38 @@ inside sbt, and Scala 3 binary compatibility is backward only.
 ## Reports
 
 `sbt cardinalityReport` measures every definition the project's `Compile`
-sources introduce and logs a report: one line per definition, ordered by how
-many values it holds, with the cardinality it holds and the type names the
-calculator could not bound. The same report is written to
+sources introduce — nested definitions included — and logs a report: what each
+generic method or constructor can be, then the stored-value estimate over the
+definitions, ordered by how many values each holds. The same report is written to
 `target/cardinality/report.txt` (`cardinalityReportFile`), so a build can keep
 it, diff it, or post it as an artifact.
 
 ```
-scala-cardinality — 1 source, 5 definitions
-  sizes: exact up to 1024, 2^n above, ω countable, τ uncountable
-  1 unbounded · 2 with more than one value · 1 with one value · 1 abstract
-  generic: 1 of the unbounded depend on their own type parameters
+scala-cardinality — 1 source, 10 definitions
+  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+  ?: unresolved, not a proof of infinity; opaque representations are not singletons
+  2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
+Stored-value estimates (constructor inputs; `?` = unresolved)
 
-ω  example.Holder[A]  class     Light.scala:11  unbounded by: A
+?  example.Holder[A]  class     Light.scala:11  unresolved: A
+ω  example.Succ       class     Light.scala:17
+ω  example.Timeline   class     Light.scala:19
 2  example.Custom     class     Light.scala:5
-2  example.Mode       enum      Light.scala:7
-1  example.Red        object    Light.scala:4
+1  example.Zero       object    Light.scala:16
 —  example.Light      abstract  Light.scala:3
 ```
+
+A row carries the number and the reason: `ω` is a countably infinite value space (a recursive
+type solved as a fixed point, a lazy hole that unfolds for ever), `ε₀` the tier above it,
+`2^32` an upper bound on a finite count the calculator tracks in bits, `?` a size some name
+stopped it from bounding, and `—` a definition with no cardinality of its own (an abstract
+type). A `?` row still carries the size the calculator reached, and the summary tells definitions
+whose size depends on their own type parameters apart.
+
+The report reads the algebra's sums as they are, coefficients included: `Either[String, String]`
+is `ω + ω`, and a module with two `String => String` methods and one `String` field is
+`2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
+reached ω or beyond and which type names stopped it from being tighter.
 
 `sbt "cardinalityReportOf <path>..."` runs the same report over sources the
 build does not compile itself — a directory, a single file, or the
@@ -163,12 +172,11 @@ cs fetch --sources dev.constructive:cats-eo_3:0.16.0
 sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
 ```
 
-Its first real run over `eo-core` 0.16.0 (53 sources, 134 definitions): 37
-unbounded — 17 of them generic, unbounded only because their own type
-parameters are — 2 finite (`IntArrBuilder` and `ObjArrBuilder`, 2^32 each), 56
-holding a single value, 34 abstract. A library of generic optics has no small
-state spaces to find; what the report says about it is *why* each one is
-unbounded, which is what a smaller type would have to replace.
+Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 40 unresolved, 2 with more
+than one value (both `2^32` array builders), 53 holding a single value (the modules), 5 with no
+values (the `X` aliases), 34 abstract. A library of generic optics has no small state spaces to
+find; what the report says about it is *why* each class is unresolved — the type parameters a
+generic class leaves open — which is what a smaller type would have to replace.
 
 ### Method and constructor cardinality
 
@@ -197,12 +205,13 @@ Generic method / constructor implementation cardinalities
     captures: tupleAccessor
 ```
 
-Over eo-core 0.16.0 (480 signatures) the run reads: 41 finite, 3 countably infinite, 436
-unresolved — unresolved because of an unresolved type (249), a given environment (184), an
-abstract or method-valued representation (148: eo's traits, where a sealed hierarchy's cases are
-not yet summed), a higher-kinded parameter (174 across `F[_]`, `F[_, _]`, …), an unnormalized body
-or capture (138), or an import or qualified member (114). Each of those is a named next step
-rather than a claim about the code.
+Over eo-core 0.16.0 (480 signatures) the run reads: 15 finite, 2 countably infinite, 463
+unresolved. Each unresolved signature names what stood in the way, and the reasons group into the
+next steps: an unresolved type (340), an abstract or method-valued representation (237: eo's
+traits, whose sealed cases this fragment does not yet sum), a bounded or higher-kinded parameter
+(211 across `F[_]`, `F[_, _]`, `G[_]`, …), a qualified member environment (57), an unsupported
+type (47), a mutable capture (16), or an inferred result type (12). Each of those is a named next
+step rather than a claim about the code.
 
 ## Quality toolchain
 

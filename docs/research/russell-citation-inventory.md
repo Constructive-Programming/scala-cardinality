@@ -10,7 +10,7 @@ Machine-readable records for every citing work found: [russell-citations.json](r
 
 This paper is a foundational reference for our counting model, not an algorithmic one: it is where
 Russell works through which collections a definition may legitimately form — the same discipline
-our [counting contract](../plans/v1.md#2-agreed-counting-contract) applies when it fixes a scope,
+our [counting contract](../plans/v1.md#_2-agreed-counting-contract) applies when it fixes a scope,
 a language, and an equivalence before assigning a cardinality. The inventory below records who
 has built on that work, so the [evidence register](code-cardinality-foundations.md) can cite the
 line of descent rather than a single 1907 data point.

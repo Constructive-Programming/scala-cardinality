@@ -1,6 +1,6 @@
 # Evidence register: defending the counting decisions
 
-**Purpose.** This is the body of material behind the [v1 counting contract](../plans/v1.md#2-agreed-counting-contract):
+**Purpose.** This is the body of material behind the [v1 counting contract](../plans/v1.md#_2-agreed-counting-contract):
 for each decision the analyzer makes — and will keep making as it audits codebases — the sources
 that justify it, how far each source was verified, and the boundary beyond which it must not be
 stretched. When a review questions a number, this is the register to answer from.
@@ -20,7 +20,7 @@ records the database-reported line of descent in full.
 ## D1. Fix the collection before counting
 
 **Decision.** A count is only meaningful once the language, the accessible environment, the
-equivalence, and the model assumptions are fixed ([plan §2](../plans/v1.md#2-agreed-counting-contract)).
+equivalence, and the model assumptions are fixed ([plan §2](../plans/v1.md#_2-agreed-counting-contract)).
 A free type parameter is one atom per binder, never "a type of unknown finite size"; binder
 identity is per declaration.
 
@@ -66,7 +66,7 @@ uncountable implementation count. Stored-value estimates are kept in a separate 
 - Reynolds 1984, *Polymorphism is not set-theoretic*
   ([DOI](https://doi.org/10.1007/3-540-13346-1_7)) — **abstract inspected**: "we will prove that
   the standard set-theoretic model of the ordinary typed lambda calculus cannot be extended to
-  model this [polymorphic] language extension." A naive reading of types as sets of *all* values
+  model this \[polymorphic\] language extension." A naive reading of types as sets of *all* values
   breaks down exactly where our analyzer works — at polymorphism. This is why our generic-method
   counter never treats a type variable as "all values of some unknown set".
 - Pitts 1987, *Polymorphism is set theoretic, constructively*
@@ -109,7 +109,7 @@ count. Concrete types mention concrete sizes.
 reflection, and side effects; our model excludes them explicitly, and a signature whose result
 depends on such features must read `?`, not a parametric count. Laws (functor, optic) are
 *additional* constraints on top of parametricity, never consequences of it — counting
-law-abiding implementations is a separate, unsolved mode ([plan §8](../plans/v1.md#8-boundaries-and-decisions-still-open)).
+law-abiding implementations is a separate, unsolved mode ([plan §8](../plans/v1.md#_8-boundaries-and-decisions-still-open)).
 
 ## D4. Recursion requires productivity
 
@@ -164,7 +164,7 @@ opt-in mode, never mixed into exact or unresolved rows.
   **inspected** (PDF read this session): the estimator's error characterizes uncertainty about
   *the elements supplied to the sketch*, not about inhabitants the generator or workload failed
   to produce. Even Ertl's improved joint estimator for overlapping sets operates on recorded
-  elements. Recorded in [plan §10](../plans/v1.md#10-future-exploration-hyperloglog-measurement)
+  elements. Recorded in [plan §10](../plans/v1.md#_10-future-exploration-hyperloglog-measurement)
   as deferred exploration.
 
 **Boundary.** A sketch estimate is evidence about a sample, never about the full inhabitant
@@ -211,4 +211,4 @@ A new source earns an entry only with: the decision it defends, the exact claim 
 verification level as defined above, and the boundary past which it must not be cited. A new
 *decision* earns an entry only when it can name at least one source or one executable artifact
 in this repository as evidence. Assertions that cannot meet either bar do not belong in the
-register; they belong in the [plan's open-decisions list](../plans/v1.md#8-boundaries-and-decisions-still-open).
+register; they belong in the [plan's open-decisions list](../plans/v1.md#_8-boundaries-and-decisions-still-open).
