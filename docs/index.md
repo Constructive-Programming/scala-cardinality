@@ -56,6 +56,9 @@ instead, which fails when a count changes.
 - [Type arithmetic](type-arithmetic.md) — the rules behind those numbers, condensed from
   Alex Knvl's *Counting type inhabitants*, together with the calculator's current limits
   and the tests that pin each rule down.
+- [Counting type inhabitants](counting-type-inhabitants.md) — the reference the method and
+  constructor counts are validated against, and the worked examples
+  `ReferenceInhabitantsSpec` runs.
 - [Source, tests and quality gates](https://github.com/constructive-programming/scala-cardinality)
   — the README documents the toolchain (`scalafmt`, `scalafix`, scoverage, stryker4s,
   CodeScene) and how to run it.

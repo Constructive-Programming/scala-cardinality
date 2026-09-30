@@ -178,6 +178,11 @@ values (the `X` aliases), 34 abstract. A library of generic optics has no small 
 find; what the report says about it is *why* each class is unresolved — the type parameters a
 generic class leaves open — which is what a smaller type would have to replace.
 
+The full run is checked in at
+[`docs/baselines/eo-core-0.16.0.txt`](docs/baselines/eo-core-0.16.0.txt), with the analyzer
+revision, the sources jar's SHA-256, the tool versions and the analysis limits in its header, so
+a later run can be diffed against it.
+
 ### Method and constructor cardinality
 
 The other number a report gives is the count of canonical **pure, total, parametric
