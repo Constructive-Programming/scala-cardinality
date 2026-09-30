@@ -380,13 +380,22 @@ object Counter {
       val branchy =
         attached.exists(parent => ctx.holedChildren(parent).size >= 2) || perMember.exists(_._2)
       val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _) // per-lap label space
-      Some(
-        if (lap.isZero) NothingSize
-        else if (branchy) if (lap.hasInfinite) EffectiveEpsilon0 else EffectiveOmega
-        else lap.pow(EffectiveOmega)
-      )
+      Some(cycleContribution(branchy = branchy, lap = lap))
     }
   }
+
+  // One cycle infinite part: an empty per-lap label space admits no node at all, so branching
+  // cannot conjure values from it. A branch saturates at ω under the §4 finite-program
+  // reading, which counts one program per unfolding, unless the label space itself reaches the
+  // ε₀ tier, which branching does not demote. A deterministic cycle raises its label space
+  // to ω.
+  private def cycleContribution(branchy: Boolean, lap: Size): Size =
+    if (lap.isZero) NothingSize
+    else if (branchy) branchContribution(lap)
+    else lap.pow(EffectiveOmega)
+
+  private def branchContribution(lap: Size): Size =
+    if (lap.hasInfinite) EffectiveEpsilon0 else EffectiveOmega
 
   // A member's per-lap space and branch flag, or None when blocked: no arm continues the
   // cycle, or a continuing arm's rest demands it (`x: X` outright, tuples, `Set[X]`,
@@ -618,12 +627,17 @@ object Counter {
     case _ => NothingSize
   }
 
-  private def ctorSignature(scope: Scope)(caseParams: Boolean, ctor: Ctor.Primary): Size =
-    ctor.paramClauses.flatMap(_.values).foldLeft(NothingSize: Size) { (acc, param) =>
-      if (caseParams || param.mods.exists(m => m.is[Mod.ValParam] || m.is[Mod.VarParam]))
-        acc + paramIn(scope)(param)
-      else acc
-    }
+  private def ctorSignature(scope: Scope)(caseParams: Boolean, ctor: Ctor.Primary): Size = {
+    val members = ctor.paramClauses.flatMap(_.values).filter(isAccessor(caseParams, _))
+    members.foldLeft(NothingSize: Size)(_ + paramIn(scope)(_))
+  }
+
+  // A parameter is a signature member when the definition exposes it: every parameter of a case
+  // class or an enum case, and the val/var parameters of a plain class.
+  private def isAccessor(caseParams: Boolean, param: Term.Param): Boolean =
+    caseParams || param.mods.exists(isAccessorMod)
+
+  private def isAccessorMod(mod: Mod): Boolean = mod.is[Mod.ValParam] || mod.is[Mod.VarParam]
 
   private def declared(scope: Scope)(patterns: Int, decltpe: Option[Type]): Size =
     (0 until patterns).foldLeft(NothingSize: Size) { (acc, _) =>
