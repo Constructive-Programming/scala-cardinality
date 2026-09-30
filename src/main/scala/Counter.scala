@@ -4,7 +4,18 @@ import scala.meta.*
 object Counter {
   def source: Source => Size = s => body(s.stats, Scope.empty)
 
+  /** What the definitions of a source declare: every typed field, term and method contributes the
+    * size of its declared type, and the contributions are added up rather than multiplied, so an
+    * object with two `String => String` methods and a `String` field reports `2ε₀ + ω`. See
+    * `signatureIn` for what counts as a member.
+    */
+  def sourceSignature: Source => Size = s => signatureBody(s.stats, Scope.empty)
+
   def stat: Stat => Size = statIn(Scope.empty)
+
+  /** The member signature of a single definition, summed the same way as `sourceSignature`.
+    */
+  def defnSignature: Defn => Size = signatureIn(Scope.empty)
 
   def defn: Defn => Size = defnIn(Scope.empty)
 
@@ -24,7 +35,7 @@ object Counter {
   }
 
   private def body(stats: List[Stat], scope: Scope): Size = {
-    val solved = solve(stats, scope)
+    val solved = solve(equations(stats), stats, scope)
     stats.foldLeft(NothingSize: Size)((acc, st) => acc + statIn(solved)(st))
   }
 
@@ -89,53 +100,117 @@ object Counter {
   // no base constructor (`case class Loop(next: Loop)`, i.e. `μX.X`) lands on `NothingSize`
   // rather than the old unknown-name `EffectiveOmega`.
   //
-  // A name that grows in two consecutive rounds is productive recursion: its chain
-  // (`1, 2, 3, …` for `Nat`) is strictly increasing forever but its least fixed point is
-  // countable, so it is pinned straight to `EffectiveOmega` (ℵ₀) and dependents re-evaluate
-  // once more; the algebra already saturates the genuinely uncountable payloads on its
-  // own. The `budget` only accelerates mutual recursion, where two names take turns
-  // growing and never grow in consecutive rounds: once it expires, a name that grew
-  // earlier is pinned on its next growth, while one growing for the first time (a long
-  // forward-reference chain still settling) is left alone. Either branch shrinks the set
-  // of unpinned names that may still grow, so the iteration terminates.
-  private def solve(stats: List[Stat], base: Scope): Scope = {
-    val eqs = equations(stats)
-    val seeded = base ++ eqs.map { case (name, _) => name -> (NothingSize: Size) }
+  // A recognized productive cycle never stabilises under coefficient-preserving addition:
+  // the estimate for `Nat` climbs `1, 2, 3, …` for ever. Instead of re-evaluating those
+  // names, the iteration widens them to the tier they have already grown into (`Size.widen`)
+  // and leaves them out of later rounds, so whatever depends on them settles on a widened
+  // value. Widening is the solver's own loss of precision; addition itself keeps every
+  // coefficient, and a widening never demotes an ε₀ estimate to ω.
+  //
+  // The `budget` only accelerates mutual recursion, where two names take turns growing and
+  // never grow in consecutive rounds: once it expires, a name that grew earlier is widened
+  // on its next growth, while one growing for the first time (a long forward-reference chain
+  // still settling) is left alone. Either branch shrinks the set of names that may still
+  // grow, so the iteration terminates.
+  private def solve(
+      eqs: List[(String, Scope => Size)],
+      stats: List[Stat],
+      base: Scope
+  ): Scope = {
+    val cyclic = cyclicNames(stats, eqs.map(_._1).toSet)
+    val mu = iterate(eqs, cyclic, base, frozen = Set.empty)
+    greatestFixpoint(eqs, stats, mu, cyclic)
+  }
+
+  // The widening iteration. `base` seeds every equation — except the frozen ones — with the
+  // empty type, and a frozen name keeps the value `base` gives it instead of being
+  // re-evaluated, which is how the caller re-derives consumers around a settled cycle.
+  private def iterate(
+      eqs: List[(String, Scope => Size)],
+      cyclic: Set[String],
+      base: Scope,
+      frozen: Set[String]
+  ): Scope = {
+    val seeded =
+      base ++ eqs.collect {
+        case (name, _) if !frozen(name) => name -> (NothingSize: Size)
+      }
 
     @tailrec
-    def iterate(
+    def step(
         scope: Scope,
         grewLastRound: Set[String],
         grewEver: Set[String],
-        pinned: Set[String],
+        widened: Set[String],
         budget: Int
     ): Scope = {
-      val evaluated =
-        eqs.collect { case (name, equation) if !pinned(name) => name -> equation(scope) }.toMap
+      val evaluated = eqs.collect {
+        case (name, equation) if !frozen(name) && !widened(name) => name -> equation(scope)
+      }.toMap
       val grown = evaluated.collect { case (name, size) if scope(name) != size => name }.toSet
       if (grown.isEmpty) scope ++ evaluated
       else {
         val lastRounds = if (budget > 0) grewLastRound else grewEver
-        val toPin = grown.intersect(lastRounds)
-        iterate(
-          scope = scope ++ evaluated ++ toPin.map(_ -> (EffectiveOmega: Size)),
+        val toWiden = grown.intersect(lastRounds).intersect(cyclic)
+        step(
+          scope = scope ++ evaluated ++ toWiden.map(name => name -> evaluated(name).widen),
           grewLastRound = grown,
           grewEver = grewEver.union(grown),
-          pinned = pinned.union(toPin),
+          widened = widened.union(toWiden),
           budget = budget - 1
         )
       }
     }
 
-    val mu =
-      iterate(
-        seeded,
-        grewLastRound = Set.empty,
-        grewEver = Set.empty,
-        pinned = Set.empty,
-        budget = 8
-      )
-    greatestFixpoint(stats, mu)
+    step(
+      seeded,
+      grewLastRound = Set.empty,
+      grewEver = Set.empty,
+      widened = Set.empty,
+      budget = eqs.size + 8
+    )
+  }
+
+  // The dependency graph of the body equations: every name a definition mentions anywhere in
+  // its syntax, plus the children of a sealed parent (whose value is their sum). Only a name
+  // that can reach itself may be widened, so an acyclic chain of forward references settles
+  // exactly, however many rounds it takes.
+  private def cyclicNames(stats: List[Stat], defined: Set[String]): Set[String] = {
+    val mentions: Stat => Option[(String, Set[String])] = {
+      case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) => Some(d.name.value -> Set.empty)
+      case d: Defn.Type                                    => Some(d.name.value -> namesOf(d.body))
+      case d: Defn.Enum                                    =>
+        Some(
+          d.name.value -> d.templ.body.stats
+            .flatMap {
+              case c: Defn.EnumCase => paramTypes(c.ctor)
+              case _                => Nil
+            }
+            .flatMap(namesOf)
+            .toSet
+        )
+      case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
+        Some(d.name.value -> paramTypes(d.ctor).flatMap(namesOf).toSet)
+      case _ => None
+    }
+    val concrete = stats.collect {
+      case d: Defn.Type                                        => d.name.value
+      case d: Defn.Enum                                        => d.name.value
+      case d: Defn.Object                                      => d.name.value
+      case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) => d.name.value
+    }.toSet
+    val direct = stats.flatMap(mentions).toMap
+    val children = sealedSums(stats, concrete)
+    val deps = defined.map { name =>
+      name -> (direct.getOrElse(name, Set.empty[String]) ++ children.getOrElse(name, Nil))
+    }.toMap
+    @tailrec
+    def reach(frontier: Set[String], seen: Set[String]): Set[String] = {
+      val next = frontier.flatMap(deps.getOrElse(_, Set.empty)).diff(seen)
+      if (next.isEmpty) seen else reach(next, seen.union(next))
+    }
+
+    deps.keySet.filter(name => reach(deps.getOrElse(name, Set.empty), Set.empty).contains(name))
   }
 
   // The greatest fixed point of lazy recursion (docs/type-arithmetic.md §8): the μ
@@ -144,39 +219,75 @@ object Counter {
   // defined name in a lazy position:
   //   - `=> X`, `=> Option[X]` or the thunk `() => X`: one continuation per node — the
   //     cycle is deterministic and the infinite part is its per-lap label space raised to
-  //     ℵ₀ (the `Size.pow` finite-program reading): `νX.X` counts 1, an endless `Boolean`
-  //     stream ℵ₀, an uncountable alphabet `EffectiveTau`;
+  //     ω (the `Size.pow` finite-program reading): `νX.X` counts 1, an endless `Boolean`
+  //     stream ω, an ε₀-tier label space such as `String`-valued streams ε₀;
   //   - a strict `Option[X]` field (per node a `Some(tower)` beside the hole) or an
   //     inhabited-domain function field `D => X` (one continuation per input of `D`, as
   //     `lazy val e = One(Two(_ => e))` shows): the cycle branches, and every branching
-  //     unfolding is generated by a finite program, so the infinite part saturates at ℵ₀.
+  //     unfolding is generated by a finite program, so the infinite part saturates at ω —
+  //     unless the per-lap label space itself reaches ε₀, which branching may not demote,
+  //     and unless it is empty, in which case branching cannot conjure values at all.
   // Coiteration is blocked — the cycle skipped, leaving the sound μ under-count — when a
   // continuing arm demands the cycle the hard way: a strict self argument (`x: X`), a
   // mention nested inside a tuple, `Set[X]` or a function domain (`X => Y`).
   //
   // Cycles are the strongly-connected groups of the continuation graph; a sealed parent is
   // a pass-through node whose holed children are one hop apart, and more than one child
-  // continuing through it is itself the per-node branch. Label spaces are re-evaluated
-  // until the scope stabilises, so a cycle may consume another cycle's ν.
-  private def greatestFixpoint(stats: List[Stat], mu: Scope): Scope = {
+  // continuing through it is itself the per-node branch. Each completed cycle combines its μ
+  // value with the infinite contribution, then collapses an infinite total to its highest tier.
+  // Finite totals stay unchanged. The label-space environment is re-computed from the immutable
+  // μ base rather than accumulated — adding a contribution per round would count solver rounds
+  // as coefficients. A cycle may consume another cycle's ν, so the environment is refined
+  // until stable, within a budget that only guards the loop.
+  private def greatestFixpoint(
+      eqs: List[(String, Scope => Size)],
+      stats: List[Stat],
+      mu: Scope,
+      cyclic: Set[String]
+  ): Scope = {
     val ctx = nuContext(stats)
     val groups = cycleGroups(ctx)
+    if (groups.isEmpty) mu
+    else {
+      // Contributions are single-tier values, so a cycle can only move another cycle once;
+      // the budget is a guard against a pathological dependency order, not a semantic.
+      val budget = groups.size * 4 + 8
 
-    // Recompute from μ each round, using the previous round's estimates for label
-    // spaces: the additions stay idempotent and the loop converges (values only grow,
-    // and the lattice has finite height above the finite counts).
-    @tailrec
-    def refine(estimates: Scope): Scope = {
-      val next = groups.foldLeft(mu) {
-        case (sc, (members, attached)) =>
-          infiniteOf(ctx)(members, attached, estimates).fold(sc)(infinite =>
-            members.union(attached).foldLeft(sc)((s, name) => s.updated(name, s(name) + infinite))
-          )
+      @tailrec
+      def refine(env: Scope, rounds: Int): Scope = {
+        val contributions = groups.foldLeft(Map.empty[String, Size]) {
+          case (acc, (members, attached)) =>
+            infiniteOf(ctx)(members, attached, env).fold(acc) { infinite =>
+              members.union(attached).foldLeft(acc) { (a, name) =>
+                a.updated(name, a.getOrElse(name, NothingSize) + infinite)
+              }
+            }
+        }
+        val next = contributions.foldLeft(env) {
+          case (scope, (name, infinite)) =>
+            scope.updated(name, completeCoinduction(mu.getOrElse(name, NothingSize), infinite))
+        }
+        if (next == env || rounds <= 0) next else refine(next, rounds - 1)
       }
-      if (next == estimates) estimates else refine(next)
-    }
 
-    refine(mu)
+      val settled = refine(mu, budget)
+      val frozen = groups.flatMap { case (members, attached) => members.union(attached) }.toSet
+
+      // Re-derive everything outside the cycles from the frozen cycle values. Widening during
+      // the iteration is a way of stopping it, not a result: a consumer widened only because a
+      // cyclic dependency was still growing lands here on the value its own definition has, so
+      // a definition and a reference to it always agree, and a chain of consumers carries the
+      // ν count all the way down.
+      iterate(eqs, cyclic, settled, frozen)
+    }
+  }
+
+  // Collapse the completed lazy type, not an enclosing sum or source/signature total. Guard
+  // widening with hasInfinite: finite results, including zero and one, must remain finite.
+  // Both recursive definitions and built-in lazy collections use this boundary.
+  private def completeCoinduction(finite: Size, infinite: Size): Size = {
+    val total = finite + infinite
+    if (total.hasInfinite) total.widen else total
   }
 
   // The solver's fixed context: constructor arms, the sealed parents they pass through,
@@ -250,10 +361,12 @@ object Counter {
 
   // The infinite part a strongly-connected group contributes at the given scope, or None
   // when it is blocked: some member has no continuing arm, or a continuing arm demands
-  // the cycle outright. A deterministic cycle gets its per-lap label space raised to ℵ₀;
-  // any branch — two continuations in one arm, a strict `Option[X]` field, an inhabited
-  // function field, or a sealed parent with several continuing children — saturates at ℵ₀
-  // under the §4 finite-program reading, which counts one program per unfolding.
+  // the cycle outright. A deterministic cycle gets its per-lap label space raised to ω; an
+  // empty label space admits no node at all, so branching cannot conjure values from it. Any
+  // branch — two continuations in one arm, a strict `Option[X]` field, an inhabited function
+  // field, or a sealed parent with several continuing children — saturates at ω under the §4
+  // finite-program reading, which counts one program per unfolding, unless the label space
+  // itself reaches the ε₀ tier, which branching does not demote.
   private def infiniteOf(ctx: NuContext)(
       members: Set[String],
       attached: Set[String],
@@ -266,8 +379,12 @@ object Counter {
     else {
       val branchy =
         attached.exists(parent => ctx.holedChildren(parent).size >= 2) || perMember.exists(_._2)
-      val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _)
-      Some(if (branchy) EffectiveOmega else lap.pow(EffectiveOmega))
+      val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _) // per-lap label space
+      Some(
+        if (lap.isZero) NothingSize
+        else if (branchy) if (lap.hasInfinite) EffectiveEpsilon0 else EffectiveOmega
+        else lap.pow(EffectiveOmega)
+      )
     }
   }
 
@@ -410,13 +527,22 @@ object Counter {
   private def namesOf(tpe: Type): Set[String] =
     tpe.collect { case Type.Name(n) => n }.toSet
 
+  // A statement's contribution to a source total. A concrete class, enum or object that the
+  // solver gave an equation contributes that solved value rather than a fresh evaluation of
+  // the same syntax: with coefficient-preserving addition, evaluating twice counts the
+  // definition's base summand twice — `Q = 1 + Q` would contribute `ω + 2` where a reference
+  // to `Q` contributes `ω + 1`.
   private def statIn(scope: Scope): Stat => Size = {
-    case p: Pkg  => body(p.body.stats, scope)
-    case d: Defn => defnIn(scope)(d)
+    case p: Pkg                                              => body(p.body.stats, scope)
+    case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
+      scope.getOrElse(d.name.value, ctorIn(scope)(d.ctor))
+    case d: Defn.Enum   => scope.getOrElse(d.name.value, enumSize(scope)(d))
+    case d: Defn.Object => scope.getOrElse(d.name.value, UnitSize)
     // scalameta's `Stat` is not sealed and hides `Stat.Quasi` as `private[meta]`, so an
     // exhaustive match is impossible. Every other statement — declarations, imports and
-    // exports, bare terms — defines no values of its own.
-    case _ => NothingSize
+    // exports, bare terms, aliases — defines no values of its own.
+    case d: Defn => defnIn(scope)(d)
+    case _       => NothingSize
   }
 
   private def defnIn(scope: Scope): Defn => Size = {
@@ -448,6 +574,71 @@ object Counter {
 
   private def paramIn(scope: Scope): Term.Param => Size =
     _.decltpe.fold(EffectiveOmega: Size)(typeIn(scope))
+
+  // The member signature of a body: a static inventory of what a definition declares, summed
+  // rather than multiplied. Every typed field, term and method contributes the size of its
+  // declared type — `String => String` is ε₀, `String` is ω, `Boolean` is 2 — and nested
+  // definitions contribute their own members once. The container itself adds nothing: an object
+  // is a single value, but its signature is the sum of its members, which is what makes
+  // `2ε₀ + ω` (two `String => String` methods and one `String` field) readable off a module.
+  //
+  // The member surface is the accessor surface: every parameter of a case class or an enum
+  // case, the `val`/`var` parameters of a plain class, and the values, variables and methods a
+  // body declares, abstract declarations included. A parameter without an accessor is part of
+  // how a class is built, not of what it exposes, and synthesized accessors are not counted on
+  // top of the parameters that produce them.
+  private def signatureBody(stats: List[Stat], scope: Scope): Size = {
+    val solved = solve(equations(stats), stats, scope)
+    stats.foldLeft(NothingSize: Size)((acc, st) => acc + signatureIn(solved)(st))
+  }
+
+  private def signatureIn(scope: Scope): Stat => Size = {
+    case p: Pkg        => signatureBody(p.body.stats, scope)
+    case d: Defn.Class =>
+      ctorSignature(scope)(caseParams = d.mods.exists(_.is[Mod.Case]), d.ctor) +
+        signatureBody(d.templ.body.stats, scope)
+    case d: Defn.Trait  => signatureBody(d.templ.body.stats, scope)
+    case d: Defn.Object => signatureBody(d.templ.body.stats, scope)
+    // An enum's own parameters reach every case, so they are members too.
+    case d: Defn.Enum =>
+      ctorSignature(scope)(caseParams = true, d.ctor) + signatureBody(d.templ.body.stats, scope)
+    case d: Defn.EnumCase => ctorSignature(scope)(caseParams = true, d.ctor)
+    // A value, variable or field contributes the size of its declared type; several patterns
+    // (`val a, b: Int`) declare one member each, so their contributions add.
+    case d: Defn.Val => declared(scope)(d.pats.size, d.decltpe)
+    case d: Defn.Var => declared(scope)(d.pats.size, d.decltpe)
+    case d: Decl.Val => declared(scope)(d.pats.size, Some(d.decltpe))
+    case d: Decl.Var => declared(scope)(d.pats.size, Some(d.decltpe))
+    // A method contributes its function space: the codomain raised to the product of its
+    // parameters, with the same arrow and empty-domain rules `typeIn` uses.
+    case d: Defn.Def => methodSignature(scope)(d.paramClauses, d.decltpe)
+    case d: Decl.Def => methodSignature(scope)(d.paramClauses, Some(d.decltpe))
+    // Everything else — type members, givens, extension groups, secondary constructors — is not
+    // a declared value or method of the definition.
+    case _ => NothingSize
+  }
+
+  private def ctorSignature(scope: Scope)(caseParams: Boolean, ctor: Ctor.Primary): Size =
+    ctor.paramClauses.flatMap(_.values).foldLeft(NothingSize: Size) { (acc, param) =>
+      if (caseParams || param.mods.exists(m => m.is[Mod.ValParam] || m.is[Mod.VarParam]))
+        acc + paramIn(scope)(param)
+      else acc
+    }
+
+  private def declared(scope: Scope)(patterns: Int, decltpe: Option[Type]): Size =
+    (0 until patterns).foldLeft(NothingSize: Size) { (acc, _) =>
+      acc + decltpe.fold(EffectiveOmega: Size)(typeIn(scope))
+    }
+
+  private def methodSignature(scope: Scope)(
+      paramClauses: Seq[Term.ParamClause],
+      decltpe: Option[Type]
+  ): Size = {
+    val domain = paramClauses
+      .flatMap(_.values)
+      .foldLeft(UnitSize: Size)((acc, param) => acc * paramIn(scope)(param))
+    arrow(decltpe.fold(EffectiveOmega: Size)(typeIn(scope)), domain)
+  }
 
   private def typeIn(scope: Scope): Type => Size = {
     case Type.Name("Nothing")    => NothingSize
@@ -539,12 +730,13 @@ object Counter {
       UnitSize
     // `LazyList` and `Stream` are the greatest fixed point `νX. 1 + A*X` (§8): all the
     // finite ones — ℵ₀ over any nonempty finitely-countable alphabet — plus the infinite
-    // streams, the alphabet's choice space per position raised to ℵ₀. An empty alphabet
-    // collapses to the single empty list, exactly as for `List`.
+    // streams, the alphabet's choice space per position raised to ℵ₀. Collapse that completed
+    // lazy type to its highest infinite tier; ordinary sums around it still keep coefficients.
+    // An empty alphabet has the single empty list, exactly as for `List`.
     case (Type.Name("LazyList" | "Stream"), List(t)) =>
       val elem = typeIn(scope)(t)
       if (elem == NothingSize) UnitSize
-      else EffectiveOmega + elem.pow(EffectiveOmega)
+      else completeCoinduction(EffectiveOmega, elem.pow(EffectiveOmega))
     case _ => EffectiveOmega
   }
 

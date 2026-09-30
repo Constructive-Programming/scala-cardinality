@@ -1,197 +1,336 @@
-sealed trait Size { self =>
-  def larger: Size => Boolean
-  def add: Size => Size
-  def mul: Size => Size
-  def pow: Size => Size
+/** How many values a type can hold: a natural-sum polynomial over three tiers.
+  *
+  * A size is `a·ε₀ + b·ω + n`. The coefficients `a` and `b` are non-negative counts of additive
+  * contributions at the ε₀ and ω (countable) tiers, and `n` is the finite component: exact up to
+  * 127, then a rounded bit capacity. Addition is componentwise — the Hessenberg natural sum of
+  * those terms — so `ω + ω = 2ω` and `ε₀ + 3` keeps both summands. Comparison is lexicographic: the
+  * ε₀ coefficient, then ω, then the finite component.
+  *
+  * Multiplication and exponentiation stay coarse above the finite tier: after the zero and one
+  * identities, an infinite operand is projected to its dominant tier, so `2 * ω = ω` and
+  * `ω * ω = ω`. Coefficients therefore count additive contributions, not repeated products:
+  * `Either[String, String]` is `2ω` while the isomorphic `(String, String)` is `ω`.
+  *
+  * `EffectiveEpsilon0` is an analysis tier, not the ordinal ε₀. It caps what the finite-program
+  * reading in `docs/type-arithmetic.md` places above countable infinity — `String => String`,
+  * `LazyList[String]` — covering everything from `ω^ω` up.
+  */
+final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self =>
+
+  /** Lexicographic comparison, strict: a size is never larger than itself. */
+  def larger(other: Size): Boolean =
+    if (epsilon != other.epsilon) epsilon > other.epsilon
+    else if (omega != other.omega) omega > other.omega
+    else finite.larger(other.finite)
+
+  /** Componentwise addition: every coefficient survives the sum. */
+  def add(other: Size): Size =
+    Size(epsilon + other.epsilon, omega + other.omega, finite.add(other.finite))
+
+  /** Product of two value spaces, coarse above the finite tier: `2 * ω = ω` and `ω * ω = ω`. Zero
+    * annihilates, and one is an identity that preserves whole polynomials.
+    */
+  def mul(other: Size): Size =
+    if (isZero || other.isZero) NothingSize
+    else if (isOne) other
+    else if (other.isOne) this
+    else if (hasInfinite || other.hasInfinite) dominant.widest(other.dominant)
+    else Size(0, 0, finite.mul(other.finite))
+
+  /** `self ^ other`, the size of a function space when `self` is the codomain. Coarse above the
+    * finite tier: a finite base over an infinite domain stays countable, an infinite base over an
+    * infinite domain is `ε₀`, and an infinite base over a finite exponent keeps its tier.
+    */
+  def pow(other: Size): Size =
+    if (other.isZero) UnitSize
+    else if (other.isOne) this
+    else if (isOne) UnitSize
+    else if (isZero) NothingSize
+    else if (hasInfinite) {
+      if (other.hasInfinite) EffectiveEpsilon0 else dominant
+    } else if (other.hasInfinite) EffectiveOmega
+    // A finite base over an exponent too large to materialize is still finite; the calculator
+    // reports it as countable.
+    else finite.pow(other.finite).fold(EffectiveOmega: Size)(Size(0, 0, _))
+
   def exp: Size => Size = _.pow(self)
+
   def +(other: Size): Size = add(other)
+
   def *(other: Size): Size = mul(other)
+
   def ^(other: Size): Size = pow(other)
 
-  def min(other: Size): Size = if (self.larger(other)) other else self
+  def min(other: Size): Size = if (larger(other)) other else self
+
+  /** No values at all. */
+  def isZero: Boolean = epsilon == 0 && omega == 0 && finite.isZero
+
+  /** Exactly one value. */
+  def isOne: Boolean = epsilon == 0 && omega == 0 && finite.isOne
+
+  /** A contribution at the ω or ε₀ tier. */
+  def hasInfinite: Boolean = epsilon > 0 || omega > 0
+
+  /** This size as a single unit of its highest tier: `ε₀` when any ε₀ contribution is present, `ω`
+    * when the size is infinite, and the size itself when it is finite.
+    */
+  private def dominant: Size =
+    if (epsilon > 0) EffectiveEpsilon0
+    else if (omega > 0) EffectiveOmega
+    else self
+
+  /** The larger of two sizes, as one of them. */
+  private def widest(other: Size): Size = if (larger(other)) self else other
+
+  /** Analysis widening: the tier a value has grown into, as a single unit.
+    *
+    * The recursion solver applies this to a component whose estimate keeps growing — a recognized
+    * productive cycle — so that iteration terminates. It drops coefficients (`2ω` widens to `ω`)
+    * and never demotes: an ε₀-containing estimate widens to ε₀, a bounded cycle that has not grown
+    * at all stays `0`. This is analysis loss, not arithmetic; ordinary addition never coarsens a
+    * sum this way.
+    */
+  def widen: Size =
+    if (epsilon > 0) EffectiveEpsilon0
+    else if (omega > 0 || !finite.isZero) EffectiveOmega
+    else NothingSize
+
+  /** `TinySize(7)`, `FiniteSize(8)`, `2ε₀ + ω + 3`, … — zero terms and unit coefficients are left
+    * out, and the finite component prints as digits when it is an exact count.
+    */
+  override def toString: String =
+    if (epsilon == 0 && omega == 0) finite.toString
+    else
+      List(
+        if (epsilon == 0) "" else if (epsilon == 1) "ε₀" else s"${epsilon}ε₀",
+        if (omega == 0) "" else if (omega == 1) "ω" else s"${omega}ω",
+        if (finite.isZero) "" else finite.term
+      ).filter(_.nonEmpty).mkString(" + ")
+
 }
 
 object Size {
+
+  /** The number of bits a finite cardinality needs: the smallest `b` with `cardinality <= 2^b`.
+    * Illegal cardinalities (0) report 0, which keeps the finite coordinate total.
+    */
   def bits(cardinality: BigInt): Int = (cardinality - 1).bitLength
-}
 
-sealed trait TinySize extends Size { self =>
-  def repr: Byte
-
-  def larger: Size => Boolean = {
-    case t: TinySize => self.repr > t.repr
-    case s           => !s.larger(self)
-  }
-
-  override def equals(obj: Any): Boolean = obj match {
-    case t: TinySize => self.repr == t.repr
-    case _           => false
-  }
-
-  override def hashCode(): Int = repr.hashCode
-  override def toString() = s"TinySize($repr)"
-
-  def add: Size => Size = {
-    case t: TinySize => checkRepr(self.repr + t.repr)
-    case s           => s.add(self)
-  }
-
-  def mul: Size => Size = {
-    case t: TinySize => checkRepr(self.repr * t.repr)
-    case s           => s.mul(self)
-  }
-
-  def pow: Size => Size = {
-    case t: TinySize                        => checkRepr(BigInt(self.repr).pow(t.repr))
-    case _ if self.repr <= 1                => self
-    case f: FiniteSize if f.bits.isValidInt =>
-      FiniteSize((BigInt(1) << f.bits.toInt) * Size.bits(BigInt(self.repr)))
-    // A finite base to an infinite (or unrepresentably large) power stays countable: only
-    // what a finite program can produce is counted. Only an infinite base to an infinite
-    // power reaches `EffectiveTau`.
-    case _ => EffectiveOmega
-  }
-
-  private def checkRepr(nrepr: BigInt): Size =
-    if (nrepr.isValidByte) TinySize(nrepr.toByte)
-    else FiniteSize(Size.bits(nrepr))
+  /** A size of whole tiers with nothing finite: `a·ε₀ + b·ω`. */
+  def tiers(epsilon: BigInt, omega: BigInt): Size = Size(epsilon, omega, FinitePart.zero)
 
 }
 
-object TinySize {
+/** The finite component of a `Size`: the third coordinate of `a·ε₀ + b·ω + n`.
+  *
+  * Counts up to 127 are exact (`Exact`). Above that the component records only a capacity: the
+  * count lies in `(2^(bits-1), 2^bits]`. `Lossy` is the stand-in for floating-point numbers, whose
+  * precision the calculator does not model. The three cases keep the arithmetic and comparison
+  * rules the calculator has always used, `max(bits) + 1` for a sum of capacities included, which is
+  * not associative: the finite coordinate is an estimate, not an exact natural number.
+  */
+sealed trait FinitePart { self =>
 
-  def apply(r: Byte) = new TinySize {
-    val repr: Byte = r
-  }
+  /** Sum of two finite counts, rounded up the same way the whole calculator rounds counts. */
+  def add(other: FinitePart): FinitePart
 
-}
+  /** Product of two finite counts. */
+  def mul(other: FinitePart): FinitePart
 
-sealed trait FiniteSize extends Size { self =>
+  /** `this ^ other` for finite operands, or None when the exponent is too large to materialize: the
+    * true result is still finite, but the calculator reports it as countable.
+    */
+  def pow(other: FinitePart): Option[FinitePart]
+
+  /** Strict comparison, matching the tier order the finite cases have always had. */
+  def larger(other: FinitePart): Boolean
+
+  def isZero: Boolean
+
+  def isOne: Boolean
+
+  /** The capacity in bits; an exact count reports its own binary width. */
   def bits: BigInt
 
-  def larger: Size => Boolean = {
-    case _: TinySize          => true
-    case _: LossyInfiniteSize => false
-    case f: FiniteSize        => bits > f.bits
-    case _                    => false
-  }
-
-  override def equals(obj: Any): Boolean = obj match {
-    case _: LossyInfiniteSize => false
-    case f: FiniteSize        => bits == f.bits
-    case _                    => false
-  }
-
-  override def hashCode(): Int = bits.hashCode
-  override def toString() = s"FiniteSize($bits)"
-
-  def add: Size => Size = {
-    case NothingSize   => self
-    case t: TinySize   => FiniteSize(bits.max(Size.bits(BigInt(t.repr))) + 1)
-    case f: FiniteSize => FiniteSize(bits.max(f.bits) + 1)
-    case s             => s.add(self)
-  }
-
-  def mul: Size => Size = {
-    case NothingSize   => NothingSize
-    case t: TinySize   => FiniteSize(bits + Size.bits(BigInt(t.repr)))
-    case f: FiniteSize => FiniteSize(bits + f.bits)
-    case s             => s.mul(self)
-  }
-
-  def pow: Size => Size = {
-    // x ^ 0 is 1 however large x is; `bits * 0` would instead give `FiniteSize(0)`, which
-    // is cardinality 1 but not equal to `UnitSize`.
-    case NothingSize                        => UnitSize
-    case t: TinySize                        => FiniteSize(bits * BigInt(t.repr))
-    case f: FiniteSize if f.bits.isValidInt => FiniteSize(bits * (BigInt(1) << f.bits.toInt))
-    // As above, a finite base to an infinite power stays countable.
-    case _ => EffectiveOmega
+  /** How the component prints after an infinite term: exact counts as digits, capacities as the
+    * marker that names them.
+    */
+  def term: String = self match {
+    case FinitePart.Exact(repr) => repr.toString
+    case other                  => other.toString
   }
 
 }
 
+object FinitePart {
+
+  /** An exact count. Every size the arithmetic produces keeps this case from 0 to 127. */
+  final case class Exact(repr: BigInt) extends FinitePart {
+
+    def add(other: FinitePart): FinitePart =
+      if (isZero) other
+      else if (other.isZero) this
+      else
+        other match {
+          case Exact(that) => exact(repr + that)
+          case _           => Capacity(bits.max(other.bits) + 1)
+        }
+
+    def mul(other: FinitePart): FinitePart =
+      if (isZero || other.isZero) FinitePart.zero
+      else if (isOne) other
+      else if (other.isOne) this
+      else
+        other match {
+          case Exact(that) => exact(repr * that)
+          case _           => Capacity(bits + other.bits)
+        }
+
+    def pow(other: FinitePart): Option[FinitePart] =
+      if (other.isZero) Some(FinitePart.one)
+      else if (other.isOne) Some(this)
+      else if (isZero) Some(FinitePart.zero)
+      else if (isOne) Some(FinitePart.one)
+      else
+        other match {
+          case Exact(that)                => Some(exact(repr.pow(that.toInt)))
+          case _ if other.bits.isValidInt => Some(Capacity((BigInt(1) << other.bits.toInt) * bits))
+          case _                          => None
+        }
+
+    def larger(other: FinitePart): Boolean = other match {
+      case Exact(that) => repr > that
+      case _           => false
+    }
+
+    def isZero: Boolean = repr == 0
+
+    def isOne: Boolean = repr == 1
+
+    def bits: BigInt = Size.bits(repr)
+
+    override def toString: String = s"TinySize($repr)"
+
+  }
+
+  /** A count somewhere in `(2^(bits-1), 2^bits]`: the calculator tracks the width, not the count.
+    */
+  final case class Capacity(bits: BigInt) extends FinitePart {
+
+    def add(other: FinitePart): FinitePart =
+      if (other.isZero) this else Capacity(bits.max(other.bits) + 1)
+
+    def mul(other: FinitePart): FinitePart =
+      if (other.isZero) FinitePart.zero
+      else if (other.isOne) this
+      else Capacity(bits + other.bits)
+
+    def pow(other: FinitePart): Option[FinitePart] =
+      if (other.isZero) Some(FinitePart.one)
+      else if (other.isOne) Some(this)
+      else
+        other match {
+          case Exact(that)                => Some(Capacity(bits * that))
+          case _ if other.bits.isValidInt => Some(Capacity(bits * (BigInt(1) << other.bits.toInt)))
+          case _                          => None
+        }
+
+    def larger(other: FinitePart): Boolean = other match {
+      case Exact(_)       => true
+      case Capacity(that) => bits > that
+      case Lossy(_)       => false
+    }
+
+    def isZero: Boolean = false
+
+    def isOne: Boolean = false
+
+    override def toString: String = s"FiniteSize($bits)"
+
+  }
+
+  /** A floating-point stand-in: finite, of unmodelled precision, and wider than any exact width.
+    */
+  final case class Lossy(bits: BigInt) extends FinitePart {
+
+    def add(other: FinitePart): FinitePart =
+      if (other.isZero) this else Capacity(bits.max(other.bits) + 1)
+
+    def mul(other: FinitePart): FinitePart =
+      if (other.isZero) FinitePart.zero
+      else if (other.isOne) this
+      else Capacity(bits + other.bits)
+
+    def pow(other: FinitePart): Option[FinitePart] =
+      if (other.isZero) Some(FinitePart.one)
+      else if (other.isOne) Some(this)
+      else
+        other match {
+          case Exact(that)                => Some(Capacity(bits * that))
+          case _ if other.bits.isValidInt => Some(Capacity(bits * (BigInt(1) << other.bits.toInt)))
+          case _                          => None
+        }
+
+    def larger(other: FinitePart): Boolean = other match {
+      case Lossy(that) => bits > that
+      case _           => true
+    }
+
+    def isZero: Boolean = false
+
+    def isOne: Boolean = false
+
+    override def toString: String = s"LossyInfiniteSize($bits)"
+
+  }
+
+  /** An exact count when it fits a byte, a rounded capacity above that. */
+  def exact(cardinality: BigInt): FinitePart =
+    if (cardinality.isValidByte) Exact(cardinality) else Capacity(Size.bits(cardinality))
+
+  val zero: FinitePart = Exact(0)
+
+  val one: FinitePart = Exact(1)
+
+}
+
+/** A size that is exactly `repr` values, for counts up to 127. */
+object TinySize {
+
+  def apply(repr: Byte): Size = Size(0, 0, FinitePart.Exact(BigInt(repr)))
+
+}
+
+/** A size of `2^bits` at most: the count lies in `(2^(bits-1), 2^bits]`. */
 object FiniteSize {
-  def apply(bs: BigInt): FiniteSize = new FiniteSize { val bits: BigInt = bs }
-}
 
-sealed trait LossyInfiniteSize extends FiniteSize { self =>
-
-  override def larger: Size => Boolean = {
-    case i: LossyInfiniteSize        => bits > i.bits
-    case _: TinySize | _: FiniteSize => true
-    case _                           => false
-  }
-
-  override def equals(obj: Any): Boolean = obj match {
-    case i: LossyInfiniteSize => bits == i.bits
-    case _                    => false
-  }
+  def apply(bits: BigInt): Size = Size(0, 0, FinitePart.Capacity(bits))
 
 }
 
+/** A size of unmodelled precision, at least as wide as `bits`: the floating-point stand-in. */
 object LossyInfiniteSize {
-  def apply(bs: BigInt): LossyInfiniteSize = new LossyInfiniteSize { val bits: BigInt = bs }
-}
 
-case object NothingSize extends TinySize { val repr = 0 }
-case object UnitSize extends TinySize { val repr = 1 }
-case object BooleanSize extends TinySize { val repr = 2 }
-case object ByteSize extends FiniteSize { val bits = 8 }
-case object ShortSize extends FiniteSize { val bits = 16 }
-case object CharSize extends FiniteSize { val bits = 16 }
-case object IntSize extends FiniteSize { val bits = 32 }
-case object LongSize extends FiniteSize { val bits = 64 }
-case object FloatSize extends LossyInfiniteSize { val bits = 32 }
-case object DoubleSize extends LossyInfiniteSize { val bits = 64 }
-
-// Countable infinity, `ℵ₀`.
-case object EffectiveOmega extends Size {
-
-  def larger: Size => Boolean = {
-    case _: TinySize | _: FiniteSize => true
-    case _                           => false
-  }
-
-  def add: Size => Size = {
-    case EffectiveTau => EffectiveTau
-    case _            => EffectiveOmega
-  }
-
-  def mul: Size => Size = {
-    case NothingSize  => NothingSize
-    case EffectiveTau => EffectiveTau
-    case _            => EffectiveOmega
-  }
-
-  def pow: Size => Size = {
-    case NothingSize                 => UnitSize
-    case _: TinySize | _: FiniteSize => EffectiveOmega
-    case _                           => EffectiveTau
-  }
+  def apply(bits: BigInt): Size = Size(0, 0, FinitePart.Lossy(bits))
 
 }
 
-// `ℵ₀^ℵ₀`, the size of a function space whose domain and codomain are both infinite. Cardinal
-// arithmetic would make this `2^ℵ₀` and the finite-program reading `ℵ₀`; the calculator keeps
-// it one step above `EffectiveOmega` on purpose, so such spaces stay distinguishable.
-case object EffectiveTau extends Size {
+val NothingSize: Size = TinySize(0)
+val UnitSize: Size = TinySize(1)
+val BooleanSize: Size = TinySize(2)
+val ByteSize: Size = FiniteSize(8)
+val ShortSize: Size = FiniteSize(16)
+val CharSize: Size = FiniteSize(16)
+val IntSize: Size = FiniteSize(32)
+val LongSize: Size = FiniteSize(64)
+val FloatSize: Size = LossyInfiniteSize(32)
+val DoubleSize: Size = LossyInfiniteSize(64)
 
-  def larger: Size => Boolean = {
-    case EffectiveTau => false
-    case _            => true
-  }
+/** Countable infinity: one unit of the ω tier. */
+val EffectiveOmega: Size = Size(0, 1, FinitePart.zero)
 
-  def add: Size => Size = _ => EffectiveTau
-
-  def mul: Size => Size = {
-    case NothingSize => NothingSize
-    case _           => EffectiveTau
-  }
-
-  def pow: Size => Size = {
-    case NothingSize => UnitSize
-    case _           => EffectiveTau
-  }
-
-}
+/** The ε₀ tier: everything the finite-program reading places from `ω^ω` up to the least fixed point
+  * of `α ↦ ω^α`. A tier marker, not the ordinal itself.
+  */
+val EffectiveEpsilon0: Size = Size(1, 0, FinitePart.zero)

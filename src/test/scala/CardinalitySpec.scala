@@ -90,8 +90,12 @@ class CardinalitySpec extends Specification {
     Vector[Unit]                             ${tpe("Vector[Unit]") === EffectiveOmega}
     Array[Byte]                              ${tpe("Array[Byte]") === EffectiveOmega}
     Set[String] (finite subsets)             ${tpe("Set[String]") === EffectiveOmega}
-    Stream[Boolean] (countable)              ${tpe("Stream[Boolean]") === EffectiveOmega}
-    Stream[String] (infinite streams)        ${tpe("Stream[String]") === EffectiveTau}
+    Stream[Boolean] (countable)              ${tpe(
+      "Stream[Boolean]"
+    ) === EffectiveOmega}
+    Stream[String] (infinite streams)        ${tpe(
+      "Stream[String]"
+    ) === EffectiveEpsilon0}
 
   Classes and objects
     case class                               ${src(
@@ -138,19 +142,19 @@ class CardinalitySpec extends Specification {
     ) === BooleanSize}
     recursive ADT                            ${src(
       "sealed trait Nat; case object Zero extends Nat; case class Succ(n: Nat) extends Nat"
-    ) === EffectiveOmega}
+    ) === EffectiveOmega + UnitSize}
     abstract class recursion stays unknown   ${src(
       "abstract class Abs(n: Abs); case class Uses(a: Abs)"
     ) === EffectiveOmega}
     unsealed trait is not a sum              ${src(
       "trait C2; case object R2 extends C2; case class P2(c: C2)"
-    ) === EffectiveOmega}
+    ) === EffectiveOmega + UnitSize}
     unsealed abstract parent is not a sum    ${src(
       "abstract class B6(y: Boolean); case class S6(z: Boolean) extends B6(z); case class R6(b: B6)"
-    ) === EffectiveOmega}
+    ) === EffectiveOmega + BooleanSize}
     sealed parent with abstract child        ${src(
       "sealed trait Q; abstract class Qa(x: Boolean) extends Q; case class Qb(y: Boolean) extends Q; case class Uq(q: Q)"
-    ) === EffectiveOmega}
+    ) === EffectiveOmega + BooleanSize}
     growth revival after settling is finite  ${src(
       "case class X(o: Option[G], h: H); type G = A1; type A1 = A2; type A2 = A3; type A3 = A4; type A4 = Boolean; type H = Boolean"
     ) === TinySize(6)} (grows twice, never in consecutive rounds)
@@ -177,7 +181,7 @@ class CardinalitySpec extends Specification {
     ) === EffectiveOmega}
     mutual sealed ADTs                         ${src(
       "sealed trait L; case object L0 extends L; case class L1(r: R) extends L; sealed trait R; case object R0 extends R; case class R1(l: L) extends R"
-    ) === EffectiveOmega}
+    ) === EffectiveOmega + EffectiveOmega + BooleanSize}
     recursion in a function domain                   ${src(
       "case class P(b: Boolean, t: P => P)"
     ) === NothingSize} (F[Nothing] is uninhabited, so μX.F is — section 8 of docs/type-arithmetic.md)
@@ -187,7 +191,7 @@ class CardinalitySpec extends Specification {
 
   Lazy recursion (solved as greatest fixed points)
     lazy wrapper: the one infinite tower       ${src("case class Loop(next: => Loop)") === UnitSize}
-    conaturals, limit absorbed by the depths   ${src(
+    conaturals collapse after completion       ${src(
       "case class CoNat(pred: => Option[CoNat])"
     ) === EffectiveOmega}
     endless Boolean stream, program-countable  ${src(
@@ -204,22 +208,22 @@ class CardinalitySpec extends Specification {
     ) === TinySize(2)} (1 finite + 1 infinite each)
     mutual lazy streams                        ${src(
       "case class A(h: Boolean, b: => B); case class B(x: Int, a: => A)"
-    ) === EffectiveOmega}
+    ) === EffectiveOmega + EffectiveOmega}
     branching holes saturate at ℵ₀            ${src(
       "case class R(l: => R, r: => R)"
     ) === EffectiveOmega} (computably infinite binary trees)
     holes with different successors       ${src(
       "case class B7(x: => B7, y: => C7); case class C7(z: Boolean)"
-    ) === EffectiveOmega} (the external tail labels each node; the path stays deterministic)
+    ) === EffectiveOmega + BooleanSize} (the external tail labels each node; the path stays deterministic)
     enum arms to different successors     ${src(
       "enum B8 { case X(t: => B8); case Y(t: => C8) }; case class C8(b: Boolean)"
-    ) === EffectiveOmega} (the X arm makes μ productive already)
+    ) === EffectiveOmega + BooleanSize} (B8 collapses to ω; the separate C8 definition still adds 2)
     only recognized holes continue the cycle  ${src(
       "sealed trait E; case class One(e: => E) extends E; case class Void(n: Nothing) extends E"
     ) === UnitSize} (the single One-tower; a Void sibling continues nothing)
     function fields continue too          ${src(
       "sealed trait E2; case class One(e: => E2) extends E2; case class Two(i: Int => E2) extends E2"
-    ) === EffectiveOmega} (One(Two(_ => e)) unfolds through Two; branchy ⇒ ℵ₀)
+    ) === EffectiveOmega + EffectiveOmega} (One(Two(_ => e)) unfolds through Two; branchy ⇒ ℵ₀)
     pure function-field cycle             ${src("case class F10(k: Int => F10)") === EffectiveOmega}
     a singleton domain is a thunk in disguise  ${src(
       "case class S10(k: Unit => S10)"
@@ -242,8 +246,12 @@ class CardinalitySpec extends Specification {
     strict stream still has no base            ${src(
       "case class S2(head: Boolean, tail: S2)"
     ) === NothingSize}
-    LazyList over a countable alphabet         ${tpe("LazyList[String]") === EffectiveTau}
-    LazyList of finitely-producible values     ${tpe("LazyList[Boolean]") === EffectiveOmega}
+    LazyList over a countable alphabet         ${tpe(
+      "LazyList[String]"
+    ) === EffectiveEpsilon0}
+    LazyList of finitely-producible values     ${tpe(
+      "LazyList[Boolean]"
+    ) === EffectiveOmega}
     LazyList[Nothing] is only empty            ${tpe("LazyList[Nothing]") === UnitSize}
 
   Forward references
@@ -261,6 +269,88 @@ class CardinalitySpec extends Specification {
     opaque type hides cardinality           ${src(
       "opaque type Id = Byte; case class User(id: Id)"
     ) === UnitSize}
+
+  Polynomial sums (issue #12)
+    either of two countable types keeps both   ${tpe(
+      "Either[String, String]"
+    ) === EffectiveOmega + EffectiveOmega} (ω + ω, not one absorbed ω)
+    a countable alternative keeps its one      ${tpe(
+      "Option[String]"
+    ) === EffectiveOmega + UnitSize}
+    a finite alternative adds its count        ${tpe(
+      "Either[String, Boolean]"
+    ) === EffectiveOmega + BooleanSize}
+    a capacity alternative keeps its width     ${tpe(
+      "Either[String, Int]"
+    ) === EffectiveOmega + IntSize}
+    a function space beside a countable type   ${tpe(
+      "Either[String => String, String]"
+    ) === EffectiveEpsilon0 + EffectiveOmega}
+    two countable fields multiply coarsely     ${tpe(
+      "(String, String)"
+    ) === EffectiveOmega} (ω * ω = ω: the documented product loss)
+    a finite factor does not scale a product   ${tpe("(Boolean, String)") === EffectiveOmega}
+    a function between countable types         ${tpe(
+      "String => String"
+    ) === EffectiveEpsilon0} (ω^ω, capped at the ε₀ tier)
+    a predicate over a countable domain        ${tpe("String => Boolean") === EffectiveOmega}
+    a result of Unit collapses any domain      ${tpe("String => Unit") === UnitSize}
+    an empty domain stays empty                ${tpe("Nothing => String") === NothingSize}
+    a field of a two-way sum keeps its count   ${src(
+      "type A = Either[String, String]; case class C(a: A)"
+    ) === EffectiveOmega + EffectiveOmega} (the alias adds nothing; the field carries 2ω)
+
+  Polynomial recursion (issue #12)
+    an empty label space keeps a cycle empty   ${src(
+      "case class Dead(n: Nothing, left: => Dead, right: => Dead)"
+    ) === NothingSize} (branching cannot conjure values from an empty per-lap space)
+    a chain of consumers carries the nu count  ${src(
+      "case class Inf(next: => Inf); case class Use(i: Inf); case class Use2(u: Use)"
+    ) === TinySize(3)} (one tower each: every consumer sees the settled value)
+    a definition agrees with its reference     ${src(
+      "case class Q(next: Option[Q]); case class Use(q: Q)"
+    ) === Size.tiers(0, 2)} (Q collapses to ω, Use sees ω, and the source still adds both)
+    a custom lazy list matches the built in    ${src(
+      "enum U { case End; case More(head: Boolean, tail: => U) }"
+    ) === EffectiveOmega} (completed lazy type, exactly LazyList[Boolean])
+    a recursive epsilon payload keeps its tier ${src(
+      "enum High { case Seed(f: String => String); case Next(high: High) }"
+    ) === EffectiveEpsilon0} (widening never demotes ε₀ to ω)
+    a sealed family sums its definitions       ${src(
+      "sealed trait Nat; case object Zero extends Nat; case class Succ(n: Nat) extends Nat"
+    ) === EffectiveOmega + UnitSize} (Zero 1 + Succ ω; a reference to the parent is ω)
+    an enum is one definition                  ${src(
+      "enum Nat2 { case Zero; case Succ(n: Nat2) }"
+    ) === EffectiveOmega} (same shape, counted once)
+
+  Completed lazy types collapse before enclosing sums
+    LazyList[Unit] collapses finite depths and the tower ${tpe("LazyList[Unit]") === EffectiveOmega}
+    Stream[Unit] uses the same completion rule ${tpe("Stream[Unit]") === EffectiveOmega}
+    Stream[Nothing] keeps its single empty value ${tpe("Stream[Nothing]") === UnitSize}
+    an outer sum keeps two high-tier lazy values ${tpe(
+      "Either[LazyList[String], LazyList[String]]"
+    ) === Size.tiers(2, 0)}
+    an outer sum keeps two countable lazy values ${tpe(
+      "Either[LazyList[Unit], Stream[Boolean]]"
+    ) === Size.tiers(0, 2)}
+    an outer option keeps its finite alternative ${tpe(
+      "Option[LazyList[String]]"
+    ) === EffectiveEpsilon0 + UnitSize}
+    nested lazy collections complete at each layer ${tpe(
+      "LazyList[LazyList[Unit]]"
+    ) === EffectiveEpsilon0}
+    a custom unit list collapses like the built in ${src(
+      "enum Units { case End; case More(head: Unit, tail: => Units) }"
+    ) === EffectiveOmega}
+    a custom string list retains the highest tier ${src(
+      "enum Strings { case End; case More(head: String, tail: => Strings) }"
+    ) === EffectiveEpsilon0}
+    an empty alphabet leaves only a finite base ${src(
+      "enum Empty { case End; case More(head: Nothing, tail: => Empty) }"
+    ) === UnitSize}
+    consumers of a lazy type may add finite terms ${src(
+      "case class CoNat(pred: => Option[CoNat]); case class Use(value: Option[CoNat])"
+    ) === Size.tiers(0, 2) + UnitSize} (CoNat ω + Use (ω + 1), not a collapsed source total)
   """
 
 }

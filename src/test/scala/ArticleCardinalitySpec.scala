@@ -107,7 +107,9 @@ class ArticleCardinalitySpec extends Specification {
     Set[Option[Boolean]] is 2^3              ${tpe("Set[Option[Boolean]]") === TinySize(8)}
     finite subsets stay countable            ${tpe("Set[String]") === EffectiveOmega}
     a predicate on a countable domain        ${tpe("String => Boolean") === EffectiveOmega} (ℵ₀)
-    a function between countable types       ${tpe("String => String") === EffectiveTau} (ℵ₀^ℵ₀)
+    a function between countable types       ${tpe(
+      "String => String"
+    ) === EffectiveEpsilon0} (ℵ₀^ℵ₀)
     List[Nothing] is only Nil                ${tpe("List[Nothing]") === UnitSize}
     List[Unit] is one list per length        ${tpe("List[Unit]") === EffectiveOmega}
     List[Boolean] is countable               ${tpe("List[Boolean]") === EffectiveOmega}
@@ -198,16 +200,16 @@ class ArticleCardinalitySpec extends Specification {
     ) === UnitSize} (νX.X, §8)
     conaturals: every depth, plus the limit  ${src(
       "case class CoNat(pred: => Option[CoNat])"
-    ) === EffectiveOmega} (νX.(1 + X))
+    ) === EffectiveOmega} (νX.(1 + X), completed lazy type collapsed to ω)
     an endless stream is program-countable   ${src(
       "case class Stream(h: Boolean, t: => Stream)"
     ) === EffectiveOmega} (νX.(2*X), ℵ₀ by the §4 finite-program reading)
     LazyList over a countable alphabet       ${tpe(
       "LazyList[String]"
-    ) === EffectiveTau} (ℵ₀^ℵ₀)
+    ) === EffectiveEpsilon0} (finite lists + infinite streams, collapsed to the ε₀ tier)
     a function field also unfolds the cycle  ${src(
       "sealed trait E; case class One(e: => E) extends E; case class Two(i: Int => E) extends E"
-    ) === EffectiveOmega} (νX.(X + (Int → X)), §4 finite-program reading)
+    ) === EffectiveOmega + EffectiveOmega} (νX.(X + (Int → X)), §4 finite-program reading)
     a self-referring label still unfolds     ${src(
       "case class M3(m: => M3, o: Option[M3])"
     ) === EffectiveOmega} (the Option arms Some(tower) beside the hole)
