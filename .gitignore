@@ -11,6 +11,9 @@
 .vscode/
 metals.sbt
 
+# Local review artifacts (Lavish HTML sessions)
+/.lavish/
+
 # Generated quality reports. All of these also land under target/ (already
 # ignored above); the extra patterns keep them ignored if a tool is ever
 # configured to write elsewhere.

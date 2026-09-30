@@ -34,9 +34,12 @@ Important boundaries:
   are only countably many finite programs. This page counts the latter, so a
   finite base over an infinite domain is `ℵ₀`. That follows the constructivist
   approach of §3, and it is the practical reality: a running program only ever
-  holds values that some finite program produced. One step is kept above it:
-  `ℵ₀^ℵ₀`, a function space whose domain and codomain are both infinite, is `τ`
-  (§4). Use these readings everywhere; do not switch silently.
+  holds values that some finite program produced. Above it sits one more tier: a
+  function space whose domain and codomain are both infinite is `ε₀`, the least
+  fixed point of `α ↦ ω^α`, which caps everything from `ω^ω` upward (§4). Sizes
+  are reported as `a·ε₀ + b·ω + n` — contributions counted per tier, plus the
+  finite part — so two countable families are plainly `2ω`. Use these readings
+  everywhere; do not switch silently.
 
 ## 2. Base types, sums, and products
 
@@ -69,6 +72,16 @@ a + b = b + a              a * b = b * a
 These laws reduce nested ADTs to sums of products. Constructor tags matter:
 `Either[Boolean, Boolean]` has four values, not two.
 
+The calculator keeps those laws for the finite counts and reports every sum as a
+polynomial `a·ε₀ + b·ω + n` over three tiers (§4). Addition is the **natural sum**:
+coefficients are kept, so `Either[String, String]` is `2ω` rather than one
+absorbed `ω`. That matches `Either[A, B] ≅ Either[B, A]` and lets two definitions
+be compared more finely than "both infinite". Products and powers stay coarse
+above the finite tier: `2 * ω = ω`,
+so `Either[String, String]` (`2ω`) and `(String, String)` (`ω`) differ even
+though the two types are isomorphic. Recursive widening and lazy-type completion
+also deliberately lose precision (§8); neither changes general addition.
+
 **Scala unions are not tagged sums.** For finite types, the cardinality of the union
 type `A | B` is `|A| + |B| - |A & B|`: overlapping members must not be counted twice.
 Intersection cardinality is not generally `min(a, b)` either; that shortcut needs a
@@ -95,6 +108,11 @@ The zero and one rules are essential, not exceptional failures:
 |A => Nothing| = 0^a = 0       when a > 0
 |Unit => B|    = b^1 = b
 ```
+
+The identities hold for the infinite tiers too: `b^0 = 1`, `b^1 = b`, `1^b = 1`
+and `0^b = 0` for every nonzero `b`, `b = ω` included. A finite base over an
+infinite domain stays countable (`2^ω = ω` in the ordinal arithmetic of §4), and
+an infinite base over an infinite exponent is `ε₀`.
 
 The empty-domain rule departs from set-theoretic arithmetic, where `b^0 = 1`
 counts the single empty function. Scala is eager: applying a function evaluates
@@ -170,21 +188,53 @@ For infinite sets of values, cardinal arithmetic and this page part ways:
 
 - In cardinal arithmetic the full powerset of a countably infinite type, and its
   full space of Boolean predicates, has `2^ℵ₀` values, strictly more than `ℵ₀`.
-  So do `n^ℵ₀` for finite `n >= 2` and `ℵ₀^ℵ₀`.
+  So does `ℵ₀^ℵ₀`, and in every model of ZFC the two are equal:
+  `2^ℵ₀ ≤ ℵ₀^ℵ₀ ≤ (2^ℵ₀)^ℵ₀ = 2^(ℵ₀·ℵ₀) = 2^ℵ₀`, with Cantor–Schröder–Bernstein
+  giving the bijection.
 - This page counts only what a finite program can produce (§1), and there are
   countably many of those. So `String => Boolean`, and every other finite base
-  over a countably infinite domain, counts `ℵ₀`.
-- `ℵ₀^ℵ₀`, as in `String => String`, counts `τ`: one step above `ℵ₀`. This is a
-  deliberate distinction, not cardinal arithmetic (where `ℵ₀^ℵ₀ = n^ℵ₀ = 2^ℵ₀`)
-  nor the finite-program reading (where it is `ℵ₀`). It keeps
-  a function space between two infinite types apart from one into a finite type.
+  over a countably infinite domain, counts `ℵ₀` — written `ω` in the ordinal
+  arithmetic used below.
+- It also keeps one **tier** above that, by the ordinal laws of §3 rather than by
+  cardinal arithmetic: `ω^ω > ω`, and everything from there up to the least fixed
+  point of `α ↦ ω^α` is reported as the `ε₀` tier. So `String => String` is `ε₀`,
+  and so is `String => String => String`. `ε₀` is a countable ordinal, so this is
+  a *ranking* of function spaces, not a claim that they have different
+  cardinalities. It keeps a space between two infinite types apart from one into
+  a finite type, and it never claims the two differ as cardinals.
 - The **finite subsets** of a countably infinite type are countable under either
   reading; Scala's finite `Set[String]` is `ℵ₀`.
-- `ℵ₀^n = ℵ₀` for positive finite `n`, and finite sums/products of countable
+- `ℵ₀^n = ℵ₀` for positive finite `n`, and finite sums and products of countable
   sets remain countable, apart from zero annihilating a product.
 
+Two arguments motivate keeping the distinction, neither of which makes it a
+cardinal inequality:
+
+- **Different structure.** With application in the signature, the sentence
+  `∃ c₀ c₁. ∀ f ∀ x. f(x) = c₀ ∨ f(x) = c₁` holds for `ℕ => 2` and fails for
+  `ℕ => ℕ`. The two spaces are not even elementarily equivalent, and injections
+  exist both ways (`f ↦ 0^f(0) 1 0^f(1) 1 …` embeds `ℕ^ℕ` into `2^ℕ`), so any
+  strict ordering between them is a convention of this analysis, not a theorem.
+- **Constructive models.** In a continuous model — Brouwer's fan theorem,
+  Kleene–Vesley function realizability — every function is continuous, `2^ℕ` is
+  compact and `ℕ^ℕ` is not, and no bijection between them exists:
+  Schröder–Bernstein is not constructively valid, which is exactly where the ZFC
+  chain above breaks.
+
+Sizes are therefore written as polynomials over the three tiers:
+
+```text
+a·ε₀ + b·ω + n        a, b, n >= 0
+```
+
+`n` is the finite component of §2: exact up to 127, then a rounded bit capacity.
+Two countable families read `2ω`, one countable family beside three values reads
+`ω + 3`, and comparison is lexicographic — the `ε₀` coefficient first, then `ω`,
+then the finite part. `2ε₀ + ω` is larger than `ε₀ + ω`, which is larger than
+`3ω + 100`.
+
 The article's predicate/powerset shortcut is safe for finite element types. For
-infinite types the same exponentiation applies, with the two rules above.
+infinite types the same exponentiation applies, with the rules above.
 
 ## 5. Negation and inhabitance
 
@@ -335,11 +385,11 @@ Examples:
 | Construction | Equation / encoding | Count |
 | --- | --- | --- |
 | Wrapper that requires another wrapper | `μ X. X` | `0` |
-| Peano naturals (`Zero` or `Succ`) | `μ X. (1 + X)` | `ℵ₀` |
-| Finite lists of `A` | `μ X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `0<a<=ℵ₀` |
-| Church numerals | `∀ A. (A => A) => A => A` | `ℵ₀` |
+| Peano naturals (`Zero` or `Succ`) | `μ X. (1 + X)` | `ω` |
+| Finite lists of `A` | `μ X. (1 + A*X)` | `1` if `a=0`; `ω` if `0<a<=ω` |
+| Church numerals | `∀ A. (A => A) => A => A` | `ω` |
 | Endofunction without a seed | `∀ A. (A => A) => A` | `0` |
-| Iteration with an extra argument | `∀ A B. (A => B => A) => A => B => A` | `ℵ₀` |
+| Iteration with an extra argument | `∀ A B. (A => B => A) => A => B => A` | `ω` |
 
 Church numerals include zero iterations (`identity`), then one application, two,
 and so on. Without a seed or base constructor, recursion alone cannot make a
@@ -372,15 +422,49 @@ fields no longer need a base case.
 | Construction | Equation | Count |
 | --- | --- | --- |
 | Lazy wrapper that requires another (`next: => Loop`) | `ν X. X` | `1`: the value `lazy val l: Loop = Loop(l)` |
-| Conaturals (`pred: => Option[CoNat]`) | `ν X. (1 + X)` | `ℵ₀`: every finite depth, plus one infinite one |
-| `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ℵ₀` if `a` is finite and `>=1`; `τ` if `a=ℵ₀` |
-| Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; `ℵ₀` if `a` is finite and `>=2`; `τ` if `a=ℵ₀` |
-| Unfolding that branches per argument (`One(e: => E)`, `Two(i: Int => E)`) | `ν X. (X + (Int → X))` | `ℵ₀` under the §4 finite-program reading — a function field is also never demanded while constructing, so `lazy val e = One(Two(_ => e))` and per-`int` choices all unfold further |
+| Conaturals (`pred: => Option[CoNat]`) | `ν X. (1 + X)` | `ω`: finite depths and the single infinite one, normalized at completion |
+| `LazyList[A]` | `ν X. (1 + A*X)` | `1` if `a=0`; `ω` if `a` is nonempty and finite; `ε₀` if `a=ω` |
+| Stream without an end (`head: A`, `tail: => Stream[A]`) | `ν X. (A*X)` | `0` if `a=0`; `1` if `a=1`; `ω` if `a` is finite and `>=2`; `ε₀` if `a=ω` |
+| Unfolding that branches per argument (`One(e: => E)`, `Two(i: Int => E)`) | `ν X. (X + (Int → X))` | `ω` under the §4 finite-program reading — a function field is also never demanded while constructing, so `lazy val e = One(Two(_ => e))` and per-`int` choices all unfold further. An empty per-lap label space stays `0`, and a label space that reaches `ε₀` is not demoted |
 
 Compare the eager rows: `μ X. X` is `0` but `ν X. X` is `1`, and a stream without
 an end has no finite values at all. With `a>=2` an infinite stream is a function
-`ℕ => A`, so it follows §4 exactly: `ℵ₀` for a finite `A` (only the streams a
-finite program can produce), `τ` for a countably infinite `A` (`ℵ₀^ℵ₀`).
+`ℕ => A`, so it follows §4 exactly: `ω` for a finite `A` (only the streams a
+finite program can produce), `ε₀` for a countably infinite `A` (`ω^ω`).
+
+**Lazy-type completion policy (B).** The counts in this table are approximations,
+not exact cardinal or ordinal arithmetic. On completing each lazy/coinductive type,
+combine its finite-value μ estimate with its infinite contribution. If the total
+contains an `ε₀` term, return one `EffectiveEpsilon0`; otherwise, if it contains
+an `ω` term, return one `EffectiveOmega`. Purely finite totals, including `0`
+and `1`, are unchanged. Here “finite-value” describes finite unfoldings, whose
+μ estimate can itself be infinite.
+
+The finite and infinite families still exist; their breakdown is deliberately
+discarded at this boundary. Conaturals therefore report `ω`, not `ω + 1`;
+`LazyList[Unit]`, `LazyList[Boolean]`, and Scala's `Stream[Boolean]` report `ω`.
+`LazyList[String]` and Scala's `Stream[String]` report `ε₀`, not `ε₀ + ω`.
+`LazyList[Nothing]` is still `1`, a pure lazy self-wrapper `ν X. X` is still `1`,
+and blocked or empty cycles whose total is `0` stay `0`.
+
+This normalization is **only** for completion of each lazy/coinductive type.
+It is not a rule of `Size.+`, enclosing sums, source totals, or class/object
+signatures: `Either[String, String]` remains `2ω`, and
+`Either[LazyList[String], LazyList[String]]` is `2ε₀`, not `ε₀`.
+Source and signature aggregates add the completed contributions normally;
+`sourceSignature` with two `String => String` methods and a `String` field
+still reports `2ε₀ + ω`.
+
+A recursive equation whose estimate keeps growing never reaches a fixed point
+under coefficient-preserving addition: the estimate for `μ X. (1 + X)` climbs
+`1, 2, 3, …` for ever. The calculator settles it by **widening** the component to
+the tier it has grown into, once the growth is recognized as productive, so
+`μ X. (1 + X)` is `ω`; `ν X. (1 + X)` also reports `ω` after lazy-type
+completion normalizes the finite depths plus the infinite tower. Only a name that can reach
+itself through the equations is widened, so however long a chain of forward
+references is, it settles exactly, and a widening never turns an `ε₀` estimate
+back into `ω`. Widening and lazy-type completion are separate approximations,
+not rules of general addition: `+` keeps the infinite-tier coefficients.
 
 ## 9. Higher kinds and rank-N types
 
@@ -403,37 +487,51 @@ The current API and representation have important limits:
 
 - `Counter.type` counts a single parsed type, through
   [`typeIn`](https://github.com/constructive-programming/scala-cardinality/blob/main/src/main/scala/Counter.scala).
-  `Counter.source` instead sums the contributions of every definition in a source, so it is
-  not a lookup of one chosen ADT. Tests of a single ADT use an isolated declaration so that
-  unrelated definitions cannot inflate the count.
+  `Counter.source` instead sums the contributions of every definition in a source, so it is not a
+  lookup of one chosen ADT, and a definition contributes its **solved** value rather than a fresh
+  evaluation of the same syntax — so a recursive definition and a reference to it always agree.
+- `Counter.sourceSignature` reports the other reading: the declared types of the members of a
+  definition (`Counter.defnSignature` for a single definition). Every typed field, term and method
+  contributes the size of its declared type, constructor and enum-case parameters included, so a
+  module with two `String => String` methods and one `String` field is `2ε₀ + ω`, while
+  `Counter.source` reports that the module itself is a single value. Both readings return the same
+  `Size`; neither replaces the other.
 - [`Size`](https://github.com/constructive-programming/scala-cardinality/blob/main/src/main/scala/Size.scala)
-  keeps counts up to 127 exactly, in `TinySize`.
-  `FiniteSize(bits)` records only the binary width: it stands for a count in
-  `(2^(bits-1), 2^bits]`, so `2^32 + 3` becomes `FiniteSize(33)` instead of an exact count,
-  and algebraically equal expressions can round differently. `FloatSize` and `DoubleSize`
-  are lossy stand-ins for the real types, not consequences of the integral-width rules.
-- `EffectiveOmega` conflates unresolved and unsupported types, countable infinity, and some
-  very large finite results; `EffectiveTau` (`τ`) is coarse in the same way. A result that
-  equals either marker is not by itself a mathematical result.
+  is `a·ε₀ + b·ω + n`: contributions counted per tier and added componentwise, so
+  `Either[String, String]` is `2ω`. Counts up to 127 are exact in the finite part, and
+  `FiniteSize(bits)` records only the binary width above that — it stands for a count in
+  `(2^(bits-1), 2^bits]`, so `2^32 + 3` becomes `FiniteSize(33)` instead of an exact count, and
+  algebraically equal expressions can round differently. The finite coordinate is an estimate
+  rather than a natural number: its addition is not associative. `FloatSize` and `DoubleSize` are
+  lossy stand-ins for the real types, not consequences of the integral-width rules.
+- Multiplication and exponentiation are coarse above the finite tier: after the zero and one
+  identities (`p * 0 = 0`, `p * 1 = p`, `p^0 = 1`, `p^1 = p`), an infinite operand is projected to
+  its dominant tier. So `2 * ω = ω` and `ω * ω = ω` even though `Either[String, String]` is `2ω`:
+  coefficients count additive contributions, not repeated products.
+- `EffectiveOmega` conflates unresolved and unsupported types, countable infinity, and some very
+  large finite results; `EffectiveEpsilon0` (`ε₀`) is the tier marker above it and is coarse in the
+  same way. A result that equals either marker is not by itself a mathematical result, and the
+  `ε₀` tier is countable, not uncountable.
 - The traversal estimates unions by addition (deduplicating identical syntax only) and
-  intersections by minimum, so it cannot see overlap or subtyping. It does not resolve
-  generic definitions, and its opaque-type singleton treatment is an approximation. Forward
-  references and recursion within a single compilation unit are resolved: `Counter.source`
-  solves the definitions as a system of equations by Kleene iteration from the empty type
-  (§8), and abstract traits and sealed classes are folded from their concrete subtypes in
-  the same unit. Cycles through recognized continuations — holes (`=> X`,
-  `=> Option[X]`, `() => X`), strict `Option[X]` fields, and function fields
-  `D => X` with inhabited `D` — also take the greatest fixed point: a
-  deterministic cycle adds its per-lap label space raised to ℵ₀, any branch (two
-  continuations in one arm, an `Option` field beside a hole, a domain with two or
-  more inputs, a sealed parent with several continuing children) saturates at ℵ₀
-  under the §4 finite-program reading, one program per unfolding; `LazyList` and
-  `Stream` follow the same rule. A cycle demanded outright — strict self
-  argument, tuple, `Set[X]`, function domain — blocks coiteration and is left at
-  the sound least-fixed-point under-count.
-- `Size.pow` reports a finite base over an infinite exponent as `EffectiveOmega`, the
-  finite-program reading of §1 and §4, and an infinite base over an infinite exponent as
-  `EffectiveTau`.
+  intersections by minimum, so it cannot see overlap or subtyping. It does not resolve generic
+  definitions, and its opaque-type singleton treatment is an approximation. Forward references and
+  recursion within a single compilation unit are resolved: `Counter.source` solves the definitions
+  as a system of equations by Kleene iteration from the empty type (§8), and abstract traits and
+  sealed classes are folded from their concrete subtypes in the same unit. Cycles through
+  recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict `Option[X]` fields,
+  and function fields `D => X` with inhabited `D` — also take the greatest fixed point: a
+  deterministic cycle adds its per-lap label space raised to ω, any branch (two continuations in
+  one arm, an `Option` field beside a hole, a domain with two or more inputs, a sealed parent with
+  several continuing children) saturates at ω under the §4 finite-program reading, one program per
+  unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded outright — strict self
+  argument, tuple, `Set[X]`, function domain — blocks coiteration and is left at the sound
+  least-fixed-point under-count.
+- A growing recursive component is widened to its tier, as §8 describes: a name that can reach
+  itself and keeps growing is replaced by the tier it has grown into, so the iteration terminates.
+  Separately, completion of each lazy/coinductive type combines its μ estimate and infinite
+  contribution, then returns one `EffectiveEpsilon0` if present, otherwise one `EffectiveOmega`
+  if present, otherwise the unchanged finite total. General addition retains infinite-tier
+  coefficients; enclosing sums, source totals, and signatures are not normalized this way.
 
 [`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/src/test/scala/ArticleCardinalitySpec.scala)
 is the article-focused regression suite. Together with
@@ -446,13 +544,15 @@ it separates implemented rules from executable **targets**:
 | Base types, sums, products, and ADT normal forms | Asserted counts (or explicitly identified bit capacities) |
 | Exponentials, currying, distributivity, the `0`/`1` rules, double negation | Asserted against independently known results |
 | Finite powersets and finite-list boundary cases | Asserted for empty, singleton, and nontrivial element types |
+| Polynomial sums across the three tiers | Asserted: `ω + ω = 2ω`, lexicographic comparison, coarse products and powers, and the zero/one identities |
+| Member signatures of definitions | Asserted: fields, methods, constructor and enum-case parameters, and nested definitions summed per tier |
 | Parametric identity, projections, composition, contradiction, Option transformations | Pending: needs parametricity, which the type traversal does not model |
 | Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; `μX.X` counts `0` |
-| Recursive types (eager) with a base constructor | Asserted: productive recursion pinned at ℵ₀ |
-| Lazy (coinductive) recursion through recognized continuations — holes, strict `Option[X]` fields, inhabited function fields `D => X`, sealed-parent pass-throughs | Asserted: deterministic cycles add their label space raised to ℵ₀ (`νX.X` = 1, endless `νX.(2·X)` ℵ₀, `LazyList[String]` `τ`); branching cycles saturate at ℵ₀ (§4 finite-program reading) |
+| Recursive types (eager) with a base constructor | Asserted: productive recursion widened to `ω`, and an `ε₀` payload never demoted |
+| Lazy (coinductive) recursion through recognized continuations — holes, strict `Option[X]` fields, inhabited function fields `D => X`, sealed-parent pass-throughs | Asserted: deterministic cycles add their label space raised to ω, then lazy-type completion normalizes the combined total (`νX.X` = 1, conaturals = ω, endless `νX.(2·X)` = ω, `LazyList[String]` = `ε₀`); branching cycles saturate at ω (§4 finite-program reading), an empty label space stays `0`, and a chain of consumers sees the settled value |
 | Coiteration blocked by a strict self argument (`x: X`) or a mention nested past the recognized forms (tuples, `Set[X]`, function domains, `Either`) | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
-| Functions from countably infinite domains | Asserted at `ℵ₀` into a finite codomain and `τ` into an infinite one (§4) |
+| Functions from countably infinite domains | Asserted at `ω` into a finite codomain and `ε₀` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |
 
 A pending example is a keyed expectation: it fails today, so specs2 reports it as pending and

@@ -21,7 +21,29 @@ Counter.`type`(dialects.Scala3("Either[Boolean, Option[Boolean]]").parse[Type].g
 
 Counter.source("case class Pixel(shade: Byte, on: Boolean)".parse[Source].get)
 // FiniteSize(9)   — 2^8 * 2, held as a 9-bit capacity
+
+Counter.`type`(dialects.Scala3("Either[String, String]").parse[Type].get)
+// 2ω              — two countable alternatives, kept as coefficients
+
+Counter.sourceSignature("object S { def f(s: String): String = s; def g(s: String): String = s; val n: String = x }".parse[Source].get)
+// 2ε₀ + ω         — two ε₀-tier methods and one ω-tier field
 ```
+
+The first four counts are value spaces of types; the last is a member signature: what a
+definition declares, summed per tier, so two large modules can still be compared. A definition
+contributes its solved value once, and a recursive component that keeps growing is widened to
+the tier it has grown into rather than counted round by round.
+
+Lazy types have an additional approximation at completion: combine the finite-value μ
+estimate and infinite contribution, then report one `ε₀` if present, otherwise one `ω`
+if present, leaving purely finite totals unchanged. `LazyList[Unit]`, `LazyList[Boolean]`
+and `Stream[Boolean]` therefore report `ω`; `LazyList[String]` and `Stream[String]`
+report `ε₀`. Finite and infinite families still exist, but their breakdown is deliberately
+discarded at this boundary, not equated by exact cardinal or ordinal arithmetic.
+General addition is unchanged: `Either[LazyList[String], LazyList[String]]` reports
+`2ε₀`, and source totals and class/object signatures still add contributions normally.
+See [lazy recursion](type-arithmetic.md#lazy-recursion-greatest-fixed-points) for the
+finite and empty boundary cases.
 
 These are examples, not `mdoc` fences: this build cannot run `mdoc` (see
 [the plugin notes](https://github.com/constructive-programming/scala-cardinality/blob/main/project/plugins.sbt)).

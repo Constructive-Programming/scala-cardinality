@@ -49,19 +49,35 @@ The calculator is an early work in progress. It parses Scala source with
 exponentials, powersets and primitives, following the type arithmetic condensed
 in [docs/type-arithmetic.md](docs/type-arithmetic.md).
 
-Recursive types are counted as fixed points: each source is solved as a system of
-equations by Kleene iteration from the empty type, so a strict
-`case class Loop(next: Loop)` comes out empty while Peano-style `Nat` is countably
-infinite (ℵ₀), and forward references resolve exactly. Laziness is what separates
-the least fixed point from the greatest: a cycle through a position the
-constructor never demands — a hole (`=> X`, `() => X`), a strict `Option[X]`
-field, or a function field `D => X` — also counts its infinite values, so
-`case class Stream(h: Boolean, t: => Stream)` reaches ℵ₀, `LazyList[String]` the
-uncountable τ, and any *branching* cycle saturates at ℵ₀ (the §4 finite-program
-reading: one program per unfolding). Open work: coinduction blocked by a strict
-self argument or a deeply nested mention (kept at a sound under-count),
-parametric counts and sealed hierarchies spanning files — pinned as pending
-targets in the test suite.
+Sizes are polynomials over three tiers — `a·ε₀ + b·ω + n` — added componentwise, so two
+countable alternatives stay `2ω` (`Either[String, String]`) instead of collapsing into one
+`ω`, while products and powers stay deliberately coarse (`(String, String)` is `ω`).
+`Counter.source` sums the value spaces of the definitions in a source;
+`Counter.sourceSignature` sums what their members declare instead, so an object with two
+`String => String` methods and one `String` field is `2ε₀ + ω`.
+
+Recursive types are counted as fixed points: each source is solved as a system of equations by
+Kleene iteration from the empty type, so a strict `case class Loop(next: Loop)` comes out empty
+while Peano-style `Nat` is countably infinite (`ω`), and forward references resolve exactly. A
+recursive component that keeps growing is widened to the tier it has grown into, one of the
+solver's approximations: only a component that can reach itself is widened, so however long a
+chain of forward references is, it settles exactly, and an `ε₀` payload is never demoted.
+Laziness is what separates the least fixed point from the greatest: a cycle through a position
+the constructor never demands — a hole (`=> X`, `() => X`), a strict `Option[X]` field, or a
+function field `D => X` — also counts its infinite values, so
+`case class Stream(h: Boolean, t: => Stream)` reaches `ω`. At completion of each lazy type,
+the finite-value μ estimate and infinite contribution are combined, then normalized to one `ε₀`
+if that tier is present, otherwise one `ω` if present; purely finite totals stay unchanged.
+Thus `LazyList[String]` and `Stream[String]` are `ε₀`, conaturals and `LazyList[Boolean]`
+are `ω`, and `LazyList[Nothing]` and a pure lazy self-wrapper remain `1`.
+Finite and infinite families still exist, but this approximation deliberately discards their
+breakdown at the lazy-type boundary; it is not exact cardinal or ordinal arithmetic.
+Enclosing sums and source/signature aggregates are not normalized:
+`Either[LazyList[String], LazyList[String]]` is `2ε₀`.
+Any *branching* cycle saturates at `ω` (the §4 finite-program reading: one program per
+unfolding). Open work: coinduction blocked by a strict
+self argument or a deeply nested mention (kept at a sound under-count), parametric counts and
+sealed hierarchies spanning files — pinned as pending targets in the test suite.
 
 ## Documentation
 
