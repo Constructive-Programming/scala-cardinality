@@ -1,3 +1,5 @@
+import cats.kernel.Order
+
 /** How many values a type can hold: a natural-sum polynomial over three tiers.
   *
   * A size is `a·ε₀ + b·ω + n`. The coefficients `a` and `b` are non-negative counts of additive
@@ -17,11 +19,10 @@
   */
 final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self =>
 
-  /** Lexicographic comparison, strict: a size is never larger than itself. */
-  def larger(other: Size): Boolean =
-    if (epsilon != other.epsilon) epsilon > other.epsilon
-    else if (omega != other.omega) omega > other.omega
-    else finite.larger(other.finite)
+  /** Lexicographic comparison through the `Size.order` instance, strict: a size is never larger
+    * than itself.
+    */
+  def larger(other: Size): Boolean = Size.order.compare(self, other) > 0
 
   /** Componentwise addition: every coefficient survives the sum. */
   def add(other: Size): Size =
@@ -61,7 +62,7 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
 
   def ^(other: Size): Size = pow(other)
 
-  def min(other: Size): Size = if (larger(other)) other else self
+  def min(other: Size): Size = Size.order.min(self, other)
 
   /** No values at all. */
   def isZero: Boolean = epsilon == 0 && omega == 0 && finite.isZero
@@ -69,19 +70,22 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
   /** Exactly one value. */
   def isOne: Boolean = epsilon == 0 && omega == 0 && finite.isOne
 
-  /** A contribution at the ω or ε₀ tier. */
-  def hasInfinite: Boolean = epsilon > 0 || omega > 0
-
-  /** This size as a single unit of its highest tier: `ε₀` when any ε₀ contribution is present, `ω`
-    * when the size is infinite, and the size itself when it is finite.
+  /** The tier this size reaches as one unit: `ε₀` when any ε₀ contribution is present, `ω` when it
+    * has ω contributions, and nothing when the size is finite.
     */
-  private def dominant: Size =
-    if (epsilon > 0) EffectiveEpsilon0
-    else if (omega > 0) EffectiveOmega
-    else self
+  private def tier: Option[Size] =
+    if (epsilon > 0) Some(EffectiveEpsilon0)
+    else if (omega > 0) Some(EffectiveOmega)
+    else None
+
+  /** A contribution at the ω or ε₀ tier. */
+  def hasInfinite: Boolean = tier.isDefined
+
+  /** This size as a single unit of its highest tier, or itself when it is finite. */
+  private def dominant: Size = tier.getOrElse(self)
 
   /** The larger of two sizes, as one of them. */
-  private def widest(other: Size): Size = if (larger(other)) self else other
+  private def widest(other: Size): Size = Size.order.max(self, other)
 
   /** Analysis widening: the tier a value has grown into, as a single unit.
     *
@@ -91,10 +95,7 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
     * at all stays `0`. This is analysis loss, not arithmetic; ordinary addition never coarsens a
     * sum this way.
     */
-  def widen: Size =
-    if (epsilon > 0) EffectiveEpsilon0
-    else if (omega > 0 || !finite.isZero) EffectiveOmega
-    else NothingSize
+  def widen: Size = tier.getOrElse(if (finite.isZero) NothingSize else EffectiveOmega)
 
   /** `TinySize(7)`, `FiniteSize(8)`, `2ε₀ + ω + 3`, … — zero terms and unit coefficients are left
     * out, and the finite component prints as digits when it is an exact count.
@@ -111,6 +112,15 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
 }
 
 object Size {
+
+  /** Lexicographic order: the ε₀ coefficient, then ω, then the finite component. */
+  implicit val order: Order[Size] = Order.from { (a, b) =>
+    val byEpsilon = a.epsilon.compare(b.epsilon)
+    val byOmega = a.omega.compare(b.omega)
+    if (byEpsilon != 0) byEpsilon
+    else if (byOmega != 0) byOmega
+    else FinitePart.order.compare(a.finite, b.finite)
+  }
 
   /** The number of bits a finite cardinality needs: the smallest `b` with `cardinality <= 2^b`.
     * Illegal cardinalities (0) report 0, which keeps the finite coordinate total.
@@ -172,9 +182,8 @@ sealed trait FinitePart { self =>
     case _ => None
   }
 
-  /** Strict comparison: by rank first, then by width. */
-  def larger(other: FinitePart): Boolean =
-    if (rank != other.rank) rank > other.rank else bits > other.bits
+  /** Strict comparison through the `FinitePart.order` instance, by rank first. */
+  def larger(other: FinitePart): Boolean = FinitePart.order.compare(self, other) > 0
 
   /** No values at all: the exact count zero, and nothing else. */
   def isZero: Boolean = self == Zero
@@ -193,6 +202,19 @@ sealed trait FinitePart { self =>
 }
 
 object FinitePart {
+
+  /** The finite-part order: by rank (exact, then capacity, then lossy), then by width — by count
+    * for two exact parts.
+    */
+  implicit val order: Order[FinitePart] = Order.from { (a, b) =>
+    val byRank = a.rank.compare(b.rank)
+    if (byRank != 0) byRank
+    else
+      (a, b) match {
+        case (Exact(x), Exact(y)) => x.compare(y)
+        case _                    => a.bits.compare(b.bits)
+      }
+  }
 
   /** The one part with no values: the exact count zero. A stable value, so a bare pattern
     * `case Zero` matches it by equality.
@@ -227,11 +249,6 @@ object FinitePart {
     override def pow(other: FinitePart): Option[FinitePart] = other match {
       case Exact(that) => Some(FinitePart.exact(repr.pow(that.toInt)))
       case _           => super.pow(other)
-    }
-
-    override def larger(other: FinitePart): Boolean = other match {
-      case Exact(that) => repr > that
-      case _           => false
     }
 
     override def toString: String = s"TinySize($repr)"
