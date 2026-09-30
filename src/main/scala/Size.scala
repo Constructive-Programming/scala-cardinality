@@ -118,7 +118,7 @@ object Size {
   def bits(cardinality: BigInt): Int = (cardinality - 1).bitLength
 
   /** A size of whole tiers with nothing finite: `a·ε₀ + b·ω`. */
-  def tiers(epsilon: BigInt, omega: BigInt): Size = Size(epsilon, omega, FinitePart.zero)
+  def tiers(epsilon: BigInt, omega: BigInt): Size = Size(epsilon, omega, FinitePart.Zero)
 
 }
 
@@ -144,28 +144,28 @@ sealed trait FinitePart { self =>
 
   /** Sum of two finite counts, rounded up the same way the whole calculator rounds counts. */
   def add(other: FinitePart): FinitePart = (self, other) match {
-    case (Zero(), _) => other
-    case (_, Zero()) => self
-    case _           => FinitePart.Capacity(bits.max(other.bits) + 1)
+    case (Zero, _) => other
+    case (_, Zero) => self
+    case _         => FinitePart.Capacity(bits.max(other.bits) + 1)
   }
 
   /** Product of two finite counts. */
   def mul(other: FinitePart): FinitePart = (self, other) match {
-    case (Zero(), _) => FinitePart.zero
-    case (_, Zero()) => FinitePart.zero
-    case (One(), _)  => other
-    case (_, One())  => self
-    case _           => FinitePart.Capacity(bits + other.bits)
+    case (Zero, _) => FinitePart.Zero
+    case (_, Zero) => FinitePart.Zero
+    case (One, _)  => other
+    case (_, One)  => self
+    case _         => FinitePart.Capacity(bits + other.bits)
   }
 
   /** `this ^ other` for finite operands, or None when the exponent is too large to materialize: the
     * true result is still finite, but the calculator reports it as countable.
     */
   def pow(other: FinitePart): Option[FinitePart] = (self, other) match {
-    case (_, Zero())                 => Some(FinitePart.one)
-    case (_, One())                  => Some(self)
-    case (Zero(), _)                 => Some(FinitePart.zero)
-    case (One(), _)                  => Some(FinitePart.one)
+    case (_, Zero)                   => Some(FinitePart.One)
+    case (_, One)                    => Some(self)
+    case (Zero, _)                   => Some(FinitePart.Zero)
+    case (One, _)                    => Some(FinitePart.One)
     case (_, FinitePart.Exact(that)) => Some(FinitePart.Capacity(bits * that))
     case _ if other.bits.isValidInt  =>
       Some(FinitePart.Capacity(bits * (BigInt(1) << other.bits.toInt)))
@@ -177,10 +177,10 @@ sealed trait FinitePart { self =>
     if (rank != other.rank) rank > other.rank else bits > other.bits
 
   /** No values at all: the exact count zero, and nothing else. */
-  def isZero: Boolean = Zero.unapply(self)
+  def isZero: Boolean = self == Zero
 
   /** Exactly one value: the exact count one, and nothing else. */
-  def isOne: Boolean = One.unapply(self)
+  def isOne: Boolean = self == One
 
   /** How the component prints after an infinite term: exact counts as digits, capacities as the
     * marker that names them.
@@ -194,15 +194,15 @@ sealed trait FinitePart { self =>
 
 object FinitePart {
 
-  /** Matches the one part with no values: the exact count zero. */
-  object Zero {
-    def unapply(part: FinitePart): Boolean = part == zero
-  }
+  /** The one part with no values: the exact count zero. A stable value, so a bare pattern
+    * `case Zero` matches it by equality.
+    */
+  val Zero: FinitePart = exact(0)
 
-  /** Matches the one part with a single value: the exact count one. */
-  object One {
-    def unapply(part: FinitePart): Boolean = part == one
-  }
+  /** The one part with a single value: the exact count one. A stable value, so a bare pattern
+    * `case One` matches it by equality.
+    */
+  val One: FinitePart = exact(1)
 
   /** An exact count. Every size the arithmetic produces keeps this case from 0 to 127, and it is
     * the only case whose arithmetic works on the count itself: two exact counts combine exactly,
@@ -262,10 +262,6 @@ object FinitePart {
   def exact(cardinality: BigInt): FinitePart =
     if (cardinality.isValidByte) Exact(cardinality) else Capacity(Size.bits(cardinality))
 
-  val zero: FinitePart = Exact(0)
-
-  val one: FinitePart = Exact(1)
-
 }
 
 /** A size that is exactly `repr` values, for counts up to 127. */
@@ -301,9 +297,9 @@ val FloatSize: Size = LossyInfiniteSize(32)
 val DoubleSize: Size = LossyInfiniteSize(64)
 
 /** Countable infinity: one unit of the ω tier. */
-val EffectiveOmega: Size = Size(0, 1, FinitePart.zero)
+val EffectiveOmega: Size = Size(0, 1, FinitePart.Zero)
 
 /** The ε₀ tier: everything the finite-program reading places from `ω^ω` up to the least fixed point
   * of `α ↦ ω^α`. A tier marker, not the ordinal itself.
   */
-val EffectiveEpsilon0: Size = Size(1, 0, FinitePart.zero)
+val EffectiveEpsilon0: Size = Size(1, 0, FinitePart.Zero)
