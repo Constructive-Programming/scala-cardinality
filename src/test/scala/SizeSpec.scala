@@ -69,6 +69,8 @@ class SizeSpec extends Specification {
     )) ===
       (TinySize(3) + EffectiveOmega + EffectiveEpsilon0)}
     zero is an identity for sums               ${(EffectiveOmega + NothingSize) === EffectiveOmega}
+    a capacity sum absorbs zero                ${(FiniteSize(32) + NothingSize) === FiniteSize(32)}
+    a lossy sum absorbs zero                   ${(FloatSize + NothingSize) === FloatSize}
     comparison reads epsilon-zero first        ${Size
       .tiers(2, 0)
       .larger(Size.tiers(1, 5))

@@ -134,48 +134,53 @@ object Size {
   */
 sealed trait FinitePart { self =>
 
+  import FinitePart.{One, Zero}
+
   /** The comparison order the finite cases have always had: exact, then capacity, then lossy. */
   def rank: Int
 
   /** The capacity in bits; an exact count reports its own binary width. */
   def bits: BigInt
 
-  def isZero: Boolean
-
-  def isOne: Boolean
-
   /** Sum of two finite counts, rounded up the same way the whole calculator rounds counts. */
-  def add(other: FinitePart): FinitePart =
-    if (isZero) other
-    else if (other.isZero) this
-    else FinitePart.Capacity(bits.max(other.bits) + 1)
+  def add(other: FinitePart): FinitePart = (self, other) match {
+    case (Zero(), _) => other
+    case (_, Zero()) => self
+    case _           => FinitePart.Capacity(bits.max(other.bits) + 1)
+  }
 
   /** Product of two finite counts. */
-  def mul(other: FinitePart): FinitePart =
-    if (isZero || other.isZero) FinitePart.zero
-    else if (isOne) other
-    else if (other.isOne) this
-    else FinitePart.Capacity(bits + other.bits)
+  def mul(other: FinitePart): FinitePart = (self, other) match {
+    case (Zero(), _) => FinitePart.zero
+    case (_, Zero()) => FinitePart.zero
+    case (One(), _)  => other
+    case (_, One())  => self
+    case _           => FinitePart.Capacity(bits + other.bits)
+  }
 
   /** `this ^ other` for finite operands, or None when the exponent is too large to materialize: the
     * true result is still finite, but the calculator reports it as countable.
     */
-  def pow(other: FinitePart): Option[FinitePart] =
-    if (other.isZero) Some(FinitePart.one)
-    else if (other.isOne) Some(this)
-    else if (isZero) Some(FinitePart.zero)
-    else if (isOne) Some(FinitePart.one)
-    else
-      other match {
-        case FinitePart.Exact(that)     => Some(FinitePart.Capacity(bits * that))
-        case _ if other.bits.isValidInt =>
-          Some(FinitePart.Capacity(bits * (BigInt(1) << other.bits.toInt)))
-        case _ => None
-      }
+  def pow(other: FinitePart): Option[FinitePart] = (self, other) match {
+    case (_, Zero())                 => Some(FinitePart.one)
+    case (_, One())                  => Some(self)
+    case (Zero(), _)                 => Some(FinitePart.zero)
+    case (One(), _)                  => Some(FinitePart.one)
+    case (_, FinitePart.Exact(that)) => Some(FinitePart.Capacity(bits * that))
+    case _ if other.bits.isValidInt  =>
+      Some(FinitePart.Capacity(bits * (BigInt(1) << other.bits.toInt)))
+    case _ => None
+  }
 
   /** Strict comparison: by rank first, then by width. */
   def larger(other: FinitePart): Boolean =
     if (rank != other.rank) rank > other.rank else bits > other.bits
+
+  /** No values at all: the exact count zero, and nothing else. */
+  def isZero: Boolean = Zero.unapply(self)
+
+  /** Exactly one value: the exact count one, and nothing else. */
+  def isOne: Boolean = One.unapply(self)
 
   /** How the component prints after an infinite term: exact counts as digits, capacities as the
     * marker that names them.
@@ -189,6 +194,16 @@ sealed trait FinitePart { self =>
 
 object FinitePart {
 
+  /** Matches the one part with no values: the exact count zero. */
+  object Zero {
+    def unapply(part: FinitePart): Boolean = part == zero
+  }
+
+  /** Matches the one part with a single value: the exact count one. */
+  object One {
+    def unapply(part: FinitePart): Boolean = part == one
+  }
+
   /** An exact count. Every size the arithmetic produces keeps this case from 0 to 127, and it is
     * the only case whose arithmetic works on the count itself: two exact counts combine exactly,
     * and everything else falls back to the capacity-like default.
@@ -197,26 +212,21 @@ object FinitePart {
 
     def rank: Int = 0
 
-    override def isZero: Boolean = repr == 0
-
-    override def isOne: Boolean = repr == 1
-
     def bits: BigInt = Size.bits(repr)
 
     override def add(other: FinitePart): FinitePart = other match {
-      case Exact(that) if !isZero && !other.isZero => FinitePart.exact(repr + that)
-      case _                                       => super.add(other)
+      case Exact(that) => FinitePart.exact(repr + that)
+      case _           => super.add(other)
     }
 
     override def mul(other: FinitePart): FinitePart = other match {
-      case Exact(that) if !isZero && !other.isZero && !isOne && !other.isOne =>
-        FinitePart.exact(repr * that)
-      case _ => super.mul(other)
+      case Exact(that) => FinitePart.exact(repr * that)
+      case _           => super.mul(other)
     }
 
     override def pow(other: FinitePart): Option[FinitePart] = other match {
-      case Exact(that) if !isZero && !isOne => Some(FinitePart.exact(repr.pow(that.toInt)))
-      case _                                => super.pow(other)
+      case Exact(that) => Some(FinitePart.exact(repr.pow(that.toInt)))
+      case _           => super.pow(other)
     }
 
     override def larger(other: FinitePart): Boolean = other match {
@@ -234,10 +244,6 @@ object FinitePart {
 
     def rank: Int = 1
 
-    def isZero: Boolean = false
-
-    def isOne: Boolean = false
-
     override def toString: String = s"FiniteSize($bits)"
 
   }
@@ -247,10 +253,6 @@ object FinitePart {
   final case class Lossy(bits: BigInt) extends FinitePart {
 
     def rank: Int = 2
-
-    def isZero: Boolean = false
-
-    def isOne: Boolean = false
 
     override def toString: String = s"LossyInfiniteSize($bits)"
 
