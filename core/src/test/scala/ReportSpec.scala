@@ -25,6 +25,7 @@ class ReportSpec extends Specification {
       entry points size one node at a time      $entryPoints
       package objects qualify their members     $packageObjects
       enum bodies contribute their cases        $enumBodies
+      a companion object keeps its own value    $companions
       a source counts its top-level values       $sourceTotals
       signatures carry their parameters         $signatures
 
@@ -37,6 +38,12 @@ class ReportSpec extends Specification {
       renders the numbers it found              $renders
       orders rows by cardinality                $orders
       renders an empty report                   $empty
+
+    Counting the branch gained since the report was cut
+      a solved recursion reports its fixed point  $recursiveRows
+      a lazy hole counts ω, and is no question    $lazyRow
+      the ε₀ tier arrives through modelled types  $tierRow
+      a function space still names its blocker    $blockedRow
     """
 
   private def definitions(code: String): List[Definition] =
@@ -123,6 +130,25 @@ class ReportSpec extends Specification {
   def enclosing = {
     val found = definition("class Outer(a: Boolean) { case class Inner(o: Outer) }", "Outer.Inner")
     found.size === Some(BooleanSize)
+  }
+
+  def companions = {
+    val found = definitions(
+      """|sealed trait Light
+         |case class Spot(on: Boolean) extends Light
+         |object Spot
+         |case class Uses(s: Spot)
+         |""".stripMargin,
+    )
+    // A companion object shares its name with its class but not its value space: the type claims
+    // the name — `Uses` reads `Spot` as the class — while the module is one value of its own.
+    (found.map(d => (d.name, d.kind, d.size)) === List(
+      ("Light", Definition.Kind.Abstract, None),
+      ("Spot", Definition.Kind.Class, Some(BooleanSize)),
+      ("Spot", Definition.Kind.Object, Some(UnitSize)),
+      ("Uses", Definition.Kind.Class, Some(BooleanSize)),
+    ))
+      .and(found.flatMap(_.unresolved) === Nil)
   }
 
   def entryPoints = {
@@ -290,6 +316,51 @@ class ReportSpec extends Specification {
       .and(estimate(0) must contain("unresolved: A"))
       .and(estimate.last must contain("abstract"))
       .and(estimate.last must not(contain("unresolved:")))
+  }
+
+  def recursiveRows = {
+    val found = definitions(
+      "sealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
+    )
+    // The body's equations are solved together, so `Succ` is worth what a reference to it is worth:
+    // `Nat` is the sum of its cases and the family is countably infinite. The row carries the same
+    // number as the reference, and nothing about it is unresolved.
+    (found.map(d => (d.name, d.kind, d.size)) === List(
+      ("Nat", Definition.Kind.Abstract, None),
+      ("Zero", Definition.Kind.Object, Some(UnitSize)),
+      ("Succ", Definition.Kind.Class, Some(EffectiveOmega)),
+    ))
+      .and(found.flatMap(_.unresolved) === Nil)
+  }
+
+  def lazyRow = {
+    val root = temporary(
+      "Timeline.scala" ->
+        "package p\ncase class Timeline(head: Boolean, tail: => Timeline)",
+    )
+    val rendered = Report.of(List(root)).render
+    val table = rendered.linesIterator.toList
+      .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
+      .drop(2)
+    // A hole the constructor never demands counts its infinite values as well, so `ω` is an
+    // answer: the row shows the size, and the summary does not count it as unresolved.
+    (definition("case class Timeline(head: Boolean, tail: => Timeline)", "Timeline").size ===
+      Some(EffectiveOmega))
+      .and(table(0) must contain("ω  p.Timeline"))
+      .and(rendered must contain("1 with more than one value"))
+  }
+
+  def tierRow = {
+    val grid = definition("case class Grid(cells: LazyList[LazyList[Unit]])", "Grid")
+    // ω^ω lands on the analysis' ε₀ tier, and every step of that route is a type the calculator
+    // models: the row is a size, not a question.
+    (grid.size === Some(EffectiveEpsilon0)).and(grid.unresolved === Nil)
+  }
+
+  def blockedRow = {
+    val reducer = definition("case class Reducer(run: String => String)", "Reducer")
+    (reducer.size === Some(EffectiveEpsilon0))
+      .and(reducer.unresolved === List("String"))
   }
 
 }

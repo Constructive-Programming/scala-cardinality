@@ -3,7 +3,7 @@ Generic method / constructor implementation cardinalities
 
 4  optics.Composed.<init>  Composed[A](left: A, right: A)  Optic.scala:5  [constructor]
 scala-cardinality — 1 source, 3 definitions
-  stored-value estimates: constructor inputs only; finite bit counts are rounded bounds
+  stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: unresolved, not a proof of infinity; opaque representations are not singletons
   1 unresolved · 1 with one value · 1 abstract
 Stored-value estimates (constructor inputs; `?` = unresolved)

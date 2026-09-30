@@ -1,18 +1,31 @@
 Generic method / constructor implementation cardinalities
-  2 signatures: 1 finite · 0 countably infinite · 1 unresolved
-  1 unresolved on: unresolved type
+  5 signatures: 1 finite · 0 countably infinite · 4 unresolved
+  2 unresolved on: unresolved type
+  1 unresolved on: abstract type or method-valued representation
+  1 unresolved on: unsupported type
 
 4  example.Custom.<init>  Custom(on: Boolean)  Light.scala:5  [constructor]
 ?  example.Holder.<init>  Holder[A](value: A, count: Int)  Light.scala:11  [constructor]
     unresolved: unresolved type: Int
-scala-cardinality — 1 source, 5 definitions
-  stored-value estimates: constructor inputs only; finite bit counts are rounded bounds
+?  example.Succ.<init>  Succ(n: Nat)  Light.scala:17  [constructor]
+    unresolved: abstract type or method-valued representation: example.Nat
+?  example.Timeline.<init>  Timeline(head: Boolean, tail: => Timeline)  Light.scala:19  [constructor]
+    unresolved: unsupported type: => Timeline
+?  example.Reducer.<init>  Reducer(run: String => String)  Light.scala:21  [constructor]
+    unresolved: unresolved type: String
+scala-cardinality — 1 source, 10 definitions
+  stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: unresolved, not a proof of infinity; opaque representations are not singletons
-  1 unresolved · 2 with more than one value · 1 with one value · 1 abstract
+  2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
 ?  example.Holder[A]  class     Light.scala:11  unresolved: A
+?  example.Reducer    class     Light.scala:21  unresolved: String
+ω  example.Succ       class     Light.scala:17
+ω  example.Timeline   class     Light.scala:19
 2  example.Custom     class     Light.scala:5
 2  example.Mode       enum      Light.scala:7
 1  example.Red        object    Light.scala:4
+1  example.Zero       object    Light.scala:16
 —  example.Light      abstract  Light.scala:3
+—  example.Nat        abstract  Light.scala:15

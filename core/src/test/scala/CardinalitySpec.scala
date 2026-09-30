@@ -120,6 +120,9 @@ class CardinalitySpec extends Specification {
     derived body vals add nothing            ${src(
       "class Derived(a: Boolean) { val b: Boolean = !a }"
     ) === BooleanSize}
+    class with a companion object            ${src(
+      "case class Companion(a: Boolean)\nobject Companion"
+    ) === TinySize(3)} (the class 2 + the module 1; the type keeps the name)
     case object                              ${src("case object Singleton") === UnitSize}
     object                                   ${src("object Module") === UnitSize}
 

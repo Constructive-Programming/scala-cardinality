@@ -70,6 +70,7 @@ object Counter {
 
     /** Names added by the solver's own round, which carries no notes of its own. */
     def ++(entries: Iterable[(String, Size)]): Scope = new Scope(names ++ entries, notes)
+
     /** The same names with a fresh record of unresolved ones. */
     def measured: Scope = new Scope(names, mutable.LinkedHashSet.empty)
 
@@ -91,8 +92,8 @@ object Counter {
   final private case class Introduced(contributes: Size, definitions: List[Definition]) {
 
     /** Adds what the body of this definition introduces. Nested definitions are their own
-      * inhabitants — and their own rows — so they add to both: `object Wrapper { case class
-      * Pair(a: Boolean, b: Boolean) }` holds five values, the module and the four pairs.
+      * inhabitants — and their own rows — so they add to both: `object Wrapper { case class Pair(a:
+      * Boolean, b: Boolean) }` holds five values, the module and the four pairs.
       */
     def inside(scope: Scope, prefix: List[String], stats: List[Stat]): Introduced = {
       val body = walk(stats, scope, prefix, top = false)
@@ -101,6 +102,7 @@ object Counter {
         definitions = definitions ++ body.definitions
       )
     }
+
   }
 
   private object Introduced {
@@ -164,12 +166,13 @@ object Counter {
         introduced(prefix, d, Definition.Kind.Enum, Some(size), size, s.unresolved)
           .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
       }
-    // A module (including a `case object`) is a single instance.
+    // A module (including a `case object`) is a single instance. It never reads the name from the
+    // scope: a companion object shares its name with a type, and the scope keeps the type's value
+    // under it, so the module's own value is one here and in the row a report lists it as.
     case d: Defn.Object =>
       measured(scope) { s =>
-        val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Object, Some(size), size, Nil)
-          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
+        introduced(prefix, d, Definition.Kind.Object, Some(UnitSize), UnitSize, Nil)
+          .inside(s, prefix :+ d.name.value, d.templ.body.stats)
       }
     // An opaque type hides what it holds: a reference to it is worth a single value outside the
     // scope that defines it, and the definition adds none of its own.
@@ -290,17 +293,30 @@ object Counter {
   // provides subtypes for. Each equation recomputes its cardinality from a scope, so the
   // system can be iterated as a whole. Abstract traits and classes have no cardinality of
   // their own and get an equation only when their subtypes appear in the same body.
+  //
+  // A type claims its name over the module that shares it: a companion object and its class are
+  // both called `Modify` (`class Modify` / `object Modify` is the usual shape in real code), but
+  // only one of them is what a *type* reference means, and a companion object that won the name
+  // would report a function-valued class as the single value of its module. The module keeps its
+  // equation only where no type shares the name — which is what a sealed parent sums a
+  // `case object` child by — and the walk counts the module itself as one value either way.
+  // Behind the scope's map the modules therefore come first and the types last, so the type's
+  // equation is the one a name keeps.
   private def equations(stats: List[Stat]): List[(String, Scope => Size)] = {
-    val defined = stats.flatMap {
+    val modules = stats.flatMap {
+      case d: Defn.Object => Some(d.name.value -> ((_: Scope) => UnitSize))
+      case _              => None
+    }
+    val types = stats.flatMap {
       case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
         Some(d.name.value -> ((_: Scope) => UnitSize))
       case d: Defn.Type => Some(d.name.value -> ((sc: Scope) => typeIn(sc)(d.body)))
       case d: Defn.Enum => Some(d.name.value -> ((sc: Scope) => enumSize(sc)(d)))
       case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
         Some(d.name.value -> ((sc: Scope) => ctorIn(sc)(d.ctor)))
-      case d: Defn.Object => Some(d.name.value -> ((_: Scope) => UnitSize))
-      case _              => None
+      case _ => None
     }
+    val defined = modules ++ types
     defined ++ sealedSums(stats, defined.map(_._1).toSet).toList.map {
       case (parent, children) =>
         parent -> ((sc: Scope) =>
@@ -789,8 +805,8 @@ object Counter {
   // definition's base summand twice — `Q = 1 + Q` would contribute `ω + 2` where a reference
   // to `Q` contributes `ω + 1`.
   private def statIn(scope: Scope): Stat => Size = {
-    case p: Pkg        => body(p.body.stats, scope)
-    case p: Pkg.Object => body(p.templ.body.stats, scope)
+    case p: Pkg                                              => body(p.body.stats, scope)
+    case p: Pkg.Object                                       => body(p.templ.body.stats, scope)
     case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
       scope.getOrElse(d.name.value, ctorIn(scope)(d.ctor))
     case d: Defn.Enum   => scope.getOrElse(d.name.value, enumSize(scope)(d))
