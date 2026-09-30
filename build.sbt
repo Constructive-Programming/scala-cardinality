@@ -127,11 +127,14 @@ addCommandAlias("mutationAll", "core/stryker")
 // `scalameta_2.13` on the classpath of a project that depends on `scalameta_3` (see
 // `project/plugins.sbt`). Docs examples are therefore pinned by the test suite rather
 // than compiled from the pages.
+// `siteRender` is declared at the build level so `sbt siteRender` resolves, but only the
+// root project renders: the site belongs to the repository, not to a module, and aggregating
+// the task would write it once per module. Root has no sources, so nothing else is tied to it.
 lazy val siteRender = taskKey[Unit]("Render docs/ into the static site under target/site")
 
 // Uncached on purpose: writing the site is a side effect, so it must re-read `docs/` on
 // every run rather than trust a cache entry that only tracks a directory path.
-siteRender := Def.uncached {
+root / siteRender := Def.uncached {
   // Not `target.value`: sbt 2 nests that under `target/out/jvm/...`, and the deploy
   // workflow wants one path it can point at.
   val output = (ThisBuild / baseDirectory).value / "target" / "site"
