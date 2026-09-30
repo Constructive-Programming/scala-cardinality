@@ -100,6 +100,7 @@ object Counter {
         definitions = definitions ++ body.definitions
       )
     }
+
   }
 
   private object Introduced {
