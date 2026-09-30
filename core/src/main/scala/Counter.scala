@@ -66,8 +66,6 @@ object Counter {
 
     def updated(name: String, size: Size): Scope = new Scope(names.updated(name, size), notes)
 
-    def ++(other: Scope): Scope = new Scope(names ++ other.names, notes)
-
     /** Names added by the solver's own round, which carries no notes of its own. */
     def ++(entries: Iterable[(String, Size)]): Scope = new Scope(names ++ entries, notes)
 
@@ -102,7 +100,6 @@ object Counter {
         definitions = definitions ++ body.definitions
       )
     }
-
   }
 
   private object Introduced {
