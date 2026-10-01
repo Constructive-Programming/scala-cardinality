@@ -78,8 +78,13 @@ object Counter {
       open: Set[String] = Set.empty,
   )
 
-  /** A type parameter a definition declares, and whether it takes parameters of its own. */
-  final private case class Binder(name: String, higherKinded: Boolean)
+  /** A type parameter a definition declares, with how many parameters it takes itself: `F[_]` has
+    * arity one, `F[_, _]` arity two, and a plain `A` none.
+    */
+  final private case class Binder(name: String, arity: Int) {
+
+    def higherKinded: Boolean = arity > 0
+  }
 
   final private class Scope(
       private val values: Map[String, Size],
@@ -223,7 +228,7 @@ object Counter {
       world.binders
         .find(_.name == name)
         .map(binder =>
-          if (binder.higherKinded) Definition.Unbound.HigherKinded(name)
+          if (binder.higherKinded) Definition.Unbound.HigherKinded(name, binder.arity)
           else Definition.Unbound.Parameter(name)
         )
 
@@ -629,7 +634,7 @@ object Counter {
   // The parameters as binders: a parameter that takes parameters of its own (`F[_]`) is the
   // higher-kinded kind, and every applied `F[A]` then depends on the instantiation too.
   private def binders(d: Defn): List[Binder] =
-    parameters(d).map(param => Binder(param.name.value, param.tparams.nonEmpty))
+    parameters(d).map(param => Binder(param.name.value, param.tparams.size))
 
   private def parameterNames(d: Defn): List[String] = parameters(d).map(_.name.value)
 

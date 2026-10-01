@@ -34,7 +34,7 @@ object Definition {
     /** The same for a parameter that takes parameters of its own (`F[_]`, `F[_, _]`): an applied
       * `F[A]` is a value space only the instantiation decides.
       */
-    case HigherKinded(name: String)
+    case HigherKinded(name: String, arity: Int)
 
     /** An unsealed abstraction the sources define: any subtype anywhere may add values, so the
       * reference has no bound at all.
@@ -49,11 +49,11 @@ object Definition {
 
     /** How the kind reads in a row: a name, or what kind of syntax it is. */
     def render: String = this match {
-      case Parameter(name)    => name
-      case HigherKinded(name) => s"$name[_]"
-      case Open(name)         => name
-      case Unknown(name)      => name
-      case Syntax(what)       => what
+      case Parameter(name)           => name
+      case HigherKinded(name, arity) => s"$name[${List.fill(arity)("_").mkString(", ")}]"
+      case Open(name)                => name
+      case Unknown(name)             => name
+      case Syntax(what)              => what
     }
 
   }
@@ -63,8 +63,8 @@ object Definition {
     */
   def instantiationDependent(definition: Definition): Boolean =
     definition.unbound.nonEmpty && definition.unbound.forall {
-      case Unbound.Parameter(_) | Unbound.HigherKinded(_) => true
-      case _                                              => false
+      case Unbound.Parameter(_) | Unbound.HigherKinded(_, _) => true
+      case _                                                 => false
     }
 
   /** A row an open abstraction unbounds: the number would be a claim about code the sources do not

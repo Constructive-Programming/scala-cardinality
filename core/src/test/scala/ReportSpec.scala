@@ -32,6 +32,7 @@ class ReportSpec extends Specification {
       a parameterised recursion keeps its fixed point  $parameterisedRecursion
       a match type reduces on a known scrutinee  $matchType
       a match type that does not reduce stays unread  $matchTypeStuck
+      a higher-kinded parameter names its arity  $higherKinded
 
     Report
       reads a directory of sources              $directory
@@ -530,6 +531,23 @@ class ReportSpec extends Specification {
     val rendered = Report.of(List(root)).render
     (rendered must contain("open to implementations (Open)"))
       .and(rendered must contain("1 unbounded by an open abstraction"))
+  }
+
+  def higherKinded = {
+    val found = definitions(
+      """|class Box[F[_]](f: F[Boolean])
+         |class Pairish[F[_, _]](f: F[Int, Int])
+         |case class Mixed[A, F[_]](value: A, wrapped: F[A])
+         |""".stripMargin,
+    )
+    // A parameter that takes parameters of its own is a value space only the instantiation decides,
+    // and the row names its arity the way eo's triage list does: `F[_]`, `F[_, _]`.
+    (found.map(d => (d.name, d.unbound.map(_.render))) === List(
+      ("Box", List("F[_]")),
+      ("Pairish", List("F[_, _]")),
+      ("Mixed", List("A", "F[_]")),
+    ))
+      .and(found.forall(Definition.instantiationDependent))
   }
 
   def recursiveRows = {
