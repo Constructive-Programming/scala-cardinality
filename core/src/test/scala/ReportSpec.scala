@@ -33,6 +33,7 @@ class ReportSpec extends Specification {
       a match type reduces on a known scrutinee  $matchType
       a match type that does not reduce stays unread  $matchTypeStuck
       a higher-kinded parameter names its arity  $higherKinded
+      the top and the bottom of the lattice   $latticeEnds
 
     Report
       reads a directory of sources              $directory
@@ -548,6 +549,25 @@ class ReportSpec extends Specification {
       ("Mixed", List("A", "F[_]")),
     ))
       .and(found.forall(Definition.instantiationDependent))
+  }
+
+  def latticeEnds = {
+    val found = definitions(
+      """|case class MaybeNull(x: Null)
+         |case class Anything(x: Any)
+         |case class Elements(xs: Array[Any])
+         |case class Nullable(xs: Array[Int] | Null)
+         |""".stripMargin,
+    )
+    // `Null` has the one value `null`; `Any` is the top of the lattice, and nothing the analysis can
+    // place is above the ε₀ tier, so it sits there — which makes an `Array[Any]` the countable
+    // space its length makes it, rather than an unknown name. eo's `PSVec.Slice` is that shape.
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("MaybeNull", Some(UnitSize), Nil),
+      ("Anything", Some(EffectiveEpsilon0), Nil),
+      ("Elements", Some(EffectiveOmega), Nil),
+      ("Nullable", Some(EffectiveOmega + UnitSize), Nil),
+    )
   }
 
   def recursiveRows = {

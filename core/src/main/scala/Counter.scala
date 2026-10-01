@@ -1236,6 +1236,11 @@ object Counter {
     // over a builtin of the same name, as it does in Scala.
     case t: Type.Name if scope.frame(t.value).isDefined => scope.frame(t.value).get
 
+    // `Null` is one value — `null` — and `Any` is the top of the lattice: nothing the analysis can
+    // place is above the ε₀ tier, and `Any` holds everything, so it sits there. Other top-ish
+    // names (`AnyRef`, `Matchable`) stay unmodelled names rather than guesses.
+    case Type.Name("Null")       => UnitSize
+    case Type.Name("Any")        => EffectiveEpsilon0
     case Type.Name("Nothing")    => NothingSize
     case Type.Name("Unit")       => UnitSize
     case Type.Name("EmptyTuple") => UnitSize
