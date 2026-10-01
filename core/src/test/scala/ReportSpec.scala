@@ -69,6 +69,10 @@ class ReportSpec extends Specification {
       .find(_.name == name)
       .getOrElse(throw new AssertionError(s"no definition $name"))
 
+  // What a row's reasons render as, for the tests that read them as names.
+  private def reasons(code: String, name: String): List[String] =
+    definition(code, name).unbound.map(_.render)
+
   private def temporary(files: (String, String)*): Path = {
     val root = Files.createTempDirectory("cardinality")
     files.foreach {
@@ -125,23 +129,23 @@ class ReportSpec extends Specification {
     )
 
   def unresolved = {
-    (definition("case class Holder(a: String, b: Boolean)", "Holder").unresolved === List("String"))
-      .and(definition("case class Generic[A](a: A)", "Generic").unresolved === List("A"))
+    (reasons("case class Holder(a: String, b: Boolean)", "Holder") === List("String"))
+      .and(reasons("case class Generic[A](a: A)", "Generic") === List("A"))
       .and(
-        definition("case class Wrapped(a: Option[String])", "Wrapped").unresolved === List("String")
+        reasons("case class Wrapped(a: Option[String])", "Wrapped") === List("String")
       )
       .and(
         // A modelled collection is no longer a reason: since the solver counts unbounded
         // lengths, `List[Boolean]` is ω exactly, and an unresolved element type reports itself.
-        definition("case class Counted(a: List[Boolean])", "Counted").unresolved === Nil
+        reasons("case class Counted(a: List[Boolean])", "Counted") === Nil
       )
       .and(
-        definition("case class Elements(a: List[String])", "Elements").unresolved === List(
+        reasons("case class Elements(a: List[String])", "Elements") === List(
           "String"
         )
       )
       .and(
-        definition("type Fst[T] = T match { case (a, b) => a }", "Fst").unresolved === List(
+        reasons("type Fst[T] = T match { case (a, b) => a }", "Fst") === List(
           "a match type"
         )
       )
@@ -168,7 +172,7 @@ class ReportSpec extends Specification {
       ("Spot", Definition.Kind.Object, Some(UnitSize)),
       ("Uses", Definition.Kind.Class, Some(BooleanSize)),
     ))
-      .and(found.flatMap(_.unresolved) === Nil)
+      .and(found.flatMap(_.unbound.map(_.render)) === Nil)
   }
 
   def entryPoints = {
@@ -215,7 +219,7 @@ class ReportSpec extends Specification {
     // ω. Both classes read two values, and no name is left unresolved.
     val code = "case class A(b: B)\ncase class B(b: Boolean)"
     (definition(code, "A").size === Some(BooleanSize))
-      .and(definition(code, "A").unresolved === Nil)
+      .and(reasons(code, "A") === Nil)
       .and(definition(code, "B").size === Some(BooleanSize))
   }
 
@@ -308,7 +312,7 @@ class ReportSpec extends Specification {
     val rendered = Report.of(Nil).render
     rendered === """scala-cardinality — 0 sources, 0 definitions
                   |  stored-value estimates: constructor inputs only; finite capacities are upper bounds
-                  |  ?: unresolved, not a proof of infinity; opaque representations are not singletons""".stripMargin
+                  |  ?: no single number here — the reason after the row says what would give one""".stripMargin
   }
 
   def renders = {
@@ -333,7 +337,7 @@ class ReportSpec extends Specification {
       .and(rendered must contain("1  p.Box.<init>  Box[A](a: A)  Types.scala:4  [constructor]"))
       .and(estimate(0) must contain("?  p.Box[A]"))
       .and(estimate(0) must contain("Types.scala:4"))
-      .and(estimate(0) must contain("unresolved: A"))
+      .and(estimate(0) must contain("depends on its instantiation (A)"))
       .and(estimate.last must contain("abstract"))
       .and(estimate.last must not(contain("unresolved:")))
   }
@@ -361,12 +365,15 @@ class ReportSpec extends Specification {
     // equation read with `A` bound to 2, and an alias' body substitutes the same way. The
     // definition's own row keeps its parameters free — `Pair` as a template is `ω`, with `A` as
     // the reason — while a use site multiplies what the instantiation is worth.
-    found.map(d => (d.name, d.size, d.unresolved)) === List(
+    // A row whose reasons are its own parameters says so instead of listing names, and the
+    // summary counts it apart from what the calculator could not read.
+    (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Pair", Some(EffectiveOmega), List("A")),
       ("Opt", Some(EffectiveOmega + UnitSize), List("A")),
       ("TwoBools", Some(TinySize(4)), Nil),
       ("Use", Some(TinySize(48)), Nil),
-    )
+    ))
+      .and(found.map(Definition.instantiationDependent) === List(true, true, false, false))
   }
 
   def parameterisedRecursion = {
@@ -376,13 +383,13 @@ class ReportSpec extends Specification {
     // `Node[A]` inside `Node`'s own equation is the definition's own parameters: it borrows the
     // fixed point the solver gives the name, so the parameterised recursion keeps its ω reading
     // and reports the parameter, not the name.
-    found.map(d => (d.name, d.size, d.unresolved)) === List(
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Node", Some(EffectiveOmega), List("A"))
     )
   }
 
   private def rowsOf(root: Path): List[(String, Option[Size], List[String])] =
-    Report.of(List(root)).definitions.map(d => (d.name, d.size, d.unresolved))
+    Report.of(List(root)).definitions.map(d => (d.name, d.size, d.unbound.map(_.render)))
 
   def crossSource = {
     val root = temporary(
@@ -491,7 +498,7 @@ class ReportSpec extends Specification {
       ("Zero", Definition.Kind.Object, Some(UnitSize)),
       ("Succ", Definition.Kind.Class, Some(EffectiveOmega)),
     ))
-      .and(found.flatMap(_.unresolved) === Nil)
+      .and(found.flatMap(_.unbound.map(_.render)) === Nil)
   }
 
   def lazyRow = {
@@ -515,13 +522,13 @@ class ReportSpec extends Specification {
     val grid = definition("case class Grid(cells: LazyList[LazyList[Unit]])", "Grid")
     // ω^ω lands on the analysis' ε₀ tier, and every step of that route is a type the calculator
     // models: the row is a size, not a question.
-    (grid.size === Some(EffectiveEpsilon0)).and(grid.unresolved === Nil)
+    (grid.size === Some(EffectiveEpsilon0)).and(grid.unbound.map(_.render) === Nil)
   }
 
   def blockedRow = {
     val reducer = definition("case class Reducer(run: String => String)", "Reducer")
     (reducer.size === Some(EffectiveEpsilon0))
-      .and(reducer.unresolved === List("String"))
+      .and(reducer.unbound.map(_.render) === List("String"))
   }
 
 }

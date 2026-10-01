@@ -6,17 +6,72 @@ package cardinality
   * `size` is the cardinality of the type itself: how many values a reference to it can hold. An
   * abstract class or trait has no cardinality of its own — the inhabitants belong to the concrete
   * cases that extend it — so its size is `None`.
+  *
+  * `unbound` is what stopped the calculator from bounding the row, by kind: a name the sources do
+  * not define, the definition's own type parameters, an open abstraction, or syntax the calculator
+  * does not model. The kind is what lets a report tell a row that *has* no number — a template,
+  * whose size is a function of its instantiation — from one the calculator cannot read yet.
   */
 final case class Definition(
     name: String,
     kind: Definition.Kind,
     params: List[String],
     size: Option[Size],
-    unresolved: List[String],
+    unbound: List[Definition.Unbound],
     line: Int,
 )
 
 object Definition {
+
+  /** Why a row has no number: the kinds of thing that stopped the count at that definition. */
+  enum Unbound {
+
+    /** A type parameter the definition declares, or an enclosing definition does: the size is a
+      * function of the instantiation, and no single number exists for the template.
+      */
+    case Parameter(name: String)
+
+    /** The same for a parameter that takes parameters of its own (`F[_]`, `F[_, _]`): an applied
+      * `F[A]` is a value space only the instantiation decides.
+      */
+    case HigherKinded(name: String)
+
+    /** An unsealed abstraction the sources define: any subtype anywhere may add values, so the
+      * reference has no bound at all.
+      */
+    case Open(name: String)
+
+    /** A name the supplied sources do not define. */
+    case Unknown(name: String)
+
+    /** Syntax the calculator does not model yet: a match type, a type lambda, a refinement. */
+    case Syntax(what: String)
+
+    /** How the kind reads in a row: a name, or what kind of syntax it is. */
+    def render: String = this match {
+      case Parameter(name)    => name
+      case HigherKinded(name) => s"$name[_]"
+      case Open(name)         => name
+      case Unknown(name)      => name
+      case Syntax(what)       => what
+    }
+
+  }
+
+  /** A row whose only reasons are its own type parameters has no number to show: every
+    * instantiation has its own, and a caller supplies it.
+    */
+  def instantiationDependent(definition: Definition): Boolean =
+    definition.unbound.nonEmpty && definition.unbound.forall {
+      case Unbound.Parameter(_) | Unbound.HigherKinded(_) => true
+      case _                                              => false
+    }
+
+  /** A row an open abstraction unbounds: the number would be a claim about code the sources do not
+    * contain.
+    */
+  def open(definition: Definition): Boolean =
+    definition.unbound.exists(_.isInstanceOf[Unbound.Open])
 
   /** What kind of definition this is; the kind decides how its size reads. */
   enum Kind {

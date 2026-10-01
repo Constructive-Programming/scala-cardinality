@@ -139,8 +139,8 @@ object Report {
   private def isScala(name: String): Boolean = name.endsWith(".scala")
 
   // What the report says, above the table: what was measured, what the sizes mean, and that a
-  // question mark is an unresolved name rather than a proof of infinity. The stored-value estimate
-  // stays separate from the implementation counts the method section gives.
+  // question mark is a reason the calculator could not bound rather than a proof of infinity. The
+  // stored-value estimate stays separate from the implementation counts the method section gives.
   private def summary(report: Report): List[String] = {
     val definitions = report.definitions
     val counts = SizeClass.order.flatMap { sizeClass =>
@@ -150,7 +150,7 @@ object Report {
     List(
       s"scala-cardinality — ${plural(report.sources.size, "source")}, ${plural(definitions.size, "definition")}",
       "  stored-value estimates: constructor inputs only; finite capacities are upper bounds",
-      "  ?: unresolved, not a proof of infinity; opaque representations are not singletons",
+      "  ?: no single number here — the reason after the row says what would give one",
     ) ++
       (if (counts.isEmpty) Nil else List(s"  ${counts.mkString(" · ")}"))
   }
@@ -158,13 +158,13 @@ object Report {
   private def plural(count: Int, noun: String): String =
     s"$count $noun${if (count == 1) "" else "s"}"
 
-  // A definition is unresolved when something in its types is outside the calculator's vocabulary,
-  // or when it is an opaque type whose representation the report cannot see. A countable or
-  // ε₀-tier size is not unresolved by itself: since the solver learned to count recursive and
-  // lazy types, `ω` is the answer for a definition like `case class St(head: Boolean, tail: =>
-  // St)`, and only a name the calculator could not bound makes a row a question.
+  // A row is a question when something in its types is outside the calculator's vocabulary, when
+  // its own parameters are what the size depends on, when an open abstraction unbounds it, or when
+  // it is an opaque type whose representation the report cannot see. A countable or ε₀-tier size is
+  // not a question by itself: since the solver learned to count recursive and lazy types, `ω` is
+  // the answer for a definition like `case class St(head: Boolean, tail: => St)`.
   private def unresolved(definition: Definition): Boolean =
-    definition.unresolved.nonEmpty || definition.kind == Definition.Kind.Opaque
+    definition.unbound.nonEmpty || definition.kind == Definition.Kind.Opaque
 
   // The generic method and constructor counts, with what stands between the report and a number
   // for the rest: the triage list a reader works down.
@@ -221,10 +221,10 @@ object Report {
         rows.map(_._3.length).maxOption.getOrElse(0),
       )
       val table = rows.map {
-        case (size, name, kind, location, unresolved) =>
+        case (size, name, kind, location, reason) =>
           val line =
             s"${padded(size, widths(0))}  ${padded(name, widths(1))}  ${padded(kind, widths(2))}  $location"
-          if (unresolved.isEmpty) line else s"$line  unresolved: $unresolved"
+          if (reason.isEmpty) line else s"$line  $reason"
       }
       List("Stored-value estimates (constructor inputs; `?` = unresolved)", "") ++ table
     }
@@ -239,9 +239,20 @@ object Report {
       Definition.signature(definition),
       definition.kind.toString.toLowerCase,
       s"${fileName(source.path)}:${definition.line}",
-      definition.unresolved.mkString(", "),
+      reason(definition),
     )
   }
+
+  // How a row's reasons read. A row whose only reasons are the parameters it declares has no number
+  // to show and says so; a row an open abstraction unbounds says that; any other row lists what it
+  // could not read (a name, a match type, a refinement).
+  private def reason(definition: Definition): String =
+    if (definition.unbound.isEmpty) ""
+    else if (Definition.instantiationDependent(definition))
+      s"depends on its instantiation (${definition.unbound.map(_.render).mkString(", ")})"
+    else if (Definition.open(definition))
+      s"open to implementations (${definition.unbound.map(_.render).mkString(", ")})"
+    else s"unresolved: ${definition.unbound.map(_.render).mkString(", ")}"
 
   private def padded(text: String, width: Int): String = text + " " * (width - text.length)
 
@@ -268,9 +279,13 @@ object Report {
   }
 
   // How the summary counts a definition: by the cardinality of its type, with what the estimate
-  // could not bound and the abstract types that have no cardinality of their own held apart.
+  // could not bound and the abstract types that have no cardinality of their own held apart. A row
+  // that is only waiting for an instantiation is not a gap in the calculator, and a row an open
+  // abstraction unbounds is a fact about the sources, so neither joins the unresolved ones.
   private enum SizeClass(val label: String) {
     case Unresolved extends SizeClass("unresolved")
+    case Instantiation extends SizeClass("instantiation-dependent")
+    case Open extends SizeClass("unbounded by an open abstraction")
     case Many extends SizeClass("with more than one value")
     case One extends SizeClass("with one value")
     case Empty extends SizeClass("with no values")
@@ -280,10 +295,12 @@ object Report {
   private object SizeClass {
 
     /** The classes in the order the summary reads them: what needs attention first. */
-    val order: List[SizeClass] = List(Unresolved, Many, One, Empty, Abstract)
+    val order: List[SizeClass] = List(Unresolved, Instantiation, Open, Many, One, Empty, Abstract)
 
     def apply(definition: Definition): SizeClass =
-      if (unresolved(definition)) Unresolved
+      if (Definition.instantiationDependent(definition)) Instantiation
+      else if (Definition.open(definition)) Open
+      else if (unresolved(definition)) Unresolved
       else
         definition.size match {
           case None              => Abstract

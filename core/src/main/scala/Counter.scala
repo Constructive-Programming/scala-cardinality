@@ -74,11 +74,15 @@ object Counter {
       library: Library = Library.empty,
       home: List[String] = Nil,
       imports: Set[String] = Set.empty,
+      binders: List[Binder] = Nil,
   )
+
+  /** A type parameter a definition declares, and whether it takes parameters of its own. */
+  final private case class Binder(name: String, higherKinded: Boolean)
 
   final private class Scope(
       private val values: Map[String, Size],
-      private val notes: mutable.LinkedHashSet[String],
+      private val notes: mutable.LinkedHashSet[Definition.Unbound],
       private val world: World,
   ) {
 
@@ -145,6 +149,11 @@ object Counter {
     def withImports(names: Set[String]): Scope =
       new Scope(values, notes, world.copy(imports = imports ++ names))
 
+    /** The type parameters a definition declares, in scope while its body and its own row are read.
+      */
+    def withBinders(declared: List[Binder]): Scope =
+      new Scope(values, notes, world.copy(binders = declared ++ world.binders))
+
     /** The definitions of other sources this read can lean on. */
     def withLibrary(other: Library): Scope =
       new Scope(values, notes, world.copy(library = other))
@@ -178,16 +187,38 @@ object Counter {
     def measured: Scope =
       new Scope(values, mutable.LinkedHashSet.empty, world)
 
-    /** The names this scope could not bound, sorted for a report. */
-    def unresolved: List[String] = notes.toList.sorted
+    /** What this scope could not bound, by kind and in the order it met them. */
+    def unbound: List[Definition.Unbound] = notes.toList
 
-    /** Records a type the calculator could not bound: an unknown name or an unmodelled type
-      * constructor.
+    /** Records a type the calculator could not bound: a name, a parameter, an open abstraction, or
+      * syntax it does not model. A name it cannot place is a binder first — a type parameter is the
+      * caller's, not the source's — and only then an unknown name.
       */
-    def note(tpe: Type): Unit = { notes += describe(tpe); () }
+    def note(tpe: Type): Unit = { notes += reason(tpe); () }
 
     /** Records a name directly, for a reason that is not a type's own syntax. */
-    def note(name: String): Unit = { notes += name; () }
+    def note(name: String): Unit = { notes += Definition.Unbound.Unknown(name); () }
+
+    // Why a type could not be bounded: the binder it stands for, the syntax it is, or the name
+    // itself when it is neither.
+    private def reason(tpe: Type): Definition.Unbound = tpe match {
+      case Type.Name(name) =>
+        binder(name)
+          .orElse(open(name))
+          .getOrElse(Definition.Unbound.Unknown(name))
+      case other => Definition.Unbound.Syntax(describe(other))
+    }
+
+    // The binder a name stands for, when a definition in scope declares it.
+    private def binder(name: String): Option[Definition.Unbound] =
+      world.binders
+        .find(_.name == name)
+        .map(binder =>
+          if (binder.higherKinded) Definition.Unbound.HigherKinded(name)
+          else Definition.Unbound.Parameter(name)
+        )
+
+    private def open(name: String): Option[Definition.Unbound] = None
   }
 
   private object Scope {
@@ -361,22 +392,22 @@ object Counter {
   private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
     case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) =>
       Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
-        .inside(scope, prefix :+ d.name.value, d.templ.body.stats)
+        .inside(scope.withBinders(binders(d)), prefix :+ d.name.value, d.templ.body.stats)
     case d: Defn.Class =>
-      measured(scope) { s =>
+      measured(scope.withBinders(binders(d))) { s =>
         val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Class, Some(size), size, s.unresolved)
+        introduced(prefix, d, Definition.Kind.Class, Some(size), size, s.unbound)
           .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
       }
     case d: Defn.Trait =>
       Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
-        .inside(scope, prefix :+ d.name.value, d.templ.body.stats)
+        .inside(scope.withBinders(binders(d)), prefix :+ d.name.value, d.templ.body.stats)
     // An enum's cardinality is the sum over its cases, which the solver gives it; the enum's own
     // constructor arguments are shared state, not extra inhabitants.
     case d: Defn.Enum =>
-      measured(scope) { s =>
+      measured(scope.withBinders(binders(d))) { s =>
         val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Enum, Some(size), size, s.unresolved)
+        introduced(prefix, d, Definition.Kind.Enum, Some(size), size, s.unbound)
           .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
       }
     // A module (including a `case object`) is a single instance. It never reads the name from the
@@ -395,9 +426,9 @@ object Counter {
       }
     // A reference to the alias holds the aliased type's values; the alias itself adds none.
     case d: Defn.Type =>
-      measured(scope) { s =>
+      measured(scope.withBinders(binders(d))) { s =>
         val aliased = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Alias, Some(aliased), NothingSize, s.unresolved)
+        introduced(prefix, d, Definition.Kind.Alias, Some(aliased), NothingSize, s.unbound)
       }
     // An enum case is counted by its enum; it has no body of its own.
     case _: Defn.EnumCase | _: Defn.RepeatedEnumCase => Introduced.none
@@ -449,30 +480,29 @@ object Counter {
     case other                => other.syntax.replaceAll("\\s+", " ")
   }
 
-  // Measures one definition with a scope that records only its own unresolved names.
+  // Measures one definition with a scope that records only its own reasons.
   private def measured(scope: Scope)(f: Scope => Introduced): Introduced = f(scope.measured)
 
   // A definition as its source sees it: the row a report lists it as, and the cardinality it
-  // contributes. The row carries the definition's own unresolved names, kept apart from its
-  // siblings'.
+  // contributes. The row carries the definition's own reasons, kept apart from its siblings'.
   private def introduced(
       prefix: List[String],
       d: Defn,
       kind: Definition.Kind,
       size: Option[Size],
       contributes: Size,
-      unresolved: List[String],
+      unbound: List[Definition.Unbound],
   ): Introduced =
-    Introduced(contributes, List(row(prefix, d, kind, size, unresolved)))
+    Introduced(contributes, List(row(prefix, d, kind, size, unbound)))
 
   private def row(
       prefix: List[String],
       d: Defn,
       kind: Definition.Kind,
       size: Option[Size],
-      unresolved: List[String] = Nil,
+      unbound: List[Definition.Unbound] = Nil,
   ): Definition =
-    Definition((prefix :+ named(d)).mkString("."), kind, params(d), size, unresolved, line(d))
+    Definition((prefix :+ named(d)).mkString("."), kind, params(d), size, unbound, line(d))
 
   // scalameta counts lines from zero; a report points at the line an editor shows.
   private def line(d: Defn): Int = d.pos.startLine + 1
@@ -526,13 +556,13 @@ object Counter {
     }
     val types = stats.flatMap {
       case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
-        Some(d.name.value -> Named(parameters(d), (_: Scope) => UnitSize))
+        Some(d.name.value -> Named(parameterNames(d), (_: Scope) => UnitSize))
       case d: Defn.Type =>
-        Some(d.name.value -> Named(parameters(d), (sc: Scope) => typeIn(sc)(d.body)))
+        Some(d.name.value -> Named(parameterNames(d), (sc: Scope) => typeIn(sc)(d.body)))
       case d: Defn.Enum =>
-        Some(d.name.value -> Named(parameters(d), (sc: Scope) => enumSize(sc)(d)))
+        Some(d.name.value -> Named(parameterNames(d), (sc: Scope) => enumSize(sc)(d)))
       case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
-        Some(d.name.value -> Named(parameters(d), (sc: Scope) => ctorIn(sc)(d.ctor)))
+        Some(d.name.value -> Named(parameterNames(d), (sc: Scope) => ctorIn(sc)(d.ctor)))
       case _ => None
     }
     val defined = modules ++ types
@@ -549,13 +579,20 @@ object Counter {
   }
 
   // The type parameters a definition declares, in the order its arguments are supplied in.
-  private def parameters(d: Defn): List[String] = d match {
-    case c: Defn.Class => c.tparamClause.values.map(_.name.value)
-    case c: Defn.Trait => c.tparamClause.values.map(_.name.value)
-    case c: Defn.Enum  => c.tparamClause.values.map(_.name.value)
-    case c: Defn.Type  => c.tparamClause.values.map(_.name.value)
+  private def parameters(d: Defn): List[Type.Param] = d match {
+    case c: Defn.Class => c.tparamClause.values
+    case c: Defn.Trait => c.tparamClause.values
+    case c: Defn.Enum  => c.tparamClause.values
+    case c: Defn.Type  => c.tparamClause.values
     case _             => Nil
   }
+
+  // The parameters as binders: a parameter that takes parameters of its own (`F[_]`) is the
+  // higher-kinded kind, and every applied `F[A]` then depends on the instantiation too.
+  private def binders(d: Defn): List[Binder] =
+    parameters(d).map(param => Binder(param.name.value, param.tparams.nonEmpty))
+
+  private def parameterNames(d: Defn): List[String] = parameters(d).map(_.name.value)
 
   // A sealed trait or sealed abstract class stands for the sum of the body's subtypes that
   // extend it, so a recursive reference through the parent (`Succ(n: Nat)`) resolves. The
