@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.util.zip.{ZipEntry, ZipOutputStream}
 import org.specs2.Specification
+import org.specs2.execute.Result
 
 // The definitions a source introduces and the report over them: what a reader sees, and what the
 // walk has to keep straight to make the numbers mean anything — nested definitions, enum cases
@@ -44,6 +45,11 @@ class ReportSpec extends Specification {
       a lazy hole counts ω, and is no question    $lazyRow
       the ε₀ tier arrives through modelled types  $tierRow
       a function space still names its blocker    $blockedRow
+
+    Targets: what the estimate cannot read yet (docs/baselines/eo-core-0.16.0-unresolved.md)
+      an applied user type substitutes arguments  $targetApplied
+      a type from another source resolves         $targetCrossSource
+      a match type reduces on a known scrutinee   $targetMatchType
     """
 
   private def definitions(code: String): List[Definition] =
@@ -317,6 +323,50 @@ class ReportSpec extends Specification {
       .and(estimate.last must contain("abstract"))
       .and(estimate.last must not(contain("unresolved:")))
   }
+
+  // A rule the estimate does not have yet, pinned as an expectation that fails today: specs2
+  // reports it as pending and turns it into a failure once the rule lands, so the marker cannot
+  // go stale. The ledger in `docs/baselines/eo-core-0.16.0-unresolved.md` tracks these, and the
+  // reason is what a rule would have to do.
+  private def target(actual: => Definition, expected: Size, reason: String): Result = {
+    val row = actual
+    pendingUntilFixed(s"$reason: this row should read $expected, the estimate returns ${row.size}")(
+      row.size === Some(expected)
+    )
+  }
+
+  private def crossSource: Definition = {
+    val root = temporary(
+      "Box.scala" -> "package p\ncase class Box(a: Boolean)",
+      "Use.scala" -> "package p\ncase class Use(b: Box)",
+    )
+    Report
+      .of(List(root))
+      .definitions
+      .find(_.name == "p.Use")
+      .getOrElse(throw new AssertionError("no definition p.Use"))
+  }
+
+  def targetApplied = target(
+    definition("case class Pair[A](a: A, b: A)\ncase class Use(p: Pair[Boolean])", "Use"),
+    TinySize(4),
+    "an applied user type needs its arguments substituted into its definition",
+  )
+
+  def targetCrossSource = target(
+    crossSource,
+    BooleanSize,
+    "the estimate reads one source at a time; the report holds all of them",
+  )
+
+  def targetMatchType = target(
+    definition(
+      "type Fst[T] = T match { case (f, s) => f }\ntype Two = Fst[(Boolean, Boolean)]",
+      "Two",
+    ),
+    BooleanSize,
+    "a match type needs reduction on a known scrutinee",
+  )
 
   def recursiveRows = {
     val found = definitions(

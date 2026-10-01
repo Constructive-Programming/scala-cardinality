@@ -19,6 +19,9 @@
 #                       5 with no values · 34 abstract (53 sources, 134 definitions)
 # Implementation counts: 480 signatures: 15 finite · 2 countably infinite · 463 unresolved
 #
+# The unresolved definition rows are catalogued in eo-core-0.16.0-unresolved.md, next to this
+# file: what stopped each one and which capability would move it.
+#
 Generic method / constructor implementation cardinalities
   480 signatures: 15 finite · 2 countably infinite · 463 unresolved
   340 unresolved on: unresolved type
