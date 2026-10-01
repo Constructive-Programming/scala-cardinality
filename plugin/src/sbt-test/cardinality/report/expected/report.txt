@@ -1,31 +1,34 @@
 Generic method / constructor implementation cardinalities
-  5 signatures: 1 finite · 0 countably infinite · 4 unresolved
+  6 signatures: 1 finite · 0 countably infinite · 5 unresolved
+  2 unresolved on: abstract type or method-valued representation
   2 unresolved on: unresolved type
-  1 unresolved on: abstract type or method-valued representation
   1 unresolved on: unsupported type
 
 4  example.Custom.<init>  Custom(on: Boolean)  Light.scala:5  [constructor]
 ?  example.Holder.<init>  Holder[A](value: A, count: Int)  Light.scala:11  [constructor]
     unresolved: unresolved type: Int
-?  example.Succ.<init>  Succ(n: Nat)  Light.scala:17  [constructor]
+?  example.Cursor.<init>  Cursor(at: Nat, open: Boolean)  Light.scala:16  [constructor]
     unresolved: abstract type or method-valued representation: example.Nat
-?  example.Timeline.<init>  Timeline(head: Boolean, tail: => Timeline)  Light.scala:19  [constructor]
+?  example.Timeline.<init>  Timeline(head: Boolean, tail: => Timeline)  Light.scala:18  [constructor]
     unresolved: unsupported type: => Timeline
-?  example.Reducer.<init>  Reducer(run: String => String)  Light.scala:21  [constructor]
+?  example.Reducer.<init>  Reducer(run: String => String)  Light.scala:20  [constructor]
     unresolved: unresolved type: String
-scala-cardinality — 1 source, 10 definitions
+?  example.Succ.<init>  Succ(n: Nat)  Natural.scala:7  [constructor]
+    unresolved: abstract type or method-valued representation: example.Nat
+scala-cardinality — 2 sources, 11 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: unresolved, not a proof of infinity; opaque representations are not singletons
-  2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
+  2 unresolved · 5 with more than one value · 2 with one value · 2 abstract
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
 ?  example.Holder[A]  class     Light.scala:11  unresolved: A
-?  example.Reducer    class     Light.scala:21  unresolved: String
-ω  example.Succ       class     Light.scala:17
-ω  example.Timeline   class     Light.scala:19
+?  example.Reducer    class     Light.scala:20  unresolved: String
+ω  example.Cursor     class     Light.scala:16
+ω  example.Succ       class     Natural.scala:7
+ω  example.Timeline   class     Light.scala:18
 2  example.Custom     class     Light.scala:5
 2  example.Mode       enum      Light.scala:7
 1  example.Red        object    Light.scala:4
-1  example.Zero       object    Light.scala:16
+1  example.Zero       object    Natural.scala:6
 —  example.Light      abstract  Light.scala:3
-—  example.Nat        abstract  Light.scala:15
+—  example.Nat        abstract  Natural.scala:5

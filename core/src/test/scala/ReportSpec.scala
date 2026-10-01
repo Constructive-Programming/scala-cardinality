@@ -48,8 +48,16 @@ class ReportSpec extends Specification {
       the ε₀ tier arrives through modelled types  $tierRow
       a function space still names its blocker    $blockedRow
 
+    Reading a library's sources as one set
+      a type from another file resolves          $crossSource
+      an argument from another file substitutes  $crossSourceArgument
+      a qualified name resolves                  $crossSourceQualified
+      the file's own package wins over another's $crossSourcePackage
+      a name two packages define stays unresolved  $crossSourceAmbiguous
+      an imported name is left to the import     $crossSourceImported
+      a sealed hierarchy sums across files       $crossSourceSealed
+
     Targets: what the estimate cannot read yet (docs/baselines/eo-core-0.16.0-unresolved.md)
-      a type from another source resolves         $targetCrossSource
       a match type reduces on a known scrutinee   $targetMatchType
     """
 
@@ -63,7 +71,12 @@ class ReportSpec extends Specification {
 
   private def temporary(files: (String, String)*): Path = {
     val root = Files.createTempDirectory("cardinality")
-    files.foreach { case (name, content) => Files.writeString(root.resolve(name), content) }
+    files.foreach {
+      case (name, content) =>
+        val file = root.resolve(name)
+        Files.createDirectories(file.getParent)
+        Files.writeString(file, content)
+    }
     root
   }
 
@@ -336,18 +349,6 @@ class ReportSpec extends Specification {
     )
   }
 
-  private def crossSource: Definition = {
-    val root = temporary(
-      "Box.scala" -> "package p\ncase class Box(a: Boolean)",
-      "Use.scala" -> "package p\ncase class Use(b: Box)",
-    )
-    Report
-      .of(List(root))
-      .definitions
-      .find(_.name == "p.Use")
-      .getOrElse(throw new AssertionError("no definition p.Use"))
-  }
-
   def appliedType = {
     val found = definitions(
       """|case class Pair[A](a: A, b: A)
@@ -360,12 +361,12 @@ class ReportSpec extends Specification {
     // equation read with `A` bound to 2, and an alias' body substitutes the same way. The
     // definition's own row keeps its parameters free — `Pair` as a template is `ω`, with `A` as
     // the reason — while a use site multiplies what the instantiation is worth.
-    (found.map(d => (d.name, d.size, d.unresolved)) === List(
+    found.map(d => (d.name, d.size, d.unresolved)) === List(
       ("Pair", Some(EffectiveOmega), List("A")),
       ("Opt", Some(EffectiveOmega + UnitSize), List("A")),
       ("TwoBools", Some(TinySize(4)), Nil),
       ("Use", Some(TinySize(48)), Nil),
-    ))
+    )
   }
 
   def parameterisedRecursion = {
@@ -380,11 +381,94 @@ class ReportSpec extends Specification {
     )
   }
 
-  def targetCrossSource = target(
-    crossSource,
-    BooleanSize,
-    "the estimate reads one source at a time; the report holds all of them",
-  )
+  private def rowsOf(root: Path): List[(String, Option[Size], List[String])] =
+    Report.of(List(root)).definitions.map(d => (d.name, d.size, d.unresolved))
+
+  def crossSource = {
+    val root = temporary(
+      "Box.scala" -> "package p\ncase class Box(a: Boolean)",
+      "Use.scala" -> "package p\ncase class Use(b: Box)",
+    )
+    // A report reads the supplied sources as one set: `Box` is in a sibling file, and `Use` is
+    // worth what a reference to it is worth.
+    rowsOf(root) === List(
+      ("p.Box", Some(BooleanSize), Nil),
+      ("p.Use", Some(BooleanSize), Nil),
+    )
+  }
+
+  def crossSourceArgument = {
+    val root = temporary(
+      "Pair.scala" -> "package p\ncase class Pair[A](a: A, b: A)",
+      "Use.scala" -> "package p\ncase class Use(p: Pair[Boolean])",
+    )
+    rowsOf(root) === List(
+      ("p.Pair", Some(EffectiveOmega), List("A")),
+      ("p.Use", Some(TinySize(4)), Nil),
+    )
+  }
+
+  def crossSourceQualified = {
+    val root = temporary(
+      "Box.scala" -> "package p\ncase class Box(a: Boolean)",
+      "Use.scala" -> "package p\ncase class Use(b: p.Box)",
+    )
+    rowsOf(root) === List(
+      ("p.Box", Some(BooleanSize), Nil),
+      ("p.Use", Some(BooleanSize), Nil),
+    )
+  }
+
+  def crossSourcePackage = {
+    val root = temporary(
+      "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
+      "b/Widget.scala" -> "package b\ncase class Widget(x: Boolean)",
+      "a/Use.scala" -> "package a\ncase class Use(w: Widget)",
+    )
+    // A package member needs no import: inside `a`, `Widget` is `a.Widget`, whatever `b` defines.
+    rowsOf(root).filter(_._1 == "a.Use") === List(("a.Use", Some(BooleanSize), Nil))
+  }
+
+  def crossSourceAmbiguous = {
+    val root = temporary(
+      "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
+      "b/Widget.scala" -> "package b\ncase class Widget(x: Boolean)",
+      "c/Use.scala" -> "package c\ncase class Use(w: Widget)",
+    )
+    // From a third package, `Widget` could only be an import of either: the report says so rather
+    // than picking one.
+    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
+  }
+
+  def crossSourceImported = {
+    val root = temporary(
+      "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
+      "c/Use.scala" -> "package c\nimport a.Widget\ncase class Use(w: Widget)",
+    )
+    // The import decides what the name means and the calculator does not follow imports, so the
+    // name stays a reason even though the source set defines it.
+    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
+  }
+
+  def crossSourceSealed = {
+    val root = temporary(
+      "Nat.scala" -> "package p\nsealed trait Nat",
+      "Cases.scala" -> "package p\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
+      "Use.scala" -> "package p\ncase class Use(n: Nat)",
+    )
+    // The package's equations are solved as one system, so the sealed parent sums the cases a
+    // sibling file defines, and the recursion is read through it. Rows follow the sources, so
+    // `Cases.scala` comes before `Nat.scala`.
+    (rowsOf(root).map(_._1) === List("p.Zero", "p.Succ", "p.Nat", "p.Use"))
+      .and(
+        rowsOf(root) === List(
+          ("p.Zero", Some(UnitSize), Nil),
+          ("p.Succ", Some(EffectiveOmega), Nil),
+          ("p.Nat", None, Nil),
+          ("p.Use", Some(EffectiveOmega), Nil),
+        )
+      )
+  }
 
   def targetMatchType = target(
     definition(

@@ -12,9 +12,8 @@ case class Holder[A](value: A, count: Int)
 
 // What the branch gained since PR #10 was cut: recursion is solved as a fixed point, a lazy hole
 // counts its infinite values, and a function space over a countable type reaches the ε₀ tier.
-sealed trait Nat
-case object Zero extends Nat
-case class Succ(n: Nat) extends Nat
+// `Nat` lives in `Natural.scala`, so this consumer also reads across files.
+case class Cursor(at: Nat, open: Boolean)
 
 case class Timeline(head: Boolean, tail: => Timeline)
 

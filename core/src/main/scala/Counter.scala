@@ -11,15 +11,21 @@ object Counter {
   private given scala3: Dialect = dialects.Scala3
 
   /** What every definition a source introduces holds together: the sum over the concrete classes,
-    * enums, modules and top-level values it defines, nested definitions included.
+    * enums, modules and top-level values it defines, nested definitions included. The other
+    * supplied sources are in scope too, the way `definitions` reads them.
     */
-  def source: Source => Size = s => walk(s.stats, Scope.empty, Nil, top = true).contributes
+  def source(s: Source, library: Library = Library.empty): Size =
+    body(s.stats, Scope.empty.withLibrary(library))
 
   /** Every definition a source introduces, in source order, each with the cardinality of its type
     * and the names that stopped the calculator from bounding it — the number and the reason.
+    *
+    * `library` is what the other supplied sources define: a report reads a library's sources as one
+    * set, so a type defined in a sibling file resolves instead of counting as an unknown name, and
+    * `Library.empty` reads the source on its own.
     */
-  def definitions: Source => List[Definition] = s =>
-    walk(s.stats, Scope.empty, Nil, top = true).definitions
+  def definitions(s: Source, library: Library = Library.empty): List[Definition] =
+    walk(s.stats, Scope.empty.withLibrary(library), Nil, top = true).definitions
 
   /** What the definitions of a source declare: every typed field, term and method contributes the
     * size of its declared type, and the contributions are added up rather than multiplied, so an
@@ -57,13 +63,37 @@ object Counter {
   // themselves (`definitions`, each with its type parameters and its equation), the frames those
   // parameters are bound in while an instantiation is being read, and the names whose
   // substitution is in progress. See `applied`.
+  /** What a read carries besides the names it is solving: the definitions of the bodies in scope,
+    * the instantiation frames, the names whose substitution is in progress, the library the file
+    * leans on, the package it is read in, and the names its bodies import.
+    */
+  final private case class World(
+      definitions: Map[String, Named] = Map.empty,
+      frames: List[Map[String, Size]] = Nil,
+      active: Set[String] = Set.empty,
+      library: Library = Library.empty,
+      home: List[String] = Nil,
+      imports: Set[String] = Set.empty,
+  )
+
   final private class Scope(
       private val values: Map[String, Size],
       private val notes: mutable.LinkedHashSet[String],
-      private val definitions: Map[String, Named],
-      private val frames: List[Map[String, Size]],
-      private val active: Set[String],
+      private val world: World,
   ) {
+
+    private def definitions: Map[String, Named] = world.definitions
+
+    private def frames: List[Map[String, Size]] = world.frames
+
+    private def active: Set[String] = world.active
+
+    private def library: Library = world.library
+
+    private def home: List[String] = world.home
+
+    private def imports: Set[String] = world.imports
+
     def size(name: String): Option[Size] = values.get(name)
 
     def contains(name: String): Boolean = values.contains(name)
@@ -78,33 +108,75 @@ object Counter {
     /** The definition a name resolves to, so that `C[args]` can be read as an instantiation. */
     def definition(name: String): Option[Named] = definitions.get(name)
 
+    /** The value a name has: the file's own, or the library's when the file defines none. A name
+      * the body imports is left to the import: the calculator does not follow imports, so a library
+      * lookup for it would be a guess at what the import binds.
+      */
+    def resolve(name: String): Option[Size] =
+      values.get(name).orElse(if (imported(name)) None else library.value(name, home))
+
+    /** The same for a definition the library supplied, with the package frame it was read in. */
+    def libraryDefinition(name: String): Option[(Scope, Named)] =
+      if (imported(name)) None else library.definition(name, home)
+
+    def imported(name: String): Boolean = imports(name)
+
+    /** The names the package the current read is in defines, for the library's own lookups. */
+    def defines(name: String): Boolean = values.contains(name) || definitions.contains(name)
+
+    def definedNames: Set[String] = values.keySet ++ definitions.keySet
+
     def updated(name: String, size: Size): Scope =
-      new Scope(values.updated(name, size), notes, definitions, frames, active)
+      new Scope(values.updated(name, size), notes, world)
 
     /** Names added by the solver's own round, which carries no notes of its own. */
     def ++(entries: Iterable[(String, Size)]): Scope =
-      new Scope(values ++ entries, notes, definitions, frames, active)
+      new Scope(values ++ entries, notes, world)
 
     /** The definitions the bodies now in scope introduce; an inner body shadows an outer name. */
     def withDefinitions(entries: List[(String, Named)]): Scope =
-      new Scope(values, notes, entries.toMap ++ definitions, frames, active)
+      new Scope(values, notes, world.copy(definitions = entries.toMap ++ definitions))
+
+    /** The package path a reference is read in, which decides what the library lends it. */
+    def withHome(path: List[String]): Scope =
+      new Scope(values, notes, world.copy(home = path))
+
+    /** The names a body imports; an inner import shadows an outer name for the whole body. */
+    def withImports(names: Set[String]): Scope =
+      new Scope(values, notes, world.copy(imports = imports ++ names))
+
+    /** The definitions of other sources this read can lean on. */
+    def withLibrary(other: Library): Scope =
+      new Scope(values, notes, world.copy(library = other))
+
+    /** Reading a definition the library supplied: its own package's names replace the file's
+      * lexical ones, so its references resolve where it was written, while the reasons it records
+      * stay the reading row's.
+      */
+    def inPackage(pkg: Scope): Scope =
+      new Scope(
+        pkg.values,
+        notes,
+        world.copy(definitions = pkg.definitions, library = pkg.library, home = pkg.home),
+      )
 
     /** Reading one instantiation of a definition: its parameters bound to what the arguments are
       * worth, innermost frame first.
       */
     def instantiated(frame: Map[String, Size]): Scope =
-      new Scope(values, notes, definitions, frame :: frames, active)
+      new Scope(values, notes, world.copy(frames = frame :: frames))
 
     /** Marking a name whose substitution is in progress, so a cycle through an applied reference
       * terminates the way a cycle through a bare name does.
       */
     def substituting(name: String): Scope =
-      new Scope(values, notes, definitions, frames, active + name)
+      new Scope(values, notes, world.copy(active = active + name))
 
     def isSubstituting(name: String): Boolean = active(name)
 
     /** The same names with a fresh record of unresolved ones. */
-    def measured: Scope = new Scope(values, mutable.LinkedHashSet.empty, definitions, frames, active)
+    def measured: Scope =
+      new Scope(values, mutable.LinkedHashSet.empty, world)
 
     /** The names this scope could not bound, sorted for a report. */
     def unresolved: List[String] = notes.toList.sorted
@@ -119,13 +191,92 @@ object Counter {
   }
 
   private object Scope {
-    val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, Map.empty, Nil, Set.empty)
+
+    val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
+
   }
 
   /** One named definition a reference can resolve: the type parameters it declares, and what its
     * type is worth with those parameters in scope.
     */
   final private case class Named(params: List[String], equation: Scope => Size)
+
+  /** The definitions the other supplied sources introduce, so that a reference can leave the file
+    * it is written in: a report reads a library's published sources as one set, and a type in a
+    * sibling file resolves instead of counting as an unknown name.
+    *
+    * A name a *single* package of the source set defines resolves to that definition, whatever
+    * package the reference is written in — the shape an import usually has. A name two packages
+    * define stays unresolved rather than guessed, because an import could mean either. What the
+    * sources do not contain is not modelled: a name only a classpath dependency defines still
+    * reports as unresolved, and an import of the same spelling from outside the sources is the one
+    * assumption a resolved name rests on.
+    *
+    * Each package's top-level definitions are solved as one system, so a definition can reference a
+    * sibling file's names, and a sealed hierarchy that spans files sums as a whole.
+    */
+  final class Library private (
+      private val packages: Map[List[String], Scope],
+      private val unique: Map[String, Scope]
+  ) {
+
+    /** The value a name defined outside the file being read has, when the library defines it. */
+    private[Counter] def value(name: String, home: List[String]): Option[Size] =
+      frame(name, home).flatMap(_.size(name))
+
+    /** The definition such a name resolves to, with the package it was read in. */
+    private[Counter] def definition(name: String, home: List[String]): Option[(Scope, Named)] =
+      frame(name, home).flatMap(pkg => pkg.definition(name).map(pkg -> _))
+
+    // The package a name read in `home` resolves to: its own when it defines the name — package
+    // members are in scope without an import — else the one package across the source set that
+    // does, which is the shape an import of a single name has.
+    private def frame(name: String, home: List[String]): Option[Scope] =
+      packages.get(home).filter(_.defines(name)).orElse(unique.get(name).filter(_.defines(name)))
+
+  }
+
+  object Library {
+
+    /** No other sources: a source read on its own, as a single file is. */
+    val empty: Library = new Library(Map.empty, Map.empty)
+
+    /** Reads the top-level definitions of every source, grouped by the package they are read in,
+      * and solves each package's names as one system.
+      */
+    def of(sources: List[Source]): Library = {
+      val packages = packageStatements(sources).groupBy(_._1).map {
+        case (path, found) =>
+          val stats = found.flatMap(_._2)
+          val entries = equations(stats)
+          path -> solve(entries, stats, Scope.empty.withDefinitions(entries).withHome(path))
+      }
+      val unique = packages.values.toList
+        .flatMap(scope => scope.definedNames.toList.map(name => name -> scope))
+        .groupBy(_._1)
+        .collect { case (name, List((_, scope))) => name -> scope }
+      new Library(packages, unique)
+    }
+
+    // A source's statements grouped by the package they are read in, nested packages flattened to
+    // the path an editor shows (`package a` then `package b` is `a.b`).
+    private def packageStatements(sources: List[Source]): List[(List[String], List[Stat])] =
+      sources.flatMap(source => packageStatements(source.stats, Nil))
+
+    private def packageStatements(
+        stats: List[Stat],
+        prefix: List[String]
+    ): List[(List[String], List[Stat])] = {
+      val direct = stats.filterNot(st => st.is[Pkg] || st.is[Pkg.Object])
+      val nested = stats.flatMap {
+        case p: Pkg        => packageStatements(p.body.stats, prefix ++ p.ref.syntax.split('.'))
+        case p: Pkg.Object => packageStatements(p.templ.body.stats, prefix :+ p.name.value)
+        case _             => Nil
+      }
+      (prefix -> direct) :: nested
+    }
+
+  }
 
   // What one statement adds to its body: the cardinality it contributes and the definitions it
   // introduces, which a report lists.
@@ -162,7 +313,8 @@ object Counter {
       top: Boolean
   ): Introduced = {
     val entries = equations(stats)
-    val solved = solve(entries, stats, scope.withDefinitions(entries))
+    val imported = scope.withImports(imports(stats))
+    val solved = solve(entries, stats, imported.withDefinitions(entries))
     stats.foldLeft(Introduced.none) { (acc, st) =>
       val introduced = statement(solved, prefix, top)(st)
       Introduced(
@@ -172,13 +324,33 @@ object Counter {
     }
   }
 
+  // The names a body's imports bind. A direct import of a name keeps a reference to it out of the
+  // library's hands — the import decides what the name means and the calculator does not follow
+  // imports — while a wildcard import binds nothing by name and is left as one of the assumptions
+  // `Library` documents.
+  private def imports(stats: List[Stat]): Set[String] =
+    stats
+      .collect { case i: Import => i.importers }
+      .flatten
+      .flatMap(_.importees)
+      .flatMap {
+        case Importee.Name(name)    => Some(name.value)
+        case Importee.Rename(_, to) => Some(to.value)
+        case _                      => None
+      }
+      .toSet
+
   // A statement in a body: a package opens a nested one, a definition is measured and named, and
   // every other statement — declarations, imports and exports, bare terms — introduces nothing.
+  // A package also moves the read's home, which is the package the library's lookups start from.
   private def statement(scope: Scope, prefix: List[String], top: Boolean): Stat => Introduced = {
-    case p: Pkg        => walk(p.body.stats, scope, prefix ++ p.ref.syntax.split('.'), top)
-    case p: Pkg.Object => walk(p.templ.body.stats, scope, prefix :+ p.name.value, top)
-    case d: Defn       => defnWalk(scope, prefix, top)(d)
-    case _             => Introduced.none
+    case p: Pkg =>
+      val path = p.ref.syntax.split('.').toList
+      walk(p.body.stats, scope.withHome(path), prefix ++ path, top)
+    case p: Pkg.Object =>
+      walk(p.templ.body.stats, scope.withHome(prefix :+ p.name.value), prefix :+ p.name.value, top)
+    case d: Defn => defnWalk(scope, prefix, top)(d)
+    case _       => Introduced.none
   }
 
   // One definition: the row a report reads, the cardinality it contributes to its body, and the
@@ -1032,9 +1204,10 @@ object Counter {
     // source set names as an instantiation — see `applied`.
     case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => applied(scope)(callee, args)
 
-    // A name the source defines takes the cardinality of its definition. Any other name is
-    // unbounded, and is recorded so that a report can say which name it was.
-    case t: Type.Name => scope.size(t.value).getOrElse { scope.note(t); EffectiveOmega }
+    // A name the file does not define may still be a package sibling's or another supplied
+    // source's — the library resolves it — and any other name is unbounded, recorded so that a
+    // report can say which name it was.
+    case t: Type.Name => scope.resolve(t.value).getOrElse { scope.note(t); EffectiveOmega }
 
     // scalameta's `Type` is not sealed, and several variants (`Type.And`, `Type.Or`,
     // `Type.Method`, `Type.ImplicitFunction`, `Type.Quasi`) are `private[meta]`, so an
@@ -1072,22 +1245,28 @@ object Counter {
   // reading. Any other instantiation entered while its own name is being substituted is a cycle
   // the name-keyed solver has no fixed point for, so it keeps the old fallback: ω with the name as
   // the reason.
-  private def instantiation(scope: Scope, callee: Type, args: List[Type]): Option[Size] =
-    for
+  private def instantiation(scope: Scope, callee: Type, args: List[Type]): Option[Size] = {
+    val found = for
       name <- nameOf(callee)
-      named <- scope.definition(name)
-      if named.params.size == args.size
-    yield {
-      val self = named.params.zip(args).forall((param, arg) => bareName(arg) == param)
-      if (self && scope.size(name).isDefined) scope(name)
-      else if (scope.isSubstituting(name)) {
-        scope.note(callee)
-        EffectiveOmega
-      } else {
-        val frame = named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
-        named.equation(scope.substituting(name).instantiated(frame))
-      }
+      resolved <- scope
+        .definition(name)
+        .map((scope, _))
+        .orElse(scope.libraryDefinition(name))
+      if resolved._2.params.size == args.size
+    yield (name, resolved._1, resolved._2)
+    found.map {
+      case (name, context, named) =>
+        val self = named.params.zip(args).forall((param, arg) => bareName(arg) == param)
+        if (self && context.size(name).isDefined) context(name)
+        else if (context.isSubstituting(name)) {
+          scope.note(callee)
+          EffectiveOmega
+        } else {
+          val frame = named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
+          named.equation(context.substituting(name).instantiated(frame))
+        }
     }
+  }
 
   // The simple name a type constructor is spelled with: `Pair`, or `data.Pair`'s last segment — a
   // qualified name resolves by its own name, as it does for a bare reference.
