@@ -52,6 +52,10 @@ class ReportSpec extends Specification {
       a function space still names its blocker    $blockedRow
       an open abstraction has no bound            $openAbstraction
       a type constructor is a shape, not a gap    $constructorRow
+      a named member resolves                     $memberByName
+      an instance-qualified member resolves       $memberByValue
+      an abstract member is open                  $memberAbstract
+      a member the sources do not give reads as written  $memberUnknown
       a refinement is read as the type it refines $refinementRow
       an open abstraction reads as one in a report  $openRow
 
@@ -536,6 +540,66 @@ class ReportSpec extends Specification {
     found.map(d => (d.name, d.kind, d.size, d.unbound)) === List(
       ("Forget", Definition.Kind.Constructor, None, Nil)
     )
+  }
+
+  def memberByName = {
+    val found = definitions(
+      """|object Outer { type B = Boolean }
+         |trait Foo[A] { type B = A }
+         |case class C(x: Outer.B, y: Foo.B)
+         |""".stripMargin,
+    )
+    // A qualified reference is a member the sources declare: the owner's parameters are replaced by
+    // what the reference supplied, so `Foo[Boolean].B` is `Boolean`.
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Outer", Some(UnitSize), Nil),
+      ("Outer.B", Some(BooleanSize), Nil),
+      ("Foo", None, Nil),
+      ("Foo.B", Some(EffectiveOmega), List("A")),
+      ("C", Some(EffectiveOmega), List("A")),
+    )
+  }
+
+  def memberByValue = {
+    val found = definitions(
+      """|trait Foo[A] { type B = A }
+         |class D(x: Foo[Boolean]) { type Y = x.B }
+         |""".stripMargin,
+    )
+    // An instance-qualified member reads the value's declared type, which is what makes `x.B` a
+    // member of `Foo[Boolean]`.
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Foo", None, Nil),
+      ("Foo.B", Some(EffectiveOmega), List("A")),
+      ("D", Some(EffectiveOmega), List("Foo")),
+      ("D.Y", Some(BooleanSize), Nil),
+    )
+  }
+
+  def memberAbstract = {
+    val found = definitions(
+      """|trait O { type Z }
+         |class C(x: O) { type Y = x.Z }
+         |""".stripMargin,
+    )
+    // A member a body declares abstract is supplied by whoever implements it: unbounded, which the
+    // row says, rather than an unknown name.
+    (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("O", None, Nil),
+      ("C", Some(EffectiveOmega), List("O")),
+      ("C.Y", Some(EffectiveOmega), List("x.Z")),
+    ))
+      .and(found.find(_.name == "C.Y").exists(Definition.open))
+  }
+
+  def memberUnknown = {
+    val found = definitions(
+      """|class C(x: NotSupplied) { type Y = x.Z }
+         |""".stripMargin,
+    )
+    // The sources do not say what `x` is, so the reference is the reason, as it was written.
+    found.find(_.name == "C.Y").map(d => (d.size, d.unbound.map(_.render))) ===
+      Some((Some(EffectiveOmega), List("x.Z")))
   }
 
   def refinementRow = {

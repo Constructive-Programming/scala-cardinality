@@ -4,7 +4,7 @@
 # golden oracle: the numbers are provisional means of spotting what moved, and a drop in
 # resolved rows can be a correctness improvement (docs/plans/v1.md §5).
 #
-# analyzer:  sbt-cardinality / scala-cardinality 0.1.0-SNAPSHOT at commit 8441f55+
+# analyzer:  sbt-cardinality / scala-cardinality 0.1.0-SNAPSHOT at commit 4459503+
 #            (PR #10 branch, rebased over 4ba13e7; read against the whole source set)
 # versions:  sbt 2.0.9, Scala 3.8.4, scalameta 4.17.4
 # input:     https://repo1.maven.org/maven2/dev/constructive/cats-eo_3/0.16.0/cats-eo_3-0.16.0-sources.jar
@@ -26,7 +26,8 @@
 # file: what stopped each one, which capability moved it, and what is still missing. A sealed
 # parent reads the sum of the cases the source set defines — the value a reference to it has — so
 # the abstract rows carry numbers; a type constructor alias is a shape rather than a question, and
-# a refinement is read as the type it refines.
+# a refinement is read as the type it refines. A qualified reference resolves when the sources
+# supply the owner's type, and otherwise is reported as written (`af.Z`).
 #
 Generic method / constructor implementation cardinalities
   480 signatures: 15 finite · 2 countably infinite · 463 unresolved
@@ -1858,7 +1859,7 @@ Stored-value estimates (constructor inputs; `?` = unresolved)
 ?     dev.constructive.eo.data.Snd[T]                                         alias        Affine.scala:17  unresolved: a match type
 ?     dev.constructive.eo.optics.BijectionIso[S, T, A, B]                     class        Iso.scala:49  depends on its instantiation (A, S, T, B)
 ?     dev.constructive.eo.optics.ComposedTraversal[S, T, A, B, C, D, Xo, Xi]  class        Traversal.scala:329  open to implementations (Optic)
-?     dev.constructive.eo.optics.ComposedTraversal.X                          alias        Traversal.scala:334  unresolved: Z
+?     dev.constructive.eo.optics.ComposedTraversal.X                          alias        Traversal.scala:334  unresolved: af.Z
 ?     dev.constructive.eo.optics.ForgetFold[S, F, A]                          class        Fold.scala:51  unresolved: F[_], S, Foldable
 ?     dev.constructive.eo.optics.GetReplaceLens[S, T, A, B]                   class        Lens.scala:100  depends on its instantiation (A, S, T, B)
 ?     dev.constructive.eo.optics.GetReplaceLens.X                             alias        Lens.scala:107  depends on its instantiation (S)

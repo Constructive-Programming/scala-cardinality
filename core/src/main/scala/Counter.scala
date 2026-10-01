@@ -6,8 +6,8 @@ import scala.meta.*
 
 object Counter {
 
-  // Trees are parsed as Scala 3; printing one with any other dialect makes scalameta reprint it
-  // under Scala 2 rules, which cannot spell Scala 3's modifiers at all.
+  // Trees are parsed as Scala 3: printing one under any other dialect reprints it under Scala 2
+  // rules, which cannot spell Scala 3's modifiers (`inline def` throws while printing).
   private given scala3: Dialect = dialects.Scala3
 
   /** What every definition a source introduces holds together: the sum over the concrete classes,
@@ -715,25 +715,20 @@ object Counter {
     case t: Type.Name if scope.frame(TypeName.of(t.value)).isDefined =>
       scope.frame(TypeName.of(t.value)).get
 
-    // `Null` is one value — `null` — and `Any` is the top of the lattice: nothing the analysis can
-    // place is above the ε₀ tier, and `Any` holds everything, so it sits there. Other top-ish
-    // names (`AnyRef`, `Matchable`) stay unmodelled names rather than guesses.
-    case Type.Name("Null")       => UnitSize
-    case Type.Name("Any")        => EffectiveEpsilon0
-    case Type.Name("Nothing")    => NothingSize
-    case Type.Name("Unit")       => UnitSize
-    case Type.Name("EmptyTuple") => UnitSize
-    case Type.Name("Boolean")    => BooleanSize
-    case Type.Name("Byte")       => ByteSize
-    case Type.Name("Short")      => ShortSize
-    case Type.Name("Char")       => CharSize
-    case Type.Name("Int")        => IntSize
-    case Type.Name("Long")       => LongSize
-    case Type.Name("Float")      => FloatSize
-    case Type.Name("Double")     => DoubleSize
+    case Type.Name(name) if baseSizes.contains(name) => baseSizes(name)
 
-    // Qualification (`scala.Boolean`) does not change cardinality: drop the qualifier.
-    case Type.Select(_, name) => typeIn(scope)(name)
+    // A qualified reference is a *member* the sources may declare — `Outer.B`, `Foo[A].B`, or
+    // `x.B` over a value's declared type — and a qualifier that does not name an owner (a package
+    // path, a builtin) leaves the name to resolve on its own. When neither resolves, the whole
+    // reference is the reason, so a report reads it as it was written (`af.Z`).
+    case select @ Type.Select(qualifier, Type.Name(member)) =>
+      val key = TypeName.of(member)
+      memberSize(scope, qualifier, key)
+        .orElse(plainSize(scope, key))
+        .getOrElse {
+          scope.note(select)
+          EffectiveOmega
+        }
 
     // Literal types (`true`, `42`, `'a'`) and singleton types (`None.type`) have exactly
     // one inhabitant: the value itself.
@@ -796,6 +791,68 @@ object Counter {
       scope.note(t)
       EffectiveOmega
   }
+
+  // The base types the algebra models, in one place: the same list resolves `scala.Boolean` (the
+  // qualifier is dropped when a name stands on its own) and gives a reference its size. `Null` is
+  // one value — `null` — and `Any` is the top of the lattice: nothing the analysis can place is
+  // above the ε₀ tier and `Any` holds everything, so it sits there. Other top-ish names (`AnyRef`,
+  // `Matchable`) stay unmodelled rather than guessed.
+  private val baseSizes: Map[String, Size] = Map(
+    "Nothing" -> NothingSize,
+    "Unit" -> UnitSize,
+    "EmptyTuple" -> UnitSize,
+    "Boolean" -> BooleanSize,
+    "Byte" -> ByteSize,
+    "Short" -> ShortSize,
+    "Char" -> CharSize,
+    "Int" -> IntSize,
+    "Long" -> LongSize,
+    "Float" -> FloatSize,
+    "Double" -> DoubleSize,
+    "Any" -> EffectiveEpsilon0,
+    "Null" -> UnitSize,
+  )
+
+  // `A.B`: the size of the member a qualified reference names, when the sources supply the owner's
+  // type. A member a body declares abstract is supplied by whoever implements the owner, so the
+  // reference is unbounded rather than unknown.
+  private def memberSize(scope: Scope, qualifier: Term, member: TypeName): Option[Size] =
+    owner(scope, qualifier).flatMap {
+      case (name, arguments) =>
+        scope.membersOf(name).flatMap { members =>
+          if (members.abstractMembers(member)) {
+            scope.noteOpen(s"${qualifier.syntax}.$member")
+            Some(EffectiveOmega)
+          } else
+            members.declared.get(member).map { body =>
+              val bindings = members.params.zip(arguments).toMap
+              typeIn(scope)(MatchTypes.replace(body, bindings))
+            }
+        }
+    }
+
+  // The type a qualifier denotes, with the arguments it was applied to: a type the sources name
+  // (`Foo`, `Foo[A]`), or a value whose declared type they give (`x` in `x.B`).
+  private def owner(scope: Scope, qualifier: Term): Option[(TypeName, List[Type])] =
+    qualifier match {
+      case Term.Name(name) =>
+        val key = TypeName.of(name)
+        scope.declaredType(key).flatMap(ownerOf).orElse(Some(key -> Nil))
+      case Term.ApplyType(Term.Name(name), Type.ArgClause(arguments)) =>
+        Some(TypeName.of(name) -> arguments)
+      case _ => None
+    }
+
+  private def ownerOf(tpe: Type): Option[(TypeName, List[Type])] = tpe match {
+    case Type.Name(name)                                      => Some(TypeName.of(name) -> Nil)
+    case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => nameOf(callee).map(_ -> args)
+    case _                                                    => None
+  }
+
+  // The name on its own, without recording a reason: what a builtin, a binder or a definition the
+  // sources give is worth.
+  private def plainSize(scope: Scope, name: TypeName): Option[Size] =
+    scope.frame(name).orElse(baseSizes.get(name.value)).orElse(scope.resolve(name))
 
   // `codomain ^ domain`, except that an empty domain gives 0 rather than the set-theoretic 1,
   // `0^0` included. This is a constructivist approach: Scala is eager, a call evaluates its

@@ -7,6 +7,10 @@ import scala.meta.*
 
 private[cardinality] object MatchTypes {
 
+  // Trees are parsed as Scala 3: printing one under any other dialect reprints it under Scala 2
+  // rules, which cannot spell Scala 3's modifiers (`inline def` throws while printing).
+  private given scala3: Dialect = dialects.Scala3
+
   // A match type read on a known scrutinee: every case pattern is matched against the scrutinee with
   // the definition's parameters already replaced by the arguments, and the first case that matches
   // gives its body with the pattern's binders replaced by the parts of the scrutinee they stood
@@ -52,7 +56,7 @@ private[cardinality] object MatchTypes {
     }
 
   // A type with the definition's parameters replaced by the argument types, syntax kept as it is.
-  private def replace(tpe: Type, arguments: Map[TypeName, Type]): Type =
+  private[cardinality] def replace(tpe: Type, arguments: Map[TypeName, Type]): Type =
     if (arguments.isEmpty) tpe
     else
       tpe.transform {

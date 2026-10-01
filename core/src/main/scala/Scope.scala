@@ -34,6 +34,18 @@ final private[cardinality] case class World(
     imports: Set[TypeName] = Set.empty,
     binders: List[Binder] = Nil,
     open: Set[TypeName] = Set.empty,
+    members: Map[TypeName, Members] = Map.empty,
+    terms: Map[TypeName, Type] = Map.empty,
+)
+
+/** The type members a definition's body declares, with the parameters the definition carries: what
+  * a *qualified* reference in the sources can resolve to (`Outer.B`, `Foo[A].B`), and which of its
+  * members are abstract — supplied by whoever implements the definition.
+  */
+final private[cardinality] case class Members(
+    params: List[TypeName],
+    declared: Map[TypeName, Type],
+    abstractMembers: Set[TypeName],
 )
 
 /** A type parameter a definition declares, with how many parameters it takes itself: `F[_]` has
@@ -57,6 +69,24 @@ final private[cardinality] class Scope(
   private def active: Set[TypeName] = world.active
 
   private def library: Library = world.library
+
+  private def members: Map[TypeName, Members] = world.members
+
+  private def terms: Map[TypeName, Type] = world.terms
+
+  /** The members of a definition in scope: the file's own first, the library's after. */
+  def membersOf(owner: TypeName): Option[Members] =
+    members.get(owner).orElse(library.members(owner, home))
+
+  /** The type a value's declaration gives it, which an instance-qualified member needs. */
+  def declaredType(term: TypeName): Option[Type] = terms.get(term)
+
+  /** The members a definition's body declares, and the values whose declared types it gives. */
+  def withMembers(owner: TypeName, declared: Members): Scope =
+    new Scope(values, notes, world.copy(members = world.members.updated(owner, declared)))
+
+  def withTerms(declared: Map[TypeName, Type]): Scope =
+    new Scope(values, notes, world.copy(terms = declared ++ terms))
 
   private def home: List[TypeName] = world.home
 
@@ -92,9 +122,10 @@ final private[cardinality] class Scope(
   def imported(name: TypeName): Boolean = imports(name)
 
   /** The names the package the current read is in defines, for the library's own lookups. */
-  def defines(name: TypeName): Boolean = values.contains(name) || definitions.contains(name)
+  def defines(name: TypeName): Boolean =
+    values.contains(name) || definitions.contains(name) || members.contains(name)
 
-  def definedNames: Set[TypeName] = values.keySet ++ definitions.keySet
+  def definedNames: Set[TypeName] = values.keySet ++ definitions.keySet ++ members.keySet
 
   def updated(name: TypeName, size: Size): Scope =
     new Scope(values.updated(name, size), notes, world)
@@ -138,7 +169,7 @@ final private[cardinality] class Scope(
     new Scope(
       pkg.values,
       notes,
-      world.copy(definitions = pkg.definitions, library = pkg.library, home = pkg.home),
+      pkg.world.copy(frames = world.frames, active = world.active, imports = imports),
     )
 
   /** Reading one instantiation of a definition: its parameters bound to what the arguments are
@@ -170,6 +201,9 @@ final private[cardinality] class Scope(
 
   /** Records a name directly, for a reason that is not a type's own syntax. */
   def note(name: String): Unit = { notes += Definition.Unbound.Unknown(name); () }
+
+  /** Records an abstraction a member is supplied by, named as the reference is written. */
+  def noteOpen(reference: String): Unit = { notes += Definition.Unbound.Open(reference); () }
 
   // Why a type could not be bounded: the binder it stands for, the syntax it is, or the name
   // itself when it is neither.
@@ -246,6 +280,10 @@ final class Library private[cardinality] (
   /** Whether some package of the source set defines the name as an open abstraction. */
   private[cardinality] def open(name: TypeName): Boolean = packages.values.exists(_.openNames(name))
 
+  /** The members a package's definitions declare, for a qualified reference across files. */
+  private[cardinality] def members(owner: TypeName, home: List[TypeName]): Option[Members] =
+    frame(owner, home).flatMap(_.membersOf(owner))
+
   // The package a name read in `home` resolves to: its own when it defines the name — package
   // members are in scope without an import — else the one package across the source set that
   // does, which is the shape an import of a single name has.
@@ -255,6 +293,10 @@ final class Library private[cardinality] (
 }
 
 object Library {
+
+  // Trees are parsed as Scala 3: printing one under any other dialect reprints it under Scala 2
+  // rules, which cannot spell Scala 3's modifiers (`inline def` throws while printing).
+  private given scala3: Dialect = dialects.Scala3
 
   /** No other sources: a source read on its own, as a single file is. */
   val empty: Library = new Library(Map.empty, Map.empty)
@@ -271,7 +313,12 @@ object Library {
           .withDefinitions(entries)
           .withOpen(Walk.openNames(stats))
           .withHome(path)
-        path -> Counter.solve(entries, stats, base)
+        val definitions = stats.collect { case d: Defn => d }
+        val solved = Counter.solve(entries, stats, base)
+        val withMembers = definitions.foldLeft(solved) { (scope, d) =>
+          scope.withMembers(TypeName.of(Walk.name(d)), Walk.members(d))
+        }
+        path -> withMembers
     }
     val unique = packages.values.toList
       .flatMap(scope => scope.definedNames.toList.map(name => name -> scope))

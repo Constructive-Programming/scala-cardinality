@@ -7,6 +7,10 @@ import scala.meta.*
 
 private[cardinality] object Walk {
 
+  // Trees are parsed as Scala 3: printing one under any other dialect reprints it under Scala 2
+  // rules, which cannot spell Scala 3's modifiers (`inline def` throws while printing).
+  private given scala3: Dialect = dialects.Scala3
+
   final private[cardinality] case class Introduced(
       contributes: Size,
       definitions: List[Definition]
@@ -45,14 +49,72 @@ private[cardinality] object Walk {
     val entries = Counter.equations(stats)
     val surroundings = scope.withImports(imports(stats)).withOpen(openNames(stats))
     val solved = Counter.solve(entries, stats, surroundings.withDefinitions(entries))
+    // A body's definitions contribute their *members* to the body as well, so a sibling can be
+    // qualified (`Outer.B`), exactly as the library does for another file's.
+    val body = stats.collect { case d: Defn => d }.foldLeft(solved) { (s, d) =>
+      s.withMembers(TypeName.of(named(d).value), members(d))
+    }
     stats.foldLeft(Introduced.none) { (acc, st) =>
-      val introduced = statement(solved, prefix, top)(st)
+      val introduced = statement(body, prefix, top)(st)
       Introduced(
         contributes = acc.contributes + introduced.contributes,
         definitions = acc.definitions ++ introduced.definitions
       )
     }
   }
+
+  // What a definition's own body reads with: its type parameters, the members it declares and the
+  // values whose declared types it gives — all of them scoped to that body.
+  private def declared(scope: Scope, d: Defn): Scope =
+    scope
+      .withBinders(Counter.binders(d))
+      .withMembers(TypeName.of(named(d).value), members(d))
+      .withTerms(terms(d))
+
+  // The type members a definition's body declares: what a qualified reference can resolve to. A
+  // member with a body is read as it is written (with the owner's parameters substituted), and an
+  // abstract member (`type Z` with none) is supplied by whoever implements the definition.
+  private[cardinality] def members(d: Defn): Members = {
+    val stats = template(d)
+    Members(
+      params = Counter.parameters(d).map(p => TypeName.of(p.name.value)),
+      declared = stats.collect {
+        case t: Defn.Type if !t.mods.exists(_.is[Mod.Opaque]) => TypeName.of(t.name.value) -> t.body
+      }.toMap,
+      abstractMembers = stats.collect { case t: Decl.Type => TypeName.of(t.name.value) }.toSet,
+    )
+  }
+
+  // The values a definition's body declares with a type of their own — constructor parameters and
+  // fields — since an instance-qualified member needs to know what the instance is.
+  private[cardinality] def terms(d: Defn): Map[TypeName, Type] = {
+    val params = d match {
+      case c: Defn.Class => c.ctor.paramClauses.flatMap(_.values)
+      case c: Defn.Enum  => c.ctor.paramClauses.flatMap(_.values)
+      case _             => Nil
+    }
+    val declared = params.flatMap(p => p.decltpe.map(TypeName.of(p.name.value) -> _))
+    val fields = template(d)
+      .flatMap {
+        case v: Defn.Val => v.pats.collect { case Pat.Var(n) => n.value }.map(_ -> v.decltpe)
+        case v: Defn.Var => v.pats.collect { case Pat.Var(n) => n.value }.map(_ -> v.decltpe)
+        case _           => Nil
+      }
+      .flatMap { case (name, tpe) => tpe.map(TypeName.of(name) -> _) }
+    (declared ++ fields).toMap
+  }
+
+  // The members a definition's body holds; a value or an enum case declares none.
+  private def template(d: Defn): List[Stat] = d match {
+    case c: Defn.Class  => c.templ.body.stats
+    case c: Defn.Trait  => c.templ.body.stats
+    case c: Defn.Enum   => c.templ.body.stats
+    case c: Defn.Object => c.templ.body.stats
+    case _              => Nil
+  }
+
+  /** The name a definition is known by, which is what its members are keyed under. */
+  private[cardinality] def name(d: Defn): String = named(d).value
 
   // The abstractions a body leaves open. A sealed parent is not one of them: its sum is the sum of
   // the children the body (or the package) defines.
@@ -105,20 +167,20 @@ private[cardinality] object Walk {
   private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
     case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) =>
       abstractRow(scope, prefix, d)
-        .inside(scope.withBinders(Counter.binders(d)), prefix :+ d.name.value, d.templ.body.stats)
+        .inside(declared(scope, d), prefix :+ d.name.value, d.templ.body.stats)
     case d: Defn.Class =>
       measured(scope.withBinders(Counter.binders(d))) { s =>
         val size = sizeOf(s)(d)
         introduced(prefix, d, Definition.Kind.Class, Some(size), size, s.unbound)
           .inside(
-            s.updated(TypeName.of(d.name.value), size),
+            declared(s, d).updated(TypeName.of(d.name.value), size),
             prefix :+ d.name.value,
             d.templ.body.stats
           )
       }
     case d: Defn.Trait =>
       abstractRow(scope, prefix, d)
-        .inside(scope.withBinders(Counter.binders(d)), prefix :+ d.name.value, d.templ.body.stats)
+        .inside(declared(scope, d), prefix :+ d.name.value, d.templ.body.stats)
     // An enum's cardinality is the sum over its cases, which the solver gives it; the enum's own
     // constructor arguments are shared state, not extra inhabitants.
     case d: Defn.Enum =>
@@ -137,7 +199,7 @@ private[cardinality] object Walk {
     case d: Defn.Object =>
       measured(scope) { s =>
         introduced(prefix, d, Definition.Kind.Object, Some(UnitSize), UnitSize, Nil)
-          .inside(s, prefix :+ d.name.value, d.templ.body.stats)
+          .inside(declared(s, d), prefix :+ d.name.value, d.templ.body.stats)
       }
     // An opaque type hides what it holds: a reference to it is worth a single value outside the
     // scope that defines it, and the definition adds none of its own.
