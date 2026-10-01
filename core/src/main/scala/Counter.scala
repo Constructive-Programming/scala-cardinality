@@ -820,7 +820,7 @@ object Counter {
         .orElse(scope.libraryDefinition(name))
       if resolved._2.params.size == args.size
     yield (name, resolved._1, resolved._2)
-    found.map((name, context, named) => instantiated(scope, callee, args, name, context, named))
+    found.map(resolved => instantiated(scope, callee, args, resolved))
   }
 
   // One instantiation of a definition, read: an instantiation that is exactly the definition's own
@@ -831,10 +831,9 @@ object Counter {
       scope: Scope,
       callee: Type,
       args: List[Type],
-      name: TypeName,
-      context: Scope,
-      named: Named
+      resolved: (TypeName, Scope, Named)
   ): Size = {
+    val (name, context, named) = resolved
     val self = named.params.zip(args).forall((param, arg) => bareName(arg) == param.value)
     if (self && context.size(name).isDefined) context(name)
     else if (context.isSubstituting(name)) {
