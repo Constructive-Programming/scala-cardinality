@@ -69,7 +69,7 @@ object Report {
     val inputs = parsed.collect { case Right(input) => input }
     // One library for the whole run: every source is read against the others, so a reference can
     // leave its file.
-    val library = Counter.Library.of(inputs.map(_.tree))
+    val library = Library.of(inputs.map(_.tree))
     val methods = MethodAnalysis.analyze(inputs).groupBy(_.path)
     Report(
       inputs.map(input =>

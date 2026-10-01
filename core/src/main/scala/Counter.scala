@@ -15,7 +15,7 @@ object Counter {
     * supplied sources are in scope too, the way `definitions` reads them.
     */
   def source(s: Source, library: Library = Library.empty): Size =
-    body(s.stats, Scope.empty.withLibrary(library))
+    Walk.body(s.stats, Scope.empty.withLibrary(library))
 
   /** Every definition a source introduces, in source order, each with the cardinality of its type
     * and the names that stopped the calculator from bounding it — the number and the reason.
@@ -25,7 +25,7 @@ object Counter {
     * `Library.empty` reads the source on its own.
     */
   def definitions(s: Source, library: Library = Library.empty): List[Definition] =
-    walk(s.stats, Scope.empty.withLibrary(library), Nil, top = true).definitions
+    Walk.of(s.stats, Scope.empty.withLibrary(library), Nil, top = true).definitions
 
   /** What the definitions of a source declare: every typed field, term and method contributes the
     * size of its declared type, and the contributions are added up rather than multiplied, so an
@@ -48,546 +48,7 @@ object Counter {
 
   def `type`: Type => Size = typeIn(Scope.empty)
 
-  // The names of the types a source defines, each mapped to its cardinality, so that a field can
-  // refer to a sibling, forward or recursive definition by name. The system of equations is
-  // solved by Kleene iteration from the empty type — see `solve` — so the scope is a solved
-  // one: the walk hands every definition the value a reference to it has, not a fresh reading of
-  // the same syntax. The scope also collects the names it could not resolve, which is what lets
-  // a report say why a size is unbounded instead of just printing ω.
-  //
-  // The notes are shared by the scopes one body's iteration derives from — the solver threads a
-  // scope through every equation — while `measured` starts a fresh record for a definition whose
-  // reasons are about to be read, so one definition's reasons are not read as another's.
-  //
-  // Besides the solved values, a scope carries what a *generic* reference needs: the definitions
-  // themselves (`definitions`, each with its type parameters and its equation), the frames those
-  // parameters are bound in while an instantiation is being read, and the names whose
-  // substitution is in progress. See `applied`.
-  /** What a read carries besides the names it is solving: the definitions of the bodies in scope,
-    * the instantiation frames, the names whose substitution is in progress, the library the file
-    * leans on, the package it is read in, and the names its bodies import.
-    */
-  final private case class World(
-      definitions: Map[String, Named] = Map.empty,
-      frames: List[Map[String, Size]] = Nil,
-      active: Set[String] = Set.empty,
-      library: Library = Library.empty,
-      home: List[String] = Nil,
-      imports: Set[String] = Set.empty,
-      binders: List[Binder] = Nil,
-      open: Set[String] = Set.empty,
-  )
-
-  /** A type parameter a definition declares, with how many parameters it takes itself: `F[_]` has
-    * arity one, `F[_, _]` arity two, and a plain `A` none.
-    */
-  final private case class Binder(name: String, arity: Int) {
-
-    def higherKinded: Boolean = arity > 0
-  }
-
-  final private class Scope(
-      private val values: Map[String, Size],
-      private val notes: mutable.LinkedHashSet[Definition.Unbound],
-      private val world: World,
-  ) {
-
-    private def definitions: Map[String, Named] = world.definitions
-
-    private def frames: List[Map[String, Size]] = world.frames
-
-    private def active: Set[String] = world.active
-
-    private def library: Library = world.library
-
-    private def home: List[String] = world.home
-
-    private def imports: Set[String] = world.imports
-
-    private[Counter] def openNames: Set[String] = world.open
-
-    def size(name: String): Option[Size] = values.get(name)
-
-    def contains(name: String): Boolean = values.contains(name)
-
-    def apply(name: String): Size = values(name)
-
-    def getOrElse(name: String, default: => Size): Size = values.getOrElse(name, default)
-
-    /** What a type parameter stands for in the instantiation being read, innermost binder first. */
-    def frame(name: String): Option[Size] = frames.collectFirst(Function.unlift(_.get(name)))
-
-    /** The definition a name resolves to, so that `C[args]` can be read as an instantiation. */
-    def definition(name: String): Option[Named] = definitions.get(name)
-
-    /** The value a name has: the file's own, or the library's when the file defines none. A name
-      * the body imports is left to the import: the calculator does not follow imports, so a library
-      * lookup for it would be a guess at what the import binds.
-      */
-    def resolve(name: String): Option[Size] =
-      values.get(name).orElse(if (imported(name)) None else library.value(name, home))
-
-    /** The same for a definition the library supplied, with the package frame it was read in. */
-    def libraryDefinition(name: String): Option[(Scope, Named)] =
-      if (imported(name)) None else library.definition(name, home)
-
-    def imported(name: String): Boolean = imports(name)
-
-    /** The names the package the current read is in defines, for the library's own lookups. */
-    def defines(name: String): Boolean = values.contains(name) || definitions.contains(name)
-
-    def definedNames: Set[String] = values.keySet ++ definitions.keySet
-
-    def updated(name: String, size: Size): Scope =
-      new Scope(values.updated(name, size), notes, world)
-
-    /** Names added by the solver's own round, which carries no notes of its own. */
-    def ++(entries: Iterable[(String, Size)]): Scope =
-      new Scope(values ++ entries, notes, world)
-
-    /** The definitions the bodies now in scope introduce; an inner body shadows an outer name. */
-    def withDefinitions(entries: List[(String, Named)]): Scope =
-      new Scope(values, notes, world.copy(definitions = entries.toMap ++ definitions))
-
-    /** The package path a reference is read in, which decides what the library lends it. */
-    def withHome(path: List[String]): Scope =
-      new Scope(values, notes, world.copy(home = path))
-
-    /** The names a body imports; an inner import shadows an outer name for the whole body. */
-    def withImports(names: Set[String]): Scope =
-      new Scope(values, notes, world.copy(imports = imports ++ names))
-
-    /** The type parameters a definition declares, in scope while its body and its own row are read.
-      */
-    def withBinders(declared: List[Binder]): Scope =
-      new Scope(values, notes, world.copy(binders = declared ++ world.binders))
-
-    /** The abstractions a body leaves open — unsealed traits and abstract classes — so that a
-      * reference to one is reported as unbounded rather than as an unknown name.
-      */
-    def withOpen(names: Set[String]): Scope =
-      new Scope(values, notes, world.copy(open = names ++ world.open))
-
-    /** The definitions of other sources this read can lean on. */
-    def withLibrary(other: Library): Scope =
-      new Scope(values, notes, world.copy(library = other))
-
-    /** Reading a definition the library supplied: its own package's names replace the file's
-      * lexical ones, so its references resolve where it was written, while the reasons it records
-      * stay the reading row's.
-      */
-    def inPackage(pkg: Scope): Scope =
-      new Scope(
-        pkg.values,
-        notes,
-        world.copy(definitions = pkg.definitions, library = pkg.library, home = pkg.home),
-      )
-
-    /** Reading one instantiation of a definition: its parameters bound to what the arguments are
-      * worth, innermost frame first.
-      */
-    def instantiated(frame: Map[String, Size]): Scope =
-      new Scope(values, notes, world.copy(frames = frame :: frames))
-
-    /** Marking a name whose substitution is in progress, so a cycle through an applied reference
-      * terminates the way a cycle through a bare name does.
-      */
-    def substituting(name: String): Scope =
-      new Scope(values, notes, world.copy(active = active + name))
-
-    def isSubstituting(name: String): Boolean = active(name)
-
-    /** The same names with a fresh record of unresolved ones. */
-    def measured: Scope =
-      new Scope(values, mutable.LinkedHashSet.empty, world)
-
-    /** What this scope could not bound, by kind and in the order it met them. */
-    def unbound: List[Definition.Unbound] = notes.toList
-
-    /** Records a type the calculator could not bound: a name, a parameter, an open abstraction, or
-      * syntax it does not model. A name it cannot place is a binder first — a type parameter is the
-      * caller's, not the source's — and only then an unknown name.
-      */
-    def note(tpe: Type): Unit = { notes += reason(tpe); () }
-
-    /** Records a name directly, for a reason that is not a type's own syntax. */
-    def note(name: String): Unit = { notes += Definition.Unbound.Unknown(name); () }
-
-    // Why a type could not be bounded: the binder it stands for, the syntax it is, or the name
-    // itself when it is neither.
-    private def reason(tpe: Type): Definition.Unbound = tpe match {
-      case Type.Name(name) =>
-        binder(name)
-          .orElse(open(name))
-          .getOrElse(Definition.Unbound.Unknown(name))
-      case other => Definition.Unbound.Syntax(describe(other))
-    }
-
-    // The binder a name stands for, when a definition in scope declares it.
-    private def binder(name: String): Option[Definition.Unbound] =
-      world.binders
-        .find(_.name == name)
-        .map(binder =>
-          if (binder.higherKinded) Definition.Unbound.HigherKinded(name, binder.arity)
-          else Definition.Unbound.Parameter(name)
-        )
-
-    // An unsealed abstraction: any subtype anywhere may add values, so a reference to it has no
-    // bound at all — the bodies in scope know their own, and the library knows its packages'.
-    private def open(name: String): Option[Definition.Unbound] =
-      if (openNames(name) || library.open(name)) Some(Definition.Unbound.Open(name)) else None
-
-  }
-
-  private object Scope {
-
-    val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
-
-  }
-
-  /** One named definition a reference can resolve: the type parameters it declares, and what its
-    * type is worth with those parameters in scope.
-    */
-  final private case class Named(
-      params: List[String],
-      equation: Scope => Size,
-      matchType: Option[Type] = None
-  )
-
-  /** The definitions the other supplied sources introduce, so that a reference can leave the file
-    * it is written in: a report reads a library's published sources as one set, and a type in a
-    * sibling file resolves instead of counting as an unknown name.
-    *
-    * A name a *single* package of the source set defines resolves to that definition, whatever
-    * package the reference is written in — the shape an import usually has. A name two packages
-    * define stays unresolved rather than guessed, because an import could mean either. What the
-    * sources do not contain is not modelled: a name only a classpath dependency defines still
-    * reports as unresolved, and an import of the same spelling from outside the sources is the one
-    * assumption a resolved name rests on.
-    *
-    * Each package's top-level definitions are solved as one system, so a definition can reference a
-    * sibling file's names, and a sealed hierarchy that spans files sums as a whole.
-    */
-  final class Library private (
-      private val packages: Map[List[String], Scope],
-      private val unique: Map[String, Scope]
-  ) {
-
-    /** The value a name defined outside the file being read has, when the library defines it. */
-    private[Counter] def value(name: String, home: List[String]): Option[Size] =
-      frame(name, home).flatMap(_.size(name))
-
-    /** The definition such a name resolves to, with the package it was read in. */
-    private[Counter] def definition(name: String, home: List[String]): Option[(Scope, Named)] =
-      frame(name, home).flatMap(pkg => pkg.definition(name).map(pkg -> _))
-
-    /** Whether some package of the source set defines the name as an open abstraction. */
-    private[Counter] def open(name: String): Boolean = packages.values.exists(_.openNames(name))
-
-    // The package a name read in `home` resolves to: its own when it defines the name — package
-    // members are in scope without an import — else the one package across the source set that
-    // does, which is the shape an import of a single name has.
-    private def frame(name: String, home: List[String]): Option[Scope] =
-      packages.get(home).filter(_.defines(name)).orElse(unique.get(name).filter(_.defines(name)))
-
-  }
-
-  object Library {
-
-    /** No other sources: a source read on its own, as a single file is. */
-    val empty: Library = new Library(Map.empty, Map.empty)
-
-    /** Reads the top-level definitions of every source, grouped by the package they are read in,
-      * and solves each package's names as one system.
-      */
-    def of(sources: List[Source]): Library = {
-      val packages = packageStatements(sources).groupBy(_._1).map {
-        case (path, found) =>
-          val stats = found.flatMap(_._2)
-          val entries = equations(stats)
-          val base = Scope.empty
-            .withDefinitions(entries)
-            .withOpen(openNames(stats))
-            .withHome(path)
-          path -> solve(entries, stats, base)
-      }
-      val unique = packages.values.toList
-        .flatMap(scope => scope.definedNames.toList.map(name => name -> scope))
-        .groupBy(_._1)
-        .collect { case (name, List((_, scope))) => name -> scope }
-      new Library(packages, unique)
-    }
-
-    // A source's statements grouped by the package they are read in, nested packages flattened to
-    // the path an editor shows (`package a` then `package b` is `a.b`).
-    private def packageStatements(sources: List[Source]): List[(List[String], List[Stat])] =
-      sources.flatMap(source => packageStatements(source.stats, Nil))
-
-    private def packageStatements(
-        stats: List[Stat],
-        prefix: List[String]
-    ): List[(List[String], List[Stat])] = {
-      val direct = stats.filterNot(st => st.is[Pkg] || st.is[Pkg.Object])
-      val nested = stats.flatMap {
-        case p: Pkg        => packageStatements(p.body.stats, prefix ++ p.ref.syntax.split('.'))
-        case p: Pkg.Object => packageStatements(p.templ.body.stats, prefix :+ p.name.value)
-        case _             => Nil
-      }
-      (prefix -> direct) :: nested
-    }
-
-  }
-
-  // What one statement adds to its body: the cardinality it contributes and the definitions it
-  // introduces, which a report lists.
-  final private case class Introduced(contributes: Size, definitions: List[Definition]) {
-
-    /** Adds what the body of this definition introduces. Nested definitions are their own
-      * inhabitants — and their own rows — so they add to both: `object Wrapper { case class Pair(a:
-      * Boolean, b: Boolean) }` holds five values, the module and the four pairs.
-      */
-    def inside(scope: Scope, prefix: List[String], stats: List[Stat]): Introduced = {
-      val body = walk(stats, scope, prefix, top = false)
-      copy(
-        contributes = contributes + body.contributes,
-        definitions = definitions ++ body.definitions
-      )
-    }
-
-  }
-
-  private object Introduced {
-    val none: Introduced = Introduced(NothingSize, Nil)
-  }
-
-  // Walks statements in source order, solving each body's equations once so that a definition's
-  // size is the value a reference to it has — recursion, forward references and cycles included —
-  // and returns what the body holds together with the definitions it introduces, named relative
-  // to `prefix` (the enclosing packages and definitions). `top` marks the body of a source or
-  // package, where a value definition is an inhabitant of the program rather than state derived
-  // inside a class.
-  private def walk(
-      stats: List[Stat],
-      scope: Scope,
-      prefix: List[String],
-      top: Boolean
-  ): Introduced = {
-    val entries = equations(stats)
-    val surroundings = scope.withImports(imports(stats)).withOpen(openNames(stats))
-    val solved = solve(entries, stats, surroundings.withDefinitions(entries))
-    stats.foldLeft(Introduced.none) { (acc, st) =>
-      val introduced = statement(solved, prefix, top)(st)
-      Introduced(
-        contributes = acc.contributes + introduced.contributes,
-        definitions = acc.definitions ++ introduced.definitions
-      )
-    }
-  }
-
-  // The abstractions a body leaves open. A sealed parent is not one of them: its sum is the sum of
-  // the children the body (or the package) defines.
-  private def openNames(stats: List[Stat]): Set[String] =
-    stats.collect {
-      case d: Defn.Trait if !d.mods.exists(_.is[Mod.Sealed]) => d.name.value
-      case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) && !d.mods.exists(_.is[Mod.Sealed]) =>
-        d.name.value
-    }.toSet
-
-  // The names a body's imports bind. A direct import of a name keeps a reference to it out of the
-  // library's hands — the import decides what the name means and the calculator does not follow
-  // imports — while a wildcard import binds nothing by name and is left as one of the assumptions
-  // `Library` documents.
-  private def imports(stats: List[Stat]): Set[String] =
-    stats
-      .collect { case i: Import => i.importers }
-      .flatten
-      .flatMap(_.importees)
-      .flatMap {
-        case Importee.Name(name)    => Some(name.value)
-        case Importee.Rename(_, to) => Some(to.value)
-        case _                      => None
-      }
-      .toSet
-
-  // A statement in a body: a package opens a nested one, a definition is measured and named, and
-  // every other statement — declarations, imports and exports, bare terms — introduces nothing.
-  // A package also moves the read's home, which is the package the library's lookups start from.
-  private def statement(scope: Scope, prefix: List[String], top: Boolean): Stat => Introduced = {
-    case p: Pkg =>
-      val path = p.ref.syntax.split('.').toList
-      walk(p.body.stats, scope.withHome(path), prefix ++ path, top)
-    case p: Pkg.Object =>
-      walk(p.templ.body.stats, scope.withHome(prefix :+ p.name.value), prefix :+ p.name.value, top)
-    case d: Defn => defnWalk(scope, prefix, top)(d)
-    case _       => Introduced.none
-  }
-
-  // One definition: the row a report reads, the cardinality it contributes to its body, and the
-  // definitions its own body introduces. Where a row shows something else than the contribution it
-  // is because a reference to the definition is worth more than the definition itself adds: an
-  // alias names another type's values, an opaque type hides them, an abstract type has none of its
-  // own.
-  private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
-    case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) =>
-      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
-        .inside(scope.withBinders(binders(d)), prefix :+ d.name.value, d.templ.body.stats)
-    case d: Defn.Class =>
-      measured(scope.withBinders(binders(d))) { s =>
-        val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Class, Some(size), size, s.unbound)
-          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
-      }
-    case d: Defn.Trait =>
-      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
-        .inside(scope.withBinders(binders(d)), prefix :+ d.name.value, d.templ.body.stats)
-    // An enum's cardinality is the sum over its cases, which the solver gives it; the enum's own
-    // constructor arguments are shared state, not extra inhabitants.
-    case d: Defn.Enum =>
-      measured(scope.withBinders(binders(d))) { s =>
-        val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Enum, Some(size), size, s.unbound)
-          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
-      }
-    // A module (including a `case object`) is a single instance. It never reads the name from the
-    // scope: a companion object shares its name with a type, and the scope keeps the type's value
-    // under it, so the module's own value is one here and in the row a report lists it as.
-    case d: Defn.Object =>
-      measured(scope) { s =>
-        introduced(prefix, d, Definition.Kind.Object, Some(UnitSize), UnitSize, Nil)
-          .inside(s, prefix :+ d.name.value, d.templ.body.stats)
-      }
-    // An opaque type hides what it holds: a reference to it is worth a single value outside the
-    // scope that defines it, and the definition adds none of its own.
-    case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
-      measured(scope) { s =>
-        introduced(prefix, d, Definition.Kind.Opaque, Some(UnitSize), defnIn(s)(d), Nil)
-      }
-    // A reference to the alias holds the aliased type's values; the alias itself adds none.
-    case d: Defn.Type =>
-      measured(scope.withBinders(binders(d))) { s =>
-        val aliased = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Alias, Some(aliased), NothingSize, s.unbound)
-      }
-    // An enum case is counted by its enum; it has no body of its own.
-    case _: Defn.EnumCase | _: Defn.RepeatedEnumCase => Introduced.none
-    // A value at the top level of a source is one inhabitant. A value inside a class or object
-    // body is state derived from the fields, which already count it, so it adds nothing.
-    case d @ (_: Defn.Val | _: Defn.Var) if top =>
-      measured(scope) { s =>
-        val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Value, Some(size), size, Nil)
-      }
-    // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
-    // exhaustive match is impossible. Every other member — nested values, methods, givens —
-    // defines no inhabitants of its own.
-    case _ => Introduced.none
-  }
-
-  // The cardinality a reference to a definition has, and the names that stopped the calculator
-  // from bounding *this* definition. A definition the body's equations named — a class, enum,
-  // module or alias — is read from the solved scope, so a definition and a reference to it always
-  // agree; its own syntax is evaluated anyway, in a scope that records only this definition's
-  // unresolved names, which is what a report row reads. Anything the equations did not name — a
-  // top-level value in particular — is worth what its own syntax is worth.
-  private def sizeOf(scope: Scope)(d: Defn): Size = d match {
-    case t: Defn.Type =>
-      val aliased = typeIn(scope)(t.body)
-      scope.size(t.name.value).getOrElse(aliased)
-    case other =>
-      val measured = defnIn(scope)(other)
-      scope.size(named(other)).getOrElse(measured)
-  }
-
-  // What a report can point at when the calculator cannot bound a type: the type's name where it
-  // has one — `String`, `A`, `NonEmptyList` — and what kind of type it is where it has none, since
-  // a match type or a refinement has no name to print. Anything left is described by its source
-  // text on one line, so that a report row stays a row.
-  private def describe(tpe: Type): String = tpe match {
-    case name: Type.Name               => name.value
-    case select: Type.Select           => select.name.value
-    case applied: Type.Apply           => describe(applied.tpe)
-    case infix: Type.ApplyInfix        => infix.op.value
-    case annotate: Type.Annotate       => describe(annotate.tpe)
-    case existential: Type.Existential => describe(existential.tpe)
-    case refine: Type.Refine           =>
-      refine.tpe.fold("a refinement")(inner => s"a refinement of ${describe(inner)}")
-    case _: Type.Match        => "a match type"
-    case _: Type.Lambda       => "a type lambda"
-    case _: Type.PolyFunction => "a polymorphic function type"
-    case _: Type.Wildcard     => "a wildcard"
-    case other                => other.syntax.replaceAll("\\s+", " ")
-  }
-
-  // Measures one definition with a scope that records only its own reasons.
-  private def measured(scope: Scope)(f: Scope => Introduced): Introduced = f(scope.measured)
-
-  // A definition as its source sees it: the row a report lists it as, and the cardinality it
-  // contributes. The row carries the definition's own reasons, kept apart from its siblings'.
-  private def introduced(
-      prefix: List[String],
-      d: Defn,
-      kind: Definition.Kind,
-      size: Option[Size],
-      contributes: Size,
-      unbound: List[Definition.Unbound],
-  ): Introduced =
-    Introduced(contributes, List(row(prefix, d, kind, size, unbound)))
-
-  private def row(
-      prefix: List[String],
-      d: Defn,
-      kind: Definition.Kind,
-      size: Option[Size],
-      unbound: List[Definition.Unbound] = Nil,
-  ): Definition =
-    Definition((prefix :+ named(d)).mkString("."), kind, params(d), size, unbound, line(d))
-
-  // scalameta counts lines from zero; a report points at the line an editor shows.
-  private def line(d: Defn): Int = d.pos.startLine + 1
-
-  // The type parameters a definition declares; a value declares none.
-  private def params(d: Defn): List[String] = d match {
-    case c: Defn.Class => c.tparamClause.values.map(_.name.value)
-    case c: Defn.Trait => c.tparamClause.values.map(_.name.value)
-    case c: Defn.Enum  => c.tparamClause.values.map(_.name.value)
-    case c: Defn.Type  => c.tparamClause.values.map(_.name.value)
-    case _             => Nil
-  }
-
-  // Values and variables are named by the patterns they bind; every other definition the report
-  // lists carries its name directly. `Defn` is not sealed, so the last case stands in for the
-  // members the walk never names.
-  private def named(d: Defn): String = d match {
-    case v: Defn.Val => v.pats.map(_.syntax).mkString(", ")
-    case v: Defn.Var => v.pats.map(_.syntax).mkString(", ")
-    case m: Member   => m.name.value
-    case other       => other.syntax
-  }
-
-  // What a body holds together: what `Counter.source` reports for a source is this walk over its
-  // top-level statements, and what `stat` reports for a package statement is the same walk over
-  // the statements the package contains.
-  private def body(stats: List[Stat], scope: Scope): Size =
-    walk(stats, scope, Nil, top = true).contributes
-
-  // The equations a body defines: one per named type, plus one per sealed parent the body
-  // provides subtypes for. Each equation recomputes its cardinality from a scope, so the
-  // system can be iterated as a whole. Abstract traits and classes have no cardinality of
-  // their own and get an equation only when their subtypes appear in the same body.
-  //
-  // The type parameters travel with the equation, because a *reference* to a generic definition
-  // is an instantiation: `Pair[Boolean]` is `Pair`'s equation read with `A` bound to 2. A sealed
-  // parent keeps none: its sum is the sum of its children as the body defines them.
-  //
-  // A type claims its name over the module that shares it: a companion object and its class are
-  // both called `Modify` (`class Modify` / `object Modify` is the usual shape in real code), but
-  // only one of them is what a *type* reference means, and a companion object that won the name
-  // would report a function-valued class as the single value of its module. The module keeps its
-  // equation only where no type shares the name — which is what a sealed parent sums a
-  // `case object` child by — and the walk counts the module itself as one value either way.
-  // Behind the scope's map the modules therefore come first and the types last, so the type's
-  // equation is the one a name keeps.
-  private def equations(stats: List[Stat]): List[(String, Named)] = {
+  private[cardinality] def equations(stats: List[Stat]): List[(String, Named)] = {
     val modules = stats.flatMap {
       case d: Defn.Object => Some(d.name.value -> Named(Nil, (_: Scope) => UnitSize))
       case _              => None
@@ -623,7 +84,7 @@ object Counter {
   }
 
   // The type parameters a definition declares, in the order its arguments are supplied in.
-  private def parameters(d: Defn): List[Type.Param] = d match {
+  private[cardinality] def parameters(d: Defn): List[Type.Param] = d match {
     case c: Defn.Class => c.tparamClause.values
     case c: Defn.Trait => c.tparamClause.values
     case c: Defn.Enum  => c.tparamClause.values
@@ -633,10 +94,10 @@ object Counter {
 
   // The parameters as binders: a parameter that takes parameters of its own (`F[_]`) is the
   // higher-kinded kind, and every applied `F[A]` then depends on the instantiation too.
-  private def binders(d: Defn): List[Binder] =
+  private[cardinality] def binders(d: Defn): List[Binder] =
     parameters(d).map(param => Binder(param.name.value, param.tparams.size))
 
-  private def parameterNames(d: Defn): List[String] = parameters(d).map(_.name.value)
+  private[cardinality] def parameterNames(d: Defn): List[String] = parameters(d).map(_.name.value)
 
   // A sealed trait or sealed abstract class stands for the sum of the body's subtypes that
   // extend it, so a recursive reference through the parent (`Succ(n: Nat)`) resolves. The
@@ -686,7 +147,7 @@ object Counter {
   // on its next growth, while one growing for the first time (a long forward-reference chain
   // still settling) is left alone. Either branch shrinks the set of names that may still
   // grow, so the iteration terminates.
-  private def solve(
+  private[cardinality] def solve(
       entries: List[(String, Named)],
       stats: List[Stat],
       base: Scope
@@ -1117,8 +578,8 @@ object Counter {
   // definition's base summand twice — `Q = 1 + Q` would contribute `ω + 2` where a reference
   // to `Q` contributes `ω + 1`.
   private def statIn(scope: Scope): Stat => Size = {
-    case p: Pkg                                              => body(p.body.stats, scope)
-    case p: Pkg.Object                                       => body(p.templ.body.stats, scope)
+    case p: Pkg                                              => Walk.body(p.body.stats, scope)
+    case p: Pkg.Object                                       => Walk.body(p.templ.body.stats, scope)
     case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
       scope.getOrElse(d.name.value, ctorIn(scope)(d.ctor))
     case d: Defn.Enum   => scope.getOrElse(d.name.value, enumSize(scope)(d))
@@ -1130,7 +591,7 @@ object Counter {
     case _       => NothingSize
   }
 
-  private def defnIn(scope: Scope): Defn => Size = {
+  private[cardinality] def defnIn(scope: Scope): Defn => Size = {
     // Abstract classes contribute no inhabitants of their own; only their concrete
     // subclasses do.
     case c: Defn.Class if c.mods.exists(_.is[Mod.Abstract]) => NothingSize
@@ -1231,7 +692,7 @@ object Counter {
     arrow(decltpe.fold(EffectiveOmega: Size)(typeIn(scope)), domain)
   }
 
-  private def typeIn(scope: Scope): Type => Size = {
+  private[cardinality] def typeIn(scope: Scope): Type => Size = {
     // A type parameter stands for whatever the instantiation supplied — an innermost binder wins
     // over a builtin of the same name, as it does in Scala.
     case t: Type.Name if scope.frame(t.value).isDefined => scope.frame(t.value).get
@@ -1340,89 +801,48 @@ object Counter {
         .orElse(scope.libraryDefinition(name))
       if resolved._2.params.size == args.size
     yield (name, resolved._1, resolved._2)
-    found.map {
-      case (name, context, named) =>
-        val self = named.params.zip(args).forall((param, arg) => bareName(arg) == param)
-        if (self && context.size(name).isDefined) context(name)
-        else if (context.isSubstituting(name)) {
-          scope.note(callee)
-          EffectiveOmega
-        } else
-          named.matchType match {
-            // An alias whose body is a match type reduces on the argument's *syntax*, which no
-            // size can carry: `Fst[(Boolean, Boolean)]` is `Boolean` because the case pattern is
-            // that tuple and its binder is the body. A match type that does not reduce keeps the
-            // reading it has as a template: a type the report names.
-            case Some(matchType) =>
-              reduced(matchType, named.params.zip(args).toMap) match {
-                case Some(argument) => typeIn(scope)(argument)
-                case None           =>
-                  // Stuck: the arguments still carry their own reasons — a parameter over which
-                  // the match type stays inert is one of them — and the match type is another.
-                  args.foreach(typeIn(scope))
-                  scope.note(matchType)
-                  EffectiveOmega
-              }
-            case None =>
-              val frame =
-                named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
-              named.equation(context.substituting(name).instantiated(frame))
-          }
-    }
+    found.map((name, context, named) => instantiated(scope, callee, args, name, context, named))
   }
 
-  // A match type read on a known scrutinee: every case pattern is matched against the scrutinee with
-  // the definition's parameters already replaced by the arguments, and the first case that matches
-  // gives its body with the pattern's binders replaced by the parts of the scrutinee they stood
-  // for. The patterns a case can have are the ones a reducer earns: a tuple of binders, a bare
-  // binder, a wildcard, and anything else by spelling.
-  private def reduced(matchType: Type, arguments: Map[String, Type]): Option[Type] =
-    matchType match {
-      case Type.Match(scrutinee, cases) =>
-        val known = replace(scrutinee, arguments)
-        cases.collectFirst(Function.unlift(caseOf(_, known)))
-      case other => Some(replace(other, arguments))
-    }
-
-  private def caseOf(caseType: TypeCase, scrutinee: Type): Option[Type] =
-    bindings(caseType.pat, scrutinee).map(replace(caseType.body, _))
-
-  // The bindings a case pattern makes against a scrutinee, or None when it does not match. A
-  // pattern variable is written the way Scala 3 spells one — a lowercase name — so `case Int =>`
-  // matches a `Int` scrutinee by spelling and `case x =>` binds whatever it is given.
-  private def bindings(pattern: Type, scrutinee: Type): Option[Map[String, Type]] =
-    pattern match {
-      case _: Type.Wildcard                                     => Some(Map.empty)
-      case Type.Name(name) if name.headOption.exists(_.isLower) =>
-        Some(Map(name -> scrutinee))
-      case Type.Tuple(elements) =>
-        scrutinee match {
-          case Type.Tuple(parts) if parts.size == elements.size =>
-            elements
-              .zip(parts)
-              .foldLeft(Option(Map.empty[String, Type])) {
-                case (bound, (element, part)) =>
-                  for {
-                    known <- bound
-                    elementBindings <- bindings(element, part)
-                  } yield known ++ elementBindings
-              }
-          case _ => None
-        }
-      // A name, literal or applied pattern the calculator does not read binds nothing and matches
-      // when its spelling is the scrutinee's.
-      case other if other.syntax == scrutinee.syntax => Some(Map.empty)
-      case _                                         => None
-    }
-
-  // A type with the definition's parameters replaced by the argument types, syntax kept as it is.
-  private def replace(tpe: Type, arguments: Map[String, Type]): Type =
-    if (arguments.isEmpty) tpe
-    else
-      tpe.transform { case Type.Name(name) if arguments.contains(name) => arguments(name) } match {
-        case rewritten: Type => rewritten
-        case other           => other.asInstanceOf[Type]
+  // One instantiation of a definition, read: an instantiation that is exactly the definition's own
+  // parameters borrows the solved fixed point, a repeat inside its own substitution keeps the old
+  // fallback, a match type reduces on the argument's syntax, and everything else substitutes the
+  // arguments into the equation.
+  private def instantiated(
+      scope: Scope,
+      callee: Type,
+      args: List[Type],
+      name: String,
+      context: Scope,
+      named: Named
+  ): Size = {
+    val self = named.params.zip(args).forall((param, arg) => bareName(arg) == param)
+    if (self && context.size(name).isDefined) context(name)
+    else if (context.isSubstituting(name)) {
+      scope.note(callee)
+      EffectiveOmega
+    } else
+      named.matchType match {
+        // An alias whose body is a match type reduces on the argument's *syntax*, which no
+        // size can carry: `Fst[(Boolean, Boolean)]` is `Boolean` because the case pattern is
+        // that tuple and its binder is the body. A match type that does not reduce keeps the
+        // reading it has as a template: a type the report names.
+        case Some(matchType) =>
+          MatchTypes.reduced(matchType, named.params.zip(args).toMap) match {
+            case Some(argument) => typeIn(scope)(argument)
+            case None           =>
+              // Stuck: the arguments still carry their own reasons — a parameter over which
+              // the match type stays inert is one of them — and the match type is another.
+              args.foreach(typeIn(scope))
+              scope.note(matchType)
+              EffectiveOmega
+          }
+        case None =>
+          val frame =
+            named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
+          named.equation(context.substituting(name).instantiated(frame))
       }
+  }
 
   // The simple name a type constructor is spelled with: `Pair`, or `data.Pair`'s last segment — a
   // qualified name resolves by its own name, as it does for a bare reference.
