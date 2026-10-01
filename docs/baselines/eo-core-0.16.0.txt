@@ -4,8 +4,8 @@
 # golden oracle: the numbers are provisional means of spotting what moved, and a drop in
 # resolved rows can be a correctness improvement (docs/plans/v1.md §5).
 #
-# analyzer:  sbt-cardinality / scala-cardinality 0.1.0-SNAPSHOT at commit 65896688
-#            (PR #10 branch, rebased over 4ba13e7)
+# analyzer:  sbt-cardinality / scala-cardinality 0.1.0-SNAPSHOT at commit 45dc1f4
+#            (PR #10 branch, rebased over 4ba13e7; read against the whole source set)
 # versions:  sbt 2.0.9, Scala 3.8.4, scalameta 4.17.4
 # input:     https://repo1.maven.org/maven2/dev/constructive/cats-eo_3/0.16.0/cats-eo_3-0.16.0-sources.jar
 # sha256:    61907fc2f4e1c0892fa8723c7a014af942b825b64a916a9b53dd64b3f12dbfe3
@@ -15,12 +15,13 @@
 #            # then, in a consumer build with sbt-cardinality 0.1.0-SNAPSHOT in project/plugins.sbt:
 #            sbt 'cardinalityReportOf cats-eo_3-0.16.0-sources.jar'
 #
-# Definition estimate:  40 unresolved · 2 with more than one value · 53 with one value ·
-#                       5 with no values · 34 abstract (53 sources, 134 definitions)
+# Definition estimate:  13 unresolved · 22 instantiation-dependent ·
+#                       4 unbounded by an open abstraction · 3 with more than one value ·
+#                       53 with one value · 5 with no values · 34 abstract (53 sources, 134 definitions)
 # Implementation counts: 480 signatures: 15 finite · 2 countably infinite · 463 unresolved
 #
 # The unresolved definition rows are catalogued in eo-core-0.16.0-unresolved.md, next to this
-# file: what stopped each one and which capability would move it.
+# file: what stopped each one, which capability moved it, and what is still missing.
 #
 Generic method / constructor implementation cardinalities
   480 signatures: 15 finite · 2 countably infinite · 463 unresolved
@@ -1832,50 +1833,50 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Right
 scala-cardinality — 53 sources, 134 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
-  ?: unresolved, not a proof of infinity; opaque representations are not singletons
-  40 unresolved · 2 with more than one value · 53 with one value · 5 with no values · 34 abstract
+  ?: no single number here — the reason after the row says what would give one
+  13 unresolved · 22 instantiation-dependent · 4 unbounded by an open abstraction · 3 with more than one value · 53 with one value · 5 with no values · 34 abstract
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
-?     dev.constructive.eo.CanModify[S, A]                                     alias     CanModify.scala:23  unresolved: CanModifyP
-?     dev.constructive.eo.CanModifyA[S, A]                                    alias     CanModifyA.scala:21  unresolved: CanModifyAP
-?     dev.constructive.eo.CanModifyF[S, A]                                    alias     CanModifyF.scala:19  unresolved: CanModifyFP
-?     dev.constructive.eo.CanPut[T, A]                                        alias     CanPut.scala:17  unresolved: CanPutP
-?     dev.constructive.eo.data.Affine.Hit[A, B]                               class     Affine.scala:91  unresolved: B, Snd
-?     dev.constructive.eo.data.Affine.Miss[A]                                 class     Affine.scala:81  unresolved: Fst
+?     dev.constructive.eo.CanModify[S, A]                                     alias     CanModify.scala:23  open to implementations (CanModifyP)
+?     dev.constructive.eo.CanModifyA[S, A]                                    alias     CanModifyA.scala:21  open to implementations (CanModifyAP)
+?     dev.constructive.eo.CanModifyF[S, A]                                    alias     CanModifyF.scala:19  open to implementations (CanModifyFP)
+?     dev.constructive.eo.CanPut[T, A]                                        alias     CanPut.scala:17  open to implementations (CanPutP)
+?     dev.constructive.eo.data.Affine.Hit[A, B]                               class     Affine.scala:91  unresolved: A, a match type, B
+?     dev.constructive.eo.data.Affine.Miss[A]                                 class     Affine.scala:81  unresolved: A, a match type
 ?     dev.constructive.eo.data.Direct[X, A]                                   opaque    Direct.scala:24
 ?     dev.constructive.eo.data.Forget[F]                                      alias     Forget.scala:34  unresolved: a type lambda
 ?     dev.constructive.eo.data.ForgetK[F, X, A]                               opaque    Forget.scala:31
 ?     dev.constructive.eo.data.Fst[T]                                         alias     Affine.scala:13  unresolved: a match type
-?     dev.constructive.eo.data.ModifyF[A, B]                                  class     ModifyF.scala:28  unresolved: B, Fst, Snd
+?     dev.constructive.eo.data.ModifyF[A, B]                                  class     ModifyF.scala:28  unresolved: A, a match type, B
 ?     dev.constructive.eo.data.MultiFocus[F]                                  alias     MultiFocus.scala:49  unresolved: a type lambda
 ?     dev.constructive.eo.data.MultiFocusK[F, X, A]                           opaque    MultiFocus.scala:46
-?     dev.constructive.eo.data.MultiFocusK.AssocSndZ[Xo, Xi]                  class     MultiFocus.scala:496  unresolved: Any, Null, Xo
-?     dev.constructive.eo.data.PSVec.Single[B]                                class     PSVec.scala:199  unresolved: B
-?     dev.constructive.eo.data.PSVec.Slice[B]                                 class     PSVec.scala:221  unresolved: Any
+?     dev.constructive.eo.data.MultiFocusK.AssocSndZ[Xo, Xi]                  class     MultiFocus.scala:496  depends on its instantiation (Xo)
+?     dev.constructive.eo.data.PSVec.Single[B]                                class     PSVec.scala:199  depends on its instantiation (B)
 ?     dev.constructive.eo.data.Snd[T]                                         alias     Affine.scala:17  unresolved: a match type
-?     dev.constructive.eo.optics.BijectionIso[S, T, A, B]                     class     Iso.scala:49  unresolved: A, B, S, T
+?     dev.constructive.eo.optics.BijectionIso[S, T, A, B]                     class     Iso.scala:49  depends on its instantiation (A, S, T, B)
 ?     dev.constructive.eo.optics.ComposedTraversal[S, T, A, B, C, D, Xo, Xi]  class     Traversal.scala:329  unresolved: a refinement of Optic
 ?     dev.constructive.eo.optics.ComposedTraversal.X                          alias     Traversal.scala:334  unresolved: Z
-?     dev.constructive.eo.optics.ForgetFold[S, F, A]                          class     Fold.scala:51  unresolved: F, Foldable, S
-?     dev.constructive.eo.optics.GetReplaceLens[S, T, A, B]                   class     Lens.scala:100  unresolved: A, B, S, T
-?     dev.constructive.eo.optics.GetReplaceLens.X                             alias     Lens.scala:107  unresolved: S
-?     dev.constructive.eo.optics.Getter[S, A]                                 class     Getter.scala:25  unresolved: A, S
-?     dev.constructive.eo.optics.Iso[S, A]                                    alias     Iso.scala:15  unresolved: BijectionIso
-?     dev.constructive.eo.optics.MendTearPrism[S, T, A, B]                    class     Prism.scala:79  unresolved: A, B, S, T
-?     dev.constructive.eo.optics.MendTearPrism.X                              alias     Prism.scala:87  unresolved: T
-?     dev.constructive.eo.optics.Modify[S, T, A, B]                           class     Modify.scala:54  unresolved: A, B, S, T
-?     dev.constructive.eo.optics.Modify.X                                     alias     Modify.scala:57  unresolved: A, S
-?     dev.constructive.eo.optics.Optional[S, T, A, B]                         class     Optional.scala:73  unresolved: A, B, S, T
-?     dev.constructive.eo.optics.Optional.X                                   alias     Optional.scala:80  unresolved: S, T
-?     dev.constructive.eo.optics.PickFold[S, A]                               class     AffineFold.scala:40  unresolved: A, S
-?     dev.constructive.eo.optics.PickMendPrism[S, A, B]                       class     Prism.scala:237  unresolved: A, B, S
-?     dev.constructive.eo.optics.PickMendPrism.X                              alias     Prism.scala:245  unresolved: S
-?     dev.constructive.eo.optics.Review[T, B]                                 class     Review.scala:28  unresolved: B, T
-?     dev.constructive.eo.optics.SimpleLens[S, A, XA]                         class     Lens.scala:256  unresolved: A, S, XA
-?     dev.constructive.eo.optics.SplitCombineLens[S, T, A, B, XA]             class     Lens.scala:199  unresolved: A, B, S, T, XA
-?     dev.constructive.eo.optics.SplitCombineLens.X                           alias     Lens.scala:207  unresolved: XA
-?     dev.constructive.eo.optics.TraverseTraversal.X                          alias     Traversal.scala:342  unresolved: T
-?     dev.constructive.eo.optics.Unfold[T, B, F]                              class     Unfold.scala:41  unresolved: F, T
+?     dev.constructive.eo.optics.ForgetFold[S, F, A]                          class     Fold.scala:51  unresolved: F[_], S, Foldable
+?     dev.constructive.eo.optics.GetReplaceLens[S, T, A, B]                   class     Lens.scala:100  depends on its instantiation (A, S, T, B)
+?     dev.constructive.eo.optics.GetReplaceLens.X                             alias     Lens.scala:107  depends on its instantiation (S)
+?     dev.constructive.eo.optics.Getter[S, A]                                 class     Getter.scala:25  depends on its instantiation (A, S)
+?     dev.constructive.eo.optics.Iso[S, A]                                    alias     Iso.scala:15  depends on its instantiation (S, A)
+?     dev.constructive.eo.optics.MendTearPrism[S, T, A, B]                    class     Prism.scala:79  depends on its instantiation (T, A, S, B)
+?     dev.constructive.eo.optics.MendTearPrism.X                              alias     Prism.scala:87  depends on its instantiation (T)
+?     dev.constructive.eo.optics.Modify[S, T, A, B]                           class     Modify.scala:54  depends on its instantiation (T, S, B, A)
+?     dev.constructive.eo.optics.Modify.X                                     alias     Modify.scala:57  depends on its instantiation (S, A)
+?     dev.constructive.eo.optics.Optional[S, T, A, B]                         class     Optional.scala:73  depends on its instantiation (T, A, S, B)
+?     dev.constructive.eo.optics.Optional.X                                   alias     Optional.scala:80  depends on its instantiation (T, S)
+?     dev.constructive.eo.optics.PickFold[S, A]                               class     AffineFold.scala:40  depends on its instantiation (A, S)
+?     dev.constructive.eo.optics.PickMendPrism[S, A, B]                       class     Prism.scala:237  depends on its instantiation (A, S, B)
+?     dev.constructive.eo.optics.PickMendPrism.X                              alias     Prism.scala:245  depends on its instantiation (S)
+?     dev.constructive.eo.optics.Review[T, B]                                 class     Review.scala:28  depends on its instantiation (T, B)
+?     dev.constructive.eo.optics.SimpleLens[S, A, XA]                         class     Lens.scala:256  depends on its instantiation (A, S, XA)
+?     dev.constructive.eo.optics.SplitCombineLens[S, T, A, B, XA]             class     Lens.scala:199  depends on its instantiation (A, S, XA, T, B)
+?     dev.constructive.eo.optics.SplitCombineLens.X                           alias     Lens.scala:207  depends on its instantiation (XA)
+?     dev.constructive.eo.optics.TraverseTraversal.X                          alias     Traversal.scala:342  depends on its instantiation (T[_])
+?     dev.constructive.eo.optics.Unfold[T, B, F]                              class     Unfold.scala:41  depends on its instantiation (T, F[_])
+ω     dev.constructive.eo.data.PSVec.Slice[B]                                 class     PSVec.scala:221
 2^32  dev.constructive.eo.data.IntArrBuilder                                  class     IntArrBuilder.scala:10
 2^32  dev.constructive.eo.data.ObjArrBuilder                                  class     ObjArrBuilder.scala:10
 1     dev.constructive.eo.CanFold                                             object    CanFold.scala:32

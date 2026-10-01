@@ -172,11 +172,13 @@ cs fetch --sources dev.constructive:cats-eo_3:0.16.0
 sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
 ```
 
-Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 40 unresolved, 2 with more
-than one value (both `2^32` array builders), 53 holding a single value (the modules), 5 with no
-values (the `X` aliases), 34 abstract. A library of generic optics has no small state spaces to
-find; what the report says about it is *why* each class is unresolved — the type parameters a
-generic class leaves open — which is what a smaller type would have to replace.
+Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 13 unresolved, 22
+instantiation-dependent, 4 unbounded by an open abstraction, 3 with more than one value (the two
+`2^32` array builders and a countable `PSVec.Slice`), 53 holding a single value (the modules),
+5 with no values (the `X` aliases), 34 abstract. A library of generic optics has no small state
+spaces to find; what the report says about it is *why* each row has no number — the type
+parameters a generic class leaves open, or the capability an unsealed trait leaves to its
+implementations.
 
 The full run is checked in at
 [`docs/baselines/eo-core-0.16.0.txt`](docs/baselines/eo-core-0.16.0.txt), with the analyzer
