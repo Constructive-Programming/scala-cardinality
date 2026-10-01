@@ -52,25 +52,59 @@ object Counter {
   // The notes are shared by the scopes one body's iteration derives from — the solver threads a
   // scope through every equation — while `measured` starts a fresh record for a definition whose
   // reasons are about to be read, so one definition's reasons are not read as another's.
+  //
+  // Besides the solved values, a scope carries what a *generic* reference needs: the definitions
+  // themselves (`definitions`, each with its type parameters and its equation), the frames those
+  // parameters are bound in while an instantiation is being read, and the names whose
+  // substitution is in progress. See `applied`.
   final private class Scope(
-      private val names: Map[String, Size],
+      private val values: Map[String, Size],
       private val notes: mutable.LinkedHashSet[String],
+      private val definitions: Map[String, Named],
+      private val frames: List[Map[String, Size]],
+      private val active: Set[String],
   ) {
-    def size(name: String): Option[Size] = names.get(name)
+    def size(name: String): Option[Size] = values.get(name)
 
-    def contains(name: String): Boolean = names.contains(name)
+    def contains(name: String): Boolean = values.contains(name)
 
-    def apply(name: String): Size = names(name)
+    def apply(name: String): Size = values(name)
 
-    def getOrElse(name: String, default: => Size): Size = names.getOrElse(name, default)
+    def getOrElse(name: String, default: => Size): Size = values.getOrElse(name, default)
 
-    def updated(name: String, size: Size): Scope = new Scope(names.updated(name, size), notes)
+    /** What a type parameter stands for in the instantiation being read, innermost binder first. */
+    def frame(name: String): Option[Size] = frames.collectFirst(Function.unlift(_.get(name)))
+
+    /** The definition a name resolves to, so that `C[args]` can be read as an instantiation. */
+    def definition(name: String): Option[Named] = definitions.get(name)
+
+    def updated(name: String, size: Size): Scope =
+      new Scope(values.updated(name, size), notes, definitions, frames, active)
 
     /** Names added by the solver's own round, which carries no notes of its own. */
-    def ++(entries: Iterable[(String, Size)]): Scope = new Scope(names ++ entries, notes)
+    def ++(entries: Iterable[(String, Size)]): Scope =
+      new Scope(values ++ entries, notes, definitions, frames, active)
+
+    /** The definitions the bodies now in scope introduce; an inner body shadows an outer name. */
+    def withDefinitions(entries: List[(String, Named)]): Scope =
+      new Scope(values, notes, entries.toMap ++ definitions, frames, active)
+
+    /** Reading one instantiation of a definition: its parameters bound to what the arguments are
+      * worth, innermost frame first.
+      */
+    def instantiated(frame: Map[String, Size]): Scope =
+      new Scope(values, notes, definitions, frame :: frames, active)
+
+    /** Marking a name whose substitution is in progress, so a cycle through an applied reference
+      * terminates the way a cycle through a bare name does.
+      */
+    def substituting(name: String): Scope =
+      new Scope(values, notes, definitions, frames, active + name)
+
+    def isSubstituting(name: String): Boolean = active(name)
 
     /** The same names with a fresh record of unresolved ones. */
-    def measured: Scope = new Scope(names, mutable.LinkedHashSet.empty)
+    def measured: Scope = new Scope(values, mutable.LinkedHashSet.empty, definitions, frames, active)
 
     /** The names this scope could not bound, sorted for a report. */
     def unresolved: List[String] = notes.toList.sorted
@@ -79,11 +113,19 @@ object Counter {
       * constructor.
       */
     def note(tpe: Type): Unit = { notes += describe(tpe); () }
+
+    /** Records a name directly, for a reason that is not a type's own syntax. */
+    def note(name: String): Unit = { notes += name; () }
   }
 
   private object Scope {
-    val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty)
+    val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, Map.empty, Nil, Set.empty)
   }
+
+  /** One named definition a reference can resolve: the type parameters it declares, and what its
+    * type is worth with those parameters in scope.
+    */
+  final private case class Named(params: List[String], equation: Scope => Size)
 
   // What one statement adds to its body: the cardinality it contributes and the definitions it
   // introduces, which a report lists.
@@ -119,7 +161,8 @@ object Counter {
       prefix: List[String],
       top: Boolean
   ): Introduced = {
-    val solved = solve(equations(stats), stats, scope)
+    val entries = equations(stats)
+    val solved = solve(entries, stats, scope.withDefinitions(entries))
     stats.foldLeft(Introduced.none) { (acc, st) =>
       val introduced = statement(solved, prefix, top)(st)
       Introduced(
@@ -292,6 +335,10 @@ object Counter {
   // system can be iterated as a whole. Abstract traits and classes have no cardinality of
   // their own and get an equation only when their subtypes appear in the same body.
   //
+  // The type parameters travel with the equation, because a *reference* to a generic definition
+  // is an instantiation: `Pair[Boolean]` is `Pair`'s equation read with `A` bound to 2. A sealed
+  // parent keeps none: its sum is the sum of its children as the body defines them.
+  //
   // A type claims its name over the module that shares it: a companion object and its class are
   // both called `Modify` (`class Modify` / `object Modify` is the usual shape in real code), but
   // only one of them is what a *type* reference means, and a companion object that won the name
@@ -300,29 +347,42 @@ object Counter {
   // `case object` child by — and the walk counts the module itself as one value either way.
   // Behind the scope's map the modules therefore come first and the types last, so the type's
   // equation is the one a name keeps.
-  private def equations(stats: List[Stat]): List[(String, Scope => Size)] = {
+  private def equations(stats: List[Stat]): List[(String, Named)] = {
     val modules = stats.flatMap {
-      case d: Defn.Object => Some(d.name.value -> ((_: Scope) => UnitSize))
+      case d: Defn.Object => Some(d.name.value -> Named(Nil, (_: Scope) => UnitSize))
       case _              => None
     }
     val types = stats.flatMap {
       case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
-        Some(d.name.value -> ((_: Scope) => UnitSize))
-      case d: Defn.Type => Some(d.name.value -> ((sc: Scope) => typeIn(sc)(d.body)))
-      case d: Defn.Enum => Some(d.name.value -> ((sc: Scope) => enumSize(sc)(d)))
+        Some(d.name.value -> Named(parameters(d), (_: Scope) => UnitSize))
+      case d: Defn.Type =>
+        Some(d.name.value -> Named(parameters(d), (sc: Scope) => typeIn(sc)(d.body)))
+      case d: Defn.Enum =>
+        Some(d.name.value -> Named(parameters(d), (sc: Scope) => enumSize(sc)(d)))
       case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
-        Some(d.name.value -> ((sc: Scope) => ctorIn(sc)(d.ctor)))
+        Some(d.name.value -> Named(parameters(d), (sc: Scope) => ctorIn(sc)(d.ctor)))
       case _ => None
     }
     val defined = modules ++ types
     defined ++ sealedSums(stats, defined.map(_._1).toSet).toList.map {
       case (parent, children) =>
-        parent -> ((sc: Scope) =>
-          children.foldLeft(NothingSize: Size)((acc, child) =>
-            acc + sc.getOrElse(child, NothingSize)
-          )
+        parent -> Named(
+          Nil,
+          (sc: Scope) =>
+            children.foldLeft(NothingSize: Size)((acc, child) =>
+              acc + sc.getOrElse(child, NothingSize)
+            )
         )
     }
+  }
+
+  // The type parameters a definition declares, in the order its arguments are supplied in.
+  private def parameters(d: Defn): List[String] = d match {
+    case c: Defn.Class => c.tparamClause.values.map(_.name.value)
+    case c: Defn.Trait => c.tparamClause.values.map(_.name.value)
+    case c: Defn.Enum  => c.tparamClause.values.map(_.name.value)
+    case c: Defn.Type  => c.tparamClause.values.map(_.name.value)
+    case _             => Nil
   }
 
   // A sealed trait or sealed abstract class stands for the sum of the body's subtypes that
@@ -374,10 +434,11 @@ object Counter {
   // still settling) is left alone. Either branch shrinks the set of names that may still
   // grow, so the iteration terminates.
   private def solve(
-      eqs: List[(String, Scope => Size)],
+      entries: List[(String, Named)],
       stats: List[Stat],
       base: Scope
   ): Scope = {
+    val eqs = entries.map { case (name, named) => name -> named.equation }
     val cyclic = cyclicNames(stats, eqs.map(_._1).toSet)
     val mu = iterate(eqs, cyclic, base, frozen = Set.empty)
     greatestFixpoint(eqs, stats, mu, cyclic)
@@ -859,7 +920,8 @@ object Counter {
   // how a class is built, not of what it exposes, and synthesized accessors are not counted on
   // top of the parameters that produce them.
   private def signatureBody(stats: List[Stat], scope: Scope): Size = {
-    val solved = solve(equations(stats), stats, scope)
+    val entries = equations(stats)
+    val solved = solve(entries, stats, scope.withDefinitions(entries))
     stats.foldLeft(NothingSize: Size)((acc, st) => acc + signatureIn(solved)(st))
   }
 
@@ -917,6 +979,10 @@ object Counter {
   }
 
   private def typeIn(scope: Scope): Type => Size = {
+    // A type parameter stands for whatever the instantiation supplied — an innermost binder wins
+    // over a builtin of the same name, as it does in Scala.
+    case t: Type.Name if scope.frame(t.value).isDefined => scope.frame(t.value).get
+
     case Type.Name("Nothing")    => NothingSize
     case Type.Name("Unit")       => UnitSize
     case Type.Name("EmptyTuple") => UnitSize
@@ -962,7 +1028,8 @@ object Counter {
       arrow(typeIn(scope)(result), domain(scope)(params))
 
     // Type constructors that add to the algebra: Option/Either (sums), Set (powerset),
-    // and Map/PartialFunction (functions into an Option of the codomain).
+    // Map/PartialFunction (functions into an Option of the codomain), and any definition the
+    // source set names as an instantiation — see `applied`.
     case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => applied(scope)(callee, args)
 
     // A name the source defines takes the cardinality of its definition. Any other name is
@@ -989,12 +1056,53 @@ object Counter {
   private def arrow(codomain: Size, domain: Size): Size =
     if (domain == NothingSize) NothingSize else codomain.pow(domain)
 
-  // `Set` is the powerset (`2 ^ element`), and `Map`/`PartialFunction` are functions into
-  // an Option of the codomain (`(|V| + 1) ^ |K|`). `Size.pow` already has the arithmetic
-  // `Set` and `Map` need: a finite base over an infinite exponent stays countable (the
-  // finite subsets of `String`), and only an infinite base over an infinite exponent is
-  // uncountable.
-  private def applied(scope: Scope): (Type, List[Type]) => Size = {
+  // `C[args]`: an *instantiation* of a definition the scope names reads that definition's equation
+  // with its type parameters bound to what the arguments are worth — `Pair[Boolean]` is 4, not an
+  // unknown constructor. What is left of the builtin algebra (`Option`, `Either`, `Set`, the
+  // collections) is read below.
+  private def applied(scope: Scope)(callee: Type, args: List[Type]): Size =
+    instantiation(scope, callee, args).getOrElse(builtin(scope)(callee, args))
+
+  // The size of `C[args]` when `C` is a definition the scope knows with that many parameters, or
+  // None when it is not — a builtin, an arity that does not match, a name no definition has.
+  //
+  // Two recursive readings stay careful. An instantiation that is exactly the definition's own
+  // parameters (`Node[A]` inside `Node`'s equation) is what the solver already solved under the
+  // name, so it borrows that fixed point — that is how a parameterised recursion keeps its μ/ν
+  // reading. Any other instantiation entered while its own name is being substituted is a cycle
+  // the name-keyed solver has no fixed point for, so it keeps the old fallback: ω with the name as
+  // the reason.
+  private def instantiation(scope: Scope, callee: Type, args: List[Type]): Option[Size] =
+    for
+      name <- nameOf(callee)
+      named <- scope.definition(name)
+      if named.params.size == args.size
+    yield {
+      val self = named.params.zip(args).forall((param, arg) => bareName(arg) == param)
+      if (self && scope.size(name).isDefined) scope(name)
+      else if (scope.isSubstituting(name)) {
+        scope.note(callee)
+        EffectiveOmega
+      } else {
+        val frame = named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
+        named.equation(scope.substituting(name).instantiated(frame))
+      }
+    }
+
+  // The simple name a type constructor is spelled with: `Pair`, or `data.Pair`'s last segment — a
+  // qualified name resolves by its own name, as it does for a bare reference.
+  private def nameOf(tpe: Type): Option[String] = tpe match {
+    case Type.Name(name)              => Some(name)
+    case Type.Select(_, Type.Name(n)) => Some(n)
+    case _                            => None
+  }
+
+  // The type constructors the algebra models itself: `Option`/`Either` (sums), `Set` (powerset),
+  // `Map`/`PartialFunction` (functions into an Option of the codomain), and the collections whose
+  // unbounded length is their infinity. `Size.pow` already has the arithmetic `Set` and `Map`
+  // need: a finite base over an infinite exponent stays countable (the finite subsets of
+  // `String`), and only an infinite base over an infinite exponent is uncountable.
+  private def builtin(scope: Scope): (Type, List[Type]) => Size = {
     case (Type.Name("Option"), List(t))    => UnitSize + typeIn(scope)(t)
     case (Type.Name("Either"), List(l, r)) => typeIn(scope)(l) + typeIn(scope)(r)
     case (Type.Name("Set"), List(t))       => BooleanSize.pow(typeIn(scope)(t))

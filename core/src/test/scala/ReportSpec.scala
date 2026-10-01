@@ -29,6 +29,8 @@ class ReportSpec extends Specification {
       a companion object keeps its own value    $companions
       a source counts its top-level values       $sourceTotals
       signatures carry their parameters         $signatures
+      an applied user type substitutes arguments  $appliedType
+      a parameterised recursion keeps its fixed point  $parameterisedRecursion
 
     Report
       reads a directory of sources              $directory
@@ -47,7 +49,6 @@ class ReportSpec extends Specification {
       a function space still names its blocker    $blockedRow
 
     Targets: what the estimate cannot read yet (docs/baselines/eo-core-0.16.0-unresolved.md)
-      an applied user type substitutes arguments  $targetApplied
       a type from another source resolves         $targetCrossSource
       a match type reduces on a known scrutinee   $targetMatchType
     """
@@ -347,11 +348,37 @@ class ReportSpec extends Specification {
       .getOrElse(throw new AssertionError("no definition p.Use"))
   }
 
-  def targetApplied = target(
-    definition("case class Pair[A](a: A, b: A)\ncase class Use(p: Pair[Boolean])", "Use"),
-    TinySize(4),
-    "an applied user type needs its arguments substituted into its definition",
-  )
+  def appliedType = {
+    val found = definitions(
+      """|case class Pair[A](a: A, b: A)
+         |enum Opt[A] { case None; case Some(a: A) }
+         |type TwoBools = Pair[Boolean]
+         |case class Use(p: Pair[Boolean], o: Opt[Boolean], t: TwoBools)
+         |""".stripMargin,
+    )
+    // A reference to a generic definition supplies its arguments: `Pair[Boolean]` is `Pair`'s
+    // equation read with `A` bound to 2, and an alias' body substitutes the same way. The
+    // definition's own row keeps its parameters free — `Pair` as a template is `ω`, with `A` as
+    // the reason — while a use site multiplies what the instantiation is worth.
+    (found.map(d => (d.name, d.size, d.unresolved)) === List(
+      ("Pair", Some(EffectiveOmega), List("A")),
+      ("Opt", Some(EffectiveOmega + UnitSize), List("A")),
+      ("TwoBools", Some(TinySize(4)), Nil),
+      ("Use", Some(TinySize(48)), Nil),
+    ))
+  }
+
+  def parameterisedRecursion = {
+    val found = definitions(
+      "case class Node[A](value: A, next: Option[Node[A]])",
+    )
+    // `Node[A]` inside `Node`'s own equation is the definition's own parameters: it borrows the
+    // fixed point the solver gives the name, so the parameterised recursion keeps its ω reading
+    // and reports the parameter, not the name.
+    found.map(d => (d.name, d.size, d.unresolved)) === List(
+      ("Node", Some(EffectiveOmega), List("A"))
+    )
+  }
 
   def targetCrossSource = target(
     crossSource,
