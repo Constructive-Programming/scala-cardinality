@@ -47,6 +47,8 @@ class ReportSpec extends Specification {
       a lazy hole counts ω, and is no question    $lazyRow
       the ε₀ tier arrives through modelled types  $tierRow
       a function space still names its blocker    $blockedRow
+      an open abstraction has no bound            $openAbstraction
+      an open abstraction reads as one in a report  $openRow
 
     Reading a library's sources as one set
       a type from another file resolves          $crossSource
@@ -485,6 +487,33 @@ class ReportSpec extends Specification {
     BooleanSize,
     "a match type needs reduction on a known scrutinee",
   )
+
+  def openAbstraction = {
+    val found = definitions(
+      """|trait Open
+         |sealed trait Closed
+         |case object Only extends Closed
+         |case class Uses(o: Open, c: Closed)
+         |""".stripMargin,
+    )
+    // An unsealed trait is a capability someone else implements: a reference to it has no bound,
+    // so the row carries the reason rather than an unknown name. A sealed parent is the other
+    // case — its children are the sum, so `Closed` is worth 1 through `Only`.
+    (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Open", None, Nil),
+      ("Closed", None, Nil),
+      ("Only", Some(UnitSize), Nil),
+      ("Uses", Some(EffectiveOmega), List("Open")),
+    ))
+      .and(found.find(_.name == "Uses").exists(Definition.open))
+  }
+
+  def openRow = {
+    val root = temporary("Types.scala" -> "package p\ntrait Open\ncase class Uses(o: Open)")
+    val rendered = Report.of(List(root)).render
+    (rendered must contain("open to implementations (Open)"))
+      .and(rendered must contain("1 unbounded by an open abstraction"))
+  }
 
   def recursiveRows = {
     val found = definitions(

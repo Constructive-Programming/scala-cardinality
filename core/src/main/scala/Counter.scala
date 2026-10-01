@@ -75,6 +75,7 @@ object Counter {
       home: List[String] = Nil,
       imports: Set[String] = Set.empty,
       binders: List[Binder] = Nil,
+      open: Set[String] = Set.empty,
   )
 
   /** A type parameter a definition declares, and whether it takes parameters of its own. */
@@ -97,6 +98,8 @@ object Counter {
     private def home: List[String] = world.home
 
     private def imports: Set[String] = world.imports
+
+    private[Counter] def openNames: Set[String] = world.open
 
     def size(name: String): Option[Size] = values.get(name)
 
@@ -153,6 +156,12 @@ object Counter {
       */
     def withBinders(declared: List[Binder]): Scope =
       new Scope(values, notes, world.copy(binders = declared ++ world.binders))
+
+    /** The abstractions a body leaves open — unsealed traits and abstract classes — so that a
+      * reference to one is reported as unbounded rather than as an unknown name.
+      */
+    def withOpen(names: Set[String]): Scope =
+      new Scope(values, notes, world.copy(open = names ++ world.open))
 
     /** The definitions of other sources this read can lean on. */
     def withLibrary(other: Library): Scope =
@@ -218,7 +227,11 @@ object Counter {
           else Definition.Unbound.Parameter(name)
         )
 
-    private def open(name: String): Option[Definition.Unbound] = None
+    // An unsealed abstraction: any subtype anywhere may add values, so a reference to it has no
+    // bound at all — the bodies in scope know their own, and the library knows its packages'.
+    private def open(name: String): Option[Definition.Unbound] =
+      if (openNames(name) || library.open(name)) Some(Definition.Unbound.Open(name)) else None
+
   }
 
   private object Scope {
@@ -259,6 +272,9 @@ object Counter {
     private[Counter] def definition(name: String, home: List[String]): Option[(Scope, Named)] =
       frame(name, home).flatMap(pkg => pkg.definition(name).map(pkg -> _))
 
+    /** Whether some package of the source set defines the name as an open abstraction. */
+    private[Counter] def open(name: String): Boolean = packages.values.exists(_.openNames(name))
+
     // The package a name read in `home` resolves to: its own when it defines the name — package
     // members are in scope without an import — else the one package across the source set that
     // does, which is the shape an import of a single name has.
@@ -280,7 +296,11 @@ object Counter {
         case (path, found) =>
           val stats = found.flatMap(_._2)
           val entries = equations(stats)
-          path -> solve(entries, stats, Scope.empty.withDefinitions(entries).withHome(path))
+          val base = Scope.empty
+            .withDefinitions(entries)
+            .withOpen(openNames(stats))
+            .withHome(path)
+          path -> solve(entries, stats, base)
       }
       val unique = packages.values.toList
         .flatMap(scope => scope.definedNames.toList.map(name => name -> scope))
@@ -344,8 +364,8 @@ object Counter {
       top: Boolean
   ): Introduced = {
     val entries = equations(stats)
-    val imported = scope.withImports(imports(stats))
-    val solved = solve(entries, stats, imported.withDefinitions(entries))
+    val surroundings = scope.withImports(imports(stats)).withOpen(openNames(stats))
+    val solved = solve(entries, stats, surroundings.withDefinitions(entries))
     stats.foldLeft(Introduced.none) { (acc, st) =>
       val introduced = statement(solved, prefix, top)(st)
       Introduced(
@@ -354,6 +374,15 @@ object Counter {
       )
     }
   }
+
+  // The abstractions a body leaves open. A sealed parent is not one of them: its sum is the sum of
+  // the children the body (or the package) defines.
+  private def openNames(stats: List[Stat]): Set[String] =
+    stats.collect {
+      case d: Defn.Trait if !d.mods.exists(_.is[Mod.Sealed]) => d.name.value
+      case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) && !d.mods.exists(_.is[Mod.Sealed]) =>
+        d.name.value
+    }.toSet
 
   // The names a body's imports bind. A direct import of a name keeps a reference to it out of the
   // library's hands — the import decides what the name means and the calculator does not follow
