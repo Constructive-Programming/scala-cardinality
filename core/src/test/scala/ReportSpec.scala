@@ -502,9 +502,9 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     // No case matches a `String` scrutinee: the match type stays unreduced, which a report names
-    // rather than guessing what it might be worth.
+    // rather than guessing what it might be worth — and the scrutinee keeps its own reason too.
     found.find(_.name == "Stuck").map(d => (d.size, d.unbound.map(_.render))) ===
-      Some((Some(EffectiveOmega), List("a match type")))
+      Some((Some(EffectiveOmega), List("String", "a match type")))
   }
 
   def openAbstraction = {

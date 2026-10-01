@@ -1356,7 +1356,12 @@ object Counter {
             case Some(matchType) =>
               reduced(matchType, named.params.zip(args).toMap) match {
                 case Some(argument) => typeIn(scope)(argument)
-                case None           => scope.note(matchType); EffectiveOmega
+                case None =>
+                  // Stuck: the arguments still carry their own reasons — a parameter over which
+                  // the match type stays inert is one of them — and the match type is another.
+                  args.foreach(typeIn(scope))
+                  scope.note(matchType)
+                  EffectiveOmega
               }
             case None =>
               val frame =
