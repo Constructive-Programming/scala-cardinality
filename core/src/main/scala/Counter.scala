@@ -243,7 +243,11 @@ object Counter {
   /** One named definition a reference can resolve: the type parameters it declares, and what its
     * type is worth with those parameters in scope.
     */
-  final private case class Named(params: List[String], equation: Scope => Size)
+  final private case class Named(
+      params: List[String],
+      equation: Scope => Size,
+      matchType: Option[Type] = None
+  )
 
   /** The definitions the other supplied sources introduce, so that a reference can leave the file
     * it is written in: a report reads a library's published sources as one set, and a type in a
@@ -587,7 +591,13 @@ object Counter {
       case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
         Some(d.name.value -> Named(parameterNames(d), (_: Scope) => UnitSize))
       case d: Defn.Type =>
-        Some(d.name.value -> Named(parameterNames(d), (sc: Scope) => typeIn(sc)(d.body)))
+        // A match type's body is read on the *argument's* syntax when the alias is applied (see
+        // `instantiation`), so the body travels with the definition.
+        val matchType = d.body match {
+          case m: Type.Match => Some(m)
+          case _             => None
+        }
+        Some(d.name.value -> Named(parameterNames(d), (sc: Scope) => typeIn(sc)(d.body), matchType))
       case d: Defn.Enum =>
         Some(d.name.value -> Named(parameterNames(d), (sc: Scope) => enumSize(sc)(d)))
       case d: Defn.Class if !d.mods.exists(_.is[Mod.Abstract]) =>
@@ -1327,12 +1337,77 @@ object Counter {
         else if (context.isSubstituting(name)) {
           scope.note(callee)
           EffectiveOmega
-        } else {
-          val frame = named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
-          named.equation(context.substituting(name).instantiated(frame))
-        }
+        } else
+          named.matchType match {
+            // An alias whose body is a match type reduces on the argument's *syntax*, which no
+            // size can carry: `Fst[(Boolean, Boolean)]` is `Boolean` because the case pattern is
+            // that tuple and its binder is the body. A match type that does not reduce keeps the
+            // reading it has as a template: a type the report names.
+            case Some(matchType) =>
+              reduced(matchType, named.params.zip(args).toMap) match {
+                case Some(argument) => typeIn(scope)(argument)
+                case None           => scope.note(matchType); EffectiveOmega
+              }
+            case None =>
+              val frame =
+                named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
+              named.equation(context.substituting(name).instantiated(frame))
+          }
     }
   }
+
+  // A match type read on a known scrutinee: every case pattern is matched against the scrutinee with
+  // the definition's parameters already replaced by the arguments, and the first case that matches
+  // gives its body with the pattern's binders replaced by the parts of the scrutinee they stood
+  // for. The patterns a case can have are the ones a reducer earns: a tuple of binders, a bare
+  // binder, a wildcard, and anything else by spelling.
+  private def reduced(matchType: Type, arguments: Map[String, Type]): Option[Type] =
+    matchType match {
+      case Type.Match(scrutinee, cases) =>
+        val known = replace(scrutinee, arguments)
+        cases.collectFirst(Function.unlift(caseOf(_, known)))
+      case other => Some(replace(other, arguments))
+    }
+
+  private def caseOf(caseType: TypeCase, scrutinee: Type): Option[Type] =
+    bindings(caseType.pat, scrutinee).map(replace(caseType.body, _))
+
+  // The bindings a case pattern makes against a scrutinee, or None when it does not match. A
+  // pattern variable is written the way Scala 3 spells one — a lowercase name — so `case Int =>`
+  // matches a `Int` scrutinee by spelling and `case x =>` binds whatever it is given.
+  private def bindings(pattern: Type, scrutinee: Type): Option[Map[String, Type]] =
+    pattern match {
+      case _: Type.Wildcard                                     => Some(Map.empty)
+      case Type.Name(name) if name.headOption.exists(_.isLower) =>
+        Some(Map(name -> scrutinee))
+      case Type.Tuple(elements) =>
+        scrutinee match {
+          case Type.Tuple(parts) if parts.size == elements.size =>
+            elements
+              .zip(parts)
+              .foldLeft(Option(Map.empty[String, Type])) {
+                case (bound, (element, part)) =>
+                  for {
+                    known <- bound
+                    elementBindings <- bindings(element, part)
+                  } yield known ++ elementBindings
+              }
+          case _ => None
+        }
+      // A name, literal or applied pattern the calculator does not read binds nothing and matches
+      // when its spelling is the scrutinee's.
+      case other if other.syntax == scrutinee.syntax => Some(Map.empty)
+      case _                                         => None
+    }
+
+  // A type with the definition's parameters replaced by the argument types, syntax kept as it is.
+  private def replace(tpe: Type, arguments: Map[String, Type]): Type =
+    if (arguments.isEmpty) tpe
+    else
+      tpe.transform { case Type.Name(name) if arguments.contains(name) => arguments(name) } match {
+        case rewritten: Type => rewritten
+        case other           => other.asInstanceOf[Type]
+      }
 
   // The simple name a type constructor is spelled with: `Pair`, or `data.Pair`'s last segment — a
   // qualified name resolves by its own name, as it does for a bare reference.

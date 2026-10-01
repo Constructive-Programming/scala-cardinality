@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.util.zip.{ZipEntry, ZipOutputStream}
 import org.specs2.Specification
-import org.specs2.execute.Result
 
 // The definitions a source introduces and the report over them: what a reader sees, and what the
 // walk has to keep straight to make the numbers mean anything — nested definitions, enum cases
@@ -31,6 +30,8 @@ class ReportSpec extends Specification {
       signatures carry their parameters         $signatures
       an applied user type substitutes arguments  $appliedType
       a parameterised recursion keeps its fixed point  $parameterisedRecursion
+      a match type reduces on a known scrutinee  $matchType
+      a match type that does not reduce stays unread  $matchTypeStuck
 
     Report
       reads a directory of sources              $directory
@@ -58,9 +59,6 @@ class ReportSpec extends Specification {
       a name two packages define stays unresolved  $crossSourceAmbiguous
       an imported name is left to the import     $crossSourceImported
       a sealed hierarchy sums across files       $crossSourceSealed
-
-    Targets: what the estimate cannot read yet (docs/baselines/eo-core-0.16.0-unresolved.md)
-      a match type reduces on a known scrutinee   $targetMatchType
     """
 
   private def definitions(code: String): List[Definition] =
@@ -344,17 +342,6 @@ class ReportSpec extends Specification {
       .and(estimate.last must not(contain("unresolved:")))
   }
 
-  // A rule the estimate does not have yet, pinned as an expectation that fails today: specs2
-  // reports it as pending and turns it into a failure once the rule lands, so the marker cannot
-  // go stale. The ledger in `docs/baselines/eo-core-0.16.0-unresolved.md` tracks these, and the
-  // reason is what a rule would have to do.
-  private def target(actual: => Definition, expected: Size, reason: String): Result = {
-    val row = actual
-    pendingUntilFixed(s"$reason: this row should read $expected, the estimate returns ${row.size}")(
-      row.size === Some(expected)
-    )
-  }
-
   def appliedType = {
     val found = definitions(
       """|case class Pair[A](a: A, b: A)
@@ -479,14 +466,44 @@ class ReportSpec extends Specification {
       )
   }
 
-  def targetMatchType = target(
-    definition(
-      "type Fst[T] = T match { case (f, s) => f }\ntype Two = Fst[(Boolean, Boolean)]",
-      "Two",
-    ),
-    BooleanSize,
-    "a match type needs reduction on a known scrutinee",
-  )
+  def matchType = {
+    val found = definitions(
+      """|type Fst[T] = T match { case (f, s) => f }
+         |type Snd[T] = T match { case (f, s) => s }
+         |type Pick[T] = T match
+         |  case Int => Boolean
+         |  case x => x
+         |type Two = Fst[(Boolean, Boolean)]
+         |type Second = Snd[(Int, Boolean)]
+         |type ANumber = Pick[Int]
+         |type Other = Pick[String => String]
+         |""".stripMargin,
+    )
+    // A match type reduces on the argument's syntax: `Fst[(Boolean, Boolean)]` is `Boolean` because
+    // the case pattern is that tuple and its body is the first binder. A concrete pattern matches
+    // by spelling and falls through to the binder case when it does not.
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Fst", Some(EffectiveOmega), List("a match type")),
+      ("Snd", Some(EffectiveOmega), List("a match type")),
+      ("Pick", Some(EffectiveOmega), List("a match type")),
+      ("Two", Some(BooleanSize), Nil),
+      ("Second", Some(BooleanSize), Nil),
+      ("ANumber", Some(BooleanSize), Nil),
+      ("Other", Some(EffectiveEpsilon0), List("String")),
+    )
+  }
+
+  def matchTypeStuck = {
+    val found = definitions(
+      """|type Fst[T] = T match { case (f, s) => f }
+         |type Stuck = Fst[String]
+         |""".stripMargin,
+    )
+    // No case matches a `String` scrutinee: the match type stays unreduced, which a report names
+    // rather than guessing what it might be worth.
+    found.find(_.name == "Stuck").map(d => (d.size, d.unbound.map(_.render))) ===
+      Some((Some(EffectiveOmega), List("a match type")))
+  }
 
   def openAbstraction = {
     val found = definitions(
