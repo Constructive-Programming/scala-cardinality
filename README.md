@@ -174,8 +174,8 @@ sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
 
 Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 13 unresolved, 22
 instantiation-dependent, 4 unbounded by an open abstraction, 3 with more than one value (the two
-`2^32` array builders and a countable `PSVec.Slice`), 53 holding a single value (the modules),
-5 with no values (the `X` aliases), 34 abstract. A library of generic optics has no small state
+`2^32` array builders and a countable `PSVec.Slice`), 81 holding a single value (the modules and
+the sealed parents whose one case is a module), 5 with no values (the `X` aliases), 6 abstract. A library of generic optics has no small state
 spaces to find; what the report says about it is *why* each row has no number — the type
 parameters a generic class leaves open, or the capability an unsealed trait leaves to its
 implementations.

@@ -73,12 +73,15 @@ object Counter {
     val defined = modules ++ types
     defined ++ sealedSums(stats, defined.map(_._1).toSet).toList.map {
       case (parent, children) =>
+        // A sealed parent's equation is the sum of its children, and it keeps their names: a
+        // report reads the parent's value from it, and the children's reasons are the parent's.
         parent -> Named(
           Nil,
           (sc: Scope) =>
             children.foldLeft(NothingSize: Size)((acc, child) =>
               acc + sc.getOrElse(child, NothingSize)
-            )
+            ),
+          children = children
         )
     }
   }
@@ -106,15 +109,11 @@ object Counter {
   // `EffectiveOmega` fallback instead of claiming a too-small sum. Cross-file sealed
   // hierarchies are future work.
   private def sealedSums(stats: List[Stat], defined: Set[String]): Map[String, List[String]] = {
-    val sealedNames: Set[String] = stats
-      .collect {
-        case d: Defn.Trait if d.mods.exists(_.is[Mod.Sealed]) => d.name.value
-        case d: Defn.Class
-            if d.mods.exists(_.is[Mod.Sealed]) && d.mods.exists(_.is[Mod.Abstract]) =>
-          d.name.value
-      }
-      .toSet
-      .diff(defined)
+    val sealedNames: Set[String] = stats.collect {
+      case d: Defn.Trait if d.mods.exists(_.is[Mod.Sealed]) => d.name.value
+      case d: Defn.Class if d.mods.exists(_.is[Mod.Sealed]) && d.mods.exists(_.is[Mod.Abstract]) =>
+        d.name.value
+    }.toSet
     val subtypes = stats.collect {
       case d: Defn.Class  => (d.name.value, d.templ.inits.map(initParent))
       case d: Defn.Object => (d.name.value, d.templ.inits.map(initParent))

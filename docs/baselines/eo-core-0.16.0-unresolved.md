@@ -4,8 +4,12 @@ The [baseline report](eo-core-0.16.0.txt) has 134 definition rows. As of that ru
 
 ```
 13 unresolved · 22 instantiation-dependent · 4 unbounded by an open abstraction ·
- 3 with more than one value · 53 with one value · 5 with no values · 34 abstract
+ 3 with more than one value · 81 with one value · 5 with no values · 6 abstract
 ```
+
+A sealed parent reads the sum of the cases the source set defines — the value a reference to it
+has — so `sealed trait Nat` reads `ω` rather than a dash, and only an unsealed abstraction nobody
+summed stays without a number.
 
 This ledger is the other half of the baseline: what the rows that carry no number are waiting
 for, which capability moved the ones that moved, and what is still missing. It is a coverage

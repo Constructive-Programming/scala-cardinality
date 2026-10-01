@@ -4,7 +4,7 @@
 # golden oracle: the numbers are provisional means of spotting what moved, and a drop in
 # resolved rows can be a correctness improvement (docs/plans/v1.md §5).
 #
-# analyzer:  sbt-cardinality / scala-cardinality 0.1.0-SNAPSHOT at commit 45dc1f4
+# analyzer:  sbt-cardinality / scala-cardinality 0.1.0-SNAPSHOT at commit 9e27fce+
 #            (PR #10 branch, rebased over 4ba13e7; read against the whole source set)
 # versions:  sbt 2.0.9, Scala 3.8.4, scalameta 4.17.4
 # input:     https://repo1.maven.org/maven2/dev/constructive/cats-eo_3/0.16.0/cats-eo_3-0.16.0-sources.jar
@@ -15,7 +15,7 @@
 #            # then, in a consumer build with sbt-cardinality 0.1.0-SNAPSHOT in project/plugins.sbt:
 #            sbt 'cardinalityReportOf cats-eo_3-0.16.0-sources.jar'
 #
-# Definition estimate:  13 unresolved · 22 instantiation-dependent ·
+# Definition estimate:  13 unresolved · 22 instantiation-dependent · 4 unbounded by an open abstraction · 3 with more than one value · 81 with one value · 5 with no values · 6 abstract
 #                       4 unbounded by an open abstraction · 3 with more than one value ·
 #                       53 with one value · 5 with no values · 34 abstract (53 sources, 134 definitions)
 # Implementation counts: 480 signatures: 15 finite · 2 countably infinite · 463 unresolved
@@ -23,6 +23,12 @@
 # The unresolved definition rows are catalogued in eo-core-0.16.0-unresolved.md, next to this
 # file: what stopped each one, which capability moved it, and what is still missing.
 #
+#
+# The unresolved definition rows are catalogued in eo-core-0.16.0-unresolved.md, next to this
+# file: what stopped each one, which capability moved it, and what is still missing. A sealed
+# parent now reads the sum of the cases the source set defines, which is the value a reference
+# to it has, so the abstract rows carry numbers and the summary counts them there.
+Generic method / constructor implementation cardinalities
 Generic method / constructor implementation cardinalities
   480 signatures: 15 finite · 2 countably infinite · 463 unresolved
   340 unresolved on: unresolved type
@@ -1834,7 +1840,7 @@ Generic method / constructor implementation cardinalities
 scala-cardinality — 53 sources, 134 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: no single number here — the reason after the row says what would give one
-  13 unresolved · 22 instantiation-dependent · 4 unbounded by an open abstraction · 3 with more than one value · 53 with one value · 5 with no values · 34 abstract
+  13 unresolved · 22 instantiation-dependent · 4 unbounded by an open abstraction · 3 with more than one value · 81 with one value · 5 with no values · 6 abstract
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
 ?     dev.constructive.eo.CanModify[S, A]                                     alias     CanModify.scala:23  open to implementations (CanModifyP)
@@ -1879,37 +1885,62 @@ Stored-value estimates (constructor inputs; `?` = unresolved)
 ω     dev.constructive.eo.data.PSVec.Slice[B]                                 class     PSVec.scala:221
 2^32  dev.constructive.eo.data.IntArrBuilder                                  class     IntArrBuilder.scala:10
 2^32  dev.constructive.eo.data.ObjArrBuilder                                  class     ObjArrBuilder.scala:10
+1     dev.constructive.eo.CanFold[S, A]                                       abstract  CanFold.scala:17
 1     dev.constructive.eo.CanFold                                             object    CanFold.scala:32
+1     dev.constructive.eo.CanGet[S, A]                                        abstract  CanGet.scala:15
 1     dev.constructive.eo.CanGet                                              object    CanGet.scala:18
+1     dev.constructive.eo.CanGetOption[S, A]                                  abstract  CanGetOption.scala:12
 1     dev.constructive.eo.CanGetOption                                        object    CanGetOption.scala:15
+1     dev.constructive.eo.CanModifyAP[S, T, A, B]                             abstract  CanModifyA.scala:17
 1     dev.constructive.eo.CanModifyAP                                         object    CanModifyA.scala:23
+1     dev.constructive.eo.CanModifyFP[S, T, A, B]                             abstract  CanModifyF.scala:15
 1     dev.constructive.eo.CanModifyFP                                         object    CanModifyF.scala:21
+1     dev.constructive.eo.CanModifyP[S, T, A, B]                              abstract  CanModify.scala:16
 1     dev.constructive.eo.CanModifyP                                          object    CanModify.scala:25
+1     dev.constructive.eo.CanPlace[T, B]                                      abstract  CanPlace.scala:14
 1     dev.constructive.eo.CanPlace                                            object    CanPlace.scala:18
+1     dev.constructive.eo.CanPutP[T, A, B]                                    abstract  CanPut.scala:13
 1     dev.constructive.eo.CanPutP                                             object    CanPut.scala:19
+1     dev.constructive.eo.CanReverseGet[T, B]                                 abstract  CanReverseGet.scala:12
 1     dev.constructive.eo.CanReverseGet                                       object    CanReverseGet.scala:15
+1     dev.constructive.eo.CanTransform[T, D, B]                               abstract  CanTransform.scala:13
 1     dev.constructive.eo.CanTransform                                        object    CanTransform.scala:16
+1     dev.constructive.eo.accessor.Accessor[F]                                abstract  Accessor.scala:10
 1     dev.constructive.eo.accessor.Accessor                                   object    Accessor.scala:14
+1     dev.constructive.eo.accessor.PartialAccessor[F]                         abstract  PartialAccessor.scala:13
 1     dev.constructive.eo.accessor.PartialAccessor                            object    PartialAccessor.scala:18
+1     dev.constructive.eo.accessor.ReverseAccessor[F]                         abstract  ReverseAccessor.scala:9
 1     dev.constructive.eo.accessor.ReverseAccessor                            object    ReverseAccessor.scala:13
+1     dev.constructive.eo.compose.AssociativeFunctor[F, Xo, Xi]               abstract  AssociativeFunctor.scala:21
 1     dev.constructive.eo.compose.AssociativeFunctor                          object    AssociativeFunctor.scala:40
+1     dev.constructive.eo.compose.Composer[F, G]                              abstract  Composer.scala:17
 1     dev.constructive.eo.compose.Composer                                    object    Composer.scala:30
+1     dev.constructive.eo.compose.Morph[F, G]                                 abstract  Morph.scala:26
 1     dev.constructive.eo.compose.Morph                                       object    Morph.scala:55
+1     dev.constructive.eo.compose.ReadCompose[F, G]                           abstract  ReadCompose.scala:32
 1     dev.constructive.eo.compose.ReadCompose                                 object    ReadCompose.scala:49
+1     dev.constructive.eo.data.Affine[A, B]                                   abstract  Affine.scala:34
 1     dev.constructive.eo.data.Affine                                         object    Affine.scala:74
 1     dev.constructive.eo.data.Direct                                         object    Direct.scala:30
 1     dev.constructive.eo.data.Forget                                         object    Forget.scala:170
 1     dev.constructive.eo.data.ForgetK                                        object    Forget.scala:52
+1     dev.constructive.eo.data.ForgetK.ForgetPull[F]                          abstract  Forget.scala:68
 1     dev.constructive.eo.data.ForgetK.ForgetPull                             object    Forget.scala:76
 1     dev.constructive.eo.data.ModifyF                                        object    ModifyF.scala:31
 1     dev.constructive.eo.data.MultiFocus                                     object    MultiFocus.scala:1029
+1     dev.constructive.eo.data.MultiFocusFromList[F]                          abstract  MultiFocus.scala:74
 1     dev.constructive.eo.data.MultiFocusFromList                             object    MultiFocus.scala:80
 1     dev.constructive.eo.data.MultiFocusK                                    object    MultiFocus.scala:154
+1     dev.constructive.eo.data.PSVec[B]                                       abstract  PSVec.scala:19
 1     dev.constructive.eo.data.PSVec                                          object    PSVec.scala:98
 1     dev.constructive.eo.data.PSVec.Empty                                    object    PSVec.scala:185
+1     dev.constructive.eo.forgetful.ForgetfulApplicative[F]                   abstract  ForgetfulApplicative.scala:10
 1     dev.constructive.eo.forgetful.ForgetfulApplicative                      object    ForgetfulApplicative.scala:14
+1     dev.constructive.eo.forgetful.ForgetfulFold[F]                          abstract  ForgetfulFold.scala:12
 1     dev.constructive.eo.forgetful.ForgetfulFold                             object    ForgetfulFold.scala:16
+1     dev.constructive.eo.forgetful.ForgetfulFunctor[F]                       abstract  ForgetfulFunctor.scala:9
 1     dev.constructive.eo.forgetful.ForgetfulFunctor                          object    ForgetfulFunctor.scala:16
+1     dev.constructive.eo.forgetful.ForgetfulTraverse[F, C]                   abstract  ForgetfulTraverse.scala:18
 1     dev.constructive.eo.forgetful.ForgetfulTraverse                         object    ForgetfulTraverse.scala:22
 1     dev.constructive.eo.optics.AffineFold                                   object    AffineFold.scala:91
 1     dev.constructive.eo.optics.At                                           object    At.scala:12
@@ -1920,13 +1951,16 @@ Stored-value estimates (constructor inputs; `?` = unresolved)
 1     dev.constructive.eo.optics.Iso                                          object    Iso.scala:25
 1     dev.constructive.eo.optics.Lens                                         object    Lens.scala:18
 1     dev.constructive.eo.optics.Modify                                       object    Modify.scala:20
+1     dev.constructive.eo.optics.Optic[S, T, A, B, F]                         abstract  Optic.scala:48
 1     dev.constructive.eo.optics.Optic                                        object    Optic.scala:147
 1     dev.constructive.eo.optics.Optional                                     object    Optional.scala:25
 1     dev.constructive.eo.optics.PickFold.X                                   alias     AffineFold.scala:44
+1     dev.constructive.eo.optics.Plated[S]                                    abstract  Plated.scala:32
 1     dev.constructive.eo.optics.Plated                                       object    Plated.scala:70
 1     dev.constructive.eo.optics.Prism                                        object    Prism.scala:23
 1     dev.constructive.eo.optics.Review                                       object    Review.scala:68
 1     dev.constructive.eo.optics.SimpleLens                                   object    Lens.scala:283
+1     dev.constructive.eo.optics.Traversal[S, T, A, B]                        abstract  Traversal.scala:40
 1     dev.constructive.eo.optics.Traversal                                    object    Traversal.scala:159
 1     dev.constructive.eo.optics.TraversalArityMacro                          object    TraversalArityMacro.scala:17
 1     dev.constructive.eo.optics.TraverseTraversal[T, A, B]                   class     Traversal.scala:341
@@ -1937,37 +1971,9 @@ Stored-value estimates (constructor inputs; `?` = unresolved)
 0     dev.constructive.eo.optics.Getter.X                                     alias     Getter.scala:29
 0     dev.constructive.eo.optics.Review.X                                     alias     Review.scala:31
 0     dev.constructive.eo.optics.Unfold.X                                     alias     Unfold.scala:45
-—     dev.constructive.eo.CanFold[S, A]                                       abstract  CanFold.scala:17
-—     dev.constructive.eo.CanGet[S, A]                                        abstract  CanGet.scala:15
-—     dev.constructive.eo.CanGetOption[S, A]                                  abstract  CanGetOption.scala:12
-—     dev.constructive.eo.CanModifyAP[S, T, A, B]                             abstract  CanModifyA.scala:17
-—     dev.constructive.eo.CanModifyFP[S, T, A, B]                             abstract  CanModifyF.scala:15
-—     dev.constructive.eo.CanModifyP[S, T, A, B]                              abstract  CanModify.scala:16
-—     dev.constructive.eo.CanPlace[T, B]                                      abstract  CanPlace.scala:14
-—     dev.constructive.eo.CanPutP[T, A, B]                                    abstract  CanPut.scala:13
-—     dev.constructive.eo.CanReverseGet[T, B]                                 abstract  CanReverseGet.scala:12
-—     dev.constructive.eo.CanTransform[T, D, B]                               abstract  CanTransform.scala:13
-—     dev.constructive.eo.accessor.Accessor[F]                                abstract  Accessor.scala:10
-—     dev.constructive.eo.accessor.PartialAccessor[F]                         abstract  PartialAccessor.scala:13
-—     dev.constructive.eo.accessor.ReverseAccessor[F]                         abstract  ReverseAccessor.scala:9
-—     dev.constructive.eo.compose.AssociativeFunctor[F, Xo, Xi]               abstract  AssociativeFunctor.scala:21
-—     dev.constructive.eo.compose.Composer[F, G]                              abstract  Composer.scala:17
 —     dev.constructive.eo.compose.LowPriorityComposerInstances                abstract  Composer.scala:97
 —     dev.constructive.eo.compose.LowPriorityMorphInstances                   abstract  Morph.scala:39
 —     dev.constructive.eo.compose.LowPriorityReadCompose                      abstract  ReadCompose.scala:104
-—     dev.constructive.eo.compose.Morph[F, G]                                 abstract  Morph.scala:26
-—     dev.constructive.eo.compose.ReadCompose[F, G]                           abstract  ReadCompose.scala:32
-—     dev.constructive.eo.data.Affine[A, B]                                   abstract  Affine.scala:34
-—     dev.constructive.eo.data.ForgetK.ForgetPull[F]                          abstract  Forget.scala:68
 —     dev.constructive.eo.data.LowPriorityForgetInstances                     abstract  Forget.scala:178
-—     dev.constructive.eo.data.MultiFocusFromList[F]                          abstract  MultiFocus.scala:74
 —     dev.constructive.eo.data.MultiFocusPSMaybeHit[S, T, A, B]               abstract  MultiFocus.scala:137
 —     dev.constructive.eo.data.MultiFocusSingleton[S, T, A, B, X0]            abstract  MultiFocus.scala:55
-—     dev.constructive.eo.data.PSVec[B]                                       abstract  PSVec.scala:19
-—     dev.constructive.eo.forgetful.ForgetfulApplicative[F]                   abstract  ForgetfulApplicative.scala:10
-—     dev.constructive.eo.forgetful.ForgetfulFold[F]                          abstract  ForgetfulFold.scala:12
-—     dev.constructive.eo.forgetful.ForgetfulFunctor[F]                       abstract  ForgetfulFunctor.scala:9
-—     dev.constructive.eo.forgetful.ForgetfulTraverse[F, C]                   abstract  ForgetfulTraverse.scala:18
-—     dev.constructive.eo.optics.Optic[S, T, A, B, F]                         abstract  Optic.scala:48
-—     dev.constructive.eo.optics.Plated[S]                                    abstract  Plated.scala:32
-—     dev.constructive.eo.optics.Traversal[S, T, A, B]                        abstract  Traversal.scala:40

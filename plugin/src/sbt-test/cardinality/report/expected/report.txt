@@ -18,17 +18,17 @@ Generic method / constructor implementation cardinalities
 scala-cardinality — 2 sources, 11 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: no single number here — the reason after the row says what would give one
-  1 unresolved · 1 instantiation-dependent · 5 with more than one value · 2 with one value · 2 abstract
+  1 unresolved · 1 instantiation-dependent · 7 with more than one value · 2 with one value
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
 ?  example.Holder[A]  class     Light.scala:11  depends on its instantiation (A)
 ?  example.Reducer    class     Light.scala:20  unresolved: String
 ω  example.Cursor     class     Light.scala:16
+ω  example.Nat        abstract  Natural.scala:5
 ω  example.Succ       class     Natural.scala:7
 ω  example.Timeline   class     Light.scala:18
+3  example.Light      abstract  Light.scala:3
 2  example.Custom     class     Light.scala:5
 2  example.Mode       enum      Light.scala:7
 1  example.Red        object    Light.scala:4
 1  example.Zero       object    Natural.scala:6
-—  example.Light      abstract  Light.scala:3
-—  example.Nat        abstract  Natural.scala:5

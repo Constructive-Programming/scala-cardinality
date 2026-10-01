@@ -99,7 +99,7 @@ private[cardinality] object Walk {
   // own.
   private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
     case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) =>
-      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
+      abstractRow(scope, prefix, d)
         .inside(scope.withBinders(Counter.binders(d)), prefix :+ d.name.value, d.templ.body.stats)
     case d: Defn.Class =>
       measured(scope.withBinders(Counter.binders(d))) { s =>
@@ -108,7 +108,7 @@ private[cardinality] object Walk {
           .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
       }
     case d: Defn.Trait =>
-      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None)))
+      abstractRow(scope, prefix, d)
         .inside(scope.withBinders(Counter.binders(d)), prefix :+ d.name.value, d.templ.body.stats)
     // An enum's cardinality is the sum over its cases, which the solver gives it; the enum's own
     // constructor arguments are shared state, not extra inhabitants.
@@ -151,6 +151,28 @@ private[cardinality] object Walk {
     // exhaustive match is impossible. Every other member — nested values, methods, givens —
     // defines no inhabitants of its own.
     case _ => Introduced.none
+  }
+
+  // The row an abstract definition reads. It has no inhabitants of its own — the children do — but
+  // a *sealed* parent has a solved sum, and a reference to it reads that sum, so the row shows the
+  // value and the reasons of the children the sum is made of. `sealed trait Nat` with its cases in
+  // the source set reads `ω`, and a parent nobody summed stays a dash.
+  private def abstractRow(scope: Scope, prefix: List[String], d: Defn): Introduced = {
+    val name = named(d)
+    scope.definition(name) match {
+      case Some(definition) if definition.children.nonEmpty =>
+        measured(scope.withBinders(Counter.binders(d))) { s =>
+          // The children are read here so that the reasons the sum rests on land in this row's
+          // record rather than in theirs.
+          definition.children.foreach(child => s.definition(child).foreach(_.equation(s)))
+          introduced(prefix, d, Definition.Kind.Abstract, s.size(name), NothingSize, s.unbound)
+        }
+      case _ =>
+        Introduced(
+          NothingSize,
+          List(row(prefix, d, Definition.Kind.Abstract, scope.resolve(name))),
+        )
+    }
   }
 
   // The cardinality a reference to a definition has, and the names that stopped the calculator

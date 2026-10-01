@@ -209,7 +209,8 @@ private[cardinality] object Scope {
 final private[cardinality] case class Named(
     params: List[String],
     equation: Scope => Size,
-    matchType: Option[Type] = None
+    matchType: Option[Type] = None,
+    children: List[String] = Nil
 )
 
 /** The definitions the other supplied sources introduce, so that a reference can leave the file it

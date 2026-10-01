@@ -104,7 +104,8 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     found.map(d => (d.name, d.kind, d.size)) === List(
-      ("Light", Definition.Kind.Abstract, None),
+      // A sealed parent sums the cases the body defines, so its row carries the sum.
+      ("Light", Definition.Kind.Abstract, Some(TinySize(3))),
       ("Red", Definition.Kind.Object, Some(UnitSize)),
       ("Dot", Definition.Kind.Class, Some(BooleanSize)),
       ("Color", Definition.Kind.Enum, Some(TinySize(3))),
@@ -169,7 +170,7 @@ class ReportSpec extends Specification {
     // A companion object shares its name with its class but not its value space: the type claims
     // the name — `Uses` reads `Spot` as the class — while the module is one value of its own.
     (found.map(d => (d.name, d.kind, d.size)) === List(
-      ("Light", Definition.Kind.Abstract, None),
+      ("Light", Definition.Kind.Abstract, Some(BooleanSize)),
       ("Spot", Definition.Kind.Class, Some(BooleanSize)),
       ("Spot", Definition.Kind.Object, Some(UnitSize)),
       ("Uses", Definition.Kind.Class, Some(BooleanSize)),
@@ -337,11 +338,10 @@ class ReportSpec extends Specification {
       .and(rendered must contain("scala-cardinality — 1 source, 5 definitions"))
       .and(rendered must contain("stored-value estimates: constructor inputs only"))
       .and(rendered must contain("1  p.Box.<init>  Box[A](a: A)  Types.scala:4  [constructor]"))
-      .and(estimate(0) must contain("?  p.Box[A]"))
-      .and(estimate(0) must contain("Types.scala:4"))
-      .and(estimate(0) must contain("depends on its instantiation (A)"))
-      .and(estimate.last must contain("abstract"))
-      .and(estimate.last must not(contain("unresolved:")))
+      .and(rendered must contain("?  p.Shape"))
+      .and(rendered must contain("  abstract  Types.scala:2"))
+      .and(rendered must contain("depends on its instantiation (A)"))
+      .and(estimate.last must contain("1  p.Shape   object"))
   }
 
   def appliedType = {
@@ -462,7 +462,7 @@ class ReportSpec extends Specification {
         rowsOf(root) === List(
           ("p.Zero", Some(UnitSize), Nil),
           ("p.Succ", Some(EffectiveOmega), Nil),
-          ("p.Nat", None, Nil),
+          ("p.Nat", Some(EffectiveOmega), Nil),
           ("p.Use", Some(EffectiveOmega), Nil),
         )
       )
@@ -520,7 +520,7 @@ class ReportSpec extends Specification {
     // case — its children are the sum, so `Closed` is worth 1 through `Only`.
     (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Open", None, Nil),
-      ("Closed", None, Nil),
+      ("Closed", Some(UnitSize), Nil),
       ("Only", Some(UnitSize), Nil),
       ("Uses", Some(EffectiveOmega), List("Open")),
     ))
@@ -578,7 +578,8 @@ class ReportSpec extends Specification {
     // `Nat` is the sum of its cases and the family is countably infinite. The row carries the same
     // number as the reference, and nothing about it is unresolved.
     (found.map(d => (d.name, d.kind, d.size)) === List(
-      ("Nat", Definition.Kind.Abstract, None),
+      // A sealed parent's sum is the value a reference to it reads.
+      ("Nat", Definition.Kind.Abstract, Some(EffectiveOmega)),
       ("Zero", Definition.Kind.Object, Some(UnitSize)),
       ("Succ", Definition.Kind.Class, Some(EffectiveOmega)),
     ))

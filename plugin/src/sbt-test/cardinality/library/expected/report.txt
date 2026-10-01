@@ -5,9 +5,9 @@ Generic method / constructor implementation cardinalities
 scala-cardinality — 1 source, 3 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: no single number here — the reason after the row says what would give one
-  1 instantiation-dependent · 1 with one value · 1 abstract
+  1 unresolved · 1 instantiation-dependent · 1 with one value
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
 ?  optics.Composed[A]  class     Optic.scala:5  depends on its instantiation (A)
+?  optics.Optic        abstract  Optic.scala:3  unresolved: A
 1  optics.Id           object    Optic.scala:4
-—  optics.Optic        abstract  Optic.scala:3
