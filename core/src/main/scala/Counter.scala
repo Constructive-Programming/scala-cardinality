@@ -775,6 +775,16 @@ object Counter {
     case t: Type.Name =>
       scope.resolve(TypeName.of(t.value)).getOrElse { scope.note(t); EffectiveOmega }
 
+    // A refinement is read as the type it refines: the members the refinement binds are not what
+    // the value space is made of, and the base type is what the reference means.
+    case Type.Refine(base, _) =>
+      base match {
+        case Some(inner) => typeIn(scope)(inner)
+        case None        =>
+          scope.note("a refinement")
+          EffectiveOmega
+      }
+
     // scalameta's `Type` is not sealed, and several variants (`Type.And`, `Type.Or`,
     // `Type.Method`, `Type.ImplicitFunction`, `Type.Quasi`) are `private[meta]`, so an
     // exhaustive match is impossible. Every remaining form is unbounded or not yet

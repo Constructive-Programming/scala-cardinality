@@ -51,6 +51,8 @@ class ReportSpec extends Specification {
       the ε₀ tier arrives through modelled types  $tierRow
       a function space still names its blocker    $blockedRow
       an open abstraction has no bound            $openAbstraction
+      a type constructor is a shape, not a gap    $constructorRow
+      a refinement is read as the type it refines $refinementRow
       an open abstraction reads as one in a report  $openRow
 
     Reading a library's sources as one set
@@ -525,6 +527,32 @@ class ReportSpec extends Specification {
       ("Uses", Some(EffectiveOmega), List("Open")),
     ))
       .and(found.find(_.name == "Uses").exists(Definition.open))
+  }
+
+  def constructorRow = {
+    val found = definitions("type Forget[F[_]] = [X, A] =>> F[(X, A)]")
+    // The alias names a function on types: no value space of its own, so the row is a shape rather
+    // than a question, and applying the constructor is where a size would come from.
+    found.map(d => (d.name, d.kind, d.size, d.unbound)) === List(
+      ("Forget", Definition.Kind.Constructor, None, Nil)
+    )
+  }
+
+  def refinementRow = {
+    val found = definitions(
+      """|trait Open
+         |case class Value(a: Boolean)
+         |case class Use(o: Open { type X = Boolean }, v: Value { type X = Boolean })
+         |""".stripMargin,
+    )
+    // A refinement's base type is what a reference means: `Value { type X = Boolean }` is worth 2,
+    // and refining an open trait is still open — a fact about the sources, not a missing rule.
+    (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Open", None, Nil),
+      ("Value", Some(BooleanSize), Nil),
+      ("Use", Some(EffectiveOmega), List("Open")),
+    ))
+      .and(found.find(_.name == "Use").exists(Definition.open))
   }
 
   def openRow = {

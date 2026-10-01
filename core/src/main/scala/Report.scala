@@ -286,6 +286,7 @@ object Report {
     case Unresolved extends SizeClass("unresolved")
     case Instantiation extends SizeClass("instantiation-dependent")
     case Open extends SizeClass("unbounded by an open abstraction")
+    case Constructor extends SizeClass("type constructors, with no value space")
     case Many extends SizeClass("with more than one value")
     case One extends SizeClass("with one value")
     case Empty extends SizeClass("with no values")
@@ -295,12 +296,14 @@ object Report {
   private object SizeClass {
 
     /** The classes in the order the summary reads them: what needs attention first. */
-    val order: List[SizeClass] = List(Unresolved, Instantiation, Open, Many, One, Empty, Abstract)
+    val order: List[SizeClass] =
+      List(Unresolved, Instantiation, Open, Constructor, Many, One, Empty, Abstract)
 
     def apply(definition: Definition): SizeClass =
       if (Definition.instantiationDependent(definition)) Instantiation
       else if (Definition.open(definition)) Open
       else if (unresolved(definition)) Unresolved
+      else if (definition.kind == Definition.Kind.Constructor) Constructor
       else
         definition.size match {
           case None              => Abstract

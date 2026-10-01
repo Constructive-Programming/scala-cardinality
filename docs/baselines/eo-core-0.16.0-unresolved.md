@@ -3,8 +3,9 @@
 The [baseline report](eo-core-0.16.0.txt) has 134 definition rows. As of that run they read:
 
 ```
-13 unresolved · 22 instantiation-dependent · 4 unbounded by an open abstraction ·
- 3 with more than one value · 81 with one value · 5 with no values · 6 abstract
+10 unresolved · 22 instantiation-dependent · 5 unbounded by an open abstraction ·
+ 2 type constructors, with no value space · 3 with more than one value ·
+ 81 with one value · 5 with no values · 6 abstract
 ```
 
 A sealed parent reads the sum of the cases the source set defines — the value a reference to it
@@ -31,17 +32,23 @@ values · 34 abstract`. Of its 40 rows, 31 moved:
 | **open abstractions** | an unsealed trait has no bound at all — any subtype anywhere adds values — so the row says `open to implementations (CanModifyP)` | `CanModify`, `CanModifyA`, `CanModifyF`, `CanPut` |
 | **higher-kinded parameters** | `F[_]`/`F[_, _]` name their arity, the way the method side phrases the same gap | `ForgetFold`, `Unfold`, `TraverseTraversal.X` |
 | **`Null` and `Any`** | `Null` is the one value `null`; `Any` is the top of the lattice, which sits at the ε₀ tier — so an `Array[Any]` is the countable space its length makes it | `Slice` became a number (`ω`), `AssocSndZ` narrowed to `Xo` alone |
+| **type constructors** | an alias whose body is a type lambda names a *function* on types: the row is `—` with the `constructor` kind, not a question | `Forget`, `MultiFocus` |
+| **refinements** | a refinement is read as the base type it refines, so `Optic[…] { type X = Xo }` is the open trait it is | `ComposedTraversal`, which now reads `open to implementations (Optic)` |
 
 ## What is still missing, and what would move it
 
 | gap | rows | what it needs |
 |---|---|---|
-| **type lambdas** | `Forget[F]`, `MultiFocus[F]` (2) | β-application of `[X, A] =>> ForgetK[F, X, A]`, and with it the higher-kinded reading of `F` and the in-package transparency of `ForgetK` (an opaque type is transparent where it is defined) |
 | **an inert match type over a free parameter** | `Affine.Hit`, `Affine.Miss`, `ModifyF` (3) | the parametric reading: `Fst[A]` is a number once `A` is a tuple *and* an inert match type when it is not, so the row is a function of the instantiation with a match type in it — this is where a symbolic count would pay off |
-| **a refinement** | `ComposedTraversal` (1) | reading `Optic[...] { type X = Xo }` as the base type plus a member binding; the base type is an unsealed trait here, so the row would then read as open |
 | **a path-dependent member type** | `ComposedTraversal.X` (1) | `type X = af.Z`, a member of another instance: member resolution across frames, not just by name |
 | **a name outside the supplied sources** | `ForgetFold` (1, `Foldable` from cats) | dependency sources supplied to the same report, or a modelled vocabulary; the name is the honest answer until then |
 | **opaque representations** | `Direct`, `ForgetK`, `MultiFocusK` (3) | nothing: `?` outside the defining package is the contract, and the ledger keeps them apart from the gaps |
+
+Two readings the estimate does not meet yet are worth naming without calling them estimate rows:
+*β-application* of a constructor alias (`Forget[F][X, A]`, which no eo definition's stored types
+use — its signatures do) and *opaque transparency* inside the defining package (`ForgetK[F, X, A]`
+is `F[A]` there), both of which the method side's own model reads. They would come back as
+estimate work only if a definition's stored type applied a constructor alias.
 
 The first baseline's other findings still stand as rules, not gaps: a concrete application, a
 sibling file's type and a sealed hierarchy across files are all read now; the plugin fixtures
@@ -61,9 +68,9 @@ is a function of their parameters. Two further steps are possible:
 
 ## Where I would continue
 
-1. **Type lambdas** with opaque transparency: two rows, and it is the last piece of the
-   carrier-alias family.
-2. **Refinements + member types** together: `ComposedTraversal`'s two rows share a cause (a
-   refined `Optic` whose member is another instance's type).
+1. **Path-dependent member types** (`ComposedTraversal.X` is `af.Z`, a member of another
+   instance): member resolution across frames, not by name.
+2. **A name outside the supplied sources** (`Foldable` from cats): dependency sources, or a
+   modelled vocabulary.
 3. **The parametric count** (the decision above) only if templates need to be compared — it is
    the largest piece of work left, and the rows it would move are already classified.

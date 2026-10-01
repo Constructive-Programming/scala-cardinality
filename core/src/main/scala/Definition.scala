@@ -96,6 +96,12 @@ object Definition {
     /** A type alias: names another type, adds no inhabitants of its own. */
     case Alias
 
+    /** A type constructor: an alias whose body is a type lambda (`[X, A] =>> F[X, A]`). A
+      * constructor is not a value space at all — applying it to arguments is — so a row of this
+      * kind has no size to report, which is a shape, not a gap in the calculator.
+      */
+    case Constructor
+
     /** An opaque type: one value outside the scope that defines it. */
     case Opaque
   }

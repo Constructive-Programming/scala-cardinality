@@ -145,6 +145,10 @@ private[cardinality] object Walk {
       measured(scope) { s =>
         introduced(prefix, d, Definition.Kind.Opaque, Some(UnitSize), Counter.defnIn(s)(d), Nil)
       }
+    // A constructor alias names a *function* on types, which has no value space of its own: the
+    // row is a shape, not a question, and applying it is where a size would come from.
+    case d: Defn.Type if d.body.isInstanceOf[Type.Lambda] =>
+      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Constructor, None)))
     // A reference to the alias holds the aliased type's values; the alias itself adds none.
     case d: Defn.Type =>
       measured(scope.withBinders(Counter.binders(d))) { s =>
@@ -209,7 +213,6 @@ private[cardinality] object Walk {
   // text on one line, so that a report row stays a row.
   private[cardinality] def describe(tpe: Type): String = tpe match {
     case name: Type.Name               => name.value
-    case select: Type.Select           => select.name.value
     case applied: Type.Apply           => describe(applied.tpe)
     case infix: Type.ApplyInfix        => infix.op.value
     case annotate: Type.Annotate       => describe(annotate.tpe)
