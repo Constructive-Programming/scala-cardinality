@@ -12,7 +12,7 @@ private[cardinality] object MatchTypes {
   // gives its body with the pattern's binders replaced by the parts of the scrutinee they stood
   // for. The patterns a case can have are the ones a reducer earns: a tuple of binders, a bare
   // binder, a wildcard, and anything else by spelling.
-  private[cardinality] def reduced(matchType: Type, arguments: Map[String, Type]): Option[Type] =
+  private[cardinality] def reduced(matchType: Type, arguments: Map[TypeName, Type]): Option[Type] =
     matchType match {
       case Type.Match(scrutinee, cases) =>
         val known = replace(scrutinee, arguments)
@@ -26,17 +26,17 @@ private[cardinality] object MatchTypes {
   // The bindings a case pattern makes against a scrutinee, or None when it does not match. A
   // pattern variable is written the way Scala 3 spells one — a lowercase name — so `case Int =>`
   // matches a `Int` scrutinee by spelling and `case x =>` binds whatever it is given.
-  private def bindings(pattern: Type, scrutinee: Type): Option[Map[String, Type]] =
+  private def bindings(pattern: Type, scrutinee: Type): Option[Map[TypeName, Type]] =
     pattern match {
       case _: Type.Wildcard                                     => Some(Map.empty)
       case Type.Name(name) if name.headOption.exists(_.isLower) =>
-        Some(Map(name -> scrutinee))
+        Some(Map(TypeName.of(name) -> scrutinee))
       case Type.Tuple(elements) =>
         scrutinee match {
           case Type.Tuple(parts) if parts.size == elements.size =>
             elements
               .zip(parts)
-              .foldLeft(Option(Map.empty[String, Type])) {
+              .foldLeft(Option(Map.empty[TypeName, Type])) {
                 case (bound, (element, part)) =>
                   for {
                     known <- bound
@@ -52,10 +52,13 @@ private[cardinality] object MatchTypes {
     }
 
   // A type with the definition's parameters replaced by the argument types, syntax kept as it is.
-  private def replace(tpe: Type, arguments: Map[String, Type]): Type =
+  private def replace(tpe: Type, arguments: Map[TypeName, Type]): Type =
     if (arguments.isEmpty) tpe
     else
-      tpe.transform { case Type.Name(name) if arguments.contains(name) => arguments(name) } match {
+      tpe.transform {
+        case Type.Name(name) if arguments.contains(TypeName.of(name)) =>
+          arguments(TypeName.of(name))
+      } match {
         case rewritten: Type => rewritten
         case other           => other.asInstanceOf[Type]
       }

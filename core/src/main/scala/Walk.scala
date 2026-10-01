@@ -56,25 +56,25 @@ private[cardinality] object Walk {
 
   // The abstractions a body leaves open. A sealed parent is not one of them: its sum is the sum of
   // the children the body (or the package) defines.
-  private[cardinality] def openNames(stats: List[Stat]): Set[String] =
+  private[cardinality] def openNames(stats: List[Stat]): Set[TypeName] =
     stats.collect {
-      case d: Defn.Trait if !d.mods.exists(_.is[Mod.Sealed]) => d.name.value
+      case d: Defn.Trait if !d.mods.exists(_.is[Mod.Sealed]) => TypeName.of(d.name.value)
       case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) && !d.mods.exists(_.is[Mod.Sealed]) =>
-        d.name.value
+        TypeName.of(d.name.value)
     }.toSet
 
   // The names a body's imports bind. A direct import of a name keeps a reference to it out of the
   // library's hands — the import decides what the name means and the calculator does not follow
   // imports — while a wildcard import binds nothing by name and is left as one of the assumptions
   // `Library` documents.
-  private def imports(stats: List[Stat]): Set[String] =
+  private def imports(stats: List[Stat]): Set[TypeName] =
     stats
       .collect { case i: Import => i.importers }
       .flatten
       .flatMap(_.importees)
       .flatMap {
-        case Importee.Name(name)    => Some(name.value)
-        case Importee.Rename(_, to) => Some(to.value)
+        case Importee.Name(name)    => Some(TypeName.of(name.value))
+        case Importee.Rename(_, to) => Some(TypeName.of(to.value))
         case _                      => None
       }
       .toSet
@@ -85,9 +85,14 @@ private[cardinality] object Walk {
   private def statement(scope: Scope, prefix: List[String], top: Boolean): Stat => Introduced = {
     case p: Pkg =>
       val path = p.ref.syntax.split('.').toList
-      of(p.body.stats, scope.withHome(path), prefix ++ path, top)
+      of(p.body.stats, scope.withHome(TypeName.path(p.ref.syntax)), prefix ++ path, top)
     case p: Pkg.Object =>
-      of(p.templ.body.stats, scope.withHome(prefix :+ p.name.value), prefix :+ p.name.value, top)
+      of(
+        p.templ.body.stats,
+        scope.withHome(prefix.map(TypeName.of) :+ TypeName.of(p.name.value)),
+        prefix :+ p.name.value,
+        top,
+      )
     case d: Defn => defnWalk(scope, prefix, top)(d)
     case _       => Introduced.none
   }
@@ -105,7 +110,11 @@ private[cardinality] object Walk {
       measured(scope.withBinders(Counter.binders(d))) { s =>
         val size = sizeOf(s)(d)
         introduced(prefix, d, Definition.Kind.Class, Some(size), size, s.unbound)
-          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
+          .inside(
+            s.updated(TypeName.of(d.name.value), size),
+            prefix :+ d.name.value,
+            d.templ.body.stats
+          )
       }
     case d: Defn.Trait =>
       abstractRow(scope, prefix, d)
@@ -116,7 +125,11 @@ private[cardinality] object Walk {
       measured(scope.withBinders(Counter.binders(d))) { s =>
         val size = sizeOf(s)(d)
         introduced(prefix, d, Definition.Kind.Enum, Some(size), size, s.unbound)
-          .inside(s.updated(d.name.value, size), prefix :+ d.name.value, d.templ.body.stats)
+          .inside(
+            s.updated(TypeName.of(d.name.value), size),
+            prefix :+ d.name.value,
+            d.templ.body.stats
+          )
       }
     // A module (including a `case object`) is a single instance. It never reads the name from the
     // scope: a companion object shares its name with a type, and the scope keeps the type's value
@@ -184,7 +197,7 @@ private[cardinality] object Walk {
   private def sizeOf(scope: Scope)(d: Defn): Size = d match {
     case t: Defn.Type =>
       val aliased = Counter.typeIn(scope)(t.body)
-      scope.size(t.name.value).getOrElse(aliased)
+      scope.size(TypeName.of(t.name.value)).getOrElse(aliased)
     case other =>
       val measured = Counter.defnIn(scope)(other)
       scope.size(named(other)).getOrElse(measured)
@@ -232,7 +245,7 @@ private[cardinality] object Walk {
       size: Option[Size],
       unbound: List[Definition.Unbound] = Nil,
   ): Definition =
-    Definition((prefix :+ named(d)).mkString("."), kind, params(d), size, unbound, line(d))
+    Definition((prefix :+ named(d).value).mkString("."), kind, params(d), size, unbound, line(d))
 
   // scalameta counts lines from zero; a report points at the line an editor shows.
   private def line(d: Defn): Int = d.pos.startLine + 1
@@ -249,11 +262,11 @@ private[cardinality] object Walk {
   // Values and variables are named by the patterns they bind; every other definition the report
   // lists carries its name directly. `Defn` is not sealed, so the last case stands in for the
   // members the walk never names.
-  private def named(d: Defn): String = d match {
-    case v: Defn.Val => v.pats.map(_.syntax).mkString(", ")
-    case v: Defn.Var => v.pats.map(_.syntax).mkString(", ")
-    case m: Member   => m.name.value
-    case other       => other.syntax
+  private def named(d: Defn): TypeName = d match {
+    case v: Defn.Val => TypeName.of(v.pats.map(_.syntax).mkString(", "))
+    case v: Defn.Var => TypeName.of(v.pats.map(_.syntax).mkString(", "))
+    case m: Member   => TypeName.of(m.name.value)
+    case other       => TypeName.of(other.syntax)
   }
 
   // What a body holds together: what `Counter.source` reports for a source is this walk over its

@@ -26,93 +26,93 @@ import scala.meta.*
   * on, the package it is read in, and the names its bodies import.
   */
 final private[cardinality] case class World(
-    definitions: Map[String, Named] = Map.empty,
-    frames: List[Map[String, Size]] = Nil,
-    active: Set[String] = Set.empty,
+    definitions: Map[TypeName, Named] = Map.empty,
+    frames: List[Map[TypeName, Size]] = Nil,
+    active: Set[TypeName] = Set.empty,
     library: Library = Library.empty,
-    home: List[String] = Nil,
-    imports: Set[String] = Set.empty,
+    home: List[TypeName] = Nil,
+    imports: Set[TypeName] = Set.empty,
     binders: List[Binder] = Nil,
-    open: Set[String] = Set.empty,
+    open: Set[TypeName] = Set.empty,
 )
 
 /** A type parameter a definition declares, with how many parameters it takes itself: `F[_]` has
   * arity one, `F[_, _]` arity two, and a plain `A` none.
   */
-final private[cardinality] case class Binder(name: String, arity: Int) {
+final private[cardinality] case class Binder(name: TypeName, arity: Int) {
 
   def higherKinded: Boolean = arity > 0
 }
 
 final private[cardinality] class Scope(
-    private val values: Map[String, Size],
+    private val values: Map[TypeName, Size],
     private val notes: mutable.LinkedHashSet[Definition.Unbound],
     private val world: World,
 ) {
 
-  private def definitions: Map[String, Named] = world.definitions
+  private def definitions: Map[TypeName, Named] = world.definitions
 
-  private def frames: List[Map[String, Size]] = world.frames
+  private def frames: List[Map[TypeName, Size]] = world.frames
 
-  private def active: Set[String] = world.active
+  private def active: Set[TypeName] = world.active
 
   private def library: Library = world.library
 
-  private def home: List[String] = world.home
+  private def home: List[TypeName] = world.home
 
-  private def imports: Set[String] = world.imports
+  private def imports: Set[TypeName] = world.imports
 
-  private[cardinality] def openNames: Set[String] = world.open
+  private[cardinality] def openNames: Set[TypeName] = world.open
 
-  def size(name: String): Option[Size] = values.get(name)
+  def size(name: TypeName): Option[Size] = values.get(name)
 
-  def contains(name: String): Boolean = values.contains(name)
+  def contains(name: TypeName): Boolean = values.contains(name)
 
-  def apply(name: String): Size = values(name)
+  def apply(name: TypeName): Size = values(name)
 
-  def getOrElse(name: String, default: => Size): Size = values.getOrElse(name, default)
+  def getOrElse(name: TypeName, default: => Size): Size = values.getOrElse(name, default)
 
   /** What a type parameter stands for in the instantiation being read, innermost binder first. */
-  def frame(name: String): Option[Size] = frames.collectFirst(Function.unlift(_.get(name)))
+  def frame(name: TypeName): Option[Size] = frames.collectFirst(Function.unlift(_.get(name)))
 
   /** The definition a name resolves to, so that `C[args]` can be read as an instantiation. */
-  def definition(name: String): Option[Named] = definitions.get(name)
+  def definition(name: TypeName): Option[Named] = definitions.get(name)
 
   /** The value a name has: the file's own, or the library's when the file defines none. A name the
     * body imports is left to the import: the calculator does not follow imports, so a library
     * lookup for it would be a guess at what the import binds.
     */
-  def resolve(name: String): Option[Size] =
+  def resolve(name: TypeName): Option[Size] =
     values.get(name).orElse(if (imported(name)) None else library.value(name, home))
 
   /** The same for a definition the library supplied, with the package frame it was read in. */
-  def libraryDefinition(name: String): Option[(Scope, Named)] =
+  def libraryDefinition(name: TypeName): Option[(Scope, Named)] =
     if (imported(name)) None else library.definition(name, home)
 
-  def imported(name: String): Boolean = imports(name)
+  def imported(name: TypeName): Boolean = imports(name)
 
   /** The names the package the current read is in defines, for the library's own lookups. */
-  def defines(name: String): Boolean = values.contains(name) || definitions.contains(name)
+  def defines(name: TypeName): Boolean = values.contains(name) || definitions.contains(name)
 
-  def definedNames: Set[String] = values.keySet ++ definitions.keySet
+  def definedNames: Set[TypeName] = values.keySet ++ definitions.keySet
 
-  def updated(name: String, size: Size): Scope =
+  def updated(name: TypeName, size: Size): Scope =
     new Scope(values.updated(name, size), notes, world)
 
   /** Names added by the solver's own round, which carries no notes of its own. */
-  def ++(entries: Iterable[(String, Size)]): Scope =
+  def ++(entries: Iterable[(TypeName, Size)]): Scope =
     new Scope(values ++ entries, notes, world)
 
   /** The definitions the bodies now in scope introduce; an inner body shadows an outer name. */
-  def withDefinitions(entries: List[(String, Named)]): Scope =
+  def withDefinitions(entries: List[(TypeName, Named)]): Scope =
     new Scope(values, notes, world.copy(definitions = entries.toMap ++ definitions))
 
   /** The package path a reference is read in, which decides what the library lends it. */
-  def withHome(path: List[String]): Scope =
+  def withHome(path: List[TypeName]): Scope =
     new Scope(values, notes, world.copy(home = path))
 
   /** The names a body imports; an inner import shadows an outer name for the whole body. */
-  def withImports(names: Set[String]): Scope =
+  def withImports(names: Set[TypeName]): Scope =
     new Scope(values, notes, world.copy(imports = imports ++ names))
 
   /** The type parameters a definition declares, in scope while its body and its own row are read.
@@ -123,7 +123,7 @@ final private[cardinality] class Scope(
   /** The abstractions a body leaves open — unsealed traits and abstract classes — so that a
     * reference to one is reported as unbounded rather than as an unknown name.
     */
-  def withOpen(names: Set[String]): Scope =
+  def withOpen(names: Set[TypeName]): Scope =
     new Scope(values, notes, world.copy(open = names ++ world.open))
 
   /** The definitions of other sources this read can lean on. */
@@ -144,16 +144,16 @@ final private[cardinality] class Scope(
   /** Reading one instantiation of a definition: its parameters bound to what the arguments are
     * worth, innermost frame first.
     */
-  def instantiated(frame: Map[String, Size]): Scope =
+  def instantiated(frame: Map[TypeName, Size]): Scope =
     new Scope(values, notes, world.copy(frames = frame :: frames))
 
   /** Marking a name whose substitution is in progress, so a cycle through an applied reference
     * terminates the way a cycle through a bare name does.
     */
-  def substituting(name: String): Scope =
+  def substituting(name: TypeName): Scope =
     new Scope(values, notes, world.copy(active = active + name))
 
-  def isSubstituting(name: String): Boolean = active(name)
+  def isSubstituting(name: TypeName): Boolean = active(name)
 
   /** The same names with a fresh record of unresolved ones. */
   def measured: Scope =
@@ -175,25 +175,25 @@ final private[cardinality] class Scope(
   // itself when it is neither.
   private def reason(tpe: Type): Definition.Unbound = tpe match {
     case Type.Name(name) =>
-      binder(name)
-        .orElse(open(name))
+      binder(TypeName.of(name))
+        .orElse(open(TypeName.of(name)))
         .getOrElse(Definition.Unbound.Unknown(name))
     case other => Definition.Unbound.Syntax(Walk.describe(other))
   }
 
   // The binder a name stands for, when a definition in scope declares it.
-  private def binder(name: String): Option[Definition.Unbound] =
+  private def binder(name: TypeName): Option[Definition.Unbound] =
     world.binders
       .find(_.name == name)
       .map(binder =>
-        if (binder.higherKinded) Definition.Unbound.HigherKinded(name, binder.arity)
-        else Definition.Unbound.Parameter(name)
+        if (binder.higherKinded) Definition.Unbound.HigherKinded(name.value, binder.arity)
+        else Definition.Unbound.Parameter(name.value)
       )
 
   // An unsealed abstraction: any subtype anywhere may add values, so a reference to it has no
   // bound at all — the bodies in scope know their own, and the library knows its packages'.
-  private def open(name: String): Option[Definition.Unbound] =
-    if (openNames(name) || library.open(name)) Some(Definition.Unbound.Open(name)) else None
+  private def open(name: TypeName): Option[Definition.Unbound] =
+    if (openNames(name) || library.open(name)) Some(Definition.Unbound.Open(name.value)) else None
 
 }
 
@@ -207,10 +207,10 @@ private[cardinality] object Scope {
   * is worth with those parameters in scope.
   */
 final private[cardinality] case class Named(
-    params: List[String],
+    params: List[TypeName],
     equation: Scope => Size,
     matchType: Option[Type] = None,
-    children: List[String] = Nil
+    children: List[TypeName] = Nil
 )
 
 /** The definitions the other supplied sources introduce, so that a reference can leave the file it
@@ -228,25 +228,28 @@ final private[cardinality] case class Named(
   * sibling file's names, and a sealed hierarchy that spans files sums as a whole.
   */
 final class Library private[cardinality] (
-    private val packages: Map[List[String], Scope],
-    private val unique: Map[String, Scope]
+    private val packages: Map[List[TypeName], Scope],
+    private val unique: Map[TypeName, Scope]
 ) {
 
   /** The value a name defined outside the file being read has, when the library defines it. */
-  private[cardinality] def value(name: String, home: List[String]): Option[Size] =
+  private[cardinality] def value(name: TypeName, home: List[TypeName]): Option[Size] =
     frame(name, home).flatMap(_.size(name))
 
   /** The definition such a name resolves to, with the package it was read in. */
-  private[cardinality] def definition(name: String, home: List[String]): Option[(Scope, Named)] =
+  private[cardinality] def definition(
+      name: TypeName,
+      home: List[TypeName]
+  ): Option[(Scope, Named)] =
     frame(name, home).flatMap(pkg => pkg.definition(name).map(pkg -> _))
 
   /** Whether some package of the source set defines the name as an open abstraction. */
-  private[cardinality] def open(name: String): Boolean = packages.values.exists(_.openNames(name))
+  private[cardinality] def open(name: TypeName): Boolean = packages.values.exists(_.openNames(name))
 
   // The package a name read in `home` resolves to: its own when it defines the name — package
   // members are in scope without an import — else the one package across the source set that
   // does, which is the shape an import of a single name has.
-  private def frame(name: String, home: List[String]): Option[Scope] =
+  private def frame(name: TypeName, home: List[TypeName]): Option[Scope] =
     packages.get(home).filter(_.defines(name)).orElse(unique.get(name).filter(_.defines(name)))
 
 }
@@ -279,18 +282,19 @@ object Library {
 
   // A source's statements grouped by the package they are read in, nested packages flattened to
   // the path an editor shows (`package a` then `package b` is `a.b`).
-  private def packageStatements(sources: List[Source]): List[(List[String], List[Stat])] =
-    sources.flatMap(source => packageStatements(source.stats, Nil))
+  private def packageStatements(sources: List[Source]): List[(List[TypeName], List[Stat])] =
+    sources.flatMap(source => packageStatements(source.stats, List.empty[TypeName]))
 
   private def packageStatements(
       stats: List[Stat],
-      prefix: List[String]
-  ): List[(List[String], List[Stat])] = {
+      prefix: List[TypeName]
+  ): List[(List[TypeName], List[Stat])] = {
     val direct = stats.filterNot(st => st.is[Pkg] || st.is[Pkg.Object])
     val nested = stats.flatMap {
-      case p: Pkg        => packageStatements(p.body.stats, prefix ++ p.ref.syntax.split('.'))
-      case p: Pkg.Object => packageStatements(p.templ.body.stats, prefix :+ p.name.value)
-      case _             => Nil
+      case p: Pkg        => packageStatements(p.body.stats, prefix ++ TypeName.path(p.ref.syntax))
+      case p: Pkg.Object =>
+        packageStatements(p.templ.body.stats, prefix :+ TypeName.of(p.name.value))
+      case _ => Nil
     }
     (prefix -> direct) :: nested
   }
