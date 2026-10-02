@@ -4,8 +4,8 @@
     {
       "quality_gates": "clean_code_collective",
       "quality_gates_doc": "Our Scala sources must hold a healthy Code Health: no decline on hotspots, no new complexity or cohesion violations. This is the research-backed profile (Code Red), matching the standard the sister project `eo` holds itself to.",
-      "matching_content_path": "src/**",
-      "matching_content_path_doc": "The code we own and review."
+      "matching_content_path": "**/src/**",
+      "matching_content_path_doc": "The code we own and review: the `core` and `plugin` modules' sources."
     },
     {
       "quality_gates": "bare_minimum",

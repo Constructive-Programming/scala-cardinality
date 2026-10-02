@@ -1,3 +1,5 @@
+package cardinality
+
 import cats.kernel.Order
 
 /** How many values a type can hold: a natural-sum polynomial over three tiers.
@@ -64,6 +66,16 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
 
   def min(other: Size): Size = Size.order.min(self, other)
 
+  /** How many values this size holds, written the way a report reads it: exact counts as digits,
+    * capacities as the power of two that bounds them, and `ω` (countable) or `ε₀` for the two
+    * infinite tiers.
+    *
+    * `toString` names the algebra's constructors (`TinySize(2)`), which is what a failing test
+    * wants to read; `render` speaks the report's language (`2^33`, `2ε₀ + ω + 3`). A capacity is a
+    * bound, not a count, so it never renders as the digits it might stand for.
+    */
+  def render: String = Size.render(self)
+
   /** No values at all. */
   def isZero: Boolean = epsilon == 0 && omega == 0 && finite.isZero
 
@@ -126,6 +138,22 @@ object Size {
     * Illegal cardinalities (0) report 0, which keeps the finite coordinate total.
     */
   def bits(cardinality: BigInt): Int = (cardinality - 1).bitLength
+
+  /** The report's rendering of a size: exact counts as digits, capacities as the power of two that
+    * bounds them, floating-point stand-ins marked lossy, and the tiers as `ε₀` and `ω`. Zero terms
+    * drop out, so `NothingSize` renders as `0` and a bare tier as `ω` or `ε₀`.
+    */
+  def render(size: Size): String = {
+    val terms = List(
+      coefficient(size.epsilon, "ε₀"),
+      coefficient(size.omega, "ω"),
+      FinitePart.render(size.finite)
+    ).filter(_.nonEmpty)
+    if (terms.isEmpty) "0" else terms.mkString(" + ")
+  }
+
+  private def coefficient(value: BigInt, tier: String): String =
+    if (value == 0) "" else if (value == 1) tier else s"$value$tier"
 
   /** A size of whole tiers with nothing finite: `a·ε₀ + b·ω`. */
   def tiers(epsilon: BigInt, omega: BigInt): Size = Size(epsilon, omega, FinitePart.Zero)
@@ -278,6 +306,17 @@ object FinitePart {
   /** An exact count when it fits a byte, a rounded capacity above that. */
   def exact(cardinality: BigInt): FinitePart =
     if (cardinality.isValidByte) Exact(cardinality) else Capacity(Size.bits(cardinality))
+
+  /** The report's rendering of the finite coordinate: an exact count as the digits it is, a
+    * capacity as the power of two that bounds it, and a lossy stand-in as the width it was held in.
+    * The zero part renders as nothing, so a size that is all tiers prints without a trailing `+ 0`
+    * and a size that is entirely zero falls to `Size.render`'s own `0`.
+    */
+  def render(part: FinitePart): String = part match {
+    case Exact(repr)    => if (repr == 0) "" else repr.toString
+    case Capacity(bits) => s"2^$bits"
+    case Lossy(bits)    => s"2^$bits (lossy)"
+  }
 
 }
 

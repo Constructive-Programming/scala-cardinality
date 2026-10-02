@@ -48,7 +48,7 @@ finite and empty boundary cases.
 These are examples, not `mdoc` fences: this build cannot run `mdoc` (see
 [the plugin notes](https://github.com/constructive-programming/scala-cardinality/blob/main/project/plugins.sbt)).
 The behaviour they show is pinned by
-[`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/src/test/scala/ArticleCardinalitySpec.scala)
+[`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/ArticleCardinalitySpec.scala)
 instead, which fails when a count changes.
 
 ## Where to go next
@@ -56,6 +56,9 @@ instead, which fails when a count changes.
 - [Type arithmetic](type-arithmetic.md) — the rules behind those numbers, condensed from
   Alex Knvl's *Counting type inhabitants*, together with the calculator's current limits
   and the tests that pin each rule down.
+- [Counting type inhabitants](counting-type-inhabitants.md) — the reference the method and
+  constructor counts are validated against, and the worked examples
+  `ReferenceInhabitantsSpec` runs.
 - [Source, tests and quality gates](https://github.com/constructive-programming/scala-cardinality)
   — the README documents the toolchain (`scalafmt`, `scalafix`, scoverage, stryker4s,
   CodeScene) and how to run it.

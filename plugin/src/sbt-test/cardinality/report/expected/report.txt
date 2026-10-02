@@ -1,0 +1,34 @@
+Generic method / constructor implementation cardinalities
+  6 signatures: 1 finite · 0 countably infinite · 5 unresolved
+  2 unresolved on: abstract type or method-valued representation
+  2 unresolved on: unresolved type
+  1 unresolved on: unsupported type
+
+4  example.Custom.<init>  Custom(on: Boolean)  Light.scala:5  [constructor]
+?  example.Holder.<init>  Holder[A](value: A, count: Int)  Light.scala:11  [constructor]
+    unresolved: unresolved type: Int
+?  example.Cursor.<init>  Cursor(at: Nat, open: Boolean)  Light.scala:16  [constructor]
+    unresolved: abstract type or method-valued representation: example.Nat
+?  example.Timeline.<init>  Timeline(head: Boolean, tail: => Timeline)  Light.scala:18  [constructor]
+    unresolved: unsupported type: => Timeline
+?  example.Reducer.<init>  Reducer(run: String => String)  Light.scala:20  [constructor]
+    unresolved: unresolved type: String
+?  example.Succ.<init>  Succ(n: Nat)  Natural.scala:7  [constructor]
+    unresolved: abstract type or method-valued representation: example.Nat
+scala-cardinality — 2 sources, 11 definitions
+  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+  ?: no single number here — the reason after the row says what would give one
+  1 unresolved · 1 instantiation-dependent · 7 with more than one value · 2 with one value
+Stored-value estimates (constructor inputs; `?` = unresolved)
+
+?  example.Holder[A]  class     Light.scala:11  depends on its instantiation (A)
+?  example.Reducer    class     Light.scala:20  unresolved: String
+ω  example.Cursor     class     Light.scala:16
+ω  example.Nat        abstract  Natural.scala:5
+ω  example.Succ       class     Natural.scala:7
+ω  example.Timeline   class     Light.scala:18
+3  example.Light      abstract  Light.scala:3
+2  example.Custom     class     Light.scala:5
+2  example.Mode       enum      Light.scala:7
+1  example.Red        object    Light.scala:4
+1  example.Zero       object    Natural.scala:6

@@ -1,0 +1,3543 @@
+{
+ "target": {
+  "title": "On Some Difficulties in the Theory of Transfinite Numbers and Order Types",
+  "author": "Bertrand Russell",
+  "doi": "10.1112/plms/s2-4.1.29",
+  "venue": "Proceedings of the London Mathematical Society, series 2, volume 4, pp. 29-53",
+  "publisher_year": 1907
+ },
+ "retrieved": "2026-09-28",
+ "provenance": {
+  "openalex": "https://api.openalex.org/works?filter=cites:W2143162796 (2 cursor pages, per-page 200)",
+  "semantic_scholar": "https://api.semanticscholar.org/graph/v1/paper/6a8e5460f95b92c81c264e94dbffe4d3b1ed904c/citations (1 page, limit 1000)",
+  "crossref": "https://api.crossref.org/works/10.1112/plms/s2-4.1.29 (count only; no citing list exposed)"
+ },
+ "coverage": {
+  "openalex_records": 301,
+  "semantic_scholar_records": 212,
+  "crossref_citation_count_not_listed": 70,
+  "conservative_union_records": 376,
+  "in_both_indexes": 132,
+  "openalex_only": 169,
+  "semantic_scholar_only": 75,
+  "verification": "database-reported citations only; none independently bibliography-verified; titles are the sole classification basis unless noted"
+ },
+ "citing_works": [
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0015",
+   "title": "Basic cardinal arithmetic",
+   "year": 2004,
+   "class": "cardinality-and-order",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0014",
+   "title": "Cardinals",
+   "year": 2004,
+   "class": "cardinality-and-order",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0022",
+   "title": "Further cardinal arithmetic",
+   "year": 2004,
+   "class": "cardinality-and-order",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0017",
+   "title": "Ordinal arithmetic",
+   "year": 2004,
+   "class": "cardinality-and-order",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0016",
+   "title": "Ordinals",
+   "year": 2004,
+   "class": "cardinality-and-order",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.2989/qm.2008.31.2.6.478",
+   "title": "An Independence Result Concerning Russell-Cardinals",
+   "year": 2008,
+   "class": "cardinality-and-order",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/s1755020312000019",
+   "title": "TRANSFINITE CARDINALS IN PARACONSISTENT SET THEORY",
+   "year": 2012,
+   "class": "cardinality-and-order",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/s1755020318000230",
+   "title": "DEDUCTIVE CARDINALITY RESULTS AND NUISANCE-LIKE PRINCIPLES",
+   "year": 2021,
+   "class": "cardinality-and-order",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1086/287617",
+   "title": "The Burali-Forti Paradox",
+   "year": 1958,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/bf00650491",
+   "title": "Bertrand Russell on his paradox and the multiplicative axiom. An unpublished letter to Philip Jourdain",
+   "year": 1972,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-94-010-2718-2_1",
+   "title": "Set theory from Cantor to Cohen",
+   "year": 1972,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1016/0315-0860(85)90043-6",
+   "title": "The emergence of some of the nonlogical paradoxes of the theory of sets, 1903\u20131908",
+   "year": 1985,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1305/ndjfl/1093635502",
+   "title": "The dual Cantor-Bernstein theorem and the partition principle.",
+   "year": 1990,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1086/psaprocbienmeetp.1994.2.192932",
+   "title": "Poincar\u00e9, Richard's Paradox and Indefinite Extensibility",
+   "year": 1994,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/mind/103.409.25",
+   "title": "The Structure of the Paradoxes of Self-Reference",
+   "year": 1994,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.2307/421046",
+   "title": "The Mathematical Development of Set Theory from Cantor to Cohen",
+   "year": 1996,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0007",
+   "title": "Kant\u2019s antinomies",
+   "year": 2002,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1111/j.1755-2567.2004.tb00979.x",
+   "title": "From Russell's Paradox to the Theory of Judgement: Wittgenstein and Russell on the Unity of the Proposition",
+   "year": 2004,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.3917/rip.229.0257",
+   "title": "Russell's Separation of the Logical and Semantic Paradoxes",
+   "year": 2004,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/0-387-28272-6_10",
+   "title": "The Battle for Cantorian Set Theory",
+   "year": 2005,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.11606/d.8.2006.tde-07082006-142217",
+   "title": "\"A filosofia de Henri Poincar\u00e9: a natureza do conhecimento cient\u00edfico e os paradoxos da teoria dos conjuntos\"",
+   "year": 2006,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/s11229-006-9109-x",
+   "title": "The inclosure scheme and the solution to the paradoxes of self-reference",
+   "year": 2006,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.47749/t/unicamp.2008.425138",
+   "title": "O infinito de George Cantor",
+   "year": 2008,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.26686/ajl.v9i0.1818",
+   "title": "Cantor\u2019s Proof in the Full Definable Universe",
+   "year": 2010,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-94-007-1476-2_4",
+   "title": "Paradoxes of Self-Reference",
+   "year": 2010,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/00048402.2011.628324",
+   "title": "Definability and the Structure of Logical Paradoxes",
+   "year": 2011,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11229-011-0047-x",
+   "title": "Logic of paradoxes in classical set theories",
+   "year": 2011,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-94-007-0214-1_9",
+   "title": "Paradox, ZF, and the Axiom of Foundation",
+   "year": 2011,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.4216/jpssj.46.1-17",
+   "title": "Russell\u2019s Paradox and the Theory of Propositional Functions in The Principles of Mathematics",
+   "year": 2012,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1016/b978-0-444-51621-3.50001-3",
+   "title": "Set Theory from Cantor to Cohen",
+   "year": 2012,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/philmat/nks027",
+   "title": "Zermelo and Russell's Paradox: Is There a Universal set?",
+   "year": 2012,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.71548/15752",
+   "title": "DIAGONALIZATION AND LOGICAL PARADOXES",
+   "year": 2013,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "DIAGONALIZATION AND LOGICAL PARADOXES",
+   "year": 2013,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.4288/kisoron.41.1_23",
+   "title": "Russell's Paradox and the Theory of Classes in The Principles of Mathematics",
+   "year": 2013,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11098-013-0165-z",
+   "title": "The paradoxes and Russell\u2019s theory of incomplete symbols",
+   "year": 2013,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1387/theoria.6397",
+   "title": "Eliminating Self-Reference from Grelling's and Zwicker's Paradoxes",
+   "year": 2014,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Chapter 10 Absoluteness and the Skolem Paradox",
+   "year": 2015,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1016/j.hm.2015.07.003",
+   "title": "In the footsteps of Julius K\u00f6nig's paradox",
+   "year": 2015,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.7203/qfia.2.2.7083",
+   "title": "Les paradoxes i la filosofia: tres visions contempor\u00e0nies",
+   "year": 2015,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/s10992-015-9375-5",
+   "title": "Predicativity, the Russell-Myhill Paradox, and Church\u2019s Intensional Logic",
+   "year": 2015,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s10516-015-9267-x",
+   "title": "Science Generates Limit Paradoxes",
+   "year": 2015,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.4000/books.pup.53600",
+   "title": "G\u00f6del and the Paradox in Max Phil X",
+   "year": 2016,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/01445340.2016.1247322",
+   "title": "Rescuing Poincar\u00e9 from Richard\u2019s Paradox",
+   "year": 2016,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.14275/2465-2334/20163.lun",
+   "title": "Russellian diagonal arguments and other logico-mathematical tools in metaphysics",
+   "year": 2016,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1215/00318108-3516956",
+   "title": "The Paradox of Sufficient Reason",
+   "year": 2016,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Quantification and Paradox",
+   "year": 2018,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s10992-019-09500-4",
+   "title": "Burali-Forti as a Purely Logical Paradox",
+   "year": 2019,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/01445340.2020.1731784",
+   "title": "Hobson\u2019s Conception of Definable Numbers",
+   "year": 2020,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s10699-020-09689-7",
+   "title": "Russell\u2019s Paradox and Free Zig Zag Solutions",
+   "year": 2020,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11229-021-03353-8",
+   "title": "A paradox about sets of properties",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.005",
+   "title": "How to Face the Paradoxes?",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Logic of paradoxes in classical set theories",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.016",
+   "title": "Ordinary Paradox",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135",
+   "title": "Paradoxes and Inconsistent Mathematics",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.019",
+   "title": "Paradoxes and Inconsistent Mathematics: Backmatter",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.017",
+   "title": "Paradoxes and Inconsistent Mathematics: Bibliography",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.018",
+   "title": "Paradoxes and Inconsistent Mathematics: Index",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.001",
+   "title": "Paradoxes and Inconsistent Mathematics: Preface",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.004",
+   "title": "Paradoxes; or, \u201cHere in the Presence of an\n Absurdity\u201d",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.002",
+   "title": "What Are the Paradoxes?",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.009",
+   "title": "Where Are the Paradoxes?",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.015",
+   "title": "Why Are There Paradoxes?",
+   "year": 2021,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.46938/tv.2023.605",
+   "title": "Cantor\u016fv diagon\u00e1ln\u00ed d\u016fkaz",
+   "year": 2023,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Natural constructive proofs of A via A -> B, proof paradoxes, and impredicativity",
+   "year": 2023,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-031-52411-0_20",
+   "title": "Natural Constructive Proofs of $$A$$ via $$A \\rightarrow B$$, Proof Paradoxes, and Impredicativity",
+   "year": 2024,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-031-74527-0_5",
+   "title": "Paradoxes, Contradictions and Circularity",
+   "year": 2024,
+   "class": "definability-and-paradox",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.30827/trif.35949",
+   "title": "A Neglected Way Out of Russell's Paradox",
+   "year": 2026,
+   "class": "definability-and-paradox",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "10 All Things Indefinitely Extensible",
+   "year": null,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Iteration and Dependence Again *",
+   "year": null,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1201/b10646-7",
+   "title": "Arithmetic",
+   "year": 1892,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1177/002205741207602102",
+   "title": "Possibility",
+   "year": 1912,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1111/j.1528-1157.1913.tb03081.x",
+   "title": "BIBLIOGRAPHIE.",
+   "year": 1913,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-322-85943-3_18",
+   "title": "Bibliographie",
+   "year": 1973,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1016/s0049-237x(08)70338-0",
+   "title": "Bibliography",
+   "year": 1973,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1016/s0049-237x(08)71767-1",
+   "title": "References",
+   "year": 1973,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1016/s0049-237x(08)71785-3",
+   "title": "Bibliography",
+   "year": 1974,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/bf01261869",
+   "title": "Groups with restricted non-normal subgroups",
+   "year": 1981,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1016/s0049-237x(08)70308-2",
+   "title": "Bibliography",
+   "year": 1985,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.2307/3618959",
+   "title": "Real Analysis",
+   "year": 1988,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.3109/08039488809094945",
+   "title": "The theory of logical types - a cul-de-sac in communication theory",
+   "year": 1988,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Real Analysis and Probability",
+   "year": 1989,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/mind/c.399.361",
+   "title": "The Limits of Thought\u2014and Beyond",
+   "year": 1991,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.2307/2274911",
+   "title": "Where do sets come from?",
+   "year": 1991,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1016/s0049-237x(08)70025-9",
+   "title": "Bibliography",
+   "year": 1992,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/bf00869428",
+   "title": "On Carnap: Reflections of a metaphysical student",
+   "year": 1992,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/aristoteliansupp/67.1.213",
+   "title": "Basic Law (V)",
+   "year": 1993,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Homomorphisms of infinite directed graphs",
+   "year": 1994,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Homomorphisms of infinite directed graphs",
+   "year": 1994,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-94-009-1575-6_10",
+   "title": "Hilbert and Logic",
+   "year": 1995,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-476-98727-3_2",
+   "title": "I",
+   "year": 1995,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-94-009-1575-6_11",
+   "title": "Kronecker\u2019s \u2018Safe Haven of Real Mathematics\u2019",
+   "year": 1996,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1305/ndjfl/1039700745",
+   "title": "Cumulative versus Noncumulative Ramified Types",
+   "year": 1997,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/bf02914157",
+   "title": "Alexandre Koyr\u00e9 im \u201cMekka der Mathematik\u201d",
+   "year": 1999,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1142/9789813237629_0018",
+   "title": "Concluding Remarks",
+   "year": 2001,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0009",
+   "title": "Absolute infinity",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.001.0001",
+   "title": "Beyond the Limits of Thought",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0001",
+   "title": "Beyond the limit",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0016",
+   "title": "Conclusion",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0015",
+   "title": "Consciousness, rules, anddiff\u00e9rance",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.002.0003",
+   "title": "Copyright Page",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.002.0005",
+   "title": "Dedication",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.002.0004",
+   "title": "Epigraph",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0019",
+   "title": "Further reflections",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0008",
+   "title": "Hegel\u2019s infinities",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0017",
+   "title": "Heidegger and the grammar of being",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.002.0006",
+   "title": "Illustration",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0006",
+   "title": "Noumena and the categories",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0018",
+   "title": "N\u0101g\u0101rjuna and the limits of thought",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0011",
+   "title": "Parameterisation",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.002.0008",
+   "title": "Preface to the First Edition",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.002.0009",
+   "title": "Preface to the Second Edition",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0012",
+   "title": "Sets and classes",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0004",
+   "title": "The Limits of Cognition",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0005",
+   "title": "The limits of conception",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0002",
+   "title": "The limits of expression",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0003",
+   "title": "The limits of iteration",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0013",
+   "title": "The unity of thought",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0014",
+   "title": "Translation, reference, and truth",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199254057.003.0010",
+   "title": "Vicious Circles",
+   "year": 2002,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.007",
+   "title": "Bergson",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.069",
+   "title": "Bibliography",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.029",
+   "title": "Form and feeling: aesthetics at the turn of the century",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.001",
+   "title": "Frontmatter",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.056",
+   "title": "Gestalt psychology",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.005",
+   "title": "Idealism in Britain and the United States",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.002",
+   "title": "Introduction",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.025",
+   "title": "Legal theory",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.011",
+   "title": "Logic: revival and reform",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.004",
+   "title": "Neo-Kantianism: the German idealism movement",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.021",
+   "title": "Nietzsche",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.008",
+   "title": "Pragmatism",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.037",
+   "title": "Realism, naturalism, and pragmatism",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.044",
+   "title": "Sensible appearances",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.033",
+   "title": "The achievements of the Polish school of logic",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.015",
+   "title": "The atomism debate",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.035",
+   "title": "The continuing idealist tradition",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.050",
+   "title": "The golden age of mathematical logic",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.014",
+   "title": "The logical analysis of language",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.058",
+   "title": "The methodology of the social sciences",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.053",
+   "title": "The rise of probabilistic thinking",
+   "year": 2003,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0008",
+   "title": "Arithmetic",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.005.0002",
+   "title": "Classes",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0003",
+   "title": "Collections",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0006",
+   "title": "Conclusion to Part I",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0012",
+   "title": "Conclusion to Part II",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0018",
+   "title": "Conclusion to Part III",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0023",
+   "title": "Conclusion to Part IV",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.002.0003",
+   "title": "Copyright Page",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0009",
+   "title": "Counting",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0001",
+   "title": "Introduction to Part I",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0007",
+   "title": "Introduction to Part II",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0013",
+   "title": "Introduction to Part III",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0019",
+   "title": "Introduction to Part IV",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0010",
+   "title": "Lines",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0002",
+   "title": "Logic",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0020",
+   "title": "Orders of infinity",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.002.0004",
+   "title": "Preface",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0011",
+   "title": "Real numbers",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.005.0003",
+   "title": "Sets and classes",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0004",
+   "title": "The hierarchy",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0005",
+   "title": "The theory of sets",
+   "year": 2004,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.4000/philosophiascientiae.333",
+   "title": "Identity and Categorification",
+   "year": 2005,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/philmat/nki025",
+   "title": "What Is Wrong with Abstraction?\u2020",
+   "year": 2005,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/oso/9780199276424.003.0010",
+   "title": "All Things Indefinitely Extensible",
+   "year": 2006,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "All Things Indefinitely Extensible",
+   "year": 2006,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Mathematical continua & the intuitive idea of continuity",
+   "year": 2006,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/philmat/nkm036",
+   "title": "Abstraction and Additional Nature",
+   "year": 2007,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-1-4020-4265-2",
+   "title": "The Arch\u00e9 Papers on the Mathematics of Abstraction",
+   "year": 2007,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Abstractionist class theory: Is there any such thing?",
+   "year": 2009,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/00048400902964283",
+   "title": "Explanation And Solution In The Inclosure Argument",
+   "year": 2009,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11225-009-9194-1",
+   "title": "What is a Truth Value And How Many Are There?",
+   "year": 2009,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/mind/fzq071",
+   "title": "A Paraconsistent Model of Vagueness",
+   "year": 2010,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Categories and Logical Syntax",
+   "year": 2010,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11245-009-9066-3",
+   "title": "How Mathematical Concepts Get Their Bodies",
+   "year": 2010,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "THE EARLY CAREER OF G.H. HARDY",
+   "year": 2010,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "THE EARLY CAREER OF G.H. HARDY",
+   "year": 2010,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.002.0006",
+   "title": "Abbreviations",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0007",
+   "title": "Acquaintance",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.002.0007",
+   "title": "Concordance: Reprints of Journal Articles",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.002.0003",
+   "title": "Copyright Page",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1080/00048402.2012.683014",
+   "title": "Definition Inclosed: A Reply to Zhong",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0001",
+   "title": "Elementary Logic",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0015",
+   "title": "Epilogue",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0014",
+   "title": "Facts",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0009",
+   "title": "Logical Constructions (i): Matter",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0010",
+   "title": "Logical Constructions (ii): Minds",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0003",
+   "title": "On Denoting",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.002.0005",
+   "title": "Preface",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0006",
+   "title": "Problems",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0012",
+   "title": "Propositions",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/philmat/nks029",
+   "title": "Sir Michael Anthony Eardley Dummett, 1925-2011",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0002",
+   "title": "The Contradiction (i): The Problem",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0004",
+   "title": "The Contradiction (ii): A Simple Solution",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0005",
+   "title": "The Contradiction (iii): A Ramified Solution",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0011",
+   "title": "The Demise of Neutral Monism",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0013",
+   "title": "Universals",
+   "year": 2012,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_9",
+   "title": "Categories Versus Structures",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_2",
+   "title": "Euclid: Doing and Showing",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_3",
+   "title": "Hilbert: Making It Formal",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_8",
+   "title": "How Mathematical Concepts Get Their Bodies",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_7",
+   "title": "Identity Through Change, Category Theory and Homotopy Theory",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_6",
+   "title": "Identity in Classical and Constructive Mathematics",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11225-013-9532-1",
+   "title": "Indefinite Extensibility\u2014Dialetheic Style",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_1",
+   "title": "Introduction",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_5",
+   "title": "Lawvere: Pursuit of Objectivity",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/bf03356604",
+   "title": "Poincar\u00e9 su Logica e fondamenti",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/s10992-013-9278-2",
+   "title": "Sets and Plural Comprehension",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.15173/russell.v33i1.2238",
+   "title": "Substitution\u2019s Unsolved \u201cInsolubilia\u201d",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/philmat/nks035",
+   "title": "Variable, Structure, and Restricted Generality",
+   "year": 2013,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s10992-014-9327-5",
+   "title": "A Disquotational Theory of Truth as Strong as Z 2 \u2212 $Z_{2}^{-}$",
+   "year": 2014,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Ivor Grattan-Guinness",
+   "year": 2014,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/bsl.2015.3",
+   "title": "2014 EUROPEAN SUMMER MEETING OF THE ASSOCIATION FOR SYMBOLIC LOGIC LOGIC COLLOQUIUM \u201914 Vienna, AUSTRIA July 14\u201319, 2014",
+   "year": 2015,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-94-017-9673-6_1",
+   "title": "Introduction",
+   "year": 2015,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/s175502031600006x",
+   "title": "EMBRACING THE TECHNICALITIES: EXPRESSIVE COMPLETENESS AND REVENGE",
+   "year": 2016,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1215/00318108-3683622",
+   "title": "Quantifier Variance and Indefinite Extensibility",
+   "year": 2016,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1111/1746-8361.12193",
+   "title": "A Modal Account of Propositions",
+   "year": 2017,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11098-017-1022-2",
+   "title": "Classes, why and how",
+   "year": 2017,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-63334-3_11",
+   "title": "Feferman and the Truth",
+   "year": 2017,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Ontological Systems In Cognition",
+   "year": 2017,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11098-018-1146-z",
+   "title": "Against the iterative conception of set",
+   "year": 2018,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1111/phis.12122",
+   "title": "DUMMETT ON INDEFINITE EXTENSIBILITY",
+   "year": 2018,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1142/9789811202582_0001",
+   "title": "Algebra",
+   "year": 2019,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-030-25365-3_26",
+   "title": "At the Limits of Thought",
+   "year": 2019,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1016/j.biosystems.2019.104063",
+   "title": "Contrasting theories of life: Historical context, current theories. In search of an ideal theory",
+   "year": 2019,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s10992-019-09515-x",
+   "title": "Modal Expansionism",
+   "year": 2019,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1561/2500000045",
+   "title": "QED at Large: A Survey of Engineering of Formally Verified Software",
+   "year": 2019,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1016/j.indag.2019.01.004",
+   "title": "The scope of Feferman\u2019s semi-intuitionistic set theories and his second conjecture",
+   "year": 2019,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1002/9781119563549.ch5",
+   "title": "Topology",
+   "year": 2019,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.3917/puf.prade.2020.01.0523",
+   "title": "Bibliographie",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.010",
+   "title": "Bibliography",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.004",
+   "title": "Challenges to the Iterative Conception",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.002",
+   "title": "Concepts and Conceptions",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.009",
+   "title": "Concluding Remarks",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.011",
+   "title": "Index",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-030-43161-7_10",
+   "title": "Narration and Fuzzy Logic",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.001",
+   "title": "Preface",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/oso/9780199278343.003.0014",
+   "title": "Replies to Part III Logical Revisionism",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/s11098-020-01579-9",
+   "title": "Sets, lies, and analogy: a new methodological take",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.008",
+   "title": "The Graph Conception",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.003",
+   "title": "The Iterative Conception",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.006",
+   "title": "The Limitation of Size Conception",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/00048402.2020.1822894",
+   "title": "The Metasemantics of Indefinite Extensibility",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.005",
+   "title": "The Na\u00efve Conception",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961.007",
+   "title": "The Stratified Conception",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "The scope of Feferman\u2019s semi-intutionistic set theories and his second conjecture",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/jigpal/jzaa006",
+   "title": "When Curry met Abel",
+   "year": 2020,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "A CRITIQUE OF \u2018ON THE VASTNESS OF NATURAL LANGUAGES\u2019 BY LANGENDOEN AND POSTAL",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.006",
+   "title": "In Search of a Uniform Solution",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.003",
+   "title": "Introduction to an Inconsistent World3",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-030-64953-1_4",
+   "title": "Mathematical Knowledge and Mathematical Objects",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.007",
+   "title": "Metatheory and Naive Theory",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/00048402.2021.1931377",
+   "title": "Ontology and Arbitrariness",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-030-88534-2_10",
+   "title": "Possibility",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108993135.008",
+   "title": "Prolegomena to Any Future Inconsistent Mathematics",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.4216/jpssj.53.2_45",
+   "title": "What was the \u201cAppendix B\u201d theory of types for?:",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1111/papq.12388",
+   "title": "\u2018True\u2019 as Polysemous",
+   "year": 2021,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s10992-021-09633-5",
+   "title": "Classical Logic is not Uniquely Characterizable",
+   "year": 2022,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.20944/preprints202205.0112.v1",
+   "title": "Fermat\u2019s Last Theorem Proved in Hilbert Arithmetic. II. Its Proof in Hilbert Arithmetic by the Kochen-Specker Theorem With or Without Induction",
+   "year": 2022,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.2139/ssrn.4103565",
+   "title": "Fermat\u2019s last theorem proved in Hilbert arithmetic. II. Its proof in Hilbert arithmetic by the Kochen-Specker theorem with or without induction",
+   "year": 2022,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Fermat\u2019s last theorem proved in Hilbert arithmetic. II. Its proof in Hilbert arithmetic by the Kochen-Specker theorem with or without induction",
+   "year": 2022,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781009006927",
+   "title": "Metaphysical Realism and Anti-Realism",
+   "year": 2022,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/obo/9780195396577-0427",
+   "title": "Ontology of Mathematics",
+   "year": 2022,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1215/00294527-2023-0004",
+   "title": "Bicontextualism",
+   "year": 2023,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1515/apeiron-2023-0006",
+   "title": "Competing Roles of Aristotle\u2019s Account of the Infinite",
+   "year": 2023,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.31235/osf.io/pj7xm",
+   "title": "There Is A Set of All Truths: A Reply to Patrick Grim.",
+   "year": 2023,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-031-62387-5_10",
+   "title": "Iteration and Dependence Again",
+   "year": 2024,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.4000/15vpp",
+   "title": "Aclaraciones sobre el concepto de norma como funci\u00f3n",
+   "year": 2025,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11245-025-10166-8",
+   "title": "Epistemic Truth as a Regulative Idea for Assertoric Practice",
+   "year": 2025,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-031-62387-5_3",
+   "title": "Intuition and Observation",
+   "year": 2025,
+   "class": "other",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1080/01445340.2025.2509386",
+   "title": "Tractarian Functions are not Propositional Functions",
+   "year": 2025,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11229-026-05470-8",
+   "title": "Logemes instead of logics",
+   "year": 2026,
+   "class": "other",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.13140/rg.2.2.28038.95047",
+   "title": "On distance and proximity between Dummett and Brouwer",
+   "year": 2026,
+   "class": "other",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/bfb0059547",
+   "title": "Some B. Russell's sprouts (1903 \u2013 1908)",
+   "year": 1972,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1098/rsbm.1973.0021",
+   "title": "Bertrand Arthur William Russell, Earl Russell, 1872-1970",
+   "year": 1973,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/0020739730040407",
+   "title": "Not from Nowhere History and Philosophy behind Mathematical Education",
+   "year": 1973,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/00033797400200341",
+   "title": "The Russell Archives: Some new light on Russell's logicism",
+   "year": 1974,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/bf00413987",
+   "title": "The development of the theory of logical types and the notion of a logical subject in Russell's early philosophy",
+   "year": 1980,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/bjps/32.4.381",
+   "title": "RUSSELL, JOURDAIN AND \u2018LIMITATION OF SIZE\u2019*",
+   "year": 1981,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/01445348408837063",
+   "title": "Notes on the fate of logicism from principia mathematica to g\u00f6del's incompletability theorem",
+   "year": 1984,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/bf00542647",
+   "title": "Frege's double correlation thesis and quine's set theories NF and ML",
+   "year": 1985,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Poincar\u00e9's philosophy of mathematics",
+   "year": 1986,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Poincar\u00e9's philosophy of mathematics",
+   "year": 1986,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1016/0315-0860(91)90405-m",
+   "title": "History and Philosophy of Modern Mathematics",
+   "year": 1988,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.15173/russell.v9i1.1742",
+   "title": "New evidence concerning Russell\u2019s substitutional theory of classes",
+   "year": 1989,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/014453408908837147",
+   "title": "Russell's theory of types, 1901\u20131910: its complex origins in the unpublished manuscripts",
+   "year": 1989,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.2307/2274498",
+   "title": "Warren Goldfarb. Poincar\u00e9 against the logicists. History and philosophy of modern mathematics, edited by William Aspray and Philip Kitcher, Minnesota studies in the philosophy of science, vol. 11, University of Minnesota Press, Minneapolis1988, pp. 61\u201381. - Michael Friedman. Logical truth and analyticity in Carnap's \u201cLogical syntax of language.\u201dHistory and philosophy of modern mathematics, edited by William Aspray and Philip Kitcher, Minnesota studies in the philosophy of science, vol. 11, University of Minnesota Press, Minneapolis1988, pp. 82\u201394. - Gregory H. Moore. The emergence of first-order logic. History and philosophy of modern mathematics, edited by William Aspray and Philip Kitcher, Minnesota studies in the philosophy of science, vol. 11, University of Minnesota Press, Minneapolis1988, pp. 95\u2013135. - Joseph W. Dauben. Abraham Robinson and nonstandard analysis: history, philosophy, and foundations of mathematics. History and philosophy of modern mathematics, edited by William Aspray and Philip Kitcher, Minnesota studies in the philosophy of science, vol. 11, University of Minnesota Press, Minneapolis1988, pp. 177\u2013200. - Howard Stein. Logos, logic, and logistik\u00e9: some philosophical remarks on nineteenth-century transformation of mathematics. History and philosophy of modern mathematics, edited by William Aspray and Philip Kitcher, Minnesota studies in the philosophy of science, vol. 11, University of Minnesota Press, Minneapolis1988, pp. 238\u2013259.",
+   "year": 1990,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/bf00571322",
+   "title": "Russell and the vicious circle principle",
+   "year": 1992,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/00455091.1993.10717332",
+   "title": "Michael Dummett Frege: Philosophy of Mathematics. Cambridge: Harvard University Press1991. Pp. xiii + 331.",
+   "year": 1993,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1080/01445349408837230",
+   "title": "On russell\u2019s arguments for restricting modes of specification and domains of quantification",
+   "year": 1994,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1111/j.1600-0498.1996.tb00605.x",
+   "title": "Charles S. Peirce, Evolutionary Pragmatism and the History of Science",
+   "year": 1996,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1023/a:1006250423027",
+   "title": "Russell, Frege, and the Nature of Implication",
+   "year": 1999,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1305/ndjfl/1039096305",
+   "title": "Russell, Presupposition, and the Vicious-Circle Principle",
+   "year": 1999,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.042",
+   "title": "Latin american philosophy",
+   "year": 2003,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.063",
+   "title": "Literature as philosophy",
+   "year": 2003,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.034",
+   "title": "Logic and philosophical analysis",
+   "year": 2003,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/bjps/54.1.103",
+   "title": "Speaking with Shadows: A Study of Neo\u2010Logicism",
+   "year": 2003,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.017",
+   "title": "The debate over theGeisteswissenschaftenin German philosophy",
+   "year": 2003,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.001.0001",
+   "title": "Set Theory and its Philosophy",
+   "year": 2004,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/0195148770.001.0001",
+   "title": "The Oxford Handbook of Philosophy of Mathematics and Logic",
+   "year": 2005,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-1-4020-4265-2_3",
+   "title": "Frege, Neo-Logicism and Applied Mathematics",
+   "year": 2007,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.4148/biyclc.v4i0.138",
+   "title": "Definitions And Contradictions. Russell, Poincar\u00e9, And Lesniewski",
+   "year": 2008,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/01445340802337783",
+   "title": "Russell's Schema, Not Priest's Inclosure",
+   "year": 2009,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780195137316.003.0029",
+   "title": "The Development of Mathematical Logic from Russell to Tarski, 1900\u20131935",
+   "year": 2009,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "On the number of Russell \u2019 s socks or 2 + 2 + 2 + . . . = ?",
+   "year": 2010,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1215/00318108-2010-027",
+   "title": "Russell on Substitutivity and the Abandonment of Propositions",
+   "year": 2011,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.001.0001",
+   "title": "Russell's Logical Atomism",
+   "year": 2012,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.4000/books.pup.53640",
+   "title": "G\u00f6del vis-\u00e0-vis Russell: Logic and set Theory to Philosophy",
+   "year": 2016,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-24214-9_7",
+   "title": "The Place of Vagueness in Russell\u2019s Philosophical Development",
+   "year": 2016,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/s1755020316000411",
+   "title": "THE PREHISTORY OF THE SUBSYSTEMS OF SECOND-ORDER ARITHMETIC",
+   "year": 2017,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/s1755020316000484",
+   "title": "WHAT RUSSELL SHOULD HAVE SAID TO BURALI\u2013FORTI",
+   "year": 2017,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Against the Iterative Conception of Set forthcoming in Philosophical Studies",
+   "year": 2018,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-93733-5_4",
+   "title": "Zigzag and Fregean Arithmetic",
+   "year": 2018,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.21452/isbn.978-65-900390-1-9_lna_serie-a_v.2",
+   "title": "About logic and logicians. Volume 1: Philosophy",
+   "year": 2019,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.21452/isbn.978-65-900390-2-6_lna_serie-a_v.1",
+   "title": "About logic and logicians. Volume 1: Philosophy",
+   "year": 2019,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/s10516-019-09424-3",
+   "title": "An Absurd Consequence of Stanford\u2019s New Induction Over the History of Science: A Reply to Sterpetti",
+   "year": 2019,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/oso/9780198712084.003.0016",
+   "title": "\u201cHow did the serpent of inconsistency enter Frege\u2019s paradise?\u201d",
+   "year": 2019,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.70675/22ef231fzd622z41a8z8ea5z8b29a2998b2c",
+   "title": "Contr\u00f4le du calcul et limites du sens : fonctions, computation et types de G. Frege \u00e0 A.Church",
+   "year": 2021,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.2139/ssrn.4311732",
+   "title": "G\u00f6del Mathematics Versus Hilbert Mathematics. II Logicism and Hilbert Mathematics, the Identification of Logic and Set Theory, and G\u00f6del\u2019s 'Completeness Paper' (1930)",
+   "year": 2022,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.33774/coe-2023-m1rck",
+   "title": "G\u00f6del mathematics versus Hilbert mathematics. II Logicism and Hilbert mathematics, the identification of logic and set theory, and G\u00f6del\u2019s \u201ccompleteness paper\u201d (1930)",
+   "year": 2023,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.31235/osf.io/57rxf",
+   "title": "G\u00f6del mathematics versus Hilbert mathematics. II Logicism and Hilbert mathematics, the identification of logic and set theory, and G\u00f6del\u2019s \u201ccompleteness paper\u201d (1930)",
+   "year": 2023,
+   "class": "russell-and-history",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Extensionalism without Logicism: Ambrose and Extensional Logic",
+   "year": 2026,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "From foundations to applications: reverse mathematics and philosophy",
+   "year": 2026,
+   "class": "russell-and-history",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.2307/2267281",
+   "title": "A system of axiomatic set theory\u2014Part II",
+   "year": 1941,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/cbo9780511615566.005",
+   "title": "The Axiom of Choice",
+   "year": 1973,
+   "class": "set-theory-foundations",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1016/s0049-237x(08)70892-9",
+   "title": "A System of Axiomatic Set Theory",
+   "year": 1976,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/bf00245932",
+   "title": "The origins of Zermelo's axiomatization of set theory",
+   "year": 1978,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1080/01445348308837052",
+   "title": "La position d\u2019henri poincar\u00e9 par rapport \u00e0 l'axiome du choix, \u00e0 travers ses ecrits et sa correspondance avec zermelo (1905\u20131912)",
+   "year": 1983,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/00029890.1984.11971523",
+   "title": "Zermelo's Axiom of Choice: Its Origins, Development, and Influence. By Gregory H. Moore",
+   "year": 1984,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/s0022481200028425",
+   "title": "Believing the axioms. I",
+   "year": 1988,
+   "class": "set-theory-foundations",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.2307/2274569",
+   "title": "Believing the axioms. II",
+   "year": 1988,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-0348-9259-9_24",
+   "title": "Die Entwicklung der axiomatischen Mengenlehre",
+   "year": 1990,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1002/malq.19930390111",
+   "title": "Remarks on Levy's reflection axiom",
+   "year": 1993,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.2307/421146",
+   "title": "The Mathematical Import of Zermelo's Well-Ordering Theorem",
+   "year": 1997,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/cbo9780511755347.002",
+   "title": "Foundations; Set Theory",
+   "year": 2002,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/chol9780521591041.012",
+   "title": "Foundations of mathematics",
+   "year": 2003,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/bjps/54.1.59",
+   "title": "Prolegomenon To Any Future Neo\u2010Logicist Set Theory: Abstraction And Indefinite Extensibility",
+   "year": 2003,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Automate Reasoning: Computer Assisted Proofs in Set Theory Using Godel's Algorithm for Class Formation",
+   "year": 2004,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Automate Reasoning: Computer Assisted Proofs in Set Theory Using Godel's Algorithm for Class Formation",
+   "year": 2004,
+   "class": "set-theory-foundations",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.003.0021",
+   "title": "The axiom of choice",
+   "year": 2004,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199269730.005.0001",
+   "title": "Traditional axiomatizations",
+   "year": 2004,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.2178/bsl/1102083759",
+   "title": "Zermelo and Set Theory",
+   "year": 2004,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/comjnl/bxh162",
+   "title": "100 years of Zermelo's axiom of choice: what was the problem with it?",
+   "year": 2005,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-1-4020-8926-8_10",
+   "title": "100 Years of Zermelo\u2019s Axiom of Choice: What was the Problem with It?",
+   "year": 2008,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Consciousness-Based Education: A Foundation for Teaching and Learning in the Academic Disciplines",
+   "year": 2011,
+   "class": "set-theory-foundations",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/acprof:oso/9780199651443.003.0008",
+   "title": "Knowledge and its Foundations",
+   "year": 2012,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4",
+   "title": "Axiomatic Method and Category Theory",
+   "year": 2013,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_4",
+   "title": "Formal Axiomatic Method and the Twentieth Century Mathematics",
+   "year": 2013,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-00404-4_10",
+   "title": "New Axiomatic Method (Instead of Conclusion)",
+   "year": 2013,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s40329-013-0007-z",
+   "title": "Poincar\u00e9 on logic and foundations",
+   "year": 2013,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11225-016-9660-5",
+   "title": "A Theory of Infinitary Relations Extending Zermelo\u2019s Theory of Infinitary Propositions",
+   "year": 2016,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.15496/publikation-26071",
+   "title": "Axiomatizations of Compositional Inductive-Recursive Definitions",
+   "year": 2018,
+   "class": "set-theory-foundations",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/s11098-018-1113-8",
+   "title": "How high the sky? Rumfitt on the (putative) indeterminacy of the set-theoretic universe",
+   "year": 2018,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1201/9781315274744-5",
+   "title": "Set theory",
+   "year": 2018,
+   "class": "set-theory-foundations",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1080/0020174x.2019.1651080",
+   "title": "The entanglement of logic and set theory, constructively",
+   "year": 2019,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/9781108596961",
+   "title": "Conceptions of Set and the Foundations of Mathematics",
+   "year": 2020,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1215/00294527-2022-0001",
+   "title": "Representations and the Foundations of Mathematics",
+   "year": 2022,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-031-21655-8_7",
+   "title": "Platonism and the Proto-ontology of Mathematics: Learning from the Axiom of Choice",
+   "year": 2023,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.31235/osf.io/nk8de",
+   "title": "The Gods Subsist - Possible Worlds, Set Theory and the Anthropic Principle.",
+   "year": 2023,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1017/s1755020325100774",
+   "title": "SET-THEORETIC BICONTEXTUALISM",
+   "year": 2025,
+   "class": "set-theory-foundations",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1080/0144534031000076237",
+   "title": "Russell's 1903 - 1905 Anticipation of the Lambda Calculus",
+   "year": 2003,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1515/9783110324907.31",
+   "title": "A New Approach to Predicative Set Theory",
+   "year": 2009,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1093/oxfordhb/9780195325928.003.0019",
+   "title": "Predicativity",
+   "year": 2009,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.17863/cam.15911",
+   "title": "A Defence of Predicativism as a Philosophy of Mathematics",
+   "year": 2010,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1515/9783110324907.315",
+   "title": "An Extended Predicative Definition of the Mahlo Universe",
+   "year": 2010,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1590/s1678-31662013000200009",
+   "title": "A reformula\u00e7\u00e3o do conceito de predicatividade segundo Poincar\u00e9",
+   "year": 2013,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/bsl.2017.43",
+   "title": "Polymorphism and the obstinate circularity of second order logic: a victims' tale",
+   "year": 2017,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-319-63334-3_15",
+   "title": "Predicativity and Feferman",
+   "year": 2017,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Predicativity and parametric polymorphism of Brouwerian implication",
+   "year": 2017,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1017/s1471068419000024",
+   "title": "In Praise of Impredicativity: A Contribution to the Formalization of Meta-Programming",
+   "year": 2019,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "Polymorphism and the free bicartesian closed category",
+   "year": 2019,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "ON THE IMPREDICATIVITY AND CIRCULARITY OF FREGE\u2019S ANCESTRAL",
+   "year": 2020,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": null,
+   "title": "PREDICATIVITY AND CONSTRUCTIVE MATHEMATICS",
+   "year": 2020,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.51359/2357-9986.2020.248897",
+   "title": "Sobre a Impredicatividade e Circularidade do Ancestral de Frege",
+   "year": 2020,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-030-49424-7_10",
+   "title": "The Limits of Predicativity Revisited",
+   "year": 2020,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex",
+    "s2"
+   ]
+  },
+  {
+   "doi": "10.1007/978-3-030-84706-7_11",
+   "title": "Predicativity and Constructive Mathematics",
+   "year": 2021,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "openalex"
+   ]
+  },
+  {
+   "doi": "10.1142/9789813270947_0003",
+   "title": "Exploring Predicativity",
+   "year": 2022,
+   "class": "type-theory-polymorphism",
+   "sources": [
+    "s2"
+   ]
+  }
+ ]
+}

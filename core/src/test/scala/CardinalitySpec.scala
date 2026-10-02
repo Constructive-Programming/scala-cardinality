@@ -1,3 +1,5 @@
+package cardinality
+
 import scala.meta.*
 
 import org.specs2.Specification
@@ -118,6 +120,9 @@ class CardinalitySpec extends Specification {
     derived body vals add nothing            ${src(
       "class Derived(a: Boolean) { val b: Boolean = !a }"
     ) === BooleanSize}
+    class with a companion object            ${src(
+      "case class Companion(a: Boolean)\nobject Companion"
+    ) === TinySize(3)} (the class 2 + the module 1; the type keeps the name)
     case object                              ${src("case object Singleton") === UnitSize}
     object                                   ${src("object Module") === UnitSize}
 
@@ -125,6 +130,12 @@ class CardinalitySpec extends Specification {
     sealed trait of case objects             ${src(
       "sealed trait Light; case object Red extends Light; case object Amber extends Light; case object Green extends Light"
     ) === TinySize(3)}
+    sealed trait with nested cases           ${src(
+      "sealed trait Light { case object Red extends Light; case object Green extends Light }"
+    ) === BooleanSize}
+    object with a nested case class          ${src(
+      "object Wrapper { case class Pair(a: Boolean, b: Boolean) }"
+    ) === TinySize(5)} (the module 1 + Pair 4)
     sealed trait of mixed cases              ${src(
       "sealed trait Shape; case class Dot(on: Boolean) extends Shape; case object Blank extends Shape"
     ) === TinySize(3)}
