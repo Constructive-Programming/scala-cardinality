@@ -24,6 +24,10 @@ class ArticleCardinalitySpec extends Specification {
   private val needsSubtyping =
     "a union or intersection count needs overlap and subtyping information (section 2)"
 
+  private val needsScopeAwareOpacity =
+    "an opaque type is transparent inside the scope that defines it, which the calculator does " +
+      "not model yet: a reference from outside is one opaque value (section 2)"
+
   // The article's `data Foo = Bar | Baz Bool | Baf Int`: 1 + 2 + 2^32, which the size algebra
   // rounds up to a 33-bit capacity.
   private val adt = "enum Foo { case Bar; case Baz(b: Boolean); case Baf(i: Int) }"
@@ -55,6 +59,12 @@ class ArticleCardinalitySpec extends Specification {
     ) === TinySize(8)}
     ADT sum 1 + 2 + 2^32                     ${src(adt) === FiniteSize(33)} (rounded up)
     a data type with no constructors         ${src("sealed trait Empty") === NothingSize}
+    an opaque type is transparent where it is defined  ${target(
+      src("opaque type Id = Byte\nclass User(id: Id, active: Boolean)"),
+      FiniteSize(9),
+      needsScopeAwareOpacity
+    )} (2^8 \u00d7 2, once a reference reads the representation; a sibling file keeps the
+      one-value reading, which `CardinalitySpec` pins)
 
   Functions (section 3)
     Boolean => Boolean is 2^2                ${tpe("Boolean => Boolean") === TinySize(4)}
