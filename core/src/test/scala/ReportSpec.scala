@@ -67,6 +67,7 @@ class ReportSpec extends Specification {
       a name two packages define stays unresolved  $crossSourceAmbiguous
       an imported name is left to the import     $crossSourceImported
       a sealed hierarchy sums across files       $crossSourceSealed
+      an opaque value is one value outside       $crossSourceOpaque
     """
 
   private def definitions(code: String): List[Definition] =
@@ -117,7 +118,8 @@ class ReportSpec extends Specification {
       ("Color", Definition.Kind.Enum, Some(TinySize(3))),
       ("Module", Definition.Kind.Object, Some(UnitSize)),
       ("Flag", Definition.Kind.Alias, Some(BooleanSize)),
-      ("Id", Definition.Kind.Opaque, Some(UnitSize)),
+      // An opaque row is read where its representation is visible.
+      ("Id", Definition.Kind.Opaque, Some(ByteSize)),
       ("top", Definition.Kind.Value, Some(UnitSize)),
     )
   }
@@ -472,6 +474,17 @@ class ReportSpec extends Specification {
           ("p.Use", Some(EffectiveOmega), Nil),
         )
       )
+  }
+
+  def crossSourceOpaque = {
+    val root = temporary(
+      "Id.scala" -> "package p\nopaque type Id = Byte",
+      "User.scala" -> "package p\ncase class User(id: Id)",
+    )
+    // An opaque row reads its representation (`Id` is 2^8), and a reference from outside the
+    // defining scope is one opaque value — the two readings the contract keeps apart.
+    (rowsOf(root).filter(_._1 == "p.User") === List(("p.User", Some(UnitSize), Nil)))
+      .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
   }
 
   def matchType = {

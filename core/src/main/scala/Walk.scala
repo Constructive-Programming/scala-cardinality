@@ -201,11 +201,22 @@ private[cardinality] object Walk {
         introduced(prefix, d, Definition.Kind.Object, Some(UnitSize), UnitSize, Nil)
           .inside(declared(s, d), prefix :+ d.name.value, d.templ.body.stats)
       }
-    // An opaque type hides what it holds: a reference to it is worth a single value outside the
-    // scope that defines it, and the definition adds none of its own.
+    // An opaque type hides what it holds: outside the scope that defines it a reference is worth a
+    // single opaque value, which is what the body's own equation says. Its *row* is read here,
+    // where the representation is visible, so the row shows what the type really holds — an
+    // instantiation-dependent `|A|` for `opaque type Direct[X, A] = A` — and the kind keeps the
+    // contract visible. The definition adds no inhabitants of its own either way.
     case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
-      measured(scope) { s =>
-        introduced(prefix, d, Definition.Kind.Opaque, Some(UnitSize), Counter.defnIn(s)(d), Nil)
+      measured(scope.withBinders(Counter.binders(d))) { s =>
+        val represented = Counter.typeIn(s)(d.body)
+        introduced(
+          prefix,
+          d,
+          Definition.Kind.Opaque,
+          Some(represented),
+          Counter.defnIn(s)(d),
+          s.unbound
+        )
       }
     // A constructor alias names a *function* on types, which has no value space of its own: the
     // row is a shape, not a question, and applying it is where a size would come from.

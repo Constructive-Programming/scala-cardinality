@@ -3,7 +3,7 @@
 The [baseline report](eo-core-0.16.0.txt) has 134 definition rows. As of that run they read:
 
 ```
-10 unresolved · 22 instantiation-dependent · 5 unbounded by an open abstraction ·
+7 unresolved · 25 instantiation-dependent · 5 unbounded by an open abstraction ·
  2 type constructors, with no value space · 3 with more than one value ·
  81 with one value · 5 with no values · 6 abstract
 ```
@@ -32,6 +32,7 @@ values · 34 abstract`. Of its 40 rows, 31 moved:
 | **open abstractions** | an unsealed trait has no bound at all — any subtype anywhere adds values — so the row says `open to implementations (CanModifyP)` | `CanModify`, `CanModifyA`, `CanModifyF`, `CanPut` |
 | **higher-kinded parameters** | `F[_]`/`F[_, _]` name their arity, the way the method side phrases the same gap | `ForgetFold`, `Unfold`, `TraverseTraversal.X` |
 | **`Null` and `Any`** | `Null` is the one value `null`; `Any` is the top of the lattice, which sits at the ε₀ tier — so an `Array[Any]` is the countable space its length makes it | `Slice` became a number (`ω`), `AssocSndZ` narrowed to `Xo` alone |
+| **opaque representations** | an opaque row reads the representation where it is defined — `Direct[X, A] = A` is `|A|`, `MultiFocusK[F, X, A]` is `(X, F[A])` — while a reference from outside that scope stays one opaque value | the three opaque rows (`Direct`, `ForgetK`, `MultiFocusK`) moved to instantiation-dependent |
 | **type constructors** | an alias whose body is a type lambda names a *function* on types: the row is `—` with the `constructor` kind, not a question | `Forget`, `MultiFocus` |
 | **refinements** | a refinement is read as the base type it refines, so `Optic[…] { type X = Xo }` is the open trait it is | `ComposedTraversal`, which now reads `open to implementations (Optic)` |
 | **member types** | a qualified reference resolves when the sources supply the owner's type — a named type (`Outer.B`), an applied one (`Foo[A].B`) or a value whose declared type they give (`x.B`) — with an abstract member read as unbounded, and anything else reported as written | `ComposedTraversal.X`, which now reads `unresolved: af.Z` instead of losing the owner |
@@ -43,12 +44,12 @@ values · 34 abstract`. Of its 40 rows, 31 moved:
 | **an inert match type over a free parameter** | `Affine.Hit`, `Affine.Miss`, `ModifyF` (3) | the parametric reading: `Fst[A]` is a number once `A` is a tuple *and* an inert match type when it is not, so the row is a function of the instantiation with a match type in it — this is where a symbolic count would pay off |
 | **a path-dependent member type the sources do not give** | `ComposedTraversal.X` (1) | `type X = af.Z`, where `af` is a val whose type is *inferred* (and whose initializer calls `MultiFocusK.mfAssocPSVec`, a member eo's sources jar references but never declares). Reading it needs a value's type inferred from a call — a term-level index, the same boundary the method side reports as `qualified member environment not resolved` |
 | **a name outside the supplied sources** | `ForgetFold` (1, `Foldable` from cats) | dependency sources supplied to the same report, or a modelled vocabulary; the name is the honest answer until then |
-| **opaque representations** | `Direct`, `ForgetK`, `MultiFocusK` (3) | nothing: `?` outside the defining package is the contract, and the ledger keeps them apart from the gaps |
 
 Two readings the estimate does not meet yet are worth naming without calling them estimate rows:
 *β-application* of a constructor alias (`Forget[F][X, A]`, which no eo definition's stored types
-use — its signatures do) and *opaque transparency* inside the defining package (`ForgetK[F, X, A]`
-is `F[A]` there), both of which the method side's own model reads. They would come back as
+use — its signatures do) and *reference-level* opaque transparency (an opaque *row* reads its
+representation now, but a field inside the defining scope typed by the opaque still reads the
+outside one-value binding), both of which the method side's own model reads. They would come back as
 estimate work only if a definition's stored type applied a constructor alias.
 
 The first baseline's other findings still stand as rules, not gaps: a concrete application, a

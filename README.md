@@ -172,7 +172,7 @@ cs fetch --sources dev.constructive:cats-eo_3:0.16.0
 sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
 ```
 
-Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 10 unresolved, 22
+Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 7 unresolved, 25
 instantiation-dependent, 5 unbounded by an open abstraction, 2 type constructors with no value
 space, 3 with more than one value (the two `2^32` array builders and a countable `PSVec.Slice`),
 81 holding a single value (the modules and the sealed parents whose one case is a module),

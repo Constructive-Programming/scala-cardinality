@@ -15,7 +15,7 @@
 #            # then, in a consumer build with sbt-cardinality 0.1.0-SNAPSHOT in project/plugins.sbt:
 #            sbt 'cardinalityReportOf cats-eo_3-0.16.0-sources.jar'
 #
-# Definition estimate:  10 unresolved · 22 instantiation-dependent ·
+# Definition estimate:  7 unresolved · 25 instantiation-dependent ·
 #                       5 unbounded by an open abstraction ·
 #                       2 type constructors, with no value space ·
 #                       3 with more than one value · 81 with one value ·
@@ -24,10 +24,10 @@
 #
 # The unresolved definition rows are catalogued in eo-core-0.16.0-unresolved.md, next to this
 # file: what stopped each one, which capability moved it, and what is still missing. A sealed
-# parent reads the sum of the cases the source set defines — the value a reference to it has — so
-# the abstract rows carry numbers; a type constructor alias is a shape rather than a question, and
-# a refinement is read as the type it refines. A qualified reference resolves when the sources
-# supply the owner's type, and otherwise is reported as written (`af.Z`).
+# parent reads the sum of the cases the source set defines — the value a reference to it has; a
+# type constructor alias is a shape rather than a question; a refinement is read as the type it
+# refines; and an opaque row reads its representation where it is defined, while a reference from
+# outside that scope stays one opaque value.
 #
 Generic method / constructor implementation cardinalities
   480 signatures: 15 finite · 2 countably infinite · 463 unresolved
@@ -1840,7 +1840,7 @@ Generic method / constructor implementation cardinalities
 scala-cardinality — 53 sources, 134 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: no single number here — the reason after the row says what would give one
-  10 unresolved · 22 instantiation-dependent · 5 unbounded by an open abstraction · 2 type constructors, with no value space · 3 with more than one value · 81 with one value · 5 with no values · 6 abstract
+  7 unresolved · 25 instantiation-dependent · 5 unbounded by an open abstraction · 2 type constructors, with no value space · 3 with more than one value · 81 with one value · 5 with no values · 6 abstract
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
 ?     dev.constructive.eo.CanModify[S, A]                                     alias        CanModify.scala:23  open to implementations (CanModifyP)
@@ -1849,11 +1849,11 @@ Stored-value estimates (constructor inputs; `?` = unresolved)
 ?     dev.constructive.eo.CanPut[T, A]                                        alias        CanPut.scala:17  open to implementations (CanPutP)
 ?     dev.constructive.eo.data.Affine.Hit[A, B]                               class        Affine.scala:91  unresolved: A, a match type, B
 ?     dev.constructive.eo.data.Affine.Miss[A]                                 class        Affine.scala:81  unresolved: A, a match type
-?     dev.constructive.eo.data.Direct[X, A]                                   opaque       Direct.scala:24
-?     dev.constructive.eo.data.ForgetK[F, X, A]                               opaque       Forget.scala:31
+?     dev.constructive.eo.data.Direct[X, A]                                   opaque       Direct.scala:24  depends on its instantiation (A)
+?     dev.constructive.eo.data.ForgetK[F, X, A]                               opaque       Forget.scala:31  depends on its instantiation (F[_])
 ?     dev.constructive.eo.data.Fst[T]                                         alias        Affine.scala:13  unresolved: a match type
 ?     dev.constructive.eo.data.ModifyF[A, B]                                  class        ModifyF.scala:28  unresolved: A, a match type, B
-?     dev.constructive.eo.data.MultiFocusK[F, X, A]                           opaque       MultiFocus.scala:46
+?     dev.constructive.eo.data.MultiFocusK[F, X, A]                           opaque       MultiFocus.scala:46  depends on its instantiation (X, F[_])
 ?     dev.constructive.eo.data.MultiFocusK.AssocSndZ[Xo, Xi]                  class        MultiFocus.scala:496  depends on its instantiation (Xo)
 ?     dev.constructive.eo.data.PSVec.Single[B]                                class        PSVec.scala:199  depends on its instantiation (B)
 ?     dev.constructive.eo.data.Snd[T]                                         alias        Affine.scala:17  unresolved: a match type

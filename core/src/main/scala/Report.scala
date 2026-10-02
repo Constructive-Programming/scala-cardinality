@@ -159,12 +159,12 @@ object Report {
     s"$count $noun${if (count == 1) "" else "s"}"
 
   // A row is a question when something in its types is outside the calculator's vocabulary, when
-  // its own parameters are what the size depends on, when an open abstraction unbounds it, or when
-  // it is an opaque type whose representation the report cannot see. A countable or ε₀-tier size is
-  // not a question by itself: since the solver learned to count recursive and lazy types, `ω` is
-  // the answer for a definition like `case class St(head: Boolean, tail: => St)`.
-  private def unresolved(definition: Definition): Boolean =
-    definition.unbound.nonEmpty || definition.kind == Definition.Kind.Opaque
+  // its own parameters are what the size depends on, or when an open abstraction unbounds it. A
+  // countable or ε₀-tier size is not a question by itself: since the solver learned to count
+  // recursive and lazy types, `ω` is the answer for a definition like
+  // `case class St(head: Boolean, tail: => St)`, and an opaque row reads its representation where
+  // it is defined — the kind says the representation is hidden to everyone else.
+  private def unresolved(definition: Definition): Boolean = definition.unbound.nonEmpty
 
   // The generic method and constructor counts, with what stands between the report and a number
   // for the rest: the triage list a reader works down.
