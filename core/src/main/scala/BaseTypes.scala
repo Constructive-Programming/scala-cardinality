@@ -1,5 +1,7 @@
 package cardinality
 
+import scala.meta.Type
+
 /** The base types the algebra models: the names it resolves without the sources, and what each is
   * worth.
   *
@@ -10,8 +12,11 @@ package cardinality
   */
 private[cardinality] object BaseTypes {
 
-  /** A modelled base type's size, as a pattern: `case Type.Name(BaseTypes(size)) => size`. */
-  def unapply(name: String): Option[Size] = sizes.get(name)
+  /** A modelled base type, as a pattern: `case BaseTypes(size) => size` on a `Type`. */
+  def unapply(tpe: Type): Option[Size] = tpe match {
+    case Type.Name(name) => get(name)
+    case _               => None
+  }
 
   /** The same table, for a caller that is not matching on it. */
   def get(name: String): Option[Size] = sizes.get(name)

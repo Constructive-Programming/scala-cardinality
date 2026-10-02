@@ -714,7 +714,7 @@ object Counter {
     // over a builtin of the same name, as it does in Scala.
     case scope.Parameter(size) => size
 
-    case Type.Name(BaseTypes(size)) => size
+    case BaseTypes(size) => size
 
     // A qualified reference is a *member* the sources may declare — `Outer.B`, `Foo[A].B`, or
     // `x.B` over a value's declared type — and a qualifier that does not name an owner (a package
