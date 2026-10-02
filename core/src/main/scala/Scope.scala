@@ -81,6 +81,18 @@ final private[cardinality] class Scope(
   /** The type a value's declaration gives it, which an instance-qualified member needs. */
   def declaredType(term: TypeName): Option[Type] = terms.get(term)
 
+  /** The size this read binds a type parameter to, as a pattern: `case scope.Parameter(size)` when
+    * a `Type.Name` stands for one of its binders.
+    */
+  object Parameter {
+
+    def unapply(tpe: Type): Option[Size] = tpe match {
+      case Type.Name(name) => frame(TypeName.of(name))
+      case _               => None
+    }
+
+  }
+
   /** The members a definition's body declares, and the values whose declared types it gives. */
   def withMembers(owner: TypeName, declared: Members): Scope =
     new Scope(values, notes, world.copy(members = world.members.updated(owner, declared)))

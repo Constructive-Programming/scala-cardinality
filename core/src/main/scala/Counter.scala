@@ -712,10 +712,9 @@ object Counter {
   private[cardinality] def typeIn(scope: Scope): Type => Size = {
     // A type parameter stands for whatever the instantiation supplied — an innermost binder wins
     // over a builtin of the same name, as it does in Scala.
-    case t: Type.Name if scope.frame(TypeName.of(t.value)).isDefined =>
-      scope.frame(TypeName.of(t.value)).get
+    case scope.Parameter(size) => size
 
-    case Type.Name(name) if baseSizes.contains(name) => baseSizes(name)
+    case Type.Name(BaseTypes(size)) => size
 
     // A qualified reference is a *member* the sources may declare — `Outer.B`, `Foo[A].B`, or
     // `x.B` over a value's declared type — and a qualifier that does not name an owner (a package
@@ -792,27 +791,6 @@ object Counter {
       EffectiveOmega
   }
 
-  // The base types the algebra models, in one place: the same list resolves `scala.Boolean` (the
-  // qualifier is dropped when a name stands on its own) and gives a reference its size. `Null` is
-  // one value — `null` — and `Any` is the top of the lattice: nothing the analysis can place is
-  // above the ε₀ tier and `Any` holds everything, so it sits there. Other top-ish names (`AnyRef`,
-  // `Matchable`) stay unmodelled rather than guessed.
-  private val baseSizes: Map[String, Size] = Map(
-    "Nothing" -> NothingSize,
-    "Unit" -> UnitSize,
-    "EmptyTuple" -> UnitSize,
-    "Boolean" -> BooleanSize,
-    "Byte" -> ByteSize,
-    "Short" -> ShortSize,
-    "Char" -> CharSize,
-    "Int" -> IntSize,
-    "Long" -> LongSize,
-    "Float" -> FloatSize,
-    "Double" -> DoubleSize,
-    "Any" -> EffectiveEpsilon0,
-    "Null" -> UnitSize,
-  )
-
   // `A.B`: the size of the member a qualified reference names, when the sources supply the owner's
   // type. A member a body declares abstract is supplied by whoever implements the owner, so the
   // reference is unbounded rather than unknown.
@@ -852,7 +830,7 @@ object Counter {
   // The name on its own, without recording a reason: what a builtin, a binder or a definition the
   // sources give is worth.
   private def plainSize(scope: Scope, name: TypeName): Option[Size] =
-    scope.frame(name).orElse(baseSizes.get(name.value)).orElse(scope.resolve(name))
+    scope.frame(name).orElse(BaseTypes.get(name.value)).orElse(scope.resolve(name))
 
   // `codomain ^ domain`, except that an empty domain gives 0 rather than the set-theoretic 1,
   // `0^0` included. This is a constructivist approach: Scala is eager, a call evaluates its
