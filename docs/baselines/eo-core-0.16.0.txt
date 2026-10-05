@@ -1,0 +1,1979 @@
+# scala-cardinality baseline — dev.constructive:cats-eo_3:0.16.0, sources jar
+#
+# This file is an analyzer output, retained so a run can be compared and reviewed. It is not a
+# golden oracle: the numbers are provisional means of spotting what moved, and a drop in
+# resolved rows can be a correctness improvement (docs/plans/v1.md §5).
+#
+# analyzer:  sbt-cardinality / scala-cardinality 0.1.0-SNAPSHOT at commit 4459503+
+#            (PR #10 branch, rebased over 4ba13e7; read against the whole source set)
+# versions:  sbt 2.0.9, Scala 3.8.4, scalameta 4.17.4
+# input:     https://repo1.maven.org/maven2/dev/constructive/cats-eo_3/0.16.0/cats-eo_3-0.16.0-sources.jar
+# sha256:    61907fc2f4e1c0892fa8723c7a014af942b825b64a916a9b53dd64b3f12dbfe3
+# limits:    MethodAnalysis.Limits(maxTypeDepth = 64, maxStates = 256); supplied sources only,
+#            no dependency resolution beyond them
+# command:   sbt 'core/publishLocal; plugin/publishLocal'   # publishes the plugin locally
+#            # then, in a consumer build with sbt-cardinality 0.1.0-SNAPSHOT in project/plugins.sbt:
+#            sbt 'cardinalityReportOf cats-eo_3-0.16.0-sources.jar'
+#
+# Definition estimate:  7 unresolved · 25 instantiation-dependent ·
+#                       5 unbounded by an open abstraction ·
+#                       2 type constructors, with no value space ·
+#                       3 with more than one value · 81 with one value ·
+#                       5 with no values · 6 abstract (53 sources, 134 definitions)
+# Implementation counts: 480 signatures: 15 finite · 2 countably infinite · 463 unresolved
+#
+# The unresolved definition rows are catalogued in eo-core-0.16.0-unresolved.md, next to this
+# file: what stopped each one, which capability moved it, and what is still missing. A sealed
+# parent reads the sum of the cases the source set defines — the value a reference to it has; a
+# type constructor alias is a shape rather than a question; a refinement is read as the type it
+# refines; and an opaque row reads its representation where it is defined, while a reference from
+# outside that scope stays one opaque value.
+#
+Generic method / constructor implementation cardinalities
+  480 signatures: 15 finite · 2 countably infinite · 463 unresolved
+  340 unresolved on: unresolved type
+  237 unresolved on: abstract type or method-valued representation
+  68 unresolved on: bounded or higher-kinded parameter F[_, _]
+  63 unresolved on: bounded or higher-kinded parameter F[_]
+  57 unresolved on: qualified member environment not resolved
+  47 unresolved on: unsupported type
+  25 unresolved on: bounded or higher-kinded parameter G[_, _]
+  18 unresolved on: bounded or higher-kinded parameter G[_]
+  16 unresolved on: mutable capture
+  12 unresolved on: inferred result type not resolved
+  8 unresolved on: bounded or higher-kinded parameter M
+  8 unresolved on: bounded or higher-kinded parameter T[_]
+  4 unresolved on: Elimination of an opaque sum-producing callable is unsupported
+  4 unresolved on: bounded or higher-kinded parameter A
+  4 unresolved on: bounded or higher-kinded parameter B
+  4 unresolved on: bounded or higher-kinded parameter S
+  4 unresolved on: bounded or higher-kinded parameter T
+  3 unresolved on: bounded or higher-kinded parameter FI[_, _]
+  2 unresolved on: Higher-order application is unsupported
+  1 unresolved on: bounded or higher-kinded parameter CC[X] <
+  1 unresolved on: bounded or higher-kinded parameter C[_[_]]
+  1 unresolved on: bounded or higher-kinded parameter T <
+
+?  dev.constructive.eo.CanFold.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  CanFold.scala:18  [declaration]
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.CanFold.headOption  headOption(s: S): Option[A]  CanFold.scala:20  [method]
+    unresolved: unresolved type: M
+?  dev.constructive.eo.CanFold.length  length(s: S): Int  CanFold.scala:23  [method]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: M
+?  dev.constructive.eo.CanFold.exists  exists(p: A => Boolean)(s: S): Boolean  CanFold.scala:26  [method]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: M
+?  dev.constructive.eo.CanFold.foci  foci(s: S): List[A]  CanFold.scala:29  [method]
+    unresolved: unresolved type: List
+    unresolved: unresolved type: M
+?  dev.constructive.eo.CanFold.<given@37>.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  CanFold.scala:41  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+0  dev.constructive.eo.CanGet.get  get(s: S): A  CanGet.scala:16  [declaration]
+1  dev.constructive.eo.CanGetOption.getOption  getOption(s: S): Option[A]  CanGetOption.scala:13  [declaration]
+0  dev.constructive.eo.CanModifyP.modify  modify(f: A => B): S => T  CanModify.scala:17  [declaration]
+?  dev.constructive.eo.CanModifyP.replace  replace(b: B): S => T  CanModify.scala:18  [method]
+    captures: modify
+    unresolved: Higher-order application is unsupported
+?  dev.constructive.eo.CanModifyAP.modifyA  modifyA[G[_]](f: A => G[B])(using Applicative[G]): S => G[T]  CanModifyA.scala:18  [declaration]
+    unresolved: bounded or higher-kinded parameter G[_]
+    unresolved: unresolved type: G
+?  dev.constructive.eo.CanModifyAP.<given@28>.modifyA  modifyA[G[_]](f: A => G[B])(using Applicative[G]): S => G[T]  CanModifyA.scala:32  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_]
+    unresolved: unresolved type: G
+?  dev.constructive.eo.CanModifyFP.modifyF  modifyF[G[_]](f: A => G[B])(using Functor[G]): S => G[T]  CanModifyF.scala:16  [declaration]
+    unresolved: bounded or higher-kinded parameter G[_]
+    unresolved: unresolved type: G
+?  dev.constructive.eo.CanModifyFP.<given@26>.modifyF  modifyF[G[_]](f: A => G[B])(using Functor[G]): S => G[T]  CanModifyF.scala:30  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_]
+    unresolved: unresolved type: G
+1  dev.constructive.eo.CanPlace.place  place(b: B): T => T  CanPlace.scala:15  [declaration]
+ω  dev.constructive.eo.CanPlace.transfer  transfer[C](f: C => B): T => C => T  CanPlace.scala:16  [method]
+    captures: place
+?  dev.constructive.eo.CanPlace.from  from[S, T, A, B, F[_, _]](o: Optic[S, T, A, B, F])(using ff: ForgetfulFunctor[F], ev: T => F[o.X, B], ): CanPlace[T, B]  CanPlace.scala:23  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.CanPlace
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: o.X
+0  dev.constructive.eo.CanPutP.put  put(f: A => B): A => T  CanPut.scala:14  [declaration]
+0  dev.constructive.eo.CanReverseGet.reverseGet  reverseGet(b: B): T  CanReverseGet.scala:13  [declaration]
+1  dev.constructive.eo.CanTransform.transform  transform(f: D => B): T => T  CanTransform.scala:14  [declaration]
+?  dev.constructive.eo.CanTransform.from  from[S, T, A, B, D, F[_, _]](o: Optic[S, T, A, B, F])(using ff: ForgetfulFunctor[F], ev: T => F[o.X, D], ): CanTransform[T, D, B]  CanTransform.scala:19  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.CanTransform
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: o.X
+?  dev.constructive.eo.accessor.Accessor.get  get[X, A](fa: F[X, A]): A  Accessor.scala:11  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.accessor.Accessor.tupleAccessor.get  get[X, A](fa: (X, A)): A  Accessor.scala:18  [method]
+    unresolved: unresolved type: X
+?  dev.constructive.eo.accessor.PartialAccessor.getOption  getOption[X, A](fa: F[X, A]): Option[A]  PartialAccessor.scala:15  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.accessor.PartialAccessor.eitherAccessor.getOption  getOption[X, A](fa: Either[X, A]): <inferred>  PartialAccessor.scala:22  [method]
+    unresolved: inferred result type not resolved
+    unresolved: unresolved type: X
+?  dev.constructive.eo.accessor.PartialAccessor.affineAccessor.getOption  getOption[X, A](fa: Affine[X, A]): Option[A]  PartialAccessor.scala:26  [method]
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: X
+?  dev.constructive.eo.accessor.ReverseAccessor.reverseGet  reverseGet[X, A](a: A): F[X, A]  ReverseAccessor.scala:10  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.accessor.ReverseAccessor.eitherRevAccessor.reverseGet  reverseGet[X, A](a: A): Either[X, A]  ReverseAccessor.scala:17  [method]
+    unresolved: unresolved type: A
+?  dev.constructive.eo.compose.AssociativeFunctor.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, F] { type X = Xo }, inner: Optic[A, B, C, D, F] { type X = Xi }, ): F[Z, C]  AssociativeFunctor.scala:26  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.AssociativeFunctor.Z
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unsupported type: Optic[A, B, C, D, F] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, F] { type X = Xo }
+?  dev.constructive.eo.compose.AssociativeFunctor.composeFrom  composeFrom[S, T, A, B, C, D]( xd: F[Z, D], inner: Optic[A, B, C, D, F] { type X = Xi }, outer: Optic[S, T, A, B, F] { type X = Xo }, ): T  AssociativeFunctor.scala:33  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.AssociativeFunctor.Z
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: S
+    unresolved: unsupported type: Optic[A, B, C, D, F] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, F] { type X = Xo }
+?  dev.constructive.eo.compose.AssociativeFunctor.tupleAssocF.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Tuple2] { type X = Xo }, inner: Optic[A, B, C, D, Tuple2] { type X = Xi }, ): (Z, C)  AssociativeFunctor.scala:49  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.AssociativeFunctor.Z
+    unresolved: unresolved type: S
+    unresolved: unsupported type: Optic[A, B, C, D, Tuple2] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Tuple2] { type X = Xo }
+?  dev.constructive.eo.compose.AssociativeFunctor.tupleAssocF.composeFrom  composeFrom[S, T, A, B, C, D]( xd: (Z, D), inner: Optic[A, B, C, D, Tuple2] { type X = Xi }, outer: Optic[S, T, A, B, Tuple2] { type X = Xo }, ): T  AssociativeFunctor.scala:58  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.AssociativeFunctor.Z
+    unresolved: unresolved type: S
+    unresolved: unsupported type: Optic[A, B, C, D, Tuple2] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Tuple2] { type X = Xo }
+?  dev.constructive.eo.compose.AssociativeFunctor.eitherAssocF.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Either] { type X = Xo }, inner: Optic[A, B, C, D, Either] { type X = Xi }, ): Either[Z, C]  AssociativeFunctor.scala:73  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.AssociativeFunctor.Z
+    unresolved: unresolved type: S
+    unresolved: unsupported type: Optic[A, B, C, D, Either] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Either] { type X = Xo }
+?  dev.constructive.eo.compose.AssociativeFunctor.eitherAssocF.composeFrom  composeFrom[S, T, A, B, C, D]( xd: Either[Z, D], inner: Optic[A, B, C, D, Either] { type X = Xi }, outer: Optic[S, T, A, B, Either] { type X = Xo }, ): T  AssociativeFunctor.scala:80  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.AssociativeFunctor.Z
+    unresolved: unresolved type: S
+    unresolved: unsupported type: Optic[A, B, C, D, Either] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Either] { type X = Xo }
+?  dev.constructive.eo.compose.Composer.to  to[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, G]  Composer.scala:18  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+?  dev.constructive.eo.compose.Composer.direct2tuple.to  to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, Tuple2]  Composer.scala:41  [method]
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: S
+    unresolved: unresolved type: Tuple2
+?  dev.constructive.eo.compose.Composer.direct2either.to  to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, Either]  Composer.scala:54  [method]
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: Either
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.Composer.direct2forget.to  to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, Forget[F]]  Composer.scala:84  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.LowPriorityComposerInstances.chainViaTuple2.to  to[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, G]  Composer.scala:110  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: S
+    unresolved: unresolved type: Tuple2
+?  dev.constructive.eo.compose.Morph.morphSelf  morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, Out]  Morph.scala:31  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.Morph.Out
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: A
+?  dev.constructive.eo.compose.Morph.morphO  morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, Out]  Morph.scala:34  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.Morph.Out
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.LowPriorityMorphInstances.bothViaAffine.morphSelf  morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, Affine]  Morph.scala:51  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.LowPriorityMorphInstances.bothViaAffine.morphO  morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, Affine]  Morph.scala:52  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.Morph.same.morphSelf  morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, F]  Morph.scala:60  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.Morph.same.morphO  morphO[A, B, C, D](o: Optic[A, B, C, D, F]): Optic[A, B, C, D, F]  Morph.scala:61  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.Morph.leftToRight.morphSelf  morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, G]  Morph.scala:66  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.Morph.leftToRight.morphO  morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, G]  Morph.scala:67  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.Morph.rightToLeft.morphSelf  morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, F]  Morph.scala:72  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.Morph.rightToLeft.morphO  morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, F]  Morph.scala:73  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.ReadCompose.compose  compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): Out[S, C]  ReadCompose.scala:39  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.compose.ReadCompose.Out
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+?  dev.constructive.eo.compose.ReadCompose.totalTotal.compose  compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): Getter[S, C]  ReadCompose.scala:58  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: Getter
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.ReadCompose.totalPartial.compose  compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): PickFold[S, C]  ReadCompose.scala:71  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: PickFold
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.ReadCompose.partialTotal.compose  compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): PickFold[S, C]  ReadCompose.scala:84  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: PickFold
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.ReadCompose.partialPartial.compose  compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): PickFold[S, C]  ReadCompose.scala:97  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: PickFold
+    unresolved: unresolved type: S
+?  dev.constructive.eo.compose.LowPriorityReadCompose.foldFold.compose  compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): ForgetFold[S, List, C]  ReadCompose.scala:118  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: List
+    unresolved: unresolved type: S
+?  dev.constructive.eo.data.Affine.fold  fold[C](onMiss: Fst[A] => C, onHit: (Snd[A], B) => C): C  Affine.scala:42  [method]
+    unresolved: unsupported type: T match case (f, s) => f
+    unresolved: unsupported type: T match case (f, s) => s
+?  dev.constructive.eo.data.Affine.aFold  aFold[C]( f: Fst[A] => Affine[A, C], g: ((Snd[A], B)) => Affine[A, C], ): Affine[A, C]  Affine.scala:52  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: unsupported type: T match case (f, s) => f
+    unresolved: unsupported type: T match case (f, s) => s
+?  dev.constructive.eo.data.Affine.aTraverse  aTraverse[C, G[_]: Applicative](f: B => G[C]): G[Affine[A, C]]  Affine.scala:67  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: bounded or higher-kinded parameter G[_]: Applicative
+    unresolved: unresolved type: G
+?  dev.constructive.eo.data.Affine.Miss.<init>  Miss[A](val fst: Fst[A])  Affine.scala:81  [constructor]
+    unresolved: unsupported type: T match case (f, s) => f
+?  dev.constructive.eo.data.Affine.Miss.toString  toString(): String  Affine.scala:82  [method]
+    unresolved: unresolved type: String
+    unresolved: unsupported type: T match case (f, s) => f
+?  dev.constructive.eo.data.Affine.Miss.equals  equals(that: Any): Boolean  Affine.scala:84  [method]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Any
+    unresolved: unsupported type: T match case (f, s) => f
+?  dev.constructive.eo.data.Affine.Miss.hashCode  hashCode(): Int  Affine.scala:88  [method]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Int
+    unresolved: unsupported type: T match case (f, s) => f
+?  dev.constructive.eo.data.Affine.Hit.<init>  Hit[A, +B](val snd: Snd[A], val b: B)  Affine.scala:91  [constructor]
+    unresolved: unsupported type: T match case (f, s) => s
+?  dev.constructive.eo.data.Affine.Hit.toString  toString(): String  Affine.scala:92  [method]
+    captures: b
+    unresolved: unresolved type: String
+    unresolved: unsupported type: T match case (f, s) => s
+?  dev.constructive.eo.data.Affine.Hit.equals  equals(that: Any): Boolean  Affine.scala:94  [method]
+    captures: b
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Any
+    unresolved: unsupported type: T match case (f, s) => s
+?  dev.constructive.eo.data.Affine.Hit.hashCode  hashCode(): Int  Affine.scala:98  [method]
+    captures: b
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Int
+    unresolved: unsupported type: T match case (f, s) => s
+?  dev.constructive.eo.data.Affine.map.map  map[X, A, B](fa: Affine[X, A], f: A => B): Affine[X, B]  Affine.scala:107  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+?  dev.constructive.eo.data.Affine.fold.foldMap  foldMap[X, A, M: Monoid](f: A => M, fa: Affine[X, A]): M  Affine.scala:118  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: bounded or higher-kinded parameter M: Monoid
+?  dev.constructive.eo.data.Affine.traverse.traverse  traverse[X, A, B, G[_]: Applicative](fa: Affine[X, A], f: A => G[B]): G[Affine[X, B]]  Affine.scala:130  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: bounded or higher-kinded parameter G[_]: Applicative
+    unresolved: unresolved type: G
+?  dev.constructive.eo.data.Affine.assoc.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Affine] { type X = Xo }, inner: Optic[A, B, C, D, Affine] { type X = Xi }, ): Affine[Z, C]  Affine.scala:148  [method]
+    unresolved: unsupported type: Miss[Xo] | FstXi
+    unresolved: unsupported type: Optic[A, B, C, D, Affine] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Affine] { type X = Xo }
+?  dev.constructive.eo.data.Affine.assoc.composeFrom  composeFrom[S, T, A, B, C, D]( xd: Affine[Z, D], inner: Optic[A, B, C, D, Affine] { type X = Xi }, outer: Optic[S, T, A, B, Affine] { type X = Xo }, ): T  Affine.scala:162  [method]
+    unresolved: unsupported type: Miss[Xo] | FstXi
+    unresolved: unsupported type: Optic[A, B, C, D, Affine] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Affine] { type X = Xo }
+?  dev.constructive.eo.data.Affine.tuple2affine.to  to[S, T, A, B](o: Optic[S, T, A, B, Tuple2]): Optic[S, T, A, B, Affine]  Affine.scala:189  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: unresolved type: Tuple2
+?  dev.constructive.eo.data.Affine.either2affine.to  to[S, T, A, B](o: Optic[S, T, A, B, Either]): Optic[S, T, A, B, Affine]  Affine.scala:211  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: unresolved type: Either
+?  dev.constructive.eo.data.Direct.apply  apply[X, A](a: A): Direct[X, A]  Direct.scala:35  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+?  dev.constructive.eo.data.Direct.<extension@38>.value  value: A  Direct.scala:38  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+?  dev.constructive.eo.data.Direct.accessor.get  get[X, A](fa: Direct[X, A]): A  Direct.scala:43  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+?  dev.constructive.eo.data.Direct.reverseAccessor.reverseGet  reverseGet[X, A](a: A): Direct[X, A]  Direct.scala:48  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+?  dev.constructive.eo.data.Direct.fold.foldMap  foldMap[X, A, M: Monoid](f: A => M, fa: Direct[X, A]): M  Direct.scala:58  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+    unresolved: bounded or higher-kinded parameter M: Monoid
+?  dev.constructive.eo.data.Direct.applicative.map  map[X, A, B](fa: Direct[X, A], f: A => B): Direct[X, B]  Direct.scala:63  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+?  dev.constructive.eo.data.Direct.applicative.pure  pure[X, A](a: A): Direct[X, A]  Direct.scala:66  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+?  dev.constructive.eo.data.Direct.traverse.traverse  traverse[X, A, B, G[_]: Invariant](fa: Direct[X, A], f: A => G[B]): G[Direct[X, B]]  Direct.scala:75  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+    unresolved: bounded or higher-kinded parameter G[_]: Invariant
+    unresolved: unresolved type: G
+?  dev.constructive.eo.data.Direct.assoc.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Direct] { type X = Xo }, inner: Optic[A, B, C, D, Direct] { type X = Xi }, ): C  Direct.scala:85  [method]
+    unresolved: unsupported type: Optic[A, B, C, D, Direct] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Direct] { type X = Xo }
+?  dev.constructive.eo.data.Direct.assoc.composeFrom  composeFrom[S, T, A, B, C, D]( xd: D, inner: Optic[A, B, C, D, Direct] { type X = Xi }, outer: Optic[S, T, A, B, Direct] { type X = Xo }, ): T  Direct.scala:91  [method]
+    unresolved: unsupported type: Optic[A, B, C, D, Direct] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, Direct] { type X = Xo }
+?  dev.constructive.eo.data.ForgetK.apply  apply[F[_], X, A](fa: F[A]): ForgetK[F, X, A]  Forget.scala:58  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.ForgetK.<extension@61>.value  value: F[A]  Forget.scala:61  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.ForgetK.ForgetPull.redistribute  redistribute[D, B](xd: F[D])(fromInner: F[D] => B): F[B]  Forget.scala:73  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.ForgetK.ForgetPull.monadicPull.redistribute  redistribute[D, B](xd: F[D])(fromInner: F[D] => B): F[B]  Forget.scala:83  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Applicative
+    unresolved: unresolved type: D
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.ForgetK.assocFor  assocFor[F[_]: FlatMap, Xo, Xi]( pull: ForgetPull[F] ): AssociativeFunctor[Forget[F], Xo, Xi]  Forget.scala:90  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: FlatMap
+?  dev.constructive.eo.data.ForgetK.bifunctor.bimap  bimap[A, B, C, D](fab: Forget[F][A, B])(f: A => C, g: B => D): Forget[F][C, D]  Forget.scala:115  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Functor
+    unresolved: unresolved type: Forget[F]
+?  dev.constructive.eo.data.ForgetK.forgetFFunctor.map  map[X, A, B](fa: Forget[F][X, A], f: A => B): Forget[F][X, B]  Forget.scala:123  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: Forget[F]
+?  dev.constructive.eo.data.ForgetK.forgetFApplicative.map  map[X, A, B](fa: Forget[F][X, A], f: A => B): Forget[F][X, B]  Forget.scala:131  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Applicative
+    unresolved: unresolved type: Forget[F]
+?  dev.constructive.eo.data.ForgetK.forgetFApplicative.pure  pure[X, A](a: A): Forget[F][X, A]  Forget.scala:132  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Applicative
+    unresolved: unresolved type: Forget[F]
+?  dev.constructive.eo.data.ForgetK.forgetFFold.foldMap  foldMap[X, A, M: Monoid](f: A => M, fa: Forget[F][X, A]): M  Forget.scala:141  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Foldable
+    unresolved: bounded or higher-kinded parameter M: Monoid
+    unresolved: unresolved type: Forget[F]
+?  dev.constructive.eo.data.ForgetK.forgetFTraverse.traverse  traverse[X, A, B, G[_]: Applicative]( fa: Forget[F][X, A], f: A => G[B], ): G[Forget[F][X, B]]  Forget.scala:151  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Traverse
+    unresolved: bounded or higher-kinded parameter G[_]: Applicative
+    unresolved: unresolved type: Forget[F]
+    unresolved: unresolved type: G
+?  dev.constructive.eo.data.IntArrBuilder.<init>  IntArrBuilder(initialCapacity: Int = 16)  IntArrBuilder.scala:10  [constructor]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.IntArrBuilder.size  size: Int  IntArrBuilder.scala:14  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.IntArrBuilder.append  append(x: Int): Unit  IntArrBuilder.scala:16  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.IntArrBuilder.unsafeAppend  unsafeAppend(x: Int): Unit  IntArrBuilder.scala:22  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.IntArrBuilder.grow  grow(minCap: Int): Unit  IntArrBuilder.scala:26  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.IntArrBuilder.grow.doubleTo  doubleTo(cap: Int): Int  IntArrBuilder.scala:27  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.IntArrBuilder.freeze  freeze: Array[Int]  IntArrBuilder.scala:36  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ModifyF.<init>  ModifyF[A, B](val modifier: (Fst[A], Snd[A] => B))  ModifyF.scala:28  [constructor]
+    unresolved: unsupported type: T match case (f, s) => f
+?  dev.constructive.eo.data.ModifyF.map.map  map[X, B, C](fa: ModifyF[X, B], f: B => C): ModifyF[X, C]  ModifyF.scala:40  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.ModifyF
+?  dev.constructive.eo.data.ModifyF.traverse.traverse  traverse[X, B, C, G[_]](fa: ModifyF[X, B], g: B => G[C])(using D: Distributive[G] ): G[ModifyF[X, C]]  ModifyF.scala:51  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.ModifyF
+    unresolved: bounded or higher-kinded parameter G[_]
+    unresolved: unresolved type: G
+?  dev.constructive.eo.data.ModifyF.coerceToModify  coerceToModify[F[_, _], S, T, A, B]( applyWrite: (S, A => B) => T ): optics.Optic[S, T, A, B, ModifyF]  ModifyF.scala:60  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.ModifyF
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.data.ModifyF.tuple2modify.to  to[S, T, A, B](o: optics.Optic[S, T, A, B, Tuple2]): optics.Optic[S, T, A, B, ModifyF]  ModifyF.scala:78  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.ModifyF
+    unresolved: unresolved type: Tuple2
+?  dev.constructive.eo.data.ModifyF.either2modify.to  to[S, T, A, B](o: optics.Optic[S, T, A, B, Either]): optics.Optic[S, T, A, B, ModifyF]  ModifyF.scala:90  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.ModifyF
+    unresolved: unresolved type: Either
+?  dev.constructive.eo.data.ModifyF.affine2modify.to  to[S, T, A, B](o: optics.Optic[S, T, A, B, Affine]): optics.Optic[S, T, A, B, ModifyF]  ModifyF.scala:103  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.ModifyF
+?  dev.constructive.eo.data.ModifyF.assocModifyF.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: optics.Optic[S, T, A, B, ModifyF] { type X = Xo }, inner: optics.Optic[A, B, C, D, ModifyF] { type X = Xi }, ): ModifyF[Z, C]  ModifyF.scala:137  [method]
+    unresolved: unsupported type: T match case (f, s) => f
+    unresolved: unsupported type: optics.Optic[A, B, C, D, ModifyF] { type X = Xi }
+    unresolved: unsupported type: optics.Optic[S, T, A, B, ModifyF] { type X = Xo }
+?  dev.constructive.eo.data.ModifyF.assocModifyF.composeFrom  composeFrom[S, T, A, B, C, D]( xd: ModifyF[Z, D], inner: optics.Optic[A, B, C, D, ModifyF] { type X = Xi }, outer: optics.Optic[S, T, A, B, ModifyF] { type X = Xo }, ): T  ModifyF.scala:145  [method]
+    unresolved: unsupported type: T match case (f, s) => f
+    unresolved: unsupported type: optics.Optic[A, B, C, D, ModifyF] { type X = Xi }
+    unresolved: unsupported type: optics.Optic[S, T, A, B, ModifyF] { type X = Xo }
+0  dev.constructive.eo.data.MultiFocusSingleton.singletonTo  singletonTo(s: S): (X0, A)  MultiFocus.scala:56  [declaration]
+    captures: singletonFrom
+0  dev.constructive.eo.data.MultiFocusSingleton.singletonFrom  singletonFrom(x: X0, b: B): T  MultiFocus.scala:57  [declaration]
+    captures: singletonTo
+?  dev.constructive.eo.data.MultiFocusSingleton.collectSingletonTo  collectSingletonTo(s: S, ysBuf: ObjArrBuilder, flatBuf: ObjArrBuilder): Unit  MultiFocus.scala:65  [method]
+    captures: singletonFrom, singletonTo
+    unresolved: unresolved type: ObjArrBuilder
+?  dev.constructive.eo.data.MultiFocusFromList.fromList  fromList[A](xs: List[A]): F[A]  MultiFocus.scala:75  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: List
+?  dev.constructive.eo.data.MultiFocusFromList.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): F[A]  MultiFocus.scala:77  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: A
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: F
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.MultiFocusFromList.forList.fromList  fromList[A](xs: List[A]): List[A]  MultiFocus.scala:83  [method]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: List
+?  dev.constructive.eo.data.MultiFocusFromList.forList.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): List[A]  MultiFocus.scala:85  [method]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: A
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: List
+?  dev.constructive.eo.data.MultiFocusFromList.forOption.fromList  fromList[A](xs: List[A]): Option[A]  MultiFocus.scala:90  [method]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: List
+?  dev.constructive.eo.data.MultiFocusFromList.forVector.fromList  fromList[A](xs: List[A]): Vector[A]  MultiFocus.scala:99  [method]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: List
+    unresolved: unresolved type: Vector
+?  dev.constructive.eo.data.MultiFocusFromList.forVector.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): Vector[A]  MultiFocus.scala:101  [method]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: A
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: Vector
+?  dev.constructive.eo.data.MultiFocusFromList.forChain.fromList  fromList[A](xs: List[A]): Chain[A]  MultiFocus.scala:105  [method]
+    unresolved: unresolved type: A
+    unresolved: unresolved type: Chain
+    unresolved: unresolved type: List
+?  dev.constructive.eo.data.MultiFocusFromList.forPSVec.fromList  fromList[A](xs: List[A]): PSVec[A]  MultiFocus.scala:113  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: A
+    unresolved: unresolved type: List
+?  dev.constructive.eo.data.MultiFocusFromList.forPSVec.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): PSVec[A]  MultiFocus.scala:125  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: A
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.MultiFocusPSMaybeHit.collectTo  collectTo( s: S, lenBuf: IntArrBuilder, ysBuf: ObjArrBuilder, flatBuf: ObjArrBuilder, ): Unit  MultiFocus.scala:139  [declaration]
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: IntArrBuilder
+    unresolved: unresolved type: ObjArrBuilder
+?  dev.constructive.eo.data.MultiFocusPSMaybeHit.reconstructSingleton  reconstructSingleton(y: Any, vys: PSVec[B], pos: Int, len: Int): T  MultiFocus.scala:146  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: IntArrBuilder
+?  dev.constructive.eo.data.MultiFocusK.<extension@158>.context  context: X  MultiFocus.scala:160  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+?  dev.constructive.eo.data.MultiFocusK.<extension@158>.foci  foci: F[A]  MultiFocus.scala:163  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.mfFunctor.map  map[X, A, B](xa: MultiFocus[F][X, A], f: A => B): MultiFocus[F][X, B]  MultiFocus.scala:180  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Functor
+    unresolved: unresolved type: MultiFocus[F]
+?  dev.constructive.eo.data.MultiFocusK.mfFold.foldMap  foldMap[X, A, M: Monoid](f: A => M, xa: MultiFocus[F][X, A]): M  MultiFocus.scala:190  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Foldable
+    unresolved: bounded or higher-kinded parameter M: Monoid
+    unresolved: unresolved type: MultiFocus[F]
+?  dev.constructive.eo.data.MultiFocusK.mfTraverse.traverse  traverse[X, A, B, G[_]: Applicative]( xa: MultiFocus[F][X, A], f: A => G[B], ): G[MultiFocus[F][X, B]]  MultiFocus.scala:200  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Traverse
+    unresolved: bounded or higher-kinded parameter G[_]: Applicative
+    unresolved: unresolved type: G
+    unresolved: unresolved type: MultiFocus[F]
+?  dev.constructive.eo.data.MultiFocusK.mfAssoc.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, MultiFocus[F]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[F]] { type X = Xi }, ): MultiFocus[F][Z, C]  MultiFocus.scala:219  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Traverse: MultiFocusFromList
+    unresolved: unresolved type: Int
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[F]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[F]] { type X = Xo }
+?  dev.constructive.eo.data.MultiFocusK.mfAssoc.composeFrom  composeFrom[S, T, A, B, C, D]( xd: MultiFocus[F][Z, D], inner: Optic[A, B, C, D, MultiFocus[F]] { type X = Xi }, outer: Optic[S, T, A, B, MultiFocus[F]] { type X = Xo }, ): T  MultiFocus.scala:251  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Traverse: MultiFocusFromList
+    unresolved: unresolved type: Int
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[F]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[F]] { type X = Xo }
+?  dev.constructive.eo.data.MultiFocusK.foldableToArray  foldableToArray[F[_]: Foldable, D](fd: F[D]): Array[Any]  MultiFocus.scala:275  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Foldable
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.pickSingletonOrThrow  pickSingletonOrThrow[F[_]: Foldable, B](fb: F[B], carrier: String): B  MultiFocus.scala:285  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Foldable
+    unresolved: unresolved type: F
+    unresolved: unresolved type: String
+?  dev.constructive.eo.data.MultiFocusK.mfAssocFunction1.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, MultiFocus[Function1[X0, *]]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[Function1[X0, *]]] { type X = Xi }, ): MultiFocus[Function1[X0, *]][Z, C]  MultiFocus.scala:306  [method]
+    unresolved: unresolved type: MultiFocus[Function1[X0, *]]
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[Function1[X0, *]]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[Function1[X0, *]]] { type X = Xo }
+?  dev.constructive.eo.data.MultiFocusK.mfAssocFunction1.composeFrom  composeFrom[S, T, A, B, C, D]( xd: MultiFocus[Function1[X0, *]][Z, D], inner: Optic[A, B, C, D, MultiFocus[Function1[X0, *]]] { type X = Xi }, outer: Optic[S, T, A, B, MultiFocus[Function1[X0, *]]] { type X = Xo }, ): T  MultiFocus.scala:317  [method]
+    unresolved: unresolved type: MultiFocus[Function1[X0, *]]
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[Function1[X0, *]]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[Function1[X0, *]]] { type X = Xo }
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.composeTo  composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, ): MultiFocus[PSVec][Z, C]  MultiFocus.scala:347  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singletonTo  singletonTo[A, B, C, D]( xo: Xo, va: PSVec[A], ah: MultiFocusSingleton[A, B, C, D, Xi], ): MultiFocus[PSVec][Z, C]  MultiFocus.scala:360  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusSingleton
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singletonTo.loop  loop(i: Int): Unit  MultiFocus.scala:368  [method]
+    captures: xo
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusSingleton
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.maybeHitTo  maybeHitTo[A, B, C, D]( xo: Xo, va: PSVec[A], mh: MultiFocusPSMaybeHit[A, B, C, D], ): MultiFocus[PSVec][Z, C]  MultiFocus.scala:377  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusPSMaybeHit
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.maybeHitTo.loop  loop(i: Int): Unit  MultiFocus.scala:386  [method]
+    captures: xo
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusPSMaybeHit
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singleOuterTo  singleOuterTo[A, B, C, D]( xo: Xo, va: PSVec[A], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, ): MultiFocus[PSVec][Z, C]  MultiFocus.scala:399  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.genericTo  genericTo[A, B, C, D]( xo: Xo, va: PSVec[A], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, ): MultiFocus[PSVec][Z, C]  MultiFocus.scala:418  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.genericTo.loop  loop(i: Int): Unit  MultiFocus.scala:431  [method]
+    captures: xo
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Int
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.composeFrom  composeFrom[S, T, A, B, C, D]( xd: MultiFocus[PSVec][Z, D], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, outer: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }, ): T  MultiFocus.scala:442  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }
+?  dev.constructive.eo.data.MultiFocusK.AssocSndZ.<init>  AssocSndZ[Xo, Xi]( val xo: Xo, val lens: Array[Int] | Null, val ys: Array[Any], )  MultiFocus.scala:496  [constructor]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Any
+    unresolved: unsupported type: Array[Int] | Null
+?  dev.constructive.eo.data.MultiFocusK.<extension@513>.collectList  collectList(agg: List[A] => B)(using ev: S =:= List[A], ev2: T =:= List[B]): S => T  MultiFocus.scala:515  [method]
+    unresolved: unresolved type: List
+    unresolved: unsupported type: S =:= List[A]
+    unresolved: unsupported type: T =:= List[B]
+?  dev.constructive.eo.data.MultiFocusK.<extension@529>.collectMap  collectMap[C](agg: F[A] => C)(using ev: C =:= B): S => T  MultiFocus.scala:531  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unsupported type: C =:= B
+?  dev.constructive.eo.data.MultiFocusK.<extension@529>.collectWith  collectWith(agg: F[A] => A => B): S => T  MultiFocus.scala:550  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.<extension@565>.at  at(i: F.Representation): S => A  MultiFocus.scala:567  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F.Representation
+?  dev.constructive.eo.data.MultiFocusK.apply  apply[F[_], A]: Optic[F[A], F[A], A, A, MultiFocus[F]]  MultiFocus.scala:575  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.pApply  pApply[F[_], A, B]: Optic[F[A], F[B], A, B, MultiFocus[F]]  MultiFocus.scala:586  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.forgetful2multifocus.to  to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:599  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+    unresolved: bounded or higher-kinded parameter F[_]: Applicative: Foldable
+?  dev.constructive.eo.data.MultiFocusK.forget2multifocus.to  to[S, T, A, B](o: Optic[S, T, A, B, Forget[F]]): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:612  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+?  dev.constructive.eo.data.MultiFocusK.multifocus2forget.to  to[S, T, A, B](o: Optic[S, T, A, B, MultiFocus[F]]): Optic[S, T, A, B, Forget[F]]  MultiFocus.scala:640  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+?  dev.constructive.eo.data.MultiFocusK.tuple2multifocus.to  to[S, T, A, B](o: Optic[S, T, A, B, Tuple2]): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:656  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Applicative: Foldable
+    unresolved: unresolved type: Tuple2
+?  dev.constructive.eo.data.MultiFocusK.either2multifocus.to  to[S, T, A, B](o: Optic[S, T, A, B, Either]): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:678  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: Alternative: Foldable
+    unresolved: unresolved type: Either
+?  dev.constructive.eo.data.MultiFocusK.affine2multifocus.to  to[S, T, A, B](o: Optic[S, T, A, B, Affine]): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:696  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: bounded or higher-kinded parameter F[_]: Alternative: Foldable
+?  dev.constructive.eo.data.MultiFocusK.tuple2multifocusPSVec.to  to[S, T, A, B](o: Optic[S, T, A, B, Tuple2]): Optic[S, T, A, B, MultiFocus[PSVec]]  MultiFocus.scala:728  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: Tuple2
+?  dev.constructive.eo.data.MultiFocusK.either2multifocusPSVec.to  to[S, T, A, B](o: Optic[S, T, A, B, Either]): Optic[S, T, A, B, MultiFocus[PSVec]]  MultiFocus.scala:762  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: Either
+?  dev.constructive.eo.data.MultiFocusK.affine2multifocusPSVec.to  to[S, T, A, B](o: Optic[S, T, A, B, Affine]): Optic[S, T, A, B, MultiFocus[PSVec]]  MultiFocus.scala:800  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.MultiFocusK.multifocus2modify.to  to[S, T, A, B](o: Optic[S, T, A, B, MultiFocus[F]]): Optic[S, T, A, B, ModifyF]  MultiFocus.scala:842  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.ModifyF
+    unresolved: bounded or higher-kinded parameter F[_]: Functor
+?  dev.constructive.eo.data.MultiFocusK.fromLensF  fromLensF[F[_], S, T, A, B]( lens: Optic[S, T, F[A], F[B], Tuple2] ): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:858  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.fromPrismF  fromPrismF[F[_]: MonoidK, S, T, A, B]( prism: Optic[S, T, F[A], F[B], Either] ): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:872  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: MonoidK
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.representable  representable[F[_], A](using F: Representable[F] ): Optic[F[A], F[A], A, A, MultiFocus[Function1[F.Representation, *]]]  MultiFocus.scala:896  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.zipWith  zipWith[F[_], A, B, C](fa: F[A], fb: F[B])(f: (A, B) => C)(using F: Representable[F]): F[C]  MultiFocus.scala:924  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.zip  zip[F[_], A, B](fa: F[A], fb: F[B])(using Representable[F]): F[(A, B)]  MultiFocus.scala:930  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocusK.representableAt  representableAt[F[_], A](F: Representable[F])( repr0: F.Representation ): Optic[F[A], F[A], A, A, MultiFocus[Function1[F.Representation, *]]]  MultiFocus.scala:939  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: F.Representation
+?  dev.constructive.eo.data.MultiFocusK.tuple  tuple[T <: Tuple, A](using sz: ValueOf[Tuple.Size[T]], ev: Tuple.Union[T] <:< A, ): Optic[T, T, A, A, MultiFocus[Function1[Int, *]]]  MultiFocus.scala:960  [method]
+    unresolved: bounded or higher-kinded parameter T <: Tuple
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unsupported type: Tuple.Union[T] <:< A
+?  dev.constructive.eo.data.MultiFocusK.forgetful2multifocusFunction1.to  to[S, T, A, B]( o: Optic[S, T, A, B, Direct] ): Optic[S, T, A, B, MultiFocus[Function1[X0, *]]]  MultiFocus.scala:990  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Direct
+    unresolved: unsupported type: Function1[X0, *]
+?  dev.constructive.eo.data.MultiFocusK.fromOptionalF  fromOptionalF[F[_]: MonoidK, S, T, A, B]( opt: Optic[S, T, F[A], F[B], Affine] ): Optic[S, T, A, B, MultiFocus[F]]  MultiFocus.scala:1007  [method]
+    unresolved: bounded or higher-kinded parameter F[_]: MonoidK
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.MultiFocus.apply  apply[F[_], X, A](x: X, fa: F[A]): MultiFocusK[F, X, A]  MultiFocus.scala:1036  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.data.ObjArrBuilder.<init>  ObjArrBuilder(initialCapacity: Int = 16)  ObjArrBuilder.scala:10  [constructor]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.size  size: Int  ObjArrBuilder.scala:14  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.append  append(x: Any): Unit  ObjArrBuilder.scala:16  [method]
+    unresolved: mutable capture
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.unsafeAppend  unsafeAppend(x: Any): Unit  ObjArrBuilder.scala:24  [method]
+    unresolved: mutable capture
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.appendAllFromPSVec  appendAllFromPSVec[A](src: PSVec[A]): Unit  ObjArrBuilder.scala:28  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: mutable capture
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.grow  grow(minCap: Int): Unit  ObjArrBuilder.scala:38  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.grow.doubleTo  doubleTo(cap: Int): Int  ObjArrBuilder.scala:39  [method]
+    unresolved: mutable capture
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.freezeAsPSVec  freezeAsPSVec[A]: PSVec[A]  ObjArrBuilder.scala:50  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: mutable capture
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.ObjArrBuilder.freezeArr  freezeArr: Array[Any]  ObjArrBuilder.scala:55  [method]
+    unresolved: mutable capture
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.length  length: Int  PSVec.scala:20  [declaration]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.apply  apply(i: Int): B  PSVec.scala:23  [declaration]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.iterator  iterator: Iterator[B]  PSVec.scala:33  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: Iterator
+?  dev.constructive.eo.data.PSVec.knownSize  knownSize: Int  PSVec.scala:41  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.head  head: B  PSVec.scala:44  [declaration]
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.slice  slice(from: Int, until: Int): PSVec[B]  PSVec.scala:47  [declaration]
+    captures: head
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.isEmpty  isEmpty: Boolean  PSVec.scala:49  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.toList  toList: List[B]  PSVec.scala:54  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: List
+?  dev.constructive.eo.data.PSVec.toAnyArray  toAnyArray: Array[Any]  PSVec.scala:61  [declaration]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.unsafeShareableArray  unsafeShareableArray: Array[Any]  PSVec.scala:68  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.equals  equals(that: Any): Boolean  PSVec.scala:70  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.hashCode  hashCode(): Int  PSVec.scala:81  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.hashCode.loop  loop(i: Int, h: Int): Int  PSVec.scala:82  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.toString  toString(): String  PSVec.scala:91  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: String
+?  dev.constructive.eo.data.PSVec.pSVecFunctor.map  map[A, B](fa: PSVec[A])(f: A => B): PSVec[B]  PSVec.scala:112  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.PSVec.pSVecFoldable.foldLeft  foldLeft[A, B](fa: PSVec[A], b: B)(f: (B, A) => B): B  PSVec.scala:131  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.PSVec.pSVecFoldable.foldLeft.loop  loop(i: Int, acc: B): B  PSVec.scala:133  [method]
+    captures: b, f
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.pSVecFoldable.foldRight  foldRight[A, B](fa: PSVec[A], lb: Eval[B])( f: (A, Eval[B]) => Eval[B] ): Eval[B]  PSVec.scala:138  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: Eval
+?  dev.constructive.eo.data.PSVec.pSVecFoldable.foldRight.loop  loop(i: Int): Eval[B]  PSVec.scala:142  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Eval
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.pSVecFoldable.size  size[A](fa: PSVec[A]): Long  PSVec.scala:147  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Long
+?  dev.constructive.eo.data.PSVec.pSVecTraverse.traverse  traverse[G[_]: Applicative, A, B](fa: PSVec[A])(f: A => G[B]): G[PSVec[B]]  PSVec.scala:157  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: bounded or higher-kinded parameter G[_]: Applicative
+    unresolved: unresolved type: G
+?  dev.constructive.eo.data.PSVec.pSVecTraverse.foldLeft  foldLeft[A, B](fa: PSVec[A], b: B)(f: (B, A) => B): B  PSVec.scala:177  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.PSVec.pSVecTraverse.foldRight  foldRight[A, B](fa: PSVec[A], lb: Eval[B])( f: (A, Eval[B]) => Eval[B] ): Eval[B]  PSVec.scala:180  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: Eval
+?  dev.constructive.eo.data.PSVec.Empty.length  length: Int  PSVec.scala:186  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Empty.apply  apply(i: Int): Nothing  PSVec.scala:190  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Empty.head  head: Nothing  PSVec.scala:193  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Empty.slice  slice(from: Int, until: Int): PSVec[Nothing]  PSVec.scala:196  [method]
+    captures: head
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+1  dev.constructive.eo.data.PSVec.Single.<init>  Single[+B](val b: B)  PSVec.scala:199  [constructor]
+?  dev.constructive.eo.data.PSVec.Single.length  length: Int  PSVec.scala:200  [method]
+    captures: b, head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Single.apply  apply(i: Int): B  PSVec.scala:202  [method]
+    captures: b, head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Single.head  head: B  PSVec.scala:206  [method]
+    captures: b, head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Single.slice  slice(from: Int, until: Int): PSVec[B]  PSVec.scala:208  [method]
+    captures: b, head
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Single.toAnyArray  toAnyArray: Array[Any]  PSVec.scala:213  [method]
+    captures: b, head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Slice.<init>  Slice[+B]( private[data] val arr: Array[Any], private[data] val offset: Int, val length: Int, )  PSVec.scala:221  [constructor]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Slice.apply  apply(i: Int): B  PSVec.scala:226  [method]
+    captures: head
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Slice.head  head: B  PSVec.scala:227  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Slice.slice  slice(from: Int, until: Int): PSVec[B]  PSVec.scala:229  [method]
+    captures: head
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Slice.toAnyArray  toAnyArray: Array[Any]  PSVec.scala:237  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.Slice.unsafeShareableArray  unsafeShareableArray: Array[Any]  PSVec.scala:242  [method]
+    captures: head
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.data.PSVec.empty  empty[B]: PSVec[B]  PSVec.scala:247  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.PSVec.singleton  singleton[B](b: B): PSVec[B]  PSVec.scala:250  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.PSVec.of  of[B](b0: B, b1: B): PSVec[B]  PSVec.scala:256  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+?  dev.constructive.eo.data.PSVec.unsafeWrap  unsafeWrap[B](arr: Array[Any]): PSVec[B]  PSVec.scala:266  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: Any
+?  dev.constructive.eo.data.PSVec.from  from[B](xs: IterableOnce[B]): PSVec[B]  PSVec.scala:277  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: IterableOnce
+?  dev.constructive.eo.data.PSVec.from  from[B](arr: Array[B]): PSVec[B]  PSVec.scala:302  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: unresolved type: Array
+?  dev.constructive.eo.data.PSVec.from  from[T[_]: Foldable, A](ta: T[A]): PSVec[A]  PSVec.scala:310  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
+    unresolved: bounded or higher-kinded parameter T[_]: Foldable
+    unresolved: unresolved type: T
+?  dev.constructive.eo.forgetful.ForgetfulApplicative.pure  pure[X, A](a: A): F[X, A]  ForgetfulApplicative.scala:11  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: X
+?  dev.constructive.eo.forgetful.ForgetfulFold.foldMap  foldMap[X, A, M: Monoid](f: A => M, fa: F[X, A]): M  ForgetfulFold.scala:13  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter M: Monoid
+    unresolved: unresolved type: F
+?  dev.constructive.eo.forgetful.ForgetfulFold.tupleFFold.foldMap  foldMap[X, A, M: Monoid](f: A => M, fa: (X, A)): M  ForgetfulFold.scala:21  [method]
+    unresolved: bounded or higher-kinded parameter M: Monoid
+    unresolved: unresolved type: A
+?  dev.constructive.eo.forgetful.ForgetfulFold.eitherFFold.foldMap  foldMap[X, A, M: Monoid](f: A => M, ea: Either[X, A]): M  ForgetfulFold.scala:27  [method]
+    unresolved: bounded or higher-kinded parameter M: Monoid
+    unresolved: unresolved type: A
+?  dev.constructive.eo.forgetful.ForgetfulFunctor.map  map[X, A, B](fa: F[X, A], f: A => B): F[X, B]  ForgetfulFunctor.scala:10  [declaration]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.forgetful.ForgetfulFunctor.directTuple.map  map[X, A, B](fa: (X, A), f: A => B): (X, B)  ForgetfulFunctor.scala:24  [method]
+    unresolved: unresolved type: X
+?  dev.constructive.eo.forgetful.ForgetfulFunctor.directEither.map  map[X, A, B](fa: Either[X, A], f: A => B): Either[X, B]  ForgetfulFunctor.scala:28  [method]
+    unresolved: unresolved type: X
+?  dev.constructive.eo.forgetful.ForgetfulTraverse.traverse  traverse[X, A, B, G[_]: C](fa: F[X, A], f: A => G[B]): G[F[X, B]]  ForgetfulTraverse.scala:19  [declaration]
+    unresolved: bounded or higher-kinded parameter C[_[_]]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_]: C
+    unresolved: unresolved type: F
+    unresolved: unresolved type: G
+?  dev.constructive.eo.forgetful.ForgetfulTraverse.tupleFTraverse.traverse  traverse[X, A, B, G[_]: Functor](fa: (X, A), f: A => G[B]): G[(X, B)]  ForgetfulTraverse.scala:27  [method]
+    unresolved: bounded or higher-kinded parameter G[_]: Functor
+    unresolved: unresolved type: G
+    unresolved: unresolved type: X
+?  dev.constructive.eo.forgetful.ForgetfulTraverse.tupleFTraverseApplicative.traverse  traverse[X, A, B, G[_]: Applicative](fa: (X, A), f: A => G[B]): G[(X, B)]  ForgetfulTraverse.scala:37  [method]
+    unresolved: bounded or higher-kinded parameter G[_]: Applicative
+    unresolved: unresolved type: G
+    unresolved: unresolved type: X
+?  dev.constructive.eo.forgetful.ForgetfulTraverse.eitherFTraverse.traverse  traverse[X, A, B, G[_]: Applicative](fa: Either[X, A], f: A => G[B]): G[Either[X, B]]  ForgetfulTraverse.scala:43  [method]
+    unresolved: bounded or higher-kinded parameter G[_]: Applicative
+    unresolved: unresolved type: G
+    unresolved: unresolved type: X
+?  dev.constructive.eo.optics.PickFold.<init>  PickFold[S, A](val pick: S => Option[A])  AffineFold.scala:40  [constructor]
+    unresolved: Elimination of an opaque sum-producing callable is unsupported
+?  dev.constructive.eo.optics.PickFold.foldMap  foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M  AffineFold.scala:46  [method]
+    captures: getOption, pick
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.PickFold.to  to(s: S): Affine[X, A]  AffineFold.scala:51  [method]
+    captures: getOption, pick
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickFold.from  from(a: Affine[X, Unit]): Unit  AffineFold.scala:56  [method]
+    captures: getOption, pick
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickFold.getOption  getOption(s: S): Option[A]  AffineFold.scala:61  [method]
+    captures: getOption, pick
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickFold.andThen  andThen[C](inner: PickFold[A, C]): PickFold[S, C]  AffineFold.scala:67  [method]
+    captures: getOption, pick
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickFold
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickFold.andThen  andThen[C, IT, IB, FI[_, _]](inner: Optic[A, IT, C, IB, FI])(using rc: ReadCompose[Affine, FI] ): rc.Out[S, C]  AffineFold.scala:76  [method]
+    captures: getOption, pick
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter FI[_, _]
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: M
+    unresolved: unresolved type: rc.Out
+?  dev.constructive.eo.optics.PickFold.andThen  andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[Affine, G] ): rc.Out[S, C]  AffineFold.scala:85  [method]
+    captures: getOption, pick
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: M
+    unresolved: unresolved type: rc.Out
+?  dev.constructive.eo.optics.AffineFold.apply  apply[S, A](matches: S => Option[A]): PickFold[S, A]  AffineFold.scala:103  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickFold
+?  dev.constructive.eo.optics.AffineFold.select  select[A](p: A => Boolean): PickFold[A, A]  AffineFold.scala:107  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickFold
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+?  dev.constructive.eo.optics.At.apply  apply[K, V](k: K): GetReplaceLens[Map[K, V], Map[K, V], Option[V], Option[V]]  At.scala:26  [method]
+    unresolved: unresolved type: Map
+?  dev.constructive.eo.optics.Each.apply  apply[T[_]: Traverse, A]: Traversal[T[A], T[A], A, A]  Each.scala:26  [method]
+    unresolved: bounded or higher-kinded parameter T[_]: Traverse
+    unresolved: unresolved type: T
+?  dev.constructive.eo.optics.Fold.apply  apply[F[_], A](using Foldable[F]): ForgetFold[F[A], F, A]  Fold.scala:33  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Fold.select  select[A](p: A => Boolean): ForgetFold[A, Option, A]  Fold.scala:37  [method]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Option
+?  dev.constructive.eo.optics.ForgetFold.<init>  ForgetFold[S, F[_], A]( val read: S => F[A] )(using FF: Foldable[F])  Fold.scala:51  [constructor]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.ForgetFold.to  to(s: S): Forget[F][X, A]  Fold.scala:57  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: Forget[F]
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.ForgetFold.from  from(u: Forget[F][X, Unit]): Unit  Fold.scala:58  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: Forget[F]
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.ForgetFold.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  Fold.scala:65  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.ForgetFold.andThen  andThen[C](inner: ForgetFold[A, F, C])(using FM: FlatMap[F]): ForgetFold[S, F, C]  Fold.scala:74  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.ForgetFold.andThen  andThen[C, IT, IB, FI[_, _]](inner: Optic[A, IT, C, IB, FI])(using rc: ReadCompose[Forget[F], FI] ): rc.Out[S, C]  Fold.scala:82  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter FI[_, _]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: M
+    unresolved: unresolved type: rc.Out
+?  dev.constructive.eo.optics.ForgetFold.andThen  andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[Forget[F], G] ): rc.Out[S, C]  Fold.scala:91  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: M
+    unresolved: unresolved type: rc.Out
+1  dev.constructive.eo.optics.Getter.<init>  Getter[S, A](read: S => A)  Getter.scala:25  [constructor]
+?  dev.constructive.eo.optics.Getter.get  get(s: S): A  Getter.scala:31  [method]
+    captures: get, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Getter.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  Getter.scala:33  [method]
+    captures: get, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.Getter.to  to(s: S): Direct[X, A]  Getter.scala:35  [method]
+    captures: get, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Getter.from  from(d: Direct[X, Unit]): Unit  Getter.scala:36  [method]
+    captures: get, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Getter.andThen  andThen[B](inner: Getter[A, B]): Getter[S, B]  Getter.scala:48  [method]
+    captures: get, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Getter
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Getter.andThen  andThen[C, IT, IB, FI[_, _]](inner: Optic[A, IT, C, IB, FI])(using rc: ReadCompose[Direct, FI] ): rc.Out[S, C]  Getter.scala:58  [method]
+    captures: get, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter FI[_, _]
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: M
+    unresolved: unresolved type: rc.Out
+?  dev.constructive.eo.optics.Getter.andThen  andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[Direct, G] ): rc.Out[S, C]  Getter.scala:69  [method]
+    captures: get, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: M
+    unresolved: unresolved type: rc.Out
+?  dev.constructive.eo.optics.Getter.apply  apply[S, A](get: S => A): Getter[S, A]  Getter.scala:95  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Getter
+?  dev.constructive.eo.optics.Index.apply  apply[CC[X] <: SeqOps[X, CC, CC[X]], A](i: Int): Optional[CC[A], CC[A], A, A]  Index.scala:34  [method]
+    unresolved: bounded or higher-kinded parameter CC[X] <: SeqOps[X, CC, CC[X]]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: CC
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.optics.Index.apply  apply[K, V](k: K): Optional[Map[K, V], Map[K, V], V, V]  Index.scala:52  [method]
+    unresolved: unresolved type: Map
+?  dev.constructive.eo.optics.Iso.apply  apply[S, T, A, B](f: S => A, g: B => T): <inferred>  Iso.scala:41  [method]
+    unresolved: inferred result type not resolved
+1  dev.constructive.eo.optics.BijectionIso.<init>  BijectionIso[S, T, A, B]( read: S => A, build: B => T, )  Iso.scala:49  [constructor]
+?  dev.constructive.eo.optics.BijectionIso.get  get(s: S): A  Iso.scala:58  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.reverseGet  reverseGet(b: B): T  Iso.scala:59  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.to  to(s: S): Direct[X, A]  Iso.scala:60  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.from  from(d: Direct[X, B]): T  Iso.scala:61  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Direct
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.modify  modify(f: A => B): S => T  Iso.scala:63  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.replace  replace(b: B): S => T  Iso.scala:66  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  Iso.scala:70  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.BijectionIso.andThen  andThen[C, D](inner: BijectionIso[A, B, C, D]): BijectionIso[S, T, C, D]  Iso.scala:76  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.BijectionIso
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.andThen  andThen[C, D](inner: GetReplaceLens[A, B, C, D]): GetReplaceLens[S, T, C, D]  Iso.scala:83  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.GetReplaceLens
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.andThen  andThen[C, D](inner: MendTearPrism[A, B, C, D]): MendTearPrism[S, T, C, D]  Iso.scala:90  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.BijectionIso.andThen  andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]  Iso.scala:100  [method]
+    captures: build, get, modify, read, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Lens.pLens  pLens[S, T, A, B](get: S => A, enplace: (S, B) => T): <inferred>  Lens.scala:25  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Lens.apply  apply[S, A](get: S => A, enplace: (S, A) => S): <inferred>  Lens.scala:38  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Lens.representable  representable[F[_], A](using R: cats.Representable[F] )(r: R.Representation): GetReplaceLens[F[A], F[A], A, A]  Lens.scala:51  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: R.Representation
+?  dev.constructive.eo.optics.Lens.curried  curried[S, A](get: S => A, replace: A => S => S): <inferred>  Lens.scala:63  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Lens.pCurried  pCurried[S, T, A, B](get: S => A, replace: B => S => T): <inferred>  Lens.scala:70  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Lens.first  first[A, B]: <inferred>  Lens.scala:78  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Lens.second  second[A, B]: <inferred>  Lens.scala:89  [method]
+    unresolved: inferred result type not resolved
+1  dev.constructive.eo.optics.GetReplaceLens.<init>  GetReplaceLens[S, T, A, B]( read: S => A, val enplace: (S, B) => T, )  Lens.scala:100  [constructor]
+?  dev.constructive.eo.optics.GetReplaceLens.get  get(s: S): A  Lens.scala:108  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.to  to(s: S): (S, A)  Lens.scala:109  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.from  from(pair: (S, B)): T  Lens.scala:110  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.replace  replace(b: B): S => T  Lens.scala:112  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.modify  modify(f: A => B): S => T  Lens.scala:114  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  Lens.scala:117  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.GetReplaceLens.andThen  andThen[C, D](inner: GetReplaceLens[A, B, C, D]): GetReplaceLens[S, T, C, D]  Lens.scala:132  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.GetReplaceLens
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.andThen  andThen[C, D](inner: BijectionIso[A, B, C, D]): GetReplaceLens[S, T, C, D]  Lens.scala:141  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.BijectionIso
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.GetReplaceLens
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.andThen  andThen[C, D](inner: MendTearPrism[A, B, C, D]): Optional[S, T, C, D]  Lens.scala:150  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.andThen  andThen[C, D](inner: PickMendPrism[A, C, D])(using ev: A =:= B ): Optional[S, T, C, D]  Lens.scala:162  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickMendPrism
+    unresolved: unresolved type: M
+    unresolved: unsupported type: A =:= B
+?  dev.constructive.eo.optics.GetReplaceLens.andThen  andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]  Lens.scala:179  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.GetReplaceLens.andThen  andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]  Lens.scala:183  [method]
+    captures: enplace, get, modify, read
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+4  dev.constructive.eo.optics.SplitCombineLens.<init>  SplitCombineLens[S, T, A, B, XA]( read: S => A, val split: S => (XA, A), val combine: (XA, B) => T, )  Lens.scala:199  [constructor]
+?  dev.constructive.eo.optics.SplitCombineLens.get  get(s: S): A  Lens.scala:208  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.SplitCombineLens.to  to(s: S): (XA, A)  Lens.scala:209  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.SplitCombineLens.from  from(pair: (XA, B)): T  Lens.scala:210  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.SplitCombineLens.modify  modify(f: A => B): S => T  Lens.scala:212  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.SplitCombineLens.replace  replace(b: B): S => T  Lens.scala:217  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.SplitCombineLens.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  Lens.scala:222  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.SplitCombineLens.andThen  andThen[C, D, XI]( inner: SplitCombineLens[A, B, C, D, XI] ): SplitCombineLens[S, T, C, D, (XA, XI)]  Lens.scala:232  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.SplitCombineLens
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.SplitCombineLens.andThen  andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]  Lens.scala:248  [method]
+    captures: combine, get, modify, read, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+    unresolved: unresolved type: M
+ω  dev.constructive.eo.optics.SimpleLens.<init>  SimpleLens[S, A, XA]( get: S => A, split: S => (XA, A), combine: (XA, A) => S, )  Lens.scala:256  [constructor]
+?  dev.constructive.eo.optics.SimpleLens.place  place(a: A): S => S  Lens.scala:265  [method]
+    captures: combine, get, modify, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.SimpleLens.transfer  transfer[C](f: C => A): S => C => S  Lens.scala:273  [method]
+    captures: combine, get, modify, split
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Modify.apply  apply[S, T, A, B](modify: (A => B) => S => T): Modify[S, T, A, B]  Modify.scala:35  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Modify
+?  dev.constructive.eo.optics.Modify.functor  functor[F[_], A, B](using F: Functor[F]): Modify[F[A], F[B], A, B]  Modify.scala:45  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Modify.<init>  Modify[S, T, A, B](val modifyFn: (A => B) => S => T)  Modify.scala:54  [constructor]
+    unresolved: Higher-order application is unsupported
+?  dev.constructive.eo.optics.Modify.to  to(s: S): ModifyF[X, A]  Modify.scala:59  [method]
+    captures: modify, modifyFn
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: ModifyF
+?  dev.constructive.eo.optics.Modify.from  from(s: ModifyF[X, B]): T  Modify.scala:61  [method]
+    captures: modify, modifyFn
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: ModifyF
+?  dev.constructive.eo.optics.Modify.modify  modify(f: A => B): S => T  Modify.scala:64  [method]
+    captures: modify, modifyFn
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+?  dev.constructive.eo.optics.Modify.replace  replace(b: B): S => T  Modify.scala:67  [method]
+    captures: modify, modifyFn
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+?  dev.constructive.eo.optics.Modify.andThen  andThen[C, D](inner: Modify[A, B, C, D]): Modify[S, T, C, D]  Modify.scala:79  [method]
+    captures: modify, modifyFn
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Modify
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+?  dev.constructive.eo.optics.Optic.to  to(s: S): F[X, A]  Optic.scala:60  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.from  from(b: F[X, B]): T  Optic.scala:65  [declaration]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.andThen  andThen[C, D](o: Optic[A, B, C, D, F]): Optic[S, T, C, D, F]  Optic.scala:79  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.andThen  andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[F, G] ): rc.Out[S, C]  Optic.scala:103  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: rc.Out
+?  dev.constructive.eo.optics.Optic.cross  cross[C, D]( o: Optic[T, S, C, D, F] )(using Accessor[F], ReverseAccessor[F]): Optic[B, A, C, D, F]  Optic.scala:124  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.id  id[A]: BijectionIso[A, A, A, A]  Optic.scala:155  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.BijectionIso
+?  dev.constructive.eo.optics.Optic.outerProfunctor.dimap  dimap[S, T, R, U]( o: Optic[S, T, A, B, F] )(f: R => S)(g: T => U): Optic[R, U, A, B, F]  Optic.scala:173  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.innerProfunctor.dimap  dimap[B, A, D, C]( o: Optic[S, T, A, B, F] )(f: D => B)(g: A => C): Optic[S, T, C, D, F]  Optic.scala:195  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@216>.andThen  andThen[G[_, _], C, D](o: Optic[A, B, C, D, G])(using m: Morph[F, G] ): Optic[S, T, C, D, m.Out]  Optic.scala:218  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: m.Out
+?  dev.constructive.eo.optics.Optic.<extension@216>.morph  morph[G[_, _]](using cf: Composer[F, G]): Optic[S, T, A, B, G]  Optic.scala:228  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@237>.get  get(s: S): A  Optic.scala:240  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@237>.readOnly  readOnly: Getter[S, A]  Optic.scala:242  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Getter
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@250>.getOption  getOption(s: S): Option[A]  Optic.scala:252  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@259>.reverseGet  reverseGet(b: B): T  Optic.scala:262  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@259>.andThen  andThen[D](o: Review[B, D]): Review[T, D]  Optic.scala:268  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Review
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@259>.andThen  andThen[G[_], D](o: Unfold[B, D, G]): Unfold[T, D, G]  Optic.scala:277  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_]
+?  dev.constructive.eo.optics.Optic.<extension@259>.writeOnly  writeOnly: Review[T, B]  Optic.scala:281  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Review
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@289>.reverse  reverse: Optic[B, A, T, S, F]  Optic.scala:293  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@289>.cross  cross[G[_, _], C, D](o: Optic[T, S, C, D, G])(using m: Morph[F, G] ): Optic[B, A, C, D, m.Out]  Optic.scala:299  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: m.Out
+?  dev.constructive.eo.optics.Optic.<extension@310>.modify  modify(f: A => B): S => T  Optic.scala:314  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@310>.replace  replace(b: B): S => T  Optic.scala:317  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@310>.andThen  andThen[C, D](o: Modify[A, B, C, D]): Modify[S, T, C, D]  Optic.scala:323  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Modify
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@332>.place  place(b: B): T => T  Optic.scala:336  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: o.X
+?  dev.constructive.eo.optics.Optic.<extension@332>.transfer  transfer[C](f: C => B): T => C => T  Optic.scala:339  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: o.X
+?  dev.constructive.eo.optics.Optic.<extension@347>.transform  transform(f: D => B): T => T  Optic.scala:351  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: o.X
+?  dev.constructive.eo.optics.Optic.<extension@359>.put  put(f: A => B): A => T  Optic.scala:363  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@371>.modifyF  modifyF[G[_]](f: A => G[B])(using G: Functor[G]): S => G[T]  Optic.scala:375  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_]
+    unresolved: unresolved type: G
+?  dev.constructive.eo.optics.Optic.<extension@383>.modifyA  modifyA[G[_]](f: A => G[B])(using G: Applicative[G]): S => G[T]  Optic.scala:387  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter G[_]
+    unresolved: unresolved type: G
+?  dev.constructive.eo.optics.Optic.<extension@383>.all  all(s: S): List[F[o.X, A]]  Optic.scala:393  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: o.X
+?  dev.constructive.eo.optics.Optic.<extension@401>.foldMap  foldMap[M: Monoid](f: A => M): S => M  Optic.scala:405  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: bounded or higher-kinded parameter M: Monoid
+?  dev.constructive.eo.optics.Optic.<extension@401>.headOption  headOption(s: S): Option[A]  Optic.scala:421  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+?  dev.constructive.eo.optics.Optic.<extension@401>.length  length(s: S): Int  Optic.scala:432  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.optics.Optic.<extension@401>.exists  exists(p: A => Boolean)(s: S): Boolean  Optic.scala:442  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+?  dev.constructive.eo.optics.Optional.apply  apply[S, T, A, B]( getOrModify: S => Either[T, A], reverseGet: ((S, B)) => T, ): Optional[S, T, A, B]  Optional.scala:41  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+?  dev.constructive.eo.optics.Optional.readOnly  readOnly[S, A](matches: S => Option[A]): PickFold[S, A]  Optional.scala:59  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickFold
+?  dev.constructive.eo.optics.Optional.selectReadOnly  selectReadOnly[A](p: A => Boolean): PickFold[A, A]  Optional.scala:66  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickFold
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+?  dev.constructive.eo.optics.Optional.<init>  Optional[S, T, A, B]( val getOrModify: S => Either[T, A], val reverseGet: (S, B) => T, )  Optional.scala:73  [constructor]
+    unresolved: Elimination of an opaque sum-producing callable is unsupported
+?  dev.constructive.eo.optics.Optional.to  to(s: S): Affine[X, A]  Optional.scala:82  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.from  from(a: Affine[X, B]): T  Optional.scala:87  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Affine
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.getOption  getOption(s: S): Option[A]  Optional.scala:95  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.modify  modify(f: A => B): S => T  Optional.scala:97  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.foldMap  foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M  Optional.scala:103  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.Optional.fuseToOptional  fuseToOptional[C, D]( innerHit: (S, A) => Either[T, C], innerWrite: (A, D) => B, ): Optional[S, T, C, D]  Optional.scala:117  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.andThen  andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]  Optional.scala:136  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.andThen  andThen[C, D](inner: GetReplaceLens[A, B, C, D]): Optional[S, T, C, D]  Optional.scala:147  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.GetReplaceLens
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.andThen  andThen[C, D](inner: MendTearPrism[A, B, C, D]): Optional[S, T, C, D]  Optional.scala:154  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Optional.andThen  andThen[C, D](inner: BijectionIso[A, B, C, D]): Optional[S, T, C, D]  Optional.scala:164  [method]
+    captures: getOption, getOrModify, modify, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.BijectionIso
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.Plated.plate  plate: Optic[S, S, S, S, MultiFocus[PSVec]]  Plated.scala:34  [declaration]
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.childrenVec  childrenVec(s: S): PSVec[S]  Plated.scala:43  [method]
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.childrenArray  childrenArray(s: S): Array[Any]  Plated.scala:51  [method]
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.rebuild  rebuild(parent: S, children: PSVec[S]): S  Plated.scala:61  [method]
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.apply  apply[S](using p: Plated[S]): Plated[S]  Plated.scala:73  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+?  dev.constructive.eo.optics.Plated.fromChildrenVec  fromChildrenVec[S](childrenFn: S => PSVec[S], rebuildFn: (S, PSVec[S]) => S): Plated[S]  Plated.scala:80  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.fromChildren  fromChildren[S](children: S => List[S], rebuild: (S, List[S]) => S): Plated[S]  Plated.scala:97  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: List
+?  dev.constructive.eo.optics.Plated.transform  transform[S](f: S => S)(root: S)(using P: Plated[S]): S  Plated.scala:123  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+?  dev.constructive.eo.optics.Plated.transform.rec  rec(s: S, depth: Int): S  Plated.scala:124  [method]
+    captures: f, root
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.optics.Plated.transformMachine  transformMachine[S](f: S => S)(root: S)(using P: Plated[S]): S  Plated.scala:144  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+?  dev.constructive.eo.optics.Plated.transformMachine.Frame.<init>  Frame(val node: S, val kids: PSVec[S], val out: Array[Any], var i: Int)  Plated.scala:145  [constructor]
+    captures: f, root
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
+    unresolved: unresolved type: Any
+    unresolved: unresolved type: Int
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.transformMachine.enter  enter(s: S): Unit  Plated.scala:148  [method]
+    captures: f, root
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: mutable capture
+?  dev.constructive.eo.optics.Plated.transformMachine.drive  drive(): Unit  Plated.scala:153  [method]
+    captures: f, root
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: mutable capture
+?  dev.constructive.eo.optics.Plated.everywhere  everywhere[S](using P: Plated[S]): Optic[S, S, S, S, ModifyF]  Plated.scala:182  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: ModifyF
+?  dev.constructive.eo.optics.Plated.rewrite  rewrite[S](f: S => Option[S])(s: S)(using P: Plated[S]): S  Plated.scala:197  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+?  dev.constructive.eo.optics.Plated.rewrite.step  step(x: S): Eval[S]  Plated.scala:198  [method]
+    captures: f, s
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: Eval
+?  dev.constructive.eo.optics.Plated.rewrite.go  go(x: S): Eval[S]  Plated.scala:199  [method]
+    captures: f, s
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: Eval
+?  dev.constructive.eo.optics.Plated.children  children[S](s: S)(using P: Plated[S]): List[S]  Plated.scala:204  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: List
+?  dev.constructive.eo.optics.Plated.universe  universe[S](s: S)(using P: Plated[S]): List[S]  Plated.scala:210  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: List
+?  dev.constructive.eo.optics.Plated.universe.loop  loop(stack: List[S], acc: List[S]): List[S]  Plated.scala:211  [method]
+    captures: s
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: List
+?  dev.constructive.eo.optics.Plated.<extension@226>.asPlated  asPlated: Plated[S]  Plated.scala:232  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.<extension@226>.transformAll  transformAll(f: S => S)(s: S): S  Plated.scala:237  [method]
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.<extension@226>.rewriteAll  rewriteAll(f: S => Option[S])(s: S): S  Plated.scala:240  [method]
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.<extension@226>.childrenOf  childrenOf(s: S): List[S]  Plated.scala:243  [method]
+    unresolved: unresolved type: List
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Plated.<extension@226>.universeOf  universeOf(s: S): List[S]  Plated.scala:246  [method]
+    unresolved: unresolved type: List
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Prism.apply  apply[S, A]( getOrModify: S => Either[S, A], reverseGet: A => S, ): <inferred>  Prism.scala:42  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Prism.pPrism  pPrism[S, T, A, B]( getOrModify: S => Either[T, A], reverseGet: B => T, ): <inferred>  Prism.scala:53  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Prism.optional  optional[S, A](getOption: S => Option[A], reverseGet: A => S): <inferred>  Prism.scala:65  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.Prism.pOptional  pOptional[S, A, B](getOption: S => Option[A], reverseGet: B => S): <inferred>  Prism.scala:72  [method]
+    unresolved: inferred result type not resolved
+?  dev.constructive.eo.optics.MendTearPrism.<init>  MendTearPrism[S, T, A, B]( val tear: S => Either[T, A], val mend: B => T, )  Prism.scala:79  [constructor]
+    unresolved: Elimination of an opaque sum-producing callable is unsupported
+?  dev.constructive.eo.optics.MendTearPrism.to  to(s: S): Either[T, A]  Prism.scala:88  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.from  from(e: Either[T, B]): T  Prism.scala:90  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.modify  modify(f: A => B): S => T  Prism.scala:95  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.replace  replace(b: B): S => T  Prism.scala:101  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.getOption  getOption(s: S): Option[A]  Prism.scala:107  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.reverseGet  reverseGet(b: B): T  Prism.scala:108  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.foldMap  foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M  Prism.scala:110  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.MendTearPrism.tearFrom  tearFrom[S1](f: S1 => S): MendTearPrism[S1, T, A, B]  Prism.scala:121  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.mendFrom  mendFrom[B1](g: B1 => B): MendTearPrism[S, T, A, B1]  Prism.scala:127  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.fuseToMendTear  fuseToMendTear[C, D]( innerTear: A => Either[T, C], innerMend: D => B, ): MendTearPrism[S, T, C, D]  Prism.scala:134  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.fuseToOptional  fuseToOptional[C, D]( innerHit: A => Either[T, C], innerWrite: (A, D) => B, ): Optional[S, T, C, D]  Prism.scala:150  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.andThen  andThen[C, D](inner: MendTearPrism[A, B, C, D]): MendTearPrism[S, T, C, D]  Prism.scala:170  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.andThen  andThen[C, D](inner: BijectionIso[A, B, C, D]): MendTearPrism[S, T, C, D]  Prism.scala:182  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.BijectionIso
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.andThen  andThen[C, D](inner: PickMendPrism[A, C, D])(using ev: A =:= B ): MendTearPrism[S, T, C, D]  Prism.scala:191  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickMendPrism
+    unresolved: unresolved type: M
+    unresolved: unsupported type: A =:= B
+?  dev.constructive.eo.optics.MendTearPrism.andThen  andThen[C, D](inner: GetReplaceLens[A, B, C, D]): Optional[S, T, C, D]  Prism.scala:203  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.GetReplaceLens
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.andThen  andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]  Prism.scala:210  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optional
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.MendTearPrism.andThen  andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]  Prism.scala:230  [method]
+    captures: getOption, mend, modify, reverseGet, tear
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.<init>  PickMendPrism[S, A, B]( val pick: S => Option[A], val mend: B => S, )  Prism.scala:237  [constructor]
+    unresolved: Elimination of an opaque sum-producing callable is unsupported
+?  dev.constructive.eo.optics.PickMendPrism.to  to(s: S): Either[S, A]  Prism.scala:247  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.from  from(e: Either[S, B]): S  Prism.scala:252  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.modify  modify(f: A => B): S => S  Prism.scala:257  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.replace  replace(b: B): S => S  Prism.scala:263  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.getOption  getOption(s: S): Option[A]  Prism.scala:269  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.reverseGet  reverseGet(b: B): S  Prism.scala:270  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.foldMap  foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M  Prism.scala:272  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.PickMendPrism.andThen  andThen[C, D]( inner: PickMendPrism[A, C, D] )(using ev: A =:= B): PickMendPrism[S, C, D]  Prism.scala:281  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickMendPrism
+    unresolved: unresolved type: M
+    unresolved: unsupported type: A =:= B
+?  dev.constructive.eo.optics.PickMendPrism.andThen  andThen[C, D](inner: MendTearPrism[A, B, C, D])(using ev: A =:= B ): MendTearPrism[S, S, C, D]  Prism.scala:290  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: M
+    unresolved: unsupported type: A =:= B
+?  dev.constructive.eo.optics.PickMendPrism.andThen  andThen[C, D](inner: BijectionIso[A, B, C, D]): PickMendPrism[S, C, D]  Prism.scala:305  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.BijectionIso
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickMendPrism
+    unresolved: unresolved type: M
+?  dev.constructive.eo.optics.PickMendPrism.andThen  andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, S, C, D]  Prism.scala:315  [method]
+    captures: getOption, mend, modify, pick, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+    unresolved: unresolved type: M
+1  dev.constructive.eo.optics.Review.<init>  Review[T, B](build: B => T)  Review.scala:28  [constructor]
+?  dev.constructive.eo.optics.Review.reverseGet  reverseGet(b: B): T  Review.scala:33  [method]
+    captures: build, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+?  dev.constructive.eo.optics.Review.to  to(u: Unit): Direct[X, Unit]  Review.scala:35  [method]
+    captures: build, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Direct
+?  dev.constructive.eo.optics.Review.from  from(d: Direct[X, B]): T  Review.scala:36  [method]
+    captures: build, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Direct
+?  dev.constructive.eo.optics.Review.andThen  andThen[D](inner: Review[B, D]): Review[T, D]  Review.scala:44  [method]
+    captures: build, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Review
+?  dev.constructive.eo.optics.Review.andThen  andThen[G[_, _], D](inner: Optic[?, B, ?, D, G])(using ReverseAccessor[G] ): Review[T, D]  Review.scala:52  [method]
+    captures: build, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Review
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unsupported type: ?
+?  dev.constructive.eo.optics.Review.andThen  andThen[F[_], D](inner: Unfold[B, D, F]): Unfold[T, D, F]  Review.scala:64  [method]
+    captures: build, reverseGet
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+?  dev.constructive.eo.optics.Review.apply  apply[S, A](reverseGet: A => S): Review[S, A]  Review.scala:74  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Review
+?  dev.constructive.eo.optics.Traversal.modify  modify(f: A => B): S => T  Traversal.scala:47  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+?  dev.constructive.eo.optics.Traversal.replace  replace(b: B): S => T  Traversal.scala:53  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+?  dev.constructive.eo.optics.Traversal.foldMap  foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M  Traversal.scala:66  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: Monoid
+?  dev.constructive.eo.optics.Traversal.headOption  headOption(s: S): Option[A]  Traversal.scala:73  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+?  dev.constructive.eo.optics.Traversal.length  length(s: S): Int  Traversal.scala:77  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+    unresolved: unresolved type: Int
+?  dev.constructive.eo.optics.Traversal.exists  exists(p: A => Boolean)(s: S): Boolean  Traversal.scala:83  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
+?  dev.constructive.eo.optics.Traversal.andThen  andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]  Traversal.scala:94  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+?  dev.constructive.eo.optics.Traversal.andThen  andThen[C, D](inner: GetReplaceLens[A, B, C, D]): Traversal[S, T, C, D]  Traversal.scala:101  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.GetReplaceLens
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+?  dev.constructive.eo.optics.Traversal.andThen  andThen[C, D, XI](inner: SplitCombineLens[A, B, C, D, XI]): Traversal[S, T, C, D]  Traversal.scala:105  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.SplitCombineLens
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+?  dev.constructive.eo.optics.Traversal.andThen  andThen[C, D](inner: MendTearPrism[A, B, C, D]): Traversal[S, T, C, D]  Traversal.scala:117  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.MendTearPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+?  dev.constructive.eo.optics.Traversal.andThen  andThen[C, D](inner: PickMendPrism[A, C, D])(using ev: A =:= B): Traversal[S, T, C, D]  Traversal.scala:123  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.PickMendPrism
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+    unresolved: unsupported type: A =:= B
+?  dev.constructive.eo.optics.Traversal.composed  composed[S, T, A, B, C, D]( outer: Optic[S, T, A, B, MultiFocus[PSVec]], inner: Optic[A, B, C, D, MultiFocus[PSVec]], ): Traversal[S, T, C, D]  Traversal.scala:166  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Traversal.each  each[T[_]: Traverse, A]: Traversal[T[A], T[A], A, A]  Traversal.scala:176  [method]
+    unresolved: bounded or higher-kinded parameter T[_]: Traverse
+    unresolved: unresolved type: T
+?  dev.constructive.eo.optics.Traversal.pEach  pEach[T[_]: Traverse, A, B]: Traversal[T[A], T[B], A, B]  Traversal.scala:190  [method]
+    unresolved: bounded or higher-kinded parameter T[_]: Traverse
+    unresolved: unresolved type: T
+?  dev.constructive.eo.optics.Traversal.first  first[F[_, _], A, B, C](using BT: Bitraverse[F]): Traversal[F[A, C], F[B, C], A, B]  Traversal.scala:199  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Traversal.second  second[F[_, _], A, B, C](using BT: Bitraverse[F]): Traversal[F[C, A], F[C, B], A, B]  Traversal.scala:216  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Traversal.both  both[F[_, _], A, B](using BT: Bitraverse[F]): Traversal[F[A, A], F[B, B], A, B]  Traversal.scala:234  [method]
+    unresolved: bounded or higher-kinded parameter F[_, _]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Traversal.selfChildren  selfChildren[S]( children: S => PSVec[S], rebuild: (S, PSVec[S]) => S, ): Traversal[S, S, S, S]  Traversal.scala:263  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+    unresolved: unresolved type: PSVec
+?  dev.constructive.eo.optics.Traversal.two  two[S, T, A, B]( inline a: S => A, inline b: S => A, inline reverse: (B, B) => T, ): Traversal[S, T, A, B]  Traversal.scala:289  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+?  dev.constructive.eo.optics.Traversal.three  three[S, T, A, B]( inline a: S => A, inline b: S => A, inline c: S => A, inline reverse: (B, B, B) => T, ): Traversal[S, T, A, B]  Traversal.scala:297  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+?  dev.constructive.eo.optics.Traversal.four  four[S, T, A, B]( inline a: S => A, inline b: S => A, inline c: S => A, inline d: S => A, inline reverse: (B, B, B, B) => T, ): Traversal[S, T, A, B]  Traversal.scala:306  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Traversal
+?  dev.constructive.eo.optics.ComposedTraversal.<init>  ComposedTraversal[S, T, A, B, C, D, Xo, Xi]( outer: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, )  Traversal.scala:329  [constructor]
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }
+?  dev.constructive.eo.optics.ComposedTraversal.to  to(s: S): MultiFocus[PSVec][X, C]  Traversal.scala:335  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: af.Z
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }
+?  dev.constructive.eo.optics.ComposedTraversal.from  from(xd: MultiFocus[PSVec][X, D]): T  Traversal.scala:336  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: unresolved type: af.Z
+    unresolved: unsupported type: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
+    unresolved: unsupported type: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }
+?  dev.constructive.eo.optics.TraverseTraversal.<init>  TraverseTraversal[T[_]: Traverse, A, B]  Traversal.scala:341  [constructor]
+    unresolved: bounded or higher-kinded parameter T[_]: Traverse
+?  dev.constructive.eo.optics.TraverseTraversal.to  to(ta: T[A]): MultiFocus[PSVec][X, A]  Traversal.scala:344  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter T[_]: Traverse
+    unresolved: unresolved type: T
+?  dev.constructive.eo.optics.TraverseTraversal.from  from(pair: MultiFocus[PSVec][X, B]): T[B]  Traversal.scala:347  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter T[_]: Traverse
+    unresolved: unresolved type: T
+?  dev.constructive.eo.optics.TraverseTraversal.foldMap  foldMap[M](f: A => M)(ta: T[A])(using Monoid[M]): M  Traversal.scala:366  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter T[_]: Traverse
+    unresolved: unresolved type: Monoid
+    unresolved: unresolved type: T
+?  dev.constructive.eo.optics.TraversalArityMacro.tabulate  tabulate[S: Type, T: Type, A: Type, B: Type]( getters: List[Expr[S => A]], applyReverse: List[Expr[B]] => Expr[T], )(using Quotes): Expr[Traversal[S, T, A, B]]  TraversalArityMacro.scala:22  [method]
+    unresolved: bounded or higher-kinded parameter A: Type
+    unresolved: bounded or higher-kinded parameter B: Type
+    unresolved: bounded or higher-kinded parameter S: Type
+    unresolved: bounded or higher-kinded parameter T: Type
+    unresolved: unresolved type: Quotes
+?  dev.constructive.eo.optics.TraversalArityMacro.twoImpl  twoImpl[S: Type, T: Type, A: Type, B: Type]( a: Expr[S => A], b: Expr[S => A], reverse: Expr[(B, B) => T], )(using Quotes): Expr[Traversal[S, T, A, B]]  TraversalArityMacro.scala:46  [method]
+    unresolved: bounded or higher-kinded parameter A: Type
+    unresolved: bounded or higher-kinded parameter B: Type
+    unresolved: bounded or higher-kinded parameter S: Type
+    unresolved: bounded or higher-kinded parameter T: Type
+    unresolved: unresolved type: Quotes
+?  dev.constructive.eo.optics.TraversalArityMacro.threeImpl  threeImpl[S: Type, T: Type, A: Type, B: Type]( a: Expr[S => A], b: Expr[S => A], c: Expr[S => A], reverse: Expr[(B, B, B) => T], )(using Quotes): Expr[Traversal[S, T, A, B]]  TraversalArityMacro.scala:53  [method]
+    unresolved: bounded or higher-kinded parameter A: Type
+    unresolved: bounded or higher-kinded parameter B: Type
+    unresolved: bounded or higher-kinded parameter S: Type
+    unresolved: bounded or higher-kinded parameter T: Type
+    unresolved: unresolved type: Quotes
+?  dev.constructive.eo.optics.TraversalArityMacro.fourImpl  fourImpl[S: Type, T: Type, A: Type, B: Type]( a: Expr[S => A], b: Expr[S => A], c: Expr[S => A], d: Expr[S => A], reverse: Expr[(B, B, B, B) => T], )(using Quotes): Expr[Traversal[S, T, A, B]]  TraversalArityMacro.scala:64  [method]
+    unresolved: bounded or higher-kinded parameter A: Type
+    unresolved: bounded or higher-kinded parameter B: Type
+    unresolved: bounded or higher-kinded parameter S: Type
+    unresolved: bounded or higher-kinded parameter T: Type
+    unresolved: unresolved type: Quotes
+?  dev.constructive.eo.optics.Unfold.<init>  Unfold[T, B, F[_]]( val embed: F[B] => T, private[optics] val vestigialTo: () => F[Unit], )  Unfold.scala:41  [constructor]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Unfold.to  to(u: Unit): Forget[F][X, Unit]  Unfold.scala:47  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: Forget[F]
+?  dev.constructive.eo.optics.Unfold.from  from(fb: Forget[F][X, B]): T  Unfold.scala:48  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+    unresolved: unresolved type: Forget[F]
+?  dev.constructive.eo.optics.Unfold.andThen  andThen[D](inner: Review[B, D])(using F: Functor[F]): Unfold[T, D, F]  Unfold.scala:55  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Review
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Unfold.andThen  andThen[D](inner: Unfold[B, D, F])(using F: Applicative[F]): Unfold[T, D, F]  Unfold.scala:64  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Unfold.andThen  andThen[G[_, _], D](inner: Optic[?, B, ?, D, G])(using ra: ReverseAccessor[G], F: Functor[F], ): Unfold[T, D, F]  Unfold.scala:73  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: bounded or higher-kinded parameter G[_, _]
+    unresolved: unresolved type: F
+    unresolved: unsupported type: ?
+?  dev.constructive.eo.optics.Unfold.into  into[U](g: T => U): Unfold[U, B, F]  Unfold.scala:83  [method]
+    unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Unfold.apply  apply[T, B, F[_]](embed: F[B] => T)(using F: Applicative[F]): Unfold[T, B, F]  Unfold.scala:102  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.optics.Unfold.algebra  algebra[T, B, F[_]](embed: F[B] => T): Unfold[T, B, F]  Unfold.scala:123  [method]
+    unresolved: bounded or higher-kinded parameter F[_]
+    unresolved: unresolved type: F
+?  dev.constructive.eo.<extension@10>.widenRight  widenRight[R2]: Either[L, R2]  recast.scala:11  [method]
+    unresolved: unresolved type: Left
+?  dev.constructive.eo.<extension@13>.widenLeft  widenLeft[L2]: Either[L2, R]  recast.scala:14  [method]
+    unresolved: unresolved type: Right
+scala-cardinality — 53 sources, 134 definitions
+  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+  ?: no single number here — the reason after the row says what would give one
+  7 unresolved · 25 instantiation-dependent · 5 unbounded by an open abstraction · 2 type constructors, with no value space · 3 with more than one value · 81 with one value · 5 with no values · 6 abstract
+Stored-value estimates (constructor inputs; `?` = unresolved)
+
+?     dev.constructive.eo.CanModify[S, A]                                     alias        CanModify.scala:23  open to implementations (CanModifyP)
+?     dev.constructive.eo.CanModifyA[S, A]                                    alias        CanModifyA.scala:21  open to implementations (CanModifyAP)
+?     dev.constructive.eo.CanModifyF[S, A]                                    alias        CanModifyF.scala:19  open to implementations (CanModifyFP)
+?     dev.constructive.eo.CanPut[T, A]                                        alias        CanPut.scala:17  open to implementations (CanPutP)
+?     dev.constructive.eo.data.Affine.Hit[A, B]                               class        Affine.scala:91  unresolved: A, a match type, B
+?     dev.constructive.eo.data.Affine.Miss[A]                                 class        Affine.scala:81  unresolved: A, a match type
+?     dev.constructive.eo.data.Direct[X, A]                                   opaque       Direct.scala:24  depends on its instantiation (A)
+?     dev.constructive.eo.data.ForgetK[F, X, A]                               opaque       Forget.scala:31  depends on its instantiation (F[_])
+?     dev.constructive.eo.data.Fst[T]                                         alias        Affine.scala:13  unresolved: a match type
+?     dev.constructive.eo.data.ModifyF[A, B]                                  class        ModifyF.scala:28  unresolved: A, a match type, B
+?     dev.constructive.eo.data.MultiFocusK[F, X, A]                           opaque       MultiFocus.scala:46  depends on its instantiation (X, F[_])
+?     dev.constructive.eo.data.MultiFocusK.AssocSndZ[Xo, Xi]                  class        MultiFocus.scala:496  depends on its instantiation (Xo)
+?     dev.constructive.eo.data.PSVec.Single[B]                                class        PSVec.scala:199  depends on its instantiation (B)
+?     dev.constructive.eo.data.Snd[T]                                         alias        Affine.scala:17  unresolved: a match type
+?     dev.constructive.eo.optics.BijectionIso[S, T, A, B]                     class        Iso.scala:49  depends on its instantiation (A, S, T, B)
+?     dev.constructive.eo.optics.ComposedTraversal[S, T, A, B, C, D, Xo, Xi]  class        Traversal.scala:329  open to implementations (Optic)
+?     dev.constructive.eo.optics.ComposedTraversal.X                          alias        Traversal.scala:334  unresolved: af.Z
+?     dev.constructive.eo.optics.ForgetFold[S, F, A]                          class        Fold.scala:51  unresolved: F[_], S, Foldable
+?     dev.constructive.eo.optics.GetReplaceLens[S, T, A, B]                   class        Lens.scala:100  depends on its instantiation (A, S, T, B)
+?     dev.constructive.eo.optics.GetReplaceLens.X                             alias        Lens.scala:107  depends on its instantiation (S)
+?     dev.constructive.eo.optics.Getter[S, A]                                 class        Getter.scala:25  depends on its instantiation (A, S)
+?     dev.constructive.eo.optics.Iso[S, A]                                    alias        Iso.scala:15  depends on its instantiation (S, A)
+?     dev.constructive.eo.optics.MendTearPrism[S, T, A, B]                    class        Prism.scala:79  depends on its instantiation (T, A, S, B)
+?     dev.constructive.eo.optics.MendTearPrism.X                              alias        Prism.scala:87  depends on its instantiation (T)
+?     dev.constructive.eo.optics.Modify[S, T, A, B]                           class        Modify.scala:54  depends on its instantiation (T, S, B, A)
+?     dev.constructive.eo.optics.Modify.X                                     alias        Modify.scala:57  depends on its instantiation (S, A)
+?     dev.constructive.eo.optics.Optional[S, T, A, B]                         class        Optional.scala:73  depends on its instantiation (T, A, S, B)
+?     dev.constructive.eo.optics.Optional.X                                   alias        Optional.scala:80  depends on its instantiation (T, S)
+?     dev.constructive.eo.optics.PickFold[S, A]                               class        AffineFold.scala:40  depends on its instantiation (A, S)
+?     dev.constructive.eo.optics.PickMendPrism[S, A, B]                       class        Prism.scala:237  depends on its instantiation (A, S, B)
+?     dev.constructive.eo.optics.PickMendPrism.X                              alias        Prism.scala:245  depends on its instantiation (S)
+?     dev.constructive.eo.optics.Review[T, B]                                 class        Review.scala:28  depends on its instantiation (T, B)
+?     dev.constructive.eo.optics.SimpleLens[S, A, XA]                         class        Lens.scala:256  depends on its instantiation (A, S, XA)
+?     dev.constructive.eo.optics.SplitCombineLens[S, T, A, B, XA]             class        Lens.scala:199  depends on its instantiation (A, S, XA, T, B)
+?     dev.constructive.eo.optics.SplitCombineLens.X                           alias        Lens.scala:207  depends on its instantiation (XA)
+?     dev.constructive.eo.optics.TraverseTraversal.X                          alias        Traversal.scala:342  depends on its instantiation (T[_])
+?     dev.constructive.eo.optics.Unfold[T, B, F]                              class        Unfold.scala:41  depends on its instantiation (T, F[_])
+ω     dev.constructive.eo.data.PSVec.Slice[B]                                 class        PSVec.scala:221
+2^32  dev.constructive.eo.data.IntArrBuilder                                  class        IntArrBuilder.scala:10
+2^32  dev.constructive.eo.data.ObjArrBuilder                                  class        ObjArrBuilder.scala:10
+1     dev.constructive.eo.CanFold[S, A]                                       abstract     CanFold.scala:17
+1     dev.constructive.eo.CanFold                                             object       CanFold.scala:32
+1     dev.constructive.eo.CanGet[S, A]                                        abstract     CanGet.scala:15
+1     dev.constructive.eo.CanGet                                              object       CanGet.scala:18
+1     dev.constructive.eo.CanGetOption[S, A]                                  abstract     CanGetOption.scala:12
+1     dev.constructive.eo.CanGetOption                                        object       CanGetOption.scala:15
+1     dev.constructive.eo.CanModifyAP[S, T, A, B]                             abstract     CanModifyA.scala:17
+1     dev.constructive.eo.CanModifyAP                                         object       CanModifyA.scala:23
+1     dev.constructive.eo.CanModifyFP[S, T, A, B]                             abstract     CanModifyF.scala:15
+1     dev.constructive.eo.CanModifyFP                                         object       CanModifyF.scala:21
+1     dev.constructive.eo.CanModifyP[S, T, A, B]                              abstract     CanModify.scala:16
+1     dev.constructive.eo.CanModifyP                                          object       CanModify.scala:25
+1     dev.constructive.eo.CanPlace[T, B]                                      abstract     CanPlace.scala:14
+1     dev.constructive.eo.CanPlace                                            object       CanPlace.scala:18
+1     dev.constructive.eo.CanPutP[T, A, B]                                    abstract     CanPut.scala:13
+1     dev.constructive.eo.CanPutP                                             object       CanPut.scala:19
+1     dev.constructive.eo.CanReverseGet[T, B]                                 abstract     CanReverseGet.scala:12
+1     dev.constructive.eo.CanReverseGet                                       object       CanReverseGet.scala:15
+1     dev.constructive.eo.CanTransform[T, D, B]                               abstract     CanTransform.scala:13
+1     dev.constructive.eo.CanTransform                                        object       CanTransform.scala:16
+1     dev.constructive.eo.accessor.Accessor[F]                                abstract     Accessor.scala:10
+1     dev.constructive.eo.accessor.Accessor                                   object       Accessor.scala:14
+1     dev.constructive.eo.accessor.PartialAccessor[F]                         abstract     PartialAccessor.scala:13
+1     dev.constructive.eo.accessor.PartialAccessor                            object       PartialAccessor.scala:18
+1     dev.constructive.eo.accessor.ReverseAccessor[F]                         abstract     ReverseAccessor.scala:9
+1     dev.constructive.eo.accessor.ReverseAccessor                            object       ReverseAccessor.scala:13
+1     dev.constructive.eo.compose.AssociativeFunctor[F, Xo, Xi]               abstract     AssociativeFunctor.scala:21
+1     dev.constructive.eo.compose.AssociativeFunctor                          object       AssociativeFunctor.scala:40
+1     dev.constructive.eo.compose.Composer[F, G]                              abstract     Composer.scala:17
+1     dev.constructive.eo.compose.Composer                                    object       Composer.scala:30
+1     dev.constructive.eo.compose.Morph[F, G]                                 abstract     Morph.scala:26
+1     dev.constructive.eo.compose.Morph                                       object       Morph.scala:55
+1     dev.constructive.eo.compose.ReadCompose[F, G]                           abstract     ReadCompose.scala:32
+1     dev.constructive.eo.compose.ReadCompose                                 object       ReadCompose.scala:49
+1     dev.constructive.eo.data.Affine[A, B]                                   abstract     Affine.scala:34
+1     dev.constructive.eo.data.Affine                                         object       Affine.scala:74
+1     dev.constructive.eo.data.Direct                                         object       Direct.scala:30
+1     dev.constructive.eo.data.Forget                                         object       Forget.scala:170
+1     dev.constructive.eo.data.ForgetK                                        object       Forget.scala:52
+1     dev.constructive.eo.data.ForgetK.ForgetPull[F]                          abstract     Forget.scala:68
+1     dev.constructive.eo.data.ForgetK.ForgetPull                             object       Forget.scala:76
+1     dev.constructive.eo.data.ModifyF                                        object       ModifyF.scala:31
+1     dev.constructive.eo.data.MultiFocus                                     object       MultiFocus.scala:1029
+1     dev.constructive.eo.data.MultiFocusFromList[F]                          abstract     MultiFocus.scala:74
+1     dev.constructive.eo.data.MultiFocusFromList                             object       MultiFocus.scala:80
+1     dev.constructive.eo.data.MultiFocusK                                    object       MultiFocus.scala:154
+1     dev.constructive.eo.data.PSVec[B]                                       abstract     PSVec.scala:19
+1     dev.constructive.eo.data.PSVec                                          object       PSVec.scala:98
+1     dev.constructive.eo.data.PSVec.Empty                                    object       PSVec.scala:185
+1     dev.constructive.eo.forgetful.ForgetfulApplicative[F]                   abstract     ForgetfulApplicative.scala:10
+1     dev.constructive.eo.forgetful.ForgetfulApplicative                      object       ForgetfulApplicative.scala:14
+1     dev.constructive.eo.forgetful.ForgetfulFold[F]                          abstract     ForgetfulFold.scala:12
+1     dev.constructive.eo.forgetful.ForgetfulFold                             object       ForgetfulFold.scala:16
+1     dev.constructive.eo.forgetful.ForgetfulFunctor[F]                       abstract     ForgetfulFunctor.scala:9
+1     dev.constructive.eo.forgetful.ForgetfulFunctor                          object       ForgetfulFunctor.scala:16
+1     dev.constructive.eo.forgetful.ForgetfulTraverse[F, C]                   abstract     ForgetfulTraverse.scala:18
+1     dev.constructive.eo.forgetful.ForgetfulTraverse                         object       ForgetfulTraverse.scala:22
+1     dev.constructive.eo.optics.AffineFold                                   object       AffineFold.scala:91
+1     dev.constructive.eo.optics.At                                           object       At.scala:12
+1     dev.constructive.eo.optics.Each                                         object       Each.scala:14
+1     dev.constructive.eo.optics.Fold                                         object       Fold.scala:20
+1     dev.constructive.eo.optics.Getter                                       object       Getter.scala:83
+1     dev.constructive.eo.optics.Index                                        object       Index.scala:19
+1     dev.constructive.eo.optics.Iso                                          object       Iso.scala:25
+1     dev.constructive.eo.optics.Lens                                         object       Lens.scala:18
+1     dev.constructive.eo.optics.Modify                                       object       Modify.scala:20
+1     dev.constructive.eo.optics.Optic[S, T, A, B, F]                         abstract     Optic.scala:48
+1     dev.constructive.eo.optics.Optic                                        object       Optic.scala:147
+1     dev.constructive.eo.optics.Optional                                     object       Optional.scala:25
+1     dev.constructive.eo.optics.PickFold.X                                   alias        AffineFold.scala:44
+1     dev.constructive.eo.optics.Plated[S]                                    abstract     Plated.scala:32
+1     dev.constructive.eo.optics.Plated                                       object       Plated.scala:70
+1     dev.constructive.eo.optics.Prism                                        object       Prism.scala:23
+1     dev.constructive.eo.optics.Review                                       object       Review.scala:68
+1     dev.constructive.eo.optics.SimpleLens                                   object       Lens.scala:283
+1     dev.constructive.eo.optics.Traversal[S, T, A, B]                        abstract     Traversal.scala:40
+1     dev.constructive.eo.optics.Traversal                                    object       Traversal.scala:159
+1     dev.constructive.eo.optics.TraversalArityMacro                          object       TraversalArityMacro.scala:17
+1     dev.constructive.eo.optics.TraverseTraversal[T, A, B]                   class        Traversal.scala:341
+1     dev.constructive.eo.optics.Unfold                                       object       Unfold.scala:89
+1     dev.constructive.eo.optics.pickFoldMiss                                 value        AffineFold.scala:14
+0     dev.constructive.eo.optics.BijectionIso.X                               alias        Iso.scala:57
+0     dev.constructive.eo.optics.ForgetFold.X                                 alias        Fold.scala:56
+0     dev.constructive.eo.optics.Getter.X                                     alias        Getter.scala:29
+0     dev.constructive.eo.optics.Review.X                                     alias        Review.scala:31
+0     dev.constructive.eo.optics.Unfold.X                                     alias        Unfold.scala:45
+—     dev.constructive.eo.compose.LowPriorityComposerInstances                abstract     Composer.scala:97
+—     dev.constructive.eo.compose.LowPriorityMorphInstances                   abstract     Morph.scala:39
+—     dev.constructive.eo.compose.LowPriorityReadCompose                      abstract     ReadCompose.scala:104
+—     dev.constructive.eo.data.Forget[F]                                      constructor  Forget.scala:34
+—     dev.constructive.eo.data.LowPriorityForgetInstances                     abstract     Forget.scala:178
+—     dev.constructive.eo.data.MultiFocus[F]                                  constructor  MultiFocus.scala:49
+—     dev.constructive.eo.data.MultiFocusPSMaybeHit[S, T, A, B]               abstract     MultiFocus.scala:137
+—     dev.constructive.eo.data.MultiFocusSingleton[S, T, A, B, X0]            abstract     MultiFocus.scala:55

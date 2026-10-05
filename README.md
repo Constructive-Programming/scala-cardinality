@@ -44,10 +44,16 @@ Key references motivating this work:
 
 ## Status
 
+The [v1 implementation plan](docs/plans/v1.md) tracks the agreed counting contract,
+the latest recorded eo baseline, and the remaining work. Report snapshots below
+are historical.
+
 The calculator is an early work in progress. It parses Scala source with
 [scalameta](https://scalameta.org/) and counts products, tagged sums,
 exponentials, powersets and primitives, following the type arithmetic condensed
-in [docs/type-arithmetic.md](docs/type-arithmetic.md).
+in [docs/type-arithmetic.md](docs/type-arithmetic.md), and reports the cardinality
+of the definitions a source introduces — classes, enums, modules, type aliases and
+opaque types, nested definitions included.
 
 Sizes are polynomials over three tiers — `a·ε₀ + b·ω + n` — added componentwise, so two
 countable alternatives stay `2ω` (`Either[String, String]`) instead of collapsing into one
@@ -98,7 +104,7 @@ Two pieces of eo's pipeline are missing here, both because this build runs on sb
 project's `scalameta_3` dependency (`scalameta_2.13` and `scalameta_3` share package
 names). So the render step is a task in [build.sbt](build.sbt) plus
 [project/SiteRenderer.scala](project/SiteRenderer.scala), and the numbers shown in the
-pages are pinned by [the test suite](src/test/scala/ArticleCardinalitySpec.scala) instead
+pages are pinned by [the test suite](core/src/test/scala/ArticleCardinalitySpec.scala) instead
 of being compiled from the pages.
 
 CI renders the site on every pull request (`ci.yml`, "Documentation site" job, artifact
@@ -106,6 +112,114 @@ CI renders the site on every pull request (`ci.yml`, "Documentation site" job, a
 Cloudflare Pages — a preview per pull request, production on `v*` tags — once the
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist together with the
 `scala-cardinality-docs` Pages project. Until then that workflow skips with a notice.
+
+The build has two modules:
+
+- `core` — the calculator itself (`Counter`, the `Size` algebra, `Report`, the method analysis): a
+  pure library with no sbt types, tested with specs2.
+- `plugin` — `sbt-cardinality`, an sbt 2 plugin that reports on the build it is
+  added to, and on any Scala sources it is pointed at. It is tested end-to-end
+  with sbt's scripted framework (`sbt plugin/scripted`).
+
+Everything builds with the Scala version sbt 2.0.x itself runs on (3.8.4),
+because the plugin — and `core`, which it loads — must be binary-loadable
+inside sbt, and Scala 3 binary compatibility is backward only.
+
+## Reports
+
+`sbt cardinalityReport` measures every definition the project's `Compile`
+sources introduce — nested definitions included — and logs a report: what each
+generic method or constructor can be, then the stored-value estimate over the
+definitions, ordered by how many values each holds. The same report is written to
+`target/cardinality/report.txt` (`cardinalityReportFile`), so a build can keep
+it, diff it, or post it as an artifact.
+
+```
+scala-cardinality — 1 source, 10 definitions
+  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+  ?: unresolved, not a proof of infinity; opaque representations are not singletons
+  2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
+Stored-value estimates (constructor inputs; `?` = unresolved)
+
+?  example.Holder[A]  class     Light.scala:11  unresolved: A
+ω  example.Succ       class     Light.scala:17
+ω  example.Timeline   class     Light.scala:19
+2  example.Custom     class     Light.scala:5
+1  example.Zero       object    Light.scala:16
+—  example.Light      abstract  Light.scala:3
+```
+
+A row carries the number and the reason: `ω` is a countably infinite value space (a recursive
+type solved as a fixed point, a lazy hole that unfolds for ever), `ε₀` the tier above it,
+`2^32` an upper bound on a finite count the calculator tracks in bits, `?` a size some name
+stopped it from bounding, and `—` a definition with no cardinality of its own (an abstract
+type). A `?` row still carries the size the calculator reached, and the summary tells definitions
+whose size depends on their own type parameters apart.
+
+The report reads the algebra's sums as they are, coefficients included: `Either[String, String]`
+is `ω + ω`, and a module with two `String => String` methods and one `String` field is
+`2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
+reached ω or beyond and which type names stopped it from being tighter.
+
+`sbt "cardinalityReportOf <path>..."` runs the same report over sources the
+build does not compile itself — a directory, a single file, or the
+`-sources.jar` a published library ships. That is how a dependency's types get
+measured from outside its build:
+
+```bash
+# eo-core, the `core` module of the sister project `eo`, as published
+cs fetch --sources dev.constructive:cats-eo_3:0.16.0
+sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
+```
+
+Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 7 unresolved, 25
+instantiation-dependent, 5 unbounded by an open abstraction, 2 type constructors with no value
+space, 3 with more than one value (the two `2^32` array builders and a countable `PSVec.Slice`),
+81 holding a single value (the modules and the sealed parents whose one case is a module),
+5 with no values (the `X` aliases), 6 abstract. A library of generic optics has no small state
+spaces to find; what the report says about it is *why* each row has no number — the type
+parameters a generic class leaves open, or the capability an unsealed trait leaves to its
+implementations.
+
+The full run is checked in at
+[`docs/baselines/eo-core-0.16.0.txt`](docs/baselines/eo-core-0.16.0.txt), with the analyzer
+revision, the sources jar's SHA-256, the tool versions and the analysis limits in its header, so
+a later run can be diffed against it.
+
+### Method and constructor cardinality
+
+The other number a report gives is the count of canonical **pure, total, parametric
+implementations** a signature admits with everything in scope — what the method can access, capture
+or call. `def choose[A](x: A, y: A): A` has 2 (`x` or `y`); the constructor of a case class
+`Pair[A](x: A, y: A)` has 4 ways to build its product. That is a different question from the
+stored-value estimate on the data type: `Pair[Int]` still holds `2^64` values.
+
+`ω` is a productive cycle: `def use[A](x: A, step: A => A): A` can return `x`, `step(x)`,
+`step(step(x))`, … — countably many. A cycle with no starting inhabitant is `0`, not `ω`. An
+enclosing value, a callable producer and a product projection all count as captures, and a type
+parameter's identity is per binder, so a shadowed `A` is not an outer `A`.
+
+What the analysis cannot read is `?`, with the reason, and the section header sums the reasons
+into the triage list:
+
+```
+Generic method / constructor implementation cardinalities
+  53 signatures: 41 finite · 3 countably infinite · 9 unresolved
+  8 unresolved on: unresolved type
+  1 unresolved on: given environment not resolved
+
+4  example.Pair.<init>  Pair[A](left: A, right: A)  Light.scala:11  [constructor]
+1  example.Accessor.get  get[X, A](fa: (X, A)): A  Accessor.scala:18  [method]
+    captures: tupleAccessor
+```
+
+Over eo-core 0.16.0 (480 signatures) the run reads: 15 finite, 2 countably infinite, 463
+unresolved. Each unresolved signature names what stood in the way, and the reasons group into the
+next steps: an unresolved type (340), an abstract or method-valued representation (237: eo's
+traits, whose sealed cases this fragment does not yet sum), a bounded or higher-kinded parameter
+(211 across `F[_]`, `F[_, _]`, `G[_]`, …), a qualified member environment (57), an unsupported
+type (47), a mutable capture (16), or an inferred result type (12). Each of those is a named next
+step rather than a claim about the code.
 
 ## Quality toolchain
 
@@ -121,6 +235,7 @@ and the heavier reports in
 | [scalafmt](https://scalameta.org/scalafmt/) | Formatting | `sbt scalafmtAll` | `ci.yml`, check-only, gating |
 | [scalafix](https://scalafix.com/) | Semantic rewrites (unused/organized imports, syntax bans) | `sbt scalafixAll` | `ci.yml`, check-only, gating |
 | [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
+| [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted` | `ci.yml`, gating |
 | [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, on PRs, report only |
 | [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating |
 | [CodeScene](https://codescene.com/) | Code Health and hotspots | `cs delta` | `quality.yml`, on PRs, gating once `CS_ACCESS_TOKEN` is set |
@@ -133,9 +248,10 @@ fails the build and exists to guide test investment.
 The Scala 3 compiler options in [build.sbt](build.sbt) follow the recommendations
 from [sbt-typelevel-settings](https://github.com/typelevel/sbt-typelevel),
 with the broader `-Wunused:all` checks and `-Werror`: warnings
-fail both production and test compilation, locally and in CI. Scala 3.9 JVM
-optimizations are enabled with `-opt` and `-opt-inline:<sources>`, limiting
-bytecode inlining to the current compilation's sources rather than dependencies.
+fail both production and test compilation, locally and in CI. On Scala 3.9+
+the build enables `-opt` and `-opt-inline:<sources>`, limiting bytecode inlining
+to the current compilation's sources rather than dependencies. These optimizer
+flags are disabled while the plugin and core target sbt's Scala 3.8.4 runtime.
 
 On pull requests each workflow posts its results, passing and failing alike, as
 one comment that is edited in place on every push: `ci.yml` the gates with the
@@ -143,10 +259,11 @@ coverage rates and any CPD duplicates, `quality.yml` the mutation score and the
 CodeScene delta. Other runs write the same table to the run summary.
 
 ```bash
-sbt scalafmtAll     # apply formatting
-sbt scalafixAll     # apply semantic fixes
-sbt coverageAll     # tests + coverage report under target/
-sbt mutationAll     # mutation report under target/stryker4s-report/
+sbt scalafmtAll        # apply formatting
+sbt scalafixAll        # apply semantic fixes
+sbt coverageAll        # tests + coverage report under target/
+sbt plugin/scripted    # plugin end-to-end tests (fresh sbt per test project)
+sbt mutationAll        # core mutation report under target/stryker4s-report/
 ```
 
 > [!NOTE]
