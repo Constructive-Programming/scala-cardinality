@@ -1,6 +1,7 @@
 package cardinality
 
 import scala.meta.*
+
 import org.specs2.Specification
 
 class RepeatedParameterFragmentSpec extends Specification {

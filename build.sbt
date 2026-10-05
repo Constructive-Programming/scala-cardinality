@@ -61,16 +61,28 @@ lazy val plugin = project
 // ----------------------------------------------------------------
 // Compiler options
 // ----------------------------------------------------------------
-// A subset of the flag set the sister project `eo` enables through
-// sbt-typelevel-settings, spelled out here so the small build does not need that
-// plugin. `-Wunused:all` is the broadest unused-warning surface; unlike `eo` we
-// do not turn warnings into errors yet.
+// Scala 3 recommendations from sbt-typelevel-settings:
+// https://github.com/typelevel/sbt-typelevel/blob/main/settings/src/main/scala/org/typelevel/sbt/TypelevelSettingsPlugin.scala
+// Spelled out because this build uses sbt 2. `-Wunused:all` also checks pattern
+// bindings and @nowarn annotations beyond Typelevel's individual unused flags.
+// Warnings are fatal in both Compile and Test, locally and in CI.
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
+  "-encoding",
+  "UTF-8",
   "-feature",
   "-unchecked",
-  "-Wunused:all"
+  "-Wunused:all",
+  "-Wvalue-discard",
+  "-Werror"
 )
+
+// Keep the plugin binary-loadable inside sbt's Scala 3.8.4 runtime. Enable the
+// Scala 3.9+ optimizer only when a future sbt-compatible compiler supports it.
+scalacOptions ++= (CrossVersion.partialVersion(scalaVersion.value) match {
+  case Some((3, minor)) if minor >= 9 => Seq("-opt", "-opt-inline:<sources>")
+  case _                            => Nil
+})
 
 // ----------------------------------------------------------------
 // Scalafix (semantic rules + typelevel-scalafix)

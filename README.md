@@ -245,6 +245,14 @@ Configuration lives in `.scalafmt.conf`, `.scalafix.conf`, `stryker4s.conf` and
 baseline (a regression floor, expected to ratchet up); mutation testing never
 fails the build and exists to guide test investment.
 
+The Scala 3 compiler options in [build.sbt](build.sbt) follow the recommendations
+from [sbt-typelevel-settings](https://github.com/typelevel/sbt-typelevel),
+with the broader `-Wunused:all` checks and `-Werror`: warnings
+fail both production and test compilation, locally and in CI. On Scala 3.9+
+the build enables `-opt` and `-opt-inline:<sources>`, limiting bytecode inlining
+to the current compilation's sources rather than dependencies. These optimizer
+flags are disabled while the plugin and core target sbt's Scala 3.8.4 runtime.
+
 On pull requests each workflow posts its results, passing and failing alike, as
 one comment that is edited in place on every push: `ci.yml` the gates with the
 coverage rates and any CPD duplicates, `quality.yml` the mutation score and the

@@ -1,7 +1,6 @@
 package cardinality
 
 import scala.annotation.tailrec
-import scala.collection.mutable
 import scala.meta.*
 
 object Counter {
@@ -106,7 +105,9 @@ object Counter {
   // The parameters as binders: a parameter that takes parameters of its own (`F[_]`) is the
   // higher-kinded kind, and every applied `F[A]` then depends on the instantiation too.
   private[cardinality] def binders(d: Defn): List[Binder] =
-    parameters(d).map(param => Binder(TypeName.of(param.name.value), param.tparams.size))
+    parameters(d).map(param =>
+      Binder(TypeName.of(param.name.value), param.tparamClause.values.size)
+    )
 
   private[cardinality] def parameterNames(d: Defn): List[TypeName] =
     parameters(d).map(p => TypeName.of(p.name.value))
@@ -577,9 +578,7 @@ object Counter {
   // method-name slot, not the parent — the type is the first `Init` field. `extends S`,
   // `extends S(1)` and `extends a.b.S` all yield `S`; anything shaped differently is
   // ignored (""), matching no local name.
-  private def initParent: Init => String = {
-    case Init(tpe, _, _) => bareName(tpe)
-  }
+  private def initParent: Init => String = init => bareName(init.tpe)
 
   // The per-lap label space of a cycle: every member contributes the sum over its hole
   // arms of the product of that arm's non-hole parameters, all at the finite (μ) counts.
@@ -771,8 +770,8 @@ object Counter {
 
     // A refinement is read as the type it refines: the members the refinement binds are not what
     // the value space is made of, and the base type is what the reference means.
-    case Type.Refine(base, _) =>
-      base match {
+    case refinement: Type.Refine =>
+      refinement.tpe match {
         case Some(inner) => typeIn(scope)(inner)
         case None        =>
           scope.note("a refinement")
@@ -816,7 +815,7 @@ object Counter {
       case Term.Name(name) =>
         val key = TypeName.of(name)
         scope.declaredType(key).flatMap(ownerOf).orElse(Some(key -> Nil))
-      case Term.ApplyType(Term.Name(name), Type.ArgClause(arguments)) =>
+      case Term.ApplyType.After_4_6_0(Term.Name(name), Type.ArgClause(arguments)) =>
         Some(TypeName.of(name) -> arguments)
       case _ => None
     }

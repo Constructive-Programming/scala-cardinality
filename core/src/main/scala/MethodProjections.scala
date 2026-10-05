@@ -1,7 +1,8 @@
 package cardinality
 
 import scala.meta.*
-import MethodAnalysis.{Frame, Resolved, TypeEntry, sequence}
+
+import MethodAnalysis.{sequence, Frame, Resolved, TypeEntry}
 
 /** Match types and transparent aliases share syntax-preserving projection normalization.
   * Constructor lambdas belong to application resolution, not this feature family.
@@ -77,7 +78,8 @@ private[cardinality] object MethodProjections {
             sequence(parts.map(syntax(_, frame, variables, visiting))).map { prepared =>
               Type.Tuple(prepared.map(_._1)) -> prepared.flatMap(_._2).toMap
             }
-          case Type.Match(scrutinee, cases) =>
+          case Type.Match.After_4_9_9(scrutinee, block) =>
+            val cases = block.cases
             syntax(scrutinee, frame, variables, visiting).flatMap { (known, bindings) =>
               if (!known.is[Type.Tuple])
                 Left(
@@ -90,7 +92,7 @@ private[cardinality] object MethodProjections {
               else if (!cases.forall(c => determinateProjection(c.pat, known)))
                 Left("inert match type: nested scrutinee is not a proven tuple")
               else
-                MatchTypes.reduced(Type.Match(known, cases), Map.empty) match {
+                MatchTypes.reduced(Type.Match.After_4_9_9(known, block), Map.empty) match {
                   case Some(body) =>
                     syntax(body, frame, variables ++ bindings, visiting + tpe.structure)
                   case None =>

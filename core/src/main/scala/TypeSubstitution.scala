@@ -51,17 +51,17 @@ private[cardinality] object TypeSubstitution {
       case definition: Defn.Type =>
         val bound = definition.tparamClause.values.map(p => TypeName.of(p.name.value)).toSet
         definition.copy(body = replace(definition.body, replacements -- bound))
-      case _: Type.Param                => tree
-      case Type.Match(scrutinee, cases) =>
-        Type.Match(
+      case _: Type.Param                            => tree
+      case Type.Match.After_4_9_9(scrutinee, block) =>
+        Type.Match.After_4_9_9(
           replace(scrutinee, replacements),
-          cases.map { c =>
+          Type.CasesBlock(block.cases.map { c =>
             val bound = c.pat.collect {
               case Type.Name(name) if name.headOption.exists(_.isLower) => TypeName.of(name)
             }.toSet
             val scoped = replacements -- bound
             TypeCase(replace(c.pat, scoped), replace(c.body, scoped))
-          }
+          })
         )
       case Type.Name(name) if replacements.contains(TypeName.of(name)) =>
         replacements(TypeName.of(name))

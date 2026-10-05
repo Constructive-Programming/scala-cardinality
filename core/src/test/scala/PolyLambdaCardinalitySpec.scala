@@ -1,6 +1,7 @@
 package cardinality
 
 import scala.meta.*
+
 import org.specs2.Specification
 
 /** First-order beta reduction and the closed parametric identity fragment, not general rank-n. */

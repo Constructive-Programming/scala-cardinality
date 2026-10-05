@@ -1,7 +1,8 @@
 package cardinality
 
-import org.specs2.Specification
 import scala.meta.*
+
+import org.specs2.Specification
 
 class MethodFeatureIntegrationSpec extends Specification {
   import Inhabitation.{Binding, Count, Shape}

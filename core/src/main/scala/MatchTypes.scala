@@ -18,8 +18,8 @@ private[cardinality] object MatchTypes {
   // binder, a wildcard, and anything else by spelling.
   private[cardinality] def reduced(matchType: Type, arguments: Map[TypeName, Type]): Option[Type] =
     replace(matchType, arguments) match {
-      case Type.Match(scrutinee, cases) =>
-        cases.collectFirst(Function.unlift(caseOf(_, scrutinee)))
+      case Type.Match.After_4_9_9(scrutinee, block) =>
+        block.cases.collectFirst(Function.unlift(caseOf(_, scrutinee)))
       case other => Some(other)
     }
 

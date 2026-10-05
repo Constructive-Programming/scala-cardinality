@@ -1,9 +1,10 @@
 package cardinality
 
+import scala.meta.*
+
 import Inhabitation.Shape
 import Inhabitation.Shape.*
 import MethodAnalysis.{Frame, Resolved}
-import scala.meta.*
 
 /** Existentials are packages with locally bound witness names, not caller-instantiable types.
   * Opening an input replaces those names with rigid atoms owned by that value's provenance.
