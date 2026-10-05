@@ -37,108 +37,142 @@ private[cardinality] object MethodProjections {
 
   def resolve(
       tpe: Type,
-      frame: Frame,
-      variables: Map[String, Resolved],
+      context: ResolutionContext,
       resolver: Resolver,
-      visiting: Set[String],
       sourceNames: Set[String]
   ): Resolved =
     new Normalizer(resolver, sourceNames)
-      .syntax(tpe, frame, variables, visiting)
-      .flatMap { (normalized, bindings) => resolver.resolve(normalized, frame, bindings, visiting) }
-      .flatMap(SingletonIntersections.validate(_, frame, resolver))
+      .syntax(tpe, context)
+      .flatMap { (normalized, bindings) =>
+        context.copy(variables = bindings).read(normalized, resolver)
+      }
+      .flatMap(SingletonIntersections.validate(_, context.frame, resolver))
 
   private class Normalizer(resolver: Resolver, sourceNames: Set[String]) {
     private type Prepared = Either[String, (Type, Map[String, Resolved])]
     private var tokenNumber = 0
 
-    private def freshToken(variables: Map[String, Resolved]): String = {
+    private def nextToken(): String = {
       tokenNumber += 1
-      var token = s"$$cardinalityProjection$tokenNumber"
+      s"$$cardinalityProjection$tokenNumber"
+    }
+
+    private def freshToken(variables: Map[String, Resolved]): String = {
+      var token = nextToken()
       while (sourceNames(token) || variables.contains(token)) {
-        tokenNumber += 1
-        token = s"$$cardinalityProjection$tokenNumber"
+        token = nextToken()
       }
       token
     }
 
     // Keep tuple shells, but freeze all other leaves to caller-resolved Shapes. A nominal
     // product must never become a tuple merely because its stored representation is a product.
-    def syntax(
-        tpe: Type,
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
-    ): Prepared =
-      if (visiting.size >= resolver.limits.maxTypeDepth)
+    def syntax(tpe: Type, context: ResolutionContext): Prepared =
+      if (context.visiting.size >= resolver.limits.maxTypeDepth)
         Left("match type resolution budget exhausted")
       else
         tpe match {
-          case Type.Tuple(parts) =>
-            sequence(parts.map(syntax(_, frame, variables, visiting))).map { prepared =>
-              Type.Tuple(prepared.map(_._1)) -> prepared.flatMap(_._2).toMap
-            }
+          case Type.Tuple(parts)                        => prepareTuple(parts, context)
           case Type.Match.After_4_9_9(scrutinee, block) =>
-            val cases = block.cases
-            syntax(scrutinee, frame, variables, visiting).flatMap { (known, bindings) =>
-              if (!known.is[Type.Tuple])
-                Left(
-                  "inert match type: scrutinee is not a proven tuple; concrete substitution required"
-                )
-              else if (!cases.forall(c => projectionPattern(c.pat)))
-                Left(
-                  "match type requires type-identity/disjointness proof for fixed or nominal patterns"
-                )
-              else if (!cases.forall(c => determinateProjection(c.pat, known)))
-                Left("inert match type: nested scrutinee is not a proven tuple")
-              else
-                MatchTypes.reduced(Type.Match.After_4_9_9(known, block), Map.empty) match {
-                  case Some(body) =>
-                    syntax(body, frame, variables ++ bindings, visiting + tpe.structure)
-                  case None =>
-                    Left("nonmatching tuple match type: no case matches the proven tuple")
-                }
-            }
-          case other =>
-            val (name, args) = other match {
-              case application: Type.Apply =>
-                TypeApplications.name(application.tpe) -> application.argClause.values
-              case _ => TypeApplications.name(other) -> Nil
-            }
-            val definition = if (variables.contains(name)) None else alias(name, frame, resolver)
-            definition match {
-              case Some((entry, declared)) =>
-                val key = (entry.owner.path :+ entry.name).mkString(".")
-                val parameters = declared.tparamClause.values
-                if (visiting(key)) Left(s"recursive type requires a structural proof: $key")
-                else if (parameters.exists(TypeApplications.constrained))
-                  Left(s"constrained type constructor: $name")
-                else if (parameters.size != args.size) Left(s"type argument arity: $name")
-                else
-                  sequence(args.map(syntax(_, frame, variables, visiting))).flatMap { prepared =>
-                    val substitutions =
-                      parameters
-                        .zip(prepared)
-                        .map((p, a) => TypeName.of(p.name.value) -> a._1)
-                        .toMap
-                    val bindings =
-                      resolver.typeParameters(entry.owner) ++ prepared.flatMap(_._2).toMap
-                    syntax(
-                      MatchTypes.replace(declared.body, substitutions),
-                      entry.owner,
-                      bindings,
-                      visiting + key
-                    )
-                  }
-              case None =>
-                val token = freshToken(variables)
-                Right(
-                  Type.Name(token) -> Map(
-                    token -> resolver.resolve(other, frame, variables, visiting)
-                  )
-                )
-            }
+            prepareMatch(tpe, scrutinee, block, context)
+          case other => prepareReference(other, context)
         }
+
+    private def prepareTuple(parts: List[Type], context: ResolutionContext): Prepared =
+      sequence(parts.map(syntax(_, context))).map { prepared =>
+        Type.Tuple(prepared.map(_._1)) -> prepared.flatMap(_._2).toMap
+      }
+
+    private def prepareMatch(
+        matched: Type,
+        scrutinee: Type,
+        block: Type.CasesBlock,
+        context: ResolutionContext
+    ): Prepared =
+      syntax(scrutinee, context).flatMap { (known, bindings) =>
+        projectionFailure(known, block.cases) match {
+          case Some(reason) => Left(reason)
+          case None         =>
+            reduceMatch(
+              Type.Match.After_4_9_9(known, block),
+              context.copy(variables = context.variables ++ bindings).enter(matched.structure)
+            )
+        }
+      }
+
+    // Every case must be eligible, including cases that precede the selected projection.
+    private def projectionFailure(known: Type, cases: List[TypeCase]): Option[String] =
+      if (!known.is[Type.Tuple])
+        Some("inert match type: scrutinee is not a proven tuple; concrete substitution required")
+      else if (!cases.forall(c => projectionPattern(c.pat)))
+        Some("match type requires type-identity/disjointness proof for fixed or nominal patterns")
+      else if (!cases.forall(c => determinateProjection(c.pat, known)))
+        Some("inert match type: nested scrutinee is not a proven tuple")
+      else None
+
+    private def reduceMatch(matched: Type.Match, context: ResolutionContext): Prepared =
+      MatchTypes.reduced(matched, Map.empty) match {
+        case Some(body) => syntax(body, context)
+        case None       =>
+          Left("nonmatching tuple match type: no case matches the proven tuple")
+      }
+
+    private def prepareReference(tpe: Type, context: ResolutionContext): Prepared = {
+      val (name, args) = tpe match {
+        case application: Type.Apply =>
+          TypeApplications.name(application.tpe) -> application.argClause.values
+        case _ => TypeApplications.name(tpe) -> Nil
+      }
+      val definition =
+        if (context.variables.contains(name)) None else alias(name, context.frame, resolver)
+      definition match {
+        case Some(declaration) => applyAlias(name, args, declaration, context)
+        case None              => freeze(tpe, context)
+      }
+    }
+
+    private def applyAlias(
+        name: String,
+        args: List[Type],
+        declaration: (TypeEntry, Defn.Type),
+        context: ResolutionContext
+    ): Prepared = {
+      val (entry, declared) = declaration
+      val key = (entry.owner.path :+ entry.name).mkString(".")
+      val parameters = declared.tparamClause.values
+      if (context.visiting(key)) Left(s"recursive type requires a structural proof: $key")
+      else if (parameters.exists(TypeApplications.constrained))
+        Left(s"constrained type constructor: $name")
+      else if (parameters.size != args.size) Left(s"type argument arity: $name")
+      else
+        sequence(args.map(syntax(_, context))).flatMap { prepared =>
+          prepareAliasBody(entry, declared, prepared, context.enter(key))
+        }
+    }
+
+    private def prepareAliasBody(
+        entry: TypeEntry,
+        declared: Defn.Type,
+        prepared: List[(Type, Map[String, Resolved])],
+        context: ResolutionContext
+    ): Prepared = {
+      val substitutions =
+        declared.tparamClause.values
+          .zip(prepared)
+          .map((p, a) => TypeName.of(p.name.value) -> a._1)
+          .toMap
+      val bindings = resolver.typeParameters(entry.owner) ++ prepared.flatMap(_._2).toMap
+      // Alias bodies use the declaration scope; only frozen arguments retain caller bindings.
+      syntax(
+        MatchTypes.replace(declared.body, substitutions),
+        context.copy(frame = entry.owner, variables = bindings)
+      )
+    }
+
+    private def freeze(tpe: Type, context: ResolutionContext): Prepared = {
+      val token = freshToken(context.variables)
+      Right(Type.Name(token) -> Map(token -> context.read(tpe, resolver)))
+    }
 
     private def projectionPattern(tpe: Type): Boolean = tpe match {
       case _: Type.Wildcard  => true

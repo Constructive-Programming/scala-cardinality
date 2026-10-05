@@ -400,18 +400,19 @@ object MethodAnalysis {
         frame: Frame,
         variables: Map[String, Resolved],
         visiting: Set[String]
-    ): Resolved =
+    ): Resolved = {
+      val context = ResolutionContext(frame, variables, visiting)
       if (visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
       else
         tpe match {
           case SingletonIntersections(syntax) =>
-            SingletonIntersections.resolve(syntax, frame, variables, this, visiting)
+            SingletonIntersections.resolve(syntax, context, this)
           case n: Type.Name if variables.contains(n.value)     => variables(n.value)
           case union: Type.ApplyInfix if union.op.value == "|" =>
             resolveUnion(union, frame, variables, visiting)
           case Type.Or(_, _) => resolveUnion(tpe, frame, variables, visiting)
           case MethodProjections(projected) if MethodProjections.accepts(projected, frame, this) =>
-            MethodProjections.resolve(projected, frame, variables, this, visiting, sourceNames)
+            MethodProjections.resolve(projected, context, this, sourceNames)
           case Type.Tuple(args) =>
             sequence(args.map(resolve(_, frame, variables, visiting))).map(Shape.Product(_))
           case Type.Repeated(element) =>
@@ -428,27 +429,31 @@ object MethodAnalysis {
             Left("constructor placeholder has no enclosing constructor application")
           case _: Type.AnonymousLambda =>
             Left("unapplied constructor placeholder requires a higher-kinded argument environment")
-          case f: Type.PolyFunction => resolvePoly(f, frame, variables, visiting)
+          case f: Type.PolyFunction => MethodTypeLambdas.resolve(f, context, this)
           case _: Type.Lambda       =>
             Left("unapplied type lambda requires higher-kinded analysis")
           case t: Type.Apply =>
-            resolveApplication(t.tpe, t.argClause.values, frame, variables, visiting)
+            resolveApplication(t.tpe, t.argClause.values, context)
           case t: Type.ApplyInfix =>
-            resolveApplication(t.op, List(t.lhs, t.rhs), frame, variables, visiting)
+            resolveApplication(t.op, List(t.lhs, t.rhs), context)
           case n: Type.Name    => namedType(n.value, Nil, frame, visiting)
           case p: Type.Project =>
-            refinedMember(p.qual, p.name.value, frame, variables, visiting)
+            RefinedMembers
+              .resolve(p.qual, p.name.value, context, this)
               .flatMap(SingletonIntersections.validate(_, frame, this))
           case r: Type.Refine =>
             Left(s"refined representation unavailable (constraints not erased): ${r.syntax}")
-          case s: Type.Select if pathType(s.qual, frame).nonEmpty =>
-            pathType(s.qual, frame).get.flatMap { (declared, owner) =>
-              refinedMember(declared, s.name.value, owner, typeParameters(owner), visiting)
+          case s: Type.Select if RefinedMembers.pathType(s.qual, frame).nonEmpty =>
+            RefinedMembers.pathType(s.qual, frame).get.flatMap { (declared, owner) =>
+              val declaredContext = ResolutionContext(owner, typeParameters(owner), visiting)
+              RefinedMembers
+                .resolve(declared, s.name.value, declaredContext, this)
                 .flatMap(SingletonIntersections.validate(_, frame, this))
             }
           case s: Type.Select => namedType(s.syntax.stripPrefix("_root_."), Nil, frame, visiting)
           case _              => Left(s"unsupported type: ${tpe.syntax.replaceAll("\\s+", " ")}")
         }
+    }
 
     // Scala unions carry no constructor tag. Only idempotence and empty alternatives are
     // justified here; equal structural shapes alone do not prove equal nominal types.
@@ -490,288 +495,46 @@ object MethodAnalysis {
     private def resolveApplication(
         callee: Type,
         arguments: List[Type],
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
+        context: ResolutionContext
     ): Resolved = {
       val name = applicationName(callee)
-      if (
-        !arguments.exists(_.is[Type.Wildcard]) && !variables.contains(name) &&
-        MethodProjections.alias(name, frame, this).nonEmpty
-      )
+      if (projectable(name, arguments, context))
         MethodProjections.resolve(
           Type.Apply(callee, Type.ArgClause(arguments)),
-          frame,
-          variables,
+          context,
           this,
-          visiting,
           sourceNames
         )
       else
         existentialCaptures
-          .arguments(callee, arguments, frame, resolve(_, frame, variables, visiting))
+          .arguments(callee, arguments, context.frame, context.read(_, this))
           .flatMap { (witnesses, args) =>
             val resolved = constructorLambda(callee) match {
-              case Some(lambda) => lambda.flatMap(betaLambda(_, args, frame, variables, visiting))
-              case None if variables.contains(name) =>
-                variables(name)
+              case Some(lambda) => lambda.flatMap(MethodTypeLambdas(_, args, context, this))
+              case None if context.variables.contains(name) =>
+                context
+                  .variables(name)
                   .flatMap(_ => Left(s"type parameter is not an applicable constructor: $name"))
-              case None => namedType(name, args, frame, visiting)
+              case None => namedType(name, args, context.frame, context.visiting)
             }
             resolved
               .map(shape => if (witnesses.isEmpty) shape else Shape.Existential(witnesses, shape))
           }
     }
 
+    private def projectable(
+        name: String,
+        arguments: List[Type],
+        context: ResolutionContext
+    ): Boolean =
+      if (arguments.exists(_.is[Type.Wildcard])) false
+      else if (context.variables.contains(name)) false
+      else MethodProjections.alias(name, context.frame, this).nonEmpty
+
     private def applicationName(tpe: Type): String = TypeApplications.name(tpe)
 
     private def constructorLambda(tpe: Type): Option[Either[String, Type.Lambda]] =
       TypeApplications.lambda(tpe)
-
-    // A stable path denotes its declared type in the binding's scope, not the use site's scope:
-    // an inner type binder named A must not change the meaning of an outer p.X = A.
-    private def pathType(
-        path: Term.Ref,
-        frame: Frame
-    ): Option[Either[String, (Type, Frame)]] = path match {
-      case n: Term.Name =>
-        frame.chain.iterator
-          .map { owner =>
-            val parameter = owner.params.find(_.name.value == n.value).map { p =>
-              if (p.mods.exists(_.is[Mod.VarParam])) None else p.decltpe
-            }
-            val binding = owner.stats.collectFirst {
-              case d: Defn.Val if d.pats.exists {
-                    case Pat.Var(name) => name.value == n.value
-                    case _             => false
-                  } =>
-                d.decltpe
-              case d: Decl.Val if d.pats.exists {
-                    case Pat.Var(name) => name.value == n.value
-                    case _             => false
-                  } =>
-                Some(d.decltpe)
-              case d: Defn.Var if d.pats.exists {
-                    case Pat.Var(name) => name.value == n.value
-                    case _             => false
-                  } =>
-                None
-              case d: Decl.Var if d.pats.exists {
-                    case Pat.Var(name) => name.value == n.value
-                    case _             => false
-                  } =>
-                None
-              case d: Defn.Def if d.name.value == n.value => None
-              case d: Decl.Def if d.name.value == n.value => None
-            }
-            parameter.orElse(binding).map {
-              case Some(tpe) => Right((tpe, owner))
-              case None      => Left(s"unavailable stable path type: ${n.value}")
-            }
-          }
-          .find(_.nonEmpty)
-          .flatten
-      case _ => None
-    }
-
-    private def refinedMember(
-        qualifier: Type,
-        member: String,
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
-    ): Resolved = {
-      val key = s"member:${frame.id}:${qualifier.syntax}#$member"
-      if (visiting(key)) Left(s"recursive refined member: ${qualifier.syntax}#$member")
-      else if (visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
-      else
-        qualifier match {
-          case r: Type.Refine =>
-            if (
-              r.body.stats.exists {
-                case d: Defn.Type => d.name.value == member
-                case d: Decl.Type => d.name.value == member
-                case _            => false
-              }
-            )
-              memberFromStats(r.body.stats, member, frame, variables, visiting + key)
-            else
-              r.tpe.fold[Resolved](Left(s"unavailable refined member: $member"))(
-                refinedMember(_, member, frame, variables, visiting + key)
-              )
-          case a: Type.Apply =>
-            sourceMember(
-              a.tpe.syntax.stripPrefix("_root_."),
-              a.argClause.values,
-              member,
-              frame,
-              variables,
-              visiting + key
-            )
-          case n: Type.Name =>
-            sourceMember(n.value, Nil, member, frame, variables, visiting + key)
-          case s: Type.Select =>
-            sourceMember(
-              s.syntax.stripPrefix("_root_."),
-              Nil,
-              member,
-              frame,
-              variables,
-              visiting + key
-            )
-          case _ => Left(s"unavailable refined member: ${qualifier.syntax}#$member")
-        }
-    }
-
-    // Only equations justify substitution. An upper bound such as X <: Tuple is not an equation:
-    // it neither determines the tuple's arity nor grants permission to build arbitrary Tuples.
-    private def memberFromStats(
-        stats: List[Stat],
-        member: String,
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
-    ): Resolved = {
-      val declarations = stats.collect {
-        case d: Defn.Type => d.name.value -> d
-        case d: Decl.Type => d.name.value -> d
-      }.toMap
-      val key = s"refinement:${frame.id}:${stats.map(_.syntax).mkString(";")}:$member"
-      if (visiting(key)) Left(s"recursive refined member: $member")
-      else {
-        val rhs: Either[String, Type] = declarations.get(member) match {
-          case Some(d: Stat.WithMods)
-              if d.mods.exists(m => m.is[Mod.Opaque] || m.is[Mod.Private] || m.is[Mod.Protected]) =>
-            Left(s"non-public or opaque refined member: $member")
-          case Some(d: Defn.Type) if d.tparamClause.values.isEmpty => Right(d.body)
-          case Some(d: Decl.Type) if d.tparamClause.values.isEmpty =>
-            (d.bounds.lo, d.bounds.hi) match {
-              case (Some(lo), Some(hi)) if lo.structure == hi.structure => Right(lo)
-              case (None, Some(hi))
-                  if !declarations.contains(hi.syntax) &&
-                    resolve(hi, frame, variables, visiting + key) == Right(Shape.Sum(Nil)) =>
-                Right(hi)
-              case _ => Left(s"abstract refined member $member has non-exact bounds: ${d.syntax}")
-            }
-          case Some(_) => Left(s"higher-kinded refined member: $member")
-          case None    => Left(s"unavailable refined member: $member")
-        }
-        rhs.flatMap { body =>
-          val referenced = body.collect {
-            case n: Type.Name if declarations.contains(n.value) => n.value
-          }.distinct
-          val substitutions = referenced.map { name =>
-            name -> memberFromStats(stats, name, frame, variables, visiting + key)
-          }.toMap
-          resolve(body, frame, variables ++ substitutions, visiting + key)
-        }
-      }
-    }
-
-    private def sourceMember(
-        name: String,
-        args: List[Type],
-        member: String,
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
-    ): Resolved =
-      if (variables.contains(name)) Left(s"unavailable member on type parameter: $name#$member")
-      else
-        lookup(name, frame) match {
-          case List(entry) =>
-            val (parameters, body, stats) = entry.tree match {
-              case a: Defn.Type if !a.mods.exists(_.is[Mod.Opaque]) =>
-                (a.tparamClause.values, Some(a.body), Nil)
-              case t: Defn.Trait => (t.tparamClause.values, None, t.templ.body.stats)
-              case c: Defn.Class => (c.tparamClause.values, None, c.templ.body.stats)
-              case _             => (Nil, None, Nil)
-            }
-            if (parameters.exists(constrained)) Left(s"constrained refined type constructor: $name")
-            else if (parameters.size != args.size) Left(s"type argument arity: $name")
-            else {
-              val replacements = parameters
-                .zip(args)
-                .map { (p, arg) =>
-                  p.name.value -> resolve(arg, frame, variables, visiting)
-                }
-                .toMap
-              val env = typeParameters(entry.owner) ++ replacements
-              body match {
-                case Some(tpe) => refinedMember(tpe, member, entry.owner, env, visiting)
-                case None      => memberFromStats(stats, member, entry.owner, env, visiting)
-              }
-            }
-          case Nil => Left(s"unavailable refined member: $name#$member")
-          case _   => Left(s"ambiguous type: $name")
-        }
-
-    // Beta reduction happens in the resolved environment, not by rewriting identifiers in an AST.
-    // Arguments already carry their caller's binder identities; a lambda's names only shadow the
-    // lexical map used to resolve its body, so neither capture nor spelling creates a new atom.
-    private def betaLambda(
-        lambda: Type.Lambda,
-        args: List[Shape],
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
-    ): Resolved = {
-      val parameters = lambda.tparamClause.values
-      if (parameters.exists(constrained))
-        Left(s"constrained type lambda: ${lambda.syntax}")
-      else if (parameters.size != args.size) Left(s"type lambda argument arity: ${lambda.syntax}")
-      else
-        lambda.body match {
-          case body: Type =>
-            resolve(
-              body,
-              frame,
-              variables ++ parameters.zip(args).map((p, a) => p.name.value -> Right(a)),
-              visiting + s"lambda:${lambda.pos.start}:${lambda.syntax}"
-            )
-          case _ => Left("type lambda has a non-type body")
-        }
-    }
-
-    // This is a deliberately closed rank-polymorphic fragment: forall a. a -> a is the unique
-    // total parametric identity. Its observations are terminal, and instantiating/applying it
-    // returns the argument, never another opaque producer. All other polymorphic values require
-    // a quantified introduction/elimination model; treating their binders as free atoms is unsound.
-    private def resolvePoly(
-        poly: Type.PolyFunction,
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
-    ): Resolved = {
-      val parameters = poly.tparamClause.values
-      if (parameters.exists(constrained))
-        Left(s"constrained polymorphic function: ${poly.syntax}")
-      else {
-        val binders = parameters.map { p =>
-          p.name.value -> Right(Shape.Atom(s"${frame.id}:poly:${poly.pos.start}:${p.name.value}"))
-        }
-        // Read the whole body first: evidence and external constructors must not disappear behind
-        // a generic rank-n diagnostic, and no contextual evidence is executed.
-        val body = poly.body match {
-          case tpe: Type => resolve(tpe, frame, variables ++ binders, visiting)
-          case _         => Left("polymorphic function has a non-type body")
-        }
-        body.flatMap { _ =>
-          (parameters, poly.body) match {
-            case (List(p), f: Type.Function) =>
-              (f.paramClause.values, f.res) match {
-                case (List(input: Type.Name), output: Type.Name)
-                    if input.value == p.name.value && output.value == p.name.value =>
-                  Right(Shape.Product(Nil))
-                case _ =>
-                  Left(s"polymorphic function outside the closed identity fragment: ${poly.syntax}")
-              }
-            case _ =>
-              Left(s"polymorphic function outside the closed identity fragment: ${poly.syntax}")
-          }
-        }
-      }
-    }
 
     def lookup(name: String, frame: Frame): List[TypeEntry] = {
       val lexical = frame.chain.iterator
@@ -864,7 +627,12 @@ object MethodAnalysis {
           case alias: Defn.Type if constructorLambda(alias.body).nonEmpty =>
             if (!alias.mods.exists(_.is[Mod.Opaque]) && alias.tparamClause.values.isEmpty)
               constructorLambda(alias.body).get.flatMap(
-                betaLambda(_, args, entry.owner, typeParameters(entry.owner), visiting + key)
+                MethodTypeLambdas(
+                  _,
+                  args,
+                  ResolutionContext(entry.owner, typeParameters(entry.owner), visiting + key),
+                  this
+                )
               )
             else
               Left(

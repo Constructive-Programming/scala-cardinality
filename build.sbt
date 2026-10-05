@@ -81,7 +81,7 @@ ThisBuild / scalacOptions ++= Seq(
 // Scala 3.9+ optimizer only when a future sbt-compatible compiler supports it.
 scalacOptions ++= (CrossVersion.partialVersion(scalaVersion.value) match {
   case Some((3, minor)) if minor >= 9 => Seq("-opt", "-opt-inline:<sources>")
-  case _                            => Nil
+  case _                              => Nil
 })
 
 // ----------------------------------------------------------------

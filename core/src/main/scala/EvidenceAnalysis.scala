@@ -24,76 +24,134 @@ private[cardinality] object EvidenceAnalysis {
   )
 
   def context(shapes: List[Shape], target: Shape): Either[String, Context] = {
-    val proofs = shapes.collect { case proof: Evidence => proof }
-    val atoms = proofs.flatMap(p => List(p.left, p.right)).distinct
-    val equalities = proofs.filter(_.equality)
-    def equivalent(start: Shape): Set[Shape] = {
-      def expand(found: Set[Shape]): Set[Shape] = {
-        val next = found ++ equalities.flatMap { proof =>
-          if (found(proof.left) || found(proof.right)) List(proof.left, proof.right) else Nil
-        }
-        if (next == found) found else expand(next)
-      }
-      expand(Set(start))
-    }
-    val representatives = atoms.map { atom =>
-      atom -> equivalent(atom).toList.sortBy(_.toString).head
-    }.toMap
-    def canonical(shape: Shape): Shape = representatives.getOrElse(shape, shape)
-    val edges = proofs.filterNot(_.equality).map(p => canonical(p.left) -> canonical(p.right))
-    def reachable(start: Shape): List[Shape] = {
-      def expand(found: Set[Shape]): Set[Shape] = {
-        val next = found ++ edges.collect { case (from, to) if found(from) => to }
-        if (next == found) found else expand(next)
-      }
-      expand(Set(canonical(start))).toList.sortBy(_.toString)
-    }
-    val directed = edges.exists { case (from, to) => from != to }
-    if (proofs.exists(p => !atomic(p.left) || !atomic(p.right)))
-      Left("unsupported evidence relationship: proofs require free-atom endpoints")
-    else if (directed && (shapes :+ target).exists(complex))
-      Left(
-        "unsupported subtype evidence interaction: only atomic values and products are supported"
-      )
-    else {
-      def rewrite(shape: Shape): Either[String, Shape] = shape match {
-        case atom: Atom                                                  => Right(canonical(atom))
-        case Evidence(left, right, _) if !atomic(left) || !atomic(right) =>
-          Left("unsupported evidence relationship: proofs require free-atom endpoints")
-        case Evidence(left, right, equality) =>
-          val proved =
-            if (equality) canonical(left) == canonical(right)
-            else reachable(left).contains(canonical(right))
-          if (proved) Right(Product(Nil))
-          else Left("unsupported evidence constraint: no available proof for distinct binders")
-        case Product(fields) =>
-          MethodAnalysis.sequence(fields.map(rewrite)).map(Product(_))
-        case Sum(alternatives) =>
-          MethodAnalysis.sequence(alternatives.map(rewrite)).map(Sum(_))
-        case Function(parameters, result) =>
-          for {
-            args <- MethodAnalysis.sequence(parameters.map(rewrite))
-            output <- rewrite(result)
-          } yield Function(args, output)
-        case Repeated(element)        => rewrite(element).map(Repeated(_))
-        case existential: Existential =>
-          Right(ExistentialInputs.mapAtoms(existential)(atom => canonical(atom)))
-        case Singleton(id, underlying) =>
-          underlying match {
-            case Some(value) => rewrite(value).map(shape => Singleton(id, Some(shape)))
-            case None        => Right(Singleton(id, None))
-          }
-      }
-      Right(Context(rewrite, reachable))
-    }
+    for {
+      proofs <- AvailableProofs.extract(shapes)
+      equality = new EqualityClosure(proofs)
+      subtypes = new SubtypeClosure(proofs, equality)
+      _ <- SupportedInteractions.validate(shapes :+ target, subtypes.directed)
+      rewriter = new ShapeRewriter(equality, subtypes)
+    } yield Context(rewriter.rewrite, subtypes.reachable)
   }
 
   private def atomic(shape: Shape): Boolean = shape.isInstanceOf[Atom]
 
-  private def complex(shape: Shape): Boolean = shape match {
-    case _: Atom | _: Evidence => false
-    case Product(fields)       => fields.exists(complex)
-    case _                     => true
+  private object AvailableProofs {
+
+    private val endpointError =
+      "unsupported evidence relationship: proofs require free-atom endpoints"
+
+    // Only already available proofs participate: do not descend into sums or callables.
+    def extract(shapes: List[Shape]): Either[String, List[Evidence]] = {
+      val proofs = shapes.collect { case proof: Evidence => proof }
+      MethodAnalysis.sequence(proofs.map(validate)).map(_ => proofs)
+    }
+
+    def validate(proof: Evidence): Either[String, Unit] =
+      if (atomic(proof.left) && atomic(proof.right)) Right(())
+      else Left(endpointError)
+
+  }
+
+  /** Reflexive transitive closure; equality supplies both directions, subtyping only one. */
+  final private class Closure(edges: List[(Shape, Shape)]) {
+    def reachable(start: Shape): Set[Shape] = expand(Set(start))
+
+    private def expand(found: Set[Shape]): Set[Shape] = {
+      val next = found ++ edges.collect { case (from, to) if found(from) => to }
+      if (next == found) found else expand(next)
+    }
+
+  }
+
+  final private class EqualityClosure(proofs: List[Evidence]) {
+
+    private val closure = new Closure(
+      proofs.filter(_.equality).flatMap(p => List(p.left -> p.right, p.right -> p.left))
+    )
+
+    private val representatives = proofs
+      .flatMap(p => List(p.left, p.right))
+      .distinct
+      .map { atom =>
+        atom -> closure.reachable(atom).toList.sortBy(_.toString).head
+      }
+      .toMap
+
+    def canonical(shape: Shape): Shape = representatives.getOrElse(shape, shape)
+
+    def proves(proof: Evidence): Boolean = canonical(proof.left) == canonical(proof.right)
+  }
+
+  final private class SubtypeClosure(proofs: List[Evidence], equality: EqualityClosure) {
+
+    private val edges = proofs.filterNot(_.equality).map { proof =>
+      equality.canonical(proof.left) -> equality.canonical(proof.right)
+    }
+
+    private val closure = new Closure(edges)
+
+    val directed: Boolean = edges.exists { case (from, to) => from != to }
+
+    def reachable(start: Shape): List[Shape] =
+      closure.reachable(equality.canonical(start)).toList.sortBy(_.toString)
+
+    def proves(proof: Evidence): Boolean =
+      reachable(proof.left).contains(equality.canonical(proof.right))
+
+  }
+
+  private object SupportedInteractions {
+
+    def validate(shapes: List[Shape], directed: Boolean): Either[String, Unit] =
+      if (directed && shapes.exists(complex))
+        Left(
+          "unsupported subtype evidence interaction: only atomic values and products are supported"
+        )
+      else Right(())
+
+    private def complex(shape: Shape): Boolean = shape match {
+      case _: Atom | _: Evidence => false
+      case Product(fields)       => fields.exists(complex)
+      case _                     => true
+    }
+
+  }
+
+  final private class ShapeRewriter(equality: EqualityClosure, subtypes: SubtypeClosure) {
+
+    def rewrite(shape: Shape): Either[String, Shape] = shape match {
+      case atom: Atom      => Right(equality.canonical(atom))
+      case proof: Evidence => rewriteProof(proof)
+      case Product(fields) =>
+        MethodAnalysis.sequence(fields.map(rewrite)).map(Product(_))
+      case Sum(alternatives) =>
+        MethodAnalysis.sequence(alternatives.map(rewrite)).map(Sum(_))
+      case Function(parameters, result) => rewriteFunction(parameters, result)
+      case Repeated(element)            => rewrite(element).map(Repeated(_))
+      case existential: Existential     =>
+        Right(ExistentialInputs.mapAtoms(existential)(atom => equality.canonical(atom)))
+      case Singleton(id, underlying) => rewriteSingleton(id, underlying)
+    }
+
+    private def rewriteProof(proof: Evidence): Either[String, Shape] =
+      AvailableProofs.validate(proof).flatMap { _ =>
+        val proved = if (proof.equality) equality.proves(proof) else subtypes.proves(proof)
+        if (proved) Right(Product(Nil))
+        else Left("unsupported evidence constraint: no available proof for distinct binders")
+      }
+
+    private def rewriteFunction(parameters: List[Shape], result: Shape): Either[String, Shape] =
+      for {
+        args <- MethodAnalysis.sequence(parameters.map(rewrite))
+        output <- rewrite(result)
+      } yield Function(args, output)
+
+    private def rewriteSingleton(id: String, underlying: Option[Shape]): Either[String, Shape] =
+      underlying match {
+        case Some(value) => rewrite(value).map(shape => Singleton(id, Some(shape)))
+        case None        => Right(Singleton(id, None))
+      }
+
   }
 
 }
