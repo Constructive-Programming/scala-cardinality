@@ -9,6 +9,9 @@ import scala.collection.mutable
   * eta-expanded; Unit has one implementation. Sum contexts are exhaustively split, with independent
   * implementations in each branch. Provenance distinguishes opaque values.
   *
+  * Repeated arguments use finite sequence introduction (Nil/Cons). Arbitrary sequence elimination
+  * is unresolved except for structurally empty elements or singleton results.
+  *
   * Higher-order application and elimination of opaque callable sum results are deliberately
   * unresolved when potentially relevant. No equations on opaque functions, effects, recursion, or
   * unsafe casts are assumed.
@@ -17,9 +20,15 @@ object Inhabitation {
 
   enum Shape {
     case Atom(id: String)
+    // A validated accessible stable reference has one value, not one interchangeable Unit.
+    // Its widened binding remains usable, with the reference's original provenance.
+    case Singleton(id: String, underlying: Option[Shape])
     case Product(fields: List[Shape])
     case Sum(alternatives: List[Shape])
     case Function(parameters: List[Shape], result: Shape)
+    case Repeated(element: Shape)
+    case Evidence(left: Shape, right: Shape, equality: Boolean)
+    case Existential(witnesses: List[String], body: Shape)
   }
 
   case class Binding(id: String, shape: Shape)
@@ -46,6 +55,8 @@ object Inhabitation {
 
   private class Limit(message: String) extends RuntimeException(message)
 
+  private class Unsupported(message: String) extends RuntimeException(message)
+
   private case class Value(path: List[String], shape: Shape)
 
   private case class Rule(children: List[Int], reason: Option[String] = None)
@@ -53,16 +64,28 @@ object Inhabitation {
   private case class Producer(parameters: List[Shape], output: Shape)
 
   def count(bindings: List[Binding], result: Shape, maxStates: Int = 256): Count =
-    try new Solver(maxStates).run(bindings, result)
-    catch { case error: Limit => Unresolved(List(error.getMessage)) }
+    try
+      RepeatedArguments.prepare(bindings, result) match {
+        case Left(count)                 => count
+        case Right((normalized, target)) => new Solver(maxStates).run(normalized, target)
+      }
+    catch {
+      case error: Limit       => Unresolved(List(error.getMessage))
+      case error: Unsupported => Unresolved(List(error.getMessage))
+    }
 
   private class Solver(maxStates: Int) {
     private val nodes = mutable.ArrayBuffer.empty[List[Rule]]
     private val memo = mutable.Map.empty[(List[Value], Shape), Int]
     private val absurd = mutable.Map.empty[Int, Int]
+    private val witnesses = mutable.Map.empty[(List[String], Int), Atom]
+    private val reservedAtoms = mutable.Set.empty[String]
+    private var witnessNumber = 0
     private var work = 0
 
     def run(bindings: List[Binding], result: Shape): Count = {
+      reservedAtoms ++= bindings.flatMap(binding => ExistentialInputs.names(binding.shape))
+      reservedAtoms ++= ExistentialInputs.names(result)
       val env = bindings.distinct.map(binding => Value(List("input", binding.id), binding.shape))
       val root = goal(env, result)
       val productive = leastProductive(allowUnresolved = true)
@@ -101,10 +124,20 @@ object Inhabitation {
     // A goal is the environment it can read plus the shape it must produce, memoised so a cycle
     // becomes a re-visited node rather than another pass.
     private def goal(raw: List[Value], target: Shape): Int = {
-      val env = flatten(raw)
-      memo.get((env, target)) match {
+      val flat = flatten(raw)
+      val evidence = EvidenceAnalysis
+        .context(flat.map(_.shape), target)
+        .fold(reason => throw new Unsupported(reason), identity)
+      def rewrite(shape: Shape): Shape =
+        evidence.rewrite(shape).fold(reason => throw new Unsupported(reason), identity)
+      val env = flat.flatMap { value =>
+        val shape = rewrite(value.shape)
+        evidence.views(shape).map(view => Value(value.path, view))
+      }.distinct
+      val normalized = rewrite(target)
+      memo.get((env, normalized)) match {
         case Some(id) => id
-        case None     => record(env, target)
+        case None     => record(env, normalized)
       }
     }
 
@@ -135,6 +168,9 @@ object Inhabitation {
         case Some(rule) => List(rule)
         case None       =>
           target match {
+            case Existential(_, _) =>
+              List(Rule(Nil, Some(ExistentialInputs.resultBoundary)))
+            case Singleton(_, _) => List(Rule(Nil))
             case Product(fields) =>
               List(Rule(fields.map(goal(env, _))))
             case Function(parameters, result) =>
@@ -163,7 +199,11 @@ object Inhabitation {
 
     private def constructors(env: List[Value], target: Shape): List[Rule] = target match {
       case Sum(alternatives) => alternatives.map(shape => Rule(List(goal(env, shape))))
-      case _                 => Nil
+      // Nil is a base case. Cons is productive only when an element can be constructed; the
+      // ordinary productive-cycle proof then establishes infinitely many distinct lengths.
+      case Repeated(element) =>
+        List(Rule(Nil), Rule(List(goal(env, element), goal(env, target))))
+      case _ => Nil
     }
 
     private def producers(env: List[Value], target: Shape): List[Rule] =
@@ -182,20 +222,22 @@ object Inhabitation {
         // Empty-result callables are negations, not opaque tagged choices. A proved call to one
         // is handled by absurd elimination above; only nonempty sum results need case analysis.
         val opaque = value.output match {
-          case Sum(alternatives) => alternatives.nonEmpty
-          case _                 => false
+          case Sum(alternatives) if alternatives.nonEmpty =>
+            Some("Elimination of an opaque sum-producing callable is unsupported")
+          case Existential(_, _) => Some(ExistentialInputs.callableBoundary)
+          case _                 => None
         }
-        if (value.output != target && !opaque) Nil
+        if (value.output != target && opaque.isEmpty) Nil
         else {
           val dependencies = value.parameters.filterNot(higherOrder).map(goal(env, _))
           List(Rule(dependencies, unsupported(value, opaque)))
         }
       }
 
-    private def unsupported(value: Producer, opaque: Boolean): Option[String] =
-      if (opaque) Some("Elimination of an opaque sum-producing callable is unsupported")
-      else if (value.parameters.exists(higherOrder)) Some("Higher-order application is unsupported")
-      else None
+    private def unsupported(value: Producer, opaque: Option[String]): Option[String] =
+      opaque.orElse(
+        Option.when(value.parameters.exists(higherOrder))("Higher-order application is unsupported")
+      )
 
     private def tick(): Unit = {
       work += 1
@@ -204,6 +246,17 @@ object Inhabitation {
 
     private def flatten(values: List[Value]): List[Value] =
       values.flatMap {
+        case Value(path, Existential(bound, body)) =>
+          // Binder positions, not display names, keep identity stable under alpha-renaming.
+          val replacements = bound.zipWithIndex.map { (name, index) =>
+            name -> witnesses.getOrElseUpdate((path, index), freshWitness())
+          }.toMap
+          val opened =
+            ExistentialInputs.mapAtoms(body)(atom => replacements.getOrElse(atom.id, atom))
+          flatten(List(Value(path :+ "existential", opened)))
+        case Value(_, Singleton(id, Some(underlying))) =>
+          flatten(List(Value(List("input", id), underlying)))
+        case Value(_, Singleton(_, None)) => Nil
         case Value(path, Product(fields)) =>
           flatten(fields.zipWithIndex.map {
             case (shape, index) =>
@@ -211,6 +264,17 @@ object Inhabitation {
           })
         case value => List(value)
       }.distinct
+
+    private def freshWitness(): Atom = {
+      witnessNumber += 1
+      var name = s"existential:$witnessNumber"
+      while (reservedAtoms(name)) {
+        witnessNumber += 1
+        name = s"existential:$witnessNumber"
+      }
+      reservedAtoms += name
+      Atom(name)
+    }
 
     private def producer(shape: Shape, args: List[Shape] = Nil): List[Producer] =
       shape match {
@@ -221,10 +285,14 @@ object Inhabitation {
 
     private def higherOrder(shape: Shape): Boolean =
       shape match {
-        case Function(_, _)    => true
-        case Product(fields)   => fields.exists(higherOrder)
-        case Sum(alternatives) => alternatives.exists(higherOrder)
-        case Atom(_)           => false
+        case Function(_, _)           => true
+        case Product(fields)          => fields.exists(higherOrder)
+        case Sum(alternatives)        => alternatives.exists(higherOrder)
+        case Repeated(element)        => higherOrder(element)
+        case Atom(_)                  => false
+        case Singleton(_, underlying) => underlying.exists(higherOrder)
+        case Evidence(_, _, _)        => false
+        case Existential(_, _)        => true
       }
 
   }

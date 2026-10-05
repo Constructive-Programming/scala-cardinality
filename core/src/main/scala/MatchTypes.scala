@@ -17,11 +17,10 @@ private[cardinality] object MatchTypes {
   // for. The patterns a case can have are the ones a reducer earns: a tuple of binders, a bare
   // binder, a wildcard, and anything else by spelling.
   private[cardinality] def reduced(matchType: Type, arguments: Map[TypeName, Type]): Option[Type] =
-    matchType match {
+    replace(matchType, arguments) match {
       case Type.Match(scrutinee, cases) =>
-        val known = replace(scrutinee, arguments)
-        cases.collectFirst(Function.unlift(caseOf(_, known)))
-      case other => Some(replace(other, arguments))
+        cases.collectFirst(Function.unlift(caseOf(_, scrutinee)))
+      case other => Some(other)
     }
 
   private def caseOf(caseType: TypeCase, scrutinee: Type): Option[Type] =
@@ -57,14 +56,6 @@ private[cardinality] object MatchTypes {
 
   // A type with the definition's parameters replaced by the argument types, syntax kept as it is.
   private[cardinality] def replace(tpe: Type, arguments: Map[TypeName, Type]): Type =
-    if (arguments.isEmpty) tpe
-    else
-      tpe.transform {
-        case Type.Name(name) if arguments.contains(TypeName.of(name)) =>
-          arguments(TypeName.of(name))
-      } match {
-        case rewritten: Type => rewritten
-        case other           => other.asInstanceOf[Type]
-      }
+    TypeSubstitution.replace(tpe, arguments)
 
 }
