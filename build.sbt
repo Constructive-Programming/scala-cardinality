@@ -12,15 +12,24 @@ libraryDependencies ++= Seq(
 // ----------------------------------------------------------------
 // Compiler options
 // ----------------------------------------------------------------
-// A subset of the flag set the sister project `eo` enables through
-// sbt-typelevel-settings, spelled out here so the small build does not need that
-// plugin. `-Wunused:all` is the broadest unused-warning surface; unlike `eo` we
-// do not turn warnings into errors yet.
+// Scala 3 recommendations from sbt-typelevel-settings:
+// https://github.com/typelevel/sbt-typelevel/blob/main/settings/src/main/scala/org/typelevel/sbt/TypelevelSettingsPlugin.scala
+// Spelled out because this build uses sbt 2. `-Wunused:all` also checks pattern
+// bindings and @nowarn annotations beyond Typelevel's individual unused flags.
+// Warnings are fatal in both Compile and Test, locally and in CI.
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
+  "-encoding",
+  "UTF-8",
   "-feature",
   "-unchecked",
-  "-Wunused:all"
+  "-Wunused:all",
+  "-Wvalue-discard",
+  "-Werror",
+  // Scala 3.9's JVM optimizer; inline only this compilation's sources rather
+  // than embedding dependency implementations in our published bytecode.
+  "-opt",
+  "-opt-inline:<sources>"
 )
 
 // ----------------------------------------------------------------

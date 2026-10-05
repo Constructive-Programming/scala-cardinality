@@ -524,9 +524,7 @@ object Counter {
   // method-name slot, not the parent — the type is the first `Init` field. `extends S`,
   // `extends S(1)` and `extends a.b.S` all yield `S`; anything shaped differently is
   // ignored (""), matching no local name.
-  private def initParent: Init => String = {
-    case Init(tpe, _, _) => bareName(tpe)
-  }
+  private def initParent: Init => String = init => bareName(init.tpe)
 
   // The per-lap label space of a cycle: every member contributes the sum over its hole
   // arms of the product of that arm's non-hole parameters, all at the finite (μ) counts.
