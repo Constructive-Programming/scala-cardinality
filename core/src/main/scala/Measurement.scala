@@ -21,6 +21,8 @@ private[cardinality] trait Resolver {
       visiting: Set[String] = Set.empty
   ): Resolved
 
+  def resolve(tpe: Type, context: ResolutionContext): Resolved
+
   def typeParameters(frame: Frame): Map[String, Resolved]
 
   def accessible(tree: Tree, owner: Frame, from: Frame): Boolean
@@ -127,12 +129,18 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         declared.typeParams
           .map(_.name.value)
           .zip(args)
-          .flatMap {
+          .map {
             case (name, arg) =>
-              resolver
-                .resolve(arg, from, resolver.typeParameters(from))
-                .toOption
-                .map(name -> Right(_))
+              name -> resolver
+                .resolve(
+                  arg,
+                  ResolutionContext(
+                    from,
+                    resolver.typeParameters(from),
+                    Set.empty,
+                    Some(target.frame)
+                  )
+                )
           }
           .toMap
     }
@@ -202,7 +210,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   ): Unit =
     tpe
       .toRight(s"missing type of accessible value: $name")
-      .flatMap(resolver.resolve(_, owner, env)) match {
+      .flatMap(tpe =>
+        resolver.resolve(
+          tpe,
+          ResolutionContext(owner, env, Set.empty, Some(target.frame))
+        )
+      ) match {
       case Left(reason) => errors += reason
       case Right(shape) => bind(name, Binding(s"${owner.id}:$name", shape), owner)
     }
@@ -414,10 +427,20 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         declaration: Defn.Val
     ): Either[String, Binding] =
       declaration.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
-        resolver.resolve(tpe, owner, resolver.typeParameters(owner)).flatMap { shape =>
-          if (binding.shape == shape) Right(binding)
-          else Left(s"capture alias type conversion not resolved: $name")
-        }
+        resolver
+          .resolve(
+            tpe,
+            ResolutionContext(
+              owner,
+              resolver.typeParameters(owner),
+              Set.empty,
+              Some(target.frame)
+            )
+          )
+          .flatMap { shape =>
+            if (binding.shape == shape) Right(binding)
+            else Left(s"capture alias type conversion not resolved: $name")
+          }
       }
 
   }

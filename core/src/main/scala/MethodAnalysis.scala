@@ -400,8 +400,13 @@ object MethodAnalysis {
         frame: Frame,
         variables: Map[String, Resolved],
         visiting: Set[String]
+    ): Resolved = resolve(tpe, ResolutionContext(frame, variables, visiting))
+
+    def resolve(
+        tpe: Type,
+        context: ResolutionContext
     ): Resolved = {
-      val context = ResolutionContext(frame, variables, visiting)
+      val ResolutionContext(frame, variables, visiting, _) = context
       if (visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
       else
         tpe match {
@@ -409,18 +414,18 @@ object MethodAnalysis {
             SingletonIntersections.resolve(syntax, context, this)
           case n: Type.Name if variables.contains(n.value)     => variables(n.value)
           case union: Type.ApplyInfix if union.op.value == "|" =>
-            resolveUnion(union, frame, variables, visiting)
-          case Type.Or(_, _) => resolveUnion(tpe, frame, variables, visiting)
+            resolveUnion(union, context)
+          case Type.Or(_, _) => resolveUnion(tpe, context)
           case MethodProjections(projected) if MethodProjections.accepts(projected, frame, this) =>
             MethodProjections.resolve(projected, context, this, sourceNames)
           case Type.Tuple(args) =>
-            sequence(args.map(resolve(_, frame, variables, visiting))).map(Shape.Product(_))
+            sequence(args.map(context.read(_, this))).map(Shape.Product(_))
           case Type.Repeated(element) =>
-            resolve(element, frame, variables, visiting).map(Shape.Repeated(_))
+            context.read(element, this).map(Shape.Repeated(_))
           case f: Type.Function =>
             for {
-              args <- sequence(f.paramClause.values.map(resolve(_, frame, variables, visiting)))
-              result <- resolve(f.res, frame, variables, visiting)
+              args <- sequence(f.paramClause.values.map(context.read(_, this)))
+              result <- context.read(f.res, this)
             } yield Shape.Function(args, result)
           case f: Type.ContextFunction =>
             Left(s"context function requires evidence analysis: ${f.syntax}")
@@ -436,21 +441,21 @@ object MethodAnalysis {
             resolveApplication(t.tpe, t.argClause.values, context)
           case t: Type.ApplyInfix =>
             resolveApplication(t.op, List(t.lhs, t.rhs), context)
-          case n: Type.Name    => namedType(n.value, Nil, frame, visiting)
+          case n: Type.Name    => namedType(n.value, Nil, context)
           case p: Type.Project =>
             RefinedMembers
               .resolve(p.qual, p.name.value, context, this)
-              .flatMap(SingletonIntersections.validate(_, frame, this))
+              .flatMap(SingletonIntersections.validate(_, context.useSite, this))
           case r: Type.Refine =>
             Left(s"refined representation unavailable (constraints not erased): ${r.syntax}")
           case s: Type.Select if RefinedMembers.pathType(s.qual, frame).nonEmpty =>
             RefinedMembers.pathType(s.qual, frame).get.flatMap { (declared, owner) =>
-              val declaredContext = ResolutionContext(owner, typeParameters(owner), visiting)
+              val declaredContext = context.inScope(owner, typeParameters(owner))
               RefinedMembers
                 .resolve(declared, s.name.value, declaredContext, this)
-                .flatMap(SingletonIntersections.validate(_, frame, this))
+                .flatMap(SingletonIntersections.validate(_, context.useSite, this))
             }
-          case s: Type.Select => namedType(s.syntax.stripPrefix("_root_."), Nil, frame, visiting)
+          case s: Type.Select => namedType(s.syntax.stripPrefix("_root_."), Nil, context)
           case _              => Left(s"unsupported type: ${tpe.syntax.replaceAll("\\s+", " ")}")
         }
     }
@@ -460,9 +465,7 @@ object MethodAnalysis {
     // Null is empty in the null-free implementation model, not an extra Option-like case.
     private def resolveUnion(
         union: Type,
-        frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
+        context: ResolutionContext
     ): Resolved = {
       def alternatives(tpe: Type): List[Type] = tpe match {
         case Type.Or(left, right) => alternatives(left) ++ alternatives(right)
@@ -471,7 +474,7 @@ object MethodAnalysis {
         case other => List(other)
       }
       val unique = alternatives(union).distinctBy(_.syntax)
-      sequence(unique.map(resolve(_, frame, variables, visiting))).left
+      sequence(unique.map(context.read(_, this))).left
         .map(reason => s"union ${union.syntax}: $reason")
         .flatMap { shapes =>
           val inhabited = shapes.filterNot(_ == Shape.Sum(Nil))
@@ -515,7 +518,7 @@ object MethodAnalysis {
                 context
                   .variables(name)
                   .flatMap(_ => Left(s"type parameter is not an applicable constructor: $name"))
-              case None => namedType(name, args, context.frame, context.visiting)
+              case None => namedType(name, args, context)
             }
             resolved
               .map(shape => if (witnesses.isEmpty) shape else Shape.Existential(witnesses, shape))
@@ -565,14 +568,13 @@ object MethodAnalysis {
     private def namedType(
         name: String,
         args: List[Shape],
-        frame: Frame,
-        visiting: Set[String]
+        context: ResolutionContext
     ): Resolved =
-      lookup(name, frame) match {
+      lookup(name, context.frame) match {
         case Nil         => builtin(name, args)
         case List(entry) =>
-          sourceType(name, args, entry, visiting)
-            .flatMap(SingletonIntersections.validate(_, frame, this))
+          sourceType(name, args, entry, context)
+            .flatMap(SingletonIntersections.validate(_, context.useSite, this))
         case _ => Left(s"ambiguous type: $name")
       }
 
@@ -618,37 +620,39 @@ object MethodAnalysis {
         name: String,
         args: List[Shape],
         entry: TypeEntry,
-        visiting: Set[String]
+        context: ResolutionContext
     ): Resolved = {
       val key = (entry.owner.path :+ entry.name).mkString(".")
-      if (visiting(key)) Left(s"recursive type requires a structural proof: $key")
+      if (context.visiting(key)) Left(s"recursive type requires a structural proof: $key")
+      else if (OpaqueTypes.hidden(entry, context.useSite))
+        Left(s"opaque representation is not visible at use site: $key")
       else
         entry.tree match {
           case alias: Defn.Type if constructorLambda(alias.body).nonEmpty =>
-            if (!alias.mods.exists(_.is[Mod.Opaque]) && alias.tparamClause.values.isEmpty)
+            if (alias.tparamClause.values.isEmpty)
               constructorLambda(alias.body).get.flatMap(
                 MethodTypeLambdas(
                   _,
                   args,
-                  ResolutionContext(entry.owner, typeParameters(entry.owner), visiting + key),
+                  context.inScope(entry.owner, typeParameters(entry.owner)).enter(key),
                   this
                 )
               )
             else
               Left(
-                s"parameterized or opaque type-lambda alias requires higher-kinded analysis: $name"
+                s"parameterized type-lambda alias requires higher-kinded analysis: $name"
               )
           case _ =>
             val (parameters, bodies) = representation(entry, key)
             bodies.flatMap(cases =>
-              parameterized(Applied(name, args, parameters, cases, entry, visiting, key))
+              parameterized(Applied(name, args, parameters, cases, entry, context, key))
             )
         }
     }
 
     private def representation(entry: TypeEntry, key: String): Representation =
       entry.tree match {
-        case a: Defn.Type if !a.mods.exists(_.is[Mod.Opaque]) =>
+        case a: Defn.Type =>
           (a.tparamClause.values, Right(List(List(a.body))))
         case c: Defn.Class => caseClassRepresentation(c, key)
         case e: Defn.Enum  => enumRepresentation(e, key)
@@ -711,19 +715,20 @@ object MethodAnalysis {
         parameters: List[Type.Param],
         cases: List[List[Type]],
         entry: TypeEntry,
-        visiting: Set[String],
+        context: ResolutionContext,
         key: String
     )
 
     private def parameterized(applied: Applied): Resolved = {
-      import applied.{args, cases, entry, key, name, parameters, visiting}
+      import applied.{args, cases, context, entry, key, name, parameters}
       if (parameters.exists(constrained)) Left(s"constrained type constructor: $name")
       else if (parameters.size != args.size) Left(s"type argument arity: $name")
       else {
         val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
         val env = typeParameters(entry.owner) ++ replacements
+        val scoped = context.inScope(entry.owner, env).enter(key)
         sequence(
-          cases.map(fields => sequence(fields.map(resolve(_, entry.owner, env, visiting + key))))
+          cases.map(fields => sequence(fields.map(scoped.read(_, this))))
         )
           .map(shapeOf(entry, _))
       }

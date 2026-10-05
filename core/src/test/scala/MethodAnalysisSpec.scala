@@ -257,7 +257,10 @@ class MethodAnalysisSpec extends Specification {
   }
 
   def incomplete = {
-    val representation = entry("opaque type Id[A] = A\ndef choose[A](x: Id[A]): A = ???", "choose")
+    val representation = entry(
+      "object Hidden { opaque type Id[A] = A }\ndef choose[A](x: Hidden.Id[A]): A = ???",
+      "choose"
+    )
     val context = entry("def choose[A: Ordering](x: A, y: A): A = x", "choose")
     val capability = entry("def choose[A](x: A)(using ev: Unknown[A]): A = x", "choose")
     (representation.count must beLike { case Count.Unresolved(_) => ok })

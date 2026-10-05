@@ -46,7 +46,7 @@ private[cardinality] object MethodProjections {
       .flatMap { (normalized, bindings) =>
         context.copy(variables = bindings).read(normalized, resolver)
       }
-      .flatMap(SingletonIntersections.validate(_, context.frame, resolver))
+      .flatMap(SingletonIntersections.validate(_, context.useSite, resolver))
 
   private class Normalizer(resolver: Resolver, sourceNames: Set[String]) {
     private type Prepared = Either[String, (Type, Map[String, Resolved])]
@@ -165,7 +165,7 @@ private[cardinality] object MethodProjections {
       // Alias bodies use the declaration scope; only frozen arguments retain caller bindings.
       syntax(
         MatchTypes.replace(declared.body, substitutions),
-        context.copy(frame = entry.owner, variables = bindings)
+        context.inScope(entry.owner, bindings)
       )
     }
 

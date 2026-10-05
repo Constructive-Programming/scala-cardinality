@@ -127,7 +127,7 @@ private[cardinality] object SingletonIntersections {
   private case class BindingScope(name: String, owner: Frame, caller: ResolutionContext) {
 
     private def declaration(resolver: Resolver): ResolutionContext =
-      caller.copy(frame = owner, variables = resolver.typeParameters(owner))
+      caller.inScope(owner, resolver.typeParameters(owner))
 
     private def value(tpe: Type, resolver: Resolver): Resolved =
       declaration(resolver)

@@ -273,3 +273,38 @@ yet unlock an additional exact eo count.
 
 The local follow-up artifacts are `target/eo-checkout/production-existentials.txt`
 and `target/eo-checkout/core-existentials.txt`.
+
+## Definition-scope opaque representation follow-up
+
+The next extension unfolds source-defined opaque aliases only where their
+representation is visible to the observing use site. Alias declarations retain
+their own lexical names and binders, but do not grant their caller visibility.
+The same manifest and unchanged eo checkout were analyzed again.
+
+| Scope | Finite before → after | Countably infinite | Unresolved before → after |
+|---|---:|---:|---:|
+| Production: 1,520 signatures | 23 → 29 | 2 | 1,495 → 1,489 |
+| Core: 486 signatures | 17 → 23 | 2 | 467 → 461 |
+
+**Exactly six previously unresolved rows now have `Finite(1)`**, all in
+`dev.constructive.eo.data.Direct`: `apply` (line 35), extension `value` (38),
+`accessor.get` (43), `reverseAccessor.reverseGet` (48), `applicative.map` (63),
+and `applicative.pure` (66). All previously resolved row identities and counts
+were retained unchanged. Stored-value summaries and source/signature inventories
+are unchanged, with zero source errors or internal-error diagnostics.
+
+The independent derivations and the supported/hidden visibility boundaries are
+recorded in [opaque method representations](../research/opaque-method-representations.md).
+The source's SHA-256 is
+`788713d2536c7db0ff73d8cc0352da3ac4c063280247e821191d47682effd239`.
+Its `foldMap`, higher-kinded `traverse`, and refined composition methods remain
+unresolved for their remaining evidence/representation obligations.
+
+Verification: **592 tests passed, 19 pending**, both plugin scripted fixtures
+passed, including 19 opaque-scope examples and real compiled visibility/binder
+fixtures. Core statement coverage is **90.57%** (branch coverage **83.94%**).
+Review's inherited-substitution failure case now retains its diagnostic
+instead of substituting an unrelated free binder and fabricating zero.
+
+Local report artifacts: `target/eo-checkout/production-opaque.txt`,
+`core-opaque.txt`, and the matching `*-opaque-counts.tsv` row inventories.

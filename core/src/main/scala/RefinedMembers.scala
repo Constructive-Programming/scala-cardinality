@@ -210,11 +210,7 @@ private[cardinality] object RefinedMembers {
           }
           .toMap
         Right(
-          ResolutionContext(
-            defined.owner,
-            resolver.typeParameters(defined.owner) ++ replacements,
-            context.visiting
-          )
+          context.inScope(defined.owner, resolver.typeParameters(defined.owner) ++ replacements)
         )
       }
 
