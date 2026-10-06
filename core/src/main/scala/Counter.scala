@@ -8,34 +8,30 @@ object Counter {
   // rules, which cannot spell Scala 3's modifiers (`inline def` throws while printing).
   private given scala3: Dialect = dialects.Scala3
 
-  /** What every definition a source introduces holds together: the sum over the concrete classes,
-    * enums, modules and top-level values it defines, nested definitions included. The other
-    * supplied sources are in scope too, the way `definitions` reads them.
+  /** What every definition a source introduces holds together: the sum over its concrete classes,
+    * enums, modules and top-level values, nested definitions included; the supplied sources are in
+    * scope too, the way `definitions` reads them.
     */
   def source(s: Source, library: Library = Library.empty): Size =
     Walk.body(s.stats, Scope.empty.withLibrary(library))
 
   /** Every definition a source introduces, in source order, each with the cardinality of its type
     * and the names that stopped the calculator from bounding it — the number and the reason.
-    *
-    * `library` is what the other supplied sources define: a report reads a library's sources as one
-    * set, so a type defined in a sibling file resolves instead of counting as an unknown name, and
-    * `Library.empty` reads the source on its own.
+    * `library` lets a sibling file's type resolve instead of counting as unknown; `Library.empty`
+    * reads the source on its own.
     */
   def definitions(s: Source, library: Library = Library.empty): List[Definition] =
     Walk.of(s.stats, Scope.empty.withLibrary(library), Nil, top = true).definitions
 
-  /** What the definitions of a source declare: every typed field, term and method contributes the
-    * size of its declared type, and the contributions are added up rather than multiplied, so an
-    * object with two `String => String` methods and a `String` field reports `2ε₀ + ω`. See
-    * `signatureIn` for what counts as a member.
+  /** What the definitions of a source declare: every typed member contributes the size of its
+    * declared type, added rather than multiplied, so two `String => String` methods and a `String`
+    * field in one object report `2ε₀ + ω`. See `signatureIn` for what counts as a member.
     */
   def sourceSignature: Source => Size = s => signatureBody(s.stats, Scope.empty)
 
   def stat: Stat => Size = statIn(Scope.empty)
 
-  /** The member signature of a single definition, summed the same way as `sourceSignature`.
-    */
+  /** A single definition's member signature, summed as in `sourceSignature`. */
   def defnSignature: Defn => Size = signatureIn(Scope.empty)
 
   def defn: Defn => Size = defnIn(Scope.empty)
@@ -111,9 +107,8 @@ object Counter {
   // The name a definition is known by, as the maps below key it.
   private[cardinality] def nameOf(d: Defn): TypeName = Walk.named(d)
 
-  // The modifier tests the case arms repeat: an abstract class contributes no inhabitants of
-  // its own, an opaque alias has a fixed single one, and `sealed` marks the pass-through
-  // parents whose sums the body defines.
+  // The modifier tests the case arms repeat: abstract classes contribute no inhabitants of their
+  // own, opaque aliases a fixed single one, and `sealed` marks the pass-through parents.
   private[cardinality] def isConcreteClass(d: Defn.Class): Boolean = !isAbstractClass(d)
 
   private[cardinality] def isAbstractClass(d: Defn.Class): Boolean =
@@ -140,12 +135,10 @@ object Counter {
   private def initsOf(d: Defn): List[String] =
     d.children.collect { case t: Template => t.inits }.flatten.map(Solver.initParent)
 
-  // A sealed trait or sealed abstract class stands for the sum of the body's subtypes that
-  // extend it, so a recursive reference through the parent (`Succ(n: Nat)`) resolves. The
-  // sum is complete only when every local subtype is concrete: an abstract or trait subtype
-  // (or subtypes defined elsewhere) leaves the parent unknown, which keeps the old
-  // `EffectiveOmega` fallback instead of claiming a too-small sum. Cross-file sealed
-  // hierarchies are future work.
+  // A sealed trait or abstract class stands for the sum of the body's subtypes that extend it,
+  // so a recursive reference through the parent (`Succ(n: Nat)`) resolves. The sum is complete
+  // only when every local subtype is concrete; otherwise the parent stays unknown, keeping the
+  // `EffectiveOmega` fallback. Cross-file sealed hierarchies are future work.
   private[cardinality] def sealedSums(
       stats: List[Stat],
       defined: Set[TypeName]
@@ -167,11 +160,9 @@ object Counter {
       .toMap
   }
 
-  // A statement's contribution to a source total. A concrete class, enum or object that the
-  // solver gave an equation contributes that solved value rather than a fresh evaluation of
-  // the same syntax: with coefficient-preserving addition, evaluating twice counts the
-  // definition's base summand twice — `Q = 1 + Q` would contribute `ω + 2` where a reference
-  // to `Q` contributes `ω + 1`.
+  // A statement's contribution to a source total. A definition the solver gave an equation
+  // contributes that solved value rather than a fresh evaluation: twice would count the base
+  // summand twice (`Q = 1 + Q` contributing `ω + 2` where a reference to `Q` gives `ω + 1`).
   private def statIn(scope: Scope): Stat => Size = {
     case p: Pkg                              => Walk.body(p.body.stats, scope)
     case p: Pkg.Object                       => Walk.body(p.templ.body.stats, scope)
@@ -217,17 +208,11 @@ object Counter {
     _.decltpe.fold(EffectiveOmega: Size)(typeIn(scope))
 
   // The member signature of a body: a static inventory of what a definition declares, summed
-  // rather than multiplied. Every typed field, term and method contributes the size of its
-  // declared type — `String => String` is ε₀, `String` is ω, `Boolean` is 2 — and nested
-  // definitions contribute their own members once. The container itself adds nothing: an object
-  // is a single value, but its signature is the sum of its members, which is what makes
-  // `2ε₀ + ω` (two `String => String` methods and one `String` field) readable off a module.
-  //
-  // The member surface is the accessor surface: every parameter of a case class or an enum
-  // case, the `val`/`var` parameters of a plain class, and the values, variables and methods a
-  // body declares, abstract declarations included. A parameter without an accessor is part of
-  // how a class is built, not of what it exposes, and synthesized accessors are not counted on
-  // top of the parameters that produce them.
+  // rather than multiplied — every typed member contributes the size of its declared type
+  // (`String => String` is ε₀, `String` is ω, `Boolean` is 2) and nested definitions contribute
+  // their members once; the container itself adds nothing. The surface is the accessor surface:
+  // case and enum-case parameters, a plain class's `val`/`var` parameters, and the body's values,
+  // variables and methods — a parameter without an accessor builds a class, it does not expose it.
   private def signatureBody(stats: List[Stat], scope: Scope): Size = {
     val entries = equations(stats)
     val solved = Solver.solve(entries, stats, scope.withDefinitions(entries))
@@ -294,10 +279,8 @@ object Counter {
 
     case BaseTypes(size) => size
 
-    // A qualified reference is a *member* the sources may declare — `Outer.B`, `Foo[A].B`, or
-    // `x.B` over a value's declared type — and a qualifier that does not name an owner (a package
-    // path, a builtin) leaves the name to resolve on its own. When neither resolves, the whole
-    // reference is the reason, so a report reads it as it was written (`af.Z`).
+    // A qualified reference is a *member* the sources may declare (`Outer.B`, `x.B` over a value's
+    // declared type); an unresolved whole reference is its own reason, read as written (`af.Z`).
     case select @ Type.Select(qualifier, Type.Name(member)) =>
       val key = TypeName.of(member)
       memberSize(scope, qualifier, key)
@@ -336,14 +319,10 @@ object Counter {
     case Type.ContextFunction.After_4_6_0(clause, result) =>
       functionSize(scope)(clause.values, result)
 
-    // Type constructors that add to the algebra: Option/Either (sums), Set (powerset),
-    // Map/PartialFunction (functions into an Option of the codomain), and any definition the
-    // source set names as an instantiation — see `applied`.
+    // Constructors the algebra adds: Option/Either, Set, Map/PartialFunction, and named instantiations.
     case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => applied(scope)(callee, args)
 
-    // A name the file does not define may still be a package sibling's or another supplied
-    // source's — the library resolves it — and any other name is unbounded, recorded so that a
-    // report can say which name it was.
+    // The file's own names first, then the library's; any other name is unbounded, and recorded.
     case t: Type.Name =>
       scope.resolve(TypeName.of(t.value)).getOrElse { scope.note(t); EffectiveOmega }
 
@@ -357,12 +336,9 @@ object Counter {
           EffectiveOmega
       }
 
-    // scalameta's `Type` is not sealed, and several variants (`Type.And`, `Type.Or`,
-    // `Type.Method`, `Type.ImplicitFunction`, `Type.Quasi`) are `private[meta]`, so an
-    // exhaustive match is impossible. Every remaining form is unbounded or not yet
-    // modelled — a name defined in another file, a refinement, an existential, a Scala 3
-    // capture type — and counts as effectively infinite. Each one is recorded, so that a report
-    // can name what it could not bound.
+    // `Type` is not sealed (`Type.And`, `Type.Or`, `Type.Method`, `Type.ImplicitFunction`,
+    // `Type.Quasi` are `private[meta]`): no exhaustive match. Each remaining form — a cross-file
+    // name, refinement, existential, capture type — is unbounded or unmodelled, and recorded.
     // ponytail: resolve sealed hierarchies and type parameters across files when needed
     case t =>
       scope.note(t)
@@ -418,22 +394,17 @@ object Counter {
   private def arrow(codomain: Size, domain: Size): Size =
     if (domain == NothingSize) NothingSize else codomain.pow(domain)
 
-  // `C[args]`: an *instantiation* of a definition the scope names reads that definition's equation
-  // with its type parameters bound to what the arguments are worth — `Pair[Boolean]` is 4, not an
-  // unknown constructor. What is left of the builtin algebra (`Option`, `Either`, `Set`, the
-  // collections) is read below.
+  // `C[args]`: an instantiation of a named definition reads that definition's equation with its
+  // parameters bound to what the arguments are worth — `Pair[Boolean]` is 4, not an unknown
+  // constructor. Builtins (`Option`, `Either`, `Set`, collections) are read below.
   private def applied(scope: Scope)(callee: Type, args: List[Type]): Size =
     instantiation(scope, callee, args).getOrElse(builtin(scope)(callee, args))
 
-  // The size of `C[args]` when `C` is a definition the scope knows with that many parameters, or
-  // None when it is not — a builtin, an arity that does not match, a name no definition has.
-  //
-  // Two recursive readings stay careful. An instantiation that is exactly the definition's own
-  // parameters (`Node[A]` inside `Node`'s equation) is what the solver already solved under the
-  // name, so it borrows that fixed point — that is how a parameterised recursion keeps its μ/ν
-  // reading. Any other instantiation entered while its own name is being substituted is a cycle
-  // the name-keyed solver has no fixed point for, so it keeps the old fallback: ω with the name as
-  // the reason.
+  // The size of `C[args]` when `C` names a definition with that many parameters; None otherwise.
+  // Two recursive readings stay careful: an instantiation exactly the definition's own parameters
+  // borrows the fixed point the solver solved under the name (how a parameterised recursion
+  // keeps its μ/ν reading), and one re-entered while its own name is substituting has no such
+  // fixed point, so it keeps the old fallback: ω, with the name as the reason.
   private def instantiation(scope: Scope, callee: Type, args: List[Type]): Option[Size] = {
     val found = for
       name <- nameOf(callee)
@@ -464,10 +435,8 @@ object Counter {
       EffectiveOmega
     } else
       named.matchType match {
-        // An alias whose body is a match type reduces on the argument's *syntax*, which no
-        // size can carry: `Fst[(Boolean, Boolean)]` is `Boolean` because the case pattern is
-        // that tuple and its binder is the body. A match type that does not reduce keeps the
-        // reading it has as a template: a type the report names.
+        // An alias whose body is a match type reduces on the argument's *syntax*, which no size
+        // can carry; a match that does not reduce keeps its template reading, named by the report.
         case Some(matchType) =>
           MatchTypes.reduced(matchType, named.params.zip(args).toMap) match {
             case Some(argument) => typeIn(scope)(argument)
@@ -493,11 +462,9 @@ object Counter {
     case _                            => None
   }
 
-  // The type constructors the algebra models itself: `Option`/`Either` (sums), `Set` (powerset),
-  // `Map`/`PartialFunction` (functions into an Option of the codomain), and the collections whose
-  // unbounded length is their infinity. `Size.pow` already has the arithmetic `Set` and `Map`
-  // need: a finite base over an infinite exponent stays countable (the finite subsets of
-  // `String`), and only an infinite base over an infinite exponent is uncountable.
+  // The constructors the algebra models itself: `Option`/`Either` (sums), `Set` (powerset),
+  // `Map`/`PartialFunction` (into an Option of the codomain), and the collections whose unbounded
+  // length is their infinity; `Size.pow` keeps a finite base countable over an infinite exponent.
   private def builtin(scope: Scope): (Type, List[Type]) => Size = {
     case (Type.Name("Option"), List(t))    => UnitSize + typeIn(scope)(t)
     case (Type.Name("Either"), List(l, r)) => typeIn(scope)(l) + typeIn(scope)(r)
@@ -505,17 +472,14 @@ object Counter {
     case (Type.Name("Map"), List(k, v))    => (typeIn(scope)(v) + UnitSize).pow(typeIn(scope)(k))
     case (Type.Name("PartialFunction"), List(a, b)) =>
       (typeIn(scope)(b) + UnitSize).pow(typeIn(scope)(a))
-    // A linear collection of an empty element type has a single inhabitant (the empty
-    // collection); over any other element type its unbounded length makes it countably
-    // infinite, which is a number the algebra knows rather than an unknown, so it reports no
-    // reason of its own — an unresolved element type reports its own.
+    // A linear collection over an empty element type holds just the empty collection; over any
+    // other it is countably infinite — a number the algebra knows, so no reason is recorded.
     case (Type.Name("List" | "Vector" | "Seq" | "IndexedSeq" | "Array"), List(t)) =>
       if (typeIn(scope)(t) == NothingSize) UnitSize else EffectiveOmega
-    // `LazyList` and `Stream` are the greatest fixed point `νX. 1 + A*X` (§8): all the
-    // finite ones — ℵ₀ over any nonempty finitely-countable alphabet — plus the infinite
-    // streams, the alphabet's choice space per position raised to ℵ₀. Collapse that completed
-    // lazy type to its highest infinite tier; ordinary sums around it still keep coefficients.
-    // An empty alphabet has the single empty list, exactly as for `List`.
+    // `LazyList`/`Stream` are the greatest fixed point `νX. 1 + A*X` (§8): all the finite ones
+    // (ℵ₀ over a nonempty finitely-countable alphabet) plus the infinite streams (the alphabet
+    // raised to ℵ₀), collapsed to the highest tier; sums around it keep coefficients, and an
+    // empty alphabet has the single empty list.
     case (Type.Name("LazyList" | "Stream"), List(t)) =>
       val elem = typeIn(scope)(t)
       if (elem == NothingSize) UnitSize
@@ -536,8 +500,7 @@ object Counter {
   private def functionSize(scope: Scope)(params: List[Type], result: Type): Size =
     arrow(typeIn(scope)(result), domain(scope)(params))
 
-  // A named-tuple element (`a: Boolean`) carries its type inside a TypedParam; every
-  // other tuple element already is its own type.
+  // A named-tuple element (`a: Boolean`) carries its type inside a TypedParam; the rest already are.
   private def tupleElem: Type => Type = {
     case Type.TypedParam.After_4_7_8(_, tpe, _) => tpe
     case other                                  => other

@@ -2,37 +2,28 @@ package cardinality
 
 import cats.kernel.Order
 
-/** How many values a type can hold: a natural-sum polynomial over three tiers.
-  *
-  * A size is `a·ε₀ + b·ω + n`. The coefficients `a` and `b` are non-negative counts of additive
-  * contributions at the ε₀ and ω (countable) tiers, and `n` is the finite component: exact up to
-  * 127, then a rounded bit capacity. Addition is componentwise — the Hessenberg natural sum of
-  * those terms — so `ω + ω = 2ω` and `ε₀ + 3` keeps both summands. Comparison is lexicographic: the
-  * ε₀ coefficient, then ω, then the finite component.
+/** How many values a type can hold: a natural-sum polynomial `a·ε₀ + b·ω + n` over three tiers. The
+  * coefficients count additive contributions at the ε₀ and ω tiers; `n` is exact up to 127 and a
+  * rounded bit capacity above. Addition is componentwise (Hessenberg natural sum): `ω + ω = 2ω`,
+  * and `ε₀ + 3` keeps both summands; comparison is lexicographic by tier.
   *
   * Multiplication and exponentiation stay coarse above the finite tier: after the zero and one
   * identities, an infinite operand is projected to its dominant tier, so `2 * ω = ω` and
   * `ω * ω = ω`. Coefficients therefore count additive contributions, not repeated products:
   * `Either[String, String]` is `2ω` while the isomorphic `(String, String)` is `ω`.
   *
-  * `EffectiveEpsilon0` is an analysis tier, not the ordinal ε₀. It caps what the finite-program
-  * reading in `docs/type-arithmetic.md` places above countable infinity — `String => String`,
-  * `LazyList[String]` — covering everything from `ω^ω` up.
+  * `EffectiveEpsilon0` is an analysis tier, not the ordinal ε₀ (see its value below).
   */
 final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self =>
 
-  /** Lexicographic comparison through the `Size.order` instance, strict: a size is never larger
-    * than itself.
-    */
+  /** Strict comparison through `Size.order`: a size is never larger than itself. */
   def larger(other: Size): Boolean = Size.order.compare(self, other) > 0
 
   /** Componentwise addition: every coefficient survives the sum. */
   def add(other: Size): Size =
     Size(epsilon + other.epsilon, omega + other.omega, finite.add(other.finite))
 
-  /** Product of two value spaces, coarse above the finite tier: `2 * ω = ω` and `ω * ω = ω`. Zero
-    * annihilates, and one is an identity that preserves whole polynomials.
-    */
+  /** Product of value spaces: 0 annihilates, 1 preserves, `2 * ω = ω` above the finite tier. */
   def mul(other: Size): Size =
     if (isZero || other.isZero) NothingSize
     else if (isOne) other
@@ -66,13 +57,9 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
 
   def min(other: Size): Size = Size.order.min(self, other)
 
-  /** How many values this size holds, written the way a report reads it: exact counts as digits,
-    * capacities as the power of two that bounds them, and `ω` (countable) or `ε₀` for the two
-    * infinite tiers.
-    *
-    * `toString` names the algebra's constructors (`TinySize(2)`), which is what a failing test
-    * wants to read; `render` speaks the report's language (`2^33`, `2ε₀ + ω + 3`). A capacity is a
-    * bound, not a count, so it never renders as the digits it might stand for.
+  /** How many values this size holds, in a report's language: exact counts as digits, capacities as
+    * bounding powers of two (never the digits a bound might stand for), tiers as `ω` and `ε₀`.
+    * `toString` instead names the algebra's constructors (`TinySize(2)`) for failing tests.
     */
   def render: String = Size.render(self)
 
@@ -82,9 +69,7 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
   /** Exactly one value. */
   def isOne: Boolean = epsilon == 0 && omega == 0 && finite.isOne
 
-  /** The tier this size reaches as one unit: `ε₀` when any ε₀ contribution is present, `ω` when it
-    * has ω contributions, and nothing when the size is finite.
-    */
+  /** The top tier present in this size, as one unit; none when the size is finite. */
   private def tier: Option[Size] =
     if (epsilon > 0) Some(EffectiveEpsilon0)
     else if (omega > 0) Some(EffectiveOmega)
@@ -99,18 +84,15 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
   /** The larger of two sizes, as one of them. */
   private def widest(other: Size): Size = Size.order.max(self, other)
 
-  /** Analysis widening: the tier a value has grown into, as a single unit.
-    *
-    * The recursion solver applies this to a component whose estimate keeps growing — a recognized
-    * productive cycle — so that iteration terminates. It drops coefficients (`2ω` widens to `ω`)
-    * and never demotes: an ε₀-containing estimate widens to ε₀, a bounded cycle that has not grown
-    * at all stays `0`. This is analysis loss, not arithmetic; ordinary addition never coarsens a
-    * sum this way.
+  /** Analysis widening: the tier a growing estimate has grown into, as a single unit. The solver
+    * applies it to recognized productive cycles so iteration terminates; drops coefficients (`2ω`
+    * widens to `ω`), never demotes, and leaves finite zero at zero. Analysis loss, not arithmetic:
+    * ordinary addition never coarsens a sum this way.
     */
   def widen: Size = tier.getOrElse(if (finite.isZero) NothingSize else EffectiveOmega)
 
-  /** `TinySize(7)`, `FiniteSize(8)`, `2ε₀ + ω + 3`, … — zero terms and unit coefficients are left
-    * out, and the finite component prints as digits when it is an exact count.
+  /** `TinySize(7)`, `2ε₀ + ω + 3` — zero terms and unit coefficients drop out, exact finite counts
+    * print as digits.
     */
   override def toString: String =
     if (epsilon == 0 && omega == 0) finite.toString
@@ -139,9 +121,8 @@ object Size {
     */
   def bits(cardinality: BigInt): Int = (cardinality - 1).bitLength
 
-  /** The report's rendering of a size: exact counts as digits, capacities as the power of two that
-    * bounds them, floating-point stand-ins marked lossy, and the tiers as `ε₀` and `ω`. Zero terms
-    * drop out, so `NothingSize` renders as `0` and a bare tier as `ω` or `ε₀`.
+  /** The report's rendering of a size: exact digits, capacities as bounding powers of two, lossy
+    * stand-ins marked, tiers as `ε₀` and `ω`; zero terms drop out.
     */
   def render(size: Size): String = {
     val terms = List(
@@ -160,21 +141,16 @@ object Size {
 
 }
 
-/** The finite component of a `Size`: the third coordinate of `a·ε₀ + b·ω + n`.
-  *
-  * Counts up to 127 are exact (`Exact`). Above that the component records only a capacity: the
-  * count lies in `(2^(bits-1), 2^bits]`. `Lossy` is the stand-in for floating-point numbers, whose
-  * precision the calculator does not model. The capacity-like algebra lives here, once: two exact
-  * counts combine exactly (`Exact` specializes where the count itself matters), and any other
-  * combination rounds up the way the whole calculator rounds counts, `max(bits) + 1` for a sum
-  * included, which is not associative — the finite coordinate is an estimate, not an exact natural
-  * number.
+/** The finite component of a `Size`: the third coordinate of `a·ε₀ + b·ω + n`. Counts up to 127 are
+  * exact (`Exact`); above that only a capacity is kept (the count lies in `(2^(bits-1), 2^bits]`),
+  * and `Lossy` stands in for floating point. The capacity-like algebra lives here once: two exact
+  * counts combine exactly, every other combination rounds up (a sum by `max(bits) + 1`), not
+  * associatively — the finite coordinate is an estimate.
   */
 sealed trait FinitePart { self =>
 
   import FinitePart.{One, Zero}
 
-  /** The comparison order the finite cases have always had: exact, then capacity, then lossy. */
   def rank: Int
 
   /** The capacity in bits; an exact count reports its own binary width. */
@@ -231,9 +207,7 @@ sealed trait FinitePart { self =>
 
 object FinitePart {
 
-  /** The finite-part order: by rank (exact, then capacity, then lossy), then by width — by count
-    * for two exact parts.
-    */
+  /** Finite-part order: by rank (exact, capacity, lossy), then width; count for two exact. */
   implicit val order: Order[FinitePart] = Order.from { (a, b) =>
     val byRank = a.rank.compare(b.rank)
     if (byRank != 0) byRank
@@ -244,20 +218,13 @@ object FinitePart {
       }
   }
 
-  /** The one part with no values: the exact count zero. A stable value, so a bare pattern
-    * `case Zero` matches it by equality.
-    */
+  /** The exact count zero: stable, so a bare `case Zero` matches by equality. */
   val Zero: FinitePart = exact(0)
 
-  /** The one part with a single value: the exact count one. A stable value, so a bare pattern
-    * `case One` matches it by equality.
-    */
+  /** The exact count one: stable, so a bare `case One` matches by equality. */
   val One: FinitePart = exact(1)
 
-  /** An exact count. Every size the arithmetic produces keeps this case from 0 to 127, and it is
-    * the only case whose arithmetic works on the count itself: two exact counts combine exactly,
-    * and everything else falls back to the capacity-like default.
-    */
+  /** An exact count (0 to 127), the only case whose operations work on the count itself. */
   final case class Exact(repr: BigInt) extends FinitePart {
 
     def rank: Int = 0
@@ -283,8 +250,7 @@ object FinitePart {
 
   }
 
-  /** A count somewhere in `(2^(bits-1), 2^bits]`: the calculator tracks the width, not the count.
-    */
+  /** A count in `(2^(bits-1), 2^bits]`: the width is tracked, not the count. */
   final case class Capacity(bits: BigInt) extends FinitePart {
 
     def rank: Int = 1
@@ -293,8 +259,7 @@ object FinitePart {
 
   }
 
-  /** A floating-point stand-in: finite, of unmodelled precision, and wider than any exact width.
-    */
+  /** A floating-point stand-in: finite, of unmodelled precision, wider than any exact width. */
   final case class Lossy(bits: BigInt) extends FinitePart {
 
     def rank: Int = 2
@@ -307,10 +272,8 @@ object FinitePart {
   def exact(cardinality: BigInt): FinitePart =
     if (cardinality.isValidByte) Exact(cardinality) else Capacity(Size.bits(cardinality))
 
-  /** The report's rendering of the finite coordinate: an exact count as the digits it is, a
-    * capacity as the power of two that bounds it, and a lossy stand-in as the width it was held in.
-    * The zero part renders as nothing, so a size that is all tiers prints without a trailing `+ 0`
-    * and a size that is entirely zero falls to `Size.render`'s own `0`.
+  /** The finite coordinate in report language: exact digits, bounding powers of two, lossy widths
+    * marked. The zero part renders as nothing; an all-tier size prints without `+ 0`.
     */
   def render(part: FinitePart): String = part match {
     case Exact(repr)    => if (repr == 0) "" else repr.toString
