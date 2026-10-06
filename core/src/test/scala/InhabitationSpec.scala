@@ -76,7 +76,7 @@ class InhabitationSpec extends Specification {
     }
 
     "expose unsupported operations and resource limits" in {
-      count(List(fn("higher", List(Function(List(a), a)), b)), b) must
+      count(List(fn("higher", List(Function(List(a), b)), b)), b) must
         beAnInstanceOf[Unresolved]
       count(List(fn("opaque", Nil, Sum(List(a, b)))), a) must beAnInstanceOf[Unresolved]
       count(Nil, a, maxStates = 0) must beAnInstanceOf[Unresolved]

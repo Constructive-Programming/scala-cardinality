@@ -405,3 +405,57 @@ branch coverage**. Both plugin scripted fixtures, formatting and scalafix passed
 
 Local report artifacts: `target/eo-checkout/production-forwarding.txt` and
 `core-forwarding.txt`.
+
+## Terminal higher-order application follow-up
+
+Functional arguments are now synthesized only when the complete normalized
+environment has a terminal higher-order certificate. Capabilities must fit
+the atom/product/ordinary-arrow fragment. Functional arguments are first-order;
+each higher-order head's final atom must be absent from every callable input,
+including functional argument codomains. Thus a higher-order result cannot feed
+argument construction or enable an intermediate application. Existing
+first-order productive cycles still yield countably many arguments rather than
+a guessed finite answer.
+
+The unchanged manifest and eo checkout were rerun:
+
+| Scope | Finite before → after | Countably infinite | Unresolved before → after |
+|---|---:|---:|---:|
+| Production: 1,520 signatures | 36 → 38 | 2 | 1,482 → 1,480 |
+| Core: 486 signatures | 30 → 32 | 2 | 454 → 452 |
+
+Exactly two additional rows have `Finite(1)`:
+
+- `CanModifyP.replace(b: B): S => T` (`CanModify.scala:18`) captures only
+  `modify: (A => B) => S => T`. With four distinct binders, the only `B`
+  inhabitant in an `A => B` argument's body is `b`. The argument is therefore
+  `_ => b`, and the implementation is `modify(_ => b)` (or its eta expansion).
+  No callable consumes the resulting `T` or enables another argument choice.
+- `Modify[S, T, A, B](modifyFn: (A => B) => S => T)` (`Modify.scala:54`)
+  constructs its sole function field. Arrow introduction supplies `f: A => B`
+  and `s: S`. The only functional argument is `f` modulo eta equivalence, and
+  the only `T` producer is `modifyFn(f)(s)`. There is no independent `B` seed or
+  result-to-input feedback, so forwarding is the unique construction.
+
+Neither derivation assumes optic laws, nor identifies generic binders just
+because a client might instantiate them to equal types. `Modify.apply`
+(`Modify.scala:35`) remains unresolved for its separate non-plain class
+representation obligation. General higher-order feedback, nested functional
+parameters, higher-order product results, and opaque-sum interactions remain
+outside the certificate.
+
+Exact totals are **40 / 1,520** production signatures and **34 / 486** core
+signatures. All earlier resolved rows retain their counts. Source/signature
+inventories are unchanged, with zero source errors and zero internal-error
+diagnostics.
+
+Verification: **657 tests passed, 19 pending**, zero failures/errors; both
+plugin scripted fixtures, formatting and scalafix passed. Cold-cache coverage
+is **91.03% statements** and **84.17% branches**. The 30 new examples include
+source-to-report and compiled witnesses, empty/multiple argument choices,
+provenance aliases and independent heads, projection-dependent arguments,
+ordinary currying, productive families, sum contexts, Unit/Bottom and feedback
+rejections. Independent soundness review found no blocking issue.
+
+Local report artifacts: `target/eo-checkout/production-higher-order.txt` and
+`core-higher-order.txt`.

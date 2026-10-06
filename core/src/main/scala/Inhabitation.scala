@@ -13,9 +13,10 @@ import scala.collection.mutable
   * is unresolved except for structurally empty elements or singleton results.
   *
   * Opaque callable sums are supported only by the isolated-observation certificate in
-  * OpaqueSumForwarding. Other elimination and higher-order application remain unresolved when
-  * potentially relevant. No equations on opaque functions, effects, recursion, or casts are
-  * assumed.
+  * OpaqueSumForwarding. TerminalHigherOrder certifies terminal atomic higher-order outputs and
+  * first-order functional arguments. Other elimination and higher-order application remain
+  * unresolved when potentially relevant. No equations on opaque functions, effects, recursion, or
+  * casts are assumed.
   */
 object Inhabitation {
 
@@ -222,8 +223,8 @@ object Inhabitation {
         }
       }
 
-    // A callable produces the target from its parameters; a parameter that is itself higher-order
-    // may be inhabited without being synthesised, which the fragment records as a reason.
+    // Functional arguments are synthesized only when the complete environment proves that no
+    // higher-order result can feed argument synthesis. Otherwise retain the diagnostic rule.
     private def application(env: List[Value], target: Shape, function: Function): List[Rule] =
       producer(function).flatMap { value =>
         // Empty-result callables are negations, not opaque tagged choices. A proved call to one
@@ -236,14 +237,22 @@ object Inhabitation {
         }
         if (value.output != target && opaque.isEmpty) Nil
         else {
-          val dependencies = value.parameters.filterNot(higherOrder).map(goal(env, _))
-          List(Rule(dependencies, unsupported(value, opaque)))
+          val certified = TerminalHigherOrder.certified(env.map(_.shape))
+          val dependencies =
+            value.parameters.filter(p => certified || !higherOrder(p)).map(goal(env, _))
+          List(Rule(dependencies, unsupported(value, opaque, certified)))
         }
       }
 
-    private def unsupported(value: Producer, opaque: Option[String]): Option[String] =
+    private def unsupported(
+        value: Producer,
+        opaque: Option[String],
+        certified: Boolean
+    ): Option[String] =
       opaque.orElse(
-        Option.when(value.parameters.exists(higherOrder))("Higher-order application is unsupported")
+        Option.when(!certified && value.parameters.exists(higherOrder))(
+          "Higher-order application is unsupported"
+        )
       )
 
     private def tick(): Unit = {
@@ -285,9 +294,11 @@ object Inhabitation {
 
     private def producer(shape: Shape, args: List[Shape] = Nil): List[Producer] =
       shape match {
-        case Function(parameters, output) => producer(output, args ++ parameters)
-        case Product(fields)              => fields.flatMap(producer(_, args))
-        case output                       => List(Producer(args, output))
+        case function: Function =>
+          val (parameters, output) = TerminalHigherOrder.uncurry(function)
+          producer(output, args ++ parameters)
+        case Product(fields) => fields.flatMap(producer(_, args))
+        case output          => List(Producer(args, output))
       }
 
     private def higherOrder(shape: Shape): Boolean =
