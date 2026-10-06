@@ -237,11 +237,13 @@ and the heavier reports in
 | [scoverage](https://github.com/scoverage/sbt-scoverage) | Statement/branch coverage | `sbt coverageAll` | `ci.yml`, gating on a coverage floor |
 | [scripted](https://www.scala-sbt.org/2.x/docs/en/testing-sbt-plugins.html) | Plugin end-to-end tests | `sbt plugin/scripted` | `ci.yml`, gating |
 | [stryker4s](https://stryker-mutator.io/docs/stryker4s/) | Mutation testing | `sbt mutationAll` | `quality.yml`, on PRs, report only |
-| [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating |
+| [CPD](https://pmd.github.io/) (PMD) | Duplicate-code detection | PMD's `pmd cpd` (see the `cpd` job) | `ci.yml`, gating, duplicates of 25+ tokens |
+| `scripts/check-file-metrics.sh` | Per-file length and comment ratio | `bash scripts/check-file-metrics.sh` | `ci.yml`, gating; warns above 800 lines or 25% comment lines, fails above 1000 or 35% |
 | [CodeScene](https://codescene.com/) | Code Health and hotspots | `cs delta` | `quality.yml`, on PRs, gating once `CS_ACCESS_TOKEN` is set |
 
-Configuration lives in `.scalafmt.conf`, `.scalafix.conf`, `stryker4s.conf` and
-`.codescene/custom-quality-gates.json`. Coverage is gated just below the current
+Configuration lives in `.scalafmt.conf`, `.scalafix.conf`, `stryker4s.conf`,
+`.codescene/custom-quality-gates.json` and the thresholds at the top of
+`scripts/check-file-metrics.sh`. Coverage is gated just below the current
 baseline (a regression floor, expected to ratchet up); mutation testing never
 fails the build and exists to guide test investment.
 
@@ -255,7 +257,7 @@ flags are disabled while the plugin and core target sbt's Scala 3.8.4 runtime.
 
 On pull requests each workflow posts its results, passing and failing alike, as
 one comment that is edited in place on every push: `ci.yml` the gates with the
-coverage rates and any CPD duplicates, `quality.yml` the mutation score and the
+coverage rates, any CPD duplicates and the file-metric outcome, `quality.yml`
 CodeScene delta. Other runs write the same table to the run summary.
 
 ```bash
