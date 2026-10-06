@@ -49,6 +49,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private val captures = mutable.ListBuffer.empty[String]
   private val variables = resolver.typeParameters(target.frame)
   private val owners = target.frame.chain.reverse
+  private val overrideIdentity = new OverrideIdentity(target, resolver)
   // Members of a module outside the lexical chain can never hold or produce this method's
   // type parameters — a module's scope is fixed, and no method's binders reach it. They can
   // only matter where a signature mentions a concrete, modelled type (a Boolean, an Option),
@@ -95,13 +96,26 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       from: Frame,
       parent: Init
   ): List[(Frame, Init)] =
-    resolver
-      .lookup(typeName(parent.tpe), target.frame)
-      .headOption
-      .toList
-      .flatMap(entry =>
-        entry.self.toList.flatMap(declared => scanDeclared(seen, from, parent, declared))
-      )
+    resolver.lookup(typeName(parent.tpe), from) match {
+      case List(entry) => sourceParent(entry, seen, from, parent)
+      case Nil         => Nil
+      case _           =>
+        errors += s"ambiguous inherited parent: ${parent.tpe.syntax}"
+        Nil
+    }
+
+  private def sourceParent(
+      entry: TypeEntry,
+      seen: mutable.Set[String],
+      from: Frame,
+      parent: Init
+  ): List[(Frame, Init)] =
+    entry.self match {
+      case Some(declared) => scanDeclared(seen, from, parent, declared)
+      case None           =>
+        errors += s"inherited parent declaration not resolved: ${parent.tpe.syntax}"
+        Nil
+    }
 
   private def scanDeclared(
       seen: mutable.Set[String],
@@ -115,9 +129,25 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // the parents it introduces itself.
   private def inherited(declared: Frame, parent: Init, from: Frame): List[(Frame, Init)] = {
     val env = resolver.typeParameters(declared) ++ inheritedEnv(declared, parent, from)
-    declared.stats.foreach(declaration(declared, env, _))
+    declared.stats.foreach {
+      case method: Decl.Def => inheritedCallable(declared, env, method, parent -> from)
+      case stat             => declaration(declared, env, stat)
+    }
     declared.parents.map(declared -> _)
   }
+
+  private def inheritedCallable(
+      scope: Frame,
+      env: Map[String, Resolved],
+      method: Decl.Def,
+      inheritance: (Init, Frame)
+  ): Unit =
+    overrideIdentity.matches(method, inheritance._1, inheritance._2, scope) match {
+      case Some(true)  => ()
+      case Some(false) => addDeclaredCallable(scope, env, method)
+      case None        =>
+        errors += s"inherited override identity not resolved: ${method.name.value}"
+    }
 
   // The parent's type arguments, resolved where the parent is named: `extends Base[A]` reads an
   // inherited `Base[A].seed` as this scope's A, not as a second binder that happens to share the
@@ -150,11 +180,11 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     case _                                               => None
   }
 
-  // The name a parent is resolved by: `Base` in `Base[A]`, the last segment of `Outer.Base`.
+  // Keep qualification: an external Outer.Base is not a same-spelled lexical Base.
   // `Init.name` is anonymous for a plain type parent, so the type is the source of the name.
   private def typeName(tpe: Type): String = tpe match {
     case Type.Name(name)                   => name
-    case Type.Select(_, name)              => name.value
+    case selected: Type.Select             => selected.syntax.stripPrefix("_root_.")
     case Type.Apply.After_4_6_0(callee, _) => typeName(callee)
     case other                             => other.syntax
   }
@@ -236,7 +266,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   // The signature being measured is not one of its own slots: binding it would let a declaration
   // delegate to itself and claim an implementation it does not have.
-  private def isTarget(stat: Stat): Boolean = stat.pos.start == target.tree.pos.start
+  private def isTarget(stat: Stat): Boolean = DeclarationIdentity.same(stat, target.tree)
 
   private def flagVal(value: Defn.Val): Unit =
     // A concrete value's body may compute, but what it can compute is already reachable from the
@@ -277,7 +307,13 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       errors += s"missing callable parameter type: ${declaration.name.value}"
     else {
       val callable = Type.Function(Type.FuncParamClause(tpes.flatten), declaration.decltpe)
-      add(declaration.name.value, Some(callable), scope, env)
+      val binders = groups
+        .flatMap(_.tparamClause.values)
+        .map { parameter =>
+          parameter.name.value -> Left(s"polymorphic capability binder: ${parameter.name.value}")
+        }
+        .toMap
+      add(declaration.name.value, Some(callable), scope, env ++ binders)
     }
   }
 

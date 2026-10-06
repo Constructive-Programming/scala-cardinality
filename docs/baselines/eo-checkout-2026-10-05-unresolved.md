@@ -308,3 +308,49 @@ instead of substituting an unrelated free binder and fabricating zero.
 
 Local report artifacts: `target/eo-checkout/production-opaque.txt`,
 `core-opaque.txt`, and the matching `*-opaque-counts.tsv` row inventories.
+
+## Inherited override identity follow-up
+
+An inherited declaration that the target implements is not a supplied callable
+capability. The analyzer now proves direct override identity using nominal
+constructor identities, parent type-argument substitution, and alpha-renamed
+method binders. Proven different overloads remain available; uncertain aliases,
+imports, dependent signatures and indirect overrides remain unresolved.
+Source declaration identity uses the parsed tree, not a source offset shared by
+unrelated files.
+
+The unchanged manifest and eo checkout were rerun:
+
+| Scope | Finite before → after | Countably infinite | Unresolved before → after |
+|---|---:|---:|---:|
+| Production: 1,520 signatures | 29 → 33 | 2 | 1,489 → 1,485 |
+| Core: 486 signatures | 23 → 27 | 2 | 461 → 457 |
+
+Exactly four additional rows have `Finite(1)`:
+
+- `Accessor.tupleAccessor.get` (`Accessor.scala:18`): project the tuple's `A`.
+- `ReverseAccessor.eitherRevAccessor.reverseGet`
+  (`ReverseAccessor.scala:17`): inject the supplied `A` into `Right`.
+- `ForgetfulFunctor.directTuple.map` (`ForgetfulFunctor.scala:24`):
+  retain `X` and apply the supplied function to `A`.
+- `ForgetfulFunctor.directEither.map` (`ForgetfulFunctor.scala:28`):
+  retain the left `X`, or map the right `A` with the supplied function.
+
+Each derivation uses distinct parametric binders and the complete relevant
+environment. None depends on functor laws or treating the target itself as an
+opaque recursive capability. All previously resolved rows retain their counts.
+Source/signature inventories are unchanged, with zero source errors and zero
+internal-error diagnostics. Exact coverage is now **35 / 1,520** production
+signatures and **29 / 486** core signatures; parsing coverage is not counting
+coverage.
+
+Verification: **613 tests passed, 19 pending**, zero failures/errors; both plugin
+scripted fixtures passed. The new tests include compiled Scala implementations
+of all four signature families, nominal-product overloads, binder shadowing,
+and conservative alias/import/return-type boundaries. A compiled parameter
+annotation regression prevents a real override from becoming a false supplied
+capability. Formatting and scalafix also passed. Cold-cache core coverage is
+**90.66% statements** and **83.41% branches**.
+
+Local report artifacts: `target/eo-checkout/production-overrides.txt` and
+`core-overrides.txt`.
