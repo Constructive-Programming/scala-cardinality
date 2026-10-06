@@ -12,9 +12,10 @@ import scala.collection.mutable
   * Repeated arguments use finite sequence introduction (Nil/Cons). Arbitrary sequence elimination
   * is unresolved except for structurally empty elements or singleton results.
   *
-  * Higher-order application and elimination of opaque callable sum results are deliberately
-  * unresolved when potentially relevant. No equations on opaque functions, effects, recursion, or
-  * unsafe casts are assumed.
+  * Opaque callable sums are supported only by the isolated-observation certificate in
+  * OpaqueSumForwarding. Other elimination and higher-order application remain unresolved when
+  * potentially relevant. No equations on opaque functions, effects, recursion, or casts are
+  * assumed.
   */
 object Inhabitation {
 
@@ -167,17 +168,23 @@ object Inhabitation {
       split(env, target) match {
         case Some(rule) => List(rule)
         case None       =>
-          target match {
-            case Existential(_, _) =>
-              List(Rule(Nil, Some(ExistentialInputs.resultBoundary)))
-            case Singleton(_, _) => List(Rule(Nil))
-            case Product(fields) =>
-              List(Rule(fields.map(goal(env, _))))
-            case Function(parameters, result) =>
-              List(Rule(List(goal(env ++ binders(parameters, id), result))))
-            case _ =>
-              constructors(env, target) ++ producers(env, target)
+          OpaqueSumForwarding.count(env.map(_.shape), target) match {
+            case Some(count) => List.fill(count)(Rule(Nil))
+            case None        => ordinaryRules(env, target, id)
           }
+      }
+
+    private def ordinaryRules(env: List[Value], target: Shape, id: Int): List[Rule] =
+      target match {
+        case Existential(_, _) =>
+          List(Rule(Nil, Some(ExistentialInputs.resultBoundary)))
+        case Singleton(_, _) => List(Rule(Nil))
+        case Product(fields) =>
+          List(Rule(fields.map(goal(env, _))))
+        case Function(parameters, result) =>
+          List(Rule(List(goal(env ++ binders(parameters, id), result))))
+        case _ =>
+          constructors(env, target) ++ producers(env, target)
       }
 
     // An empty context alternative has a unique absurd eliminator, and the branch's own value

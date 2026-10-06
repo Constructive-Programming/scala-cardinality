@@ -354,3 +354,54 @@ capability. Formatting and scalafix also passed. Cold-cache core coverage is
 
 Local report artifacts: `target/eo-checkout/production-overrides.txt` and
 `core-overrides.txt`.
+
+## Certified opaque sum forwarding follow-up
+
+The next solver fragment certifies an isolated opaque binary-sum observation,
+not general callable-sum elimination. The complete normalized environment must
+fit the proof fragment. There is at most one reachable observation, its argument
+tuple is uniquely determined, its non-Unit payloads have no ambient producers,
+and exposing those payloads cannot enable any application. Repeated calls with
+the same arguments are correlated under the pure, deterministic contract.
+
+The unchanged manifest and eo checkout were rerun with zero source errors and
+zero internal-error diagnostics:
+
+| Scope | Finite before → after | Countably infinite | Unresolved before → after |
+|---|---:|---:|---:|
+| Production: 1,520 signatures | 33 → 36 | 2 | 1,485 → 1,482 |
+| Core: 486 signatures | 27 → 30 | 2 | 457 → 454 |
+
+The three promoted constructor rows have independent derivations:
+
+- `PickFold[S, A](pick: S => Option[A])` (`AffineFold.scala:40`):
+  **2**, forwarding `pick` or returning constant `None`. An exposed `A` cannot
+  enable another application or manufacture a different payload.
+- `MendTearPrism[S, T, A, B](tear: S => Either[T, A], mend: B => T)`
+  (`Prism.scala:79`): **1**. The `tear` field can only forward its observation;
+  in the `mend` field's body, there is no `S` with which to call `tear`.
+- `PickMendPrism[S, A, B](pick: S => Option[A], mend: B => S)`
+  (`Prism.scala:237`): **2**, forward-or-`None` for `pick`, uniquely forward
+  `mend`. In `pick` there is no `B` to call `mend`; in `mend` the one available
+  `S` cannot yield a second way to produce an `S` from the observed `A`.
+
+`Optional` deliberately remains unresolved: its reverse-get field can return
+the supplied reverse-get result directly, or inspect `getOrModify(s)` and use
+its left payload with reverse-get as the right-branch fallback. This requires
+real sum elimination, not forwarding. The compiled regression distinguishes
+those alternatives without assuming optic laws.
+
+Exact totals are **38 / 1,520** production signatures and **32 / 486** core
+signatures. Source/signature inventories remain unchanged. All earlier resolved
+rows retain their counts. The fragment rejects multiple observations or argument
+choices, payload transformations/producers, recall, higher-order capabilities
+and unsupported result shapes rather than guessing a finite count.
+
+Verification: **627 tests passed, 19 pending**, zero failures/errors, including
+14 new solver/source-to-report examples and compiled witness checks.
+Independent source review found no blocking correctness issue. The parent's
+cold-cache full run also passed, with **90.94% statement coverage** and **83.92%
+branch coverage**. Both plugin scripted fixtures, formatting and scalafix passed.
+
+Local report artifacts: `target/eo-checkout/production-forwarding.txt` and
+`core-forwarding.txt`.
