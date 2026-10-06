@@ -61,6 +61,9 @@ countable alternatives stay `2ω` (`Either[String, String]`) instead of collapsi
 `Counter.source` sums the value spaces of the definitions in a source;
 `Counter.sourceSignature` sums what their members declare instead, so an object with two
 `String => String` methods and one `String` field is `2ε₀ + ω`.
+Scala 3 extension methods contribute too: each method's domain includes its receiver,
+the extension group's `using` clauses, and its own parameters. Methods in an extension
+group are added separately; the receiver is not also counted as a field.
 
 Recursive types are counted as fixed points: each source is solved as a system of equations by
 Kleene iteration from the empty type, so a strict `case class Loop(next: Loop)` comes out empty

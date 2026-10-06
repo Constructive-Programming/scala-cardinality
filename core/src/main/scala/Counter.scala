@@ -238,11 +238,29 @@ object Counter {
     case d: Decl.Var => declared(scope)(d.pats.size, Some(d.decltpe))
     // A method contributes its function space: the codomain raised to the product of its
     // parameters, with the same arrow and empty-domain rules `typeIn` uses.
-    case d: Defn.Def => methodSignature(scope)(d.paramClauses, d.decltpe)
-    case d: Decl.Def => methodSignature(scope)(d.paramClauses, Some(d.decltpe))
-    // Everything else — type members, givens, extension groups, secondary constructors — is not
+    case d: Defn.Def            => methodSignature(scope)(d.paramClauses, d.decltpe)
+    case d: Decl.Def            => methodSignature(scope)(d.paramClauses, Some(d.decltpe))
+    case d: Defn.ExtensionGroup => extensionSignature(scope)(d)
+    // Everything else — type members, givens, secondary constructors — is not
     // a declared value or method of the definition.
     case _ => NothingSize
+  }
+
+  // Each extension is a method on the receiver, not a field of it. The group's receiver and
+  // context clauses belong to every method's domain; the group itself contributes nothing.
+  private def extensionSignature(scope: Scope)(group: Defn.ExtensionGroup): Size = {
+    val clauses = group.paramClauseGroup.toList.flatMap(_.paramClauses)
+    val stats = group.body match {
+      case block: Term.Block => block.stats
+      case stat              => List(stat)
+    }
+    stats.foldLeft(NothingSize: Size) {
+      case (acc, d: Defn.Def) =>
+        acc + methodSignature(scope)(clauses ++ d.paramClauses, d.decltpe)
+      case (acc, d: Decl.Def) =>
+        acc + methodSignature(scope)(clauses ++ d.paramClauses, Some(d.decltpe))
+      case (acc, _) => acc
+    }
   }
 
   private def ctorSignature(scope: Scope)(caseParams: Boolean, ctor: Ctor.Primary): Size = {
