@@ -158,14 +158,14 @@ private[cardinality] object Walk {
   private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
     case d: Defn.Class if Counter.isAbstractClass(d) => openRow(scope, prefix, d)
     case d: Defn.Class                               =>
-      sizedRow(scope, prefix, Definition.Kind.Class)(d) { (s, size) =>
+      sizedRow(scope, prefix)(d) { (s, size) =>
         declared(s, d).updated(named(d), size)
       }
     case d: Defn.Trait => openRow(scope, prefix, d)
     // An enum's cardinality is the sum over its cases, which the solver gives it; its own
     // constructor arguments are shared state.
     case d: Defn.Enum =>
-      sizedRow(scope, prefix, Definition.Kind.Enum)(d)((s, size) => s.updated(named(d), size))
+      sizedRow(scope, prefix)(d)((s, size) => s.updated(named(d), size))
     // A module (including a `case object`) is a single instance, read here rather than from the
     // scope: a companion shares its name with the type, whose value the scope keeps under it.
     case d: Defn.Object =>
@@ -281,11 +281,14 @@ private[cardinality] object Walk {
 
   // A concrete class or enum: measured with its binders in scope, contributing the solved size
   // to its body; the body's own definitions are introduced beneath the updated scope.
-  private def sizedRow(scope: Scope, prefix: List[String], kind: Definition.Kind)(
-      d: Defn
+  private def sizedRow(scope: Scope, prefix: List[String])(
+      d: Defn.Class | Defn.Enum
   )(withSize: (Scope, Size) => Scope): Introduced =
     measured(scope.withBinders(Counter.binders(d))) { s =>
       val size = sizeOf(s)(d)
+      val kind = d match
+        case _: Defn.Class => Definition.Kind.Class
+        case _: Defn.Enum  => Definition.Kind.Enum
       introduced(prefix, d, kind, s.unbound, Some(size), size)
         .inside(withSize(s, size), prefix :+ name(d), template(d))
     }
