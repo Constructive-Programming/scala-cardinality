@@ -153,8 +153,8 @@ object Inhabitation {
       id
     }
 
-    private def absurdRule(env: List[Value], target: Shape, id: Int): List[Rule] =
-      target match {
+    private def absurdRule(env: List[Value], shape: Shape, id: Int): List[Rule] =
+      shape match {
         case Product(Nil) => Nil // Unit already has its unique construction.
         case Sum(Nil)     =>
           absurd(id) = id

@@ -103,14 +103,14 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private def sourceParent(
       entry: TypeEntry,
-      seen: mutable.Set[String],
+      visited: mutable.Set[String],
       from: Frame,
-      parent: Init
+      inheritedParent: Init
   ): List[(Frame, Init)] =
     entry.self match {
-      case Some(declared) => scanDeclared(seen, from, parent, declared)
+      case Some(declared) => scanDeclared(visited, from, inheritedParent, declared)
       case None           =>
-        errors += s"inherited parent declaration not resolved: ${parent.tpe.syntax}"
+        errors += s"inherited parent declaration not resolved: ${inheritedParent.tpe.syntax}"
         Nil
     }
 

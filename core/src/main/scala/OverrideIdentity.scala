@@ -15,9 +15,7 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
 
   def matches(declaration: Decl.Def, parent: Init, from: Frame, owner: Frame): Option[Boolean] =
     target.tree match {
-      case method: Defn.Def if method.name.value == declaration.name.value =>
-        directMatch(declaration, method, parent -> from, owner)
-      case method: Decl.Def if method.name.value == declaration.name.value =>
+      case method: (Defn.Def | Decl.Def) if method.name.value == declaration.name.value =>
         directMatch(declaration, method, parent -> from, owner)
       case _ => Some(false)
     }
@@ -192,9 +190,9 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     val root = tpe.qual.syntax.takeWhile(_ != '.')
     frame.chain.exists { scope =>
       scope.params.exists(_.name.value == root) || scope.stats.exists {
-        case v: Defn.Val => v.pats.exists(_.collect { case Pat.Var(n) => n.value }.contains(root))
-        case v: Decl.Val => v.pats.exists(_.collect { case Pat.Var(n) => n.value }.contains(root))
-        case _           => false
+        case v: (Defn.Val | Decl.Val) =>
+          v.pats.exists(_.collect { case Pat.Var(n) => n.value }.contains(root))
+        case _ => false
       }
     }
   }
