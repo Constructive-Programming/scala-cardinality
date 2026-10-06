@@ -4,6 +4,7 @@
 #   - scalafix  — semantic rewrites (check only)
 #   - scoverage — statement-coverage regression floor
 #   - cpd       — duplicate-code detection
+#   - metrics   — per-file length and comment-ratio limits
 #
 # The heavier / external signals (stryker4s mutation testing, CodeScene Code
 # Health) live in `quality.yml`, a separate workflow that also runs on pull
@@ -180,8 +181,9 @@ jobs:
             unzip -q /tmp/pmd.zip -d "$HOME/pmd"
           fi
 
-      # CPD exits non-zero when it finds a duplicate above the token threshold,
-      # so this is a gate. Main sources only: duplication between tests is
+      # CPD exits non-zero when it finds a duplicate of at least the token
+      # threshold, so this is a gate — the 25-token floor catches copy-pasted arms, not
+      # just whole duplicated blocks. Main sources only: duplication between tests is
       # usually deliberate, and the scripted fixtures under plugin/src/sbt-test
       # are deliberately repetitive. The report goes to the `report` job
       # base64-encoded, which keeps it a one-line output whatever the
@@ -191,7 +193,7 @@ jobs:
         run: |
           set +e
           "$HOME/pmd/pmd-bin-$PMD_VERSION/bin/pmd" cpd \
-            --minimum-tokens=100 \
+            --minimum-tokens=25 \
             --language=scala \
             --dir=core/src/main/scala \
             --dir=plugin/src/main/scala \
@@ -201,13 +203,32 @@ jobs:
           echo "report=$(sed "s#$PWD/##" cpd.txt | base64 -w0)" >> "$GITHUB_OUTPUT"
           exit $status
 
+  # Per-file structural limits, kept out of the sbt jobs because they need no
+  # toolchain — plain bash + awk over the sources.
+  metrics:
+    name: File metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      result: ${{ steps.metrics.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # scripts/check-file-metrics.sh: warns above 800 lines or 25% comment
+      # lines in a file, fails the gate above 1000 lines or 35%. Findings are
+      # posted as diff annotations; the table below carries the pass/fail.
+      - name: Check file length and comment ratio
+        id: metrics
+        run: bash scripts/check-file-metrics.sh
+
   # Writes the results above to the run summary and, on pull requests, to one
   # comment edited in place. A separate job so the jobs that run the PR's build
   # never hold a token that can write to the PR. Pull requests from forks only
   # get a read-only token, so they get the summary but no comment.
   report:
     name: Report
-    needs: [build, docs, cpd]
+    needs: [build, docs, cpd, metrics]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -229,6 +250,7 @@ jobs:
           FLOOR: ${{ needs.build.outputs.floor }}
           CPD: ${{ needs.cpd.outputs.result }}
           CPD_REPORT: ${{ needs.cpd.outputs.report }}
+          METRICS: ${{ needs.metrics.outputs.result }}
           DOCS: ${{ needs.docs.outputs.result }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -250,7 +272,8 @@ jobs:
                 "${STATEMENTS:+$STATEMENTS% statements (floor $FLOOR%), $BRANCHES% branches}"
             fi
             line 'Plugin tests (scripted)' "$SCRIPTED"
-            line 'Duplicate code (CPD)' "$CPD" "$([ "$CPD" = success ] && echo 'no duplicates over 100 tokens')"
+            line 'Duplicate code (CPD)' "$CPD" "$([ "$CPD" = success ] && echo 'no duplicates of 25+ tokens')"
+            line 'File metrics (length / comments)' "$METRICS" "$([ "$METRICS" = success ] && echo 'every file within 1000 lines and 35% comments')"
             line 'Documentation site (Laika)' "$DOCS" "$([ "$DOCS" = success ] && echo 'renders under target/site')"
             dups=$(echo "$CPD_REPORT" | base64 -d | head -c 20000)
             if [ -n "$dups" ]; then

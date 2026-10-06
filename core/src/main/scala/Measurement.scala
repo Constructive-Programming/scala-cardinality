@@ -66,11 +66,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     target.frame.params.foreach(p => add(p.name.value, p.decltpe, target.frame))
     val result = resultShape()
     result.left.foreach(errors += _)
-    Entry(
-      target.input,
-      target.name,
-      target.signature.replaceAll("\\s+", " "),
-      target.tree.pos.startLine + 1,
+    Entry.of(
+      target,
       resolver.kindOf(target),
       count(result),
       captures.toList.distinct.sorted
@@ -106,14 +103,14 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private def sourceParent(
       entry: TypeEntry,
-      seen: mutable.Set[String],
+      visited: mutable.Set[String],
       from: Frame,
-      parent: Init
+      inheritedParent: Init
   ): List[(Frame, Init)] =
     entry.self match {
-      case Some(declared) => scanDeclared(seen, from, parent, declared)
+      case Some(declared) => scanDeclared(visited, from, inheritedParent, declared)
       case None           =>
-        errors += s"inherited parent declaration not resolved: ${parent.tpe.syntax}"
+        errors += s"inherited parent declaration not resolved: ${inheritedParent.tpe.syntax}"
         Nil
     }
 

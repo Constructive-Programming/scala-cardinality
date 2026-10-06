@@ -29,6 +29,27 @@ object MethodAnalysis {
       captures: List[String]
   )
 
+  object Entry:
+
+    /** One report row for a target: the signature is flattened to a single line, and scalameta's
+      * zero-based line becomes the line an editor shows.
+      */
+    def of(
+        target: Target,
+        kind: String,
+        count: Count,
+        captures: List[String] = Nil
+    ): Entry =
+      Entry(
+        target.input,
+        target.name,
+        target.signature.replaceAll("\\s+", " "),
+        target.tree.pos.startLine + 1,
+        kind,
+        count,
+        captures
+      )
+
   final case class Limits(maxTypeDepth: Int = 64, maxStates: Int = 256)
 
   def analyze(inputs: List[Input], limits: Limits = Limits()): List[Entry] =
@@ -129,14 +150,10 @@ object MethodAnalysis {
       try measurement(target)
       catch
         case NonFatal(error) =>
-          Entry(
-            target.input,
-            target.name,
-            target.signature.replaceAll("\\s+", " "),
-            target.tree.pos.startLine + 1,
+          Entry.of(
+            target,
             kindOf(target),
-            Count.Unresolved(List(s"analysis failed: ${error.getClass.getSimpleName}")),
-            Nil
+            Count.Unresolved(List(s"analysis failed: ${error.getClass.getSimpleName}"))
           )
 
     private def child(
@@ -398,9 +415,9 @@ object MethodAnalysis {
     def resolve(
         tpe: Type,
         frame: Frame,
-        variables: Map[String, Resolved],
-        visiting: Set[String]
-    ): Resolved = resolve(tpe, ResolutionContext(frame, variables, visiting))
+        bindings: Map[String, Resolved],
+        seen: Set[String]
+    ): Resolved = resolve(tpe, ResolutionContext(frame, bindings, seen))
 
     def resolve(
         tpe: Type,
@@ -721,9 +738,7 @@ object MethodAnalysis {
 
     private def parameterized(applied: Applied): Resolved = {
       import applied.{args, cases, context, entry, key, name, parameters}
-      if (parameters.exists(constrained)) Left(s"constrained type constructor: $name")
-      else if (parameters.size != args.size) Left(s"type argument arity: $name")
-      else {
+      TypeApplications.checkApplication(name, parameters, args.size).flatMap { _ =>
         val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
         val env = typeParameters(entry.owner) ++ replacements
         val scoped = context.inScope(entry.owner, env).enter(key)

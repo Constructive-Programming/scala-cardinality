@@ -141,13 +141,14 @@ private[cardinality] object MethodProjections {
       val key = (entry.owner.path :+ entry.name).mkString(".")
       val parameters = declared.tparamClause.values
       if (context.visiting(key)) Left(s"recursive type requires a structural proof: $key")
-      else if (parameters.exists(TypeApplications.constrained))
-        Left(s"constrained type constructor: $name")
-      else if (parameters.size != args.size) Left(s"type argument arity: $name")
       else
-        sequence(args.map(syntax(_, context))).flatMap { prepared =>
-          prepareAliasBody(entry, declared, prepared, context.enter(key))
-        }
+        TypeApplications
+          .checkApplication(name, parameters, args.size)
+          .flatMap { _ =>
+            sequence(args.map(syntax(_, context))).flatMap { prepared =>
+              prepareAliasBody(entry, declared, prepared, context.enter(key))
+            }
+          }
     }
 
     private def prepareAliasBody(
