@@ -66,11 +66,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     target.frame.params.foreach(p => add(p.name.value, p.decltpe, target.frame))
     val result = resultShape()
     result.left.foreach(errors += _)
-    Entry(
-      target.input,
-      target.name,
-      target.signature.replaceAll("\\s+", " "),
-      target.tree.pos.startLine + 1,
+    Entry.of(
+      target,
       resolver.kindOf(target),
       count(result),
       captures.toList.distinct.sorted

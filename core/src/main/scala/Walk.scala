@@ -48,7 +48,7 @@ private[cardinality] object Walk {
   ): Introduced = {
     val entries = Counter.equations(stats)
     val surroundings = scope.withImports(imports(stats)).withOpen(openNames(stats))
-    val solved = Counter.solve(entries, stats, surroundings.withDefinitions(entries))
+    val solved = Solver.solve(entries, stats, surroundings.withDefinitions(entries))
     // A body's definitions contribute their *members* to the body as well, so a sibling can be
     // qualified (`Outer.B`), exactly as the library does for another file's.
     val body = stats.collect { case d: Defn => d }.foldLeft(solved) { (s, d) =>
@@ -96,9 +96,9 @@ private[cardinality] object Walk {
     val declared = params.flatMap(p => p.decltpe.map(TypeName.of(p.name.value) -> _))
     val fields = template(d)
       .flatMap {
-        case v: Defn.Val => v.pats.collect { case Pat.Var(n) => n.value }.map(_ -> v.decltpe)
-        case v: Defn.Var => v.pats.collect { case Pat.Var(n) => n.value }.map(_ -> v.decltpe)
-        case _           => Nil
+        case v: (Defn.Val | Defn.Var) =>
+          v.pats.collect { case Pat.Var(n) => n.value }.map(_ -> v.decltpe)
+        case _ => Nil
       }
       .flatMap { case (name, tpe) => tpe.map(TypeName.of(name) -> _) }
     (declared ++ fields).toMap
@@ -120,9 +120,9 @@ private[cardinality] object Walk {
   // the children the body (or the package) defines.
   private[cardinality] def openNames(stats: List[Stat]): Set[TypeName] =
     stats.collect {
-      case d: Defn.Trait if !d.mods.exists(_.is[Mod.Sealed]) => TypeName.of(d.name.value)
-      case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) && !d.mods.exists(_.is[Mod.Sealed]) =>
-        TypeName.of(d.name.value)
+      case d: Defn.Trait if !Counter.isSealed(d)                               => named(d)
+      case d: Defn.Class if Counter.isAbstractClass(d) && !Counter.isSealed(d) =>
+        named(d)
     }.toSet
 
   // The names a body's imports bind. A direct import of a name keeps a reference to it out of the
@@ -165,57 +165,39 @@ private[cardinality] object Walk {
   // alias names another type's values, an opaque type hides them, an abstract type has none of its
   // own.
   private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
-    case d: Defn.Class if d.mods.exists(_.is[Mod.Abstract]) =>
-      abstractRow(scope, prefix, d)
-        .inside(declared(scope, d), prefix :+ d.name.value, d.templ.body.stats)
-    case d: Defn.Class =>
-      measured(scope.withBinders(Counter.binders(d))) { s =>
-        val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Class, Some(size), size, s.unbound)
-          .inside(
-            declared(s, d).updated(TypeName.of(d.name.value), size),
-            prefix :+ d.name.value,
-            d.templ.body.stats
-          )
+    case d: Defn.Class if Counter.isAbstractClass(d) => openRow(scope, prefix, d)
+    case d: Defn.Class                               =>
+      sizedRow(scope, prefix, Definition.Kind.Class)(d) { (s, size) =>
+        declared(s, d).updated(named(d), size)
       }
-    case d: Defn.Trait =>
-      abstractRow(scope, prefix, d)
-        .inside(declared(scope, d), prefix :+ d.name.value, d.templ.body.stats)
+    case d: Defn.Trait => openRow(scope, prefix, d)
     // An enum's cardinality is the sum over its cases, which the solver gives it; the enum's own
     // constructor arguments are shared state, not extra inhabitants.
     case d: Defn.Enum =>
-      measured(scope.withBinders(Counter.binders(d))) { s =>
-        val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Enum, Some(size), size, s.unbound)
-          .inside(
-            s.updated(TypeName.of(d.name.value), size),
-            prefix :+ d.name.value,
-            d.templ.body.stats
-          )
-      }
+      sizedRow(scope, prefix, Definition.Kind.Enum)(d)((s, size) => s.updated(named(d), size))
     // A module (including a `case object`) is a single instance. It never reads the name from the
     // scope: a companion object shares its name with a type, and the scope keeps the type's value
     // under it, so the module's own value is one here and in the row a report lists it as.
     case d: Defn.Object =>
       measured(scope) { s =>
-        introduced(prefix, d, Definition.Kind.Object, Some(UnitSize), UnitSize, Nil)
-          .inside(declared(s, d), prefix :+ d.name.value, d.templ.body.stats)
+        introduced(prefix, d, Definition.Kind.Object, Nil, Some(UnitSize), UnitSize)
+          .inside(declared(s, d), prefix :+ name(d), template(d))
       }
     // An opaque type hides what it holds: outside the scope that defines it a reference is worth a
     // single opaque value, which is what the body's own equation says. Its *row* is read here,
     // where the representation is visible, so the row shows what the type really holds — an
     // instantiation-dependent `|A|` for `opaque type Direct[X, A] = A` — and the kind keeps the
     // contract visible. The definition adds no inhabitants of its own either way.
-    case d: Defn.Type if d.mods.exists(_.is[Mod.Opaque]) =>
+    case d: Defn.Type if Counter.isOpaqueAlias(d) =>
       measured(scope.withBinders(Counter.binders(d))) { s =>
         val represented = Counter.typeIn(s)(d.body)
         introduced(
           prefix,
           d,
           Definition.Kind.Opaque,
+          s.unbound,
           Some(represented),
-          Counter.defnIn(s)(d),
-          s.unbound
+          Counter.defnIn(s)(d)
         )
       }
     // A constructor alias names a *function* on types, which has no value space of its own: the
@@ -226,7 +208,7 @@ private[cardinality] object Walk {
     case d: Defn.Type =>
       measured(scope.withBinders(Counter.binders(d))) { s =>
         val aliased = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Alias, Some(aliased), NothingSize, s.unbound)
+        introduced(prefix, d, Definition.Kind.Alias, s.unbound, Some(aliased), NothingSize)
       }
     // An enum case is counted by its enum; it has no body of its own.
     case _: Defn.EnumCase | _: Defn.RepeatedEnumCase => Introduced.none
@@ -235,7 +217,7 @@ private[cardinality] object Walk {
     case d @ (_: Defn.Val | _: Defn.Var) if top =>
       measured(scope) { s =>
         val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Value, Some(size), size, Nil)
+        introduced(prefix, d, Definition.Kind.Value, Nil, Some(size), size)
       }
     // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
     // exhaustive match is impossible. Every other member — nested values, methods, givens —
@@ -255,7 +237,7 @@ private[cardinality] object Walk {
           // The children are read here so that the reasons the sum rests on land in this row's
           // record rather than in theirs.
           definition.children.foreach(child => s.definition(child).foreach(_.equation(s)))
-          introduced(prefix, d, Definition.Kind.Abstract, s.size(name), NothingSize, s.unbound)
+          introduced(prefix, d, Definition.Kind.Abstract, s.unbound, s.size(name), NothingSize)
         }
       case _ =>
         Introduced(
@@ -308,11 +290,27 @@ private[cardinality] object Walk {
       prefix: List[String],
       d: Defn,
       kind: Definition.Kind,
+      unbound: List[Definition.Unbound],
       size: Option[Size],
       contributes: Size,
-      unbound: List[Definition.Unbound],
   ): Introduced =
     Introduced(contributes, List(row(prefix, d, kind, size, unbound)))
+
+  // A concrete class or enum: measured with its binders in scope, contributing the solved size
+  // to its body; the body's own definitions are introduced beneath the updated scope.
+  private def sizedRow(scope: Scope, prefix: List[String], kind: Definition.Kind)(
+      d: Defn
+  )(withSize: (Scope, Size) => Scope): Introduced =
+    measured(scope.withBinders(Counter.binders(d))) { s =>
+      val size = sizeOf(s)(d)
+      introduced(prefix, d, kind, s.unbound, Some(size), size)
+        .inside(withSize(s, size), prefix :+ name(d), template(d))
+    }
+
+  // An abstraction the body leaves open: its row reads through `abstractRow`, and its declared
+  // members carry into the body below.
+  private def openRow(scope: Scope, prefix: List[String], d: Defn): Introduced =
+    abstractRow(scope, prefix, d).inside(declared(scope, d), prefix :+ name(d), template(d))
 
   private def row(
       prefix: List[String],
@@ -338,7 +336,7 @@ private[cardinality] object Walk {
   // Values and variables are named by the patterns they bind; every other definition the report
   // lists carries its name directly. `Defn` is not sealed, so the last case stands in for the
   // members the walk never names.
-  private def named(d: Defn): TypeName = d match {
+  private[cardinality] def named(d: Defn): TypeName = d match {
     case v: Defn.Val => TypeName.of(v.pats.map(_.syntax).mkString(", "))
     case v: Defn.Var => TypeName.of(v.pats.map(_.syntax).mkString(", "))
     case m: Member   => TypeName.of(m.name.value)

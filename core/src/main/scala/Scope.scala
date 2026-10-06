@@ -326,7 +326,7 @@ object Library {
           .withOpen(Walk.openNames(stats))
           .withHome(path)
         val definitions = stats.collect { case d: Defn => d }
-        val solved = Counter.solve(entries, stats, base)
+        val solved = Solver.solve(entries, stats, base)
         val withMembers = definitions.foldLeft(solved) { (scope, d) =>
           scope.withMembers(TypeName.of(Walk.name(d)), Walk.members(d))
         }

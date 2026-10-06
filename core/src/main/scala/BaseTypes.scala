@@ -14,8 +14,8 @@ private[cardinality] object BaseTypes {
 
   /** A modelled base type, as a pattern: `case BaseTypes(size) => size` on a `Type`. */
   def unapply(tpe: Type): Option[Size] = tpe match {
-    case Type.Name(name) => get(name)
-    case _               => None
+    case named: Type.Name => get(named.value)
+    case _                => None
   }
 
   /** The same table, for a caller that is not matching on it. */

@@ -21,4 +21,16 @@ private[cardinality] object TypeApplications {
       parameter.bounds.context.nonEmpty || parameter.bounds.view.nonEmpty ||
       parameter.tparamClause.values.nonEmpty
 
+  /** The checks an applied type constructor must pass before its arguments are substituted: no
+    * constrained parameters, and exactly one argument per declared parameter.
+    */
+  def checkApplication(
+      name: String,
+      parameters: List[Type.Param],
+      argCount: Int
+  ): Either[String, Unit] =
+    if (parameters.exists(constrained)) Left(s"constrained type constructor: $name")
+    else if (parameters.size != argCount) Left(s"type argument arity: $name")
+    else Right(())
+
 }
