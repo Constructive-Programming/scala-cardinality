@@ -41,19 +41,22 @@ private[cardinality] object OpaqueSumForwarding {
       counts: Map[Atom, Int],
       target: Shape
   ): Option[Int] = observation match {
-    case None                                      => ordinary(target, counts)
-    case Some(Call(_, output @ Sum(alternatives))) =>
-      val payloads = alternatives.collect { case a: Atom => a }
-      if (!isolated(alternatives, calls, counts)) None
-      else if (target == output)
-        Some(1 + alternatives.count(_ == Product(Nil)))
-      else
-        target match {
-          case a: Atom if !payloads.contains(a) && counts(a) <= 1 => Some(counts(a))
-          case Sum(Nil)                                           => Some(0)
-          case _                                                  => None
-        }
+    case None => ordinary(target, counts)
+    case Some(Call(_, Sum(alternatives))) if isolated(alternatives, calls, counts) =>
+      observed(alternatives, counts, target)
     case _ => None
+  }
+
+  private def observed(
+      alternatives: List[Shape],
+      counts: Map[Atom, Int],
+      target: Shape
+  ): Option[Int] = target match {
+    case Sum(`alternatives`) =>
+      Some(1 + alternatives.count(_ == Product(Nil)))
+    case a: Atom if !alternatives.contains(a) && counts(a) <= 1 => Some(counts(a))
+    case Sum(Nil)                                               => Some(0)
+    case _                                                      => None
   }
 
   private def isolated(
