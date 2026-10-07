@@ -1,0 +1,55 @@
+# Legacy declared-signature estimates, NOT parametric implementation counts.
+source	declared_signature_estimate
+dev/constructive/eo/CanFold.scala	4ε₀ + 2ω
+dev/constructive/eo/CanGet.scala	2ε₀
+dev/constructive/eo/CanGetOption.scala	2ε₀
+dev/constructive/eo/CanModify.scala	3ε₀
+dev/constructive/eo/CanModifyA.scala	2ε₀
+dev/constructive/eo/CanModifyF.scala	2ε₀
+dev/constructive/eo/CanPlace.scala	3ε₀
+dev/constructive/eo/CanPut.scala	2ε₀
+dev/constructive/eo/CanReverseGet.scala	2ε₀
+dev/constructive/eo/CanTransform.scala	2ε₀
+dev/constructive/eo/accessor/Accessor.scala	ε₀ + ω
+dev/constructive/eo/accessor/PartialAccessor.scala	ε₀ + 2ω
+dev/constructive/eo/accessor/ReverseAccessor.scala	ε₀ + ω
+dev/constructive/eo/accessor/package.scala	0
+dev/constructive/eo/compose/AssociativeFunctor.scala	2ε₀ + 2ω
+dev/constructive/eo/compose/Composer.scala	3ε₀ + 2ω
+dev/constructive/eo/compose/Morph.scala	5ε₀ + ω
+dev/constructive/eo/compose/ReadCompose.scala	6ε₀
+dev/constructive/eo/compose/package.scala	0
+dev/constructive/eo/data/Affine.scala	3ε₀ + 13ω + 2^33
+dev/constructive/eo/data/Direct.scala	7ω + 1
+dev/constructive/eo/data/Forget.scala	3ε₀ + 8ω + 1
+dev/constructive/eo/data/IntArrBuilder.scala	2ω + 2^36
+dev/constructive/eo/data/ModifyF.scala	2ε₀ + 6ω
+dev/constructive/eo/data/MultiFocus.scala	19ε₀ + 29ω + 5
+dev/constructive/eo/data/ObjArrBuilder.scala	3ω + 2^37
+dev/constructive/eo/data/PSVec.scala	6ε₀ + 26ω + 2^36
+dev/constructive/eo/data/package.scala	0
+dev/constructive/eo/forgetful/ForgetfulApplicative.scala	ε₀
+dev/constructive/eo/forgetful/ForgetfulFold.scala	ε₀ + 2ω
+dev/constructive/eo/forgetful/ForgetfulFunctor.scala	ε₀ + 2ω
+dev/constructive/eo/forgetful/ForgetfulTraverse.scala	ε₀ + 3ω
+dev/constructive/eo/forgetful/package.scala	0
+dev/constructive/eo/optics/AffineFold.scala	9ε₀ + ω + 1
+dev/constructive/eo/optics/At.scala	ε₀
+dev/constructive/eo/optics/Each.scala	ω
+dev/constructive/eo/optics/Fold.scala	8ε₀ + 1
+dev/constructive/eo/optics/Getter.scala	7ε₀ + 1
+dev/constructive/eo/optics/Index.scala	ε₀ + ω
+dev/constructive/eo/optics/Iso.scala	12ε₀
+dev/constructive/eo/optics/Lens.scala	31ε₀ + 2ω
+dev/constructive/eo/optics/Modify.scala	8ε₀
+dev/constructive/eo/optics/Optic.scala	29ε₀ + 4ω
+dev/constructive/eo/optics/Optional.scala	15ε₀
+dev/constructive/eo/optics/Plated.scala	17ε₀ + 2ω
+dev/constructive/eo/optics/Prism.scala	36ε₀
+dev/constructive/eo/optics/Review.scala	6ε₀ + ω
+dev/constructive/eo/optics/Traversal.scala	22ε₀ + 5ω
+dev/constructive/eo/optics/TraversalArityMacro.scala	4ε₀
+dev/constructive/eo/optics/Unfold.scala	8ε₀ + 2ω
+dev/constructive/eo/optics/package.scala	0
+dev/constructive/eo/package.scala	0
+dev/constructive/eo/recast.scala	2ε₀
