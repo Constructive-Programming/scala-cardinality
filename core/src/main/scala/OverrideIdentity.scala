@@ -53,6 +53,10 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       owner: Frame
   ): Option[Boolean] = {
     val inherited = signature(declaration.paramClauseGroups, declaration.decltpe, owner, bindings)
+    val currentGroups = method match {
+      case d: (Defn.Def | Decl.Def) => d.paramClauseGroups
+      case _                        => Nil
+    }
     val current = method match {
       case d: Defn.Def =>
         d.decltpe.flatMap(signature(d.paramClauseGroups, _, target.frame, lexical(target.frame)))
@@ -63,12 +67,19 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     for {
       left <- inherited
       right <- current
-      matched <- sameSignature(left, right)
+      inheritedConvention <- conventions(declaration.paramClauseGroups)
+      currentConvention <- conventions(currentGroups)
+      matched <- sameSignature(left, right, inheritedConvention == currentConvention)
     } yield matched
   }
 
-  private def sameSignature(left: (String, String), right: (String, String)): Option[Boolean] =
+  private def sameSignature(
+      left: (String, String),
+      right: (String, String),
+      sameConvention: Boolean
+  ): Option[Boolean] =
     if (left._1 != right._1) Some(false)
+    else if (!sameConvention) None
     // A covariant return can implement the same slot; unequal returns are not proof of an overload.
     else Option.when(left._2 == right._2)(true)
 
@@ -130,14 +141,30 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     val clauses = group.paramClauses.map { clause =>
       val params = clause.values.map { p =>
         for {
-          _ <- plainModifiers(p.mods)
+          // Scalameta repeats the clause's contextual modifier on each parameter.
+          _ <- plainModifiers(
+            p.mods.filterNot(mod => clause.mod.exists(_.structure == mod.structure))
+          )
           tpe <- p.decltpe.flatMap(key(_, context, bindings))
         } yield tpe
       }
-      if (clause.mod.nonEmpty) None
-      else combine(params).map(k => s"${clause.copy(values = Nil).structure}:$k")
+      for {
+        _ <- clauseKind(clause.mod)
+        types <- combine(params)
+      } yield types
     }
     combine(List(combine(types), combine(clauses)))
+  }
+
+  // `implicit` and `using` are two spellings of a contextual clause. A different calling
+  // convention is not by itself proof of a separate inherited slot, so compare leaves it unknown.
+  private def conventions(groups: List[Member.ParamClauseGroup]): Key =
+    combine(groups.flatMap(_.paramClauses).map(clause => clauseKind(clause.mod)))
+
+  private def clauseKind(mod: Option[Mod]): Key = mod match {
+    case None                                 => Some("ordinary")
+    case Some(_: Mod.Using | _: Mod.Implicit) => Some("contextual")
+    case _                                    => None
   }
 
   private def parameterKey(
@@ -154,7 +181,7 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     }
 
   // An annotation does not distinguish an overload's parameter type or calling convention.
-  // Other modifiers and contextual clauses need semantic normalization before we can compare.
+  // Other parameter modifiers need semantic normalization before we can compare.
   private def plainModifiers(mods: List[Mod]): Option[Unit] =
     Option.when(mods.forall(_.is[Mod.Annot]))(())
 

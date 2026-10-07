@@ -219,6 +219,16 @@ Generic method / constructor implementation cardinalities
     captures: tupleAccessor
 ```
 
+For a direct inherited method, override identity also compares Scala 3 `using` clauses and
+legacy `implicit` clauses. Contextual arguments remain supplied inputs: a method with
+`a: A` and `using fallback: A`, returning `A`, has two choices when no other producer is in
+scope. Its matching inherited declaration is not supplied again as a recursive capability.
+Parameter names and alpha-renamed method binders do not distinguish slots; nominal parameter
+types do. Ordinary/contextual convention mismatches with otherwise matching parameter keys,
+dependent results, unknown imports, transparent alias identity, and additional unsupported
+parameter modifiers remain obligations.
+This does not implement implicit search or normalize context-bound syntax into explicit clauses.
+
 The refreshed eo-core 0.16.0 run reads **480 signatures: 30 finite, 2 countably infinite,
 448 unresolved**. The [review ledger](docs/baselines/eo-core-0.16.0-review.md) records the
 reproduction command, all fifteen numeric changes since the previous baseline, and five
