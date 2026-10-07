@@ -2,7 +2,7 @@ package cardinality
 
 import scala.meta.*
 
-import MethodAnalysis.{Frame, Target}
+import MethodAnalysis.{Frame, Target, TypeEntry}
 
 /** Override identity is nominal type identity, not equality of inhabitant representations.
   * Unsupported signatures deliberately leave an obligation instead of guessing an override.
@@ -11,7 +11,14 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
   private given Dialect = dialects.Scala3
 
   private type Key = Option[String]
-  private type Bindings = Map[String, Key]
+
+  // Immediate method/alias formals take precedence; enclosing binders compete with declarations
+  // in lexical order. Scoped identities retain receiver substitutions across shadowing.
+  private case class Bindings(
+      locals: Map[String, Key],
+      scoped: Map[(String, String), Key],
+      expansionDepth: Int = 0
+  )
 
   def matches(declaration: Decl.Def, parent: Init, from: Frame, owner: Frame): Option[Boolean] =
     target.tree match {
@@ -89,19 +96,27 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       case _                   => Nil
     }
     val caller = ResolutionContext(from, resolver.typeParameters(from), Set.empty)
-    lexical(owner) ++ owner.typeParams
-      .map(_.name.value)
-      .zip(
-        arguments.map(key(_, caller, lexical(from)))
-      )
+    val replacements = owner.typeParams
+      .map(p => (owner.id, p.name.value))
+      .zip(arguments.map(key(_, caller, lexical(from))))
+      .toMap
+    lexical(owner, replacements)
   }
 
-  private def lexical(frame: Frame): Bindings =
-    frame.chain.reverse.foldLeft(Map.empty[String, Key]) { (bindings, scope) =>
-      bindings ++ scope.typeParams.map(p =>
-        p.name.value -> Some(s"binder:${scope.id}:${p.name.value}")
+  private def lexical(
+      frame: Frame,
+      replacements: Map[(String, String), Key] = Map.empty
+  ): Bindings = {
+    val scoped = frame.chain
+      .flatMap(scope =>
+        scope.typeParams.map(p => {
+          val id = scope.id -> p.name.value
+          id -> replacements.getOrElse(id, Some(s"binder:${scope.id}:${p.name.value}"))
+        })
       )
-    }
+      .toMap
+    Bindings(Map.empty, scoped)
+  }
 
   private def signature(
       groups: List[Member.ParamClauseGroup],
@@ -114,7 +129,7 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       p.name.value -> Some(s"method:$index")
     }.toMap
     val context = ResolutionContext(frame, resolver.typeParameters(frame), Set.empty)
-    val bindings = outer ++ method
+    val bindings = outer.copy(locals = method)
     val clauses = groups.map(groupKey(_, context, bindings))
     if (groups.drop(1).exists(_.tparamClause.values.nonEmpty) || dependent(groups, result)) None
     else
@@ -186,9 +201,20 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     Option.when(mods.forall(_.is[Mod.Annot]))(())
 
   private def key(tpe: Type, context: ResolutionContext, bindings: Bindings): Key = tpe match {
-    case n: Type.Name  => bindings.getOrElse(n.value, constructor(n.value, context))
+    case n: Type.Name  => named(n.value, Nil, context, bindings)
     case t: Type.Apply =>
-      application(key(t.tpe, context, bindings), t.argClause.values, context, bindings)
+      t.tpe match {
+        case n: Type.Name => named(n.value, t.argClause.values, context, bindings)
+        case s: Type.Select if !termQualifier(s, context.frame) =>
+          named(
+            s.syntax.stripPrefix("_root_."),
+            t.argClause.values,
+            context,
+            bindings,
+            qualified = true
+          )
+        case _ => application(key(t.tpe, context, bindings), t.argClause.values, context, bindings)
+      }
     case Type.Tuple(args) =>
       application(Some(s"builtin:Tuple${args.size}"), args, context, bindings)
     case f: Type.Function =>
@@ -199,18 +225,81 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
 
   private def decoratedKey(tpe: Type, context: ResolutionContext, bindings: Bindings): Key =
     tpe match {
-      case selected: Type.Select => selectedConstructor(selected, context)
-      case Type.ByName(value)    => key(value, context, bindings).map(k => s"byname:$k")
-      case Type.Repeated(value)  => key(value, context, bindings).map(k => s"repeated:$k")
-      case _                     => None
+      case selected: Type.Select =>
+        if (termQualifier(selected, context.frame)) None
+        else named(selected.syntax.stripPrefix("_root_."), Nil, context, bindings, qualified = true)
+      case Type.ByName(value)   => key(value, context, bindings).map(k => s"byname:$k")
+      case Type.Repeated(value) => key(value, context, bindings).map(k => s"repeated:$k")
+      case _                    => None
     }
 
-  private def selectedConstructor(tpe: Type.Select, context: ResolutionContext): Key = {
-    val name = tpe.syntax.stripPrefix("_root_.")
-    val builtin = name.stripPrefix("scala.")
-    if (termQualifier(tpe, context.frame)) None
-    else if (resolver.lookup(name, context.frame).nonEmpty) constructor(name, context)
-    else Option.when(name.startsWith("scala.") && builtins(builtin))(s"builtin:$builtin")
+  private def named(
+      name: String,
+      args: List[Type],
+      context: ResolutionContext,
+      bindings: Bindings,
+      qualified: Boolean = false
+  ): Key = {
+    val entries = resolver.lookup(name, context.frame)
+    val enclosing = context.frame.chain
+      .find(scope => bindings.scoped.contains(scope.id -> name))
+      .filterNot { binder =>
+        val nearer = context.frame.chain.takeWhile(_.id != binder.id)
+        entries.exists(entry => nearer.exists(_.id == entry.owner.id)) || imports(name, nearer)
+      }
+      .map(scope => bindings.scoped(scope.id -> name))
+    val bound = if (qualified) None else bindings.locals.get(name).orElse(enclosing)
+    bound match {
+      case Some(binding)                         => applied(binding, args, context, bindings)
+      case None if imported(name, context.frame) => None
+      case None                                  =>
+        entries match {
+          case List(entry) if entry.tree.is[Defn.Type] =>
+            alias(entry, args, context, bindings)
+          case _ => applied(constructor(name, context), args, context, bindings)
+        }
+    }
+  }
+
+  private def applied(
+      constructor: Key,
+      args: List[Type],
+      context: ResolutionContext,
+      bindings: Bindings
+  ): Key =
+    if (args.isEmpty) constructor else application(constructor, args, context, bindings)
+
+  private def alias(
+      entry: TypeEntry,
+      args: List[Type],
+      context: ResolutionContext,
+      bindings: Bindings
+  ): Key = {
+    val declaration = entry.tree.asInstanceOf[Defn.Type]
+    val parameters = declaration.tparamClause.values
+    val id = s"override-alias:${entry.owner.id}:${declaration.pos.start}"
+    if (
+      declaration.mods.exists(_.is[Mod.Opaque]) ||
+      parameters.size != args.size ||
+      parameters.exists(p =>
+        p.tparamClause.values.nonEmpty || p.mods.nonEmpty ||
+          p.bounds.lo.nonEmpty || p.bounds.hi.nonEmpty ||
+          p.bounds.context.nonEmpty || p.bounds.view.nonEmpty
+      ) ||
+      context.visiting(id) || bindings.expansionDepth >= resolver.limits.maxTypeDepth
+    ) None
+    else {
+      val depth = bindings.expansionDepth + 1
+      val arguments = args.map(key(_, context, bindings.copy(expansionDepth = depth)))
+      val lexicalBindings = lexical(entry.owner, bindings.scoped)
+      val replacements = parameters.map(_.name.value).zip(arguments).toMap
+      val scoped = context.inScope(entry.owner, resolver.typeParameters(entry.owner)).enter(id)
+      key(
+        declaration.body,
+        scoped,
+        lexicalBindings.copy(locals = replacements, expansionDepth = depth)
+      )
+    }
   }
 
   private def termQualifier(tpe: Type.Select, frame: Frame): Boolean = {
@@ -263,15 +352,20 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     if (imported(name, context.frame)) None
     else
       resolver.lookup(name, context.frame) match {
-        // A transparent alias is not a nominal constructor; equality needs scoped expansion.
+        // Aliases are expanded by `named`; abstract members remain unsupported.
         case List(entry) if entry.tree.is[Defn.Type] || entry.tree.is[Decl.Type] => None
         case List(entry)           => Some(s"source:${entry.owner.id}:${entry.tree.pos.start}")
         case Nil if builtins(name) => Some(s"builtin:$name")
-        case _                     => None
+        case Nil if name.startsWith("scala.") && builtins(name.stripPrefix("scala.")) =>
+          Some(s"builtin:${name.stripPrefix("scala.")}")
+        case _ => None
       }
 
   private def imported(name: String, frame: Frame): Boolean =
-    frame.chain.flatMap(_.stats).exists {
+    imports(name, frame.chain)
+
+  private def imports(name: String, scopes: List[Frame]): Boolean =
+    scopes.flatMap(_.stats).exists {
       case i: Import =>
         val tokens = i.syntax.split("[^\\p{L}\\p{N}_$*]+").toSet
         name.split('.').exists(tokens) || tokens("*") || tokens("_")

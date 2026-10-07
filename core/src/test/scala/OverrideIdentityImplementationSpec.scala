@@ -18,7 +18,7 @@ class OverrideIdentityImplementationSpec extends Specification {
       keeps a foreign method binder distinct from a class binder       $foreignBinder
       does not drop declarations at matching offsets in other files    $fileIdentity
       preserves a same-name overload with different arity              $overload
-      retains an obligation for transparent alias equivalence           $alias
+      recognizes transparent alias equivalence                          $alias
       does not classify a covariant return as an unrelated overload      $covariance
       ignores parameter annotations when identifying the target slot     $annotated
   """
@@ -112,10 +112,7 @@ class OverrideIdentityImplementationSpec extends Specification {
       type Alias[A] = A
       trait Base[A] { def get(a:Alias[A]):A }
       abstract class Instance[A] extends Base[A] { def get(a:A):A = a }
-    """) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inherited override identity")) must beTrue
-    }
+    """) === Count.Finite(1)
 
   def covariance =
     count("""

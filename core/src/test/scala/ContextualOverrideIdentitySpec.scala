@@ -22,9 +22,9 @@ class ContextualOverrideIdentitySpec extends Specification {
       compares legacy implicit and using clauses as contextual         $legacy
       compares using and legacy implicit in the reverse direction      $reverseLegacy
       ignores annotations on contextual parameters                     $annotated
+      expands transparent aliases in contextual inputs                 $alias
     Conservative boundaries
       does not guess identity across ordinary and contextual clauses   $ordinary
-      keeps transparent alias identity unresolved                      $alias
       keeps dependent contextual results unresolved                    $dependent
       keeps imported evidence identity unresolved                      $imported
       preserves additional unsupported contextual modifiers            $inlineParameter
@@ -124,13 +124,13 @@ class ContextualOverrideIdentitySpec extends Specification {
     """)
 
   def alias =
-    identityUnresolved("""
+    count("""
       type Alias[A] = A
       trait Base[A] { def get(a: A)(using fallback: Alias[A]): A }
       abstract class Instance[A] extends Base[A] {
         def get(a: A)(using fallback: A): A = a
       }
-    """)
+    """) === Count.Finite(2)
 
   def dependent =
     identityUnresolved("""

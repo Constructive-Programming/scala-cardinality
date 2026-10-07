@@ -225,9 +225,19 @@ legacy `implicit` clauses. Contextual arguments remain supplied inputs: a method
 scope. Its matching inherited declaration is not supplied again as a recursive capability.
 Parameter names and alpha-renamed method binders do not distinguish slots; nominal parameter
 types do. Ordinary/contextual convention mismatches with otherwise matching parameter keys,
-dependent results, unknown imports, transparent alias identity, and additional unsupported
+dependent results, unknown imports, and additional unsupported
 parameter modifiers remain obligations.
 This does not implement implicit search or normalize context-bound syntax into explicit clauses.
+
+Transparent first-order aliases are expanded in direct inherited signatures. For example,
+`type Id[A] = A` makes `get[A](a: Id[A]): Id[A]` the same slot as `get[B](b: B): B`.
+Expansion uses the alias's declaration scope, retains receiver substitutions across shadowing
+method binders, lets a nearer declaration or import shadow a farther binder, keeps a qualified
+selection distinct from a same-spelled method formal, and never equates distinct nominal types
+merely because their shapes agree. Closed, qualified, chained, and tuple aliases are supported.
+Recursive or opaque aliases, abstract type members, bounded or higher-kinded alias parameters, and
+type-lambda aliases remain guarded; expansion respects the configured type-depth limit, including
+nested argument positions.
 
 The refreshed eo-core 0.16.0 run reads **480 signatures: 30 finite, 2 countably infinite,
 448 unresolved**. The [review ledger](docs/baselines/eo-core-0.16.0-review.md) records the
