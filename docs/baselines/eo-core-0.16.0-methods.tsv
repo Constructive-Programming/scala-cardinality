@@ -1,0 +1,481 @@
+source	qualified_name	kind	enclosing_signature	signature	analyzer_count	review_status
+dev/constructive/eo/CanFold.scala	dev.constructive.eo.CanFold.<given>.foldMap	method	given [S, T, A, B, F[_, _]](using o: Optic[S, T, A, B, F], ff: ForgetfulFold[F], ): CanFold[S, A]	foldMap[M](f: A => M)(s: S)(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/CanFold.scala	dev.constructive.eo.CanFold.exists	method		exists(p: A => Boolean)(s: S): Boolean	?	unreviewed
+dev/constructive/eo/CanFold.scala	dev.constructive.eo.CanFold.foci	method		foci(s: S): List[A]	?	unreviewed
+dev/constructive/eo/CanFold.scala	dev.constructive.eo.CanFold.foldMap	declaration		foldMap[M](f: A => M)(s: S)(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/CanFold.scala	dev.constructive.eo.CanFold.headOption	method		headOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/CanFold.scala	dev.constructive.eo.CanFold.length	method		length(s: S): Int	?	unreviewed
+dev/constructive/eo/CanGet.scala	dev.constructive.eo.CanGet.get	declaration		get(s: S): A	0	model-reviewed
+dev/constructive/eo/CanGetOption.scala	dev.constructive.eo.CanGetOption.getOption	declaration		getOption(s: S): Option[A]	1	model-reviewed
+dev/constructive/eo/CanModify.scala	dev.constructive.eo.CanModifyP.modify	declaration		modify(f: A => B): S => T	0	unreviewed
+dev/constructive/eo/CanModify.scala	dev.constructive.eo.CanModifyP.replace	method		replace(b: B): S => T	1	model-reviewed
+dev/constructive/eo/CanModifyA.scala	dev.constructive.eo.CanModifyAP.<given>.modifyA	method	given [S, T, A, B, F[_, _]](using o: Optic[S, T, A, B, F], ft: ForgetfulTraverse[F, Applicative], ): CanModifyAP[S, T, A, B]	modifyA[G[_]](f: A => G[B])(using Applicative[G]): S => G[T]	?	unreviewed
+dev/constructive/eo/CanModifyA.scala	dev.constructive.eo.CanModifyAP.modifyA	declaration		modifyA[G[_]](f: A => G[B])(using Applicative[G]): S => G[T]	?	unreviewed
+dev/constructive/eo/CanModifyF.scala	dev.constructive.eo.CanModifyFP.<given>.modifyF	method	given [S, T, A, B, F[_, _]](using o: Optic[S, T, A, B, F], ft: ForgetfulTraverse[F, Functor], ): CanModifyFP[S, T, A, B]	modifyF[G[_]](f: A => G[B])(using Functor[G]): S => G[T]	?	unreviewed
+dev/constructive/eo/CanModifyF.scala	dev.constructive.eo.CanModifyFP.modifyF	declaration		modifyF[G[_]](f: A => G[B])(using Functor[G]): S => G[T]	?	unreviewed
+dev/constructive/eo/CanPlace.scala	dev.constructive.eo.CanPlace.from	method		from[S, T, A, B, F[_, _]](o: Optic[S, T, A, B, F])(using ff: ForgetfulFunctor[F], ev: T => F[o.X, B], ): CanPlace[T, B]	?	unreviewed
+dev/constructive/eo/CanPlace.scala	dev.constructive.eo.CanPlace.place	declaration		place(b: B): T => T	1	model-reviewed
+dev/constructive/eo/CanPlace.scala	dev.constructive.eo.CanPlace.transfer	method		transfer[C](f: C => B): T => C => T	ω	model-reviewed
+dev/constructive/eo/CanPut.scala	dev.constructive.eo.CanPutP.put	declaration		put(f: A => B): A => T	0	unreviewed
+dev/constructive/eo/CanReverseGet.scala	dev.constructive.eo.CanReverseGet.reverseGet	declaration		reverseGet(b: B): T	0	unreviewed
+dev/constructive/eo/CanTransform.scala	dev.constructive.eo.CanTransform.from	method		from[S, T, A, B, D, F[_, _]](o: Optic[S, T, A, B, F])(using ff: ForgetfulFunctor[F], ev: T => F[o.X, D], ): CanTransform[T, D, B]	?	unreviewed
+dev/constructive/eo/CanTransform.scala	dev.constructive.eo.CanTransform.transform	declaration		transform(f: D => B): T => T	1	unreviewed
+dev/constructive/eo/accessor/Accessor.scala	dev.constructive.eo.accessor.Accessor.get	declaration		get[X, A](fa: F[X, A]): A	?	unreviewed
+dev/constructive/eo/accessor/Accessor.scala	dev.constructive.eo.accessor.Accessor.tupleAccessor.get	method	given : Accessor[Tuple2]	get[X, A](fa: (X, A)): A	1	unreviewed
+dev/constructive/eo/accessor/PartialAccessor.scala	dev.constructive.eo.accessor.PartialAccessor.affineAccessor.getOption	method	given : PartialAccessor[Affine]	getOption[X, A](fa: Affine[X, A]): Option[A]	?	unreviewed
+dev/constructive/eo/accessor/PartialAccessor.scala	dev.constructive.eo.accessor.PartialAccessor.eitherAccessor.getOption	method	given : PartialAccessor[Either]	getOption[X, A](fa: Either[X, A]): <inferred>	?	unreviewed
+dev/constructive/eo/accessor/PartialAccessor.scala	dev.constructive.eo.accessor.PartialAccessor.getOption	declaration		getOption[X, A](fa: F[X, A]): Option[A]	?	unreviewed
+dev/constructive/eo/accessor/ReverseAccessor.scala	dev.constructive.eo.accessor.ReverseAccessor.eitherRevAccessor.reverseGet	method	given : ReverseAccessor[Either]	reverseGet[X, A](a: A): Either[X, A]	1	unreviewed
+dev/constructive/eo/accessor/ReverseAccessor.scala	dev.constructive.eo.accessor.ReverseAccessor.reverseGet	declaration		reverseGet[X, A](a: A): F[X, A]	?	unreviewed
+dev/constructive/eo/compose/AssociativeFunctor.scala	dev.constructive.eo.compose.AssociativeFunctor.composeFrom	declaration		composeFrom[S, T, A, B, C, D]( xd: F[Z, D], inner: Optic[A, B, C, D, F] { type X = Xi }, outer: Optic[S, T, A, B, F] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/compose/AssociativeFunctor.scala	dev.constructive.eo.compose.AssociativeFunctor.composeTo	declaration		composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, F] { type X = Xo }, inner: Optic[A, B, C, D, F] { type X = Xi }, ): F[Z, C]	?	unreviewed
+dev/constructive/eo/compose/AssociativeFunctor.scala	dev.constructive.eo.compose.AssociativeFunctor.eitherAssocF.composeFrom	method	given [Xo, Xi]: AssociativeFunctor[Either, Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: Either[Z, D], inner: Optic[A, B, C, D, Either] { type X = Xi }, outer: Optic[S, T, A, B, Either] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/compose/AssociativeFunctor.scala	dev.constructive.eo.compose.AssociativeFunctor.eitherAssocF.composeTo	method	given [Xo, Xi]: AssociativeFunctor[Either, Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Either] { type X = Xo }, inner: Optic[A, B, C, D, Either] { type X = Xi }, ): Either[Z, C]	?	unreviewed
+dev/constructive/eo/compose/AssociativeFunctor.scala	dev.constructive.eo.compose.AssociativeFunctor.tupleAssocF.composeFrom	method	given [Xo, Xi]: AssociativeFunctor[Tuple2, Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: (Z, D), inner: Optic[A, B, C, D, Tuple2] { type X = Xi }, outer: Optic[S, T, A, B, Tuple2] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/compose/AssociativeFunctor.scala	dev.constructive.eo.compose.AssociativeFunctor.tupleAssocF.composeTo	method	given [Xo, Xi]: AssociativeFunctor[Tuple2, Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Tuple2] { type X = Xo }, inner: Optic[A, B, C, D, Tuple2] { type X = Xi }, ): (Z, C)	?	unreviewed
+dev/constructive/eo/compose/Composer.scala	dev.constructive.eo.compose.Composer.direct2either.to	method	given : Composer[Direct, Either]	to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, Either]	?	unreviewed
+dev/constructive/eo/compose/Composer.scala	dev.constructive.eo.compose.Composer.direct2forget.to	method	given [F[_]](using F: Applicative[F], FF: Foldable[F], ): Composer[Direct, Forget[F]]	to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, Forget[F]]	?	unreviewed
+dev/constructive/eo/compose/Composer.scala	dev.constructive.eo.compose.Composer.direct2tuple.to	method	given : Composer[Direct, Tuple2]	to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, Tuple2]	?	unreviewed
+dev/constructive/eo/compose/Composer.scala	dev.constructive.eo.compose.Composer.to	declaration		to[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, G]	?	unreviewed
+dev/constructive/eo/compose/Composer.scala	dev.constructive.eo.compose.LowPriorityComposerInstances.chainViaTuple2.to	method	given [F[_, _], G[_, _]](using f2tuple: Composer[F, Tuple2], tuple2g: Composer[Tuple2, G], ): Composer[F, G]	to[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, G]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.LowPriorityMorphInstances.bothViaAffine.morphO	method	given [F[_, _], G[_, _]](using cf: Composer[F, Affine], cg: Composer[G, Affine], ): Morph[F, G]	morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, Affine]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.LowPriorityMorphInstances.bothViaAffine.morphSelf	method	given [F[_, _], G[_, _]](using cf: Composer[F, Affine], cg: Composer[G, Affine], ): Morph[F, G]	morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, Affine]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.leftToRight.morphO	method	given [F[_, _], G[_, _]](using cf: Composer[F, G]): Morph[F, G]	morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, G]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.leftToRight.morphSelf	method	given [F[_, _], G[_, _]](using cf: Composer[F, G]): Morph[F, G]	morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, G]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.morphO	declaration		morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, Out]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.morphSelf	declaration		morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, Out]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.rightToLeft.morphO	method	given [F[_, _], G[_, _]](using cg: Composer[G, F]): Morph[F, G]	morphO[A, B, C, D](o: Optic[A, B, C, D, G]): Optic[A, B, C, D, F]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.rightToLeft.morphSelf	method	given [F[_, _], G[_, _]](using cg: Composer[G, F]): Morph[F, G]	morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, F]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.same.morphO	method	given [F[_, _]]: Morph[F, F]	morphO[A, B, C, D](o: Optic[A, B, C, D, F]): Optic[A, B, C, D, F]	?	unreviewed
+dev/constructive/eo/compose/Morph.scala	dev.constructive.eo.compose.Morph.same.morphSelf	method	given [F[_, _]]: Morph[F, F]	morphSelf[S, T, A, B](o: Optic[S, T, A, B, F]): Optic[S, T, A, B, F]	?	unreviewed
+dev/constructive/eo/compose/ReadCompose.scala	dev.constructive.eo.compose.LowPriorityReadCompose.foldFold.compose	method	given [F[_, _], G[_, _]](using FF: ForgetfulFold[F], FG: ForgetfulFold[G], ): ReadCompose[F, G]	compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): ForgetFold[S, List, C]	?	unreviewed
+dev/constructive/eo/compose/ReadCompose.scala	dev.constructive.eo.compose.ReadCompose.compose	declaration		compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): Out[S, C]	?	unreviewed
+dev/constructive/eo/compose/ReadCompose.scala	dev.constructive.eo.compose.ReadCompose.partialPartial.compose	method	given [F[_, _], G[_, _]](using PO: PartialAccessor[F], PI: PartialAccessor[G], ): ReadCompose[F, G]	compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): PickFold[S, C]	?	unreviewed
+dev/constructive/eo/compose/ReadCompose.scala	dev.constructive.eo.compose.ReadCompose.partialTotal.compose	method	given [F[_, _], G[_, _]](using PO: PartialAccessor[F], AI: Accessor[G], ): ReadCompose[F, G]	compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): PickFold[S, C]	?	unreviewed
+dev/constructive/eo/compose/ReadCompose.scala	dev.constructive.eo.compose.ReadCompose.totalPartial.compose	method	given [F[_, _], G[_, _]](using AO: Accessor[F], PI: PartialAccessor[G], ): ReadCompose[F, G]	compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): PickFold[S, C]	?	unreviewed
+dev/constructive/eo/compose/ReadCompose.scala	dev.constructive.eo.compose.ReadCompose.totalTotal.compose	method	given [F[_, _], G[_, _]](using AO: Accessor[F], AI: Accessor[G], ): ReadCompose[F, G]	compose[S, T, A, B, V, C, D]( outer: Optic[S, T, A, B, F], inner: Optic[A, V, C, D, G], ): Getter[S, C]	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Hit.<init>	constructor		Hit[A, +B](val snd: Snd[A], val b: B)	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Hit.equals	method		equals(that: Any): Boolean	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Hit.hashCode	method		hashCode(): Int	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Hit.toString	method		toString(): String	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Miss.<init>	constructor		Miss[A](val fst: Fst[A])	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Miss.equals	method		equals(that: Any): Boolean	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Miss.hashCode	method		hashCode(): Int	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.Miss.toString	method		toString(): String	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.aFold	method		aFold[C]( f: Fst[A] => Affine[A, C], g: ((Snd[A], B)) => Affine[A, C], ): Affine[A, C]	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.aTraverse	method		aTraverse[C, G[_]: Applicative](f: B => G[C]): G[Affine[A, C]]	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.assoc.composeFrom	method	given [Xo, Xi]: AssociativeFunctor[Affine, Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: Affine[Z, D], inner: Optic[A, B, C, D, Affine] { type X = Xi }, outer: Optic[S, T, A, B, Affine] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.assoc.composeTo	method	given [Xo, Xi]: AssociativeFunctor[Affine, Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Affine] { type X = Xo }, inner: Optic[A, B, C, D, Affine] { type X = Xi }, ): Affine[Z, C]	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.either2affine.to	method	given : Composer[Either, Affine]	to[S, T, A, B](o: Optic[S, T, A, B, Either]): Optic[S, T, A, B, Affine]	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.fold	method		fold[C](onMiss: Fst[A] => C, onHit: (Snd[A], B) => C): C	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.fold.foldMap	method	given : ForgetfulFold[Affine]	foldMap[X, A, M: Monoid](f: A => M, fa: Affine[X, A]): M	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.map.map	method	given : ForgetfulFunctor[Affine]	map[X, A, B](fa: Affine[X, A], f: A => B): Affine[X, B]	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.traverse.traverse	method	given : ForgetfulTraverse[Affine, Applicative]	traverse[X, A, B, G[_]: Applicative](fa: Affine[X, A], f: A => G[B]): G[Affine[X, B]]	?	unreviewed
+dev/constructive/eo/data/Affine.scala	dev.constructive.eo.data.Affine.tuple2affine.to	method	given : Composer[Tuple2, Affine]	to[S, T, A, B](o: Optic[S, T, A, B, Tuple2]): Optic[S, T, A, B, Affine]	?	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.<extension>.value	method	extension [X, A](d: Direct[X, A])	value: A	1	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.accessor.get	method	given : Accessor[Direct]	get[X, A](fa: Direct[X, A]): A	1	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.applicative.map	method	given : ForgetfulApplicative[Direct]	map[X, A, B](fa: Direct[X, A], f: A => B): Direct[X, B]	1	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.applicative.pure	method	given : ForgetfulApplicative[Direct]	pure[X, A](a: A): Direct[X, A]	1	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.apply	method		apply[X, A](a: A): Direct[X, A]	1	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.assoc.composeFrom	method	given [Xo, Xi]: AssociativeFunctor[Direct, Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: D, inner: Optic[A, B, C, D, Direct] { type X = Xi }, outer: Optic[S, T, A, B, Direct] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.assoc.composeTo	method	given [Xo, Xi]: AssociativeFunctor[Direct, Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, Direct] { type X = Xo }, inner: Optic[A, B, C, D, Direct] { type X = Xi }, ): C	?	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.fold.foldMap	method	given : ForgetfulFold[Direct]	foldMap[X, A, M: Monoid](f: A => M, fa: Direct[X, A]): M	?	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.reverseAccessor.reverseGet	method	given : ReverseAccessor[Direct]	reverseGet[X, A](a: A): Direct[X, A]	1	unreviewed
+dev/constructive/eo/data/Direct.scala	dev.constructive.eo.data.Direct.traverse.traverse	method	given : ForgetfulTraverse[Direct, Invariant]	traverse[X, A, B, G[_]: Invariant](fa: Direct[X, A], f: A => G[B]): G[Direct[X, B]]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.<extension>.value	method	extension [F[_], X, A](self: ForgetK[F, X, A])	value: F[A]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.ForgetPull.monadicPull.redistribute	method	given [F[_]: Applicative]: ForgetPull[F]	redistribute[D, B](xd: F[D])(fromInner: F[D] => B): F[B]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.ForgetPull.redistribute	declaration		redistribute[D, B](xd: F[D])(fromInner: F[D] => B): F[B]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.apply	method		apply[F[_], X, A](fa: F[A]): ForgetK[F, X, A]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.assocFor	method		assocFor[F[_]: FlatMap, Xo, Xi]( pull: ForgetPull[F] ): AssociativeFunctor[Forget[F], Xo, Xi]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.bifunctor.bimap	method	given [F[_]: Functor]: Bifunctor[Forget[F]]	bimap[A, B, C, D](fab: Forget[F][A, B])(f: A => C, g: B => D): Forget[F][C, D]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFApplicative.map	method	given [F[_]: Applicative]: ForgetfulApplicative[Forget[F]]	map[X, A, B](fa: Forget[F][X, A], f: A => B): Forget[F][X, B]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFApplicative.pure	method	given [F[_]: Applicative]: ForgetfulApplicative[Forget[F]]	pure[X, A](a: A): Forget[F][X, A]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFFold.foldMap	method	given [F[_]: Foldable]: ForgetfulFold[Forget[F]]	foldMap[X, A, M: Monoid](f: A => M, fa: Forget[F][X, A]): M	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFFunctor.map	method	given [F[_]](using F: Functor[F]): ForgetfulFunctor[Forget[F]]	map[X, A, B](fa: Forget[F][X, A], f: A => B): Forget[F][X, B]	?	unreviewed
+dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFTraverse.traverse	method	given [F[_]: Traverse]: ForgetfulTraverse[Forget[F], Applicative]	traverse[X, A, B, G[_]: Applicative]( fa: Forget[F][X, A], f: A => G[B], ): G[Forget[F][X, B]]	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.<init>	constructor		IntArrBuilder(initialCapacity: Int = 16)	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.append	method		append(x: Int): Unit	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.freeze	method		freeze: Array[Int]	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.grow	method		grow(minCap: Int): Unit	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.grow.doubleTo	method		doubleTo(cap: Int): Int	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.size	method		size: Int	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.unsafeAppend	method		unsafeAppend(x: Int): Unit	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.<init>	constructor		ModifyF[A, B](val modifier: (Fst[A], Snd[A] => B))	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.affine2modify.to	method	given : Composer[Affine, ModifyF]	to[S, T, A, B](o: optics.Optic[S, T, A, B, Affine]): optics.Optic[S, T, A, B, ModifyF]	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.assocModifyF.composeFrom	method	given [Xo, Xi]: AssociativeFunctor[ModifyF, Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: ModifyF[Z, D], inner: optics.Optic[A, B, C, D, ModifyF] { type X = Xi }, outer: optics.Optic[S, T, A, B, ModifyF] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.assocModifyF.composeTo	method	given [Xo, Xi]: AssociativeFunctor[ModifyF, Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: optics.Optic[S, T, A, B, ModifyF] { type X = Xo }, inner: optics.Optic[A, B, C, D, ModifyF] { type X = Xi }, ): ModifyF[Z, C]	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.coerceToModify	method		coerceToModify[F[_, _], S, T, A, B]( applyWrite: (S, A => B) => T ): optics.Optic[S, T, A, B, ModifyF]	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.either2modify.to	method	given : Composer[Either, ModifyF]	to[S, T, A, B](o: optics.Optic[S, T, A, B, Either]): optics.Optic[S, T, A, B, ModifyF]	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.map.map	method	given : ForgetfulFunctor[ModifyF]	map[X, B, C](fa: ModifyF[X, B], f: B => C): ModifyF[X, C]	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.traverse.traverse	method	given : ForgetfulTraverse[ModifyF, Distributive]	traverse[X, B, C, G[_]](fa: ModifyF[X, B], g: B => G[C])(using D: Distributive[G] ): G[ModifyF[X, C]]	?	unreviewed
+dev/constructive/eo/data/ModifyF.scala	dev.constructive.eo.data.ModifyF.tuple2modify.to	method	given : Composer[Tuple2, ModifyF]	to[S, T, A, B](o: optics.Optic[S, T, A, B, Tuple2]): optics.Optic[S, T, A, B, ModifyF]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocus.apply	method		apply[F[_], X, A](x: X, fa: F[A]): MultiFocusK[F, X, A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forChain.fromList	method	given : MultiFocusFromList[Chain]	fromList[A](xs: List[A]): Chain[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forList.fromArraySlice	method	given : MultiFocusFromList[List]	fromArraySlice[A](arr: Array[Any], from: Int, size: Int): List[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forList.fromList	method	given : MultiFocusFromList[List]	fromList[A](xs: List[A]): List[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forOption.fromList	method	given : MultiFocusFromList[Option]	fromList[A](xs: List[A]): Option[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forPSVec.fromArraySlice	method	given : MultiFocusFromList[PSVec]	fromArraySlice[A](arr: Array[Any], from: Int, size: Int): PSVec[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forPSVec.fromList	method	given : MultiFocusFromList[PSVec]	fromList[A](xs: List[A]): PSVec[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forVector.fromArraySlice	method	given : MultiFocusFromList[Vector]	fromArraySlice[A](arr: Array[Any], from: Int, size: Int): Vector[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.forVector.fromList	method	given : MultiFocusFromList[Vector]	fromList[A](xs: List[A]): Vector[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.fromArraySlice	method		fromArraySlice[A](arr: Array[Any], from: Int, size: Int): F[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusFromList.fromList	declaration		fromList[A](xs: List[A]): F[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.at	method	extension [S, T, A, B, F[_]](o: Optic[S, T, A, B, MultiFocus[F]])(using F: Representable[F])	at(i: F.Representation): S => A	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.collectList	method	extension [S, T, A, B](o: Optic[S, T, A, B, MultiFocus[List]])	collectList(agg: List[A] => B)(using ev: S =:= List[A], ev2: T =:= List[B]): S => T	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.collectMap	method	extension [S, T, A, B, F[_]](o: Optic[S, T, A, B, MultiFocus[F]])(using F: Functor[F])	collectMap[C](agg: F[A] => C)(using ev: C =:= B): S => T	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.collectWith	method	extension [S, T, A, B, F[_]](o: Optic[S, T, A, B, MultiFocus[F]])(using F: Functor[F])	collectWith(agg: F[A] => A => B): S => T	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.context	method	extension [F[_], X, A](self: MultiFocusK[F, X, A])	context: X	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.foci	method	extension [F[_], X, A](self: MultiFocusK[F, X, A])	foci: F[A]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.AssocSndZ.<init>	constructor		AssocSndZ[Xo, Xi]( val xo: Xo, val lens: Array[Int] | Null, val ys: Array[Any], )	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.affine2multifocus.to	method	given [F[_]: Alternative: Foldable]: Composer[Affine, MultiFocus[F]]	to[S, T, A, B](o: Optic[S, T, A, B, Affine]): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.affine2multifocusPSVec.to	method	given : Composer[Affine, MultiFocus[PSVec]]	to[S, T, A, B](o: Optic[S, T, A, B, Affine]): Optic[S, T, A, B, MultiFocus[PSVec]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.apply	method		apply[F[_], A]: Optic[F[A], F[A], A, A, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.either2multifocus.to	method	given [F[_]: Alternative: Foldable]: Composer[Either, MultiFocus[F]]	to[S, T, A, B](o: Optic[S, T, A, B, Either]): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.either2multifocusPSVec.to	method	given : Composer[Either, MultiFocus[PSVec]]	to[S, T, A, B](o: Optic[S, T, A, B, Either]): Optic[S, T, A, B, MultiFocus[PSVec]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.foldableToArray	method		foldableToArray[F[_]: Foldable, D](fd: F[D]): Array[Any]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.forget2multifocus.to	method	given [F[_]]: Composer[Forget[F], MultiFocus[F]]	to[S, T, A, B](o: Optic[S, T, A, B, Forget[F]]): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.forgetful2multifocus.to	method	given [F[_]: Applicative: Foldable]: Composer[Direct, MultiFocus[F]]	to[S, T, A, B](o: Optic[S, T, A, B, Direct]): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.forgetful2multifocusFunction1.to	method	given [X0]: Composer[Direct, MultiFocus[Function1[X0, *]]]	to[S, T, A, B]( o: Optic[S, T, A, B, Direct] ): Optic[S, T, A, B, MultiFocus[Function1[X0, *]]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.fromLensF	method		fromLensF[F[_], S, T, A, B]( lens: Optic[S, T, F[A], F[B], Tuple2] ): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.fromOptionalF	method		fromOptionalF[F[_]: MonoidK, S, T, A, B]( opt: Optic[S, T, F[A], F[B], Affine] ): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.fromPrismF	method		fromPrismF[F[_]: MonoidK, S, T, A, B]( prism: Optic[S, T, F[A], F[B], Either] ): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssoc.composeFrom	method	given [F[_]: Traverse: MultiFocusFromList, Xo, Xi]: AssociativeFunctor[MultiFocus[F], Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: MultiFocus[F][Z, D], inner: Optic[A, B, C, D, MultiFocus[F]] { type X = Xi }, outer: Optic[S, T, A, B, MultiFocus[F]] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssoc.composeTo	method	given [F[_]: Traverse: MultiFocusFromList, Xo, Xi]: AssociativeFunctor[MultiFocus[F], Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, MultiFocus[F]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[F]] { type X = Xi }, ): MultiFocus[F][Z, C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocFunction1.composeFrom	method	given [X0, Xo, Xi]: AssociativeFunctor[MultiFocus[Function1[X0, *]], Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: MultiFocus[Function1[X0, *]][Z, D], inner: Optic[A, B, C, D, MultiFocus[Function1[X0, *]]] { type X = Xi }, outer: Optic[S, T, A, B, MultiFocus[Function1[X0, *]]] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocFunction1.composeTo	method	given [X0, Xo, Xi]: AssociativeFunctor[MultiFocus[Function1[X0, *]], Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, MultiFocus[Function1[X0, *]]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[Function1[X0, *]]] { type X = Xi }, ): MultiFocus[Function1[X0, *]][Z, C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.composeFrom	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	composeFrom[S, T, A, B, C, D]( xd: MultiFocus[PSVec][Z, D], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, outer: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }, ): T	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.composeTo	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	composeTo[S, T, A, B, C, D]( s: S, outer: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, ): MultiFocus[PSVec][Z, C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.genericTo	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	genericTo[A, B, C, D]( xo: Xo, va: PSVec[A], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, ): MultiFocus[PSVec][Z, C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.genericTo.loop	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	loop(i: Int): Unit	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.maybeHitTo	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	maybeHitTo[A, B, C, D]( xo: Xo, va: PSVec[A], mh: MultiFocusPSMaybeHit[A, B, C, D], ): MultiFocus[PSVec][Z, C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.maybeHitTo.loop	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	loop(i: Int): Unit	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singleOuterTo	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	singleOuterTo[A, B, C, D]( xo: Xo, va: PSVec[A], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, ): MultiFocus[PSVec][Z, C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singletonTo	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	singletonTo[A, B, C, D]( xo: Xo, va: PSVec[A], ah: MultiFocusSingleton[A, B, C, D, Xi], ): MultiFocus[PSVec][Z, C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singletonTo.loop	method	given [Xo, Xi]: AssociativeFunctor[MultiFocus[PSVec], Xo, Xi]	loop(i: Int): Unit	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfFold.foldMap	method	given [F[_]: Foldable]: ForgetfulFold[MultiFocus[F]]	foldMap[X, A, M: Monoid](f: A => M, xa: MultiFocus[F][X, A]): M	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfFunctor.map	method	given [F[_]: Functor]: ForgetfulFunctor[MultiFocus[F]]	map[X, A, B](xa: MultiFocus[F][X, A], f: A => B): MultiFocus[F][X, B]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.mfTraverse.traverse	method	given [F[_]: Traverse]: ForgetfulTraverse[MultiFocus[F], Applicative]	traverse[X, A, B, G[_]: Applicative]( xa: MultiFocus[F][X, A], f: A => G[B], ): G[MultiFocus[F][X, B]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.multifocus2forget.to	method	given [F[_]]: Composer[MultiFocus[F], Forget[F]]	to[S, T, A, B](o: Optic[S, T, A, B, MultiFocus[F]]): Optic[S, T, A, B, Forget[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.multifocus2modify.to	method	given [F[_]: Functor]: Composer[MultiFocus[F], ModifyF]	to[S, T, A, B](o: Optic[S, T, A, B, MultiFocus[F]]): Optic[S, T, A, B, ModifyF]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.pApply	method		pApply[F[_], A, B]: Optic[F[A], F[B], A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.pickSingletonOrThrow	method		pickSingletonOrThrow[F[_]: Foldable, B](fb: F[B], carrier: String): B	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.representable	method		representable[F[_], A](using F: Representable[F] ): Optic[F[A], F[A], A, A, MultiFocus[Function1[F.Representation, *]]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.representableAt	method		representableAt[F[_], A](F: Representable[F])( repr0: F.Representation ): Optic[F[A], F[A], A, A, MultiFocus[Function1[F.Representation, *]]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.tuple	method		tuple[T <: Tuple, A](using sz: ValueOf[Tuple.Size[T]], ev: Tuple.Union[T] <:< A, ): Optic[T, T, A, A, MultiFocus[Function1[Int, *]]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.tuple2multifocus.to	method	given [F[_]: Applicative: Foldable]: Composer[Tuple2, MultiFocus[F]]	to[S, T, A, B](o: Optic[S, T, A, B, Tuple2]): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.tuple2multifocusPSVec.to	method	given : Composer[Tuple2, MultiFocus[PSVec]]	to[S, T, A, B](o: Optic[S, T, A, B, Tuple2]): Optic[S, T, A, B, MultiFocus[PSVec]]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.zip	method		zip[F[_], A, B](fa: F[A], fb: F[B])(using Representable[F]): F[(A, B)]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.zipWith	method		zipWith[F[_], A, B, C](fa: F[A], fb: F[B])(f: (A, B) => C)(using F: Representable[F]): F[C]	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusPSMaybeHit.collectTo	declaration		collectTo( s: S, lenBuf: IntArrBuilder, ysBuf: ObjArrBuilder, flatBuf: ObjArrBuilder, ): Unit	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusPSMaybeHit.reconstructSingleton	declaration		reconstructSingleton(y: Any, vys: PSVec[B], pos: Int, len: Int): T	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusSingleton.collectSingletonTo	method		collectSingletonTo(s: S, ysBuf: ObjArrBuilder, flatBuf: ObjArrBuilder): Unit	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusSingleton.singletonFrom	declaration		singletonFrom(x: X0, b: B): T	0	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusSingleton.singletonTo	declaration		singletonTo(s: S): (X0, A)	0	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.<init>	constructor		ObjArrBuilder(initialCapacity: Int = 16)	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.append	method		append(x: Any): Unit	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.appendAllFromPSVec	method		appendAllFromPSVec[A](src: PSVec[A]): Unit	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.freezeArr	method		freezeArr: Array[Any]	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.freezeAsPSVec	method		freezeAsPSVec[A]: PSVec[A]	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.grow	method		grow(minCap: Int): Unit	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.grow.doubleTo	method		doubleTo(cap: Int): Int	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.size	method		size: Int	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.unsafeAppend	method		unsafeAppend(x: Any): Unit	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Empty.apply	method		apply(i: Int): Nothing	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Empty.head	method		head: Nothing	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Empty.length	method		length: Int	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Empty.slice	method		slice(from: Int, until: Int): PSVec[Nothing]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.<init>	constructor		Single[+B](val b: B)	1	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.apply	method		apply(i: Int): B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.head	method		head: B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.length	method		length: Int	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.slice	method		slice(from: Int, until: Int): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.toAnyArray	method		toAnyArray: Array[Any]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.<init>	constructor		Slice[+B]( private[data] val arr: Array[Any], private[data] val offset: Int, val length: Int, )	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.apply	method		apply(i: Int): B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.head	method		head: B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.slice	method		slice(from: Int, until: Int): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.toAnyArray	method		toAnyArray: Array[Any]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.unsafeShareableArray	method		unsafeShareableArray: Array[Any]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.apply	declaration		apply(i: Int): B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.empty	method		empty[B]: PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.equals	method		equals(that: Any): Boolean	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.from	method		from[B](arr: Array[B]): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.from	method		from[B](xs: IterableOnce[B]): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.from	method		from[T[_]: Foldable, A](ta: T[A]): PSVec[A]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.hashCode	method		hashCode(): Int	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.hashCode.loop	method		loop(i: Int, h: Int): Int	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.head	declaration		head: B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.isEmpty	method		isEmpty: Boolean	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.iterator	method		iterator: Iterator[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.knownSize	method		knownSize: Int	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.length	declaration		length: Int	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.of	method		of[B](b0: B, b1: B): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecFoldable.foldLeft	method	given : Foldable[PSVec]	foldLeft[A, B](fa: PSVec[A], b: B)(f: (B, A) => B): B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecFoldable.foldLeft.loop	method	given : Foldable[PSVec]	loop(i: Int, acc: B): B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecFoldable.foldRight	method	given : Foldable[PSVec]	foldRight[A, B](fa: PSVec[A], lb: Eval[B])( f: (A, Eval[B]) => Eval[B] ): Eval[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecFoldable.foldRight.loop	method	given : Foldable[PSVec]	loop(i: Int): Eval[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecFoldable.size	method	given : Foldable[PSVec]	size[A](fa: PSVec[A]): Long	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecFunctor.map	method	given : Functor[PSVec]	map[A, B](fa: PSVec[A])(f: A => B): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecTraverse.foldLeft	method	given : Traverse[PSVec]	foldLeft[A, B](fa: PSVec[A], b: B)(f: (B, A) => B): B	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecTraverse.foldRight	method	given : Traverse[PSVec]	foldRight[A, B](fa: PSVec[A], lb: Eval[B])( f: (A, Eval[B]) => Eval[B] ): Eval[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.pSVecTraverse.traverse	method	given : Traverse[PSVec]	traverse[G[_]: Applicative, A, B](fa: PSVec[A])(f: A => G[B]): G[PSVec[B]]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.singleton	method		singleton[B](b: B): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.slice	declaration		slice(from: Int, until: Int): PSVec[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.toAnyArray	declaration		toAnyArray: Array[Any]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.toList	method		toList: List[B]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.toString	method		toString(): String	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.unsafeShareableArray	method		unsafeShareableArray: Array[Any]	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.unsafeWrap	method		unsafeWrap[B](arr: Array[Any]): PSVec[B]	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulApplicative.scala	dev.constructive.eo.forgetful.ForgetfulApplicative.pure	declaration		pure[X, A](a: A): F[X, A]	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulFold.scala	dev.constructive.eo.forgetful.ForgetfulFold.eitherFFold.foldMap	method	given : ForgetfulFold[Either]	foldMap[X, A, M: Monoid](f: A => M, ea: Either[X, A]): M	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulFold.scala	dev.constructive.eo.forgetful.ForgetfulFold.foldMap	declaration		foldMap[X, A, M: Monoid](f: A => M, fa: F[X, A]): M	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulFold.scala	dev.constructive.eo.forgetful.ForgetfulFold.tupleFFold.foldMap	method	given : ForgetfulFold[Tuple2]	foldMap[X, A, M: Monoid](f: A => M, fa: (X, A)): M	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulFunctor.scala	dev.constructive.eo.forgetful.ForgetfulFunctor.directEither.map	method	given : ForgetfulFunctor[Either]	map[X, A, B](fa: Either[X, A], f: A => B): Either[X, B]	1	unreviewed
+dev/constructive/eo/forgetful/ForgetfulFunctor.scala	dev.constructive.eo.forgetful.ForgetfulFunctor.directTuple.map	method	given : ForgetfulFunctor[Tuple2]	map[X, A, B](fa: (X, A), f: A => B): (X, B)	1	unreviewed
+dev/constructive/eo/forgetful/ForgetfulFunctor.scala	dev.constructive.eo.forgetful.ForgetfulFunctor.map	declaration		map[X, A, B](fa: F[X, A], f: A => B): F[X, B]	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulTraverse.scala	dev.constructive.eo.forgetful.ForgetfulTraverse.eitherFTraverse.traverse	method	given : ForgetfulTraverse[Either, Applicative]	traverse[X, A, B, G[_]: Applicative](fa: Either[X, A], f: A => G[B]): G[Either[X, B]]	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulTraverse.scala	dev.constructive.eo.forgetful.ForgetfulTraverse.traverse	declaration		traverse[X, A, B, G[_]: C](fa: F[X, A], f: A => G[B]): G[F[X, B]]	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulTraverse.scala	dev.constructive.eo.forgetful.ForgetfulTraverse.tupleFTraverse.traverse	method	given : ForgetfulTraverse[Tuple2, Functor]	traverse[X, A, B, G[_]: Functor](fa: (X, A), f: A => G[B]): G[(X, B)]	?	unreviewed
+dev/constructive/eo/forgetful/ForgetfulTraverse.scala	dev.constructive.eo.forgetful.ForgetfulTraverse.tupleFTraverseApplicative.traverse	method	given : ForgetfulTraverse[Tuple2, Applicative]	traverse[X, A, B, G[_]: Applicative](fa: (X, A), f: A => G[B]): G[(X, B)]	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.AffineFold.apply	method		apply[S, A](matches: S => Option[A]): PickFold[S, A]	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.AffineFold.select	method		select[A](p: A => Boolean): PickFold[A, A]	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.<init>	constructor		PickFold[S, A](val pick: S => Option[A])	2	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.andThen	method		andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[Affine, G] ): rc.Out[S, C]	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.andThen	method		andThen[C, IT, IB, FI[_, _]](inner: Optic[A, IT, C, IB, FI])(using rc: ReadCompose[Affine, FI] ): rc.Out[S, C]	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.andThen	method		andThen[C](inner: PickFold[A, C]): PickFold[S, C]	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.foldMap	method		foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.from	method		from(a: Affine[X, Unit]): Unit	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.getOption	method		getOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/optics/AffineFold.scala	dev.constructive.eo.optics.PickFold.to	method		to(s: S): Affine[X, A]	?	unreviewed
+dev/constructive/eo/optics/At.scala	dev.constructive.eo.optics.At.apply	method		apply[K, V](k: K): GetReplaceLens[Map[K, V], Map[K, V], Option[V], Option[V]]	?	unreviewed
+dev/constructive/eo/optics/Each.scala	dev.constructive.eo.optics.Each.apply	method		apply[T[_]: Traverse, A]: Traversal[T[A], T[A], A, A]	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.Fold.apply	method		apply[F[_], A](using Foldable[F]): ForgetFold[F[A], F, A]	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.Fold.select	method		select[A](p: A => Boolean): ForgetFold[A, Option, A]	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.ForgetFold.<init>	constructor		ForgetFold[S, F[_], A]( val read: S => F[A] )(using FF: Foldable[F])	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.ForgetFold.andThen	method		andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[Forget[F], G] ): rc.Out[S, C]	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.ForgetFold.andThen	method		andThen[C, IT, IB, FI[_, _]](inner: Optic[A, IT, C, IB, FI])(using rc: ReadCompose[Forget[F], FI] ): rc.Out[S, C]	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.ForgetFold.andThen	method		andThen[C](inner: ForgetFold[A, F, C])(using FM: FlatMap[F]): ForgetFold[S, F, C]	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.ForgetFold.foldMap	method		foldMap[M](f: A => M)(s: S)(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.ForgetFold.from	method		from(u: Forget[F][X, Unit]): Unit	?	unreviewed
+dev/constructive/eo/optics/Fold.scala	dev.constructive.eo.optics.ForgetFold.to	method		to(s: S): Forget[F][X, A]	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.<init>	constructor		Getter[S, A](read: S => A)	1	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.andThen	method		andThen[B](inner: Getter[A, B]): Getter[S, B]	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.andThen	method		andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[Direct, G] ): rc.Out[S, C]	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.andThen	method		andThen[C, IT, IB, FI[_, _]](inner: Optic[A, IT, C, IB, FI])(using rc: ReadCompose[Direct, FI] ): rc.Out[S, C]	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.apply	method		apply[S, A](get: S => A): Getter[S, A]	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.foldMap	method		foldMap[M](f: A => M)(s: S)(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.from	method		from(d: Direct[X, Unit]): Unit	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.get	method		get(s: S): A	?	unreviewed
+dev/constructive/eo/optics/Getter.scala	dev.constructive.eo.optics.Getter.to	method		to(s: S): Direct[X, A]	?	unreviewed
+dev/constructive/eo/optics/Index.scala	dev.constructive.eo.optics.Index.apply	method		apply[CC[X] <: SeqOps[X, CC, CC[X]], A](i: Int): Optional[CC[A], CC[A], A, A]	?	unreviewed
+dev/constructive/eo/optics/Index.scala	dev.constructive.eo.optics.Index.apply	method		apply[K, V](k: K): Optional[Map[K, V], Map[K, V], V, V]	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.<init>	constructor		BijectionIso[S, T, A, B]( read: S => A, build: B => T, )	1	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.andThen	method		andThen[C, D](inner: BijectionIso[A, B, C, D]): BijectionIso[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.andThen	method		andThen[C, D](inner: GetReplaceLens[A, B, C, D]): GetReplaceLens[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.andThen	method		andThen[C, D](inner: MendTearPrism[A, B, C, D]): MendTearPrism[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.andThen	method		andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.foldMap	method		foldMap[M](f: A => M)(s: S)(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.from	method		from(d: Direct[X, B]): T	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.get	method		get(s: S): A	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.modify	method		modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.replace	method		replace(b: B): S => T	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.reverseGet	method		reverseGet(b: B): T	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.BijectionIso.to	method		to(s: S): Direct[X, A]	?	unreviewed
+dev/constructive/eo/optics/Iso.scala	dev.constructive.eo.optics.Iso.apply	method		apply[S, T, A, B](f: S => A, g: B => T): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.<init>	constructor		GetReplaceLens[S, T, A, B]( read: S => A, val enplace: (S, B) => T, )	1	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.andThen	method		andThen[C, D](inner: BijectionIso[A, B, C, D]): GetReplaceLens[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.andThen	method		andThen[C, D](inner: GetReplaceLens[A, B, C, D]): GetReplaceLens[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.andThen	method		andThen[C, D](inner: MendTearPrism[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.andThen	method		andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.andThen	method		andThen[C, D](inner: PickMendPrism[A, C, D])(using ev: A =:= B ): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.andThen	method		andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.foldMap	method		foldMap[M](f: A => M)(s: S)(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.from	method		from(pair: (S, B)): T	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.get	method		get(s: S): A	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.modify	method		modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.replace	method		replace(b: B): S => T	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.GetReplaceLens.to	method		to(s: S): (S, A)	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.Lens.apply	method		apply[S, A](get: S => A, enplace: (S, A) => S): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.Lens.curried	method		curried[S, A](get: S => A, replace: A => S => S): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.Lens.first	method		first[A, B]: <inferred>	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.Lens.pCurried	method		pCurried[S, T, A, B](get: S => A, replace: B => S => T): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.Lens.pLens	method		pLens[S, T, A, B](get: S => A, enplace: (S, B) => T): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.Lens.representable	method		representable[F[_], A](using R: cats.Representable[F] )(r: R.Representation): GetReplaceLens[F[A], F[A], A, A]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.Lens.second	method		second[A, B]: <inferred>	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SimpleLens.<init>	constructor		SimpleLens[S, A, XA]( get: S => A, split: S => (XA, A), combine: (XA, A) => S, )	ω	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SimpleLens.place	method		place(a: A): S => S	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SimpleLens.transfer	method		transfer[C](f: C => A): S => C => S	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.<init>	constructor		SplitCombineLens[S, T, A, B, XA]( read: S => A, val split: S => (XA, A), val combine: (XA, B) => T, )	4	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.andThen	method		andThen[C, D, XI]( inner: SplitCombineLens[A, B, C, D, XI] ): SplitCombineLens[S, T, C, D, (XA, XI)]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.andThen	method		andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.foldMap	method		foldMap[M](f: A => M)(s: S)(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.from	method		from(pair: (XA, B)): T	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.get	method		get(s: S): A	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.modify	method		modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.replace	method		replace(b: B): S => T	?	unreviewed
+dev/constructive/eo/optics/Lens.scala	dev.constructive.eo.optics.SplitCombineLens.to	method		to(s: S): (XA, A)	?	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.<init>	constructor		Modify[S, T, A, B](val modifyFn: (A => B) => S => T)	1	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.andThen	method		andThen[C, D](inner: Modify[A, B, C, D]): Modify[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.apply	method		apply[S, T, A, B](modify: (A => B) => S => T): Modify[S, T, A, B]	?	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.from	method		from(s: ModifyF[X, B]): T	?	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.functor	method		functor[F[_], A, B](using F: Functor[F]): Modify[F[A], F[B], A, B]	?	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.modify	method		modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.replace	method		replace(b: B): S => T	?	unreviewed
+dev/constructive/eo/optics/Modify.scala	dev.constructive.eo.optics.Modify.to	method		to(s: S): ModifyF[X, A]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.all	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FT: ForgetfulTraverse[F, Applicative])	all(s: S): List[F[o.X, A]]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.andThen	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using FF: ForgetfulFunctor[F])	andThen[C, D](o: Modify[A, B, C, D]): Modify[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.andThen	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using ra: ReverseAccessor[F])	andThen[D](o: Review[B, D]): Review[T, D]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.andThen	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using ra: ReverseAccessor[F])	andThen[G[_], D](o: Unfold[B, D, G]): Unfold[T, D, G]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.andThen	method	extension [S, T, A, B, F[_, _]](self: Optic[S, T, A, B, F])	andThen[G[_, _], C, D](o: Optic[A, B, C, D, G])(using m: Morph[F, G] ): Optic[S, T, C, D, m.Out]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.cross	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using A: Accessor[F], RA: ReverseAccessor[F])	cross[G[_, _], C, D](o: Optic[T, S, C, D, G])(using m: Morph[F, G] ): Optic[B, A, C, D, m.Out]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.exists	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulFold[F])	exists(p: A => Boolean)(s: S): Boolean	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.foldMap	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulFold[F])	foldMap[M: Monoid](f: A => M): S => M	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.get	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using accessor: Accessor[F])	get(s: S): A	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.getOption	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using A: PartialAccessor[F])	getOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.headOption	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulFold[F])	headOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.length	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulFold[F])	length(s: S): Int	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.modify	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using FF: ForgetfulFunctor[F])	modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.modifyA	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FT: ForgetfulTraverse[F, Applicative])	modifyA[G[_]](f: A => G[B])(using G: Applicative[G]): S => G[T]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.modifyF	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FT: ForgetfulTraverse[F, Functor])	modifyF[G[_]](f: A => G[B])(using G: Functor[G]): S => G[T]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.morph	method	extension [S, T, A, B, F[_, _]](self: Optic[S, T, A, B, F])	morph[G[_, _]](using cf: Composer[F, G]): Optic[S, T, A, B, G]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.place	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulFunctor[F], ev: T => F[o.X, B])	place(b: B): T => T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.put	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulApplicative[F])	put(f: A => B): A => T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.readOnly	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using accessor: Accessor[F])	readOnly: Getter[S, A]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.replace	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using FF: ForgetfulFunctor[F])	replace(b: B): S => T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.reverse	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using A: Accessor[F], RA: ReverseAccessor[F])	reverse: Optic[B, A, T, S, F]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.reverseGet	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using ra: ReverseAccessor[F])	reverseGet(b: B): T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.transfer	method	extension [S, T, A, B, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulFunctor[F], ev: T => F[o.X, B])	transfer[C](f: C => B): T => C => T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.transform	method	extension [S, T, A, B, D, F[_, _]]( o: Optic[S, T, A, B, F] )(using FF: ForgetfulFunctor[F], ev: T => F[o.X, D])	transform(f: D => B): T => T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.<extension>.writeOnly	method	extension [S, T, A, B, F[_, _]]( self: Optic[S, T, A, B, F] )(using ra: ReverseAccessor[F])	writeOnly: Review[T, B]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.andThen	method		andThen[C, D](o: Optic[A, B, C, D, F]): Optic[S, T, C, D, F]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.andThen	method		andThen[C, IB, G[_, _]](inner: Optic[A, Unit, C, IB, G])(using rc: ReadCompose[F, G] ): rc.Out[S, C]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.cross	method		cross[C, D]( o: Optic[T, S, C, D, F] )(using Accessor[F], ReverseAccessor[F]): Optic[B, A, C, D, F]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.from	declaration		from(b: F[X, B]): T	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.id	method		id[A]: BijectionIso[A, A, A, A]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.innerProfunctor.dimap	method	given [S, T, F[_, _]](using F: ForgetfulFunctor[F] ): Profunctor[[B, A] =>> Optic[S, T, A, B, F]]	dimap[B, A, D, C]( o: Optic[S, T, A, B, F] )(f: D => B)(g: A => C): Optic[S, T, C, D, F]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.outerProfunctor.dimap	method	given [A, B, F[_, _]]: Profunctor[[S, T] =>> Optic[S, T, A, B, F]]	dimap[S, T, R, U]( o: Optic[S, T, A, B, F] )(f: R => S)(g: T => U): Optic[R, U, A, B, F]	?	unreviewed
+dev/constructive/eo/optics/Optic.scala	dev.constructive.eo.optics.Optic.to	declaration		to(s: S): F[X, A]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.<init>	constructor		Optional[S, T, A, B]( val getOrModify: S => Either[T, A], val reverseGet: (S, B) => T, )	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.andThen	method		andThen[C, D](inner: BijectionIso[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.andThen	method		andThen[C, D](inner: GetReplaceLens[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.andThen	method		andThen[C, D](inner: MendTearPrism[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.andThen	method		andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.apply	method		apply[S, T, A, B]( getOrModify: S => Either[T, A], reverseGet: ((S, B)) => T, ): Optional[S, T, A, B]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.foldMap	method		foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.from	method		from(a: Affine[X, B]): T	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.fuseToOptional	method		fuseToOptional[C, D]( innerHit: (S, A) => Either[T, C], innerWrite: (A, D) => B, ): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.getOption	method		getOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.modify	method		modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.readOnly	method		readOnly[S, A](matches: S => Option[A]): PickFold[S, A]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.selectReadOnly	method		selectReadOnly[A](p: A => Boolean): PickFold[A, A]	?	unreviewed
+dev/constructive/eo/optics/Optional.scala	dev.constructive.eo.optics.Optional.to	method		to(s: S): Affine[X, A]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.<extension>.asPlated	method	extension [S](self: Optic[S, S, S, S, MultiFocus[PSVec]])	asPlated: Plated[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.<extension>.childrenOf	method	extension [S](self: Optic[S, S, S, S, MultiFocus[PSVec]])	childrenOf(s: S): List[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.<extension>.rewriteAll	method	extension [S](self: Optic[S, S, S, S, MultiFocus[PSVec]])	rewriteAll(f: S => Option[S])(s: S): S	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.<extension>.transformAll	method	extension [S](self: Optic[S, S, S, S, MultiFocus[PSVec]])	transformAll(f: S => S)(s: S): S	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.<extension>.universeOf	method	extension [S](self: Optic[S, S, S, S, MultiFocus[PSVec]])	universeOf(s: S): List[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.apply	method		apply[S](using p: Plated[S]): Plated[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.children	method		children[S](s: S)(using P: Plated[S]): List[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.childrenArray	method		childrenArray(s: S): Array[Any]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.childrenVec	method		childrenVec(s: S): PSVec[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.everywhere	method		everywhere[S](using P: Plated[S]): Optic[S, S, S, S, ModifyF]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.fromChildren	method		fromChildren[S](children: S => List[S], rebuild: (S, List[S]) => S): Plated[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.fromChildrenVec	method		fromChildrenVec[S](childrenFn: S => PSVec[S], rebuildFn: (S, PSVec[S]) => S): Plated[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.plate	declaration		plate: Optic[S, S, S, S, MultiFocus[PSVec]]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.rebuild	method		rebuild(parent: S, children: PSVec[S]): S	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.rewrite	method		rewrite[S](f: S => Option[S])(s: S)(using P: Plated[S]): S	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.rewrite.go	method		go(x: S): Eval[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.rewrite.step	method		step(x: S): Eval[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.transform	method		transform[S](f: S => S)(root: S)(using P: Plated[S]): S	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.transform.rec	method		rec(s: S, depth: Int): S	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.transformMachine	method		transformMachine[S](f: S => S)(root: S)(using P: Plated[S]): S	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.transformMachine.Frame.<init>	constructor		Frame(val node: S, val kids: PSVec[S], val out: Array[Any], var i: Int)	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.transformMachine.drive	method		drive(): Unit	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.transformMachine.enter	method		enter(s: S): Unit	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.universe	method		universe[S](s: S)(using P: Plated[S]): List[S]	?	unreviewed
+dev/constructive/eo/optics/Plated.scala	dev.constructive.eo.optics.Plated.universe.loop	method		loop(stack: List[S], acc: List[S]): List[S]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.<init>	constructor		MendTearPrism[S, T, A, B]( val tear: S => Either[T, A], val mend: B => T, )	1	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.andThen	method		andThen[C, D](inner: BijectionIso[A, B, C, D]): MendTearPrism[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.andThen	method		andThen[C, D](inner: GetReplaceLens[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.andThen	method		andThen[C, D](inner: MendTearPrism[A, B, C, D]): MendTearPrism[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.andThen	method		andThen[C, D](inner: Optional[A, B, C, D]): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.andThen	method		andThen[C, D](inner: PickMendPrism[A, C, D])(using ev: A =:= B ): MendTearPrism[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.andThen	method		andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.foldMap	method		foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.from	method		from(e: Either[T, B]): T	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.fuseToMendTear	method		fuseToMendTear[C, D]( innerTear: A => Either[T, C], innerMend: D => B, ): MendTearPrism[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.fuseToOptional	method		fuseToOptional[C, D]( innerHit: A => Either[T, C], innerWrite: (A, D) => B, ): Optional[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.getOption	method		getOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.mendFrom	method		mendFrom[B1](g: B1 => B): MendTearPrism[S, T, A, B1]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.modify	method		modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.replace	method		replace(b: B): S => T	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.reverseGet	method		reverseGet(b: B): T	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.tearFrom	method		tearFrom[S1](f: S1 => S): MendTearPrism[S1, T, A, B]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.MendTearPrism.to	method		to(s: S): Either[T, A]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.<init>	constructor		PickMendPrism[S, A, B]( val pick: S => Option[A], val mend: B => S, )	2	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.andThen	method		andThen[C, D]( inner: PickMendPrism[A, C, D] )(using ev: A =:= B): PickMendPrism[S, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.andThen	method		andThen[C, D](inner: BijectionIso[A, B, C, D]): PickMendPrism[S, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.andThen	method		andThen[C, D](inner: MendTearPrism[A, B, C, D])(using ev: A =:= B ): MendTearPrism[S, S, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.andThen	method		andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, S, C, D]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.foldMap	method		foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.from	method		from(e: Either[S, B]): S	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.getOption	method		getOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.modify	method		modify(f: A => B): S => S	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.replace	method		replace(b: B): S => S	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.reverseGet	method		reverseGet(b: B): S	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.PickMendPrism.to	method		to(s: S): Either[S, A]	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.Prism.apply	method		apply[S, A]( getOrModify: S => Either[S, A], reverseGet: A => S, ): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.Prism.optional	method		optional[S, A](getOption: S => Option[A], reverseGet: A => S): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.Prism.pOptional	method		pOptional[S, A, B](getOption: S => Option[A], reverseGet: B => S): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Prism.scala	dev.constructive.eo.optics.Prism.pPrism	method		pPrism[S, T, A, B]( getOrModify: S => Either[T, A], reverseGet: B => T, ): <inferred>	?	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.<init>	constructor		Review[T, B](build: B => T)	1	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.andThen	method		andThen[D](inner: Review[B, D]): Review[T, D]	?	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.andThen	method		andThen[F[_], D](inner: Unfold[B, D, F]): Unfold[T, D, F]	?	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.andThen	method		andThen[G[_, _], D](inner: Optic[?, B, ?, D, G])(using ReverseAccessor[G] ): Review[T, D]	?	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.apply	method		apply[S, A](reverseGet: A => S): Review[S, A]	?	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.from	method		from(d: Direct[X, B]): T	?	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.reverseGet	method		reverseGet(b: B): T	?	unreviewed
+dev/constructive/eo/optics/Review.scala	dev.constructive.eo.optics.Review.to	method		to(u: Unit): Direct[X, Unit]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.ComposedTraversal.<init>	constructor		ComposedTraversal[S, T, A, B, C, D, Xo, Xi]( outer: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }, inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, )	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.ComposedTraversal.from	method		from(xd: MultiFocus[PSVec][X, D]): T	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.ComposedTraversal.to	method		to(s: S): MultiFocus[PSVec][X, C]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.andThen	method		andThen[C, D, XI](inner: SplitCombineLens[A, B, C, D, XI]): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.andThen	method		andThen[C, D](inner: GetReplaceLens[A, B, C, D]): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.andThen	method		andThen[C, D](inner: MendTearPrism[A, B, C, D]): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.andThen	method		andThen[C, D](inner: PickMendPrism[A, C, D])(using ev: A =:= B): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.andThen	method		andThen[C, D](inner: Traversal[A, B, C, D]): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.both	method		both[F[_, _], A, B](using BT: Bitraverse[F]): Traversal[F[A, A], F[B, B], A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.composed	method		composed[S, T, A, B, C, D]( outer: Optic[S, T, A, B, MultiFocus[PSVec]], inner: Optic[A, B, C, D, MultiFocus[PSVec]], ): Traversal[S, T, C, D]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.each	method		each[T[_]: Traverse, A]: Traversal[T[A], T[A], A, A]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.exists	method		exists(p: A => Boolean)(s: S): Boolean	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.first	method		first[F[_, _], A, B, C](using BT: Bitraverse[F]): Traversal[F[A, C], F[B, C], A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.foldMap	method		foldMap[M](f: A => M)(s: S)(using M: Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.four	method		four[S, T, A, B]( inline a: S => A, inline b: S => A, inline c: S => A, inline d: S => A, inline reverse: (B, B, B, B) => T, ): Traversal[S, T, A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.headOption	method		headOption(s: S): Option[A]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.length	method		length(s: S): Int	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.modify	method		modify(f: A => B): S => T	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.pEach	method		pEach[T[_]: Traverse, A, B]: Traversal[T[A], T[B], A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.replace	method		replace(b: B): S => T	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.second	method		second[F[_, _], A, B, C](using BT: Bitraverse[F]): Traversal[F[C, A], F[C, B], A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.selfChildren	method		selfChildren[S]( children: S => PSVec[S], rebuild: (S, PSVec[S]) => S, ): Traversal[S, S, S, S]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.three	method		three[S, T, A, B]( inline a: S => A, inline b: S => A, inline c: S => A, inline reverse: (B, B, B) => T, ): Traversal[S, T, A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.Traversal.two	method		two[S, T, A, B]( inline a: S => A, inline b: S => A, inline reverse: (B, B) => T, ): Traversal[S, T, A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.TraverseTraversal.<init>	constructor		TraverseTraversal[T[_]: Traverse, A, B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.TraverseTraversal.foldMap	method		foldMap[M](f: A => M)(ta: T[A])(using Monoid[M]): M	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.TraverseTraversal.from	method		from(pair: MultiFocus[PSVec][X, B]): T[B]	?	unreviewed
+dev/constructive/eo/optics/Traversal.scala	dev.constructive.eo.optics.TraverseTraversal.to	method		to(ta: T[A]): MultiFocus[PSVec][X, A]	?	unreviewed
+dev/constructive/eo/optics/TraversalArityMacro.scala	dev.constructive.eo.optics.TraversalArityMacro.fourImpl	method		fourImpl[S: Type, T: Type, A: Type, B: Type]( a: Expr[S => A], b: Expr[S => A], c: Expr[S => A], d: Expr[S => A], reverse: Expr[(B, B, B, B) => T], )(using Quotes): Expr[Traversal[S, T, A, B]]	?	unreviewed
+dev/constructive/eo/optics/TraversalArityMacro.scala	dev.constructive.eo.optics.TraversalArityMacro.tabulate	method		tabulate[S: Type, T: Type, A: Type, B: Type]( getters: List[Expr[S => A]], applyReverse: List[Expr[B]] => Expr[T], )(using Quotes): Expr[Traversal[S, T, A, B]]	?	unreviewed
+dev/constructive/eo/optics/TraversalArityMacro.scala	dev.constructive.eo.optics.TraversalArityMacro.threeImpl	method		threeImpl[S: Type, T: Type, A: Type, B: Type]( a: Expr[S => A], b: Expr[S => A], c: Expr[S => A], reverse: Expr[(B, B, B) => T], )(using Quotes): Expr[Traversal[S, T, A, B]]	?	unreviewed
+dev/constructive/eo/optics/TraversalArityMacro.scala	dev.constructive.eo.optics.TraversalArityMacro.twoImpl	method		twoImpl[S: Type, T: Type, A: Type, B: Type]( a: Expr[S => A], b: Expr[S => A], reverse: Expr[(B, B) => T], )(using Quotes): Expr[Traversal[S, T, A, B]]	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.<init>	constructor		Unfold[T, B, F[_]]( val embed: F[B] => T, private[optics] val vestigialTo: () => F[Unit], )	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.algebra	method		algebra[T, B, F[_]](embed: F[B] => T): Unfold[T, B, F]	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.andThen	method		andThen[D](inner: Review[B, D])(using F: Functor[F]): Unfold[T, D, F]	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.andThen	method		andThen[D](inner: Unfold[B, D, F])(using F: Applicative[F]): Unfold[T, D, F]	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.andThen	method		andThen[G[_, _], D](inner: Optic[?, B, ?, D, G])(using ra: ReverseAccessor[G], F: Functor[F], ): Unfold[T, D, F]	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.apply	method		apply[T, B, F[_]](embed: F[B] => T)(using F: Applicative[F]): Unfold[T, B, F]	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.from	method		from(fb: Forget[F][X, B]): T	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.into	method		into[U](g: T => U): Unfold[U, B, F]	?	unreviewed
+dev/constructive/eo/optics/Unfold.scala	dev.constructive.eo.optics.Unfold.to	method		to(u: Unit): Forget[F][X, Unit]	?	unreviewed
+dev/constructive/eo/recast.scala	dev.constructive.eo.<extension>.widenLeft	method	extension [L, R](r: Right[L, R])	widenLeft[L2]: Either[L2, R]	?	unreviewed
+dev/constructive/eo/recast.scala	dev.constructive.eo.<extension>.widenRight	method	extension [L, R](l: Left[L, R])	widenRight[R2]: Either[L, R2]	?	unreviewed

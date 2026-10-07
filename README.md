@@ -219,13 +219,13 @@ Generic method / constructor implementation cardinalities
     captures: tupleAccessor
 ```
 
-Over eo-core 0.16.0 (480 signatures) the run reads: 15 finite, 2 countably infinite, 463
-unresolved. Each unresolved signature names what stood in the way, and the reasons group into the
-next steps: an unresolved type (340), an abstract or method-valued representation (237: eo's
-traits, whose sealed cases this fragment does not yet sum), a bounded or higher-kinded parameter
-(211 across `F[_]`, `F[_, _]`, `G[_]`, …), a qualified member environment (57), an unsupported
-type (47), a mutable capture (16), or an inferred result type (12). Each of those is a named next
-step rather than a claim about the code.
+The refreshed eo-core 0.16.0 run reads **480 signatures: 30 finite, 2 countably infinite,
+448 unresolved**. The [review ledger](docs/baselines/eo-core-0.16.0-review.md) records the
+reproduction command, all fifteen numeric changes since the previous baseline, and five
+independently derived model counts checked against the original archive. The other numeric rows
+remain provisional. Major overlapping obligations include abstract/member-bearing representations
+(225 rows), unresolved types (183), polymorphic capability binders (104), inherited override identity
+(78), and higher-kinded parameters. These are named next steps, not claims about the code.
 
 ## Quality toolchain
 
