@@ -241,10 +241,22 @@ object Counter {
     case d: Defn.Def            => methodSignature(scope)(d.paramClauses, d.decltpe)
     case d: Decl.Def            => methodSignature(scope)(d.paramClauses, Some(d.decltpe))
     case d: Defn.ExtensionGroup => extensionSignature(scope)(d)
-    // Everything else — type members, givens, secondary constructors — is not
+    case d: Defn.GivenAlias     => givenSignature(scope)(d, Some(d.decltpe))
+    case d: Decl.GivenLike      => givenSignature(scope)(d, Some(d.decltpe))
+    case d: Defn.Given          =>
+      val result = d.templ.inits.map(_.tpe).reduceOption { (left, right) =>
+        Type.ApplyInfix(left, Type.Name("&"), right)
+      }
+      givenSignature(scope)(d, result)
+    // Everything else — type members, secondary constructors — is not
     // a declared value or method of the definition.
     case _ => NothingSize
   }
+
+  // A given contributes the instance it provides, not its implementation's members. Parameterized
+  // givens are factories: their complete parameter domain raises the declared instance space.
+  private def givenSignature(scope: Scope)(givenDef: Stat.GivenLike, result: Option[Type]): Size =
+    methodSignature(scope)(givenDef.paramClauseGroups.flatMap(_.paramClauses), result)
 
   // Each extension is a method on the receiver, not a field of it. The group's receiver and
   // context clauses belong to every method's domain; the group itself contributes nothing.

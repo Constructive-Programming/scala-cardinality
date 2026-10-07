@@ -64,6 +64,9 @@ countable alternatives stay `2ω` (`Either[String, String]`) instead of collapsi
 Scala 3 extension methods contribute too: each method's domain includes its receiver,
 the extension group's `using` clauses, and its own parameters. Methods in an extension
 group are added separately; the receiver is not also counted as a field.
+Givens contribute their declared instance type once, including named and anonymous aliases,
+abstract declarations, and template-based instances. Parameterized givens count as factories
+over their parameter domain; methods inside a given's implementation are not counted again.
 
 Recursive types are counted as fixed points: each source is solved as a system of equations by
 Kleene iteration from the empty type, so a strict `case class Loop(next: Loop)` comes out empty
