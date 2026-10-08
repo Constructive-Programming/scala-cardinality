@@ -3,7 +3,7 @@
 Alex Knvl, *Counting type inhabitants* (24 November 2018):
 <https://web.archive.org/web/20181221193229/https://alexknvl.com/posts/counting-type-inhabitants.html>.
 
-`core/src/test/scala/ReferenceInhabitantsSpec.scala` is the executable form of the examples below.
+`core/src/test/scala/cardinality/analysis/inhabitation/ReferenceInhabitantsSpec.scala` is the executable form of the examples below.
 It reads shapes directly, so a failure there is the solver's algebra, not the source frontend's
 scope.
 

@@ -51,7 +51,7 @@ result itself is the closed identity type.
 
 ## Executable evidence
 
-`core/src/test/scala/PolyLambdaCardinalitySpec.scala` pins beta substitution, capture
+`core/src/test/scala/cardinality/analysis/resolution/PolyLambdaCardinalitySpec.scala` pins beta substitution, capture
 avoidance, nested binder shadowing, method and constructor use, identity introduction
 and observationally inert application, and unresolved evidence/dependency boundaries.
 These tests establish this fragment, not general rank-n or higher-kinded support.

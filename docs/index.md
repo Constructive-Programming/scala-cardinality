@@ -48,7 +48,7 @@ finite and empty boundary cases.
 These are examples, not `mdoc` fences: this build cannot run `mdoc` (see
 [the plugin notes](https://github.com/constructive-programming/scala-cardinality/blob/main/project/plugins.sbt)).
 The behaviour they show is pinned by
-[`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/ArticleCardinalitySpec.scala)
+[`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/cardinality/capacity/ArticleCardinalitySpec.scala)
 instead, which fails when a count changes.
 
 ## Where to go next

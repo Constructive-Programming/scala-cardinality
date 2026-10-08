@@ -1,6 +1,6 @@
 > cardinalityReportSelected example.get
 > checkSelected
-> set cardinalityQueryBudget := cardinality.AnalysisQuery.Budget(maxRequestWork = 1)
+> set cardinalityQueryBudget := cardinality.request.AnalysisQuery.Budget(maxRequestWork = 1)
 > cardinalityReportSelected example.get
 > checkBudget
 -> cardinalityReportSelected example.missing

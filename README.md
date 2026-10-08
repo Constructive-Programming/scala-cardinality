@@ -110,7 +110,7 @@ Two pieces of eo's pipeline are missing here, both because this build runs on sb
 project's `scalameta_3` dependency (`scalameta_2.13` and `scalameta_3` share package
 names). So the render step is a task in [build.sbt](build.sbt) plus
 [project/SiteRenderer.scala](project/SiteRenderer.scala), and the numbers shown in the
-pages are pinned by [the test suite](core/src/test/scala/ArticleCardinalitySpec.scala) instead
+pages are pinned by [the test suite](core/src/test/scala/cardinality/capacity/ArticleCardinalitySpec.scala) instead
 of being compiled from the pages.
 
 CI renders the site on every pull request (`ci.yml`, "Documentation site" job, artifact
@@ -260,14 +260,15 @@ explicitly:
 
 ```scala
 cardinalityQuerySupport := Seq(baseDirectory.value / "support")
-cardinalityQueryBudget := cardinality.AnalysisQuery.Budget(
+cardinalityQueryBudget := cardinality.request.AnalysisQuery.Budget(
   maxWorkPerTarget = 10000,
   maxRequestWork = 1000000
 )
-cardinalitySnapshotLimits := cardinality.SourceSnapshot.Limits(maxTotalBytes = 64L * 1024 * 1024)
+cardinalitySnapshotLimits := cardinality.request.SourceSnapshot.Limits(maxTotalBytes = 64L * 1024 * 1024)
 ```
 
-The library entry point is `Report.query(Report.Query(targets, support, targetNames))`.
+The library entry point is `Report.query(Report.Query(targets, support, targetNames))`
+with `cardinality.reporting.Report`.
 Supporting inputs remain part of the environment; unreadable or unparseable support rejects the
 request rather than authorizing counts from partial scope. The existing `cardinalityReport`,
 `cardinalityReportOf`, and `Report.of` behavior remains unchanged.

@@ -145,7 +145,7 @@ Owners above are relative to `dev.constructive.eo`; source paths are relative to
    member-bearing optic environment are not fully modeled. The archive-only run does not
    resolve Cats dependencies. Lack of a modeled producer is not a proof of zero.
 
-[EoCaseLedgerSpec](../../core/src/test/scala/EoCaseLedgerSpec.scala) makes the five numeric cases
+[EoCaseLedgerSpec](../../core/src/test/scala/cardinality/analysis/EoCaseLedgerSpec.scala) makes the five numeric cases
 and the unresolved guard executable in reduced relevant scopes. Three adversarial tests add a
 captured `A`, a supplied `T => T`, or a fallback `T`; the answers must change. These are not
 replacements for the runner's checks against the original archive.

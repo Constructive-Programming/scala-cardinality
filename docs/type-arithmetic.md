@@ -486,7 +486,7 @@ implements these rules.
 The current API and representation have important limits:
 
 - `Counter.type` counts a single parsed type, through
-  [`typeIn`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/Counter.scala).
+  [`typeIn`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Counter.scala).
   `Counter.source` instead sums the contributions of every definition in a source, so it is not a
   lookup of one chosen ADT, and a definition contributes its **solved** value rather than a fresh
   evaluation of the same syntax — so a recursive definition and a reference to it always agree.
@@ -496,7 +496,7 @@ The current API and representation have important limits:
   module with two `String => String` methods and one `String` field is `2ε₀ + ω`, while
   `Counter.source` reports that the module itself is a single value. Both readings return the same
   `Size`; neither replaces the other.
-- [`Size`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/Size.scala)
+- [`Size`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Size.scala)
   is `a·ε₀ + b·ω + n`: contributions counted per tier and added componentwise, so
   `Either[String, String]` is `2ω`. Counts up to 127 are exact in the finite part, and
   `FiniteSize(bits)` records only the binary width above that — it stands for a count in
@@ -533,10 +533,10 @@ The current API and representation have important limits:
   if present, otherwise the unchanged finite total. General addition retains infinite-tier
   coefficients; enclosing sums, source totals, and signatures are not normalized this way.
 
-[`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/ArticleCardinalitySpec.scala)
+[`ArticleCardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/cardinality/capacity/ArticleCardinalitySpec.scala)
 is the article-focused regression suite. Together with
-[`SizeSpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/SizeSpec.scala)
-and [`CardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/CardinalitySpec.scala),
+[`SizeSpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/cardinality/capacity/SizeSpec.scala)
+and [`CardinalitySpec`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/test/scala/cardinality/capacity/CardinalitySpec.scala),
 it separates implemented rules from executable **targets**:
 
 | Area | Test contract |
