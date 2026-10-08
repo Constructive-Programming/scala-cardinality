@@ -22,6 +22,23 @@ object CardinalityPlugin extends AutoPlugin {
         "sources jar such as the one a published library ships.",
     )
 
+    val cardinalityReportSelected =
+      inputKey[Unit]("Bounded implementation report for the given qualified method names.")
+
+    val cardinalityQuerySupport =
+      settingKey[Seq[File]](
+        "Explicit supporting source roots for selected reports; never report targets."
+      )
+
+    val cardinalityQueryBudget =
+      settingKey[AnalysisQuery.Budget]("Logical indexing and per-target/request work limits.")
+
+    val cardinalityQueryLimits =
+      settingKey[MethodAnalysis.Limits]("Type depth and solver state limits for selected reports.")
+
+    val cardinalitySnapshotLimits =
+      settingKey[SourceSnapshot.Limits]("Input acquisition limits for selected reports.")
+
     val cardinalityReportFile =
       settingKey[File](
         "Where a report is written, under the project's target directory by default."
@@ -33,6 +50,10 @@ object CardinalityPlugin extends AutoPlugin {
 
   override def projectSettings: Seq[Setting[?]] = Seq(
     cardinalityReportFile := target.value / "cardinality" / "report.txt",
+    cardinalityQuerySupport := Nil,
+    cardinalityQueryBudget := AnalysisQuery.Budget(),
+    cardinalityQueryLimits := MethodAnalysis.Limits(),
+    cardinalitySnapshotLimits := SourceSnapshot.Limits(),
     // `Def.uncached`: a report over transient inputs (`sources` is excluded from sbt 2's cache
     // key) must re-run every time, never be served stale from the task cache.
     cardinalityReport := Def.uncached {
@@ -50,6 +71,28 @@ object CardinalityPlugin extends AutoPlugin {
       val paths = Def.spaceDelimited("<path>...").parsed
       Def.uncached {
         report(log, paths.map(path => file(path).toPath), cardinalityReportFile.value)
+      }
+    },
+    cardinalityReportSelected := {
+      val names = Def.spaceDelimited("<qualified-method-name>...").parsed
+      Def.uncached {
+        if (names.isEmpty) sys.error("provide at least one qualified method name")
+        val found = Report.query(
+          Report.Query(
+            (Compile / sources).value.map(_.toPath),
+            cardinalityQuerySupport.value.map(_.toPath),
+            names.toSet,
+            cardinalitySnapshotLimits.value,
+            cardinalityQueryLimits.value,
+            cardinalityQueryBudget.value
+          )
+        )
+        val output = cardinalityReportFile.value
+        IO.write(output, found.render)
+        streams.value.log.info(found.render)
+        streams.value.log.info(s"report written to $output")
+        if (found.report.errors.nonEmpty)
+          sys.error(s"${found.report.errors.size} selected report error(s)")
       }
     },
   )

@@ -36,7 +36,10 @@ private[cardinality] object SingletonIntersections {
 
   // A public alias is not permission to read its private stable reference. Source aliases
   // resolve in their declaration frame; recheck the resulting identities at each use site.
-  def validate(shape: Shape, from: Frame, resolver: Resolver): Resolved = shape match {
+  def validate(shape: Shape, from: Frame, resolver: Resolver): Resolved =
+    resolver.expanding("shape validation")(validateShape(shape, from, resolver))
+
+  private def validateShape(shape: Shape, from: Frame, resolver: Resolver): Resolved = shape match {
     case s @ Shape.Singleton(id, None) =>
       resolver.modules
         .find(owner => s"module:${owner.id}" == id)

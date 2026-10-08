@@ -247,6 +247,47 @@ remain provisional. Major overlapping obligations include abstract/member-bearin
 (225 rows), unresolved types (183), polymorphic capability binders (104), inherited override identity
 (78), and higher-kinded parameters. These are named next steps, not claims about the code.
 
+### Bounded selected reports
+
+```sh
+sbt 'cardinalityReportSelected example.Accessor.get'
+```
+
+This opt-in task analyzes selected implementation signatures, using all `Compile / sources` as
+supporting scope without reporting unrelated methods or stored-value estimates. Qualified names
+select every matching overload. Additional supporting source files/directories/jars can be supplied
+explicitly:
+
+```scala
+cardinalityQuerySupport := Seq(baseDirectory.value / "support")
+cardinalityQueryBudget := cardinality.AnalysisQuery.Budget(
+  maxWorkPerTarget = 10000,
+  maxRequestWork = 1000000
+)
+cardinalitySnapshotLimits := cardinality.SourceSnapshot.Limits(maxTotalBytes = 64L * 1024 * 1024)
+```
+
+The library entry point is `Report.query(Report.Query(targets, support, targetNames))`.
+Supporting inputs remain part of the environment; unreadable or unparseable support rejects the
+request rather than authorizing counts from partial scope. The existing `cardinalityReport`,
+`cardinalityReportOf`, and `Report.of` behavior remains unchanged.
+
+Selected queries enforce acquisition/indexing limits and allocate equal target quotas before
+measurement; unused quota is not transferred. Lookup, resolution, capture-alias traversal, shape
+validation and solver work debit that quota. Exhausted queries report `?` with the frontier.
+Reports include snapshot and request fingerprints and per-target work; changes to support inputs
+or limits invalidate the keys. Input capture hashes and decodes the same bytes, checks drift with
+a second acquisition, distinguishes archive origins, and bounds files, bytes, directory/archive
+entries and compressed archive size.
+
+The byte/count limits apply to each acquisition pass; drift verification performs a second pass.
+**This is the first foundation slice, not a completed scaling or dependency feature.** Sources are
+still parsed/indexed in memory, snapshots are not atomic against arbitrary concurrent edits, and
+there is no persistent cache, classpath discovery, or new foreign-type semantics. Defaults are
+conservative admission limits, not million-line benchmark results. The
+[bounded resolution plan](docs/plans/bounded-dependency-resolution.md) tracks declaration summaries,
+persistent caching, and metadata adapters as subsequent work.
+
 ## Quality toolchain
 
 The build mirrors the sister project

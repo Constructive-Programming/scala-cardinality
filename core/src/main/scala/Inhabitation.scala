@@ -65,18 +65,26 @@ object Inhabitation {
 
   private case class Producer(parameters: List[Shape], output: Shape)
 
-  def count(bindings: List[Binding], result: Shape, maxStates: Int = 256): Count =
+  def count(
+      bindings: List[Binding],
+      result: Shape,
+      maxStates: Int = 256,
+      inspect: String => Unit = _ => (),
+      maxDepth: Int = Int.MaxValue
+  ): Count =
     try
+      inspect("solver preparation")
       RepeatedArguments.prepare(bindings, result) match {
         case Left(count)                 => count
-        case Right((normalized, target)) => new Solver(maxStates).run(normalized, target)
+        case Right((normalized, target)) =>
+          new Solver(maxStates, inspect, maxDepth).run(normalized, target)
       }
     catch {
       case error: Limit       => Unresolved(List(error.getMessage))
       case error: Unsupported => Unresolved(List(error.getMessage))
     }
 
-  private class Solver(maxStates: Int) {
+  private class Solver(maxStates: Int, inspect: String => Unit, maxDepth: Int) {
     private val nodes = mutable.ArrayBuffer.empty[List[Rule]]
     private val memo = mutable.Map.empty[(List[Value], Shape), Int]
     private val absurd = mutable.Map.empty[Int, Int]
@@ -84,6 +92,7 @@ object Inhabitation {
     private val reservedAtoms = mutable.Set.empty[String]
     private var witnessNumber = 0
     private var work = 0
+    private var depth = 0
 
     def run(bindings: List[Binding], result: Shape): Count = {
       reservedAtoms ++= bindings.flatMap(binding => ExistentialInputs.names(binding.shape))
@@ -102,7 +111,7 @@ object Inhabitation {
           if (absurd.get(id).exists(proved)) List(Rule(Nil))
           else nodes(id).filter(_.children.forall(productive))
         }.toVector
-        new Live(live).result(root)
+        new Live(live, inspect, maxDepth).result(root)
       }
     }
 
@@ -113,6 +122,7 @@ object Inhabitation {
       while (changed) {
         changed = false
         nodes.indices.foreach { id =>
+          inspect("solver productivity")
           val available = nodes(id).filter(r => allowUnresolved || r.reason.isEmpty)
           if (!productive(id) && available.exists(_.children.forall(productive))) {
             productive += id
@@ -126,6 +136,14 @@ object Inhabitation {
     // A goal is the environment it can read plus the shape it must produce, memoised so a cycle
     // becomes a re-visited node rather than another pass.
     private def goal(raw: List[Value], target: Shape): Int = {
+      inspect("solver goal")
+      if (depth >= maxDepth) throw new Limit("solver depth budget exhausted")
+      depth += 1
+      try readGoal(raw, target)
+      finally depth -= 1
+    }
+
+    private def readGoal(raw: List[Value], target: Shape): Int = {
       val flat = flatten(raw)
       val evidence = EvidenceAnalysis
         .context(flat.map(_.shape), target)
@@ -144,6 +162,7 @@ object Inhabitation {
     }
 
     private def record(env: List[Value], target: Shape): Int = {
+      inspect("solver state")
       tick()
       val id = nodes.size
       nodes += Nil
@@ -316,7 +335,7 @@ object Inhabitation {
   }
 
   /** The rules a productive root can actually reach, counted. */
-  private class Live(rules: Vector[List[Rule]]) {
+  private class Live(rules: Vector[List[Rule]], inspect: String => Unit, maxDepth: Int) {
     private val totals = mutable.Map.empty[Int, BigInt]
 
     def result(root: Int): Count = {
@@ -330,16 +349,19 @@ object Inhabitation {
     private def reasonsAt(root: Int): List[String] = {
       val found = mutable.LinkedHashSet.empty[String]
       val visiting = mutable.Set.empty[Int]
-      def visit(id: Int): Unit =
+      def visit(id: Int, depth: Int): Unit = {
+        inspect("solver reasons")
+        if (depth >= maxDepth) throw new Limit("solver traversal depth budget exhausted")
         if (!visiting(id)) {
           visiting += id
           rules(id).foreach { rule =>
             rule.reason.foreach(reason => { found += reason; () })
-            rule.children.foreach(visit)
+            rule.children.foreach(child => visit(child, depth + 1))
           }
           visiting -= id
         }
-      visit(root)
+      }
+      visit(root, 0)
       found.toList
     }
 
@@ -348,29 +370,36 @@ object Inhabitation {
       var found = false
       val onPath = mutable.Set.empty[Int]
       val done = mutable.Set.empty[Int]
-      def visit(id: Int): Unit =
+      def visit(id: Int, depth: Int): Unit = {
+        inspect("solver cycle")
+        if (depth >= maxDepth) throw new Limit("solver traversal depth budget exhausted")
         if (onPath(id)) found = true
         else if (!done(id)) {
           onPath += id
-          rules(id).foreach(_.children.foreach(visit))
+          rules(id).foreach(_.children.foreach(child => visit(child, depth + 1)))
           onPath -= id
           done += id
         }
-      visit(root)
+      }
+      visit(root, 0)
       found
     }
 
     // With no cycle behind it the reachable graph is a tree, so the count is exact arithmetic over
     // the rules, with a budget on the intermediate values rather than a silent overflow.
-    private def count(id: Int): BigInt = totals.getOrElseUpdate(
-      id,
-      rules(id).foldLeft(BigInt(0)) { (sum, rule) =>
-        val term = rule.children.foldLeft(BigInt(1)) { (product, child) =>
-          checked(product * count(child))
+    private def count(id: Int, depth: Int = 0): BigInt = {
+      inspect("solver count")
+      if (depth >= maxDepth) throw new Limit("solver traversal depth budget exhausted")
+      totals.getOrElseUpdate(
+        id,
+        rules(id).foldLeft(BigInt(0)) { (sum, rule) =>
+          val term = rule.children.foldLeft(BigInt(1)) { (product, child) =>
+            checked(product * count(child, depth + 1))
+          }
+          checked(sum + term)
         }
-        checked(sum + term)
-      }
-    )
+      )
+    }
 
     private def checked(value: BigInt): BigInt =
       if (value.bitLength > MaxBits)

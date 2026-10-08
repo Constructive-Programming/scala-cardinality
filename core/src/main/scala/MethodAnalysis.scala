@@ -122,7 +122,11 @@ object MethodAnalysis {
       declaration: Boolean = false
   )
 
-  final private[cardinality] class Index(inputs: List[Input], val limits: Limits) extends Resolver {
+  final private[cardinality] class Index(
+      inputs: List[Input],
+      val limits: Limits,
+      work: Option[AnalysisWork] = None
+  ) extends Resolver {
     private val types = mutable.ListBuffer.empty[TypeEntry]
     private val targets = mutable.ListBuffer.empty[Target]
     private val packageFrames = mutable.ListBuffer.empty[Frame]
@@ -138,6 +142,22 @@ object MethodAnalysis {
 
     def analyze(): List[Entry] = targets.toList.map(measure)
 
+    private val lookupIndex = new SourceLookup(types.toList, packageFrames.toList)
+
+    def selected(paths: Set[String], names: Set[String]): List[Target] =
+      targets.toList
+        .filter(t => paths(t.input) && (names.isEmpty || names(t.name)))
+        .sortBy(t => (t.input, t.name, t.signature, t.tree.pos.start))
+
+    def inspect(operation: String): Unit = work.foreach(_.step(operation))
+
+    def expanding[A](operation: String)(read: => A): A =
+      work.fold(read)(_.expanding(operation)(read))
+
+    def solverDepth: Int = work.fold(Int.MaxValue)(_ => limits.maxTypeDepth)
+    def peers(path: List[String]): List[Frame] = lookupIndex.peers(path)
+    def isPackage(frame: Frame): Boolean = lookupIndex.isPackage(frame)
+
     // The package and module lists the measurement reads as frames an outside member could live
     // in, and the limits its count runs under.
     def packages: List[Frame] = packageFrames.toList
@@ -146,9 +166,11 @@ object MethodAnalysis {
 
     // Measuring one signature must not lose the report: scalameta's printers can throw on syntax
     // they cannot spell, and a signature the analysis cannot read is a diagnostic, not a crash.
-    private def measure(target: Target): Entry =
+    def measure(target: Target): Entry =
       try measurement(target)
       catch
+        case error: AnalysisWork.Exhausted =>
+          Entry.of(target, kindOf(target), Count.Unresolved(List(error.getMessage)))
         case NonFatal(error) =>
           Entry.of(
             target,
@@ -183,7 +205,13 @@ object MethodAnalysis {
     // pass to resolve. Each kind gets its own method: what differs between them is the body a
     // definition opens, its binders, and the parameters it takes.
     private def index(input: String, frame: Frame): Unit =
-      frame.stats.foreach {
+      frame.stats.foreach { stat =>
+        inspect("index statement")
+        indexStat(input, frame, stat)
+      }
+
+    private def indexStat(input: String, frame: Frame, stat: Stat): Unit = {
+      val _ = stat match {
         case p: Pkg         => indexPackage(input, frame, p)
         case p: Pkg.Object  => indexPackageObject(input, frame, p)
         case d: Defn.Type   => named(d.name.value, d, frame)
@@ -211,6 +239,7 @@ object MethodAnalysis {
           )
         case _ => ()
       }
+    }
 
     private def named(name: String, tree: Stat, frame: Frame): Unit =
       types += TypeEntry(name, tree, frame)
@@ -397,20 +426,8 @@ object MethodAnalysis {
       }
     }
 
-    // A parameter whose bounds or type constructor make its shape unreadable: a diagnostic wherever
-    // it appears, never an atom.
-    private def constrained(p: Type.Param): Boolean =
-      TypeApplications.constrained(p)
-
     def typeParameters(frame: Frame): Map[String, Resolved] =
-      frame.chain.reverse.foldLeft(Map.empty[String, Resolved]) { (env, f) =>
-        env ++ f.typeParams.map { p =>
-          val resolved =
-            if (constrained(p)) Left(s"bounded or higher-kinded parameter ${p.syntax}")
-            else Right(Shape.Atom(s"${f.id}:${p.name.value}"))
-          p.name.value -> resolved
-        }
-      }
+      SourceBindings.of(frame, inspect)
 
     def resolve(
         tpe: Type,
@@ -422,7 +439,10 @@ object MethodAnalysis {
     def resolve(
         tpe: Type,
         context: ResolutionContext
-    ): Resolved = {
+    ): Resolved =
+      expanding("resolve")(readType(tpe, context))
+
+    private def readType(tpe: Type, context: ResolutionContext): Resolved = {
       val ResolutionContext(frame, variables, visiting, _) = context
       if (visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
       else
@@ -557,29 +577,17 @@ object MethodAnalysis {
       TypeApplications.lambda(tpe)
 
     def lookup(name: String, frame: Frame): List[TypeEntry] = {
-      val lexical = frame.chain.iterator
-        .map { f =>
-          types.toList.filter(t => t.owner.id == f.id && t.name == name)
-        }
-        .find(_.nonEmpty)
-      lexical.getOrElse {
-        val candidates = frame.chain.map(f => (f.path :+ name).mkString(".")) :+ name
-        candidates.iterator
-          .map { full =>
-            types.toList.filter(t =>
-              !t.owner.chain.exists(_.local) &&
-                (t.owner.path :+ t.name).mkString(".") == full && accessible(t.tree, t.owner, frame)
-            )
-          }
-          .find(_.nonEmpty)
-          .getOrElse(Nil)
-      }
+      inspect("lookup")
+      lookupIndex.lookup(name, frame, accessible, inspect)
     }
 
-    def accessible(tree: Tree, owner: Frame, from: Frame): Boolean = tree match {
-      case d: Stat.WithMods if d.mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected]) =>
-        from.chain.exists(_.id == owner.id)
-      case _ => true
+    def accessible(tree: Tree, owner: Frame, from: Frame): Boolean = {
+      inspect("accessibility")
+      tree match {
+        case d: Stat.WithMods if d.mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected]) =>
+          from.chain.exists(_.id == owner.id)
+        case _ => true
+      }
     }
 
     private def namedType(

@@ -58,6 +58,23 @@ object EoBaseline {
       require(found.head.count == expected, s"reviewed count changed for $id: ${found.head.count}")
     }
 
+    val selected = Report.query(
+      Report.Query(
+        Seq(jar),
+        targetNames = reviewed.keys.map(_._1).toSet
+      )
+    )
+    require(selected.report.errors.isEmpty, selected.report.errors.mkString("\n"))
+    require(
+      selected.report.methods.size == reviewed.size,
+      "selected query measured unrelated targets"
+    )
+    reviewed.foreach { (id, expected) =>
+      val found =
+        selected.report.methods.filter(entry => (entry.name, entry.kind, entry.signature) == id)
+      require(found.size == 1 && found.head.count == expected, s"selected query differs for $id")
+    }
+
     val header =
       s"""# scala-cardinality baseline — dev.constructive:cats-eo_3:0.16.0, sources jar
          |#

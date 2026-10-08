@@ -44,6 +44,114 @@ final case class Report(sources: List[Report.Source], errors: List[Report.Error]
 
 object Report {
 
+  /** Opt-in implementation-only report. Supporting sources affect scope but never become rows.
+    * Snapshot/read/parse failures reject the entire request rather than certify a partial scope.
+    */
+  final case class Query(
+      targets: Seq[Path],
+      support: Seq[Path] = Nil,
+      targetNames: Set[String] = Set.empty,
+      captureLimits: SourceSnapshot.Limits = SourceSnapshot.Limits(),
+      limits: MethodAnalysis.Limits = MethodAnalysis.Limits(),
+      budget: AnalysisQuery.Budget = AnalysisQuery.Budget()
+  )
+
+  final case class QueryResult(
+      report: Report,
+      snapshot: Option[String],
+      analysis: Option[AnalysisQuery.Result],
+      requestKey: Option[String] = None,
+      configuration: Option[String] = None
+  ) {
+
+    def render: String =
+      (List("Selected implementation analysis (no stored-value estimates)") ++
+        configuration.map(value => s"limits: $value") ++
+        snapshot.map(value => s"snapshot: $value") ++
+        requestKey.map(value => s"request: $value (persistent cache disabled)") ++
+        analysis.toList.flatMap(
+          _.usage.map(u => s"work: ${u.path} ${u.name}: ${u.consumed}/${u.quota}")
+        ) ++
+        Report.methods(report.models) ++ report.errors.map(Report.failed)).mkString("\n")
+
+  }
+
+  def query(request: Query): QueryResult = {
+    val result = try readQuery(request)
+    catch {
+      case scala.util.control.NonFatal(error) =>
+        QueryResult(
+          Report(
+            Nil,
+            List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}"))
+          ),
+          None,
+          None
+        )
+    }
+    result.copy(configuration =
+      Some(
+        s"${request.captureLimits}; ${request.limits}; ${request.budget}"
+      )
+    )
+  }
+
+  private def readQuery(request: Query): QueryResult = {
+    val targetRoots = request.targets.map(SourceSnapshot.rootId).toSet
+    SourceSnapshot.capture(request.targets ++ request.support, request.captureLimits) match {
+      case Left(errors) =>
+        QueryResult(Report(Nil, errors.map(e => Error(e.path, e.message))), None, None)
+      case Right(snapshot) =>
+        val parsed = snapshot.sources.map { source =>
+          try parse(source.id -> source.text)
+          catch {
+            case _: StackOverflowError =>
+              Left(Error(source.id, "parser recursion limit exceeded"))
+          }
+        }
+        val errors = parsed.collect { case Left(error) => error }
+        if (!targetRoots.subsetOf(snapshot.roots.keySet))
+          QueryResult(
+            Report(Nil, List(Error("", "snapshot-changed: target roots changed"))),
+            None,
+            None
+          )
+        else if (errors.nonEmpty)
+          QueryResult(Report(Nil, errors), Some(snapshot.digest), None)
+        else {
+          val selected = targetRoots.flatMap(snapshot.roots)
+          val found = AnalysisQuery.run(
+            AnalysisQuery.Request(
+              parsed.collect { case Right(input) => input },
+              selected,
+              request.targetNames,
+              request.limits,
+              request.budget
+            )
+          )
+          val grouped = found.entries.groupBy(_.path)
+          val sources = snapshot.sources
+            .filter(source => selected(source.id))
+            .map(source => Source(source.id, Nil, grouped.getOrElse(source.id, Nil)))
+          QueryResult(
+            Report(sources, found.errors.map(message => Error("", message))),
+            Some(snapshot.digest),
+            Some(found),
+            Option.when(found.key.nonEmpty)(
+              SourceSnapshot.framedHash(
+                List(
+                  "report-query-v1",
+                  snapshot.digest,
+                  found.key,
+                  request.captureLimits.toString
+                )
+              )
+            )
+          )
+        }
+    }
+  }
+
   /** One Scala source the report read: where it was read from — a file, or an entry of a sources
     * jar — and the definitions it introduces.
     */

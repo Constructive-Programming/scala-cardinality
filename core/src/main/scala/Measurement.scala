@@ -36,6 +36,12 @@ private[cardinality] trait Resolver {
   def kindOf(target: Target): String
 
   def limits: Limits
+
+  def inspect(operation: String): Unit
+  def expanding[A](operation: String)(read: => A): A
+  def solverDepth: Int
+  def peers(path: List[String]): List[Frame]
+  def isPackage(frame: Frame): Boolean
 }
 
 /** One signature's environment: the bindings visible from its frame, the diagnostics that make that
@@ -203,11 +209,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // Package-level declarations are indexed across all files. Unrelated class parameters are never
   // pooled just because both happen to be named A.
   private def frames(owner: Frame): List[Frame] = {
-    val peers = resolver.packages.filter(_.path == owner.path).toList
+    val peers = resolver.peers(owner.path)
     if (peers.exists(_.id == owner.id)) peers else List(owner)
   }
 
   private def scanFrame(scope: Frame): Unit = {
+    resolver.inspect("scope")
     val visible = scope.stats.filter(visibleIn(scope, _))
     new Aliases(visible, scope).report()
     visible.foreach(flagStat(scope, _))
@@ -355,7 +362,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     Set("Unit", "Nothing", "Boolean", "Option", "Either", "EmptyTuple")
 
   private def flagReachableModules(): Unit = {
-    val reachable = resolver.modules.filterNot(inChain).filter(moduleVisible).toList
+    val reachable = resolver.modules.filter { module =>
+      resolver.inspect("module candidate")
+      !inChain(module) && moduleVisible(module)
+    }
     if (reachable.nonEmpty) errors += qualifiedMemberMessage(reachable)
   }
 
@@ -371,7 +381,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // outside producer. Package and file frames are not binders — sharing those means only that two
   // declarations sit in the same package.
   private def withinChain(module: Frame): Boolean = {
-    val binders = owners.filterNot(owner => resolver.packages.exists(_.id == owner.id))
+    val binders = owners.filterNot(resolver.isPackage)
     module.chain.exists(frame => binders.exists(_.id == frame.id))
   }
 
@@ -407,7 +417,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     Inhabitation.count(
       (values.values ++ qualifiedValues.values).toList,
       shape,
-      resolver.limits.maxStates
+      resolver.limits.maxStates,
+      resolver.inspect,
+      resolver.solverDepth
     )
 
   /** One scope's value declarations, each resolved to the binding it names.
@@ -438,8 +450,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       }
 
     private def value(name: String, active: Set[String]): Either[String, Binding] =
-      if (active(name)) Left(s"recursive capture alias: $name")
-      else done.getOrElseUpdate(name, source(name, active))
+      resolver.expanding("capture alias") {
+        if (active(name)) Left(s"recursive capture alias: $name")
+        else done.getOrElseUpdate(name, source(name, active))
+      }
 
     private def source(name: String, active: Set[String]): Either[String, Binding] = {
       val declaration = declared(name)
