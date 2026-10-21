@@ -2,30 +2,30 @@
 #
 # Provisional analyzer output, not independently validated answers.
 # Review statuses and derivations: eo-core-0.16.0-review.md.
-# analyzer: 726ec431bbcb1b9211622d70d32c2852a9562df7 (production code; opt-in baseline runner added on top)
+# analyzer: 7f8bcff89912c05e3bd35adb60a78623bdad9371 (production code; opt-in baseline runner added on top)
 # versions: sbt 2.0.9, Scala 3.8.4, scalameta 4.17.4
 # input: https://repo1.maven.org/maven2/dev/constructive/cats-eo_3/0.16.0/cats-eo_3-0.16.0-sources.jar
 # sha256: 61907fc2f4e1c0892fa8723c7a014af942b825b64a916a9b53dd64b3f12dbfe3
 # limits: MethodAnalysis.Limits(maxTypeDepth = 64, maxStates = 256); supplied sources only
-# command: sbt 'core/Test/runMain cardinality.EoBaseline <sources.jar> <output-directory> 726ec431bbcb1b9211622d70d32c2852a9562df7'
+# command: sbt 'core/Test/runMain cardinality.EoBaseline <sources.jar> <output-directory> 7f8bcff89912c05e3bd35adb60a78623bdad9371'
 # checks: 53 parsed sources; unique method identities; forward/reversed input results equal;
 #         five independently derived model counts agree with the full-source report
 #
 Generic method / constructor implementation cardinalities
-  480 signatures: 30 finite · 2 countably infinite · 448 unresolved
+  480 signatures: 32 finite · 4 countably infinite · 444 unresolved
   225 unresolved on: abstract type or method-valued representation
-  183 unresolved on: unresolved type
+  179 unresolved on: unresolved type
   104 unresolved on: polymorphic capability binder
   78 unresolved on: inherited override identity not resolved
   68 unresolved on: bounded or higher-kinded parameter F[_, _]
   63 unresolved on: bounded or higher-kinded parameter F[_]
-  57 unresolved on: qualified member environment not resolved
   25 unresolved on: bounded or higher-kinded parameter G[_, _]
   24 unresolved on: refined representation unavailable (constraints not erased)
   18 unresolved on: bounded or higher-kinded parameter G[_]
   16 unresolved on: mutable capture
   15 unresolved on: inert match type
   12 unresolved on: inferred result type not resolved
+  10 unresolved on: qualified member environment not resolved
   8 unresolved on: bounded or higher-kinded parameter M
   8 unresolved on: bounded or higher-kinded parameter T[_]
   7 unresolved on: unavailable refined member
@@ -42,7 +42,6 @@ Generic method / constructor implementation cardinalities
   1 unresolved on: bounded or higher-kinded parameter C[_[_]]
   1 unresolved on: bounded or higher-kinded parameter T <
   1 unresolved on: unapplied constructor placeholder requires a higher-kinded argument environment
-  1 unresolved on: union Array[Int] | Null
 
 ?  dev.constructive.eo.CanFold.foldMap  foldMap[M](f: A => M)(s: S)(using Monoid[M]): M  CanFold.scala:18  [declaration]
     unresolved: unresolved type: Monoid
@@ -50,7 +49,6 @@ Generic method / constructor implementation cardinalities
     unresolved: polymorphic capability binder: M
 ?  dev.constructive.eo.CanFold.length  length(s: S): Int  CanFold.scala:23  [method]
     unresolved: polymorphic capability binder: M
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.CanFold.exists  exists(p: A => Boolean)(s: S): Boolean  CanFold.scala:26  [method]
     unresolved: polymorphic capability binder: M
@@ -256,7 +254,6 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Any
 ?  dev.constructive.eo.data.Affine.Miss.hashCode  hashCode(): Int  Affine.scala:88  [method]
     unresolved: inert match type: scrutinee is not a proven tuple; concrete substitution required
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.Affine.Hit.<init>  Hit[A, +B](val snd: Snd[A], val b: B)  Affine.scala:91  [constructor]
     unresolved: inert match type: scrutinee is not a proven tuple; concrete substitution required
@@ -272,7 +269,6 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.Affine.Hit.hashCode  hashCode(): Int  Affine.scala:98  [method]
     captures: b
     unresolved: inert match type: scrutinee is not a proven tuple; concrete substitution required
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.Affine.map.map  map[X, A, B](fa: Affine[X, A], f: A => B): Affine[X, B]  Affine.scala:107  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.Affine
@@ -344,32 +340,24 @@ Generic method / constructor implementation cardinalities
     unresolved: bounded or higher-kinded parameter F[_]: Traverse
     unresolved: bounded or higher-kinded parameter G[_]: Applicative
     unresolved: unresolved type: Forget[F]
-?  dev.constructive.eo.data.IntArrBuilder.<init>  IntArrBuilder(initialCapacity: Int = 16)  IntArrBuilder.scala:10  [constructor]
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
-    unresolved: unresolved type: Int
+2^32  dev.constructive.eo.data.IntArrBuilder.<init>  IntArrBuilder(initialCapacity: Int = 16)  IntArrBuilder.scala:10  [constructor]
 ?  dev.constructive.eo.data.IntArrBuilder.size  size: Int  IntArrBuilder.scala:14  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.IntArrBuilder.append  append(x: Int): Unit  IntArrBuilder.scala:16  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.IntArrBuilder.unsafeAppend  unsafeAppend(x: Int): Unit  IntArrBuilder.scala:22  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.IntArrBuilder.grow  grow(minCap: Int): Unit  IntArrBuilder.scala:26  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.IntArrBuilder.grow.doubleTo  doubleTo(cap: Int): Int  IntArrBuilder.scala:27  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.IntArrBuilder.freeze  freeze: Array[Int]  IntArrBuilder.scala:36  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.ModifyF.<init>  ModifyF[A, B](val modifier: (Fst[A], Snd[A] => B))  ModifyF.scala:28  [constructor]
     unresolved: inert match type: scrutinee is not a proven tuple; concrete substitution required
@@ -411,7 +399,6 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.MultiFocusFromList.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): F[A]  MultiFocus.scala:77  [method]
     unresolved: bounded or higher-kinded parameter F[_]
     unresolved: polymorphic capability binder: A
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.MultiFocusFromList.forList.fromList  fromList[A](xs: List[A]): List[A]  MultiFocus.scala:83  [method]
@@ -419,7 +406,6 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: List
 ?  dev.constructive.eo.data.MultiFocusFromList.forList.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): List[A]  MultiFocus.scala:85  [method]
     unresolved: polymorphic capability binder: A
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
     unresolved: unresolved type: List
@@ -432,7 +418,6 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Vector
 ?  dev.constructive.eo.data.MultiFocusFromList.forVector.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): Vector[A]  MultiFocus.scala:101  [method]
     unresolved: polymorphic capability binder: A
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
     unresolved: unresolved type: Vector
@@ -447,7 +432,6 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.MultiFocusFromList.forPSVec.fromArraySlice  fromArraySlice[A](arr: Array[Any], from: Int, size: Int): PSVec[A]  MultiFocus.scala:125  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
     unresolved: polymorphic capability binder: A
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.MultiFocusPSMaybeHit.collectTo  collectTo( s: S, lenBuf: IntArrBuilder, ysBuf: ObjArrBuilder, flatBuf: ObjArrBuilder, ): Unit  MultiFocus.scala:139  [declaration]
@@ -456,7 +440,6 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: ObjArrBuilder
 ?  dev.constructive.eo.data.MultiFocusPSMaybeHit.reconstructSingleton  reconstructSingleton(y: Any, vys: PSVec[B], pos: Int, len: Int): T  MultiFocus.scala:146  [declaration]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
     unresolved: unresolved type: IntArrBuilder
@@ -511,7 +494,6 @@ Generic method / constructor implementation cardinalities
     captures: xo
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusSingleton
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.maybeHitTo  maybeHitTo[A, B, C, D]( xo: Xo, va: PSVec[A], mh: MultiFocusPSMaybeHit[A, B, C, D], ): MultiFocus[PSVec][Z, C]  MultiFocus.scala:377  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
@@ -521,7 +503,6 @@ Generic method / constructor implementation cardinalities
     captures: xo
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusPSMaybeHit
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.singleOuterTo  singleOuterTo[A, B, C, D]( xo: Xo, va: PSVec[A], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, ): MultiFocus[PSVec][Z, C]  MultiFocus.scala:399  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
@@ -534,17 +515,13 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.genericTo.loop  loop(i: Int): Unit  MultiFocus.scala:431  [method]
     captures: xo
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: refined representation unavailable (constraints not erased): Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.MultiFocusK.mfAssocPSVec.composeFrom  composeFrom[S, T, A, B, C, D]( xd: MultiFocus[PSVec][Z, D], inner: Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }, outer: Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }, ): T  MultiFocus.scala:442  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.MultiFocusK.AssocSndZ
     unresolved: refined representation unavailable (constraints not erased): Optic[A, B, C, D, MultiFocus[PSVec]] { type X = Xi }
     unresolved: refined representation unavailable (constraints not erased): Optic[S, T, A, B, MultiFocus[PSVec]] { type X = Xo }
-?  dev.constructive.eo.data.MultiFocusK.AssocSndZ.<init>  AssocSndZ[Xo, Xi]( val xo: Xo, val lens: Array[Int] | Null, val ys: Array[Any], )  MultiFocus.scala:496  [constructor]
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
-    unresolved: union Array[Int] | Null: unresolved type: Int
-    unresolved: unresolved type: Any
+ω  dev.constructive.eo.data.MultiFocusK.AssocSndZ.<init>  AssocSndZ[Xo, Xi]( val xo: Xo, val lens: Array[Int] | Null, val ys: Array[Any], )  MultiFocus.scala:496  [constructor]
 ?  dev.constructive.eo.data.MultiFocusK.<extension@513>.collectList  collectList(agg: List[A] => B)(using ev: S =:= List[A], ev2: T =:= List[B]): S => T  MultiFocus.scala:515  [method]
     unresolved: unresolved type: List
 ?  dev.constructive.eo.data.MultiFocusK.<extension@529>.collectMap  collectMap[C](agg: F[A] => C)(using ev: C =:= B): S => T  MultiFocus.scala:531  [method]
@@ -601,7 +578,6 @@ Generic method / constructor implementation cardinalities
     unresolved: unavailable refined member: Representable#Representation
 ?  dev.constructive.eo.data.MultiFocusK.tuple  tuple[T <: Tuple, A](using sz: ValueOf[Tuple.Size[T]], ev: Tuple.Union[T] <:< A, ): Optic[T, T, A, A, MultiFocus[Function1[Int, *]]]  MultiFocus.scala:960  [method]
     unresolved: bounded or higher-kinded parameter T <: Tuple
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
 ?  dev.constructive.eo.data.MultiFocusK.forgetful2multifocusFunction1.to  to[S, T, A, B]( o: Optic[S, T, A, B, Direct] ): Optic[S, T, A, B, MultiFocus[Function1[X0, *]]]  MultiFocus.scala:990  [method]
     unresolved: opaque representation is not visible at use site: dev.constructive.eo.data.Direct
     unresolved: unapplied constructor placeholder requires a higher-kinded argument environment
@@ -609,12 +585,9 @@ Generic method / constructor implementation cardinalities
     unresolved: bounded or higher-kinded parameter F[_]: MonoidK
 ?  dev.constructive.eo.data.MultiFocus.apply  apply[F[_], X, A](x: X, fa: F[A]): MultiFocusK[F, X, A]  MultiFocus.scala:1036  [method]
     unresolved: bounded or higher-kinded parameter F[_]
-?  dev.constructive.eo.data.ObjArrBuilder.<init>  ObjArrBuilder(initialCapacity: Int = 16)  ObjArrBuilder.scala:10  [constructor]
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
-    unresolved: unresolved type: Int
+2^32  dev.constructive.eo.data.ObjArrBuilder.<init>  ObjArrBuilder(initialCapacity: Int = 16)  ObjArrBuilder.scala:10  [constructor]
 ?  dev.constructive.eo.data.ObjArrBuilder.size  size: Int  ObjArrBuilder.scala:14  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.ObjArrBuilder.append  append(x: Any): Unit  ObjArrBuilder.scala:16  [method]
     unresolved: mutable capture
@@ -630,11 +603,9 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.ObjArrBuilder.grow  grow(minCap: Int): Unit  ObjArrBuilder.scala:38  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.ObjArrBuilder.grow.doubleTo  doubleTo(cap: Int): Int  ObjArrBuilder.scala:39  [method]
     unresolved: mutable capture
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.ObjArrBuilder.freezeAsPSVec  freezeAsPSVec[A]: PSVec[A]  ObjArrBuilder.scala:50  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
@@ -646,12 +617,10 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.length  length: Int  PSVec.scala:20  [declaration]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.apply  apply(i: Int): B  PSVec.scala:23  [declaration]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.iterator  iterator: Iterator[B]  PSVec.scala:33  [method]
@@ -661,7 +630,6 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Iterator
 ?  dev.constructive.eo.data.PSVec.knownSize  knownSize: Int  PSVec.scala:41  [method]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.head  head: B  PSVec.scala:44  [declaration]
@@ -670,7 +638,6 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.PSVec.slice  slice(from: Int, until: Int): PSVec[B]  PSVec.scala:47  [declaration]
     captures: head
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.isEmpty  isEmpty: Boolean  PSVec.scala:49  [method]
@@ -698,12 +665,10 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.hashCode  hashCode(): Int  PSVec.scala:81  [method]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.hashCode.loop  loop(i: Int, h: Int): Int  PSVec.scala:82  [method]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.toString  toString(): String  PSVec.scala:91  [method]
@@ -718,19 +683,16 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.PSVec.pSVecFoldable.foldLeft.loop  loop(i: Int, acc: B): B  PSVec.scala:133  [method]
     captures: b, f
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.pSVecFoldable.foldRight  foldRight[A, B](fa: PSVec[A], lb: Eval[B])( f: (A, Eval[B]) => Eval[B] ): Eval[B]  PSVec.scala:138  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
     unresolved: unresolved type: Eval
 ?  dev.constructive.eo.data.PSVec.pSVecFoldable.foldRight.loop  loop(i: Int): Eval[B]  PSVec.scala:142  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Eval
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.pSVecFoldable.size  size[A](fa: PSVec[A]): Long  PSVec.scala:147  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Long
 ?  dev.constructive.eo.data.PSVec.pSVecTraverse.traverse  traverse[G[_]: Applicative, A, B](fa: PSVec[A])(f: A => G[B]): G[PSVec[B]]  PSVec.scala:157  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
@@ -742,12 +704,10 @@ Generic method / constructor implementation cardinalities
     unresolved: unresolved type: Eval
 ?  dev.constructive.eo.data.PSVec.Empty.length  length: Int  PSVec.scala:186  [method]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.Empty.apply  apply(i: Int): Nothing  PSVec.scala:190  [method]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.Empty.head  head: Nothing  PSVec.scala:193  [method]
@@ -756,18 +716,15 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.PSVec.Empty.slice  slice(from: Int, until: Int): PSVec[Nothing]  PSVec.scala:196  [method]
     captures: head
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 1  dev.constructive.eo.data.PSVec.Single.<init>  Single[+B](val b: B)  PSVec.scala:199  [constructor]
 ?  dev.constructive.eo.data.PSVec.Single.length  length: Int  PSVec.scala:200  [method]
     captures: b, head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.Single.apply  apply(i: Int): B  PSVec.scala:202  [method]
     captures: b, head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.Single.head  head: B  PSVec.scala:206  [method]
@@ -777,7 +734,6 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.PSVec.Single.slice  slice(from: Int, until: Int): PSVec[B]  PSVec.scala:208  [method]
     captures: b, head
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.Single.toAnyArray  toAnyArray: Array[Any]  PSVec.scala:213  [method]
@@ -785,13 +741,9 @@ Generic method / constructor implementation cardinalities
     unresolved: inherited override identity not resolved: toAnyArray
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
-?  dev.constructive.eo.data.PSVec.Slice.<init>  Slice[+B]( private[data] val arr: Array[Any], private[data] val offset: Int, val length: Int, )  PSVec.scala:221  [constructor]
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
-    unresolved: unresolved type: Any
-    unresolved: unresolved type: Int
+ω  dev.constructive.eo.data.PSVec.Slice.<init>  Slice[+B]( private[data] val arr: Array[Any], private[data] val offset: Int, val length: Int, )  PSVec.scala:221  [constructor]
 ?  dev.constructive.eo.data.PSVec.Slice.apply  apply(i: Int): B  PSVec.scala:226  [method]
     captures: head
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.Slice.head  head: B  PSVec.scala:227  [method]
@@ -800,7 +752,6 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.data.PSVec.Slice.slice  slice(from: Int, until: Int): PSVec[B]  PSVec.scala:229  [method]
     captures: head
     unresolved: abstract type or method-valued representation: dev.constructive.eo.data.PSVec
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 46 more
     unresolved: unresolved type: Any
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.data.PSVec.Slice.toAnyArray  toAnyArray: Array[Any]  PSVec.scala:237  [method]
@@ -996,7 +947,6 @@ Generic method / constructor implementation cardinalities
     unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Getter
 ?  dev.constructive.eo.optics.Index.apply  apply[CC[X] <: SeqOps[X, CC, CC[X]], A](i: Int): Optional[CC[A], CC[A], A, A]  Index.scala:34  [method]
     unresolved: bounded or higher-kinded parameter CC[X] <: SeqOps[X, CC, CC[X]]
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.optics.Index.apply  apply[K, V](k: K): Optional[Map[K, V], Map[K, V], V, V]  Index.scala:52  [method]
     unresolved: unresolved type: Map
@@ -1292,7 +1242,6 @@ Generic method / constructor implementation cardinalities
     unresolved: bounded or higher-kinded parameter F[_, _]
 ?  dev.constructive.eo.optics.Optic.<extension@401>.length  length(s: S): Int  Optic.scala:432  [method]
     unresolved: bounded or higher-kinded parameter F[_, _]
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.optics.Optic.<extension@401>.exists  exists(p: A => Boolean)(s: S): Boolean  Optic.scala:442  [method]
     unresolved: bounded or higher-kinded parameter F[_, _]
@@ -1381,16 +1330,12 @@ Generic method / constructor implementation cardinalities
 ?  dev.constructive.eo.optics.Plated.transform.rec  rec(s: S, depth: Int): S  Plated.scala:124  [method]
     captures: f, root
     unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.optics.Plated.transformMachine  transformMachine[S](f: S => S)(root: S)(using P: Plated[S]): S  Plated.scala:144  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
 ?  dev.constructive.eo.optics.Plated.transformMachine.Frame.<init>  Frame(val node: S, val kids: PSVec[S], val out: Array[Any], var i: Int)  Plated.scala:145  [constructor]
     captures: f, root
     unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Plated
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 47 more
-    unresolved: unresolved type: Any
-    unresolved: unresolved type: Int
     unresolved: unresolved type: PSVec
 ?  dev.constructive.eo.optics.Plated.transformMachine.enter  enter(s: S): Unit  Plated.scala:148  [method]
     captures: f, root
@@ -1622,7 +1567,6 @@ Generic method / constructor implementation cardinalities
     unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
 ?  dev.constructive.eo.optics.Traversal.length  length(s: S): Int  Traversal.scala:77  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X
-    unresolved: qualified member environment not resolved: dev.constructive.eo.CanFold and 48 more
     unresolved: unresolved type: Int
 ?  dev.constructive.eo.optics.Traversal.exists  exists(p: A => Boolean)(s: S): Boolean  Traversal.scala:83  [method]
     unresolved: abstract type or method-valued representation: dev.constructive.eo.optics.Optic.X

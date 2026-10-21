@@ -93,7 +93,7 @@ dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFAp
 dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFFold.foldMap	method	given [F[_]: Foldable]: ForgetfulFold[Forget[F]]	foldMap[X, A, M: Monoid](f: A => M, fa: Forget[F][X, A]): M	?	unreviewed
 dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFFunctor.map	method	given [F[_]](using F: Functor[F]): ForgetfulFunctor[Forget[F]]	map[X, A, B](fa: Forget[F][X, A], f: A => B): Forget[F][X, B]	?	unreviewed
 dev/constructive/eo/data/Forget.scala	dev.constructive.eo.data.ForgetK.forgetFTraverse.traverse	method	given [F[_]: Traverse]: ForgetfulTraverse[Forget[F], Applicative]	traverse[X, A, B, G[_]: Applicative]( fa: Forget[F][X, A], f: A => G[B], ): G[Forget[F][X, B]]	?	unreviewed
-dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.<init>	constructor		IntArrBuilder(initialCapacity: Int = 16)	?	unreviewed
+dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.<init>	constructor		IntArrBuilder(initialCapacity: Int = 16)	2^32	unreviewed
 dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.append	method		append(x: Int): Unit	?	unreviewed
 dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.freeze	method		freeze: Array[Int]	?	unreviewed
 dev/constructive/eo/data/IntArrBuilder.scala	dev.constructive.eo.data.IntArrBuilder.grow	method		grow(minCap: Int): Unit	?	unreviewed
@@ -126,7 +126,7 @@ dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.collectWith	method	extension [S, T, A, B, F[_]](o: Optic[S, T, A, B, MultiFocus[F]])(using F: Functor[F])	collectWith(agg: F[A] => A => B): S => T	?	unreviewed
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.context	method	extension [F[_], X, A](self: MultiFocusK[F, X, A])	context: X	?	unreviewed
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.<extension>.foci	method	extension [F[_], X, A](self: MultiFocusK[F, X, A])	foci: F[A]	?	unreviewed
-dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.AssocSndZ.<init>	constructor		AssocSndZ[Xo, Xi]( val xo: Xo, val lens: Array[Int] | Null, val ys: Array[Any], )	?	unreviewed
+dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.AssocSndZ.<init>	constructor		AssocSndZ[Xo, Xi]( val xo: Xo, val lens: Array[Int] | Null, val ys: Array[Any], )	ω	unreviewed
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.affine2multifocus.to	method	given [F[_]: Alternative: Foldable]: Composer[Affine, MultiFocus[F]]	to[S, T, A, B](o: Optic[S, T, A, B, Affine]): Optic[S, T, A, B, MultiFocus[F]]	?	unreviewed
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.affine2multifocusPSVec.to	method	given : Composer[Affine, MultiFocus[PSVec]]	to[S, T, A, B](o: Optic[S, T, A, B, Affine]): Optic[S, T, A, B, MultiFocus[PSVec]]	?	unreviewed
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusK.apply	method		apply[F[_], A]: Optic[F[A], F[A], A, A, MultiFocus[F]]	?	unreviewed
@@ -171,7 +171,7 @@ dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusPSM
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusSingleton.collectSingletonTo	method		collectSingletonTo(s: S, ysBuf: ObjArrBuilder, flatBuf: ObjArrBuilder): Unit	?	unreviewed
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusSingleton.singletonFrom	declaration		singletonFrom(x: X0, b: B): T	0	unreviewed
 dev/constructive/eo/data/MultiFocus.scala	dev.constructive.eo.data.MultiFocusSingleton.singletonTo	declaration		singletonTo(s: S): (X0, A)	0	unreviewed
-dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.<init>	constructor		ObjArrBuilder(initialCapacity: Int = 16)	?	unreviewed
+dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.<init>	constructor		ObjArrBuilder(initialCapacity: Int = 16)	2^32	unreviewed
 dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.append	method		append(x: Any): Unit	?	unreviewed
 dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.appendAllFromPSVec	method		appendAllFromPSVec[A](src: PSVec[A]): Unit	?	unreviewed
 dev/constructive/eo/data/ObjArrBuilder.scala	dev.constructive.eo.data.ObjArrBuilder.freezeArr	method		freezeArr: Array[Any]	?	unreviewed
@@ -190,7 +190,7 @@ dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.head	
 dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.length	method		length: Int	?	unreviewed
 dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.slice	method		slice(from: Int, until: Int): PSVec[B]	?	unreviewed
 dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Single.toAnyArray	method		toAnyArray: Array[Any]	?	unreviewed
-dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.<init>	constructor		Slice[+B]( private[data] val arr: Array[Any], private[data] val offset: Int, val length: Int, )	?	unreviewed
+dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.<init>	constructor		Slice[+B]( private[data] val arr: Array[Any], private[data] val offset: Int, val length: Int, )	ω	unreviewed
 dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.apply	method		apply(i: Int): B	?	unreviewed
 dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.head	method		head: B	?	unreviewed
 dev/constructive/eo/data/PSVec.scala	dev.constructive.eo.data.PSVec.Slice.slice	method		slice(from: Int, until: Int): PSVec[B]	?	unreviewed

@@ -68,13 +68,14 @@ mkdir -p target/eo-baseline
 curl --fail --location \
   https://repo1.maven.org/maven2/dev/constructive/cats-eo_3/0.16.0/cats-eo_3-0.16.0-sources.jar \
   --output target/eo-baseline/cats-eo_3-0.16.0-sources.jar
-sbt 'core/Test/runMain cardinality.EoBaseline target/eo-baseline/cats-eo_3-0.16.0-sources.jar target/eo-baseline 726ec431bbcb1b9211622d70d32c2852a9562df7'
+sbt 'core/Test/runMain cardinality.EoBaseline target/eo-baseline/cats-eo_3-0.16.0-sources.jar target/eo-baseline 7f8bcff89912c05e3bd35adb60a78623bdad9371'
 ```
 
 The last argument records the **production analyzer revision**, not an automatically detected
-Git revision. Update it when measuring changed production code; the retained run used unchanged
-production code at the revision above. Use `docs/baselines` as the output directory only when
-deliberately updating the retained artifacts.
+Git revision. Update it when measuring changed production code: the retained artifacts were
+regenerated at `7f8bcff`, the commit that added the constructor-parameter-space rule (the
+eleven-row refresh above was produced at `726ec43`, unchanged production code). Use
+`docs/baselines` as the output directory only when deliberately updating the retained artifacts.
 
 The runner verifies SHA-256
 `61907fc2f4e1c0892fa8723c7a014af942b825b64a916a9b53dd64b3f12dbfe3`, rejects parse/read errors,
