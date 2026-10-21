@@ -285,9 +285,13 @@ object Report {
     if (models.isEmpty) Nil
     else {
       val entries = models.map(_._2)
-      val finite = entries.count(_.count.isInstanceOf[Count.Finite])
-      val countable = entries.count(_.count == Count.Countable)
-      val unresolved = entries.size - finite - countable
+      // `Finite` counts canonical implementations; `Bounded` answers with a value space the
+      // estimate read, sorted by its tier — `2^32` sits with the finite, `ω` with the countable,
+      // `ε₀` beyond both.
+      val finite = entries.count(_.count.isFinite)
+      val countable = entries.count(_.count.isCountable)
+      val beyond = entries.count(_.count.isBeyondCountable)
+      val unresolved = entries.size - finite - countable - beyond
       val blocking = entries
         .flatMap(entry =>
           entry.count match {
@@ -314,7 +318,13 @@ object Report {
       }
       List(
         "Generic method / constructor implementation cardinalities",
-        s"  ${plural(entries.size, "signature")}: $finite finite · $countable countably infinite · $unresolved unresolved",
+        s"  ${plural(entries.size, "signature")}: " +
+          List(
+            s"$finite finite",
+            s"$countable countably infinite",
+            if (beyond == 0) "" else s"$beyond beyond countable",
+            s"$unresolved unresolved",
+          ).filter(_.nonEmpty).mkString(" · "),
       ) ++ blocking ++ List("") ++ rows
     }
   }

@@ -7,6 +7,7 @@ import scala.util.control.NonFatal
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
+import cardinality.capacity.{Counter, Library}
 import cardinality.types.*
 
 /** Source-set analysis of pure, total parametric implementations, not stored-value cardinality.
@@ -60,25 +61,16 @@ object MethodAnalysis {
   def analyze(inputs: List[Input], limits: Limits = Limits()): List[Entry] =
     new Index(inputs, limits).analyze()
 
-  // The concrete atoms whose count depends on who can produce them. Primitives are opaque to the
-  // shape model (a Boolean is one bit, not a case split), so a producer outside the lexical chain
-  // could change the answer. `Unit`, `Option` and `Either` are structural — a count of cases —
-  // and stay countable wherever they appear.
-  private val ConcreteAtoms = Set(
-    "Boolean",
-    "Byte",
-    "Short",
-    "Char",
-    "Int",
-    "Long",
-    "Float",
-    "Double"
-  )
+  // The names whose count depends on who can produce them: the shape model spells `Boolean` as a
+  // case split, so the values behind it could come from anywhere — a producer outside the lexical
+  // chain included. The fixed-width numeric family is not one of these: the estimate reads a byte
+  // as 2^8 and an `Int` as 2^32 wherever it needs their size, so nothing outside the chain can move
+  // the number. `Unit`, `Option` and `Either` are structural too — a count of cases — and stay
+  // countable wherever they appear.
+  private val ConcreteAtoms = Set("Boolean")
 
   private[cardinality] type Resolved = Either[String, Shape]
 
-  // A source type's parameters and the types its representation is built from: an alias body, a
-  // case class's fields, or a reason the model cannot read the declaration at all.
   // A source type's parameters and the cases its representation is built from: one case of one
   // type for an alias, one case of its fields for a case class, one per case for an enum. A
   // declaration the model cannot read carries the reason instead.
@@ -138,6 +130,16 @@ object MethodAnalysis {
     private val indexer = new SourceIndex(inputs, work)
 
     def analyze(): List[Entry] = indexer.targets.toList.map(measure)
+
+    // One reading per source: the estimate's scope, solved with every supplied file behind it, so
+    // a constructor's parameter answers `Int` with 2^32 and `Nat` with its sealed sum — the same
+    // numbers the definitions' rows carry.
+    private lazy val readings: Map[String, Counter.Reading] = {
+      val library = Library.of(inputs.map(_.tree))
+      inputs.map(input => input.path -> Counter.Reading.of(input.tree, library)).toMap
+    }
+
+    def reading(path: String): Counter.Reading = readings.getOrElse(path, Counter.Reading.bare)
 
     private val lookupIndex = new SourceLookup(indexer.types.toList, indexer.packageFrames.toList)
 

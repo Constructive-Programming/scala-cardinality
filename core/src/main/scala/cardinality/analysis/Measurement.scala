@@ -6,6 +6,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
+import cardinality.capacity.{Counter, Size}
 
 import Inhabitation.{Binding, Count, Shape}
 import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEntry}
@@ -16,6 +17,12 @@ import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEnt
   * the two files stay apart without a second copy of the resolution rules.
   */
 private[cardinality] trait Resolver {
+
+  /** The estimate's reading of the source a signature was indexed from, so a constructor position
+    * can answer with the same space the definitions' rows use.
+    */
+  def reading(path: String): Counter.Reading
+
   def lookup(name: String, frame: Frame): List[TypeEntry]
 
   def resolve(
@@ -73,7 +80,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     scanParents()
     flagReachableModules()
     // Parameters of the target hide outer names, but their type binders keep their identities.
-    target.frame.params.foreach(p => add(p.name.value, p.decltpe, target.frame))
+    bindParams(target.frame)
     val result = resultShape()
     result.left.foreach(errors += _)
     Entry.of(
@@ -206,9 +213,14 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   // One owner's bindings: its own parameters, then every scope that shares its path.
   private def scan(owner: Frame): Unit = {
-    owner.params.foreach(p => add(p.name.value, p.decltpe, owner))
+    bindParams(owner)
     frames(owner).foreach(scanFrame)
   }
+
+  // One owner's parameters as bindings: the positions the estimate did not read, since a space it
+  // read *is* the count and binding the position would only add a diagnostic for it.
+  private def bindParams(owner: Frame): Unit =
+    owner.params.foreach(p => if (leftToShape(p)) add(p.name.value, p.decltpe, owner))
 
   // Package-level declarations are indexed across all files. Unrelated class parameters are never
   // pooled just because both happen to be named A.
@@ -397,14 +409,39 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def resultShape(): Resolved =
     if (target.constructor) constructorShape() else declaredShape()
 
+  // The positions left to the shape model: a type parameter's slot, whose count is the values the
+  // caller supplies — the reading behind `Pair[A](x: A, y: A)` having four implementations — and
+  // any position the estimate reads with a reason, where the model's diagnostic says more than a
+  // number resting on an unknown name.
   private def constructorShape(): Resolved =
     sequence(
-      target.frame.params.map(p =>
-        p.decltpe
-          .toRight(s"missing parameter type: ${p.name.value}")
-          .flatMap(resolver.resolve(_, target.frame, variables))
-      )
+      target.frame.params
+        .filter(leftToShape)
+        .map(p =>
+          p.decltpe
+            .toRight(s"missing parameter type: ${p.name.value}")
+            .flatMap(resolver.resolve(_, target.frame, variables))
+        )
     ).map(Shape.Product(_))
+
+  // The one rule for a constructor's positions, wherever they are read: one the estimate read is
+  // counted by its space, and the shape model neither binds it nor reads it a second time — binding
+  // it would only plant a diagnostic for a name the report already answered.
+  private def leftToShape(param: Term.Param): Boolean = space(param.decltpe).isEmpty
+
+  /** What the estimate reads a constructor position as: the value space of the type, when this
+    * source answers it whole. None for a type parameter's slot and None for a type whose reading
+    * carries a reason; those stay with the shape model.
+    */
+  private def space(decltpe: Option[Type]): Option[Size] =
+    if (!target.constructor) None
+    else
+      decltpe
+        .filterNot {
+          case named: Type.Name => variables.contains(named.value)
+          case _                => false
+        }
+        .flatMap(resolver.reading(target.input).value)
 
   private def declaredShape(): Resolved =
     target.result
@@ -413,7 +450,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private def count(result: Resolved): Count =
     if (errors.nonEmpty) Count.Unresolved(errors.toList.distinct.sorted)
-    else result.fold(unresolved, inhabitation)
+    else
+      result.fold(
+        unresolved,
+        shape =>
+          Count.product(target.frame.params.flatMap(p => space(p.decltpe)), inhabitation(shape))
+      )
 
   private def unresolved(reason: String): Count = Count.Unresolved(List(reason))
 

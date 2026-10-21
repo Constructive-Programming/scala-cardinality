@@ -2,6 +2,8 @@ package cardinality.analysis.inhabitation
 
 import scala.collection.mutable
 
+import cardinality.capacity.{EffectiveOmega, FinitePart, Size, UnitSize}
+
 /** Counts observationally distinct inhabitants in a restricted pure, total parametric calculus.
   *
   * Supported: free atoms, products, finite sums in the context, arrow introduction, and reusable
@@ -38,12 +40,70 @@ object Inhabitation {
   enum Count {
     case Finite(value: BigInt)
     case Countable
+
+    /** A value space the estimate read: `2^32` for an `Int`, `ω` for a sealed family, `ε₀` for a
+      * function space. The size's own rendering, bound and not proof — an exact count still renders
+      * as `Finite`.
+      */
+    case Bounded(size: Size)
     case Unresolved(reasons: List[String])
 
     def render: String = this match {
       case Finite(value) => value.toString
       case Countable     => "ω"
+      case Bounded(size) => size.render
       case Unresolved(_) => "?"
+    }
+
+    def isFinite: Boolean = this match {
+      case Finite(_)                 => true
+      case Bounded(space)            => !space.hasInfinite
+      case Countable | Unresolved(_) => false
+    }
+
+    def isCountable: Boolean = this match {
+      case Countable                 => true
+      case Bounded(space)            => space.hasInfinite && space.epsilon == 0
+      case Finite(_) | Unresolved(_) => false
+    }
+
+    /** Above countable: the ε₀ tier the size algebra places a function space over a countable type.
+      */
+    def isBeyondCountable: Boolean = this match {
+      case Bounded(space) => space.epsilon > 0
+      case _              => false
+    }
+
+  }
+
+  object Count {
+
+    /** The count a constructor admits: the positions the estimate read multiply as the size algebra
+      * multiplies spaces — `2 × ω = ω`, a tier beside a higher tier answers the higher — and
+      * everything else goes in as the shape model's own count of the remaining positions. A
+      * position that stayed unresolved leaves the product unresolved: a number behind an unreadable
+      * name is not a count.
+      */
+    def product(spaces: List[Size], implementations: Count): Count = implementations match {
+      case Unresolved(reasons) => Unresolved(reasons)
+      case count               => spaces.foldLeft(count)(times)
+    }
+
+    // One read position multiplies in: the count so far times the space, read back as a count.
+    private def times(count: Count, space: Size): Count = bounded(sizeOf(count) * space)
+
+    // The space a resolved count stands for, so the rest of the product is the size algebra's. The
+    // unresolved case is the one `product` answered before it multiplies.
+    private def sizeOf(count: Count): Size = count match {
+      case Finite(value)  => Size(0, 0, FinitePart.exact(value))
+      case Countable      => EffectiveOmega
+      case Bounded(space) => space
+      case Unresolved(_)  => UnitSize
+    }
+
+    private def bounded(space: Size): Count = space.finite match {
+      case FinitePart.Exact(value) if !space.hasInfinite => Finite(value)
+      case _                                             => Bounded(space)
     }
 
   }

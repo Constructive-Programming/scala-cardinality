@@ -46,20 +46,28 @@ private[cardinality] object Walk {
       prefix: List[String],
       top: Boolean
   ): Introduced = {
-    val entries = Counter.equations(stats)
-    val surroundings = scope.withImports(imports(stats)).withOpen(openNames(stats))
-    val solved = Solver.solve(entries, stats, surroundings.withDefinitions(entries))
-    // A body's definitions contribute their *members* as well, so a sibling can be qualified
-    // (`Outer.B`), as the library does across files.
-    val body = stats.collect { case d: Defn => d }.foldLeft(solved) { (s, d) =>
-      s.withMembers(TypeName.of(named(d).value), members(d))
-    }
+    val body = solved(stats, scope)
     stats.foldLeft(Introduced.none) { (acc, st) =>
       val introduced = statement(body, prefix, top)(st)
       Introduced(
         contributes = acc.contributes + introduced.contributes,
         definitions = acc.definitions ++ introduced.definitions
       )
+    }
+  }
+
+  /** The scope a body reads in: its equations solved, its imports and open abstractions recorded,
+    * and its definitions' members bound — the same scope every row of the body is measured in,
+    * which `Counter.Reading` lends to the method side.
+    */
+  private[cardinality] def solved(stats: List[Stat], scope: Scope): Scope = {
+    val entries = Counter.equations(stats)
+    val surroundings = scope.withImports(imports(stats)).withOpen(openNames(stats))
+    val solved = Solver.solve(entries, stats, surroundings.withDefinitions(entries))
+    // A body's definitions contribute their *members* as well, so a sibling can be qualified
+    // (`Outer.B`), as the library does across files.
+    stats.collect { case d: Defn => d }.foldLeft(solved) { (s, d) =>
+      s.withMembers(TypeName.of(named(d).value), members(d))
     }
   }
 

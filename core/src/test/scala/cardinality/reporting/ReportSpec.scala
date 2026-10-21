@@ -50,7 +50,7 @@ class ReportSpec extends Specification {
       a solved recursion reports its fixed point  $recursiveRows
       a lazy hole counts ω, and is no question    $lazyRow
       the ε₀ tier arrives through modelled types  $tierRow
-      a function space still names its blocker    $blockedRow
+      a function space over an unmodelled type names it  $blockedRow
       an open abstraction has no bound            $openAbstraction
       a type constructor is a shape, not a gap    $constructorRow
       a named member resolves                     $memberByName
@@ -141,10 +141,10 @@ class ReportSpec extends Specification {
     )
 
   def unresolved = {
-    (reasons("case class Holder(a: String, b: Boolean)", "Holder") === List("String"))
+    (reasons("case class Holder(a: Quorum, b: Boolean)", "Holder") === List("Quorum"))
       .and(reasons("case class Generic[A](a: A)", "Generic") === List("A"))
       .and(
-        reasons("case class Wrapped(a: Option[String])", "Wrapped") === List("String")
+        reasons("case class Wrapped(a: Option[Quorum])", "Wrapped") === List("Quorum")
       )
       .and(
         // A modelled collection is no longer a reason: since the solver counts unbounded
@@ -152,9 +152,14 @@ class ReportSpec extends Specification {
         reasons("case class Counted(a: List[Boolean])", "Counted") === Nil
       )
       .and(
-        reasons("case class Elements(a: List[String])", "Elements") === List(
-          "String"
+        reasons("case class Elements(a: List[Quorum])", "Elements") === List(
+          "Quorum"
         )
+      )
+      .and(
+        // A modelled base type is no longer one either: `String` is the article's `ω`, so a
+        // function space over it answers the ε₀ tier with nothing left to name.
+        reasons("case class Text(run: String => String)", "Text") === Nil
       )
       .and(
         reasons("type Fst[T] = T match { case (a, b) => a }", "Fst") === List(
@@ -304,18 +309,18 @@ class ReportSpec extends Specification {
     val table = rendered.linesIterator.toList
       .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
       .drop(2)
-    // What the calculator could not bound leads the table — `Huge` (the unresolved `String`) and
-    // `Partial` (the unresolved `A`) — then the bounded sizes from the largest down: the countable
-    // `Many`, the lossy `Lossy`, the capacity `Big`, and the empty `Zero` last. A size whose tier
-    // is known is not a question: `Many` is ω exactly.
-    (table(0) must contain("Huge"))
-      .and(table(1) must contain("Partial"))
+    // What the calculator could not bound leads the table — `Partial`, whose size is the `A` it
+    // leaves open — then the bounded sizes from the largest down: `Huge` (`String => String` is
+    // ε₀ now that `String` is a modelled space), the countable `Many`, the lossy `Lossy`, the
+    // capacity `Big`, and the empty `Zero` last. A size whose tier is known is not a question.
+    (table(0) must contain("Partial"))
+      .and(table(1) must contain("Huge"))
       .and(table(2) must contain("Many"))
       .and(table(3) must contain("Lossy"))
       .and(table(4) must contain("Big"))
       .and(table(5) must contain("Zero"))
       .and(table(0) must contain("?"))
-      .and(table(1) must contain("?"))
+      .and(table(1) must contain("ε₀"))
       .and(table(2) must contain("ω"))
       .and(rendered must contain("1 with no values"))
   }
@@ -512,7 +517,7 @@ class ReportSpec extends Specification {
       ("Two", Some(BooleanSize), Nil),
       ("Second", Some(BooleanSize), Nil),
       ("ANumber", Some(BooleanSize), Nil),
-      ("Other", Some(EffectiveEpsilon0), List("String")),
+      ("Other", Some(EffectiveEpsilon0), Nil),
     )
   }
 
@@ -523,9 +528,10 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     // No case matches a `String` scrutinee: the match type stays unreduced, which a report names
-    // rather than guessing what it might be worth — and the scrutinee keeps its own reason too.
+    // rather than guessing what it might be worth. The scrutinee is a modelled space, so the
+    // unreduced match type is the row's only reason.
     found.find(_.name == "Stuck").map(d => (d.size, d.unbound.map(_.render))) ===
-      Some((Some(EffectiveOmega), List("String", "a match type")))
+      Some((Some(EffectiveOmega), List("a match type")))
   }
 
   def openAbstraction = {
@@ -719,8 +725,12 @@ class ReportSpec extends Specification {
 
   def blockedRow = {
     val reducer = definition("case class Reducer(run: String => String)", "Reducer")
+    val blocked = definition("case class Blocked(step: Quorum => Quorum)", "Blocked")
+    // `String` is a modelled space — countably many — so a function space over it answers ε₀ with
+    // nothing left to name. A name the sources do not define still carries its own reason.
     (reducer.size === Some(EffectiveEpsilon0))
-      .and(reducer.unbound.map(_.render) === List("String"))
+      .and(reducer.unbound.map(_.render) === Nil)
+      .and(blocked.unbound.map(_.render) === List("Quorum"))
   }
 
 }

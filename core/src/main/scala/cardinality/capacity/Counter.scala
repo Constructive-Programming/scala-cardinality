@@ -44,6 +44,37 @@ object Counter {
 
   def `type`: Type => Size = typeIn(Scope.empty)
 
+  /** The estimate's reading of one source: its definitions solved with the library behind them —
+    * the very scope the source's rows are measured in. `MethodAnalysis` reads a constructor's
+    * parameter types through it, so `Int`, a sealed family, a lazy cycle and a function space
+    * answer the two halves of a report with one number.
+    */
+  final class Reading private (private val scope: Scope) {
+
+    /** What a signature type is worth in this source: the size, when the scope answers the type
+      * whole, and None when the reading had to leave a name unbounded — a type the sources do not
+      * define, an abstraction nobody summed. The shape model keeps those: its diagnostic says more
+      * than a number resting on an unknown name.
+      */
+    def value(tpe: Type): Option[Size] = {
+      val probe = scope.measured
+      val size = typeIn(probe)(tpe)
+      if (probe.unbound.isEmpty) Some(size) else None
+    }
+
+  }
+
+  object Reading {
+
+    def of(s: Source, library: Library = Library.empty): Reading =
+      new Reading(Walk.solved(s.stats, Scope.empty.withLibrary(library)))
+
+    /** A reading with nothing in scope but the base types: the fallback for a source the index does
+      * not hold.
+      */
+    val bare: Reading = new Reading(Scope.empty)
+  }
+
   private[cardinality] def equations(stats: List[Stat]): List[(TypeName, Named)] = {
     val modules = stats.flatMap {
       case d: Defn.Object => Some(nameOf(d) -> Named(Nil, (_: Scope) => UnitSize))
