@@ -408,41 +408,51 @@ object Inhabitation {
     // The reasons on the rules this root reads, in the order they were met.
     private def reasonsAt(root: Int): List[String] = {
       val found = mutable.LinkedHashSet.empty[String]
-      val visiting = mutable.Set.empty[Int]
-      def visit(id: Int, depth: Int): Unit = {
-        inspect("solver reasons")
-        if (depth >= maxDepth) throw new Limit("solver traversal depth budget exhausted")
-        if (!visiting(id)) {
-          visiting += id
-          rules(id).foreach { rule =>
-            rule.reason.foreach(reason => { found += reason; () })
-            rule.children.foreach(child => visit(child, depth + 1))
-          }
-          visiting -= id
-        }
+      walk(root, "solver reasons", skipFinished = false) { rule =>
+        rule.reason.foreach(reason => { found += reason; () })
       }
-      visit(root, 0)
       found.toList
     }
 
     // A walk that revisits a goal has a productive cycle behind it: countably many constructions.
     private def cyclic(root: Int): Boolean = {
       var found = false
+      walk(root, "solver cycle", skipFinished = true)(_ => (), repeat = _ => found = true)
+      found
+    }
+
+    /** One depth-budgeted walk of the rule graph from a root — the only place the solver's
+      * traversal rule lives. Every step is counted for the analyzer's budget, a path longer than
+      * `maxDepth` is a resource failure rather than an answer, and a rule is read before its
+      * children are walked, so a node's reasons are met in the order a reader would meet them.
+      *
+      * Reaching a rule that is already on the path is a productive cycle behind the goal: `repeat`
+      * sees it, and the walk neither reads that rule nor descends into it. `skipFinished` is the
+      * one thing the two callers disagree on. The cycle walk answers each node once, while the
+      * reasons walk walks a subtree again when a second path reaches it — its set collapses the
+      * repeats, and keeping that reading is what leaves the steps the budget counts unchanged.
+      */
+    private def walk(root: Int, step: String, skipFinished: Boolean)(
+        read: Rule => Unit,
+        repeat: Int => Unit = _ => ()
+    ): Unit = {
       val onPath = mutable.Set.empty[Int]
-      val done = mutable.Set.empty[Int]
+      val finished = mutable.Set.empty[Int]
       def visit(id: Int, depth: Int): Unit = {
-        inspect("solver cycle")
+        inspect(step)
         if (depth >= maxDepth) throw new Limit("solver traversal depth budget exhausted")
-        if (onPath(id)) found = true
-        else if (!done(id)) {
+        if (onPath(id)) repeat(id)
+        else if (!skipFinished || !finished(id)) {
           onPath += id
-          rules(id).foreach(_.children.foreach(child => visit(child, depth + 1)))
+          rules(id).foreach { rule =>
+            read(rule)
+            rule.children.foreach(child => visit(child, depth + 1))
+          }
           onPath -= id
-          done += id
+          finished += id
         }
       }
       visit(root, 0)
-      found
     }
 
     // With no cycle behind it the reachable graph is a tree, so the count is exact arithmetic over
