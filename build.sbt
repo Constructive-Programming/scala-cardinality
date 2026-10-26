@@ -26,6 +26,9 @@ lazy val core = project
   .settings(
     name := "scala-cardinality",
     libraryDependencies ++= Seq(
+      "dev.constructive" %% "cats-eo" % "0.18.0",
+      "dev.constructive" %% "cats-eo-generics" % "0.18.0",
+      "dev.constructive" %% "cats-eo-schemes" % "0.18.0",
       "org.scalameta" %% "scalameta" % "4.17.4",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,

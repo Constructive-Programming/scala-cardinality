@@ -4,6 +4,8 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.types.*
+import dev.constructive.eo.generics.lens
+import dev.constructive.eo.optics.Lens
 
 // The state one read carries: the names a body solves, what a reference can resolve to, and the
 // library of the other supplied sources. `Counter` reads with it; the walk builds it.
@@ -80,10 +82,10 @@ final private[cardinality] class Scope(
 
   /** The members a definition's body declares, and the values whose declared types it gives. */
   def withMembers(owner: TypeName, declared: Members): Scope =
-    new Scope(values, notes, world.copy(members = world.members.updated(owner, declared)))
+    Scope.membersLens.modify(_.updated(owner, declared))(this)
 
   def withTerms(declared: Map[TypeName, Type]): Scope =
-    new Scope(values, notes, world.copy(terms = declared ++ terms))
+    Scope.termsLens.modify(declared ++ _)(this)
 
   private def home: List[TypeName] = world.home
 
@@ -130,29 +132,29 @@ final private[cardinality] class Scope(
 
   /** The definitions the bodies now in scope introduce; an inner body shadows an outer name. */
   def withDefinitions(entries: List[(TypeName, Named)]): Scope =
-    new Scope(values, notes, world.copy(definitions = entries.toMap ++ definitions))
+    Scope.definitionsLens.modify(entries.toMap ++ _)(this)
 
   /** The package path a reference is read in, which decides what the library lends it. */
   def withHome(path: List[TypeName]): Scope =
-    new Scope(values, notes, world.copy(home = path))
+    Scope.homeLens.replace(path)(this)
 
   /** The names a body imports; an inner import shadows an outer name for the whole body. */
   def withImports(names: Set[TypeName]): Scope =
-    new Scope(values, notes, world.copy(imports = imports ++ names))
+    Scope.importsLens.modify(_ ++ names)(this)
 
   /** The definition's declared type parameters, in scope while its body and its row are read. */
   def withBinders(declared: List[Binder]): Scope =
-    new Scope(values, notes, world.copy(binders = declared ++ world.binders))
+    Scope.bindersLens.modify(declared ++ _)(this)
 
   /** Abstractions a body leaves open (unsealed traits, abstract classes): a reference to one is
     * unbounded, not unknown.
     */
   def withOpen(names: Set[TypeName]): Scope =
-    new Scope(values, notes, world.copy(open = names ++ world.open))
+    Scope.openLens.modify(_ ++ names)(this)
 
   /** The definitions of other sources this read can lean on. */
   def withLibrary(other: Library): Scope =
-    new Scope(values, notes, world.copy(library = other))
+    Scope.libraryLens.replace(other)(this)
 
   /** A library definition read where it was written: its package's names resolve, not the file's.
     */
@@ -167,13 +169,13 @@ final private[cardinality] class Scope(
     * innermost frame first.
     */
   def instantiated(frame: Map[TypeName, Size]): Scope =
-    new Scope(values, notes, world.copy(frames = frame :: frames))
+    Scope.framesLens.modify(frame :: _)(this)
 
   /** Marks a substitution in progress, so a cycle through an applied reference terminates like one
     * through a bare name.
     */
   def substituting(name: TypeName): Scope =
-    new Scope(values, notes, world.copy(active = active + name))
+    Scope.activeLens.modify(_ + name)(this)
 
   def isSubstituting(name: TypeName): Boolean = active(name)
 
@@ -224,6 +226,20 @@ final private[cardinality] class Scope(
 private[cardinality] object Scope {
 
   val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
+
+  private val worldLens =
+    Lens[Scope, World](_.world, (s, w) => new Scope(s.values, s.notes, w))
+
+  private val definitionsLens = worldLens.andThen(lens[World](_.definitions))
+  private val framesLens = worldLens.andThen(lens[World](_.frames))
+  private val activeLens = worldLens.andThen(lens[World](_.active))
+  private val libraryLens = worldLens.andThen(lens[World](_.library))
+  private val homeLens = worldLens.andThen(lens[World](_.home))
+  private val importsLens = worldLens.andThen(lens[World](_.imports))
+  private val bindersLens = worldLens.andThen(lens[World](_.binders))
+  private val openLens = worldLens.andThen(lens[World](_.open))
+  private val membersLens = worldLens.andThen(lens[World](_.members))
+  private val termsLens = worldLens.andThen(lens[World](_.terms))
 
 }
 

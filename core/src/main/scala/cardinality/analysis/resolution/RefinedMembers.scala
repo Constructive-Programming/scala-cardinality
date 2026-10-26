@@ -131,7 +131,7 @@ private[cardinality] object RefinedMembers {
           }.distinct
           val substitutions =
             referenced.map(member => member -> fromStats(stats, member, scoped)).toMap
-          scoped.copy(variables = scoped.variables ++ substitutions).read(body, resolver)
+          scoped.bind(substitutions).read(body, resolver)
         }
       }
     }

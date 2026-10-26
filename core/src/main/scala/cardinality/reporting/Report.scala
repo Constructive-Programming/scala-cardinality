@@ -7,6 +7,7 @@ import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.capacity.*
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
+import dev.constructive.eo.optics.{Lens, Prism}
 import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
@@ -278,10 +279,22 @@ object Report {
   // it is defined — the kind says the representation is hidden to everyone else.
   private def unresolved(definition: Definition): Boolean = definition.unbound.nonEmpty
 
+  private val unresolvedReasons = Prism.optional[Inhabitation.Count, List[String]](
+    {
+      case Inhabitation.Count.Unresolved(reasons) => Some(reasons)
+      case _                                      => None
+    },
+    Inhabitation.Count.Unresolved(_)
+  )
+
+  private val entryCountLens =
+    Lens[MethodAnalysis.Entry, Inhabitation.Count](_.count, (e, c) => e.copy(count = c))
+
+  private val entryReasons = entryCountLens.andThen(unresolvedReasons)
+
   // The generic method and constructor counts, with what stands between the report and a number
   // for the rest: the triage list a reader works down.
   private def methods(models: List[(Source, MethodAnalysis.Entry)]): List[String] = {
-    import Inhabitation.Count
     if (models.isEmpty) Nil
     else {
       val entries = models.map(_._2)
@@ -294,10 +307,7 @@ object Report {
       val unresolved = entries.size - finite - countable - beyond
       val blocking = entries
         .flatMap(entry =>
-          entry.count match {
-            case Count.Unresolved(reasons) => reasons.map(reason => entry -> reason)
-            case _                         => Nil
-          }
+          entryReasons.getOption(entry).toList.flatten.map(reason => entry -> reason)
         )
         .groupBy { case (_, reason) => reason.split(':').head }
         .toList
@@ -311,10 +321,11 @@ object Report {
           ) ++
             (if (entry.captures.isEmpty) Nil
              else List(s"    captures: ${entry.captures.mkString(", ")}")) ++
-            (entry.count match {
-              case Count.Unresolved(reasons) => reasons.map(reason => s"    unresolved: $reason")
-              case _                         => Nil
-            })
+            entryReasons
+              .getOption(entry)
+              .toList
+              .flatten
+              .map(reason => s"    unresolved: $reason")
       }
       List(
         "Generic method / constructor implementation cardinalities",

@@ -3,6 +3,9 @@ package cardinality.analysis.inhabitation
 import scala.collection.mutable
 
 import cardinality.capacity.{EffectiveOmega, FinitePart, Size, UnitSize}
+import dev.constructive.eo.data.PSVec
+import dev.constructive.eo.optics.{Getter, Plated}
+import dev.constructive.eo.schemes.Schemes
 
 /** Counts observationally distinct inhabitants in a restricted pure, total parametric calculus.
   *
@@ -33,6 +36,45 @@ object Inhabitation {
     case Repeated(element: Shape)
     case Evidence(left: Shape, right: Shape, equality: Boolean)
     case Existential(witnesses: List[String], body: Shape)
+  }
+
+  object Shape {
+
+    given platedShape: Plated[Shape] = Plated.fromChildren(
+      children = {
+        case Atom(_)                        => Nil
+        case Singleton(_, None)             => Nil
+        case Singleton(_, Some(underlying)) => List(underlying)
+        case Product(fields)                => fields
+        case Sum(alternatives)              => alternatives
+        case Function(parameters, result)   => parameters :+ result
+        case Repeated(element)              => List(element)
+        case Evidence(left, right, _)       => List(left, right)
+        case Existential(_, body)           => List(body)
+      },
+      rebuild = (shape, kids) =>
+        shape match {
+          case s: Atom                   => s
+          case s @ Singleton(_, None)    => s
+          case Singleton(id, Some(_))    => Singleton(id, Some(kids.head))
+          case Product(_)                => Product(kids)
+          case Sum(_)                    => Sum(kids)
+          case Function(parameters, _)   => Function(kids.take(parameters.size), kids.last)
+          case Repeated(_)               => Repeated(kids.head)
+          case Evidence(_, _, equality)  => Evidence(kids.head, kids(1), equality)
+          case Existential(witnesses, _) => Existential(witnesses, kids.head)
+        }
+    )
+
+    def cata[A](alg: (Shape, Iterable[A]) => A): Getter[Shape, A] =
+      Schemes.cata[Shape, A]((node, kids) => alg(node, kids.toList))
+
+    def rebuild[A](node: Shape, kids: Iterable[A])(f: A => Shape): Shape =
+      platedShape.rebuild(node, PSVec.from(kids.iterator.map(f)))
+
+    def exists(shape: Shape)(predicate: Shape => Boolean): Boolean =
+      Plated.universe(shape).exists(predicate)
+
   }
 
   case class Binding(id: String, shape: Shape)
@@ -381,15 +423,9 @@ object Inhabitation {
       }
 
     private def higherOrder(shape: Shape): Boolean =
-      shape match {
-        case Function(_, _)           => true
-        case Product(fields)          => fields.exists(higherOrder)
-        case Sum(alternatives)        => alternatives.exists(higherOrder)
-        case Repeated(element)        => higherOrder(element)
-        case Atom(_)                  => false
-        case Singleton(_, underlying) => underlying.exists(higherOrder)
-        case Evidence(_, _, _)        => false
-        case Existential(_, _)        => true
+      Plated.universe(shape).exists {
+        case _: Function | _: Existential => true
+        case _                            => false
       }
 
   }

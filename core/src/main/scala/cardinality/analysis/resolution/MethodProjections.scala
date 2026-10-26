@@ -99,7 +99,7 @@ private[cardinality] object MethodProjections {
           case None         =>
             reduceMatch(
               Type.Match.After_4_9_9(known, block),
-              context.copy(variables = context.variables ++ bindings).enter(matched.structure)
+              context.bind(bindings).enter(matched.structure)
             )
         }
       }

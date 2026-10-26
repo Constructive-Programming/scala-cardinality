@@ -31,8 +31,7 @@ private[cardinality] object EvidenceAnalysis {
       equality = new EqualityClosure(proofs)
       subtypes = new SubtypeClosure(proofs, equality)
       _ <- SupportedInteractions.validate(shapes :+ target, subtypes.directed)
-      rewriter = new ShapeRewriter(equality, subtypes)
-    } yield Context(rewriter.rewrite, subtypes.reachable)
+    } yield Context(shape => rewritten.get(shape)(equality, subtypes), subtypes.reachable)
   }
 
   private def atomic(shape: Shape): Boolean = shape.isInstanceOf[Atom]
@@ -119,41 +118,32 @@ private[cardinality] object EvidenceAnalysis {
 
   }
 
-  final private class ShapeRewriter(equality: EqualityClosure, subtypes: SubtypeClosure) {
-
-    def rewrite(shape: Shape): Either[String, Shape] = shape match {
-      case atom: Atom      => Right(equality.canonical(atom))
-      case proof: Evidence => rewriteProof(proof)
-      case Product(fields) =>
-        MethodAnalysis.sequence(fields.map(rewrite)).map(Product(_))
-      case Sum(alternatives) =>
-        MethodAnalysis.sequence(alternatives.map(rewrite)).map(Sum(_))
-      case Function(parameters, result) => rewriteFunction(parameters, result)
-      case Repeated(element)            => rewrite(element).map(Repeated(_))
-      case existential: Existential     =>
-        Right(ExistentialInputs.mapAtoms(existential)(atom => equality.canonical(atom)))
-      case Singleton(id, underlying) => rewriteSingleton(id, underlying)
+  private val rewritten =
+    Shape.cata[(EqualityClosure, SubtypeClosure) => Either[String, Shape]] {
+      (node, kids) => (equality, subtypes) =>
+        node match {
+          case atom: Atom =>
+            Right(equality.canonical(atom))
+          case proof: Evidence =>
+            rewriteProof(proof, equality, subtypes)
+          case existential: Existential =>
+            Right(ExistentialInputs.mapAtoms(existential)(atom => equality.canonical(atom)))
+          case _ =>
+            MethodAnalysis
+              .sequence(kids.toList.map(_(equality, subtypes)))
+              .map(rebuilt => Shape.rebuild(node, rebuilt)(identity))
+        }
     }
 
-    private def rewriteProof(proof: Evidence): Either[String, Shape] =
-      AvailableProofs.validate(proof).flatMap { _ =>
-        val proved = if (proof.equality) equality.proves(proof) else subtypes.proves(proof)
-        if (proved) Right(Product(Nil))
-        else Left("unsupported evidence constraint: no available proof for distinct binders")
-      }
-
-    private def rewriteFunction(parameters: List[Shape], result: Shape): Either[String, Shape] =
-      for {
-        args <- MethodAnalysis.sequence(parameters.map(rewrite))
-        output <- rewrite(result)
-      } yield Function(args, output)
-
-    private def rewriteSingleton(id: String, underlying: Option[Shape]): Either[String, Shape] =
-      underlying match {
-        case Some(value) => rewrite(value).map(shape => Singleton(id, Some(shape)))
-        case None        => Right(Singleton(id, None))
-      }
-
-  }
+  private def rewriteProof(
+      proof: Evidence,
+      equality: EqualityClosure,
+      subtypes: SubtypeClosure
+  ): Either[String, Shape] =
+    AvailableProofs.validate(proof).flatMap { _ =>
+      val proved = if (proof.equality) equality.proves(proof) else subtypes.proves(proof)
+      if (proved) Right(Product(Nil))
+      else Left("unsupported evidence constraint: no available proof for distinct binders")
+    }
 
 }
