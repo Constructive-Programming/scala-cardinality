@@ -7,7 +7,7 @@ import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.capacity.*
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import dev.constructive.eo.optics.{Lens, Prism}
+import dev.constructive.eo.generics.{lens, prism}
 import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
@@ -223,7 +223,7 @@ object Report {
 
   private def walk(directory: Path): List[Path] = {
     val found = Files.walk(directory)
-    try found.iterator().asScala.filter(isScala).toList.sortBy(_.toString)
+    try found.iterator().asScala.filter(p => isScala(p.toString)).toList.sortBy(_.toString)
     finally found.close()
   }
 
@@ -247,8 +247,6 @@ object Report {
     name.endsWith(".jar") || name.endsWith(".zip")
   }
 
-  private def isScala(path: Path): Boolean = isScala(path.toString)
-
   private def isScala(name: String): Boolean = name.endsWith(".scala")
 
   // What the report says, above the table: what was measured, what the sizes mean, and that a
@@ -256,7 +254,7 @@ object Report {
   // stored-value estimate stays separate from the implementation counts the method section gives.
   private def summary(report: Report): List[String] = {
     val definitions = report.definitions
-    val counts = SizeClass.order.flatMap { sizeClass =>
+    val counts = SizeClass.values.toList.flatMap { sizeClass =>
       val count = definitions.count(definition => SizeClass(definition) == sizeClass)
       if (count == 0) Nil else List(s"$count ${sizeClass.label}")
     }
@@ -279,36 +277,22 @@ object Report {
   // it is defined — the kind says the representation is hidden to everyone else.
   private def unresolved(definition: Definition): Boolean = definition.unbound.nonEmpty
 
-  private val unresolvedReasons = Prism.optional[Inhabitation.Count, List[String]](
-    {
-      case Inhabitation.Count.Unresolved(reasons) => Some(reasons)
-      case _                                      => None
-    },
-    Inhabitation.Count.Unresolved(_)
-  )
-
-  private val entryCountLens =
-    Lens[MethodAnalysis.Entry, Inhabitation.Count](_.count, (e, c) => e.copy(count = c))
-
-  private val entryReasons = entryCountLens.andThen(unresolvedReasons)
+  private val entryReasons =
+    lens[MethodAnalysis.Entry](_.count)
+      .andThen(prism[Inhabitation.Count, Inhabitation.Count.Unresolved])
 
   // The generic method and constructor counts, with what stands between the report and a number
   // for the rest: the triage list a reader works down.
-  private def methods(models: List[(Source, MethodAnalysis.Entry)]): List[String] = {
+  private def methods(models: List[(Source, MethodAnalysis.Entry)]): List[String] =
     if (models.isEmpty) Nil
     else {
       val entries = models.map(_._2)
-      // `Finite` counts canonical implementations; `Bounded` answers with a value space the
-      // estimate read, sorted by its tier — `2^32` sits with the finite, `ω` with the countable,
-      // `ε₀` beyond both.
       val finite = entries.count(_.count.isFinite)
       val countable = entries.count(_.count.isCountable)
       val beyond = entries.count(_.count.isBeyondCountable)
       val unresolved = entries.size - finite - countable - beyond
       val blocking = entries
-        .flatMap(entry =>
-          entryReasons.getOption(entry).toList.flatten.map(reason => entry -> reason)
-        )
+        .flatMap(entry => entryReasons.getOption(entry).toList.flatMap(_.reasons).map(entry -> _))
         .groupBy { case (_, reason) => reason.split(':').head }
         .toList
         .map { case (kind, blocked) => (blocked.map(_._1).distinct.size, kind) }
@@ -324,7 +308,7 @@ object Report {
             entryReasons
               .getOption(entry)
               .toList
-              .flatten
+              .flatMap(_.reasons)
               .map(reason => s"    unresolved: $reason")
       }
       List(
@@ -338,7 +322,6 @@ object Report {
           ).filter(_.nonEmpty).mkString(" · "),
       ) ++ blocking ++ List("") ++ rows
     }
-  }
 
   // The stored-value estimate over the definitions a source introduces, ordered by cardinality.
   private def estimate(report: Report): List[String] = {
@@ -381,11 +364,12 @@ object Report {
   // could not read (a name, a match type, a refinement).
   private def reason(definition: Definition): String =
     if (definition.unbound.isEmpty) ""
-    else if (Definition.instantiationDependent(definition))
-      s"depends on its instantiation (${definition.unbound.map(_.render).mkString(", ")})"
-    else if (Definition.open(definition))
-      s"open to implementations (${definition.unbound.map(_.render).mkString(", ")})"
-    else s"unresolved: ${definition.unbound.map(_.render).mkString(", ")}"
+    else {
+      val rendered = definition.unbound.map(_.render).mkString(", ")
+      if (Definition.instantiationDependent(definition)) s"depends on its instantiation ($rendered)"
+      else if (Definition.open(definition)) s"open to implementations ($rendered)"
+      else s"unresolved: $rendered"
+    }
 
   private def padded(text: String, width: Int): String = text + " " * (width - text.length)
 
@@ -407,7 +391,7 @@ object Report {
   // The magnitude inside one finite rank: the count itself for an exact size, the bit width
   // otherwise, which is what `FinitePart.order` compares.
   private def magnitude(size: Size): BigInt =
-    Size.exactFinite(size).getOrElse(size.finite.bits)
+    cardinality.capacity.SizeOptics.exactFiniteValue.getOption(size).getOrElse(size.finite.bits)
 
   // How the summary counts a definition: by the cardinality of its type, with what the estimate
   // could not bound and the abstract types that have no cardinality of their own held apart. A row
@@ -425,10 +409,6 @@ object Report {
   }
 
   private object SizeClass {
-
-    /** The classes in the order the summary reads them: what needs attention first. */
-    val order: List[SizeClass] =
-      List(Unresolved, Instantiation, Open, Constructor, Many, One, Empty, Abstract)
 
     def apply(definition: Definition): SizeClass =
       if (Definition.instantiationDependent(definition)) Instantiation

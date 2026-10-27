@@ -18,169 +18,135 @@ private[cardinality] object TypeSubstitution {
     Type.Name(_)
   )
 
-  val patVarName = TypeApplications.patVarName
+  private def bodyOptional[S <: Tree](
+      body: S => Tree,
+      set: (S, Type) => S
+  ): Optional[S, S, Type, Type] =
+    Optional(
+      s =>
+        body(s) match {
+          case t: Type => Right(t)
+          case _       => Left(s)
+        },
+      { case (s, t) => set(s, t) }
+    )
 
   val lambdaBody: Optional[Type.Lambda, Type.Lambda, Type, Type] =
-    Optional(
-      lambda =>
-        lambda.body match {
-          case body: Type => Right(body)
-          case _          => Left(lambda)
-        },
-      { case (lambda, body) => lambda.copy(tpe = body) }
-    )
+    bodyOptional(_.body, (l, b) => l.copy(tpe = b))
 
   val polyBody: Optional[Type.PolyFunction, Type.PolyFunction, Type, Type] =
-    Optional(
-      poly =>
-        poly.body match {
-          case body: Type => Right(body)
-          case _          => Left(poly)
-        },
-      { case (poly, body) => poly.copy(tpe = body) }
-    )
+    bodyOptional(_.body, (p, b) => p.copy(tpe = b))
 
-  private val refineBodyLens =
-    Lens[Type.Refine, Stat.Block](
-      _.body,
-      (refinement, body) => refinement.copy(tpe = refinement.tpe, body = body)
-    )
+  private val refineStatsLens =
+    Lens[Type.Refine, Stat.Block](_.body, (r, b) => r.copy(tpe = r.tpe, body = b))
+      .andThen(Lens[Stat.Block, List[Stat]](_.stats, (b, s) => b.copy(stats = s)))
 
-  private val blockStatsLens =
-    Lens[Stat.Block, List[Stat]](_.stats, (block, stats) => block.copy(stats = stats))
+  def plated[S](parts: S => (List[S], List[S] => S)): Plated[S] =
+    Plated.fromChildren(s => parts(s)._1, (s, kids) => parts(s)._2(kids))
 
-  private val refineStatsLens = refineBodyLens.andThen(blockStatsLens)
-
-  given platedType: Plated[Type] = Plated.fromChildren[Type](
-    children = {
-      case applied: Type.Apply                      => applied.tpe :: applied.argClause.values
-      case infix: Type.ApplyInfix                   => List(infix.lhs, infix.op, infix.rhs)
-      case Type.Tuple(args)                         => args
-      case f: Type.Function                         => f.paramClause.values :+ f.res
-      case f: Type.ContextFunction                  => f.paramClause.values :+ f.res
-      case p: Type.TypedParam                       => List(p.typ)
-      case Type.ByName(v)                           => List(v)
-      case Type.Repeated(v)                         => List(v)
-      case a: Type.Annotate                         => List(a.tpe)
-      case e: Type.Existential                      => List(e.tpe)
-      case p: Type.Project                          => List(p.qual)
-      case Type.With(left, right)                   => List(left, right)
-      case a: Type.AnonymousLambda                  => List(a.tpe)
-      case w: Type.Wildcard                         => w.bounds.lo.toList ++ w.bounds.hi.toList
-      case l: Type.Lambda                           => lambdaBody.getOption(l).toList
-      case p: Type.PolyFunction                     => polyBody.getOption(p).toList
-      case r: Type.Refine                           => r.tpe.toList
-      case Type.Match.After_4_9_9(scrutinee, block) =>
-        scrutinee :: block.cases.flatMap(c => List(c.pat, c.body))
-      case _ => Nil
-    },
-    rebuild = (tpe, kids) =>
-      tpe match {
-        case applied: Type.Apply =>
-          TypeApplications.applyArguments.replace(kids.tail)(applied.copy(tpe = kids.head))
-        case infix: Type.ApplyInfix =>
-          val op = kids(1) match {
-            case name: Type.Name => name
-            case _               => infix.op
-          }
-          infix.copy(lhs = kids.head, op = op, rhs = kids(2))
-        case _: Type.Tuple    => Type.Tuple(kids)
-        case f: Type.Function =>
-          f.copy(paramClause = Type.FuncParamClause(kids.init), res = kids.last)
-        case f: Type.ContextFunction =>
-          f.copy(paramClause = Type.FuncParamClause(kids.init), res = kids.last)
-        case p: Type.TypedParam      => p.copy(typ = kids.head)
-        case _: Type.ByName          => Type.ByName(kids.head)
-        case _: Type.Repeated        => Type.Repeated(kids.head)
-        case a: Type.Annotate        => a.copy(tpe = kids.head)
-        case e: Type.Existential     => e.copy(tpe = kids.head)
-        case p: Type.Project         => p.copy(qual = kids.head)
-        case _: Type.With            => Type.With(kids.head, kids(1))
-        case a: Type.AnonymousLambda => a.copy(tpe = kids.head)
-        case w: Type.Wildcard        =>
-          val (lo, rest) =
-            w.bounds.lo.fold((Option.empty[Type], kids))(_ => (kids.headOption, kids.drop(1)))
-          val hi = w.bounds.hi.flatMap(_ => rest.headOption)
-          w.copy(bounds = w.bounds.copy(lo = lo, hi = hi, context = w.bounds.context))
-        case l: Type.Lambda =>
-          kids.headOption.fold(l)(lambdaBody.replace(_)(l))
-        case p: Type.PolyFunction =>
-          kids.headOption.fold(p)(polyBody.replace(_)(p))
-        case r: Type.Refine =>
-          r.copy(tpe = r.tpe.zip(kids.headOption).map(_._2), body = r.body)
-        case Type.Match.After_4_9_9(_, block) =>
-          val cases = block.cases.zip(kids.tail.grouped(2).toList).map {
-            case (c, List(pat, body)) => c.copy(pat = pat, body = body)
-            case (c, _)               => c
-          }
-          Type.Match.After_4_9_9(kids.head, Type.CasesBlock(cases))
-        case leaf => leaf
+  given platedType: Plated[Type] = plated {
+    case a: Type.Apply =>
+      (a.tpe :: a.argClause.values) ->
+        (k => TypeApplications.applyArguments.replace(k.tail)(a.copy(tpe = k.head)))
+    case i: Type.ApplyInfix =>
+      List(i.lhs, i.op, i.rhs) -> { k =>
+        val op = k(1) match {
+          case name: Type.Name => name
+          case _               => i.op
+        }
+        i.copy(lhs = k.head, op = op, rhs = k(2))
       }
-  )
+    case Type.Tuple(args)     => args -> Type.Tuple.apply
+    case f: Type.FunctionType =>
+      (f.paramClause.values :+ f.res) -> { k =>
+        val params = Type.FuncParamClause(k.init)
+        f match {
+          case c: Type.ContextFunction => c.copy(paramClause = params, res = k.last)
+          case p: Type.Function        => p.copy(paramClause = params, res = k.last)
+        }
+      }
+    case p: Type.TypedParam      => List(p.typ) -> (k => p.copy(typ = k.head))
+    case Type.ByName(v)          => List(v) -> (k => Type.ByName(k.head))
+    case Type.Repeated(v)        => List(v) -> (k => Type.Repeated(k.head))
+    case a: Type.Annotate        => List(a.tpe) -> (k => a.copy(tpe = k.head))
+    case e: Type.Existential     => List(e.tpe) -> (k => e.copy(tpe = k.head))
+    case p: Type.Project         => List(p.qual) -> (k => p.copy(qual = k.head))
+    case Type.With(l, r)         => List(l, r) -> (k => Type.With(k.head, k(1)))
+    case a: Type.AnonymousLambda => List(a.tpe) -> (k => a.copy(tpe = k.head))
+    case w: Type.Wildcard        =>
+      (w.bounds.lo.toList ++ w.bounds.hi.toList) -> { k =>
+        val (lo, rest) = w.bounds.lo.fold((Option.empty[Type], k))(_ => (k.headOption, k.drop(1)))
+        val hi = w.bounds.hi.flatMap(_ => rest.headOption)
+        w.copy(bounds = w.bounds.copy(lo = lo, hi = hi, context = w.bounds.context))
+      }
+    case l: Type.Lambda =>
+      lambdaBody.getOption(l).toList -> (k => k.headOption.fold(l)(lambdaBody.replace(_)(l)))
+    case p: Type.PolyFunction =>
+      polyBody.getOption(p).toList -> (k => k.headOption.fold(p)(polyBody.replace(_)(p)))
+    case r: Type.Refine =>
+      r.tpe.toList -> (k => r.copy(tpe = r.tpe.zip(k.headOption).map(_._2), body = r.body))
+    case Type.Match.After_4_9_9(scrutinee, block) =>
+      (scrutinee :: block.cases.flatMap(c => List(c.pat, c.body))) -> { k =>
+        val cases = block.cases.zip(k.tail.grouped(2).toList).map {
+          case (c, List(pat, body)) => c.copy(pat = pat, body = body)
+          case (c, _)               => c
+        }
+        Type.Match.After_4_9_9(k.head, Type.CasesBlock(cases))
+      }
+    case leaf => Nil -> (_ => leaf)
+  }
 
   // Stop before descending into nested lambdas: each lambda owns its own holes.
-  val localPlate: Plated[Type] = Plated.fromChildren[Type](
-    children = {
-      case _: Type.AnonymousLambda | _: Type.Lambda => Nil
-      case other                                    => platedType.childrenVec(other).toList
-    },
-    rebuild = (tpe, kids) =>
-      tpe match {
-        case _: Type.AnonymousLambda | _: Type.Lambda => tpe
-        case other                                    => platedType.rebuild(other, PSVec.from(kids))
-      }
-  )
-
-  def localCata[A](alg: (Type, List[A], List[Type] => Type) => A): Type => A = {
-    val getter = Schemes.cata[Type, A] { (node, kids) =>
-      alg(node, kids.toList, rebuilt => localPlate.rebuild(node, PSVec.from(rebuilt)))
-    }(using localPlate)
-    getter.get
+  val localPlate: Plated[Type] = plated {
+    case l: (Type.AnonymousLambda | Type.Lambda) => Nil -> (_ => l)
+    case other                                   =>
+      platedType.childrenVec(other).toList -> (k => platedType.rebuild(other, PSVec.from(k)))
   }
 
-  def hylo[S, A](expand: S => List[S], merge: (S, List[A]) => A): S => A = {
-    val getter = Schemes.hylo[S, A](
-      seed => PSVec.from(expand(seed)),
-      (seed, kids) => merge(seed, kids.toList)
-    )
-    getter.get
-  }
+  def localCata[A](alg: (Type, List[A], List[Type] => Type) => A): Type => A =
+    Schemes
+      .cata[Type, A] { (node, kids) =>
+        alg(node, kids.toList, rebuilt => localPlate.rebuild(node, PSVec.from(rebuilt)))
+      }(using localPlate)
+      .get
 
-  def universe(tpe: Type): List[Type] = Plated.universe(tpe)
-
-  def localUniverse(tpe: Type): List[Type] = Plated.universe(tpe)(using localPlate)
+  def hylo[S, A](expand: S => List[S], merge: (S, List[A]) => A): S => A =
+    Schemes
+      .hylo[S, A](
+        seed => PSVec.from(expand(seed)),
+        (seed, kids) => merge(seed, kids.toList)
+      )
+      .get
 
   def typeNames(tpe: Type): List[String] =
-    universe(tpe).flatMap(typeNamePrism.getOption)
+    Plated.universe(tpe).flatMap(typeNamePrism.getOption)
 
-  val unionAlternatives: Getter[Type, List[Type]] =
-    Schemes.hylo[Type, List[Type]](
+  val unionAlternatives: Type => List[Type] =
+    hylo[Type, List[Type]](
       {
-        case Type.Or(left, right)                            => PSVec.of(left, right)
-        case union: Type.ApplyInfix if union.op.value == "|" => PSVec.of(union.lhs, union.rhs)
-        case _                                               => PSVec.empty
+        case Type.Or(left, right)                            => List(left, right)
+        case union: Type.ApplyInfix if union.op.value == "|" => List(union.lhs, union.rhs)
+        case _                                               => Nil
       },
-      (node, kids) => if (kids.isEmpty) List(node) else kids.iterator.flatten.toList
+      (node, kids) => if (kids.isEmpty) List(node) else kids.flatten
     )
 
-  val described: Getter[Type, String] =
-    Schemes.hylo[Type, String](
+  val described: Type => String =
+    hylo[Type, String](
       {
-        case applied: Type.Apply           => PSVec.Single(applied.tpe)
-        case annotate: Type.Annotate       => PSVec.Single(annotate.tpe)
-        case existential: Type.Existential => PSVec.Single(existential.tpe)
-        case refine: Type.Refine           => PSVec.from(refine.tpe)
-        case _                             => PSVec.empty
+        case a: Type.Apply       => List(a.tpe)
+        case a: Type.Annotate    => List(a.tpe)
+        case e: Type.Existential => List(e.tpe)
+        case r: Type.Refine      => r.tpe.toList
+        case _                   => Nil
       },
       (tpe, kids) =>
         tpe match {
-          case name: Type.Name        => name.value
-          case _: Type.Apply          => kids(0)
-          case infix: Type.ApplyInfix => infix.op.value
-          case _: Type.Annotate       => kids(0)
-          case _: Type.Existential    => kids(0)
-          case _: Type.Refine         =>
-            if (kids.isEmpty) "a refinement" else s"a refinement of ${kids(0)}"
+          case name: Type.Name                                    => name.value
+          case _: (Type.Apply | Type.Annotate | Type.Existential) => kids.head
+          case infix: Type.ApplyInfix                             => infix.op.value
+          case _: Type.Refine                                     =>
+            kids.headOption.fold("a refinement")(base => s"a refinement of $base")
           case _: Type.Match        => "a match type"
           case _: Type.Lambda       => "a type lambda"
           case _: Type.PolyFunction => "a polymorphic function type"
@@ -194,11 +160,9 @@ private[cardinality] object TypeSubstitution {
       node match {
         case selected: Type.Select => selected
         case lambda: Type.Lambda   =>
-          val scoped = env -- boundNames(lambda.tparamClause.values)
-          if (kids.isEmpty) lambda else lambdaBody.replace(kids(0)(scoped))(lambda)
+          replaceScoped(lambda, lambda.tparamClause.values, lambdaBody, kids, env)
         case poly: Type.PolyFunction =>
-          val scoped = env -- boundNames(poly.tparamClause.values)
-          if (kids.isEmpty) poly else polyBody.replace(kids(0)(scoped))(poly)
+          replaceScoped(poly, poly.tparamClause.values, polyBody, kids, env)
         case refinement: Type.Refine =>
           val base = if (kids.isEmpty) None else Some(kids(0)(env))
           val scoped = env -- refineMembers(refinement)
@@ -206,10 +170,8 @@ private[cardinality] object TypeSubstitution {
           withStats.copy(tpe = base, body = withStats.body)
         case Type.Match.After_4_9_9(_, block) =>
           val cases = block.cases.zipWithIndex.map { (c, index) =>
-            val patFn = kids(1 + index * 2)
-            val bodyFn = kids(2 + index * 2)
             val scoped = env -- caseBoundNames(c.pat)
-            TypeCase(patFn(scoped), bodyFn(scoped))
+            TypeCase(kids(1 + index * 2)(scoped), kids(2 + index * 2)(scoped))
           }
           Type.Match.After_4_9_9(kids(0)(env), Type.CasesBlock(cases))
         case Type.Name(name) if env.contains(TypeName.of(name)) =>
@@ -218,6 +180,15 @@ private[cardinality] object TypeSubstitution {
           platedType.rebuild(node, PSVec.from(kids.iterator.map(_(env))))
       }
     }
+
+  private def replaceScoped[A <: Type](
+      node: A,
+      params: List[Type.Param],
+      optic: Optional[A, A, Type, Type],
+      kids: PSVec[Map[TypeName, Type] => Type],
+      env: Map[TypeName, Type]
+  ): A =
+    if (kids.isEmpty) node else optic.replace(kids(0)(env -- boundNames(params)))(node)
 
   // A type with the definition's parameters replaced by the argument types, syntax kept as it is.
   def replace(tpe: Type, arguments: Map[TypeName, Type]): Type =
@@ -231,8 +202,7 @@ private[cardinality] object TypeSubstitution {
 
   private def refineMembers(refinement: Type.Refine): Set[TypeName] =
     refinement.body.stats.collect {
-      case d: Defn.Type => TypeName.of(d.name.value)
-      case d: Decl.Type => TypeName.of(d.name.value)
+      case d: (Defn.Type | Decl.Type) => TypeName.of(d.name.value)
     }.toSet
 
   private def replaceBounds(bounds: Type.Bounds, env: Map[TypeName, Type]): Type.Bounds =

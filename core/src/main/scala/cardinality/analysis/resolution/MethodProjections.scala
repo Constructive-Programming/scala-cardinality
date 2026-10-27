@@ -56,16 +56,12 @@ private[cardinality] object MethodProjections {
     private type Prepared = Either[String, (Type, Map[String, Resolved])]
     private var tokenNumber = 0
 
-    private def nextToken(): String = {
-      tokenNumber += 1
-      s"$$cardinalityProjection$tokenNumber"
-    }
-
     private def freshToken(variables: Map[String, Resolved]): String = {
-      var token = nextToken()
-      while (sourceNames(token) || variables.contains(token)) {
-        token = nextToken()
-      }
+      val (token, next) =
+        inhabitation.Inhabitation.Shape.freshName("$cardinalityProjection", tokenNumber + 1)(t =>
+          sourceNames(t) || variables.contains(t)
+        )
+      tokenNumber = next - 1
       token
     }
 
@@ -169,7 +165,7 @@ private[cardinality] object MethodProjections {
       val bindings = resolver.typeParameters(entry.owner) ++ prepared.flatMap(_._2).toMap
       // Alias bodies use the declaration scope; only frozen arguments retain caller bindings.
       syntax(
-        MatchTypes.replace(declared.body, substitutions),
+        TypeSubstitution.replace(declared.body, substitutions),
         context.inScope(entry.owner, bindings)
       )
     }

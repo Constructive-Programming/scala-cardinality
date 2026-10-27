@@ -107,7 +107,7 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
 
 }
 
-private object SizeOptics {
+private[cardinality] object SizeOptics {
   val finite = lens[Size](_.finite)
 
   val exactValue = Prism.optional[FinitePart, BigInt](
@@ -131,9 +131,6 @@ object Size {
     else if (byOmega != 0) byOmega
     else FinitePart.order.compare(a.finite, b.finite)
   }
-
-  def exactFinite(size: Size): Option[BigInt] =
-    SizeOptics.exactFiniteValue.getOption(size)
 
   /** The number of bits a finite cardinality needs: the smallest `b` with `cardinality <= 2^b`.
     * Illegal cardinalities (0) report 0, which keeps the finite coordinate total.

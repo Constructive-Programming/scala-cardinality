@@ -30,12 +30,9 @@ private[cardinality] object MatchTypes {
           case (Type.Name(name), scrutinee) if name.headOption.exists(_.isLower) =>
             Some(Map(TypeName.of(name) -> scrutinee))
           case (Type.Tuple(elements), Type.Tuple(parts)) if elements.size == parts.size =>
-            kids.foldLeft(Option(Map.empty[TypeName, Type])) { (bound, next) =>
-              for {
-                known <- bound
-                elementBindings <- next
-              } yield known ++ elementBindings
-            }
+            cardinality.analysis.inhabitation.Inhabitation.Shape
+              .sequenceOptions(kids)
+              .map(_.flatten.toMap)
           case (_: Type.Tuple, _)                                     => None
           case (other, scrutinee) if other.syntax == scrutinee.syntax => Some(Map.empty)
           case _                                                      => None
@@ -75,20 +72,13 @@ private[cardinality] object MatchTypes {
   // for. The patterns a case can have are the ones a reducer earns: a tuple of binders, a bare
   // binder, a wildcard, and anything else by spelling.
   private[cardinality] def reduced(matchType: Type, arguments: Map[TypeName, Type]): Option[Type] =
-    replace(matchType, arguments) match {
+    TypeSubstitution.replace(matchType, arguments) match {
       case Type.Match.After_4_9_9(scrutinee, block) =>
         block.cases.collectFirst(Function.unlift(caseOf(_, scrutinee)))
       case other => Some(other)
     }
 
   private def caseOf(caseType: TypeCase, scrutinee: Type): Option[Type] =
-    bindings(caseType.pat, scrutinee).map(replace(caseType.body, _))
-
-  private def bindings(pattern: Type, scrutinee: Type): Option[Map[TypeName, Type]] =
-    bindingsHylo((pattern, scrutinee))
-
-  // A type with the definition's parameters replaced by the argument types, syntax kept as it is.
-  private[cardinality] def replace(tpe: Type, arguments: Map[TypeName, Type]): Type =
-    TypeSubstitution.replace(tpe, arguments)
+    bindingsHylo((caseType.pat, scrutinee)).map(TypeSubstitution.replace(caseType.body, _))
 
 }

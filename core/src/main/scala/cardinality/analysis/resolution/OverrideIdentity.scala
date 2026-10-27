@@ -364,16 +364,16 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
 
   private def constructor(name: String, context: ResolutionContext): Key =
     if (imported(name, context.frame)) None
-    else
+    else {
+      val bare = name.stripPrefix("scala.")
       resolver.lookup(name, context.frame) match {
         // Aliases are expanded by `named`; abstract members remain unsupported.
         case List(entry) if entry.tree.is[Defn.Type] || entry.tree.is[Decl.Type] => None
         case List(entry)           => Some(s"source:${entry.owner.id}:${entry.tree.pos.start}")
-        case Nil if builtins(name) => Some(s"builtin:$name")
-        case Nil if name.startsWith("scala.") && builtins(name.stripPrefix("scala.")) =>
-          Some(s"builtin:${name.stripPrefix("scala.")}")
-        case _ => None
+        case Nil if builtins(bare) => Some(s"builtin:$bare")
+        case _                     => None
       }
+    }
 
   private def imported(name: String, frame: Frame): Boolean =
     imports(name, frame.chain)
@@ -388,13 +388,8 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     }
 
   private def combine(keys: List[Key]): Key =
-    keys
-      .foldRight(Option(List.empty[String])) { (key, result) =>
-        for {
-          head <- key
-          tail <- result
-        } yield head :: tail
-      }
+    inhabitation.Inhabitation.Shape
+      .sequenceOptions(keys)
       .map(_.map(k => s"${k.length}:$k").mkString("[", ",", "]"))
 
 }

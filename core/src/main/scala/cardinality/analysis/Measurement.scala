@@ -7,7 +7,7 @@ import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
 import cardinality.capacity.{Counter, Size}
-import cardinality.types.{TypeApplications, TypeSubstitution}
+import cardinality.types.TypeApplications
 
 import Inhabitation.{Binding, Count, Shape}
 import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEntry}
@@ -167,31 +167,25 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // The parent's type arguments, resolved where the parent is named: `extends Base[A]` reads an
   // inherited `Base[A].seed` as this scope's A, not as a second binder that happens to share the
   // name.
+  private def resolveIn(
+      tpe: Type,
+      owner: Frame,
+      env: Map[String, Resolved] = Map.empty
+  ): Resolved = {
+    val bindings = if (env.isEmpty) resolver.typeParameters(owner) else env
+    resolver.resolve(tpe, ResolutionContext(owner, bindings, Set.empty, Some(target.frame)))
+  }
+
   private def inheritedEnv(declared: Frame, parent: Init, from: Frame): Map[String, Resolved] =
-    arguments(parent) match {
+    TypeApplications.arguments.getOption(parent.tpe) match {
       case None       => Map.empty
       case Some(args) =>
         declared.typeParams
           .map(_.name.value)
           .zip(args)
-          .map {
-            case (name, arg) =>
-              name -> resolver
-                .resolve(
-                  arg,
-                  ResolutionContext(
-                    from,
-                    resolver.typeParameters(from),
-                    Set.empty,
-                    Some(target.frame)
-                  )
-                )
-          }
+          .map { case (name, arg) => name -> resolveIn(arg, from) }
           .toMap
     }
-
-  private def arguments(parent: Init): Option[List[Type]] =
-    TypeApplications.arguments.getOption(parent.tpe)
 
   // Keep qualification: an external Outer.Base is not a same-spelled lexical Base.
   // `Init.name` is anonymous for a plain type parent, so the type is the source of the name.
@@ -259,12 +253,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   ): Unit =
     tpe
       .toRight(s"missing type of accessible value: $name")
-      .flatMap(tpe =>
-        resolver.resolve(
-          tpe,
-          ResolutionContext(owner, env, Set.empty, Some(target.frame))
-        )
-      ) match {
+      .flatMap(resolveIn(_, owner, env)) match {
       case Left(reason) => errors += reason
       case Right(shape) => bind(name, Binding(s"${owner.id}:$name", shape), owner)
     }
@@ -272,13 +261,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // A scope's declarations by kind: a value binds, a variable or an unreadable given is a
   // diagnostic, and a body only matters where a concrete type is at stake.
   private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
-    case v: Defn.Val => flagVal(v)
-    case v: Decl.Val =>
-      if (!isTarget(v)) addDeclaredValue(scope, resolver.typeParameters(scope), v)
-    case d: Decl.Def =>
-      if (!isTarget(d)) addDeclaredCallable(scope, resolver.typeParameters(scope), d)
-    case d: Decl.GivenLike =>
-      if (!isTarget(d)) addDeclaredGiven(scope, resolver.typeParameters(scope), d)
+    case v: Defn.Val                               => flagVal(v)
+    case d: (Decl.Val | Decl.Def | Decl.GivenLike) =>
+      if (!isTarget(d)) declaration(scope, resolver.typeParameters(scope), d)
     case _: Defn.Var | _: Decl.Var => errors += "mutable capture"
     case other                     => flagEnvironment(other)
   }
@@ -296,7 +281,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     // A destructured value names the components of one binding already in scope — `val (a, b) =
     // pair` binds nothing new, and `val (a, b) = capability()` names fields the capability's own
     // result shape already carries — so it is skipped for the same reason as an unreadable body.
-    if (!value.pats.forall(TypeSubstitution.patVarName.getOption(_).nonEmpty)) ()
+    if (!value.pats.forall(TypeApplications.patVarName.getOption(_).nonEmpty)) ()
 
   private def addDeclaredValue(
       scope: Frame,
@@ -304,7 +289,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       declaration: Decl.Val
   ): Unit =
     declaration.pats.foreach { pat =>
-      TypeSubstitution.patVarName.getOption(pat) match {
+      TypeApplications.patVarName.getOption(pat) match {
         case Some(name) => add(name, Some(declaration.decltpe), scope, env)
         case None       => errors += "destructured capture not resolved"
       }
@@ -478,7 +463,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
     private val declared = stats
       .collect { case v: Defn.Val => v }
-      .flatMap(v => v.pats.flatMap(TypeSubstitution.patVarName.getOption(_).map(_ -> v)))
+      .flatMap(v => v.pats.flatMap(TypeApplications.patVarName.getOption(_).map(_ -> v)))
       .toMap
 
     private val done = mutable.Map.empty[String, Either[String, Binding]]
@@ -521,20 +506,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         declaration: Defn.Val
     ): Either[String, Binding] =
       declaration.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
-        resolver
-          .resolve(
-            tpe,
-            ResolutionContext(
-              owner,
-              resolver.typeParameters(owner),
-              Set.empty,
-              Some(target.frame)
-            )
-          )
-          .flatMap { shape =>
-            if (binding.shape == shape) Right(binding)
-            else Left(s"capture alias type conversion not resolved: $name")
-          }
+        resolveIn(tpe, owner).flatMap { shape =>
+          if (binding.shape == shape) Right(binding)
+          else Left(s"capture alias type conversion not resolved: $name")
+        }
       }
 
   }

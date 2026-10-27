@@ -112,7 +112,7 @@ private[cardinality] object OpaqueSumForwarding {
   // can expose capabilities that this certificate's atomic reachability calculation does not see.
   private def callable(function: Function): Option[Call] =
     for {
-      inputs <- Shape.sequenceOptions(function.parameters.map(parameters)).map(_.flatten)
+      inputs <- Shape.sequenceOptions(function.parameters.map(Shape.dataAtoms.get)).map(_.flatten)
       if function.result match {
         case _: Atom | Product(Nil) => true
         case Sum(alternatives)      =>
@@ -125,7 +125,5 @@ private[cardinality] object OpaqueSumForwarding {
     case _: Atom | Product(Nil) => true
     case _                      => false
   }
-
-  private def parameters(shape: Shape): Option[List[Atom]] = Shape.dataAtoms.get(shape)
 
 }

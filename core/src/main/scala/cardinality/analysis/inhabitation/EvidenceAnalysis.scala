@@ -34,8 +34,6 @@ private[cardinality] object EvidenceAnalysis {
     } yield Context(shape => rewritten.get(shape)(equality, subtypes), subtypes.reachable)
   }
 
-  private def atomic(shape: Shape): Boolean = Shape.atomPrism.getOption(shape).nonEmpty
-
   private object AvailableProofs {
 
     private val endpointError =
@@ -44,18 +42,21 @@ private[cardinality] object EvidenceAnalysis {
     // Only already available proofs participate: do not descend into sums or callables.
     def extract(shapes: List[Shape]): Either[String, List[Evidence]] = {
       val proofs = shapes.flatMap(Shape.evidencePrism.getOption)
-      MethodAnalysis.sequence(proofs.map(validate)).map(_ => proofs)
+      Shape.sequenceEithers(proofs.map(validate)).map(_ => proofs)
     }
 
     def validate(proof: Evidence): Either[String, Unit] =
-      if (atomic(proof.left) && atomic(proof.right)) Right(())
+      if (
+        Shape.atomPrism.getOption(proof.left).nonEmpty &&
+        Shape.atomPrism.getOption(proof.right).nonEmpty
+      ) Right(())
       else Left(endpointError)
 
   }
 
   /** Reflexive transitive closure; equality supplies both directions, subtyping only one. */
   final private class Closure(edges: List[(Shape, Shape)]) {
-    def reachable(start: Shape): Set[Shape] = expand(Set(start))
+    def reachable(start: Shape): List[Shape] = expand(Set(start)).toList.sortBy(_.toString)
 
     private def expand(found: Set[Shape]): Set[Shape] = {
       val next = found ++ edges.collect { case (from, to) if found(from) => to }
@@ -73,9 +74,7 @@ private[cardinality] object EvidenceAnalysis {
     private val representatives = proofs
       .flatMap(p => List(p.left, p.right))
       .distinct
-      .map { atom =>
-        atom -> closure.reachable(atom).toList.sortBy(_.toString).head
-      }
+      .map(atom => atom -> closure.reachable(atom).head)
       .toMap
 
     def canonical(shape: Shape): Shape = representatives.getOrElse(shape, shape)
@@ -94,7 +93,7 @@ private[cardinality] object EvidenceAnalysis {
     val directed: Boolean = edges.exists { case (from, to) => from != to }
 
     def reachable(start: Shape): List[Shape] =
-      closure.reachable(equality.canonical(start)).toList.sortBy(_.toString)
+      closure.reachable(equality.canonical(start))
 
     def proves(proof: Evidence): Boolean =
       reachable(proof.left).contains(equality.canonical(proof.right))
@@ -113,13 +112,11 @@ private[cardinality] object EvidenceAnalysis {
       }
 
     def validate(shapes: List[Shape], directed: Boolean): Either[String, Unit] =
-      if (directed && shapes.exists(complex))
+      if (directed && shapes.exists(complexCheck.get))
         Left(
           "unsupported subtype evidence interaction: only atomic values and products are supported"
         )
       else Right(())
-
-    private def complex(shape: Shape): Boolean = complexCheck.get(shape)
 
   }
 
@@ -134,9 +131,7 @@ private[cardinality] object EvidenceAnalysis {
           case existential: Existential =>
             Right(ExistentialInputs.mapAtoms(existential)(atom => equality.canonical(atom)))
           case _ =>
-            MethodAnalysis
-              .sequence(kids.toList.map(_(equality, subtypes)))
-              .map(rebuilt => Shape.rebuild(node, rebuilt)(identity))
+            Shape.tryRebuild(node, kids.map(_(equality, subtypes)))
         }
     }
 

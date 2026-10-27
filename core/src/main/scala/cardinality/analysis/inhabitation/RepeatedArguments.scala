@@ -45,19 +45,15 @@ private[cardinality] object RepeatedArguments {
     }
 
   def prepare(bindings: List[Binding], result: Shape): Either[Count, (List[Binding], Shape)] = {
-    val prepared = bindings.map(bindingShapeLens.modify(normalize))
-    val target = normalize(result)
+    val prepared = bindings.map(bindingShapeLens.modify(normalized.get(_)._1))
+    val target = normalized.get(result)._1
     val hasSequence = bindings.exists(b => contains(b.shape)) || contains(result)
     // Leave even singleton goals to the solver, so evidence validation cannot be bypassed.
-    if (hasSequence && singleton(target)) Right(prepared -> target)
+    if (hasSequence && singletonCheck.get(target)) Right(prepared -> target)
     else if (prepared.exists(b => contains(b.shape)) || negativeSequence(target))
       Left(Count.Unresolved(List(elimination)))
     else Right(prepared -> target)
   }
-
-  private def normalize(shape: Shape): Shape = normalized.get(shape)._1
-
-  private def singleton(shape: Shape): Boolean = singletonCheck.get(shape)
 
   private def contains(shape: Shape): Boolean =
     Shape.exists(shape)(Shape.repeatedPrism.getOption(_).nonEmpty)

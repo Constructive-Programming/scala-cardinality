@@ -1,6 +1,7 @@
 package cardinality.types
 
 import scala.meta.*
+import scala.reflect.ClassTag
 
 import dev.constructive.eo.optics.{Lens, Prism}
 
@@ -8,13 +9,16 @@ import dev.constructive.eo.optics.{Lens, Prism}
 private[cardinality] object TypeApplications {
   private given Dialect = dialects.Scala3
 
-  val applied = Prism.optional[Type, Type.Apply](
-    {
-      case a: Type.Apply => Some(a)
-      case _             => None
-    },
-    identity
-  )
+  def subPrism[S, A <: S: ClassTag] =
+    Prism.optional[S, A](
+      {
+        case a: A => Some(a)
+        case _    => None
+      },
+      identity
+    )
+
+  val applied = subPrism[Type, Type.Apply]
 
   val applyArguments = Lens[Type.Apply, List[Type]](
     _.argClause.values,
@@ -23,13 +27,7 @@ private[cardinality] object TypeApplications {
 
   val arguments = applied.andThen(applyArguments)
 
-  val typeDefinition = Prism.optional[Tree, Defn.Type](
-    {
-      case d: Defn.Type => Some(d)
-      case _            => None
-    },
-    identity
-  )
+  val typeDefinition = subPrism[Tree, Defn.Type]
 
   val patVarName = Prism.optional[Pat, String](
     {
@@ -60,10 +58,12 @@ private[cardinality] object TypeApplications {
   def checkApplication(
       name: String,
       parameters: List[Type.Param],
-      argCount: Int
+      argCount: Int,
+      kind: String = "type constructor",
+      arityKind: String = "type"
   ): Either[String, Unit] =
-    if (parameters.exists(constrained)) Left(s"constrained type constructor: $name")
-    else if (parameters.size != argCount) Left(s"type argument arity: $name")
+    if (parameters.exists(constrained)) Left(s"constrained $kind: $name")
+    else if (parameters.size != argCount) Left(s"$arityKind argument arity: $name")
     else Right(())
 
 }

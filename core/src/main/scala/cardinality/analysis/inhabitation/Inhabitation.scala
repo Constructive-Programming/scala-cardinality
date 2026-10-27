@@ -41,37 +41,27 @@ object Inhabitation {
 
   object Shape {
 
-    given platedShape: Plated[Shape] = Plated.fromChildren(
-      children = {
-        case Atom(_)                        => Nil
-        case Singleton(_, None)             => Nil
-        case Singleton(_, Some(underlying)) => List(underlying)
-        case Product(fields)                => fields
-        case Sum(alternatives)              => alternatives
-        case Function(parameters, result)   => parameters :+ result
-        case Repeated(element)              => List(element)
-        case Evidence(left, right, _)       => List(left, right)
-        case Existential(_, body)           => List(body)
-      },
-      rebuild = (shape, kids) =>
-        shape match {
-          case s: Atom                   => s
-          case s @ Singleton(_, None)    => s
-          case Singleton(id, Some(_))    => Singleton(id, Some(kids.head))
-          case Product(_)                => Product(kids)
-          case Sum(_)                    => Sum(kids)
-          case Function(parameters, _)   => Function(kids.take(parameters.size), kids.last)
-          case Repeated(_)               => Repeated(kids.head)
-          case Evidence(_, _, equality)  => Evidence(kids.head, kids(1), equality)
-          case Existential(witnesses, _) => Existential(witnesses, kids.head)
-        }
-    )
+    given platedShape: Plated[Shape] = cardinality.types.TypeSubstitution.plated {
+      case Singleton(id, Some(u))       => List(u) -> (kids => Singleton(id, Some(kids.head)))
+      case Product(fields)              => fields -> Product.apply
+      case Sum(alternatives)            => alternatives -> Sum.apply
+      case Function(parameters, result) =>
+        (parameters :+ result) -> (kids => Function(kids.take(parameters.size), kids.last))
+      case Repeated(element)         => List(element) -> (kids => Repeated(kids.head))
+      case Evidence(left, right, eq) =>
+        List(left, right) -> (kids => Evidence(kids.head, kids(1), eq))
+      case Existential(w, body) => List(body) -> (kids => Existential(w, kids.head))
+      case leaf                 => Nil -> (_ => leaf)
+    }
 
     def cata[A](alg: (Shape, Iterable[A]) => A): Getter[Shape, A] =
       Schemes.cata[Shape, A]((node, kids) => alg(node, kids.toList))
 
     def rebuild[A](node: Shape, kids: Iterable[A])(f: A => Shape): Shape =
       platedShape.rebuild(node, PSVec.from(kids.iterator.map(f)))
+
+    def children(shape: Shape): List[Shape] =
+      platedShape.childrenVec(shape).toList
 
     def exists(shape: Shape)(predicate: Shape => Boolean): Boolean =
       Plated.universe(shape).exists(predicate)
@@ -82,13 +72,24 @@ object Inhabitation {
     val evidencePrism = prism[Shape, Evidence]
     val repeatedPrism = prism[Shape, Repeated]
 
-    def sequenceOptions[A](values: Iterable[Option[A]]): Option[List[A]] =
-      values.foldRight(Option(List.empty[A]))((value, rest) =>
+    def sequenceEithers[A](values: Iterable[Either[String, A]]): Either[String, List[A]] =
+      values.foldRight(Right(Nil): Either[String, List[A]])((head, tail) =>
         for {
-          item <- value
-          items <- rest
-        } yield item :: items
+          h <- head
+          t <- tail
+        } yield h :: t
       )
+
+    def sequenceOptions[A](values: Iterable[Option[A]]): Option[List[A]] =
+      sequenceEithers(values.map(_.toRight(""))).toOption
+
+    def tryRebuild(node: Shape, kids: Iterable[Either[String, Shape]]): Either[String, Shape] =
+      sequenceEithers(kids).map(rebuild(node, _)(identity))
+
+    def freshName(prefix: String, start: Int = 0)(taken: String => Boolean): (String, Int) = {
+      val index = Iterator.from(start).find(i => !taken(s"$prefix$i")).get
+      s"$prefix$index" -> (index + 1)
+    }
 
     val dataAtoms: Getter[Shape, Option[List[Atom]]] =
       cata[Option[List[Atom]]] { (node, kids) =>
@@ -96,15 +97,6 @@ object Inhabitation {
           case a: Atom    => Some(List(a))
           case Product(_) => sequenceOptions(kids).map(_.flatten)
           case _          => None
-        }
-      }
-
-    val callableAtoms: Getter[Shape, List[Atom]] =
-      cata[List[Atom]] { (node, kids) =>
-        node match {
-          case a: Atom                  => List(a)
-          case _: Product | _: Function => kids.flatten.toList
-          case _                        => Nil
         }
       }
 
@@ -171,11 +163,8 @@ object Inhabitation {
       */
     def product(spaces: List[Size], implementations: Count): Count = implementations match {
       case Unresolved(reasons) => Unresolved(reasons)
-      case count               => spaces.foldLeft(count)(times)
+      case count               => spaces.foldLeft(count)((c, s) => bounded(sizeOf(c) * s))
     }
-
-    // One read position multiplies in: the count so far times the space, read back as a count.
-    private def times(count: Count, space: Size): Count = bounded(sizeOf(count) * space)
 
     // The space a resolved count stands for, so the rest of the product is the size algebra's. The
     // unresolved case is the one `product` answered before it multiplies.
@@ -188,7 +177,10 @@ object Inhabitation {
 
     private def bounded(space: Size): Count =
       if (space.hasInfinite) Bounded(space)
-      else Size.exactFinite(space).fold[Count](Bounded(space))(Finite(_))
+      else
+        cardinality.capacity.SizeOptics.exactFiniteValue
+          .getOption(space)
+          .fold[Count](Bounded(space))(Finite(_))
 
   }
 
@@ -218,30 +210,28 @@ object Inhabitation {
       }
     }
 
-  final private case class CountSeed(live: Live, id: Int, depth: Int)
-
   // With no cycle behind it the reachable graph is a DAG, so a memo-aware hylomorphism counts
   // each goal as the sum of its rules' child products with a budget on intermediate bit-width.
-  private val liveCount: Getter[CountSeed, BigInt] =
-    Schemes.hylo[CountSeed, BigInt](
-      seed => {
-        seed.live.enterCount(seed.depth)
-        if (seed.live.cached(seed.id).isDefined) PSVec.empty
-        else
-          PSVec.from(
-            seed.live
-              .rulesAt(seed.id)
-              .iterator
-              .flatMap(_.children)
-              .map(child => CountSeed(seed.live, child, seed.depth + 1))
-          )
+  private val liveCount: ((Live, Int, Int)) => BigInt =
+    cardinality.types.TypeSubstitution.hylo[(Live, Int, Int), BigInt](
+      (live, id, depth) => {
+        live.inspect("solver count")
+        if (depth >= live.maxDepth) throw new Limit("solver traversal depth budget exhausted")
+        if (live.totals.contains(id)) Nil
+        else live.rules(id).flatMap(_.children).map(child => (live, child, depth + 1))
       },
-      (seed, kids) =>
-        seed.live.cached(seed.id).getOrElse {
-          val total = seed.live.sumRuleProducts(seed.id, kids)
-          seed.live.remember(seed.id, total)
-          total
-        }
+      (seed, kids) => {
+        val (live, id, _) = seed
+        live.totals.getOrElseUpdate(
+          id, {
+            val it = kids.iterator
+            live.rules(id).foldLeft(BigInt(0)) { (sum, rule) =>
+              val term = rule.children.foldLeft(BigInt(1))((p, _) => live.checked(p * it.next()))
+              live.checked(sum + term)
+            }
+          }
+        )
+      }
     )
 
   def count(
@@ -424,7 +414,7 @@ object Inhabitation {
     // Functional arguments are synthesized only when the complete environment proves that no
     // higher-order result can feed argument synthesis. Otherwise retain the diagnostic rule.
     private def application(env: List[Value], target: Shape, function: Function): List[Rule] =
-      producer(function).flatMap { value =>
+      producerPaths.get(function)(Nil).flatMap { value =>
         // Empty-result callables are negations, not opaque tagged choices. A proved call to one
         // is handled by absurd elimination above; only nonempty sum results need case analysis.
         val opaque = value.output match {
@@ -480,21 +470,14 @@ object Inhabitation {
       }.distinct
 
     private def freshWitness(): Atom = {
-      witnessNumber += 1
-      var name = s"existential:$witnessNumber"
-      while (reservedAtoms(name)) {
-        witnessNumber += 1
-        name = s"existential:$witnessNumber"
-      }
+      val (name, next) = Shape.freshName("existential:", witnessNumber + 1)(reservedAtoms)
+      witnessNumber = next - 1
       reservedAtoms += name
       Atom(name)
     }
 
-    private def producer(shape: Shape, args: List[Shape] = Nil): List[Producer] =
-      producerPaths.get(shape)(args)
-
     private def higherOrder(shape: Shape): Boolean =
-      Plated.universe(shape).exists {
+      Shape.exists(shape) {
         case _: Function | _: Existential => true
         case _                            => false
       }
@@ -502,14 +485,18 @@ object Inhabitation {
   }
 
   /** The rules a productive root can actually reach, counted. */
-  private class Live(rules: Vector[List[Rule]], inspect: String => Unit, maxDepth: Int) {
-    private val totals = mutable.Map.empty[Int, BigInt]
+  private class Live(
+      private[Inhabitation] val rules: Vector[List[Rule]],
+      private[Inhabitation] val inspect: String => Unit,
+      private[Inhabitation] val maxDepth: Int
+  ) {
+    private[Inhabitation] val totals = mutable.Map.empty[Int, BigInt]
 
     def result(root: Int): Count = {
       val reasons = reasonsAt(root)
       if (reasons.nonEmpty) Unresolved(reasons)
       else if (cyclic(root)) Countable
-      else Finite(liveCount.get(CountSeed(this, root, 0)))
+      else Finite(liveCount((this, root, 0)))
     }
 
     // The reasons on the rules this root reads, in the order they were met.
@@ -562,32 +549,7 @@ object Inhabitation {
       visit(root, 0)
     }
 
-    def enterCount(depth: Int): Unit = {
-      inspect("solver count")
-      if (depth >= maxDepth) throw new Limit("solver traversal depth budget exhausted")
-    }
-
-    def cached(id: Int): Option[BigInt] = totals.get(id)
-
-    def rulesAt(id: Int): List[Rule] = rules(id)
-
-    def remember(id: Int, total: BigInt): Unit = {
-      totals.update(id, total)
-    }
-
-    def sumRuleProducts(id: Int, kids: PSVec[BigInt]): BigInt = {
-      var index = 0
-      rules(id).foldLeft(BigInt(0)) { (sum, rule) =>
-        val term = rule.children.foldLeft(BigInt(1)) { (product, _) =>
-          val childCount = kids(index)
-          index += 1
-          checked(product * childCount)
-        }
-        checked(sum + term)
-      }
-    }
-
-    private def checked(value: BigInt): BigInt =
+    private[Inhabitation] def checked(value: BigInt): BigInt =
       if (value.bitLength > MaxBits)
         throw new Limit(s"Inhabitation arithmetic budget exceeded ($MaxBits bits)")
       else value

@@ -161,7 +161,8 @@ class MethodFeatureIntegrationSpec extends Specification {
   def projectedMemberName = {
     val source = dialects.Scala3("Owner#B").parse[Type].get
     val argument = dialects.Scala3("(Boolean, Boolean)").parse[Type].get
-    MatchTypes.replace(source, Map(TypeName.of("B") -> argument)).structure === source.structure
+    TypeSubstitution.replace(source, Map(TypeName.of("B") -> argument)).structure ===
+      source.structure
   }
 
   def refinementMemberScope = {
@@ -179,7 +180,7 @@ class MethodFeatureIntegrationSpec extends Specification {
       )
       .parse[Type]
       .get
-    MatchTypes
+    TypeSubstitution
       .replace(
         source,
         Map(TypeName.of("A") -> argument, TypeName.of("Outer") -> unitType)

@@ -96,12 +96,8 @@ private[cardinality] object ExistentialInputs {
     )
     var alphaNumber = 0
     def freshName(): String = {
-      var name = s"$$existentialAlpha$alphaNumber"
-      while (reserved(name)) {
-        alphaNumber += 1
-        name = s"$$existentialAlpha$alphaNumber"
-      }
-      alphaNumber += 1
+      val (name, next) = Shape.freshName("$existentialAlpha", alphaNumber)(reserved)
+      alphaNumber = next
       reserved += name
       name
     }

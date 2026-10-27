@@ -51,24 +51,9 @@ final private[cardinality] class Scope(
     private val world: World,
 ) {
 
-  private def definitions: Map[TypeName, Named] = world.definitions
-
-  private def frames: List[Map[TypeName, Size]] = world.frames
-
-  private def active: Set[TypeName] = world.active
-
-  private def library: Library = world.library
-
-  private def members: Map[TypeName, Members] = world.members
-
-  private def terms: Map[TypeName, Type] = world.terms
-
   /** The members of a definition in scope: the file's own first, the library's after. */
   def membersOf(owner: TypeName): Option[Members] =
-    members.get(owner).orElse(library.members(owner, home))
-
-  /** The type a value's declaration gives it, which an instance-qualified member needs. */
-  def declaredType(term: TypeName): Option[Type] = terms.get(term)
+    world.members.get(owner).orElse(world.library.members(owner, world.home))
 
   /** The size this read binds a type parameter to: `case scope.Parameter(size)`. */
   object Parameter {
@@ -80,48 +65,31 @@ final private[cardinality] class Scope(
 
   }
 
-  /** The members a definition's body declares, and the values whose declared types it gives. */
-  def withMembers(owner: TypeName, declared: Members): Scope =
-    Scope.membersLens.modify(_.updated(owner, declared))(this)
-
-  def withTerms(declared: Map[TypeName, Type]): Scope =
-    Scope.termsLens.modify(declared ++ _)(this)
-
-  private def home: List[TypeName] = world.home
-
-  private def imports: Set[TypeName] = world.imports
-
-  private[cardinality] def openNames: Set[TypeName] = world.open
-
   def size(name: TypeName): Option[Size] = values.get(name)
-
-  def contains(name: TypeName): Boolean = values.contains(name)
 
   def apply(name: TypeName): Size = values(name)
 
   def getOrElse(name: TypeName, default: => Size): Size = values.getOrElse(name, default)
 
   /** What a type parameter stands for in the instantiation being read, innermost binder first. */
-  def frame(name: TypeName): Option[Size] = frames.collectFirst(Function.unlift(_.get(name)))
+  def frame(name: TypeName): Option[Size] = world.frames.collectFirst(Function.unlift(_.get(name)))
 
   /** The definition a name resolves to, so that `C[args]` can be read as an instantiation. */
-  def definition(name: TypeName): Option[Named] = definitions.get(name)
+  def definition(name: TypeName): Option[Named] = world.definitions.get(name)
 
   /** The value a name has: the file's own, else the library's; an imported name resolves neither.
     */
   def resolve(name: TypeName): Option[Size] =
-    values.get(name).orElse(if (imported(name)) None else library.value(name, home))
+    values
+      .get(name)
+      .orElse(if (world.imports(name)) None else world.library.value(name, world.home))
 
   /** The same for a definition the library supplied, with the package frame it was read in. */
   def libraryDefinition(name: TypeName): Option[(Scope, Named)] =
-    if (imported(name)) None else library.definition(name, home)
+    if (world.imports(name)) None else world.library.definition(name, world.home)
 
-  def imported(name: TypeName): Boolean = imports(name)
-
-  def defines(name: TypeName): Boolean =
-    values.contains(name) || definitions.contains(name) || members.contains(name)
-
-  def definedNames: Set[TypeName] = values.keySet ++ definitions.keySet ++ members.keySet
+  def definedNames: Set[TypeName] =
+    values.keySet ++ world.definitions.keySet ++ world.members.keySet
 
   def updated(name: TypeName, size: Size): Scope =
     new Scope(values.updated(name, size), notes, world)
@@ -130,54 +98,14 @@ final private[cardinality] class Scope(
   def ++(entries: Iterable[(TypeName, Size)]): Scope =
     new Scope(values ++ entries, notes, world)
 
-  /** The definitions the bodies now in scope introduce; an inner body shadows an outer name. */
-  def withDefinitions(entries: List[(TypeName, Named)]): Scope =
-    Scope.definitionsLens.modify(entries.toMap ++ _)(this)
-
-  /** The package path a reference is read in, which decides what the library lends it. */
-  def withHome(path: List[TypeName]): Scope =
-    Scope.homeLens.replace(path)(this)
-
-  /** The names a body imports; an inner import shadows an outer name for the whole body. */
-  def withImports(names: Set[TypeName]): Scope =
-    Scope.importsLens.modify(_ ++ names)(this)
-
-  /** The definition's declared type parameters, in scope while its body and its row are read. */
-  def withBinders(declared: List[Binder]): Scope =
-    Scope.bindersLens.modify(declared ++ _)(this)
-
-  /** Abstractions a body leaves open (unsealed traits, abstract classes): a reference to one is
-    * unbounded, not unknown.
-    */
-  def withOpen(names: Set[TypeName]): Scope =
-    Scope.openLens.modify(_ ++ names)(this)
-
-  /** The definitions of other sources this read can lean on. */
-  def withLibrary(other: Library): Scope =
-    Scope.libraryLens.replace(other)(this)
-
   /** A library definition read where it was written: its package's names resolve, not the file's.
     */
   def inPackage(pkg: Scope): Scope =
     new Scope(
       pkg.values,
       notes,
-      pkg.world.copy(frames = world.frames, active = world.active, imports = imports),
+      pkg.world.copy(frames = world.frames, active = world.active, imports = world.imports),
     )
-
-  /** One instantiation: the definition's parameters bound to what the arguments are worth,
-    * innermost frame first.
-    */
-  def instantiated(frame: Map[TypeName, Size]): Scope =
-    Scope.framesLens.modify(frame :: _)(this)
-
-  /** Marks a substitution in progress, so a cycle through an applied reference terminates like one
-    * through a bare name.
-    */
-  def substituting(name: TypeName): Scope =
-    Scope.activeLens.modify(_ + name)(this)
-
-  def isSubstituting(name: TypeName): Boolean = active(name)
 
   /** The same names with a fresh record of unresolved ones. */
   def measured: Scope =
@@ -204,7 +132,7 @@ final private[cardinality] class Scope(
       binder(TypeName.of(name))
         .orElse(open(TypeName.of(name)))
         .getOrElse(Definition.Unbound.Unknown(name))
-    case other => Definition.Unbound.Syntax(Walk.describe(other))
+    case other => Definition.Unbound.Syntax(TypeSubstitution.described(other))
   }
 
   // The binder a name stands for, when a definition in scope declares it.
@@ -219,7 +147,8 @@ final private[cardinality] class Scope(
   // An unsealed abstraction: any subtype anywhere may add values, so a reference to it has no
   // bound at all — the bodies in scope know their own, and the library knows its packages'.
   private def open(name: TypeName): Option[Definition.Unbound] =
-    if (openNames(name) || library.open(name)) Some(Definition.Unbound.Open(name.value)) else None
+    if (world.open(name) || world.library.open(name)) Some(Definition.Unbound.Open(name.value))
+    else None
 
 }
 
@@ -230,16 +159,16 @@ private[cardinality] object Scope {
   private val worldLens =
     Lens[Scope, World](_.world, (s, w) => new Scope(s.values, s.notes, w))
 
-  private val definitionsLens = worldLens.andThen(lens[World](_.definitions))
-  private val framesLens = worldLens.andThen(lens[World](_.frames))
-  private val activeLens = worldLens.andThen(lens[World](_.active))
-  private val libraryLens = worldLens.andThen(lens[World](_.library))
-  private val homeLens = worldLens.andThen(lens[World](_.home))
-  private val importsLens = worldLens.andThen(lens[World](_.imports))
-  private val bindersLens = worldLens.andThen(lens[World](_.binders))
-  private val openLens = worldLens.andThen(lens[World](_.open))
-  private val membersLens = worldLens.andThen(lens[World](_.members))
-  private val termsLens = worldLens.andThen(lens[World](_.terms))
+  val definitionsLens = worldLens.andThen(lens[World](_.definitions))
+  val framesLens = worldLens.andThen(lens[World](_.frames))
+  val activeLens = worldLens.andThen(lens[World](_.active))
+  val libraryLens = worldLens.andThen(lens[World](_.library))
+  val homeLens = worldLens.andThen(lens[World](_.home))
+  val importsLens = worldLens.andThen(lens[World](_.imports))
+  val bindersLens = worldLens.andThen(lens[World](_.binders))
+  val openLens = worldLens.andThen(lens[World](_.open))
+  val membersLens = worldLens.andThen(lens[World](_.members))
+  val termsLens = worldLens.andThen(lens[World](_.terms))
 
 }
 
@@ -281,7 +210,8 @@ final class Library private[cardinality] (
     frame(name, home).flatMap(pkg => pkg.definition(name).map(pkg -> _))
 
   /** Whether some package of the source set defines the name as an open abstraction. */
-  private[cardinality] def open(name: TypeName): Boolean = packages.values.exists(_.openNames(name))
+  private[cardinality] def open(name: TypeName): Boolean =
+    packages.values.exists(Scope.openLens.get(_)(name))
 
   /** The members a package's definitions declare, for a qualified reference across files. */
   private[cardinality] def members(owner: TypeName, home: List[TypeName]): Option[Members] =
@@ -291,7 +221,10 @@ final class Library private[cardinality] (
   // members are in scope without an import — else the one package across the source set that
   // does, which is the shape an import of a single name has.
   private def frame(name: TypeName, home: List[TypeName]): Option[Scope] =
-    packages.get(home).filter(_.defines(name)).orElse(unique.get(name).filter(_.defines(name)))
+    packages
+      .get(home)
+      .filter(_.definedNames(name))
+      .orElse(unique.get(name).filter(_.definedNames(name)))
 
 }
 
@@ -310,18 +243,11 @@ object Library {
   def of(sources: List[Source]): Library = {
     val packages = packageStatements(sources).groupBy(_._1).map {
       case (path, found) =>
-        val stats = found.flatMap(_._2)
-        val entries = Counter.equations(stats)
-        val base = Scope.empty
-          .withDefinitions(entries)
-          .withOpen(Walk.openNames(stats))
-          .withHome(path)
-        val definitions = stats.collect { case d: Defn => d }
-        val solved = Solver.solve(entries, stats, base)
-        val withMembers = definitions.foldLeft(solved) { (scope, d) =>
-          scope.withMembers(TypeName.of(Walk.name(d)), Walk.members(d))
-        }
-        path -> withMembers
+        path -> Walk.solved(
+          found.flatMap(_._2),
+          Scope.homeLens.replace(path)(Scope.empty),
+          includeImports = false
+        )
     }
     val unique = packages.values.toList
       .flatMap(scope => scope.definedNames.toList.map(name => name -> scope))

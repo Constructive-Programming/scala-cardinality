@@ -2,21 +2,13 @@ package cardinality.types
 
 import scala.meta.*
 
-import dev.constructive.eo.optics.Prism
-
 /** Constructor holes are bound by scalameta's AnonymousLambda, not existential wildcards. Normalize
   * only that binder; beta application remains the resolver's responsibility.
   */
 private[cardinality] object TypePlaceholders {
   private given Dialect = dialects.Scala3
 
-  private val anonymousLambdaPrism = Prism.optional[Type, Type.AnonymousLambda](
-    {
-      case anonymous: Type.AnonymousLambda => Some(anonymous)
-      case _                               => None
-    },
-    identity
-  )
+  private val anonymousLambdaPrism = TypeApplications.subPrism[Type, Type.AnonymousLambda]
 
   final private class HoleState(val used: Set[String]) {
     var names: List[String] = Nil
@@ -25,11 +17,9 @@ private[cardinality] object TypePlaceholders {
     def nextHole(hole: Type.AnonymousParam): Type = {
       if (hole.variant.nonEmpty)
         failure = Some("variant constructor placeholder is unsupported")
-      val name = Iterator
-        .from(names.size)
-        .map(i => s"cardinalityHole$i")
-        .find(n => !used(n) && !names.contains(n))
-        .get
+      val (name, _) =
+        cardinality.analysis.inhabitation.Inhabitation.Shape
+          .freshName("cardinalityHole", names.size)(n => used(n) || names.contains(n))
       names = names :+ name
       Type.Name(name)
     }
@@ -45,7 +35,11 @@ private[cardinality] object TypePlaceholders {
         case _: Type.Apply | _: Type.Tuple =>
           rebuild(kids.map(_(state)))
         case other =>
-          if (TypeSubstitution.localUniverse(other).exists(_.isInstanceOf[Type.AnonymousParam]))
+          if (
+            dev.constructive.eo.optics.Plated
+              .universe(other)(using TypeSubstitution.localPlate)
+              .exists(_.isInstanceOf[Type.AnonymousParam])
+          )
             state.failure = Some("constructor placeholder body requires unsupported hole traversal")
           other
       }

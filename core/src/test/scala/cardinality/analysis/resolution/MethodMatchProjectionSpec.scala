@@ -107,7 +107,7 @@ class MethodMatchProjectionSpec extends Specification {
     )
 
   def replacement =
-    MatchTypes
+    TypeSubstitution
       .replace(
         dialects.Scala3("Fst[T]").parse[Type].get,
         Map(TypeName.of("T") -> Type.Name("Boolean"))
@@ -133,7 +133,7 @@ class MethodMatchProjectionSpec extends Specification {
       .map(_.syntax) === Some("Unit")
 
   def selectionHygiene =
-    MatchTypes
+    TypeSubstitution
       .replace(
         dialects.Scala3("Owner.A").parse[Type].get,
         Map(TypeName.of("A") -> Type.Name("Boolean"))

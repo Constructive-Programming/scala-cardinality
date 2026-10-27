@@ -21,21 +21,20 @@ private[cardinality] object MethodTypeLambdas {
       resolver: Resolver
   ): Resolved = {
     val parameters = lambda.tparamClause.values
-    if (parameters.exists(TypeApplications.constrained))
-      Left(s"constrained type lambda: ${lambda.syntax}")
-    else if (parameters.size != arguments.size)
-      Left(s"type lambda argument arity: ${lambda.syntax}")
-    else
-      TypeSubstitution.lambdaBody
-        .getOption(lambda)
-        .toRight("type lambda has a non-type body")
-        .flatMap { body =>
-          val substitutions = parameters.zip(arguments).map((p, a) => p.name.value -> Right(a))
-          context
-            .bind(substitutions)
-            .enter(s"lambda:${lambda.pos.start}:${lambda.syntax}")
-            .read(body, resolver)
-        }
+    TypeApplications
+      .checkApplication(lambda.syntax, parameters, arguments.size, "type lambda", "type lambda")
+      .flatMap { _ =>
+        TypeSubstitution.lambdaBody
+          .getOption(lambda)
+          .toRight("type lambda has a non-type body")
+          .flatMap { body =>
+            val substitutions = parameters.zip(arguments).map((p, a) => p.name.value -> Right(a))
+            context
+              .bind(substitutions)
+              .enter(s"lambda:${lambda.pos.start}:${lambda.syntax}")
+              .read(body, resolver)
+          }
+      }
   }
 
   def resolve(
