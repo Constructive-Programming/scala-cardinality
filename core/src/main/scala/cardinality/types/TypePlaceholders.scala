@@ -53,7 +53,7 @@ private[cardinality] object TypePlaceholders {
 
   def lambda(tpe: Type): Option[Either[String, Type.Lambda]] =
     anonymousLambdaPrism.getOption(tpe).map { anonymous =>
-      val used = TypeSubstitution.universe(anonymous).collect { case n: Type.Name => n.value }.toSet
+      val used = TypeSubstitution.typeNames(anonymous).toSet
       val state = new HoleState(used)
       val rewritten = rewrittenHoles(anonymous.tpe)(state)
       state.failure match {

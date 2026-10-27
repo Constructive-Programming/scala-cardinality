@@ -9,8 +9,7 @@ import cardinality.types.*
 
 private[cardinality] object Walk {
 
-  // Trees are parsed as Scala 3: printing one under any other dialect reprints it under Scala 2
-  // rules, which cannot spell Scala 3's modifiers (`inline def` throws while printing).
+  // Trees are parsed and reprinted under Scala 3 dialect rules.
   private given scala3: Dialect = dialects.Scala3
 
   final private[cardinality] case class Introduced(
@@ -18,10 +17,7 @@ private[cardinality] object Walk {
       definitions: List[Definition]
   ) {
 
-    /** Adds what the body of this definition introduces: nested definitions are their own
-      * inhabitants and their own rows, so `Wrapper { case class Pair(a: Boolean, b: Boolean) }`
-      * holds five.
-      */
+    /** Adds nested definitions and their inhabitants from the body of this definition. */
     def inside(scope: Scope, prefix: List[String], stats: List[Stat]): Introduced = {
       val body = of(stats, scope, prefix, top = false)
       copy(
@@ -104,7 +100,7 @@ private[cardinality] object Walk {
     val fields = template(d)
       .flatMap {
         case v: (Defn.Val | Defn.Var) =>
-          v.pats.collect { case Pat.Var(n) => n.value }.map(_ -> v.decltpe)
+          v.pats.flatMap(TypeApplications.patVarName.getOption).map(_ -> v.decltpe)
         case _ => Nil
       }
       .flatMap { case (name, tpe) => tpe.map(TypeName.of(name) -> _) }
@@ -259,20 +255,7 @@ private[cardinality] object Walk {
   // has one — `String`, `A`, `NonEmptyList` — and what kind of type it is where it has none, since
   // a match type or a refinement has no name to print. Anything left is described by its source
   // text on one line, so that a report row stays a row.
-  private[cardinality] def describe(tpe: Type): String = tpe match {
-    case name: Type.Name               => name.value
-    case applied: Type.Apply           => describe(applied.tpe)
-    case infix: Type.ApplyInfix        => infix.op.value
-    case annotate: Type.Annotate       => describe(annotate.tpe)
-    case existential: Type.Existential => describe(existential.tpe)
-    case refine: Type.Refine           =>
-      refine.tpe.fold("a refinement")(inner => s"a refinement of ${describe(inner)}")
-    case _: Type.Match        => "a match type"
-    case _: Type.Lambda       => "a type lambda"
-    case _: Type.PolyFunction => "a polymorphic function type"
-    case _: Type.Wildcard     => "a wildcard"
-    case other                => other.syntax.replaceAll("\\s+", " ")
-  }
+  private[cardinality] def describe(tpe: Type): String = TypeSubstitution.described.get(tpe)
 
   // Measures one definition with a scope that records only its own reasons.
   private def measured(scope: Scope)(f: Scope => Introduced): Introduced = f(scope.measured)

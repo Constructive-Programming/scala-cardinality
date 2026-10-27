@@ -436,6 +436,6 @@ private[cardinality] object Solver {
   private[cardinality] def initParent: Init => String = init => bareName(init.tpe)
 
   private def namesOf(tpe: Type): Set[TypeName] =
-    tpe.collect { case Type.Name(n) => TypeName.of(n) }.toSet
+    TypeSubstitution.typeNames(tpe).map(TypeName.of).toSet
 
 }

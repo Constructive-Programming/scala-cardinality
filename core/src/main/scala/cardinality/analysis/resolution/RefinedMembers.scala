@@ -41,10 +41,7 @@ private[cardinality] object RefinedMembers {
     if (parameter.mods.exists(_.is[Mod.VarParam])) None else parameter.decltpe
 
   private def binds(name: String, patterns: List[Pat]): Boolean =
-    patterns.exists {
-      case Pat.Var(bound) => bound.value == name
-      case _              => false
-    }
+    patterns.exists(TypeSubstitution.patVarName.getOption(_).contains(name))
 
   private def bindingType(name: String, stat: Stat): Option[Option[Type]] = stat match {
     case d: Defn.Val if binds(name, d.pats)  => Some(d.decltpe)
@@ -126,9 +123,7 @@ private[cardinality] object RefinedMembers {
       else {
         val scoped = context.enter(key)
         memberBody(declared, name, scoped).flatMap { body =>
-          val referenced = body.collect {
-            case n: Type.Name if declared.contains(n.value) => n.value
-          }.distinct
+          val referenced = TypeSubstitution.typeNames(body).filter(declared.contains).distinct
           val substitutions =
             referenced.map(member => member -> fromStats(stats, member, scoped)).toMap
           scoped.bind(substitutions).read(body, resolver)

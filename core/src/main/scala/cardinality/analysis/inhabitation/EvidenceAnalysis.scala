@@ -34,7 +34,7 @@ private[cardinality] object EvidenceAnalysis {
     } yield Context(shape => rewritten.get(shape)(equality, subtypes), subtypes.reachable)
   }
 
-  private def atomic(shape: Shape): Boolean = shape.isInstanceOf[Atom]
+  private def atomic(shape: Shape): Boolean = Shape.atomPrism.getOption(shape).nonEmpty
 
   private object AvailableProofs {
 
@@ -43,7 +43,7 @@ private[cardinality] object EvidenceAnalysis {
 
     // Only already available proofs participate: do not descend into sums or callables.
     def extract(shapes: List[Shape]): Either[String, List[Evidence]] = {
-      val proofs = shapes.collect { case proof: Evidence => proof }
+      val proofs = shapes.flatMap(Shape.evidencePrism.getOption)
       MethodAnalysis.sequence(proofs.map(validate)).map(_ => proofs)
     }
 
@@ -103,6 +103,15 @@ private[cardinality] object EvidenceAnalysis {
 
   private object SupportedInteractions {
 
+    private val complexCheck =
+      Shape.cata[Boolean] { (node, kids) =>
+        node match {
+          case _: Atom | _: Evidence => false
+          case Product(_)            => kids.exists(identity)
+          case _                     => true
+        }
+      }
+
     def validate(shapes: List[Shape], directed: Boolean): Either[String, Unit] =
       if (directed && shapes.exists(complex))
         Left(
@@ -110,11 +119,7 @@ private[cardinality] object EvidenceAnalysis {
         )
       else Right(())
 
-    private def complex(shape: Shape): Boolean = shape match {
-      case _: Atom | _: Evidence => false
-      case Product(fields)       => fields.exists(complex)
-      case _                     => true
-    }
+    private def complex(shape: Shape): Boolean = complexCheck.get(shape)
 
   }
 

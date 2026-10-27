@@ -7,6 +7,7 @@ import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
 import cardinality.capacity.{Counter, Size}
+import cardinality.types.{TypeApplications, TypeSubstitution}
 
 import Inhabitation.{Binding, Count, Shape}
 import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEntry}
@@ -189,10 +190,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
           .toMap
     }
 
-  private def arguments(parent: Init): Option[List[Type]] = parent.tpe match {
-    case Type.Apply.After_4_6_0(_, Type.ArgClause(args)) => Some(args)
-    case _                                               => None
-  }
+  private def arguments(parent: Init): Option[List[Type]] =
+    TypeApplications.arguments.getOption(parent.tpe)
 
   // Keep qualification: an external Outer.Base is not a same-spelled lexical Base.
   // `Init.name` is anonymous for a plain type parent, so the type is the source of the name.
@@ -297,16 +296,18 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     // A destructured value names the components of one binding already in scope — `val (a, b) =
     // pair` binds nothing new, and `val (a, b) = capability()` names fields the capability's own
     // result shape already carries — so it is skipped for the same reason as an unreadable body.
-    if (!value.pats.forall(_.is[Pat.Var])) ()
+    if (!value.pats.forall(TypeSubstitution.patVarName.getOption(_).nonEmpty)) ()
 
   private def addDeclaredValue(
       scope: Frame,
       env: Map[String, Resolved],
       declaration: Decl.Val
   ): Unit =
-    declaration.pats.foreach {
-      case Pat.Var(name) => add(name.value, Some(declaration.decltpe), scope, env)
-      case _             => errors += "destructured capture not resolved"
+    declaration.pats.foreach { pat =>
+      TypeSubstitution.patVarName.getOption(pat) match {
+        case Some(name) => add(name, Some(declaration.decltpe), scope, env)
+        case None       => errors += "destructured capture not resolved"
+      }
     }
 
   // A declaration is not an implementation: someone else supplies it, so its result is a value this
@@ -477,7 +478,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
     private val declared = stats
       .collect { case v: Defn.Val => v }
-      .flatMap(v => v.pats.collect { case Pat.Var(n) => n.value -> v })
+      .flatMap(v => v.pats.flatMap(TypeSubstitution.patVarName.getOption(_).map(_ -> v)))
       .toMap
 
     private val done = mutable.Map.empty[String, Either[String, Binding]]

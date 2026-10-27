@@ -4,12 +4,10 @@
 version := "0.1.0-SNAPSHOT"
 organization := "io.github.constructive-programming"
 
-// Pinned to the Scala version sbt 2.0.x itself runs on (its metabuild is
-// 3.8.4): the sbt plugin — and `core`, which it loads — must be binary-loadable
-// inside sbt, and Scala 3 binary compatibility is backward only. Library users
-// on 3.9+ can consume 3.8.4 artifacts unchanged, so nothing is lost by
-// building everything at this version.
-scalaVersion := "3.8.4"
+// Pinned to the Scala version sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is
+// 3.9.0, matching cats-eo 1.0.0): the sbt plugin — and `core`, which it loads — must
+// be binary-loadable inside sbt, and Scala 3 binary compatibility is backward only.
+scalaVersion := "3.9.0"
 
 // The root project only aggregates; it publishes nothing and has no sources.
 lazy val root = (project in file("."))
@@ -26,9 +24,9 @@ lazy val core = project
   .settings(
     name := "scala-cardinality",
     libraryDependencies ++= Seq(
-      "dev.constructive" %% "cats-eo" % "0.18.0",
-      "dev.constructive" %% "cats-eo-generics" % "0.18.0",
-      "dev.constructive" %% "cats-eo-schemes" % "0.18.0",
+      "dev.constructive" %% "cats-eo" % "1.0.0",
+      "dev.constructive" %% "cats-eo-generics" % "1.0.0",
+      "dev.constructive" %% "cats-eo-schemes" % "1.0.0",
       "org.scalameta" %% "scalameta" % "4.17.4",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,

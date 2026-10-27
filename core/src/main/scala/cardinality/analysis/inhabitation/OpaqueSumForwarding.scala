@@ -20,16 +20,18 @@ private[cardinality] object OpaqueSumForwarding {
 
   def count(environment: List[Shape], target: Shape): Option[Int] =
     for {
-      calls <- sequence(environment.collect { case f: Function => callable(f) })
+      calls <- Shape.sequenceOptions(
+        environment.flatMap(Shape.functionPrism.getOption).map(callable)
+      )
       if environment.forall {
         case _: Atom | _: Function => true
         case _                     => false
       }
-      if calls.exists(_.output.isInstanceOf[Sum])
-      atoms = environment.collect { case a: Atom => a }
+      if calls.exists(c => Shape.sumPrism.getOption(c.output).nonEmpty)
+      atoms = environment.flatMap(Shape.atomPrism.getOption)
       counts = ordinaryCounts(atoms, calls)
       reachable = calls.filter(_.inputs.forall(a => counts(a) > 0))
-      sums = reachable.filter(_.output.isInstanceOf[Sum])
+      sums = reachable.filter(c => Shape.sumPrism.getOption(c.output).nonEmpty)
       if sums.size <= 1
       if reachable.forall(_.inputs.forall(a => counts(a) == 1))
       answer <- certify(sums.headOption, calls, counts, target)
@@ -64,7 +66,7 @@ private[cardinality] object OpaqueSumForwarding {
       calls: List[Call],
       counts: Map[Atom, Int]
   ): Boolean = {
-    val payloads = alternatives.collect { case a: Atom => a }
+    val payloads = alternatives.flatMap(Shape.atomPrism.getOption)
     // Expose ALL alternatives together: a stronger rejection than any single branch needs.
     // Any newly enabled application must first consume one of these payloads, so checking the
     // first layer also proves there is no downstream producer/observation closure to explore.
@@ -80,7 +82,7 @@ private[cardinality] object OpaqueSumForwarding {
       case a: Atom if counts(a) <= 1 => Some(counts(a))
       case Product(Nil)              => Some(1)
       case Sum(alternatives) if alternatives.size <= 2 && alternatives.forall(flat) =>
-        sequence(alternatives.map(ordinary(_, counts))).map(_.sum)
+        Shape.sequenceOptions(alternatives.map(ordinary(_, counts))).map(_.sum)
       case _ => None
     }
 
@@ -110,7 +112,7 @@ private[cardinality] object OpaqueSumForwarding {
   // can expose capabilities that this certificate's atomic reachability calculation does not see.
   private def callable(function: Function): Option[Call] =
     for {
-      inputs <- sequence(function.parameters.map(parameters)).map(_.flatten)
+      inputs <- Shape.sequenceOptions(function.parameters.map(parameters)).map(_.flatten)
       if function.result match {
         case _: Atom | Product(Nil) => true
         case Sum(alternatives)      =>
@@ -124,18 +126,6 @@ private[cardinality] object OpaqueSumForwarding {
     case _                      => false
   }
 
-  private def parameters(shape: Shape): Option[List[Atom]] = shape match {
-    case a: Atom         => Some(List(a))
-    case Product(fields) => sequence(fields.map(parameters)).map(_.flatten)
-    case _               => None
-  }
-
-  private def sequence[A](values: List[Option[A]]): Option[List[A]] =
-    values.foldRight(Option(List.empty[A]))((value, rest) =>
-      for {
-        item <- value
-        items <- rest
-      } yield item :: items
-    )
+  private def parameters(shape: Shape): Option[List[Atom]] = Shape.dataAtoms.get(shape)
 
 }

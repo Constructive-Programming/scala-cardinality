@@ -406,10 +406,8 @@ object Report {
 
   // The magnitude inside one finite rank: the count itself for an exact size, the bit width
   // otherwise, which is what `FinitePart.order` compares.
-  private def magnitude(size: Size): BigInt = size.finite match {
-    case FinitePart.Exact(repr) => repr
-    case other                  => other.bits
-  }
+  private def magnitude(size: Size): BigInt =
+    Size.exactFinite(size).getOrElse(size.finite.bits)
 
   // How the summary counts a definition: by the cardinality of its type, with what the estimate
   // could not bound and the abstract types that have no cardinality of their own held apart. A row

@@ -439,9 +439,11 @@ object Counter {
     }
 
   private def ownerOf(tpe: Type): Option[(TypeName, List[Type])] = tpe match {
-    case Type.Name(name)                                      => Some(TypeName.of(name) -> Nil)
-    case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => nameOf(callee).map(_ -> args)
-    case _                                                    => None
+    case Type.Name(name) => Some(TypeName.of(name) -> Nil)
+    case _               =>
+      TypeApplications.applied.getOption(tpe).flatMap { app =>
+        nameOf(app.tpe).map(_ -> TypeApplications.applyArguments.get(app))
+      }
   }
 
   // The name on its own, without recording a reason: what a builtin, a binder or a definition the

@@ -3,11 +3,22 @@ package cardinality.types
 import scala.meta.*
 
 import dev.constructive.eo.data.PSVec
-import dev.constructive.eo.optics.{Getter, Lens, Optional, Plated}
+import dev.constructive.eo.optics.{Getter, Lens, Optional, Plated, Prism}
 import dev.constructive.eo.schemes.Schemes
 
 // Parameter substitution shared by match-type reduction and its callers.
 private[cardinality] object TypeSubstitution {
+  private given Dialect = dialects.Scala3
+
+  val typeNamePrism = Prism.optional[Type, String](
+    {
+      case Type.Name(name) => Some(name)
+      case _               => None
+    },
+    Type.Name(_)
+  )
+
+  val patVarName = TypeApplications.patVarName
 
   val lambdaBody: Optional[Type.Lambda, Type.Lambda, Type, Type] =
     Optional(
@@ -66,7 +77,7 @@ private[cardinality] object TypeSubstitution {
     rebuild = (tpe, kids) =>
       tpe match {
         case applied: Type.Apply =>
-          applied.copy(tpe = kids.head, argClause = Type.ArgClause(kids.tail))
+          TypeApplications.applyArguments.replace(kids.tail)(applied.copy(tpe = kids.head))
         case infix: Type.ApplyInfix =>
           val op = kids(1) match {
             case name: Type.Name => name
@@ -127,9 +138,56 @@ private[cardinality] object TypeSubstitution {
     getter.get
   }
 
+  def hylo[S, A](expand: S => List[S], merge: (S, List[A]) => A): S => A = {
+    val getter = Schemes.hylo[S, A](
+      seed => PSVec.from(expand(seed)),
+      (seed, kids) => merge(seed, kids.toList)
+    )
+    getter.get
+  }
+
   def universe(tpe: Type): List[Type] = Plated.universe(tpe)
 
   def localUniverse(tpe: Type): List[Type] = Plated.universe(tpe)(using localPlate)
+
+  def typeNames(tpe: Type): List[String] =
+    universe(tpe).flatMap(typeNamePrism.getOption)
+
+  val unionAlternatives: Getter[Type, List[Type]] =
+    Schemes.hylo[Type, List[Type]](
+      {
+        case Type.Or(left, right)                            => PSVec.of(left, right)
+        case union: Type.ApplyInfix if union.op.value == "|" => PSVec.of(union.lhs, union.rhs)
+        case _                                               => PSVec.empty
+      },
+      (node, kids) => if (kids.isEmpty) List(node) else kids.iterator.flatten.toList
+    )
+
+  val described: Getter[Type, String] =
+    Schemes.hylo[Type, String](
+      {
+        case applied: Type.Apply           => PSVec.Single(applied.tpe)
+        case annotate: Type.Annotate       => PSVec.Single(annotate.tpe)
+        case existential: Type.Existential => PSVec.Single(existential.tpe)
+        case refine: Type.Refine           => PSVec.from(refine.tpe)
+        case _                             => PSVec.empty
+      },
+      (tpe, kids) =>
+        tpe match {
+          case name: Type.Name        => name.value
+          case _: Type.Apply          => kids(0)
+          case infix: Type.ApplyInfix => infix.op.value
+          case _: Type.Annotate       => kids(0)
+          case _: Type.Existential    => kids(0)
+          case _: Type.Refine         =>
+            if (kids.isEmpty) "a refinement" else s"a refinement of ${kids(0)}"
+          case _: Type.Match        => "a match type"
+          case _: Type.Lambda       => "a type lambda"
+          case _: Type.PolyFunction => "a polymorphic function type"
+          case _: Type.Wildcard     => "a wildcard"
+          case other                => other.syntax.replaceAll("\\s+", " ")
+        }
+    )
 
   private val substituted: Getter[Type, Map[TypeName, Type] => Type] =
     Schemes.cata[Type, Map[TypeName, Type] => Type] { (node, kids) => env =>
@@ -169,12 +227,7 @@ private[cardinality] object TypeSubstitution {
     params.map(p => TypeName.of(p.name.value)).toSet
 
   private def caseBoundNames(pat: Type): Set[TypeName] =
-    Plated
-      .universe(pat)
-      .collect {
-        case Type.Name(name) if name.headOption.exists(_.isLower) => TypeName.of(name)
-      }
-      .toSet
+    typeNames(pat).filter(_.headOption.exists(_.isLower)).map(TypeName.of).toSet
 
   private def refineMembers(refinement: Type.Refine): Set[TypeName] =
     refinement.body.stats.collect {

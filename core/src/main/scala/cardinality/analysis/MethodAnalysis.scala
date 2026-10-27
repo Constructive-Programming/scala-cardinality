@@ -255,13 +255,7 @@ object MethodAnalysis {
         union: Type,
         context: ResolutionContext
     ): Resolved = {
-      def alternatives(tpe: Type): List[Type] = tpe match {
-        case Type.Or(left, right) => alternatives(left) ++ alternatives(right)
-        case union: Type.ApplyInfix if union.op.value == "|" =>
-          alternatives(union.lhs) ++ alternatives(union.rhs)
-        case other => List(other)
-      }
-      val unique = alternatives(union).distinctBy(_.syntax)
+      val unique = TypeSubstitution.unionAlternatives.get(union).distinctBy(_.syntax)
       sequence(unique.map(context.read(_, this))).left
         .map(reason => s"union ${union.syntax}: $reason")
         .flatMap { shapes =>

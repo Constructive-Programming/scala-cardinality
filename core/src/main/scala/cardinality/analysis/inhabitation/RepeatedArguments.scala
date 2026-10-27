@@ -60,7 +60,7 @@ private[cardinality] object RepeatedArguments {
   private def singleton(shape: Shape): Boolean = singletonCheck.get(shape)
 
   private def contains(shape: Shape): Boolean =
-    Shape.exists(shape)(_.isInstanceOf[Repeated])
+    Shape.exists(shape)(Shape.repeatedPrism.getOption(_).nonEmpty)
 
   // Arrow introduction can supply sequences even when the outer lexical environment has none.
   private def negativeSequence(shape: Shape): Boolean =

@@ -4,6 +4,7 @@ import scala.collection.mutable
 
 import cardinality.capacity.{EffectiveOmega, FinitePart, Size, UnitSize}
 import dev.constructive.eo.data.PSVec
+import dev.constructive.eo.generics.prism
 import dev.constructive.eo.optics.{Getter, Plated}
 import dev.constructive.eo.schemes.Schemes
 
@@ -75,6 +76,48 @@ object Inhabitation {
     def exists(shape: Shape)(predicate: Shape => Boolean): Boolean =
       Plated.universe(shape).exists(predicate)
 
+    val atomPrism = prism[Shape, Atom]
+    val functionPrism = prism[Shape, Function]
+    val sumPrism = prism[Shape, Sum]
+    val evidencePrism = prism[Shape, Evidence]
+    val repeatedPrism = prism[Shape, Repeated]
+
+    def sequenceOptions[A](values: Iterable[Option[A]]): Option[List[A]] =
+      values.foldRight(Option(List.empty[A]))((value, rest) =>
+        for {
+          item <- value
+          items <- rest
+        } yield item :: items
+      )
+
+    val dataAtoms: Getter[Shape, Option[List[Atom]]] =
+      cata[Option[List[Atom]]] { (node, kids) =>
+        node match {
+          case a: Atom    => Some(List(a))
+          case Product(_) => sequenceOptions(kids).map(_.flatten)
+          case _          => None
+        }
+      }
+
+    val callableAtoms: Getter[Shape, List[Atom]] =
+      cata[List[Atom]] { (node, kids) =>
+        node match {
+          case a: Atom                  => List(a)
+          case _: Product | _: Function => kids.flatten.toList
+          case _                        => Nil
+        }
+      }
+
+    val uncurried: Getter[Shape, (List[Shape], Shape)] =
+      cata[(List[Shape], Shape)] { (node, kids) =>
+        node match {
+          case Function(parameters, _) =>
+            val (rest, leaf) = kids.last
+            (parameters ++ rest, leaf)
+          case leaf => (Nil, leaf)
+        }
+      }
+
   }
 
   case class Binding(id: String, shape: Shape)
@@ -143,10 +186,9 @@ object Inhabitation {
       case Unresolved(_)  => UnitSize
     }
 
-    private def bounded(space: Size): Count = space.finite match {
-      case FinitePart.Exact(value) if !space.hasInfinite => Finite(value)
-      case _                                             => Bounded(space)
-    }
+    private def bounded(space: Size): Count =
+      if (space.hasInfinite) Bounded(space)
+      else Size.exactFinite(space).fold[Count](Bounded(space))(Finite(_))
 
   }
 
@@ -166,6 +208,41 @@ object Inhabitation {
   private case class Rule(children: List[Int], reason: Option[String] = None)
 
   private case class Producer(parameters: List[Shape], output: Shape)
+
+  private val producerPaths: Getter[Shape, List[Shape] => List[Producer]] =
+    Shape.cata[List[Shape] => List[Producer]] { (node, kids) =>
+      node match {
+        case Function(parameters, _) => args => kids.last(args ++ parameters)
+        case Product(_)              => args => kids.flatMap(_(args)).toList
+        case output                  => args => List(Producer(args, output))
+      }
+    }
+
+  final private case class CountSeed(live: Live, id: Int, depth: Int)
+
+  // With no cycle behind it the reachable graph is a DAG, so a memo-aware hylomorphism counts
+  // each goal as the sum of its rules' child products with a budget on intermediate bit-width.
+  private val liveCount: Getter[CountSeed, BigInt] =
+    Schemes.hylo[CountSeed, BigInt](
+      seed => {
+        seed.live.enterCount(seed.depth)
+        if (seed.live.cached(seed.id).isDefined) PSVec.empty
+        else
+          PSVec.from(
+            seed.live
+              .rulesAt(seed.id)
+              .iterator
+              .flatMap(_.children)
+              .map(child => CountSeed(seed.live, child, seed.depth + 1))
+          )
+      },
+      (seed, kids) =>
+        seed.live.cached(seed.id).getOrElse {
+          val total = seed.live.sumRuleProducts(seed.id, kids)
+          seed.live.remember(seed.id, total)
+          total
+        }
+    )
 
   def count(
       bindings: List[Binding],
@@ -414,13 +491,7 @@ object Inhabitation {
     }
 
     private def producer(shape: Shape, args: List[Shape] = Nil): List[Producer] =
-      shape match {
-        case function: Function =>
-          val (parameters, output) = TerminalHigherOrder.uncurry(function)
-          producer(output, args ++ parameters)
-        case Product(fields) => fields.flatMap(producer(_, args))
-        case output          => List(Producer(args, output))
-      }
+      producerPaths.get(shape)(args)
 
     private def higherOrder(shape: Shape): Boolean =
       Plated.universe(shape).exists {
@@ -438,7 +509,7 @@ object Inhabitation {
       val reasons = reasonsAt(root)
       if (reasons.nonEmpty) Unresolved(reasons)
       else if (cyclic(root)) Countable
-      else Finite(count(root))
+      else Finite(liveCount.get(CountSeed(this, root, 0)))
     }
 
     // The reasons on the rules this root reads, in the order they were met.
@@ -491,20 +562,29 @@ object Inhabitation {
       visit(root, 0)
     }
 
-    // With no cycle behind it the reachable graph is a tree, so the count is exact arithmetic over
-    // the rules, with a budget on the intermediate values rather than a silent overflow.
-    private def count(id: Int, depth: Int = 0): BigInt = {
+    def enterCount(depth: Int): Unit = {
       inspect("solver count")
       if (depth >= maxDepth) throw new Limit("solver traversal depth budget exhausted")
-      totals.getOrElseUpdate(
-        id,
-        rules(id).foldLeft(BigInt(0)) { (sum, rule) =>
-          val term = rule.children.foldLeft(BigInt(1)) { (product, child) =>
-            checked(product * count(child, depth + 1))
-          }
-          checked(sum + term)
+    }
+
+    def cached(id: Int): Option[BigInt] = totals.get(id)
+
+    def rulesAt(id: Int): List[Rule] = rules(id)
+
+    def remember(id: Int, total: BigInt): Unit = {
+      totals.update(id, total)
+    }
+
+    def sumRuleProducts(id: Int, kids: PSVec[BigInt]): BigInt = {
+      var index = 0
+      rules(id).foldLeft(BigInt(0)) { (sum, rule) =>
+        val term = rule.children.foldLeft(BigInt(1)) { (product, _) =>
+          val childCount = kids(index)
+          index += 1
+          checked(product * childCount)
         }
-      )
+        checked(sum + term)
+      }
     }
 
     private def checked(value: BigInt): BigInt =

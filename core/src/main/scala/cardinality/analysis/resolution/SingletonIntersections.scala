@@ -125,10 +125,8 @@ private[cardinality] object SingletonIntersections {
     case _           => Nil
   }
 
-  private def namesBinding(pattern: Pat, name: String): Boolean = pattern match {
-    case Pat.Var(n) => n.value == name
-    case _          => false
-  }
+  private def namesBinding(pattern: Pat, name: String): Boolean =
+    ResolutionOptics.patVarName.getOption(pattern).contains(name)
 
   /** Lookup checks use the caller; binding types and initializers use the declaration scope. */
   private case class BindingScope(name: String, owner: Frame, caller: ResolutionContext) {
