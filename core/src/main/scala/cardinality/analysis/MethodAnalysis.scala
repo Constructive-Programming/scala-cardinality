@@ -1,12 +1,12 @@
 package cardinality.analysis
 
-import scala.collection.mutable
 import scala.meta.*
 import scala.util.control.NonFatal
 
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
+import cardinality.capacity.{Counter, Library}
 import cardinality.types.*
 
 /** Source-set analysis of pure, total parametric implementations, not stored-value cardinality.
@@ -60,25 +60,16 @@ object MethodAnalysis {
   def analyze(inputs: List[Input], limits: Limits = Limits()): List[Entry] =
     new Index(inputs, limits).analyze()
 
-  // The concrete atoms whose count depends on who can produce them. Primitives are opaque to the
-  // shape model (a Boolean is one bit, not a case split), so a producer outside the lexical chain
-  // could change the answer. `Unit`, `Option` and `Either` are structural — a count of cases —
-  // and stay countable wherever they appear.
-  private val ConcreteAtoms = Set(
-    "Boolean",
-    "Byte",
-    "Short",
-    "Char",
-    "Int",
-    "Long",
-    "Float",
-    "Double"
-  )
+  // The names whose count depends on who can produce them: the shape model spells `Boolean` as a
+  // case split, so the values behind it could come from anywhere — a producer outside the lexical
+  // chain included. The fixed-width numeric family is not one of these: the estimate reads a byte
+  // as 2^8 and an `Int` as 2^32 wherever it needs their size, so nothing outside the chain can move
+  // the number. `Unit`, `Option` and `Either` are structural too — a count of cases — and stay
+  // countable wherever they appear.
+  private val ConcreteAtoms = Set("Boolean")
 
   private[cardinality] type Resolved = Either[String, Shape]
 
-  // A source type's parameters and the types its representation is built from: an alias body, a
-  // case class's fields, or a reason the model cannot read the declaration at all.
   // A source type's parameters and the cases its representation is built from: one case of one
   // type for an alias, one case of its fields for a case class, one per case for an enum. A
   // declaration the model cannot read carries the reason instead.
@@ -88,12 +79,7 @@ object MethodAnalysis {
   // order. (Used both for a case's fields and for the cases of an enum.) It is a free function
   // rather than an index method because the measurement needs it too.
   private[cardinality] def sequence[A](values: List[Either[String, A]]): Either[String, List[A]] =
-    values.foldRight(Right(Nil): Either[String, List[A]]) { (head, tail) =>
-      for {
-        h <- head
-        t <- tail
-      } yield h :: t
-    }
+    Inhabitation.Shape.sequenceEithers(values)
 
   final private[cardinality] case class Frame(
       id: String,
@@ -138,6 +124,16 @@ object MethodAnalysis {
     private val indexer = new SourceIndex(inputs, work)
 
     def analyze(): List[Entry] = indexer.targets.toList.map(measure)
+
+    // One reading per source: the estimate's scope, solved with every supplied file behind it, so
+    // a constructor's parameter answers `Int` with 2^32 and `Nat` with its sealed sum — the same
+    // numbers the definitions' rows carry.
+    private lazy val readings: Map[String, Counter.Reading] = {
+      val library = Library.of(inputs.map(_.tree))
+      inputs.map(input => input.path -> Counter.Reading.of(input.tree, library)).toMap
+    }
+
+    def reading(path: String): Counter.Reading = readings.getOrElse(path, Counter.Reading.bare)
 
     private val lookupIndex = new SourceLookup(indexer.types.toList, indexer.packageFrames.toList)
 
@@ -253,13 +249,7 @@ object MethodAnalysis {
         union: Type,
         context: ResolutionContext
     ): Resolved = {
-      def alternatives(tpe: Type): List[Type] = tpe match {
-        case Type.Or(left, right) => alternatives(left) ++ alternatives(right)
-        case union: Type.ApplyInfix if union.op.value == "|" =>
-          alternatives(union.lhs) ++ alternatives(union.rhs)
-        case other => List(other)
-      }
-      val unique = alternatives(union).distinctBy(_.syntax)
+      val unique = TypeSubstitution.unionAlternatives(union).distinctBy(_.syntax)
       sequence(unique.map(context.read(_, this))).left
         .map(reason => s"union ${union.syntax}: $reason")
         .flatMap { shapes =>
@@ -286,7 +276,7 @@ object MethodAnalysis {
         arguments: List[Type],
         context: ResolutionContext
     ): Resolved = {
-      val name = applicationName(callee)
+      val name = TypeApplications.name(callee)
       if (projectable(name, arguments, context))
         MethodProjections.resolve(
           Type.Apply(callee, Type.ArgClause(arguments)),
@@ -298,7 +288,7 @@ object MethodAnalysis {
         existentialCaptures
           .arguments(callee, arguments, context.frame, context.read(_, this))
           .flatMap { (witnesses, args) =>
-            val resolved = constructorLambda(callee) match {
+            val resolved = TypeApplications.lambda(callee) match {
               case Some(lambda) => lambda.flatMap(MethodTypeLambdas(_, args, context, this))
               case None if context.variables.contains(name) =>
                 context
@@ -319,11 +309,6 @@ object MethodAnalysis {
       if (arguments.exists(_.is[Type.Wildcard])) false
       else if (context.variables.contains(name)) false
       else MethodProjections.alias(name, context.frame, this).nonEmpty
-
-    private def applicationName(tpe: Type): String = TypeApplications.name(tpe)
-
-    private def constructorLambda(tpe: Type): Option[Either[String, Type.Lambda]] =
-      TypeApplications.lambda(tpe)
 
     def lookup(name: String, frame: Frame): List[TypeEntry] = {
       inspect("lookup")
@@ -355,38 +340,18 @@ object MethodAnalysis {
     // The primitives and structural constructors the shape model spells itself, by the arity of
     // their application. `Unit` is one construction, `Nothing` none and `Boolean` one bit;
     // `Option` and `Either` are a count of cases, and stay countable wherever they appear.
-    private def builtin(name: String, args: List[Shape]): Resolved = args match {
-      case Nil        => nullaryBuiltin(name)
-      case List(a)    => unaryBuiltin(name, a)
-      case List(a, b) => binaryBuiltin(name, a, b)
-      case _          => Left(s"unresolved type: $name")
-    }
-
-    private def nullaryBuiltin(name: String): Resolved = name match {
-      case "Unit" | "scala.Unit"       => Right(Shape.Product(Nil))
-      case "Nothing" | "scala.Nothing" => Right(Shape.Sum(Nil))
-      case "Null" | "scala.Null"       => Right(Shape.Sum(Nil))
-      case _                           => booleanBuiltin(name)
-    }
-
-    private def booleanBuiltin(name: String): Resolved = name match {
-      case "Boolean" | "scala.Boolean" =>
-        Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil))))
-      case _ => Left(s"unresolved type: $name")
-    }
-
-    private def unaryBuiltin(name: String, arg: Shape): Resolved = name match {
-      case "Option" | "scala.Option" => Right(Shape.Sum(List(Shape.Product(Nil), arg)))
-      case _                         => Left(s"unresolved type: $name")
-    }
-
-    private def binaryBuiltin(name: String, left: Shape, right: Shape): Resolved = name match {
-      case "Either" | "scala.Either" | "scala.util.Either" => Right(Shape.Sum(List(left, right)))
-      case "=:=" | "scala.=:=" | "<:<" | "scala.<:<"       =>
-        EvidenceAnalysis.resolve(name, left, right)
-      case "Function1" | "scala.Function1" => Right(Shape.Function(List(left), right))
-      case _                               => Left(s"unresolved type: $name")
-    }
+    private def builtin(name: String, args: List[Shape]): Resolved =
+      (name.stripPrefix("scala."), args) match {
+        case ("Unit", Nil)             => Right(Shape.Product(Nil))
+        case ("Nothing" | "Null", Nil) => Right(Shape.Sum(Nil))
+        case ("Boolean", Nil)          =>
+          Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil))))
+        case ("Option", List(a))                    => Right(Shape.Sum(List(Shape.Product(Nil), a)))
+        case ("Either" | "util.Either", List(l, r)) => Right(Shape.Sum(List(l, r)))
+        case ("=:=" | "<:<", List(l, r))            => EvidenceAnalysis.resolve(name, l, r)
+        case ("Function1", List(l, r))              => Right(Shape.Function(List(l), r))
+        case _                                      => Left(s"unresolved type: $name")
+      }
 
     // A source type resolves through its own declaration: an alias body, a case class's fields, or
     // a representation the model cannot read. Its identity guards against a resolution cycle.
@@ -402,16 +367,19 @@ object MethodAnalysis {
         Left(s"opaque representation is not visible at use site: $key")
       else
         entry.tree match {
-          case alias: Defn.Type if constructorLambda(alias.body).nonEmpty =>
+          case alias: Defn.Type if TypeApplications.lambda(alias.body).nonEmpty =>
             if (alias.tparamClause.values.isEmpty)
-              constructorLambda(alias.body).get.flatMap(
-                MethodTypeLambdas(
-                  _,
-                  args,
-                  context.inScope(entry.owner, typeParameters(entry.owner)).enter(key),
-                  this
+              TypeApplications
+                .lambda(alias.body)
+                .get
+                .flatMap(
+                  MethodTypeLambdas(
+                    _,
+                    args,
+                    context.inScope(entry.owner, typeParameters(entry.owner)).enter(key),
+                    this
+                  )
                 )
-              )
             else
               Left(
                 s"parameterized type-lambda alias requires higher-kinded analysis: $name"
@@ -437,11 +405,7 @@ object MethodAnalysis {
     // whose field type is not declared leaves the representation unreadable.
     private def enumRepresentation(e: Defn.Enum, key: String): Representation =
       if (e.mods.exists(_.is[Mod.Abstract])) abstractRepresentation(key)
-      else
-        enumCases(e, key).fold(
-          reason => (e.tparamClause.values, Left(reason)),
-          cases => (e.tparamClause.values, Right(cases))
-        )
+      else (e.tparamClause.values, enumCases(e, key))
 
     private def abstractRepresentation(key: String): Representation =
       (Nil, Left(s"abstract type or method-valued representation: $key"))
@@ -451,12 +415,10 @@ object MethodAnalysis {
     private def caseClassRepresentation(c: Defn.Class, key: String): Representation =
       if (!isCaseClass(c) || !isPlainProduct(c)) abstractRepresentation(key)
       else
-        declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key)
-          .map(fields => List(fields))
-          .fold(
-            reason => (c.tparamClause.values, Left(reason)),
-            fields => (c.tparamClause.values, Right(fields))
-          )
+        (
+          c.tparamClause.values,
+          declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key).map(List(_))
+        )
 
     private def isCaseClass(c: Defn.Class): Boolean =
       c.mods.exists(_.is[Mod.Case]) && !c.mods.exists(_.is[Mod.Abstract])
@@ -475,11 +437,8 @@ object MethodAnalysis {
     private def declaredFields(
         fields: List[Term.Param],
         key: String
-    ): Either[String, List[Type]] = {
-      val declared = fields.flatMap(_.decltpe)
-      if (fields.size == declared.size) Right(declared)
-      else Left(s"missing field type: $key")
-    }
+    ): Either[String, List[Type]] =
+      sequence(fields.map(_.decltpe.toRight(s"missing field type: $key")))
 
     // One application of a source type: what it is applied to, and what its declaration says it
     // is built from.
@@ -515,18 +474,15 @@ object MethodAnalysis {
         case _            => Shape.Product(cases.head)
       }
 
-    private def enumCases(e: Defn.Enum, key: String): Either[String, List[List[Type]]] = {
-      val cases = mutable.ListBuffer.empty[List[Type]]
-      val missing = mutable.ListBuffer.empty[String]
-      e.templ.body.stats.foreach {
-        case c: Defn.EnumCase =>
-          val declared = c.ctor.paramClauses.toList.flatMap(_.values).map(_.decltpe)
-          if (declared.forall(_.isDefined)) cases += declared.flatten else missing += c.name.value
-        case r: Defn.RepeatedEnumCase => r.cases.foreach(_ => cases += Nil)
-        case _                        => ()
-      }
-      if (missing.nonEmpty) Left(s"missing field type: $key") else Right(cases.toList)
-    }
+    private def enumCases(e: Defn.Enum, key: String): Either[String, List[List[Type]]] =
+      sequence(
+        e.templ.body.stats.flatMap {
+          case c: Defn.EnumCase =>
+            List(declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key))
+          case r: Defn.RepeatedEnumCase => List.fill(r.cases.size)(Right(Nil))
+          case _                        => Nil
+        }
+      )
 
     // The concrete atoms a signature or a tree mentions, written either bare or qualified: a
     // producer of one of these could change the count of a signature that mentions it.

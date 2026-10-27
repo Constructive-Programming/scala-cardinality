@@ -49,29 +49,11 @@ private[cardinality] object SingletonIntersections {
         .find(owner => s"module:${owner.id}" == id)
         .toRight("singleton module identity not found")
         .flatMap(owner => module(owner.path.mkString("."), from, resolver).map(_ => s))
-    case Shape.Singleton(id, Some(underlying)) =>
-      if (from.chain.exists(owner => id.startsWith(s"${owner.id}:")))
-        validate(underlying, from, resolver).map(value => Shape.Singleton(id, Some(value)))
-      else Left("singleton alias refers to an inaccessible stable binding")
-    case Shape.Product(fields) =>
-      MethodAnalysis.sequence(fields.map(validate(_, from, resolver))).map(Shape.Product(_))
-    case Shape.Sum(cases) =>
-      MethodAnalysis.sequence(cases.map(validate(_, from, resolver))).map(Shape.Sum(_))
-    case Shape.Function(args, result) =>
-      for {
-        parameters <- MethodAnalysis.sequence(args.map(validate(_, from, resolver)))
-        output <- validate(result, from, resolver)
-      } yield Shape.Function(parameters, output)
-    case Shape.Repeated(element) =>
-      validate(element, from, resolver).map(Shape.Repeated(_))
-    case Shape.Existential(witnesses, body) =>
-      validate(body, from, resolver).map(Shape.Existential(witnesses, _))
-    case Shape.Evidence(left, right, equality) =>
-      for {
-        source <- validate(left, from, resolver)
-        target <- validate(right, from, resolver)
-      } yield Shape.Evidence(source, target, equality)
-    case _ => Right(shape)
+    case Shape.Singleton(id, Some(_))
+        if !from.chain.exists(owner => id.startsWith(s"${owner.id}:")) =>
+      Left("singleton alias refers to an inaccessible stable binding")
+    case other =>
+      Shape.tryRebuild(other, Shape.children(other).map(validate(_, from, resolver)))
   }
 
   def singleton(
@@ -125,10 +107,8 @@ private[cardinality] object SingletonIntersections {
     case _           => Nil
   }
 
-  private def namesBinding(pattern: Pat, name: String): Boolean = pattern match {
-    case Pat.Var(n) => n.value == name
-    case _          => false
-  }
+  private def namesBinding(pattern: Pat, name: String): Boolean =
+    ResolutionOptics.patVarName.getOption(pattern).contains(name)
 
   /** Lookup checks use the caller; binding types and initializers use the declaration scope. */
   private case class BindingScope(name: String, owner: Frame, caller: ResolutionContext) {

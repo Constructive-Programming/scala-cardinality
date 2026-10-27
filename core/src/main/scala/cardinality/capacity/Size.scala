@@ -1,6 +1,8 @@
 package cardinality.capacity
 
 import cats.kernel.Order
+import dev.constructive.eo.generics.lens
+import dev.constructive.eo.optics.Prism
 
 /** How many values a type can hold: a natural-sum polynomial `a·ε₀ + b·ω + n` over three tiers. The
   * coefficients count additive contributions at the ε₀ and ω tiers; `n` is exact up to 127 and a
@@ -103,6 +105,20 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
         if (finite.isZero) "" else finite.term
       ).filter(_.nonEmpty).mkString(" + ")
 
+}
+
+private[cardinality] object SizeOptics {
+  val finite = lens[Size](_.finite)
+
+  val exactValue = Prism.optional[FinitePart, BigInt](
+    {
+      case FinitePart.Exact(repr) => Some(repr)
+      case _                      => None
+    },
+    FinitePart.Exact(_)
+  )
+
+  val exactFiniteValue = finite.andThen(exactValue)
 }
 
 object Size {
@@ -231,20 +247,20 @@ object FinitePart {
 
     def bits: BigInt = Size.bits(repr)
 
-    override def add(other: FinitePart): FinitePart = other match {
-      case Exact(that) => FinitePart.exact(repr + that)
-      case _           => super.add(other)
-    }
+    override def add(other: FinitePart): FinitePart =
+      SizeOptics.exactValue
+        .getOption(other)
+        .fold(super.add(other))(that => FinitePart.exact(repr + that))
 
-    override def mul(other: FinitePart): FinitePart = other match {
-      case Exact(that) => FinitePart.exact(repr * that)
-      case _           => super.mul(other)
-    }
+    override def mul(other: FinitePart): FinitePart =
+      SizeOptics.exactValue
+        .getOption(other)
+        .fold(super.mul(other))(that => FinitePart.exact(repr * that))
 
-    override def pow(other: FinitePart): Option[FinitePart] = other match {
-      case Exact(that) => Some(FinitePart.exact(repr.pow(that.toInt)))
-      case _           => super.pow(other)
-    }
+    override def pow(other: FinitePart): Option[FinitePart] =
+      SizeOptics.exactValue
+        .getOption(other)
+        .fold(super.pow(other))(that => Some(FinitePart.exact(repr.pow(that.toInt))))
 
     override def toString: String = s"TinySize($repr)"
 

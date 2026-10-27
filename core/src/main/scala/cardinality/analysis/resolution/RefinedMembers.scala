@@ -41,10 +41,7 @@ private[cardinality] object RefinedMembers {
     if (parameter.mods.exists(_.is[Mod.VarParam])) None else parameter.decltpe
 
   private def binds(name: String, patterns: List[Pat]): Boolean =
-    patterns.exists {
-      case Pat.Var(bound) => bound.value == name
-      case _              => false
-    }
+    patterns.exists(TypeApplications.patVarName.getOption(_).contains(name))
 
   private def bindingType(name: String, stat: Stat): Option[Option[Type]] = stat match {
     case d: Defn.Val if binds(name, d.pats)  => Some(d.decltpe)
@@ -66,10 +63,8 @@ private[cardinality] object RefinedMembers {
   private def definition(entry: TypeEntry): Definition = entry.tree match {
     case alias: Defn.Type if !alias.mods.exists(_.is[Mod.Opaque]) =>
       Definition(entry.owner, alias.tparamClause.values, Some(alias.body), Nil)
-    case traitDef: Defn.Trait =>
-      Definition(entry.owner, traitDef.tparamClause.values, None, traitDef.templ.body.stats)
-    case classDef: Defn.Class =>
-      Definition(entry.owner, classDef.tparamClause.values, None, classDef.templ.body.stats)
+    case d: (Defn.Trait | Defn.Class) =>
+      Definition(entry.owner, d.tparamClause.values, None, d.templ.body.stats)
     case _ => Definition(entry.owner, Nil, None, Nil)
   }
 
@@ -126,12 +121,10 @@ private[cardinality] object RefinedMembers {
       else {
         val scoped = context.enter(key)
         memberBody(declared, name, scoped).flatMap { body =>
-          val referenced = body.collect {
-            case n: Type.Name if declared.contains(n.value) => n.value
-          }.distinct
+          val referenced = TypeSubstitution.typeNames(body).filter(declared.contains).distinct
           val substitutions =
             referenced.map(member => member -> fromStats(stats, member, scoped)).toMap
-          scoped.copy(variables = scoped.variables ++ substitutions).read(body, resolver)
+          scoped.bind(substitutions).read(body, resolver)
         }
       }
     }
@@ -204,20 +197,17 @@ private[cardinality] object RefinedMembers {
         arguments: List[Type],
         context: ResolutionContext
     ): Either[String, ResolutionContext] =
-      if (defined.parameters.exists(TypeApplications.constrained))
-        Left(s"constrained refined type constructor: $name")
-      else if (defined.parameters.size != arguments.size) Left(s"type argument arity: $name")
-      else {
-        val replacements = defined.parameters
-          .zip(arguments)
-          .map { (parameter, argument) =>
-            parameter.name.value -> context.read(argument, resolver)
-          }
-          .toMap
-        Right(
+      TypeApplications
+        .checkApplication(name, defined.parameters, arguments.size, "refined type constructor")
+        .map { _ =>
+          val replacements = defined.parameters
+            .zip(arguments)
+            .map { (parameter, argument) =>
+              parameter.name.value -> context.read(argument, resolver)
+            }
+            .toMap
           context.inScope(defined.owner, resolver.typeParameters(defined.owner) ++ replacements)
-        )
-      }
+        }
 
   }
 

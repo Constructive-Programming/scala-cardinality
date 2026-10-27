@@ -216,11 +216,14 @@ object SourceSnapshot {
   private def hash(bytes: Array[Byte]): String =
     hex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
-  private[cardinality] def framedHash(values: List[String]): String = {
+  private[cardinality] def framedHash(values: List[String], lengthBytes: Int = 8): String = {
     val digest = MessageDigest.getInstance("SHA-256")
     values.foreach { value =>
       val bytes = value.getBytes(StandardCharsets.UTF_8)
-      digest.update(ByteBuffer.allocate(8).putLong(bytes.length.toLong).array())
+      val header =
+        if (lengthBytes == 4) ByteBuffer.allocate(4).putInt(bytes.length).array()
+        else ByteBuffer.allocate(8).putLong(bytes.length.toLong).array()
+      digest.update(header)
       digest.update(bytes)
     }
     hex(digest.digest())

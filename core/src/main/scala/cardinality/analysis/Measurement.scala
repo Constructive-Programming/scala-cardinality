@@ -6,6 +6,8 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
+import cardinality.capacity.{Counter, Size}
+import cardinality.types.TypeApplications
 
 import Inhabitation.{Binding, Count, Shape}
 import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEntry}
@@ -16,6 +18,12 @@ import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEnt
   * the two files stay apart without a second copy of the resolution rules.
   */
 private[cardinality] trait Resolver {
+
+  /** The estimate's reading of the source a signature was indexed from, so a constructor position
+    * can answer with the same space the definitions' rows use.
+    */
+  def reading(path: String): Counter.Reading
+
   def lookup(name: String, frame: Frame): List[TypeEntry]
 
   def resolve(
@@ -73,7 +81,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     scanParents()
     flagReachableModules()
     // Parameters of the target hide outer names, but their type binders keep their identities.
-    target.frame.params.foreach(p => add(p.name.value, p.decltpe, target.frame))
+    bindParams(target.frame)
     val result = resultShape()
     result.left.foreach(errors += _)
     Entry.of(
@@ -159,33 +167,25 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // The parent's type arguments, resolved where the parent is named: `extends Base[A]` reads an
   // inherited `Base[A].seed` as this scope's A, not as a second binder that happens to share the
   // name.
+  private def resolveIn(
+      tpe: Type,
+      owner: Frame,
+      env: Map[String, Resolved] = Map.empty
+  ): Resolved = {
+    val bindings = if (env.isEmpty) resolver.typeParameters(owner) else env
+    resolver.resolve(tpe, ResolutionContext(owner, bindings, Set.empty, Some(target.frame)))
+  }
+
   private def inheritedEnv(declared: Frame, parent: Init, from: Frame): Map[String, Resolved] =
-    arguments(parent) match {
+    TypeApplications.arguments.getOption(parent.tpe) match {
       case None       => Map.empty
       case Some(args) =>
         declared.typeParams
           .map(_.name.value)
           .zip(args)
-          .map {
-            case (name, arg) =>
-              name -> resolver
-                .resolve(
-                  arg,
-                  ResolutionContext(
-                    from,
-                    resolver.typeParameters(from),
-                    Set.empty,
-                    Some(target.frame)
-                  )
-                )
-          }
+          .map { case (name, arg) => name -> resolveIn(arg, from) }
           .toMap
     }
-
-  private def arguments(parent: Init): Option[List[Type]] = parent.tpe match {
-    case Type.Apply.After_4_6_0(_, Type.ArgClause(args)) => Some(args)
-    case _                                               => None
-  }
 
   // Keep qualification: an external Outer.Base is not a same-spelled lexical Base.
   // `Init.name` is anonymous for a plain type parent, so the type is the source of the name.
@@ -206,9 +206,14 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   // One owner's bindings: its own parameters, then every scope that shares its path.
   private def scan(owner: Frame): Unit = {
-    owner.params.foreach(p => add(p.name.value, p.decltpe, owner))
+    bindParams(owner)
     frames(owner).foreach(scanFrame)
   }
+
+  // One owner's parameters as bindings: the positions the estimate did not read, since a space it
+  // read *is* the count and binding the position would only add a diagnostic for it.
+  private def bindParams(owner: Frame): Unit =
+    owner.params.foreach(p => if (leftToShape(p)) add(p.name.value, p.decltpe, owner))
 
   // Package-level declarations are indexed across all files. Unrelated class parameters are never
   // pooled just because both happen to be named A.
@@ -248,12 +253,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   ): Unit =
     tpe
       .toRight(s"missing type of accessible value: $name")
-      .flatMap(tpe =>
-        resolver.resolve(
-          tpe,
-          ResolutionContext(owner, env, Set.empty, Some(target.frame))
-        )
-      ) match {
+      .flatMap(resolveIn(_, owner, env)) match {
       case Left(reason) => errors += reason
       case Right(shape) => bind(name, Binding(s"${owner.id}:$name", shape), owner)
     }
@@ -261,13 +261,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // A scope's declarations by kind: a value binds, a variable or an unreadable given is a
   // diagnostic, and a body only matters where a concrete type is at stake.
   private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
-    case v: Defn.Val => flagVal(v)
-    case v: Decl.Val =>
-      if (!isTarget(v)) addDeclaredValue(scope, resolver.typeParameters(scope), v)
-    case d: Decl.Def =>
-      if (!isTarget(d)) addDeclaredCallable(scope, resolver.typeParameters(scope), d)
-    case d: Decl.GivenLike =>
-      if (!isTarget(d)) addDeclaredGiven(scope, resolver.typeParameters(scope), d)
+    case v: Defn.Val                               => flagVal(v)
+    case d: (Decl.Val | Decl.Def | Decl.GivenLike) =>
+      if (!isTarget(d)) declaration(scope, resolver.typeParameters(scope), d)
     case _: Defn.Var | _: Decl.Var => errors += "mutable capture"
     case other                     => flagEnvironment(other)
   }
@@ -285,16 +281,18 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     // A destructured value names the components of one binding already in scope — `val (a, b) =
     // pair` binds nothing new, and `val (a, b) = capability()` names fields the capability's own
     // result shape already carries — so it is skipped for the same reason as an unreadable body.
-    if (!value.pats.forall(_.is[Pat.Var])) ()
+    if (!value.pats.forall(TypeApplications.patVarName.getOption(_).nonEmpty)) ()
 
   private def addDeclaredValue(
       scope: Frame,
       env: Map[String, Resolved],
       declaration: Decl.Val
   ): Unit =
-    declaration.pats.foreach {
-      case Pat.Var(name) => add(name.value, Some(declaration.decltpe), scope, env)
-      case _             => errors += "destructured capture not resolved"
+    declaration.pats.foreach { pat =>
+      TypeApplications.patVarName.getOption(pat) match {
+        case Some(name) => add(name, Some(declaration.decltpe), scope, env)
+        case None       => errors += "destructured capture not resolved"
+      }
     }
 
   // A declaration is not an implementation: someone else supplies it, so its result is a value this
@@ -397,14 +395,39 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def resultShape(): Resolved =
     if (target.constructor) constructorShape() else declaredShape()
 
+  // The positions left to the shape model: a type parameter's slot, whose count is the values the
+  // caller supplies — the reading behind `Pair[A](x: A, y: A)` having four implementations — and
+  // any position the estimate reads with a reason, where the model's diagnostic says more than a
+  // number resting on an unknown name.
   private def constructorShape(): Resolved =
     sequence(
-      target.frame.params.map(p =>
-        p.decltpe
-          .toRight(s"missing parameter type: ${p.name.value}")
-          .flatMap(resolver.resolve(_, target.frame, variables))
-      )
+      target.frame.params
+        .filter(leftToShape)
+        .map(p =>
+          p.decltpe
+            .toRight(s"missing parameter type: ${p.name.value}")
+            .flatMap(resolver.resolve(_, target.frame, variables))
+        )
     ).map(Shape.Product(_))
+
+  // The one rule for a constructor's positions, wherever they are read: one the estimate read is
+  // counted by its space, and the shape model neither binds it nor reads it a second time — binding
+  // it would only plant a diagnostic for a name the report already answered.
+  private def leftToShape(param: Term.Param): Boolean = space(param.decltpe).isEmpty
+
+  /** What the estimate reads a constructor position as: the value space of the type, when this
+    * source answers it whole. None for a type parameter's slot and None for a type whose reading
+    * carries a reason; those stay with the shape model.
+    */
+  private def space(decltpe: Option[Type]): Option[Size] =
+    if (!target.constructor) None
+    else
+      decltpe
+        .filterNot {
+          case named: Type.Name => variables.contains(named.value)
+          case _                => false
+        }
+        .flatMap(resolver.reading(target.input).value)
 
   private def declaredShape(): Resolved =
     target.result
@@ -413,7 +436,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private def count(result: Resolved): Count =
     if (errors.nonEmpty) Count.Unresolved(errors.toList.distinct.sorted)
-    else result.fold(unresolved, inhabitation)
+    else
+      result.fold(
+        unresolved,
+        shape =>
+          Count.product(target.frame.params.flatMap(p => space(p.decltpe)), inhabitation(shape))
+      )
 
   private def unresolved(reason: String): Count = Count.Unresolved(List(reason))
 
@@ -435,7 +463,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
     private val declared = stats
       .collect { case v: Defn.Val => v }
-      .flatMap(v => v.pats.collect { case Pat.Var(n) => n.value -> v })
+      .flatMap(v => v.pats.flatMap(TypeApplications.patVarName.getOption(_).map(_ -> v)))
       .toMap
 
     private val done = mutable.Map.empty[String, Either[String, Binding]]
@@ -478,20 +506,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         declaration: Defn.Val
     ): Either[String, Binding] =
       declaration.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
-        resolver
-          .resolve(
-            tpe,
-            ResolutionContext(
-              owner,
-              resolver.typeParameters(owner),
-              Set.empty,
-              Some(target.frame)
-            )
-          )
-          .flatMap { shape =>
-            if (binding.shape == shape) Right(binding)
-            else Left(s"capture alias type conversion not resolved: $name")
-          }
+        resolveIn(tpe, owner).flatMap { shape =>
+          if (binding.shape == shape) Right(binding)
+          else Left(s"capture alias type conversion not resolved: $name")
+        }
       }
 
   }

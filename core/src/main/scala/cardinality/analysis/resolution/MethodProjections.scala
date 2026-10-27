@@ -29,13 +29,13 @@ private[cardinality] object MethodProjections {
   def alias(name: String, frame: Frame, resolver: Resolver): Option[(TypeEntry, Defn.Type)] =
     resolver.lookup(name, frame) match {
       case List(entry) =>
-        entry.tree match {
-          case definition: Defn.Type
-              if !definition.mods.exists(_.is[Mod.Opaque]) &&
-                TypeApplications.lambda(definition.body).isEmpty =>
-            Some(entry -> definition)
-          case _ => None
-        }
+        ResolutionOptics.entryTypeDefinition
+          .getOption(entry)
+          .filter(definition =>
+            !definition.mods.exists(_.is[Mod.Opaque]) &&
+              TypeApplications.lambda(definition.body).isEmpty
+          )
+          .map(entry -> _)
       case _ => None
     }
 
@@ -48,7 +48,7 @@ private[cardinality] object MethodProjections {
     new Normalizer(resolver, sourceNames)
       .syntax(tpe, context)
       .flatMap { (normalized, bindings) =>
-        context.copy(variables = bindings).read(normalized, resolver)
+        ResolutionOptics.variablesLens.replace(bindings)(context).read(normalized, resolver)
       }
       .flatMap(SingletonIntersections.validate(_, context.useSite, resolver))
 
@@ -56,16 +56,12 @@ private[cardinality] object MethodProjections {
     private type Prepared = Either[String, (Type, Map[String, Resolved])]
     private var tokenNumber = 0
 
-    private def nextToken(): String = {
-      tokenNumber += 1
-      s"$$cardinalityProjection$tokenNumber"
-    }
-
     private def freshToken(variables: Map[String, Resolved]): String = {
-      var token = nextToken()
-      while (sourceNames(token) || variables.contains(token)) {
-        token = nextToken()
-      }
+      val (token, next) =
+        inhabitation.Inhabitation.Shape.freshName("$cardinalityProjection", tokenNumber + 1)(t =>
+          sourceNames(t) || variables.contains(t)
+        )
+      tokenNumber = next - 1
       token
     }
 
@@ -99,7 +95,7 @@ private[cardinality] object MethodProjections {
           case None         =>
             reduceMatch(
               Type.Match.After_4_9_9(known, block),
-              context.copy(variables = context.variables ++ bindings).enter(matched.structure)
+              context.bind(bindings).enter(matched.structure)
             )
         }
       }
@@ -108,9 +104,9 @@ private[cardinality] object MethodProjections {
     private def projectionFailure(known: Type, cases: List[TypeCase]): Option[String] =
       if (!known.is[Type.Tuple])
         Some("inert match type: scrutinee is not a proven tuple; concrete substitution required")
-      else if (!cases.forall(c => projectionPattern(c.pat)))
+      else if (!cases.forall(c => MatchTypes.projectionPattern(c.pat)))
         Some("match type requires type-identity/disjointness proof for fixed or nominal patterns")
-      else if (!cases.forall(c => determinateProjection(c.pat, known)))
+      else if (!cases.forall(c => MatchTypes.determinateHylo((c.pat, known))))
         Some("inert match type: nested scrutinee is not a proven tuple")
       else None
 
@@ -169,7 +165,7 @@ private[cardinality] object MethodProjections {
       val bindings = resolver.typeParameters(entry.owner) ++ prepared.flatMap(_._2).toMap
       // Alias bodies use the declaration scope; only frozen arguments retain caller bindings.
       syntax(
-        MatchTypes.replace(declared.body, substitutions),
+        TypeSubstitution.replace(declared.body, substitutions),
         context.inScope(entry.owner, bindings)
       )
     }
@@ -177,24 +173,6 @@ private[cardinality] object MethodProjections {
     private def freeze(tpe: Type, context: ResolutionContext): Prepared = {
       val token = freshToken(context.variables)
       Right(Type.Name(token) -> Map(token -> context.read(tpe, resolver)))
-    }
-
-    private def projectionPattern(tpe: Type): Boolean = tpe match {
-      case _: Type.Wildcard  => true
-      case Type.Name(name)   => name.headOption.exists(_.isLower)
-      case Type.Tuple(parts) => parts.forall(projectionPattern)
-      case _                 => false
-    }
-
-    private def determinateProjection(pattern: Type, known: Type): Boolean = pattern match {
-      case Type.Tuple(elements) =>
-        known match {
-          case Type.Tuple(parts) =>
-            elements.size != parts.size ||
-            elements.zip(parts).forall((element, part) => determinateProjection(element, part))
-          case _ => false
-        }
-      case _ => true
     }
 
   }

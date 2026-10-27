@@ -4,24 +4,34 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.model.*
+import dev.constructive.eo.generics.lens
 
 import MethodAnalysis.{Frame, Target, TypeEntry}
+import OverrideIdentity.{aliasFrame, depthLens, localsLens, Bindings, Key}
+
+private[cardinality] object OverrideIdentity {
+
+  type Key = Option[String]
+
+  // Immediate method/alias formals take precedence; enclosing binders compete with declarations
+  // in lexical order. Scoped identities retain receiver substitutions across shadowing.
+  final case class Bindings(
+      locals: Map[String, Key],
+      scoped: Map[(String, String), Key],
+      expansionDepth: Int = 0
+  )
+
+  val localsLens = lens[Bindings](_.locals)
+  val depthLens = lens[Bindings](_.expansionDepth)
+  val aliasFrame = lens[Bindings](_.locals, _.expansionDepth)
+
+}
 
 /** Override identity is nominal type identity, not equality of inhabitant representations.
   * Unsupported signatures deliberately leave an obligation instead of guessing an override.
   */
 final private[cardinality] class OverrideIdentity(target: Target, resolver: Resolver) {
   private given Dialect = dialects.Scala3
-
-  private type Key = Option[String]
-
-  // Immediate method/alias formals take precedence; enclosing binders compete with declarations
-  // in lexical order. Scoped identities retain receiver substitutions across shadowing.
-  private case class Bindings(
-      locals: Map[String, Key],
-      scoped: Map[(String, String), Key],
-      expansionDepth: Int = 0
-  )
 
   def matches(declaration: Decl.Def, parent: Init, from: Frame, owner: Frame): Option[Boolean] =
     target.tree match {
@@ -94,10 +104,7 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     else Option.when(left._2 == right._2)(true)
 
   private def parentBindings(parent: Init, from: Frame, owner: Frame): Bindings = {
-    val arguments = parent.tpe match {
-      case applied: Type.Apply => applied.argClause.values
-      case _                   => Nil
-    }
+    val arguments = ResolutionOptics.typeArguments.getOption(parent.tpe).getOrElse(Nil)
     val caller = ResolutionContext(from, resolver.typeParameters(from), Set.empty)
     val replacements = owner.typeParams
       .map(p => (owner.id, p.name.value))
@@ -132,7 +139,7 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       p.name.value -> Some(s"method:$index")
     }.toMap
     val context = ResolutionContext(frame, resolver.typeParameters(frame), Set.empty)
-    val bindings = outer.copy(locals = method)
+    val bindings = localsLens.replace(method)(outer)
     val clauses = groups.map(groupKey(_, context, bindings))
     if (groups.drop(1).exists(_.tparamClause.values.nonEmpty) || dependent(groups, result)) None
     else
@@ -257,8 +264,11 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       case None if imported(name, context.frame) => None
       case None                                  =>
         entries match {
-          case List(entry) if entry.tree.is[Defn.Type] =>
-            alias(entry, args, context, bindings)
+          case List(entry) =>
+            ResolutionOptics.entryTypeDefinition.getOption(entry) match {
+              case Some(declaration) => alias(entry, declaration, args, context, bindings)
+              case None              => applied(constructor(name, context), args, context, bindings)
+            }
           case _ => applied(constructor(name, context), args, context, bindings)
         }
     }
@@ -274,11 +284,11 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
 
   private def alias(
       entry: TypeEntry,
+      declaration: Defn.Type,
       args: List[Type],
       context: ResolutionContext,
       bindings: Bindings
   ): Key = {
-    val declaration = entry.tree.asInstanceOf[Defn.Type]
     val parameters = declaration.tparamClause.values
     val id = s"override-alias:${entry.owner.id}:${declaration.pos.start}"
     if (
@@ -293,14 +303,15 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     ) None
     else {
       val depth = bindings.expansionDepth + 1
-      val arguments = args.map(key(_, context, bindings.copy(expansionDepth = depth)))
+      val deeper = depthLens.replace(depth)(bindings)
+      val arguments = args.map(key(_, context, deeper))
       val lexicalBindings = lexical(entry.owner, bindings.scoped)
       val replacements = parameters.map(_.name.value).zip(arguments).toMap
       val scoped = context.inScope(entry.owner, resolver.typeParameters(entry.owner)).enter(id)
       key(
         declaration.body,
         scoped,
-        lexicalBindings.copy(locals = replacements, expansionDepth = depth)
+        aliasFrame.replace((replacements, depth))(lexicalBindings)
       )
     }
   }
@@ -353,16 +364,16 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
 
   private def constructor(name: String, context: ResolutionContext): Key =
     if (imported(name, context.frame)) None
-    else
+    else {
+      val bare = name.stripPrefix("scala.")
       resolver.lookup(name, context.frame) match {
         // Aliases are expanded by `named`; abstract members remain unsupported.
         case List(entry) if entry.tree.is[Defn.Type] || entry.tree.is[Decl.Type] => None
         case List(entry)           => Some(s"source:${entry.owner.id}:${entry.tree.pos.start}")
-        case Nil if builtins(name) => Some(s"builtin:$name")
-        case Nil if name.startsWith("scala.") && builtins(name.stripPrefix("scala.")) =>
-          Some(s"builtin:${name.stripPrefix("scala.")}")
-        case _ => None
+        case Nil if builtins(bare) => Some(s"builtin:$bare")
+        case _                     => None
       }
+    }
 
   private def imported(name: String, frame: Frame): Boolean =
     imports(name, frame.chain)
@@ -377,13 +388,8 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     }
 
   private def combine(keys: List[Key]): Key =
-    keys
-      .foldRight(Option(List.empty[String])) { (key, result) =>
-        for {
-          head <- key
-          tail <- result
-        } yield head :: tail
-      }
+    inhabitation.Inhabitation.Shape
+      .sequenceOptions(keys)
       .map(_.map(k => s"${k.length}:$k").mkString("[", ",", "]"))
 
 }

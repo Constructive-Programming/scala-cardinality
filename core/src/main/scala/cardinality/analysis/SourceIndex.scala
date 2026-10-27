@@ -60,9 +60,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       case d: Defn.Type   => named(d.name.value, d, frame)
       case d: Decl.Type   => named(d.name.value, d, frame)
       case d: Defn.Class  => indexClass(input, frame, d)
-      case d: Defn.Trait  => indexTemplate(input, frame, templateOf(d))
+      case d: Defn.Trait  => indexTemplate(input, frame, d)
       case d: Defn.Object => indexObject(input, frame, d)
-      case d: Defn.Enum   => indexTemplate(input, frame, templateOf(d))
+      case d: Defn.Enum   => indexTemplate(input, frame, d)
       // NOTE both kind methods above register the name: an enum's cases and a trait's members
       // are resolved through the declaration this puts in `types`.
       case d: Defn.Given          => indexGiven(input, frame, d)
@@ -105,7 +105,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   }
 
   private def indexClass(input: String, frame: Frame, d: Defn.Class): Unit = {
-    val nested = indexTemplate(input, frame, templateOf(d))
+    val nested = indexTemplate(input, frame, d)
     if (!d.mods.exists(_.is[Mod.Abstract]))
       // A constructor's inputs are available when choosing its output fields. The instance and
       // its members do not exist yet, so they are not constructor captures.
@@ -120,65 +120,28 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       )
   }
 
-  // A template is the body a definition opens, with its own binders and constructor inputs.
-  private case class Template(
-      node: Tree,
-      name: String,
-      stats: List[Stat],
-      tparams: List[Type.Param] = Nil,
-      params: List[Term.Param] = Nil,
-      parents: List[Init] = Nil
-  )
-
-  private def indexTemplate(input: String, frame: Frame, template: Template): Frame = {
+  private def indexTemplate(
+      input: String,
+      frame: Frame,
+      d: Defn.Class | Defn.Trait | Defn.Enum
+  ): Frame = {
     val nested = child(
       input,
-      template.node,
-      template.name,
+      d,
+      d.name.value,
       frame,
-      template.stats,
-      template.tparams,
-      template.params,
-      parents = template.parents
+      d.templ.body.stats,
+      d.tparamClause.values,
+      d.ctor.paramClauses.toList.flatMap(_.values),
+      parents = d.templ.inits
     )
     // Named in the enclosing frame, so a sibling reference resolves as before; its own frame
     // travels with it, because a member of it — a declared field a subclass inherits — reads in
     // the scope that declares it.
-    types += TypeEntry(template.name, template.node, frame, Some(nested))
+    types += TypeEntry(d.name.value, d, frame, Some(nested))
     index(input, nested)
     nested
   }
-
-  private def templateOf(d: Defn.Class | Defn.Trait | Defn.Enum): Template =
-    d match {
-      case c: Defn.Class =>
-        Template(
-          c,
-          c.name.value,
-          c.templ.body.stats,
-          c.tparamClause.values,
-          c.ctor.paramClauses.toList.flatMap(_.values),
-          c.templ.inits
-        )
-      case t: Defn.Trait =>
-        Template(
-          t,
-          t.name.value,
-          t.templ.body.stats,
-          t.tparamClause.values,
-          t.ctor.paramClauses.toList.flatMap(_.values),
-          t.templ.inits
-        )
-      case e: Defn.Enum =>
-        Template(
-          e,
-          e.name.value,
-          e.templ.body.stats,
-          e.tparamClause.values,
-          e.ctor.paramClauses.toList.flatMap(_.values),
-          e.templ.inits
-        )
-    }
 
   private def indexObject(input: String, frame: Frame, d: Defn.Object): Unit = {
     val module =

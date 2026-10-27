@@ -21,19 +21,19 @@ private[cardinality] object MethodTypeLambdas {
       resolver: Resolver
   ): Resolved = {
     val parameters = lambda.tparamClause.values
-    if (parameters.exists(TypeApplications.constrained))
-      Left(s"constrained type lambda: ${lambda.syntax}")
-    else if (parameters.size != arguments.size)
-      Left(s"type lambda argument arity: ${lambda.syntax}")
-    else
-      lambda.body match {
-        case body: Type =>
-          val substitutions = parameters.zip(arguments).map((p, a) => p.name.value -> Right(a))
-          context
-            .copy(variables = context.variables ++ substitutions)
-            .enter(s"lambda:${lambda.pos.start}:${lambda.syntax}")
-            .read(body, resolver)
-        case _ => Left("type lambda has a non-type body")
+    TypeApplications
+      .checkApplication(lambda.syntax, parameters, arguments.size, "type lambda", "type lambda")
+      .flatMap { _ =>
+        TypeSubstitution.lambdaBody
+          .getOption(lambda)
+          .toRight("type lambda has a non-type body")
+          .flatMap { body =>
+            val substitutions = parameters.zip(arguments).map((p, a) => p.name.value -> Right(a))
+            context
+              .bind(substitutions)
+              .enter(s"lambda:${lambda.pos.start}:${lambda.syntax}")
+              .read(body, resolver)
+          }
       }
   }
 
@@ -60,10 +60,10 @@ private[cardinality] object MethodTypeLambdas {
       parameter.name.value ->
         Right(Shape.Atom(s"${context.frame.id}:poly:${poly.pos.start}:${parameter.name.value}"))
     }
-    poly.body match {
-      case body: Type => context.copy(variables = context.variables ++ binders).read(body, resolver)
-      case _          => Left("polymorphic function has a non-type body")
-    }
+    TypeSubstitution.polyBody
+      .getOption(poly)
+      .toRight("polymorphic function has a non-type body")
+      .flatMap(body => context.bind(binders).read(body, resolver))
   }
 
   private def identity(poly: Type.PolyFunction): Boolean =

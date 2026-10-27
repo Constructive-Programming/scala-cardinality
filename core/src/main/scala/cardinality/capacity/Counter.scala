@@ -6,24 +6,20 @@ import cardinality.types.*
 
 object Counter {
 
-  // Trees are parsed as Scala 3: printing one under any other dialect reprints it under Scala 2
-  // rules, which cannot spell Scala 3's modifiers (`inline def` throws while printing).
+  // Trees are parsed and reprinted under Scala 3 dialect rules.
   private given scala3: Dialect = dialects.Scala3
 
   /** What every definition a source introduces holds together: the sum over its concrete classes,
-    * enums, modules and top-level values, nested definitions included; the supplied sources are in
-    * scope too, the way `definitions` reads them.
+    * enums, modules and top-level values, nested definitions and supplied library sources included.
     */
   def source(s: Source, library: Library = Library.empty): Size =
-    Walk.body(s.stats, Scope.empty.withLibrary(library))
+    Walk.body(s.stats, Scope.libraryLens.replace(library)(Scope.empty))
 
-  /** Every definition a source introduces, in source order, each with the cardinality of its type
-    * and the names that stopped the calculator from bounding it — the number and the reason.
-    * `library` lets a sibling file's type resolve instead of counting as unknown; `Library.empty`
-    * reads the source on its own.
+  /** Every definition a source introduces, in source order, with the cardinality of its type and
+    * any reasons that stopped the calculator from bounding it.
     */
   def definitions(s: Source, library: Library = Library.empty): List[Definition] =
-    Walk.of(s.stats, Scope.empty.withLibrary(library), Nil, top = true).definitions
+    Walk.of(s.stats, Scope.libraryLens.replace(library)(Scope.empty), Nil, top = true).definitions
 
   /** What the definitions of a source declare: every typed member contributes the size of its
     * declared type, added rather than multiplied, so two `String => String` methods and a `String`
@@ -43,6 +39,37 @@ object Counter {
   def param: Term.Param => Size = paramIn(Scope.empty)
 
   def `type`: Type => Size = typeIn(Scope.empty)
+
+  /** The estimate's reading of one source: its definitions solved with the library behind them —
+    * the very scope the source's rows are measured in. `MethodAnalysis` reads a constructor's
+    * parameter types through it, so `Int`, a sealed family, a lazy cycle and a function space
+    * answer the two halves of a report with one number.
+    */
+  final class Reading private (private val scope: Scope) {
+
+    /** What a signature type is worth in this source: the size, when the scope answers the type
+      * whole, and None when the reading had to leave a name unbounded — a type the sources do not
+      * define, an abstraction nobody summed. The shape model keeps those: its diagnostic says more
+      * than a number resting on an unknown name.
+      */
+    def value(tpe: Type): Option[Size] = {
+      val probe = scope.measured
+      val size = typeIn(probe)(tpe)
+      if (probe.unbound.isEmpty) Some(size) else None
+    }
+
+  }
+
+  object Reading {
+
+    def of(s: Source, library: Library = Library.empty): Reading =
+      new Reading(Walk.solved(s.stats, Scope.libraryLens.replace(library)(Scope.empty)))
+
+    /** A reading with nothing in scope but the base types: the fallback for a source the index does
+      * not hold.
+      */
+    val bare: Reading = new Reading(Scope.empty)
+  }
 
   private[cardinality] def equations(stats: List[Stat]): List[(TypeName, Named)] = {
     val modules = stats.flatMap {
@@ -89,11 +116,8 @@ object Counter {
 
   // The type parameters a definition declares, in the order its arguments are supplied in.
   private[cardinality] def parameters(d: Defn): List[Type.Param] = d match {
-    case c: Defn.Class => c.tparamClause.values
-    case c: Defn.Trait => c.tparamClause.values
-    case c: Defn.Enum  => c.tparamClause.values
-    case c: Defn.Type  => c.tparamClause.values
-    case _             => Nil
+    case c: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Type) => c.tparamClause.values
+    case _                                                    => Nil
   }
 
   // The parameters as binders: a parameter that takes parameters of its own (`F[_]`) is the
@@ -125,10 +149,8 @@ object Counter {
   // classes. Traits and abstract classes are pass-through parents, handled by `sealedSums`.
   private[cardinality] def definedNames(stats: List[Stat]): Set[TypeName] =
     stats.collect {
-      case d: Defn.Type                        => nameOf(d)
-      case d: Defn.Enum                        => nameOf(d)
-      case d: Defn.Object                      => nameOf(d)
-      case d: Defn.Class if isConcreteClass(d) => nameOf(d)
+      case d: (Defn.Type | Defn.Enum | Defn.Object) => nameOf(d)
+      case d: Defn.Class if isConcreteClass(d)      => nameOf(d)
     }.toSet
 
   // A potential subtype: its name and the parents its `extends` clauses list.
@@ -217,7 +239,8 @@ object Counter {
   // variables and methods — a parameter without an accessor builds a class, it does not expose it.
   private def signatureBody(stats: List[Stat], scope: Scope): Size = {
     val entries = equations(stats)
-    val solved = Solver.solve(entries, stats, scope.withDefinitions(entries))
+    val solved =
+      Solver.solve(entries, stats, Scope.definitionsLens.modify(entries.toMap ++ _)(scope))
     stats.foldLeft(NothingSize: Size)((acc, st) => acc + signatureIn(solved)(st))
   }
 
@@ -226,26 +249,22 @@ object Counter {
     case d: Defn.Class =>
       ctorSignature(scope)(caseParams = d.mods.exists(_.is[Mod.Case]), d.ctor) +
         signatureBody(d.templ.body.stats, scope)
-    case d: Defn.Trait  => signatureBody(d.templ.body.stats, scope)
-    case d: Defn.Object => signatureBody(d.templ.body.stats, scope)
+    case d: (Defn.Trait | Defn.Object) => signatureBody(d.templ.body.stats, scope)
     // An enum's own parameters reach every case, so they are members too.
     case d: Defn.Enum =>
       ctorSignature(scope)(caseParams = true, d.ctor) + signatureBody(d.templ.body.stats, scope)
     case d: Defn.EnumCase => ctorSignature(scope)(caseParams = true, d.ctor)
     // A value, variable or field contributes the size of its declared type; several patterns
     // (`val a, b: Int`) declare one member each, so their contributions add.
-    case d: Defn.Val => declared(scope)(d.pats.size, d.decltpe)
-    case d: Defn.Var => declared(scope)(d.pats.size, d.decltpe)
-    case d: Decl.Val => declared(scope)(d.pats.size, Some(d.decltpe))
-    case d: Decl.Var => declared(scope)(d.pats.size, Some(d.decltpe))
+    case d: (Defn.Val | Defn.Var) => declared(scope)(d.pats.size, d.decltpe)
+    case d: (Decl.Val | Decl.Var) => declared(scope)(d.pats.size, Some(d.decltpe))
     // A method contributes its function space: the codomain raised to the product of its
     // parameters, with the same arrow and empty-domain rules `typeIn` uses.
     case d: Defn.Def            => methodSignature(scope)(d.paramClauses, d.decltpe)
     case d: Decl.Def            => methodSignature(scope)(d.paramClauses, Some(d.decltpe))
     case d: Defn.ExtensionGroup => extensionSignature(scope)(d)
-    case d: Defn.GivenAlias     => givenSignature(scope)(d, Some(d.decltpe))
-    case d: Decl.GivenLike      => givenSignature(scope)(d, Some(d.decltpe))
-    case d: Defn.Given          =>
+    case d: (Defn.GivenAlias | Decl.GivenLike) => givenSignature(scope)(d, Some(d.decltpe))
+    case d: Defn.Given                         =>
       val result = d.templ.inits.map(_.tpe).reduceOption { (left, right) =>
         Type.ApplyInfix(left, Type.Name("&"), right)
       }
@@ -324,15 +343,15 @@ object Counter {
 
     // Literal types (`true`, `42`, `'a'`) and singleton types (`None.type`) have exactly
     // one inhabitant: the value itself.
-    case _: Lit            => UnitSize
-    case _: Type.Singleton => UnitSize
+    case _: (Lit | Type.Singleton) => UnitSize
 
-    // A by-name parameter has the cardinality of its underlying type.
     case Type.ByName(tpe) => typeIn(scope)(tpe)
 
-    // Products: tuples (and named tuples) multiply the sizes of their fields.
-    case Type.Tuple(elems) =>
-      elems.foldLeft(UnitSize: Size)((acc, e) => acc * typeIn(scope)(tupleElem(e)))
+    // Products: tuples multiply the sizes of their elements; `EmptyTuple` is the unit.
+    // A named-tuple element carries its type inside a `Type.TypedParam`.
+    case Type.Tuple(args) =>
+      args.foldLeft(UnitSize: Size)((acc, arg) => acc * typeIn(scope)(tupleElem(arg)))
+
     case Type.ApplyInfix(l, Type.Name("*:"), r) => typeIn(scope)(l) * typeIn(scope)(r)
 
     // Sums: unions add the sizes of their branches, unless both branches describe the
@@ -346,10 +365,7 @@ object Counter {
 
     // Exponentials: a function type's cardinality is codomain ^ domain; multi-argument
     // and curried functions multiply/nest the same way. Context functions behave as functions.
-    case Type.Function.After_4_6_0(clause, result) =>
-      functionSize(scope)(clause.values, result)
-    case Type.ContextFunction.After_4_6_0(clause, result) =>
-      functionSize(scope)(clause.values, result)
+    case f: Type.FunctionType => functionSize(scope)(f.paramClause.values, f.res)
 
     // Constructors the algebra adds: Option/Either, Set, Map/PartialFunction, and named instantiations.
     case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => applied(scope)(callee, args)
@@ -390,7 +406,7 @@ object Counter {
           } else
             members.declared.get(member).map { body =>
               val bindings = members.params.zip(arguments).toMap
-              typeIn(scope)(MatchTypes.replace(body, bindings))
+              typeIn(scope)(TypeSubstitution.replace(body, bindings))
             }
         }
     }
@@ -401,16 +417,18 @@ object Counter {
     qualifier match {
       case Term.Name(name) =>
         val key = TypeName.of(name)
-        scope.declaredType(key).flatMap(ownerOf).orElse(Some(key -> Nil))
+        Scope.termsLens.get(scope).get(key).flatMap(ownerOf).orElse(Some(key -> Nil))
       case Term.ApplyType.After_4_6_0(Term.Name(name), Type.ArgClause(arguments)) =>
         Some(TypeName.of(name) -> arguments)
       case _ => None
     }
 
   private def ownerOf(tpe: Type): Option[(TypeName, List[Type])] = tpe match {
-    case Type.Name(name)                                      => Some(TypeName.of(name) -> Nil)
-    case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => nameOf(callee).map(_ -> args)
-    case _                                                    => None
+    case Type.Name(name) => Some(TypeName.of(name) -> Nil)
+    case _               =>
+      TypeApplications.applied.getOption(tpe).flatMap { app =>
+        nameOf(app.tpe).map(_ -> TypeApplications.applyArguments.get(app))
+      }
   }
 
   // The name on its own, without recording a reason: what a builtin, a binder or a definition the
@@ -462,7 +480,7 @@ object Counter {
     val (name, context, named) = resolved
     val self = named.params.zip(args).forall((param, arg) => Solver.bareName(arg) == param.value)
     if (self && context.size(name).isDefined) context(name)
-    else if (context.isSubstituting(name)) {
+    else if (Scope.activeLens.get(context)(name)) {
       scope.note(callee)
       EffectiveOmega
     } else
@@ -482,7 +500,8 @@ object Counter {
         case None =>
           val frame =
             named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
-          named.equation(context.substituting(name).instantiated(frame))
+          val active = Scope.activeLens.modify(_ + name)(context)
+          named.equation(Scope.framesLens.modify(frame :: _)(active))
       }
   }
 
@@ -498,12 +517,11 @@ object Counter {
   // `Map`/`PartialFunction` (into an Option of the codomain), and the collections whose unbounded
   // length is their infinity; `Size.pow` keeps a finite base countable over an infinite exponent.
   private def builtin(scope: Scope): (Type, List[Type]) => Size = {
-    case (Type.Name("Option"), List(t))    => UnitSize + typeIn(scope)(t)
-    case (Type.Name("Either"), List(l, r)) => typeIn(scope)(l) + typeIn(scope)(r)
-    case (Type.Name("Set"), List(t))       => BooleanSize.pow(typeIn(scope)(t))
-    case (Type.Name("Map"), List(k, v))    => (typeIn(scope)(v) + UnitSize).pow(typeIn(scope)(k))
-    case (Type.Name("PartialFunction"), List(a, b)) =>
-      (typeIn(scope)(b) + UnitSize).pow(typeIn(scope)(a))
+    case (Type.Name("Option"), List(t))                     => UnitSize + typeIn(scope)(t)
+    case (Type.Name("Either"), List(l, r))                  => typeIn(scope)(l) + typeIn(scope)(r)
+    case (Type.Name("Set"), List(t))                        => BooleanSize.pow(typeIn(scope)(t))
+    case (Type.Name("Map" | "PartialFunction"), List(k, v)) =>
+      (typeIn(scope)(v) + UnitSize).pow(typeIn(scope)(k))
     // A linear collection over an empty element type holds just the empty collection; over any
     // other it is countably infinite — a number the algebra knows, so no reason is recorded.
     case (Type.Name("List" | "Vector" | "Seq" | "IndexedSeq" | "Array"), List(t)) =>
@@ -525,7 +543,7 @@ object Counter {
 
   // A function's domain is the product of its parameter types; `Unit` (a single empty
   // tuple) when it takes none.
-  private def domain(scope: Scope)(params: List[Type]): Size =
+  private[cardinality] def domain(scope: Scope)(params: List[Type]): Size =
     params.foldLeft(UnitSize: Size)((acc, p) => acc * typeIn(scope)(p))
 
   // The function-space rule shared by plain and context function types in `typeIn`.

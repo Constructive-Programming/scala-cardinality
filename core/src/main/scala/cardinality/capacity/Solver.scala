@@ -10,25 +10,10 @@ import cardinality.types.*
 // (docs/type-arithmetic.md §8). `Scope` and `Walk` drive it through `Solver.solve`.
 private[cardinality] object Solver {
 
-  // Solves the body's system of equations by Kleene iteration: every name starts at the
-  // empty type and all equations are re-evaluated together (so the order of mutual and
-  // forward references does not matter) until the map is stable. A stable value is the
-  // least fixed point — finite types land there immediately, and degenerate recursion with
-  // no base constructor (`case class Loop(next: Loop)`, i.e. `μX.X`) lands on `NothingSize`
-  // rather than the old unknown-name `EffectiveOmega`.
-  //
-  // A recognized productive cycle never stabilises under coefficient-preserving addition:
-  // the estimate for `Nat` climbs `1, 2, 3, …` for ever. Instead of re-evaluating those
-  // names, the iteration widens them to the tier they have already grown into (`Size.widen`)
-  // and leaves them out of later rounds, so whatever depends on them settles on a widened
-  // value. Widening is the solver's own loss of precision; addition itself keeps every
-  // coefficient, and a widening never demotes an ε₀ estimate to ω.
-  //
-  // The `budget` only accelerates mutual recursion, where two names take turns growing and
-  // never grow in consecutive rounds: once it expires, a name that grew earlier is widened
-  // on its next growth, while one growing for the first time (a long forward-reference chain
-  // still settling) is left alone. Either branch shrinks the set of names that may still
-  // grow, so the iteration terminates.
+  // Solves the body's system of equations by Kleene iteration from the empty type until stable.
+  // Recognized productive cycles widen to their tier (`Size.widen`) and are omitted from later
+  // rounds so consumers settle without demoting ε₀ to ω. Once `budget` expires, mutual recursion
+  // widens names that grew earlier while leaving first-time growth along acyclic chains intact.
   private[cardinality] def solve(
       entries: List[(TypeName, Named)],
       stats: List[Stat],
@@ -105,24 +90,12 @@ private[cardinality] object Solver {
   // that can reach itself may be widened, so an acyclic chain of forward references settles
   // exactly, however many rounds it takes.
   private def cyclicNames(stats: List[Stat], defined: Set[TypeName]): Set[TypeName] = {
-    val mentions: Stat => Option[(TypeName, Set[TypeName])] = {
-      case d: Defn.Type if Counter.isOpaqueAlias(d) => Some(Counter.nameOf(d) -> Set.empty)
-      case d: Defn.Type                             => Some(Counter.nameOf(d) -> namesOf(d.body))
-      case d: Defn.Enum                             =>
-        Some(
-          TypeName.of(d.name.value) -> d.templ.body.stats
-            .flatMap {
-              case c: Defn.EnumCase => paramTypes(c.ctor)
-              case _                => Nil
-            }
-            .flatMap(namesOf)
-            .toSet
-        )
-      case d: Defn.Class if Counter.isConcreteClass(d) =>
-        Some(Counter.nameOf(d) -> paramTypes(d.ctor).flatMap(namesOf).toSet)
-      case _ => None
+    val aliases = stats.collect {
+      case d: Defn.Type if Counter.isOpaqueAlias(d) => Counter.nameOf(d) -> Set.empty[TypeName]
+      case d: Defn.Type                             => Counter.nameOf(d) -> namesOf(d.body)
     }
-    val direct = stats.flatMap(mentions).toMap
+    val arms = constructorArms(stats).view.mapValues(_.flatten.flatMap(namesOf).toSet)
+    val direct = aliases.toMap ++ arms
     val children = Counter.sealedSums(stats, Counter.definedNames(stats))
     val deps = defined.map { name =>
       name -> (direct.getOrElse(name, Set.empty[TypeName]) ++ children.getOrElse(name, Nil))
@@ -297,11 +270,8 @@ private[cardinality] object Solver {
   // to ω.
   private def cycleContribution(branchy: Boolean, lap: Size): Size =
     if (lap.isZero) NothingSize
-    else if (branchy) branchContribution(lap)
+    else if (branchy) if (lap.hasInfinite) EffectiveEpsilon0 else EffectiveOmega
     else lap.pow(EffectiveOmega)
-
-  private def branchContribution(lap: Size): Size =
-    if (lap.hasInfinite) EffectiveEpsilon0 else EffectiveOmega
 
   // A member's per-lap space and branch flag, or None when blocked: no arm continues the
   // cycle, or a continuing arm's rest demands it (`x: X` outright, tuples, `Set[X]`,
@@ -324,7 +294,7 @@ private[cardinality] object Solver {
             cycleEdges.size >= 2 || cycleEdges.exists { edge =>
               edge.kind == Continuation.OptionBranch ||
               edge.kind == Continuation.FunctionField &&
-              domainSpace(scope)(edge.domain).larger(UnitSize)
+              Counter.domain(scope)(edge.domain).larger(UnitSize)
             }
           }
         )
@@ -336,15 +306,12 @@ private[cardinality] object Solver {
   // cycle-targeting function field, its domain: the space of inputs the unfolding answers
   // per node.
   private def armSpace(scope: Scope, cyc: Set[TypeName])(arm: ClassifiedArm): Size = {
-    val restSpace = domainSpace(scope)(arm.rest)
+    val restSpace = Counter.domain(scope)(arm.rest)
     arm.continuations.foldLeft(restSpace) { (s, edge) =>
       if (!cyc.contains(edge.target)) s * Counter.typeIn(scope)(edge.param)
-      else s * domainSpace(scope)(edge.domain)
+      else s * Counter.domain(scope)(edge.domain)
     }
   }
-
-  private def domainSpace(scope: Scope)(domain: List[Type]): Size =
-    domain.foldLeft(UnitSize: Size)((s, p) => s * Counter.typeIn(scope)(p))
 
   final private case class Continuation(
       param: Type,
@@ -423,11 +390,8 @@ private[cardinality] object Solver {
     case _ => None
   }
 
-  private[cardinality] def bareName: Type => String = {
-    case Type.Name(n)                 => n
-    case Type.Select(_, Type.Name(n)) => n
-    case _                            => ""
-  }
+  private[cardinality] def bareName(tpe: Type): String =
+    Counter.nameOf(tpe).fold("")(_.value)
 
   // The parent type of an `extends` clause: `Init`'s *name* field is the anonymous
   // method-name slot, not the parent — the type is the first `Init` field. `extends S`,
@@ -436,6 +400,6 @@ private[cardinality] object Solver {
   private[cardinality] def initParent: Init => String = init => bareName(init.tpe)
 
   private def namesOf(tpe: Type): Set[TypeName] =
-    tpe.collect { case Type.Name(n) => TypeName.of(n) }.toSet
+    TypeSubstitution.typeNames(tpe).map(TypeName.of).toSet
 
 }

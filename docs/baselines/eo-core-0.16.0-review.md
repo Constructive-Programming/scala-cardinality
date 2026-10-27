@@ -22,6 +22,43 @@ The old output is retained in
 [Git history at 726ec43](https://github.com/Constructive-Programming/scala-cardinality/blob/726ec431bbcb1b9211622d70d32c2852a9562df7/docs/baselines/eo-core-0.16.0.txt).
 Its header identifies an earlier PR #10 analyzer checkout, not the commit retaining it.
 
+## The next refresh: constructor parameter spaces
+
+A constructor's count is the product of its parameters' value spaces, read in the scope its own
+source defines, rather than the shape model's reading of the parameter types. The estimate lends
+that reading to the method side (`Counter.Reading`), and the product multiplies as the size algebra
+multiplies. The [retained artifacts](eo-core-0.16.0.txt) hold this run:
+
+| Inventory / result | Refreshed above | With constructor parameter spaces |
+|---|---:|---:|
+| Implementation signature rows | 480 | 480 |
+| Finite implementation counts | 30 | 32 |
+| Countably infinite implementation counts | 2 | 4 |
+| Unresolved implementation counts | 448 | 444 |
+| `qualified member environment not resolved` reasons | 57 | 10 |
+| `unresolved type` reasons | 183 | 179 |
+| Union-typed constructor argument reasons | 1 | 0 |
+
+Four rows gained a count; no previously numeric row changed its count:
+
+| Source / qualified member (under `dev.constructive.eo`) | Old → new | Supporting rule |
+|---|---:|---|
+| `data/IntArrBuilder.scala` / `IntArrBuilder.<init>` | ? → 2^32 | `initialCapacity: Int` is the estimate's `2^32` capacity. |
+| `data/ObjArrBuilder.scala` / `ObjArrBuilder.<init>` | ? → 2^32 | The same capacity over `Any`. |
+| `data/PSVec.scala` / `PSVec.Slice.<init>` | ? → ω | `Array[Any]` is the countable space its length makes it, and `ω × 2^32 × 2^32` stays `ω`. |
+| `data/MultiFocus.scala` / `MultiFocusK.AssocSndZ.<init>` | ? → ω | The `lens` union and `Array[Any]` are countable, so the product is `ω`. |
+
+Two smaller rules reach the method side with it. `String` is a modelled base type — the article's
+`String ~ ω` — so a function space over it answers the ε₀ tier without naming a blocker. And the
+fixed-width numeric family leaves the method side's concrete-atom set: a `Byte` or an `Int` has a
+space the estimate reads (`2^8`, `2^32`), so no producer outside the lexical chain can move a
+count that mentions one; that is what removed 47 `qualified member environment not resolved`
+reasons, and with them the last `union` reason on the row above.
+
+All 134 stored-value rows, counts and reasons included, are byte-identical to the run retained
+before this change, and the five independently derived model counts still agree: the runner checks
+them, the input-order invariance and row identity on every run.
+
 ## Reproduce
 
 From the repository root, with sbt 2.0.9 and the build's Scala 3.8.4:
@@ -31,13 +68,14 @@ mkdir -p target/eo-baseline
 curl --fail --location \
   https://repo1.maven.org/maven2/dev/constructive/cats-eo_3/0.16.0/cats-eo_3-0.16.0-sources.jar \
   --output target/eo-baseline/cats-eo_3-0.16.0-sources.jar
-sbt 'core/Test/runMain cardinality.EoBaseline target/eo-baseline/cats-eo_3-0.16.0-sources.jar target/eo-baseline 726ec431bbcb1b9211622d70d32c2852a9562df7'
+sbt 'core/Test/runMain cardinality.EoBaseline target/eo-baseline/cats-eo_3-0.16.0-sources.jar target/eo-baseline 7f8bcff89912c05e3bd35adb60a78623bdad9371'
 ```
 
 The last argument records the **production analyzer revision**, not an automatically detected
-Git revision. Update it when measuring changed production code; the retained run used unchanged
-production code at the revision above. Use `docs/baselines` as the output directory only when
-deliberately updating the retained artifacts.
+Git revision. Update it when measuring changed production code: the retained artifacts were
+regenerated at `7f8bcff`, the commit that added the constructor-parameter-space rule (the
+eleven-row refresh above was produced at `726ec43`, unchanged production code). Use
+`docs/baselines` as the output directory only when deliberately updating the retained artifacts.
 
 The runner verifies SHA-256
 `61907fc2f4e1c0892fa8723c7a014af942b825b64a916a9b53dd64b3f12dbfe3`, rejects parse/read errors,

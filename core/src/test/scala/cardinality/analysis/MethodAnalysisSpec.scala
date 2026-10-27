@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
+import cardinality.capacity.{EffectiveOmega, IntSize}
 import org.specs2.Specification
 
 class MethodAnalysisSpec extends Specification {
@@ -12,6 +13,7 @@ class MethodAnalysisSpec extends Specification {
     Generic implementations
       choose between two supplied values                         $choose
       construct four pairs rather than one or two                 $pairs
+      multiply a constructor's parameter spaces                  $constructorSpaces
       build products using independent type parameters            $independent
       reapply an endomorphism only with a starting inhabitant     $iteration
       compose a path from inputs to outputs                      $composition
@@ -59,6 +61,26 @@ class MethodAnalysisSpec extends Specification {
       "make"
     )
     (constructor.count === Count.Finite(4)).and(application.count === Count.Finite(4))
+  }
+
+  def constructorSpaces = {
+    // A constructor's count is the product of its parameters' value spaces, read in the scope its
+    // own source defines: an `Int` is a `2^32` capacity, a sealed family the sum of its cases, and
+    // a `=>` hole countable. A parameter the estimate cannot read whole keeps the shape model's
+    // diagnostic instead of a number resting on an unknown name.
+    val holder = entry("case class Holder[A](value: A, count: Int)", "Holder.<init>")
+    val succ = entry(
+      "sealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
+      "Succ.<init>"
+    )
+    val gate = entry("case class Gate(q: Quorum)", "Gate.<init>")
+    (holder.count === Count.Bounded(IntSize))
+      .and(holder.count.render === "2^32")
+      .and(succ.count === Count.Bounded(EffectiveOmega))
+      .and(gate.count must beLike {
+        case Count.Unresolved(reasons) =>
+          reasons.exists(_.contains("Quorum")) must beTrue
+      })
   }
 
   def independent =

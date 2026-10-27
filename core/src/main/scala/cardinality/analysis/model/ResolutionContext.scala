@@ -3,8 +3,10 @@ package cardinality.analysis.model
 import scala.meta.Type
 
 import cardinality.analysis.*
+import cardinality.types.TypeApplications
+import dev.constructive.eo.generics.lens
 
-import MethodAnalysis.{Frame, Resolved}
+import MethodAnalysis.{Frame, Resolved, TypeEntry}
 
 /** Lexical lookup and binder scope travel together; the observing use site survives rebinding. */
 final private[cardinality] case class ResolutionContext(
@@ -19,10 +21,25 @@ final private[cardinality] case class ResolutionContext(
   def read(tpe: Type, resolver: Resolver): Resolved =
     resolver.resolve(tpe, this)
 
-  def enter(key: String): ResolutionContext = copy(visiting = visiting + key)
+  def bind(entries: Iterable[(String, Resolved)]): ResolutionContext =
+    ResolutionOptics.variablesLens.modify(_ ++ entries)(this)
+
+  def enter(key: String): ResolutionContext =
+    ResolutionOptics.visitingLens.modify(_ + key)(this)
 
   /** Alias declarations supply lexical names, not their caller's representation permissions. */
   def inScope(owner: Frame, bindings: Map[String, Resolved]): ResolutionContext =
     copy(frame = owner, variables = bindings, observer = Some(useSite))
+
+}
+
+private[cardinality] object ResolutionOptics {
+
+  val variablesLens = lens[ResolutionContext](_.variables)
+  val visitingLens = lens[ResolutionContext](_.visiting)
+  val entryTreeLens = lens[TypeEntry](_.tree)
+  val entryTypeDefinition = entryTreeLens.andThen(TypeApplications.typeDefinition)
+  val typeArguments = TypeApplications.arguments
+  val patVarName = TypeApplications.patVarName
 
 }

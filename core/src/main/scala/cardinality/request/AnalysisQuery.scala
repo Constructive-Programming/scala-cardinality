@@ -3,8 +3,6 @@ package cardinality.request
 import scala.meta.*
 
 import cardinality.analysis.{AnalysisWork, MethodAnalysis}
-import java.nio.charset.StandardCharsets.UTF_8
-import java.security.MessageDigest
 
 import MethodAnalysis.{Entry, Input, Limits}
 
@@ -101,26 +99,21 @@ object AnalysisQuery {
   // Full-environment keys deliberately invalidate on every supporting-source edit. A later cache
   // can narrow this only after recording negative lookup and producer-domain dependencies.
   private def fingerprint(request: Request): String = {
-    val hash = MessageDigest.getInstance("SHA-256")
-    def field(value: String): Unit = {
-      val bytes = value.getBytes(UTF_8)
-      hash.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.length).array())
-      hash.update(bytes)
+    val inputs = request.inputs.sortBy(_.path).flatMap { input =>
+      List(input.path, input.tree.pos.input.text, input.tree.structure)
     }
-    field("analysis-query-v1;scalameta-4.17.4;scala3;allocation-v1")
-    field(request.inputs.size.toString)
-    request.inputs.sortBy(_.path).foreach { input =>
-      field(input.path)
-      field(input.tree.pos.input.text)
-      field(input.tree.structure)
-    }
-    field(request.targetPaths.size.toString)
-    request.targetPaths.toList.sorted.foreach(path => { field("path"); field(path) })
-    field(request.targetNames.size.toString)
-    request.targetNames.toList.sorted.foreach(name => { field("name"); field(name) })
-    field(request.limits.toString)
-    field(request.budget.toString)
-    hash.digest().map(byte => f"${byte & 0xff}%02x").mkString
+    val paths = request.targetPaths.toList.sorted.flatMap(path => List("path", path))
+    val names = request.targetNames.toList.sorted.flatMap(name => List("name", name))
+    SourceSnapshot.framedHash(
+      List(
+        "analysis-query-v1;scalameta-4.17.4;scala3;allocation-v1",
+        request.inputs.size.toString
+      ) ++
+        inputs ++ List(request.targetPaths.size.toString) ++ paths ++
+        List(request.targetNames.size.toString) ++ names ++
+        List(request.limits.toString, request.budget.toString),
+      lengthBytes = 4
+    )
   }
 
 }

@@ -54,6 +54,39 @@ private[cardinality] object ExistentialInputs {
   val callableBoundary =
     "existential callable result elimination requires scoped witness-generation analysis"
 
+  final private case class RewriteEnv(
+      replacements: Map[String, Shape],
+      inserted: Set[String],
+      freshName: () => String
+  )
+
+  private val mappedAtoms =
+    Shape.cata[(RewriteEnv, Map[String, String]) => Shape] { (node, kids) => (env, bound) =>
+      node match {
+        case atom @ Atom(id) =>
+          bound.get(id).map(Atom(_)).getOrElse(env.replacements.getOrElse(id, atom))
+        case Existential(witnesses, _) =>
+          val renamings =
+            witnesses.map(id => id -> (if (env.inserted(id)) env.freshName() else id))
+          Existential(renamings.map(_._2), kids.head(env, bound ++ renamings))
+        case _ =>
+          Shape.rebuild(node, kids)(_(env, bound))
+      }
+    }
+
+  private val collectedNames =
+    Shape.cata[(Boolean, Set[String]) => Set[String]] { (node, kids) => (includeBound, bound) =>
+      node match {
+        case Atom(id) =>
+          if (!includeBound && bound(id)) Set.empty else Set(id)
+        case Existential(witnesses, _) =>
+          (if (includeBound) witnesses.toSet else Set.empty[String]) ++
+            kids.head(includeBound, bound ++ witnesses)
+        case _ =>
+          kids.foldLeft(Set.empty[String])((acc, kid) => acc ++ kid(includeBound, bound))
+      }
+    }
+
   /** Capture-avoiding rewriting of free atoms. Renaming is deterministic and scoped. */
   def mapAtoms(shape: Shape)(rewrite: Atom => Shape): Shape = {
     val replacements = freeAtoms(shape).map(id => id -> rewrite(Atom(id))).toMap
@@ -63,53 +96,17 @@ private[cardinality] object ExistentialInputs {
     )
     var alphaNumber = 0
     def freshName(): String = {
-      var name = s"$$existentialAlpha$alphaNumber"
-      while (reserved(name)) {
-        alphaNumber += 1
-        name = s"$$existentialAlpha$alphaNumber"
-      }
-      alphaNumber += 1
+      val (name, next) = Shape.freshName("$existentialAlpha", alphaNumber)(reserved)
+      alphaNumber = next
       reserved += name
       name
     }
-    def loop(current: Shape, bound: Map[String, String]): Shape = current match {
-      case atom @ Atom(id) =>
-        bound.get(id).map(Atom(_)).getOrElse(replacements.getOrElse(id, atom))
-      case Singleton(id, underlying)    => Singleton(id, underlying.map(loop(_, bound)))
-      case Product(fields)              => Product(fields.map(loop(_, bound)))
-      case Sum(cases)                   => Sum(cases.map(loop(_, bound)))
-      case Function(parameters, result) =>
-        Function(parameters.map(loop(_, bound)), loop(result, bound))
-      case Repeated(element)               => Repeated(loop(element, bound))
-      case Evidence(left, right, equality) =>
-        Evidence(loop(left, bound), loop(right, bound), equality)
-      case Existential(witnesses, body) =>
-        val renamings = witnesses.map(id => id -> (if (inserted(id)) freshName() else id))
-        Existential(renamings.map(_._2), loop(body, bound ++ renamings))
-    }
-    loop(shape, Map.empty)
+    mappedAtoms.get(shape)(RewriteEnv(replacements, inserted, () => freshName()), Map.empty)
   }
 
-  def freeAtoms(shape: Shape): Set[String] = collectNames(shape, includeBound = false)
+  def freeAtoms(shape: Shape): Set[String] = collectedNames.get(shape)(false, Set.empty)
 
   /** Fresh allocation must avoid binders as well as free atoms. */
-  def names(shape: Shape): Set[String] = collectNames(shape, includeBound = true)
-
-  private def collectNames(shape: Shape, includeBound: Boolean): Set[String] = {
-    def loop(current: Shape, bound: Set[String]): Set[String] = current match {
-      case Atom(id)                     => if (!includeBound && bound(id)) Set.empty else Set(id)
-      case Singleton(_, underlying)     => underlying.toSet.flatMap(loop(_, bound))
-      case Product(fields)              => fields.flatMap(loop(_, bound)).toSet
-      case Sum(cases)                   => cases.flatMap(loop(_, bound)).toSet
-      case Function(parameters, result) =>
-        parameters.flatMap(loop(_, bound)).toSet ++ loop(result, bound)
-      case Repeated(element)            => loop(element, bound)
-      case Evidence(left, right, _)     => loop(left, bound) ++ loop(right, bound)
-      case Existential(witnesses, body) =>
-        (if (includeBound) witnesses.toSet else Set.empty[String]) ++
-          loop(body, bound ++ witnesses)
-    }
-    loop(shape, Set.empty)
-  }
+  def names(shape: Shape): Set[String] = collectedNames.get(shape)(true, Set.empty)
 
 }

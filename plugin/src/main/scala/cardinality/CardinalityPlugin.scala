@@ -1,9 +1,9 @@
 package cardinality
 
-import java.nio.file.Path
 import cardinality.analysis.MethodAnalysis
-import cardinality.request.{AnalysisQuery, SourceSnapshot}
 import cardinality.reporting.Report
+import cardinality.request.{AnalysisQuery, SourceSnapshot}
+import java.nio.file.Path
 import sbt.*
 import sbt.Keys.*
 import sbt.util.Logger

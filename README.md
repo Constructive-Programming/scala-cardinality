@@ -195,10 +195,14 @@ a later run can be diffed against it.
 ### Method and constructor cardinality
 
 The other number a report gives is the count of canonical **pure, total, parametric
-implementations** a signature admits with everything in scope — what the method can access, capture
-or call. `def choose[A](x: A, y: A): A` has 2 (`x` or `y`); the constructor of a case class
-`Pair[A](x: A, y: A)` has 4 ways to build its product. That is a different question from the
-stored-value estimate on the data type: `Pair[Int]` still holds `2^64` values.
+implementations** a method admits with everything in scope — what it can access, capture or call:
+`def choose[A](x: A, y: A): A` has 2 (`x` or `y`). A constructor is counted as the product of its
+parameters' value spaces, read where its own source defines them: `Pair[A](x: A, y: A)` has 4 ways
+to build its product, `IntArrBuilder(initialCapacity: Int)` is `2^32`, and
+`Slice(arr: Array[Any], offset: Int, length: Int)` is `ω`. A parameter whose space the estimate
+cannot read whole — a type parameter nobody supplied, a name outside the sources — stays with the
+shape model, which names it. Both are a different question from the stored-value estimate on the
+data type: `Pair[Int]` still holds `2^64` values.
 
 `ω` is a productive cycle: `def use[A](x: A, step: A => A): A` can return `x`, `step(x)`,
 `step(step(x))`, … — countably many. A cycle with no starting inhabitant is `0`, not `ω`. An
@@ -239,13 +243,15 @@ Recursive or opaque aliases, abstract type members, bounded or higher-kinded ali
 type-lambda aliases remain guarded; expansion respects the configured type-depth limit, including
 nested argument positions.
 
-The refreshed eo-core 0.16.0 run reads **480 signatures: 30 finite, 2 countably infinite,
-448 unresolved**. The [review ledger](docs/baselines/eo-core-0.16.0-review.md) records the
-reproduction command, all fifteen numeric changes since the previous baseline, and five
-independently derived model counts checked against the original archive. The other numeric rows
-remain provisional. Major overlapping obligations include abstract/member-bearing representations
-(225 rows), unresolved types (183), polymorphic capability binders (104), inherited override identity
-(78), and higher-kinded parameters. These are named next steps, not claims about the code.
+The refreshed eo-core 0.16.0 run reads **480 signatures: 32 finite, 4 countably infinite,
+444 unresolved**. The [review ledger](docs/baselines/eo-core-0.16.0-review.md) records the
+reproduction command, every numeric change since the previous baseline — the fifteen rows the
+refreshed analyzer resolved, then the four constructor rows the parameter-space rule moves — and
+five independently derived model counts checked against the original archive. The other numeric
+rows remain provisional. Major overlapping obligations include abstract/member-bearing
+representations (225 rows), unresolved types (179), polymorphic capability binders (104), inherited
+override identity (78), and higher-kinded parameters. These are named next steps, not claims about
+the code.
 
 ### Bounded selected reports
 
