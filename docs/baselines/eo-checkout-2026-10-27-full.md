@@ -3,8 +3,9 @@
 ## Run and scope
 
 - Date: 2026-10-27.
-- Analyzer: the `feat/package-private-scope` head — main at
-  `582561c286cf2392cc6152f033114e59383ac095` plus the package-scope rules described below.
+- Analyzer: the `feat/import-bindings` head — main after
+  `a5fc91ada4c6600b6d0b64605a7092a532e90cc1` (PR #21's package-scope rules), plus the import
+  bindings described below.
 - cats-eo: tag `v1.0.0`, commit `570460441ab3fc1e118de3934a2aed2c206b64f1` — the release this
   build already depends on (`cats-eo`, `cats-eo-generics`, `cats-eo-schemes` 1.0.0).
 - Runtime: sbt 2.1.0-RC1, Scala 3.9.0, scalameta 4.17.4.
@@ -87,23 +88,66 @@ are newly *surfaced* obligations: the reference now reaches the declaration, whe
 invisible name could not be matched at all. On the pinned 0.16.0 jar run, counts and inventory
 are unchanged; two rows move between those buckets (179→178, 225→227).
 
+## What the import bindings moved
+
+The same tree, analyzed with import clauses bound by lookup (`feat/import-bindings`):
+named and renamed selectors resolve through the import's own path — anchored at every
+enclosing package prefix, `_root_` stripped — wildcards bind after declarations, named
+bindings and enclosing packages have had their chance, and a bound name whose target lives
+outside the supplied sources refuses the model's builtin vocabulary rather than answering for
+it (`unresolved type: Option (imported from io.circe.Option)`). A clause binds from its own
+position onward, so a reference written before it keeps the scope the compiler gives it.
+An import the lookup cannot model — a term-prefixed clause, a `given` selector, any export —
+still flags what it shadows, as before.
+
+Transparent alias bodies reconstructed under substitution carry no position of their own: read
+inside the caller's file they take the caller's position; read under another file's scope they
+anchor at that scope's declaration point, so the clauses written before it bind their names.
+
+Against the previous state, on the same combined 1,639-signature run:
+
+| Measure | Result |
+|---|---|
+| Rows whose count changed | 0 of 1,639 |
+| Rows whose reason list changed | 569 |
+| `unresolved type` row–reason pairs | 2,196 → 2,082 |
+| `abstract type or method-valued representation` | 732 → 827 |
+| `opaque representation is not visible at use site` | 3 → 13 |
+| Rows carrying an `… (imported from …)` trace | 477 |
+
+The names the run had flagged as the gap resolved: `PSVec` 34 → 0, `PickFold` 8 → 0, `Getter`
+5 → 0, `Review` 1 → 0 blind rows; `Direct` 34 → 24, `Affine` 33 → 18, `Plated` 11 → 4,
+`ModifyF` 11 → 5. The remaining blind rows are the ones the resolution reaches through
+reconstructed alias and match-type machinery outside the anchor above — a named follow-up,
+not a re-scope. New `opaque at use site` rows are the contract working: an import that reaches
+an `opaque` type says so at the use site instead of leaving the name unread.
+
+On the pinned 0.16.0 jar run the five reviewed counts, the 480-row inventory, the per-row
+method TSV and every stored-value row are unchanged; rows only gain the `… (imported from …)`
+trace. `core/testFull`, scalafmt and scalafix checks, and `plugin/scripted` are green, with
+seven new source-to-count regressions in `MethodAnalysisSpec` (named, relative, renamed,
+wildcard, companion wildcard, builtin refusal, import order, and alias-position anchoring).
+
 ## The whole-project gaps these runs name
 
-- **Import bindings (v1 plan §6 V1.2).** `PSVec` (35 rows), `Direct` (35), `Plated` (12) and
-  `ModifyF` (11) are defined in supplied sources yet still read as `unresolved type`: they are
-  named through `import dev.constructive.eo.data.PSVec`-style bindings, not lexical scope. The
-  import/precedence model is the next environment-resolution piece; until then these names stay
-  `?` with the reason, as the contract requires.
-- **Foreign names.** `Schema` (188), `Json` (126), `IndexedRecord` (111), `Quotes` (95),
-  `Decoder`/`Encoder` (121) and the rest belong to dependencies whose sources were not supplied
-  — the bounded-dependency-resolution plan's declaration-summary work, not a parsing failure.
+- **Foreign names and their members.** `Schema` (188), `Json` (126), `IndexedRecord` (111),
+  `Quotes` (95), `Decoder`/`Encoder` (121) and the rest belong to dependencies whose sources
+  were not supplied — the bounded-dependency-resolution plan's declaration-summary work, not a
+  parsing failure. `qualified member environment not resolved` (153) is mostly the same
+  dependency boundary seen through member selection.
+- **The representation algebra.** `abstract type or method-valued representation` (827) is now
+  the largest truthful bucket: names resolve and their traits, sealed families and capability
+  shapes remain unreadable — V1.4 items 1 and 3–4, including higher-kinded evidence
+  (`F[_, _]` 134, `F[_]` 81, polymorphic capability binders 105).
 - **Method-side ground types.** `String` (382), `Int` (231), `Any` (150) and `Byte` (133) are
   unresolved *in implementation-shape vocabulary by design*: the stored-value estimate reads
   their spaces, and the constructor parameter-space rule uses that reading (that is what the
   `site` `ω` rows above are), but V1.4 item 2 defers fixed-width reasoning on the method side.
   No number is being withheld there — none is yet justified.
-- **Higher-kinded evidence.** `F[_, _]` (134) and `F[_]` (81) parameters plus polymorphic
-  capability binders (105) remain the algebra's largest open fragments.
+- **Imports not yet in the model:** `export` clauses keep their blanket shadow flag, and
+  `given` selectors bring values the model counts no implementations of (no implicit search).
+  A small residue of blind names remains behind reconstructed alias/match-type scopes, tracked
+  above.
 
 ## Reproducing
 
