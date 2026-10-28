@@ -319,10 +319,39 @@ object MethodAnalysis {
       inspect("accessibility")
       tree match {
         case d: Stat.WithMods if d.mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected]) =>
+          // A `private[p]` naming an enclosing package publishes the declaration to every
+          // scope inside `p`, subpackages included — a sibling file of that package reaches it
+          // as its own file does. Any other qualifier (a class, `this`, `super`), a
+          // `protected[p]` whose subclass condition this model does not track, and an
+          // unqualified top-level `private`, which in Scala 3 means the enclosing file, keep
+          // the enclosing-declaration rule: a reference they cannot reach stays a diagnostic
+          // instead of becoming invented scope.
+          packageGrant(d.mods, owner.path)
+            .exists(prefix => from.chain.exists(_.path.startsWith(prefix))) ||
           from.chain.exists(_.id == owner.id)
         case _ => true
       }
     }
+
+    // The package a `private[p]` qualifier names, as a path prefix: the innermost segment of
+    // the declaration's lexical chain that the qualifier spells and that some supplied package
+    // really is — a same-spelled class is not the grant. With no package at all behind the
+    // qualifier (an anonymous unqualified `private`, a `this`, a class-scoped name), there is
+    // no grant and the enclosing-declaration rule alone decides.
+    private def packageGrant(mods: List[Mod], path: List[String]): Option[List[String]] =
+      mods.collectFirst { case m: Mod.Private => m.within } match {
+        case Some(name: Name) =>
+          path.lastIndexWhere(_ == name.value) match {
+            case -1  => None
+            case idx => Option.when(packagePrefixes(path.take(idx + 1)))(path.take(idx + 1))
+          }
+        case _ => None
+      }
+
+    // Every prefix of a package path among the indexed sources — `p`, `p.q`, `p.q.r` all count
+    // as packages once some file is supplied in `p.q.r`, the way Scala sees them.
+    private lazy val packagePrefixes: Set[List[String]] =
+      indexer.packageFrames.flatMap(_.path.inits).toSet
 
     private def namedType(
         name: String,

@@ -37,7 +37,11 @@ final private[cardinality] class SourceLookup(
       }
       .find(_.nonEmpty)
     local.getOrElse {
-      val candidates = frame.chain.map(f => (f.path :+ name).mkString(".")) :+ name
+      // A dotted clause like `package example.sub` sits inside every enclosing package, whose
+      // members are in scope there. Each chain frame contributes its full path and every
+      // proper prefix of it, nearest first — the candidates nested package clauses would try.
+      val candidates =
+        frame.chain.flatMap(f => f.path.inits.toList.reverse.map(p => (p :+ name).mkString(".")))
       candidates.iterator
         .map { full =>
           inspect("lookup bucket")
