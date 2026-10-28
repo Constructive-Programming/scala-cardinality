@@ -5,6 +5,12 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
 
+final private[cardinality] case class ImportBinding(
+    start: Int,
+    named: List[(String, List[String])],
+    wildcards: List[List[String]]
+)
+
 final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[AnalysisWork]) {
   private given scala3: Dialect = dialects.Scala3
 
@@ -12,6 +18,10 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private[cardinality] val targets = mutable.ListBuffer.empty[Target]
   private[cardinality] val packageFrames = mutable.ListBuffer.empty[Frame]
   private[cardinality] val moduleFrames = mutable.ListBuffer.empty[Frame]
+  // Import clauses bind simple names in the block that holds them, from their own position
+  // onward. The binding records what each introduces: explicit names with the qualified key
+  // they reach, and the prefixes a wildcard opens.
+  private[cardinality] val imports = mutable.ListBuffer.empty[(String, ImportBinding)]
 
   inputs.sortBy(_.path).foreach { input =>
     val root = Frame(input.path, Nil, None, input.tree.stats)
@@ -57,6 +67,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     val _ = stat match {
       case p: Pkg         => indexPackage(input, frame, p)
       case p: Pkg.Object  => indexPackageObject(input, frame, p)
+      case i: Import      => indexImport(frame, i)
       case d: Defn.Type   => named(d.name.value, d, frame)
       case d: Decl.Type   => named(d.name.value, d, frame)
       case d: Defn.Class  => indexClass(input, frame, d)
@@ -86,6 +97,25 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def named(name: String, tree: Stat, frame: Frame): Unit =
     types += TypeEntry(name, tree, frame)
+
+  private def indexImport(frame: Frame, clause: Import): Unit =
+    clause.importers.foreach { importer =>
+      importPath(importer.ref).foreach { path =>
+        val named = importer.importees.collect {
+          case e: Importee.Name   => e.name.value -> (path :+ e.name.value)
+          case e: Importee.Rename => e.rename.value -> (path :+ e.name.value)
+        }
+        val wildcards = importer.importees.collect {
+          case _: Importee.Wildcard => path
+        }
+        if (named.nonEmpty || wildcards.nonEmpty)
+          imports += ((frame.id, ImportBinding(clause.pos.start, named, wildcards)))
+      }
+    }
+
+  // A pure dotted term path, `_root_` stripped; anything deeper (a `this`, a term prefix)
+  // names no package the model can reach and binds nothing.
+  private def importPath(ref: Term): Option[List[String]] = SourceIndex.importPath(ref)
 
   private def indexPackage(input: String, frame: Frame, pkg: Pkg): Unit = {
     val nested = frame.copy(
@@ -231,5 +261,19 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       case _ => ()
     }
   }
+
+}
+
+object SourceIndex {
+
+  /** A pure dotted term path, `_root_` stripped; anything deeper (a `this`, a term prefix) names no
+    * package the model can reach and binds nothing.
+    */
+  def importPath(ref: Term): Option[List[String]] =
+    (ref match {
+      case n: Term.Name   => Some(List(n.value))
+      case s: Term.Select => importPath(s.qual).map(_ :+ s.name.value)
+      case _              => None
+    }).map(_.dropWhile(_ == "_root_")).filter(_.nonEmpty)
 
 }

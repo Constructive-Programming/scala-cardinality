@@ -13,7 +13,11 @@ final private[cardinality] case class ResolutionContext(
     frame: Frame,
     variables: Map[String, Resolved],
     visiting: Set[String],
-    observer: Option[Frame] = None
+    observer: Option[Frame] = None,
+    // The position the name is read from, as (source, offset): the reference decides which
+    // import clauses of the enclosing blocks have already bound their names. `resolve` sets it
+    // from the type it is given, so every read carries the position of its own reference.
+    at: Option[(String, Int)] = None
 ) {
 
   def useSite: Frame = observer.getOrElse(frame)

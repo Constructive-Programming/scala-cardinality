@@ -93,6 +93,11 @@ object MethodAnalysis {
       tree: Option[Tree] = None
   ) {
     def chain: List[Frame] = this :: parent.toList.flatMap(_.chain)
+
+    // The source a frame was indexed from: the file path is the root frame's identity and the
+    // head of every nested `input:offset` id, so positions compared against it are positions
+    // in the same file.
+    def input: String = id.takeWhile(_ != ':')
   }
 
   final private[cardinality] case class TypeEntry(
@@ -135,7 +140,11 @@ object MethodAnalysis {
 
     def reading(path: String): Counter.Reading = readings.getOrElse(path, Counter.Reading.bare)
 
-    private val lookupIndex = new SourceLookup(indexer.types.toList, indexer.packageFrames.toList)
+    private val lookupIndex = new SourceLookup(
+      indexer.types.toList,
+      indexer.packageFrames.toList,
+      indexer.imports.toList.groupMap(_._1)(_._2)
+    )
 
     def selected(paths: Set[String], names: Set[String]): List[Target] =
       indexer.targets.toList
@@ -185,10 +194,33 @@ object MethodAnalysis {
         tpe: Type,
         context: ResolutionContext
     ): Resolved =
-      expanding("resolve")(readType(tpe, context))
+      // The reference's own position decides which import clauses have bound their names:
+      // a clause binds from its position onward, so a read before it sees only the scope the
+      // compiler would give that position. A transparent alias's body, reconstructed under
+      // substitution, carries no position: inside the caller's own file the caller's position
+      // decides; a reconstructed tree read under another file's scope binds no import.
+      expanding("resolve")(readType(tpe, context.copy(at = referenceAt(tpe, context))))
+
+    private def referenceAt(tpe: Type, context: ResolutionContext): Option[(String, Int)] =
+      val file = context.frame.input
+      if (tpe.pos.start >= 0) Some(file -> tpe.pos.start)
+      else
+        context.at match
+          // Reconstructed inside the caller's own file: the caller's reference decides.
+          case Some((callerFile, _)) if callerFile == file => context.at
+          // Reconstructed under another file's scope — a transparent alias's body: the scope's
+          // own declaration position is the lower bound, so clauses written before it bind.
+          case _ => frameAnchor(context.frame, file)
+
+    // Root frames carry the path alone; a nested frame's id is `input:offset[...]`, the
+    // declaration point the scope was opened at.
+    private def frameAnchor(frame: Frame, file: String): Option[(String, Int)] =
+      frame.id.drop(file.length + 1).takeWhile(_.isDigit) match
+        case digits if digits.nonEmpty => Some(file -> digits.toInt)
+        case _                         => None
 
     private def readType(tpe: Type, context: ResolutionContext): Resolved = {
-      val ResolutionContext(frame, variables, visiting, _) = context
+      val ResolutionContext(frame, variables, visiting, _, _) = context
       if (visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
       else
         tpe match {
@@ -358,12 +390,12 @@ object MethodAnalysis {
         args: List[Shape],
         context: ResolutionContext
     ): Resolved =
-      lookup(name, context.frame) match {
-        case Nil         => builtin(name, args)
-        case List(entry) =>
+      lookupIndex.resolveName(name, context.frame, context.at, accessible, inspect) match {
+        case Found.Absent          => builtin(name, args)
+        case Found.Blocked(reason) => Left(reason)
+        case Found.Entry(entry)    =>
           sourceType(name, args, entry, context)
             .flatMap(SingletonIntersections.validate(_, context.useSite, this))
-        case _ => Left(s"ambiguous type: $name")
       }
 
     // The primitives and structural constructors the shape model spells itself, by the arity of
