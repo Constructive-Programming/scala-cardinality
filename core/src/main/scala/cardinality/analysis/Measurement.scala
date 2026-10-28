@@ -76,7 +76,17 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private val mentions = resolver.mentionedConcrete(target)
 
   def entry(): Entry = {
-    variables.values.collect { case Left(reason) => reason }.foreach(errors += _)
+    // A binder's own refusal is an obligation of the environment; an unbounded kind is not —
+    // its application reads as an opaque slot, and a bare mention of it fails resolution and
+    // reports itself there.
+    val slotables = target.frame.chain
+      .flatMap(_.typeParams)
+      .filter(TypeApplications.unboundedKind)
+      .map(_.name.value)
+      .toSet
+    variables
+      .collect { case (name, Left(reason)) if !slotables.contains(name) => reason }
+      .foreach(errors += _)
     owners.foreach(scan)
     scanParents()
     flagReachableModules()

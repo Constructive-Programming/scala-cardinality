@@ -63,12 +63,16 @@ class EoCaseLedgerSpec extends Specification {
     """)("CanModifyP.replace").count === Count.Finite(1)
 
   def optic =
+    // The kind slot reads the carrier as opaque: no in-scope construction reaches `F[X, A]`
+    // from `s: S` and `from: F[X, B] => T` for any F, X and A the caller chooses — the same
+    // derivation the reviewed CanGet.get zero carries, one level of application richer. A
+    // member or evidence that produces `F[X, A]` is what the full carrier model would add.
     entries("""
       trait Optic[S, T, A, B, F[_, _]]:
         type X
         def to(s: S): F[X, A]
         def from(b: F[X, B]): T
-    """)("Optic.to").count must beAnInstanceOf[Count.Unresolved]
+    """)("Optic.to").count === Count.Finite(0)
 
   def capturedResult =
     entries("""

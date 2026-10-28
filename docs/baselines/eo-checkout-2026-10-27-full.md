@@ -168,6 +168,48 @@ really stands between the row and its number. The pinned 0.16.0 jar run keeps it
 reviewed counts, its 480-row inventory and its byte-identical method TSV; its report triage
 moves the same way (abstract 225→195 as the jar's own PSVec family reads whole).
 
+## What the kind slots moved
+
+An unbounded higher-kinded binder — `F[_]`, `F[_, _]`, nothing said about what the caller may
+supply — stands for one unknown type, exactly as a simple binder `A` does. Each of its
+applications now reads as an opaque slot keyed to the binder and the written arguments:
+identity across a signature matches (`fa: F[X, A]` answers the goal `F[X, A]`), reordered or
+different arguments are different slots (`flip[X, A](fa: F[X, A]): F[A, X]` answers 0), and
+nothing behind a slot can be produced, projected or branched on — the reviewed `CanGet.get`
+derivation, one application level richer. Bounded kinds (`T[_]: Traverse`, `A <: S`) restrict
+who may fill the slot, which this model does not track, and stay refusals; so does a kind
+named without being applied, and a foreign callable's own binder — the slot exists only for
+binders declared in the reading's frame chain.
+
+With the slot came the first count moves of the coverage program: **17 rows gained a number
+on the full checkout** (and the pinned 0.16.0 jar run moved 14 rows with its five reviewed
+counts still passing). Every one is a derivation, eight of them pinned as regressions:
+
+| Row (kind) | From → to | Derivation |
+|---|---|---|
+| `Accessor.get[X,A](fa: F[X,A]): A`, `Optic.to(s): F[X,A]`, `Optic.from(b): T`, `ReverseAccessor.reverseGet(a): F[X,A]`, `ForgetfulFunctor.map(fa, f): F[X,B]`, `ForgetPull.redistribute(xd)(fromInner): F[B]` (declaration) | ? → 0 | an opaque slot yields nothing: no construction reaches its output from the scope — the `CanGet.get` zero |
+| `PartialAccessor.getOption(fa): Option[A]`, `Traversal.headOption(s): Option[A]` | ? → 1 | `None` only; extracting `A` from the slot or from a `get`-shaped member is the deferred branching question |
+| `Review.reverseGet(b: B): T` (method with body) | ? → 1 | the class's `build: B => T` member applied to `b` — one route, no branching into the carrier |
+| `CanReverseGet.reverseGet(b: B): T` (declaration) | ? → 0 | same signature without a member producing `T` — the declaration/implementation split, now visible in the counts |
+| `Indexed.at(i: I): S => A`, `Indexed.modify(f): S => T`, `Indexed.replace(b): S => T` (methods of the `?`-blocked carrier trait) | ? → 0 | no route to `S => A` / `S => T`: the indexed carrier exposes no applicable member to this scope |
+| `Modify.modify(f)`: `modifyFn` val present | ? → 1 | the class's `modifyFn: (A => B) => S => T` is the only route; eta-normalised reuse stays one |
+| `Modify.replace(b): S => T` | ? → 2 | `modifyFn(_ => b)` and `modify(_ => b)` — two capabilities, not provably the same function; the reviewed `CanModifyP.replace` (one capability → 1) is the same derivation minus one |
+| `Unfold.<init>(embed, vestigialTo)` | ? → 1 | each field's only construction is its eta-normalised own value |
+
+`EoCaseLedgerSpec`'s `Optic.to` case moved from a pinned refusal to a pinned zero for exactly
+this derivation; the review ledger's historical table is untouched — the refreshed numbers
+belong to the next baseline refresh.
+
+Against the sealed step, on the same combined run:
+
+| Measure | Result |
+|---|---|
+| Rows whose count changed | 17 (? → 0 ×11, ? → 1 ×5, ? → 2 ×1) |
+| Other rows' reason lists refined | 140 |
+| `abstract type or method-valued representation` | 595 → 487 |
+| `bounded or higher-kinded parameter F[_, _]` / `F[_]` | 134 → 121 / 80 → 74 |
+| remaining `bounded … F[_,_]` rows | bare `F` mentions inside other types' arguments, bounded kinds, and rows still blocked by another reason |
+
 ## The whole-project gaps these runs name
 
 - **Foreign names and their members.** `Schema` (188), `Json` (126), `IndexedRecord` (111),
@@ -175,11 +217,13 @@ moves the same way (abstract 225→195 as the jar's own PSVec family reads whole
   were not supplied — the bounded-dependency-resolution plan's declaration-summary work, not a
   parsing failure. `qualified member environment not resolved` (153) is mostly the same
   dependency boundary seen through member selection.
-- **The representation algebra.** `abstract type or method-valued representation` (595 after
-  the sealed enumeration) is now what genuinely stays open: capability traits users implement
-  (`CanGet` and kin — open by design, correctly unreadable), match types inside families,
-  refined carriers, and higher-kinded evidence (`F[_, _]` 134, `F[_]` 81, polymorphic
-  capability binders 105). V1.4's branching and closed-family items work this down.
+- **The representation algebra.** `abstract type or method-valued representation` (487) is
+  what genuinely stays open: capability traits users implement (`CanGet` and kin — open by
+  design, correctly unreadable), match types inside families, refined carriers, and the
+  higher-kinded kinds that remain (bounded evidence like `T[_]: Traverse`, bare kind mentions,
+  and `F[_]`/`F[_, _]` slots on rows with another blocker). V1.4's branching and closed-family
+  items work this down; sum-domain payload branching is now the named gap behind every
+  "1 where the full model would say 2".
 - **Method-side ground types.** `String` (382), `Int` (231), `Any` (150) and `Byte` (133) are
   unresolved *in implementation-shape vocabulary by design*: the stored-value estimate reads
   their spaces, and the constructor parameter-space rule uses that reading (that is what the

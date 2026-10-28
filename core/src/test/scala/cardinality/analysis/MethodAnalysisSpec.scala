@@ -22,6 +22,15 @@ class MethodAnalysisSpec extends Specification {
       widen a method body's type aliases into their own scope     $bodyAlias
       keep a known identity from becoming an opaque omega         $knownIdentity
       fold a forward alias chain onto the value it names          $aliasChain
+    Kind slots
+      let a kind slot pass through unchanged                      $kindSlotIdentity
+      keep an opaque kind slot from inventing a payload           $kindSlotZero
+      let a kind slot enter the option's empty case               $kindSlotOption
+      keep reordered kind arguments distinct slots                $kindSlotArguments
+      let a kind-slot function be applied repeatedly              $kindSlotCycle
+      apply a function over kind slots                            $kindSlotApplied
+      refuse a kind the caller may not choose freely              $kindBoundedRefused
+      refuse a kind named without applying it                     $kindBareRefused
     Source-set environment
       capture enclosing values and callable producers             $captures
       preserve type binder identity under shadowing               $shadowing
@@ -70,6 +79,69 @@ class MethodAnalysisSpec extends Specification {
 
   def choose =
     entry("def choose[A](x: A, y: A): A = x", "choose").count === Count.Finite(2)
+
+  def kindSlotIdentity =
+    entry(
+      "trait Box[F[_]]:\n  def id[A](fa: F[A]): F[A] = ???",
+      "Box.id"
+    ).count === Count.Finite(1)
+
+  def kindSlotZero =
+    // The same shape the reviewed CanGet.get answers 0: `fa` is an opaque carrier, and no
+    // route out of it exists for the model to count — here seen through the binder F.
+    entry(
+      "trait Box[F[_, _]]:\n  def get[X, A](fa: F[X, A]): A = ???",
+      "Box.get"
+    ).count === Count.Finite(0)
+
+  def kindSlotOption =
+    entry(
+      "trait Box[F[_]]:\n  def opt[A](fa: F[A]): Option[A] = ???",
+      "Box.opt"
+    ).count === Count.Finite(1)
+
+  def kindSlotArguments =
+    // F[X, A] and F[A, X] are different slots: no construction reaches one from the other
+    // before the caller's F is known, and `F = (a, b) => (b, a)` would betray that.
+    entry(
+      "trait Box[F[_, _]]:\n  def flip[X, A](fa: F[X, A]): F[A, X] = ???",
+      "Box.flip"
+    ).count === Count.Finite(0)
+
+  def kindSlotCycle =
+    entry(
+      "trait Box[F[_]]:\n  def twice[A](fa: F[A], k: F[A] => F[A]): F[A] = ???",
+      "Box.twice"
+    ).count === Count.Countable
+
+  def kindSlotApplied =
+    entry(
+      "trait Box[F[_]]:\n  def app[X, A](fk: F[A] => X, fa: F[A]): X = ???",
+      "Box.app"
+    ).count === Count.Finite(1)
+
+  def kindBoundedRefused = {
+    // A context bound restricts which type the caller may supply — the model would need the
+    // evidence's capabilities to count within it, so the binder stays a refusal.
+    entry(
+      "trait Box[F[_]: Ordering]:\n  def get[A](fa: F[A]): A = ???",
+      "Box.get"
+    ).count must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("bounded or higher-kinded parameter F[_]: Ordering")) must beTrue
+    }
+  }
+
+  def kindBareRefused =
+    // Named without being applied, the kind cannot become a type this scope reads: the
+    // enclosing type's argument stays unresolved instead of inventing a slot.
+    entry(
+      "trait Box2[T]\ntrait Box[F[_]]:\n  def bad[A](x: Box2[F]): A = ???",
+      "Box.bad"
+    ).count must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("bounded or higher-kinded parameter F[_]")) must beTrue
+    }
 
   def pairs = {
     val constructor = entry("case class Pair[A](x: A, y: A)", "Pair.<init>")
