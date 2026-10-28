@@ -52,6 +52,15 @@ private[cardinality] object TypeApplications {
       parameter.bounds.context.nonEmpty || parameter.bounds.view.nonEmpty ||
       parameter.tparamClause.values.nonEmpty
 
+  /** A kind with nothing else said about it: `F[_]`, `F[_, _]` — no bounds, no view, no context
+    * bound, no modifiers. Its application can read as an opaque slot; a binder with anything more
+    * said about it restricts which type the caller may supply, and stays a refusal.
+    */
+  def unboundedKind(parameter: Type.Param): Boolean =
+    parameter.tparamClause.values.nonEmpty && parameter.mods.isEmpty &&
+      parameter.bounds.lo.isEmpty && parameter.bounds.hi.isEmpty &&
+      parameter.bounds.context.isEmpty && parameter.bounds.view.isEmpty
+
   /** The checks an applied type constructor must pass before its arguments are substituted: no
     * constrained parameters, and exactly one argument per declared parameter.
     */

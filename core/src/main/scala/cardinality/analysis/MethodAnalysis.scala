@@ -309,28 +309,71 @@ object MethodAnalysis {
         context: ResolutionContext
     ): Resolved = {
       val name = TypeApplications.name(callee)
-      if (projectable(name, arguments, context))
-        MethodProjections.resolve(
-          Type.Apply(callee, Type.ArgClause(arguments)),
-          context,
-          this,
-          sourceNames
-        )
-      else
-        existentialCaptures
-          .arguments(callee, arguments, context.frame, context.read(_, this))
-          .flatMap { (witnesses, args) =>
-            val resolved = TypeApplications.lambda(callee) match {
-              case Some(lambda) => lambda.flatMap(MethodTypeLambdas(_, args, context, this))
-              case None if context.variables.contains(name) =>
-                context
-                  .variables(name)
-                  .flatMap(_ => Left(s"type parameter is not an applicable constructor: $name"))
-              case None => namedType(name, args, context)
-            }
-            resolved
-              .map(shape => if (witnesses.isEmpty) shape else Shape.Existential(witnesses, shape))
-          }
+      kindSlot(name, arguments, context) match
+        case Some(slot) => slot
+        case None       => {
+          if (projectable(name, arguments, context))
+            MethodProjections.resolve(
+              Type.Apply(callee, Type.ArgClause(arguments)),
+              context,
+              this,
+              sourceNames
+            )
+          else
+            existentialCaptures
+              .arguments(callee, arguments, context.frame, context.read(_, this))
+              .flatMap { (witnesses, args) =>
+                val resolved = TypeApplications.lambda(callee) match {
+                  case Some(lambda) => lambda.flatMap(MethodTypeLambdas(_, args, context, this))
+                  case None if context.variables.contains(name) =>
+                    context
+                      .variables(name)
+                      .flatMap(_ => Left(s"type parameter is not an applicable constructor: $name"))
+                  case None => namedType(name, args, context)
+                }
+                resolved
+                  .map(shape =>
+                    if (witnesses.isEmpty) shape else Shape.Existential(witnesses, shape)
+                  )
+              }
+        }
+    }
+
+    // A method or class binder with a kind and no bounds (`F[_]`, `F[_, _]`) stands for one
+    // caller-chosen type, unknown to this scope — exactly the simple binder `A` is, seen at
+    // each of its applications. An application `F[X, A]` therefore reads as an opaque slot
+    // keyed to the binder and the written arguments: identity across the signature matches
+    // (`fa: F[X, A]` produces the goal `F[X, A]`), every other slot is distinct, and nothing
+    // in or behind the slot can be produced, projected or branched on — which is the same
+    // reviewed zero as `get(s: S): A`. A slot is claimed only where the binder itself is
+    // declared in the read's frame chain: a foreign callable's own `F` (a capability binder,
+    // and a hole where its parameter could meet a kinded argument) stays refused. Bounded
+    // binders — a context bound restricts who may fill the slot, which this model does not
+    // track — and references naming a kinded binder without applying it stay refused too:
+    // the first is `bounded or higher-kinded parameter`, the second leaves the type argument
+    // unresolved, so no kinded binder ever meets a source type's own kinded parameter.
+    private def kindSlot(
+        name: String,
+        arguments: List[Type],
+        context: ResolutionContext
+    ): Option[Resolved] = {
+      val binder = context.frame.chain.iterator
+        .flatMap(frame => frame.typeParams.find(_.name.value == name).map(frame -> _))
+        .nextOption()
+      val plainArgs = arguments.forall(argument =>
+        argument.collect {
+          case _: Type.Wildcard | _: Type.AnonymousParam | _: Type.AnonymousLambda => ()
+        }.isEmpty
+      )
+      binder
+        .filter { case (_, parameter) => TypeApplications.unboundedKind(parameter) }
+        .filter(_ => plainArgs && context.variables.contains(name))
+        .map {
+          case (frame, _) =>
+            val spelling = s"$name[${arguments.map(_.syntax).mkString(", ")}]"
+              .replaceAll("\\s+", " ")
+            Right(Shape.Atom(s"${frame.id}:$spelling"))
+        }
     }
 
     private def projectable(
