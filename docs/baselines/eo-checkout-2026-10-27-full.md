@@ -128,6 +128,46 @@ trace. `core/testFull`, scalafmt and scalafix checks, and `plugin/scripted` are 
 seven new source-to-count regressions in `MethodAnalysisSpec` (named, relative, renamed,
 wildcard, companion wildcard, builtin refusal, import order, and alias-position anchoring).
 
+## What the sealed-family enumeration moved
+
+`sealed` is the compiler's promise that a trait or abstract class has every direct subtype in
+its own source file. `representation` now reads that promise as a tagged sum: an object
+contributes one value, a case class or a final class the product of its declared parameters, a
+sealed abstract intermediate is enumerated in turn, and a family enumerating no subtype is an
+empty sum — which says 0, because nothing can inhabit it. `case object` leaves are read from
+the module frames, where the name index keeps terms apart from types; subtype slots must bind
+the parent's parameters by plain name or pin them bottom-up (covariant `Nothing`,
+contravariant `Any`). The refusals keep the sum honest: a `given` instance reaching into the
+family, an open abstract intermediate, a non-final plain class, a parameter the supertype
+never pins, or a constructor or field invisible at the use site each leaves the whole parent
+unreadable — a sum with one missing branch is a wrong sum, and a construction the reading
+cannot write must not be counted as one it can.
+
+The fragment reads families exactly as the already-reviewed enum path reads its own: sealed
+and enum twins answer alike, including the reviewed `CanGet.get` zero when a case payload has
+no producer. Six source-to-count regressions in `MethodAnalysisSpec` pin the sum, the mirror
+binder and covariant pin, the empty enumeration, the open subtype, the open intermediate, and
+the enum-twin agreement.
+
+On the same combined run, against the imports step alone:
+
+| Measure | Result |
+|---|---|
+| Rows whose count changed | 0 of 1,639 |
+| Rows whose reason list changed | 230 |
+| `abstract type or method-valued representation` | 827 → 595 |
+| `unresolved type` | 2,082 → 2,146 |
+| `inert match type` / `concrete substitution required` | 18 → 35 each |
+| `type argument arity` | 5 → 19 |
+| `sealed subtype constructor not visible at use site` | 0 → 34 |
+
+No row changed its count: every family freed from the abstraction bucket carries a remaining
+blocker on the same row — `Any` and the fixed-width boundary, a foreign name, a match type, or
+the constructor gate above. What moved is the triage: 232 row–reason pairs now name what
+really stands between the row and its number. The pinned 0.16.0 jar run keeps its five
+reviewed counts, its 480-row inventory and its byte-identical method TSV; its report triage
+moves the same way (abstract 225→195 as the jar's own PSVec family reads whole).
+
 ## The whole-project gaps these runs name
 
 - **Foreign names and their members.** `Schema` (188), `Json` (126), `IndexedRecord` (111),
@@ -135,10 +175,11 @@ wildcard, companion wildcard, builtin refusal, import order, and alias-position 
   were not supplied — the bounded-dependency-resolution plan's declaration-summary work, not a
   parsing failure. `qualified member environment not resolved` (153) is mostly the same
   dependency boundary seen through member selection.
-- **The representation algebra.** `abstract type or method-valued representation` (827) is now
-  the largest truthful bucket: names resolve and their traits, sealed families and capability
-  shapes remain unreadable — V1.4 items 1 and 3–4, including higher-kinded evidence
-  (`F[_, _]` 134, `F[_]` 81, polymorphic capability binders 105).
+- **The representation algebra.** `abstract type or method-valued representation` (595 after
+  the sealed enumeration) is now what genuinely stays open: capability traits users implement
+  (`CanGet` and kin — open by design, correctly unreadable), match types inside families,
+  refined carriers, and higher-kinded evidence (`F[_, _]` 134, `F[_]` 81, polymorphic
+  capability binders 105). V1.4's branching and closed-family items work this down.
 - **Method-side ground types.** `String` (382), `Int` (231), `Any` (150) and `Byte` (133) are
   unresolved *in implementation-shape vocabulary by design*: the stored-value estimate reads
   their spaces, and the constructor parameter-space rule uses that reading (that is what the

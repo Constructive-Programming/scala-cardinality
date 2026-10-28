@@ -4,6 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
+import cardinality.types.TypeApplications
 
 final private[cardinality] case class ImportBinding(
     start: Int,
@@ -18,6 +19,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private[cardinality] val targets = mutable.ListBuffer.empty[Target]
   private[cardinality] val packageFrames = mutable.ListBuffer.empty[Frame]
   private[cardinality] val moduleFrames = mutable.ListBuffer.empty[Frame]
+  private val givens = mutable.Set.empty[(String, String)]
   // Import clauses bind simple names in the block that holds them, from their own position
   // onward. The binding records what each introduces: explicit names with the qualified key
   // they reach, and the prefixes a wildcard opens.
@@ -28,6 +30,56 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     packageFrames += root
     index(input.path, root)
   }
+
+  // `sealed` is the compiler's promise that every direct subtype of a trait or abstract class
+  // is declared in the same source file. The registry keeps that promise checkable: subtypes
+  // are indexed by the file of their declaration and the simple name their `extends` clauses
+  // spell, so a sealed family's enumeration is a lookup, not a guess.
+  private[cardinality] val subtypes: Map[(String, String), List[TypeEntry]] =
+    (typeSubtypes.iterator ++ objectSubtypes.iterator).toList
+      .groupBy(_._1)
+      .map { (key, found) => key -> found.map(_._2) }
+
+  private def typeSubtypes: List[((String, String), TypeEntry)] =
+    types.iterator.flatMap { entry =>
+      initNames(entry.tree).map(parent => ((entry.owner.chain.last.id, parent), entry))
+    }.toList
+
+  // Companion objects are not type declarations — the name index keeps terms and types apart —
+  // but a `case object` is exactly a value a sealed family counts, so the subtype registry
+  // reads them from the module frames as entries of their own.
+  private def objectSubtypes: List[((String, String), TypeEntry)] =
+    moduleFrames.iterator.flatMap { module =>
+      module.tree.toList.flatMap { tree =>
+        initNames(tree).map(parent =>
+          (
+            (module.chain.last.id, parent),
+            TypeEntry(module.path.last, tree, module.parent.getOrElse(module))
+          )
+        )
+      }
+    }.toList
+
+  // The parents a `given` instantiation extends: a given is a value, and sealed says nothing
+  // about it being one of the enumerated cases, so a family a given reaches into is not one
+  // this fragment can read whole.
+  private[cardinality] val givenTargets: Set[(String, String)] = givens.toSet
+
+  // The declarations of a name in one file: uniqueness here is what makes a `sealed` parent's
+  // simple name in a child's `extends` clause denote exactly the family being enumerated.
+  private[cardinality] def typesInFile(file: String, name: String): List[TypeEntry] =
+    types.iterator
+      .filter(entry => entry.owner.chain.last.id == file && entry.name == name)
+      .filter(entry => !entry.tree.is[Defn.Object])
+      .toList
+
+  private def initNames(tree: Tree): List[String] = tree match {
+    case d: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) => d.templ.inits.map(initParentName)
+    case _                                                      => Nil
+  }
+
+  private def initParentName(init: Init): String =
+    TypeApplications.name(init.tpe).takeWhile(_ != '[').split('.').last
 
   private def inspect(operation: String): Unit = work.foreach(_.step(operation))
 
@@ -76,7 +128,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       case d: Defn.Enum   => indexTemplate(input, frame, d)
       // NOTE both kind methods above register the name: an enum's cases and a trait's members
       // are resolved through the declaration this puts in `types`.
-      case d: Defn.Given          => indexGiven(input, frame, d)
+      case d: Defn.Given =>
+        d.templ.inits.foreach(init => givens += frame.chain.last.id -> initParentName(init))
+        indexGiven(input, frame, d)
       case d: Defn.ExtensionGroup => indexExtension(input, frame, d)
       case d: Defn.Def            =>
         method(input, d, d.name.value, d.paramClauseGroups, d.decltpe, Some(d.body), frame)

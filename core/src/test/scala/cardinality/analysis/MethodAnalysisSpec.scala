@@ -39,6 +39,11 @@ class MethodAnalysisSpec extends Specification {
       count an inherited declared slot                            $inheritedSlot
       ignore a concrete method whose value the scope already has  $concreteMethod
       read an enum the source set defines                         $sourceEnum
+      read a sealed family as the sum it enumerates               $sealedSum
+      read a sealed family's covariant pin and mirror binders     $sealedFamilyWithBinder
+      read an empty sealed enumeration as no values               $sealedEmpty
+      refuse a sealed family an open subtype keeps growing         $sealedOpenSubtype
+      refuse a sealed family an open abstract intermediate         $sealedOpenIntermediate
       refuse a builtin an import could shadow                     $shadowedBuiltin
       bind an imported type from a sibling package               $importedType
       anchor a package-relative import prefix                    $relativeImport
@@ -317,7 +322,7 @@ class MethodAnalysisSpec extends Specification {
     // Resolved, yet still a sealed abstraction the fragment cannot read as a sum: the row must
     // carry the representation's own reason, the one the same declaration gets inside its file.
     val source = inputs(
-      "Focus.scala" -> "package example\nprivate[example] sealed abstract class Focus[A]",
+      "Focus.scala" -> "package example\nprivate[example] abstract class Focus[A]",
       "Use.scala" -> "package example\ndef loop[A](f: Focus[A]): A = loop(f)"
     )
     val loop = MethodAnalysis.analyze(source).find(_.name == "example.loop").get
@@ -338,6 +343,74 @@ class MethodAnalysisSpec extends Specification {
     MethodAnalysis.analyze(source).find(_.name == "example.peek").get.count must beLike {
       case Count.Unresolved(reasons) =>
         reasons.exists(_.contains("unresolved type: Hidden")) must beTrue
+    }
+  }
+
+  def sealedSum = {
+    // `sealed` is the compiler's promise that the file enumerates every direct subtype: the
+    // family reads as the sum of its leaves, and a Boolean-valued observation over two unit
+    // cases is the four functions two-values-to-two-values admits.
+    val code =
+      """sealed trait Bool
+         |case object True extends Bool
+         |case object False extends Bool
+         |def bit(b: Bool): Boolean = ???""".stripMargin
+    entry(code, "bit").count === Count.Finite(4)
+  }
+
+  def sealedFamilyWithBinder = {
+    // The mirror pattern eo's carriers use: the child's binder pins the parent's slot by the
+    // same name, and `Nothing` pins a covariant slot bottom-up — `Missing` belongs to every
+    // `Opt[A]`. The family resolves; an `A` has no producer, which is the reviewed `CanGet.get`
+    // zero. Sum-domain branching stays deferred exactly as it does for enums — the sealed
+    // family and its enum twin answer alike.
+    val code =
+      """sealed trait Opt[+A]
+         |case class Have[A](value: A) extends Opt[A]
+         |case object Missing extends Opt[Nothing]
+         |def use[A](o: Opt[A]): A = ???""".stripMargin
+    val sealedResult = entry(code, "use").count
+    val enumTwin =
+      entry(
+        "enum Opt[+A] { case Have(value: A); case Missing }\ndef use[A](o: Opt[A]): A = ???",
+        "use"
+      ).count
+    (sealedResult === Count.Finite(0)).and(sealedResult === enumTwin)
+  }
+
+  def sealedEmpty = {
+    // A sealed family that enumerates no subtype has none anywhere: the empty sum is 0 values,
+    // and an observation from 0 values has exactly one implementation.
+    val code =
+      "sealed trait Never\ndef f(n: Never): Boolean = ???"
+    entry(code, "f").count === Count.Finite(1)
+  }
+
+  def sealedOpenSubtype = {
+    // A plain class leaf without `final` can be extended outside the file with its own state:
+    // the enumeration is no longer the space. The family stays unreadable.
+    val code =
+      """sealed trait Shape
+         |class Variant(x: Int) extends Shape
+         |case object Flat extends Shape
+         |def side(s: Shape): Boolean = ???""".stripMargin
+    entry(code, "side").count must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("sealed subtype outside the closed fragment")) must beTrue
+    }
+  }
+
+  def sealedOpenIntermediate = {
+    // An abstract subtype that is not itself sealed admits further subtypes from anywhere;
+    // recursing through it would invent a closed space where the compiler grants none.
+    val code =
+      """sealed trait Tree
+         |abstract class Branch extends Tree
+         |case object Leaf extends Tree
+         |def size(t: Tree): Boolean = ???""".stripMargin
+    entry(code, "size").count must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("sealed family has an open abstract subtype")) must beTrue
     }
   }
 
