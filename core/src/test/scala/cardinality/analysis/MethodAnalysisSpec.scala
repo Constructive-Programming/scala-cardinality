@@ -40,11 +40,19 @@ class MethodAnalysisSpec extends Specification {
       ignore a concrete method whose value the scope already has  $concreteMethod
       read an enum the source set defines                         $sourceEnum
       refuse a builtin an import could shadow                     $shadowedBuiltin
+      bind an imported type from a sibling package               $importedType
+      anchor a package-relative import prefix                    $relativeImport
+      bind a renamed import, not the name it leaves behind        $renamedImport
+      bind the types a wildcard import opens                     $wildcardImport
+      bind a companion wildcard across files                     $companionImport
+      deny the builtin a type import shadows                     $importedBuiltin
+      bind names inside a transparent alias at its use site       $aliasImportPosition
+      keep an import after the reference from binding it          $importOrder
       keep a nested module's binders in scope                     $nestedModule
-      read a package-private product from a sibling file          $packagePrivateProduct
       let a subpackage sit inside its parent's grant              $packagePrivateSubpackage
       read a package-private abstraction's own reason             $packagePrivateType
       keep a file-private type from a sibling file                $filePrivateType
+      read a package-private product from a sibling file          $packagePrivateProduct
   """
 
   private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
@@ -198,7 +206,9 @@ class MethodAnalysisSpec extends Specification {
       .Finite(3)
 
   def shadowedBuiltin =
-    // `import Types.Option` puts a different type behind the name the model reads as the builtin.
+    // `import Types.Option` puts a different type behind the name: the binding resolves, and
+    // the model never reads the builtin it shadows. Here the alias is `(A, A)`, so `pick`
+    // counts its two projections — the answer the import, not the builtin, implies.
     MethodAnalysis
       .analyze(
         inputs(
@@ -208,7 +218,7 @@ class MethodAnalysisSpec extends Specification {
       )
       .find(_.name == "pick")
       .get
-      .count must beLike { case Count.Unresolved(_) => ok }
+      .count === Count.Finite(2)
 
   def nestedModule =
     entry(
@@ -328,6 +338,125 @@ class MethodAnalysisSpec extends Specification {
     MethodAnalysis.analyze(source).find(_.name == "example.peek").get.count must beLike {
       case Count.Unresolved(reasons) =>
         reasons.exists(_.contains("unresolved type: Hidden")) must beTrue
+    }
+  }
+
+  def importedType = {
+    // The import carries the name across packages: `Vec` reads as the sibling package's own
+    // product, and the count is the two projections the declaration supplies.
+    val source = inputs(
+      "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
+      "Use.scala" -> "package example\nimport example.data.Vec\ndef half[A](v: Vec[A]): A = v.head"
+    )
+    MethodAnalysis.analyze(source).find(_.name == "example.half").get.count === Count.Finite(2)
+  }
+
+  def relativeImport = {
+    // `package example\npackage data` is how eo nests its clauses, and `import data.Vec` is
+    // how it reaches them: the prefix is anchored at the enclosing scopes, nearest first, the
+    // way the compiler reads it.
+    val source = inputs(
+      "Vec.scala" -> "package example\npackage data\ncase class Vec[A](head: A, tail: A)",
+      "Use.scala" -> "package example\nimport data.Vec\ndef half[A](v: Vec[A]): A = v.head"
+    )
+    MethodAnalysis.analyze(source).find(_.name == "example.half").get.count === Count.Finite(2)
+  }
+
+  def renamedImport = {
+    // `as` binds the new name only: through `V` the product reads, while the original name is
+    // left behind in the using file's scope — reaching it stays the name that cannot be found.
+    val source = inputs(
+      "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
+      "Use.scala" -> (
+        "package example\nimport example.data.{Vec as V}\ndef half[A](v: V[A]): A = v.head\n" +
+          "def other[A](v: Vec[A]): A = v.head"
+      )
+    )
+    val entries = MethodAnalysis.analyze(source)
+    (entries.find(_.name == "example.half").get.count === Count.Finite(2)).and {
+      entries.find(_.name == "example.other").get.count must beLike {
+        case Count.Unresolved(reasons) =>
+          reasons.exists(_.contains("unresolved type: Vec")) must beTrue
+      }
+    }
+  }
+
+  def wildcardImport = {
+    val source = inputs(
+      "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
+      "Use.scala" -> "package example\nimport example.data.*\ndef half[A](v: Vec[A]): A = v.head"
+    )
+    MethodAnalysis.analyze(source).find(_.name == "example.half").get.count === Count.Finite(2)
+  }
+
+  def companionImport = {
+    // `import optics.Optic.*` — the shape eo's sources lean on — opens the companion's own
+    // members: the nested case class reads through the wildcard's full path.
+    val source = inputs(
+      "Optic.scala" ->
+        "package example\nobject Optic { case class Lens[A](focus: A) }",
+      "Use.scala" ->
+        "package other\nimport example.Optic.*\ndef id[A](l: Lens[A]): A = l.focus"
+    )
+    MethodAnalysis.analyze(source).find(_.name == "other.id").get.count === Count.Finite(1)
+  }
+
+  def importedBuiltin = {
+    // Unreadable but bound: the import names the builtin's slot and its target lives outside
+    // the sources, so the model's own `Option` must not answer for it. Without the clause the
+    // same result type reads as the builtin sum, inhabited by `None` alone.
+    val plain = entry("def none[A]: Option[A] = ???", "none").count
+    val imported = MethodAnalysis
+      .analyze(
+        inputs(
+          "Use.scala" -> "package example\nimport io.circe.Option\ndef none[A]: Option[A] = ???"
+        )
+      )
+      .find(_.name == "example.none")
+      .get
+      .count
+    (plain === Count.Finite(1)).and {
+      imported must beLike {
+        case Count.Unresolved(reasons) =>
+          reasons.exists(
+            _.contains("unresolved type: Option (imported from io.circe.Option)")
+          ) must beTrue
+      }
+    }
+  }
+
+  def aliasImportPosition = {
+    // A transparent alias body, reconstructed under substitution, carries no position of its
+    // own. Inside the caller's file the caller's reference position decides the import scope:
+    // `Vec` in the body reaches the imported product, and `take` counts its two projections.
+    val source = inputs(
+      "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
+      "Use.scala" -> (
+        "package example\nimport example.data.Vec\nobject Schemes:\n" +
+          "  type Pair2[A] = Vec[A]\n  def take[A](p: Pair2[A]): A = p.head"
+      )
+    )
+    MethodAnalysis.analyze(source).find(_.name == "example.Schemes.take").get.count ===
+      Count.Finite(2)
+  }
+
+  def importOrder = {
+    // A clause binds its names from its own position onward: the earlier reference keeps the
+    // scope the compiler would give it — where the name is not otherwise reachable, it stays
+    // the name it cannot find — while the later one reads the imported product.
+    val source = inputs(
+      "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
+      "Use.scala" -> (
+        "package example\ndef early[A](v: Vec[A]): A = v.head\nimport example.data.Vec\n" +
+          "def late[A](v: Vec[A]): A = v.head"
+      )
+    )
+    val entries = MethodAnalysis.analyze(source)
+    (entries.find(_.name == "example.late").get.count === Count.Finite(2)).and {
+      entries.find(_.name == "example.early").get.count must beLike {
+        case Count.Unresolved(reasons) =>
+          reasons.exists(_.contains("unresolved type: Vec")) must beTrue
+      }
     }
   }
 

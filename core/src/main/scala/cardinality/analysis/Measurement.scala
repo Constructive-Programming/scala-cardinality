@@ -346,14 +346,32 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   }
 
   // An import or an export can put a *different* type behind a name this resolution reads as a
-  // builtin (`Option`, `Boolean`), so a builtin is only trustworthy while nothing shadows it. That
-  // is the one way a name outside the lexical chain changes an answer here: a value outside the
-  // chain cannot hold this method's binders, so it cannot add one of their values.
+  // builtin (`Option`, `Boolean`), so a builtin is only trustworthy while nothing shadows it.
+  // That is the one way a name outside the lexical chain changes an answer here: a value
+  // outside the chain cannot hold this method's binders, so it cannot add one of their values.
+  // Named and renamed imports are now bound by lookup itself — they resolve their target or
+  // refuse the builtin — so they are no longer this shape of unknown. What lookup does not
+  // bind still is: a clause whose prefix is no pure path spells everything, and a `given`
+  // selector names a type behind a value no lookup models. Exports keep the blanket read.
   private def flagShadowing(tree: Tree): Unit = {
-    val shadowed = shadowable.filter(names(tree).contains)
-    if (shadowed.nonEmpty)
+    val unbound = tree match {
+      case i: Import => unboundImportNames(i)
+      case _         => names(tree)
+    }
+    if (shadowable.exists(unbound.contains))
       errors += s"imported environment not resolved: ${tree.syntax.replaceAll("\\s+", " ")}"
   }
+
+  private def unboundImportNames(clause: Import): Set[String] =
+    clause.importers.flatMap { importer =>
+      val selectors = importer.importees.flatMap {
+        case _: Importee.Name   => Nil
+        case _: Importee.Rename => Nil
+        case e                  => names(e)
+      }
+      if (SourceIndex.importPath(importer.ref).isEmpty) names(importer.ref) ++ selectors
+      else selectors
+    }.toSet
 
   // Every identifier a tree spells, which is what an import or an export can put a new meaning
   // behind.
