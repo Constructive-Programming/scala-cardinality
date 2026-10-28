@@ -192,6 +192,13 @@ The full run is checked in at
 revision, the sources jar's SHA-256, the tool versions and the analysis limits in its header, so
 a later run can be diffed against it.
 
+The whole project is read at once by the opt-in `cardinality.EoCheckout` runner: pointed at a
+cats-eo checkout, it takes every production source of every module — the `v1.0.0` run covers
+thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that
+input order cannot move a result, that row identities stay unique, and that the production
+`Report.of` path renders the same report. Its ledger, per-module inventory and blocker buckets
+are at [`docs/baselines/eo-checkout-2026-10-27-full.md`](docs/baselines/eo-checkout-2026-10-27-full.md).
+
 ### Method and constructor cardinality
 
 The other number a report gives is the count of canonical **pure, total, parametric

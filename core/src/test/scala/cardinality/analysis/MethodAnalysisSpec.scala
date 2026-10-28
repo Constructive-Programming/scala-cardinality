@@ -41,6 +41,10 @@ class MethodAnalysisSpec extends Specification {
       read an enum the source set defines                         $sourceEnum
       refuse a builtin an import could shadow                     $shadowedBuiltin
       keep a nested module's binders in scope                     $nestedModule
+      read a package-private product from a sibling file          $packagePrivateProduct
+      let a subpackage sit inside its parent's grant              $packagePrivateSubpackage
+      read a package-private abstraction's own reason             $packagePrivateType
+      keep a file-private type from a sibling file                $filePrivateType
   """
 
   private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
@@ -277,6 +281,54 @@ class MethodAnalysisSpec extends Specification {
       "m.scala" -> "package c\ndef select[A](x: b.Choice[A]): A = x._1"
     )
     MethodAnalysis.analyze(source).find(_.name == "c.select").get.count === Count.Finite(2)
+  }
+
+  def packagePrivateProduct = {
+    // `private[example]` on a top-level class is the package's own: a sibling file of that
+    // package builds and projects through it, so the count is the projection, not a blocker.
+    val source = inputs(
+      "Wrapper.scala" -> "package example\nprivate[example] case class Wrapper[A](value: A)",
+      "Use.scala" -> "package example\ndef unwrap[A](w: Wrapper[A]): A = w.value"
+    )
+    MethodAnalysis.analyze(source).find(_.name == "example.unwrap").get.count === Count.Finite(1)
+  }
+
+  def packagePrivateSubpackage = {
+    val source = inputs(
+      "Wrapper.scala" -> "package example\nprivate[example] case class Wrapper[A](value: A)",
+      "Sub.scala" -> "package example.sub\ndef unwrap[A](w: Wrapper[A]): A = w.value"
+    )
+    MethodAnalysis.analyze(source).find(_.name == "example.sub.unwrap").get.count === Count.Finite(
+      1
+    )
+  }
+
+  def packagePrivateType = {
+    // Resolved, yet still a sealed abstraction the fragment cannot read as a sum: the row must
+    // carry the representation's own reason, the one the same declaration gets inside its file.
+    val source = inputs(
+      "Focus.scala" -> "package example\nprivate[example] sealed abstract class Focus[A]",
+      "Use.scala" -> "package example\ndef loop[A](f: Focus[A]): A = loop(f)"
+    )
+    val loop = MethodAnalysis.analyze(source).find(_.name == "example.loop").get
+    loop.count must beLike {
+      case Count.Unresolved(reasons) =>
+        (reasons.exists(_.startsWith("abstract type or method-valued representation")) must beTrue)
+          .and(reasons.exists(_.startsWith("unresolved type")) must beFalse)
+    }
+  }
+
+  def filePrivateType = {
+    // Without the qualifier there is no package grant: a top-level `private` class is its file's
+    // alone, so a sibling file's reference stays the name it cannot reach.
+    val source = inputs(
+      "Hidden.scala" -> "package example\nprivate case class Hidden[A](value: A)",
+      "Use.scala" -> "package example\ndef peek[A](h: Hidden[A]): A = h.value"
+    )
+    MethodAnalysis.analyze(source).find(_.name == "example.peek").get.count must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("unresolved type: Hidden")) must beTrue
+    }
   }
 
   def incomplete = {
