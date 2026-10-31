@@ -55,9 +55,9 @@ class MethodUnionNullabilitySpec extends Specification {
   def unsupported =
     entry("def pick(x: String): String | Boolean = x").count must beLike {
       case Count.Unresolved(reasons) =>
-        reasons.exists(r =>
-          r.contains("union") && r.contains("unresolved type: String")
-        ) must beTrue
+        // `String` is a ground type now; what is missing is a proof the two are disjoint.
+        reasons.exists(_.contains("overlap and discrimination proof: String | Boolean")) must
+          beTrue
     }
 
   def nullable =

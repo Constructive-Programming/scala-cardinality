@@ -13,7 +13,10 @@ scope.
   redundant `case` analysis do not make two expressions different inhabitants. A refinement of that
   (exact equality in the model) is what the solver approximates with canonical constructions.
 - `Void ~ 0`, `() ~ 1`, `Bool ~ 2`, `Int ~ 2^32` — the `Size` algebra's `NothingSize`, `UnitSize`,
-  `BooleanSize` and the fixed-width sizes.
+  `BooleanSize` and the fixed-width sizes. On the method side a ground type is `Shape.Ground`: a
+  supplied one is case-split into `|G|` identical branches (one goal raised to `|G|`), a goal of one
+  is its literals, so `Int -> Int ~ 2^(2^37)` exactly (`Count.Symbolic`); `String` is ω and its
+  split saturates at 0, 1 or ω ([ground scalar types](research/ground-scalar-types.md)).
 - A coproduct adds: `Either a b ~ |a| + |b|` — `Shape.Sum`, and `Option a ~ 1 + |a|` in particular.
 - A product multiplies: `(a, b) ~ |a| * |b|` — `Shape.Product`; the empty product is `1` and an
   empty alternative is `0`.

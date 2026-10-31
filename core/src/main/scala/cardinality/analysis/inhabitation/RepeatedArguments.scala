@@ -10,7 +10,8 @@ import Shape.*
   * The introduction fragment has Nil and Cons. Elimination of an arbitrary-length supplied sequence
   * (including length tests, folds and selection) is not in the finite-context calculus. Reject that
   * fragment unless the result has a unique inhabitant. A sequence of an empty element type has only
-  * Nil and can instead be normalized to Unit.
+  * Nil and can instead be normalized to Unit. A sequence of closed elements is transparent data
+  * (`ClosedSpaces`): the solver splits it like any other closed value, so it is not rejected.
   */
 private[cardinality] object RepeatedArguments {
 
@@ -50,7 +51,7 @@ private[cardinality] object RepeatedArguments {
     val hasSequence = bindings.exists(b => contains(b.shape)) || contains(result)
     // Leave even singleton goals to the solver, so evidence validation cannot be bypassed.
     if (hasSequence && singletonCheck.get(target)) Right(prepared -> target)
-    else if (prepared.exists(b => contains(b.shape)) || negativeSequence(target))
+    else if (prepared.exists(b => opaque(b.shape)) || negativeSequence(target))
       Left(Count.Unresolved(List(elimination)))
     else Right(prepared -> target)
   }
@@ -58,10 +59,17 @@ private[cardinality] object RepeatedArguments {
   private def contains(shape: Shape): Boolean =
     Shape.exists(shape)(Shape.repeatedPrism.getOption(_).nonEmpty)
 
+  // A sequence whose elements hold a type parameter: the one the calculus cannot eliminate.
+  private def opaque(shape: Shape): Boolean =
+    Shape.exists(shape) {
+      case sequence: Repeated => !ClosedSpaces.closed(sequence)
+      case _                  => false
+    }
+
   // Arrow introduction can supply sequences even when the outer lexical environment has none.
   private def negativeSequence(shape: Shape): Boolean =
     Shape.exists(shape) {
-      case Function(parameters, _) => parameters.exists(contains)
+      case Function(parameters, _) => parameters.exists(opaque)
       case _                       => false
     }
 

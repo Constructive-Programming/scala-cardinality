@@ -123,7 +123,8 @@ final private[cardinality] class SourceLookup(
 
   // A dotted clause like `package example.sub` sits inside every enclosing package, whose
   // members are in scope there. Each chain frame contributes its full path and every
-  // proper prefix of it, nearest first — the candidates nested package clauses would try.
+  // proper prefix of it, nearest first — the candidates nested package clauses would try, so
+  // `package p; package q` reads `p.q.X` before `p.X`.
   private def candidates(
       name: String,
       frame: Frame,
@@ -131,7 +132,7 @@ final private[cardinality] class SourceLookup(
       inspect: String => Unit
   ): List[TypeEntry] = {
     val paths =
-      frame.chain.flatMap(f => f.path.inits.toList.reverse.map(p => (p :+ name).mkString(".")))
+      frame.chain.flatMap(f => f.path.inits.toList.map(p => (p :+ name).mkString(".")))
     paths.iterator
       .map { full =>
         inspect("lookup bucket")
@@ -210,6 +211,13 @@ final private[cardinality] class SourceLookup(
           case None              => Found.Absent
         }
     }
+
+  /** The prefixes the wildcard clauses of one scope open at a reference; with no reference
+    * position, every clause of the scope.
+    */
+  def wildcardPrefixes(scope: Frame, at: Option[(String, Int)]): List[List[String]] =
+    at.fold(imports.getOrElse(scope.id, Nil))((file, position) => visible(scope, file, position))
+      .flatMap(_.wildcards)
 
   private def visible(scope: Frame, file: String, position: Int): List[ImportBinding] =
     imports

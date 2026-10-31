@@ -3,7 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.{EffectiveOmega, IntSize}
+import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 
 class MethodAnalysisSpec extends Specification {
@@ -81,17 +81,17 @@ class MethodAnalysisSpec extends Specification {
   }
 
   def constructorSpaces = {
-    // A constructor's count is the product of its parameters' value spaces, read in the scope its
-    // own source defines: an `Int` is a `2^32` capacity, a sealed family the sum of its cases, and
-    // a `=>` hole countable. A parameter the estimate cannot read whole keeps the shape model's
-    // diagnostic instead of a number resting on an unknown name.
+    // A constructor's count is the product of its parameters' value spaces: an `Int` is exactly
+    // 2^32 values, a sealed family the sum of its cases, and a `=>` hole countable. A parameter
+    // neither reading can take whole keeps the shape model's diagnostic instead of a number
+    // resting on an unknown name.
     val holder = entry("case class Holder[A](value: A, count: Int)", "Holder.<init>")
     val succ = entry(
       "sealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
       "Succ.<init>"
     )
     val gate = entry("case class Gate(q: Quorum)", "Gate.<init>")
-    (holder.count === Count.Bounded(IntSize))
+    (holder.count === Count.Finite(BigInt(2).pow(32)))
       .and(holder.count.render === "2^32")
       .and(succ.count === Count.Bounded(EffectiveOmega))
       .and(gate.count must beLike {

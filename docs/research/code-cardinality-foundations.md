@@ -205,6 +205,46 @@ budget's name, rather than returning a partial count.
 **Boundary.** A budget hit is an obligation to raise the limit or restructure, not evidence
 about the signature.
 
+## D9. Ground scalar types are transparent
+
+**Decision.** `Byte`, `Short`, `Char`, `Int`, `Long`, `Float`, `Double` and `String` are closed
+enumerations of literals on the method side: a supplied one is split by case analysis into
+`|G|` identical branches (one memoised goal raised to `|G|`), a goal of one is its `|G|` literals,
+and any value whose type mentions no type parameter splits the same way with exponent its value
+space. Counts above 65,536 bits are exact symbolic naturals (`Count.Symbolic`).
+
+**Evidence.**
+
+- Knvl 2018 (D3, the [solver's reference](../counting-type-inhabitants.md)) — **executable** as
+  far as `ReferenceInhabitantsSpec` encodes it; its `Int ~ 2^32` and `a -> b ~ |b| ^ |a|` are what
+  the split reproduces for closed signatures (`def f(x: Int): Int` = `2^(2^37)`).
+- [type-arithmetic.md](../type-arithmetic.md) §2–3 — the repository's own fixed-width sizes and
+  extensional function spaces; the stored-value side reads `Int => Int` as the same `2^37`-bit
+  capacity.
+- Decision-tree definability of every function on a finite domain from literals and equality
+  (**classical**), and D2 for the countable `String`: `c^ω` is 0, 1 or ω under the finite-program
+  reading, never `2^ℵ₀`.
+- JLS §4.2 for the integral and `char` value sets, and the JDK's `Float.equals` /
+  `floatToIntBits` for one NaN class and two zeros — **classical**, recalled, not re-inspected
+  (docs.oracle.com is outside this session's network allow-list).
+- Scala 3.9.0 compiler fixtures (**compiler fixture**): an object or final class must implement
+  every inherited abstract member, a class has one member per name and signature (two abstract
+  parents' `def g(x: Int): X` are one member), and a member type reached through a parent, a self
+  type, an enum's cases, a wildcard-imported object's parents, a package object's parents or an
+  export shadows the builtin name, while a primary constructor's parameters do not see the
+  template's members (`GroundEnvironmentSpec` reproduces each).
+- **Executable**: `GroundTypesSpec`, `GroundEnvironmentSpec`, `NaturalSpec`, `InhabitationSpec`.
+
+**Boundary.** Transparency licenses equality on a ground type, never on an abstract or top type.
+A ground *result* of an opaque callable (`A => Int`) is not eliminated: it stays `?`. The split
+multiplies exponents, so it is sound only where each closed value is one independent supplied
+value: inherited declarations a template implements or restates are dropped or refused (so are
+ones two enclosing templates both inherit), and a member of an enum or sealed template, whose
+receiver is not bound, keeps only a terminal or (inhabited enum) ω count. A builtin name a
+channel lookup does not walk may bind to a supplied member is refused, constructor positions
+resting on it included. `String`'s ω is an idealization (the JVM bounds its length). See
+[ground-scalar-types.md](ground-scalar-types.md).
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

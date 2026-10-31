@@ -146,6 +146,13 @@ object MethodAnalysis {
       indexer.imports.toList.groupMap(_._1)(_._2)
     )
 
+    private lazy val shadowedBuiltins = new ShadowedBuiltins(
+      this,
+      indexer.types.toList,
+      inputs.map(_.tree),
+      lookupIndex.wildcardPrefixes
+    )
+
     def selected(paths: Set[String], names: Set[String]): List[Target] =
       indexer.targets.toList
         .filter(t => paths(t.input) && (names.isEmpty || names(t.name)))
@@ -199,25 +206,7 @@ object MethodAnalysis {
       // compiler would give that position. A transparent alias's body, reconstructed under
       // substitution, carries no position: inside the caller's own file the caller's position
       // decides; a reconstructed tree read under another file's scope binds no import.
-      expanding("resolve")(readType(tpe, context.copy(at = referenceAt(tpe, context))))
-
-    private def referenceAt(tpe: Type, context: ResolutionContext): Option[(String, Int)] =
-      val file = context.frame.input
-      if (tpe.pos.start >= 0) Some(file -> tpe.pos.start)
-      else
-        context.at match
-          // Reconstructed inside the caller's own file: the caller's reference decides.
-          case Some((callerFile, _)) if callerFile == file => context.at
-          // Reconstructed under another file's scope — a transparent alias's body: the scope's
-          // own declaration position is the lower bound, so clauses written before it bind.
-          case _ => frameAnchor(context.frame, file)
-
-    // Root frames carry the path alone; a nested frame's id is `input:offset[...]`, the
-    // declaration point the scope was opened at.
-    private def frameAnchor(frame: Frame, file: String): Option[(String, Int)] =
-      frame.id.drop(file.length + 1).takeWhile(_.isDigit) match
-        case digits if digits.nonEmpty => Some(file -> digits.toInt)
-        case _                         => None
+      expanding("resolve")(readType(tpe, context.referencing(tpe)))
 
     private def readType(tpe: Type, context: ResolutionContext): Resolved = {
       val ResolutionContext(frame, variables, visiting, _, _) = context
@@ -230,7 +219,8 @@ object MethodAnalysis {
           case union: Type.ApplyInfix if union.op.value == "|" =>
             resolveUnion(union, context)
           case Type.Or(_, _) => resolveUnion(tpe, context)
-          case MethodProjections(projected) if MethodProjections.accepts(projected, frame, this) =>
+          case MethodProjections(projected)
+              if MethodProjections.accepts(projected, context, this) =>
             MethodProjections.resolve(projected, context, this, sourceNames)
           case Type.Tuple(args) =>
             sequence(args.map(context.read(_, this))).map(Shape.Product(_))
@@ -340,7 +330,10 @@ object MethodAnalysis {
     ): Boolean =
       if (arguments.exists(_.is[Type.Wildcard])) false
       else if (context.variables.contains(name)) false
-      else MethodProjections.alias(name, context.frame, this).nonEmpty
+      else MethodProjections.alias(name, context, this).nonEmpty
+
+    def resolveName(name: String, context: ResolutionContext): Found =
+      lookupIndex.resolveName(name, context.frame, context.at, accessible, inspect)
 
     def lookup(name: String, frame: Frame): List[TypeEntry] = {
       inspect("lookup")
@@ -390,28 +383,12 @@ object MethodAnalysis {
         args: List[Shape],
         context: ResolutionContext
     ): Resolved =
-      lookupIndex.resolveName(name, context.frame, context.at, accessible, inspect) match {
-        case Found.Absent          => builtin(name, args)
+      resolveName(name, context) match {
+        case Found.Absent          => shadowedBuiltins.resolve(name, args, context)
         case Found.Blocked(reason) => Left(reason)
         case Found.Entry(entry)    =>
           sourceType(name, args, entry, context)
             .flatMap(SingletonIntersections.validate(_, context.useSite, this))
-      }
-
-    // The primitives and structural constructors the shape model spells itself, by the arity of
-    // their application. `Unit` is one construction, `Nothing` none and `Boolean` one bit;
-    // `Option` and `Either` are a count of cases, and stay countable wherever they appear.
-    private def builtin(name: String, args: List[Shape]): Resolved =
-      (name.stripPrefix("scala."), args) match {
-        case ("Unit", Nil)             => Right(Shape.Product(Nil))
-        case ("Nothing" | "Null", Nil) => Right(Shape.Sum(Nil))
-        case ("Boolean", Nil)          =>
-          Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil))))
-        case ("Option", List(a))                    => Right(Shape.Sum(List(Shape.Product(Nil), a)))
-        case ("Either" | "util.Either", List(l, r)) => Right(Shape.Sum(List(l, r)))
-        case ("=:=" | "<:<", List(l, r))            => EvidenceAnalysis.resolve(name, l, r)
-        case ("Function1", List(l, r))              => Right(Shape.Function(List(l), r))
-        case _                                      => Left(s"unresolved type: $name")
       }
 
     // A source type resolves through its own declaration: an alias body, a case class's fields, or

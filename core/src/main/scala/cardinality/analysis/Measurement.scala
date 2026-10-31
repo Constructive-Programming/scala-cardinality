@@ -1,12 +1,13 @@
 package cardinality.analysis
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.capacity.{Counter, Size}
+import cardinality.capacity.Counter
 import cardinality.types.TypeApplications
 
 import Inhabitation.{Binding, Count, Shape}
@@ -25,6 +26,9 @@ private[cardinality] trait Resolver {
   def reading(path: String): Counter.Reading
 
   def lookup(name: String, frame: Frame): List[TypeEntry]
+
+  /** The declaration a simple or dotted name means at the context's reference, imports included. */
+  def resolveName(name: String, context: ResolutionContext): Found
 
   def resolve(
       tpe: Type,
@@ -65,6 +69,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private val values = mutable.LinkedHashMap.empty[String, Binding]
   private val qualifiedValues = mutable.LinkedHashMap.empty[String, Binding]
   private val captures = mutable.ListBuffer.empty[String]
+  // The template and member name each qualified key was bound for.
+  private val declaredIn = mutable.Map.empty[String, (String, String)]
+  // Supplied parents whose declarations are bound: once each, whichever template reaches them.
+  private val boundParents = mutable.Set.empty[String]
   private val variables = resolver.typeParameters(target.frame)
   private val owners = target.frame.chain.reverse
   private val overrideIdentity = new OverrideIdentity(target, resolver)
@@ -75,6 +83,11 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // companion object and every import in the file.
   private val mentions = resolver.mentionedConcrete(target)
 
+  private val positions =
+    new ConstructorPositions(target, resolver, variables, (tpe, owner) => resolveIn(tpe, owner))
+
+  private val receivers = new SealedReceivers(target, resolver)
+
   def entry(): Entry = {
     variables.values.collect { case Left(reason) => reason }.foreach(errors += _)
     owners.foreach(scan)
@@ -82,6 +95,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     flagReachableModules()
     // Parameters of the target hide outer names, but their type binders keep their identities.
     bindParams(target.frame)
+    errors ++= positions.refusals
     val result = resultShape()
     result.left.foreach(errors += _)
     Entry.of(
@@ -95,24 +109,65 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // A declaration inherited from a parent the source set defines is a slot as well: the caller
   // fills it through the subclass. Only declarations travel — a parent's concrete members hold
   // values built from the environment it already shares — and an external parent is left alone
-  // rather than guessed at.
+  // rather than guessed at. Each template walks all of its own parents, so its closed declarations
+  // are judged as that template's members (`InheritedClosedSlots`); one declaration bound for
+  // several templates is judged by each of them.
   private def scanParents(): Unit = {
-    val seen = mutable.Set.empty[String]
-    var pending = owners.flatMap(owner => owner.parents.map(owner -> _))
-    while (pending.nonEmpty) {
-      pending = pending.flatMap { case (from, parent) => scanParent(seen, from, parent) }
+    val verdicts = mutable.LinkedHashMap.empty[String, List[InheritedClosedSlots.Verdict]]
+    owners.foreach { root =>
+      val earlier = boundParents.toSet
+      val walked = walk(root.parents.map(root -> _), mutable.LinkedHashMap.empty)
+      val borrowed = walked.filter(f => earlier(f.id) && f.typeParams.nonEmpty).map(_.id)
+      judge(new InheritedClosedSlots(root, walked, borrowed.toSet), verdicts)
+    }
+    verdicts.foreach { (key, judged) =>
+      declaredIn.get(key).foreach((_, name) => admitClosed(key, name, judged))
     }
   }
 
+  // One template's supplied ancestors, breadth first, each read once.
+  @tailrec private def walk(
+      pending: List[(Frame, Init)],
+      walked: mutable.LinkedHashMap[String, Frame]
+  ): List[Frame] =
+    if (pending.isEmpty) walked.values.toList
+    else walk(pending.flatMap((from, parent) => scanParent(walked, from, parent)), walked)
+
+  private def judge(
+      slots: InheritedClosedSlots,
+      verdicts: mutable.LinkedHashMap[String, List[InheritedClosedSlots.Verdict]]
+  ): Unit =
+    qualifiedValues.toList.foreach { (key, binding) =>
+      declaredIn.get(key).foreach { (owner, name) =>
+        slots.frames.find(_.id == owner).foreach { frame =>
+          verdicts.update(key, verdicts.getOrElse(key, Nil) :+ slots.verdict(frame, name, binding))
+        }
+      }
+    }
+
+  // A closed declaration the template implements or restates is not a choice: dropped, or refused.
+  private def admitClosed(
+      key: String,
+      name: String,
+      judged: List[InheritedClosedSlots.Verdict]
+  ): Unit =
+    InheritedClosedSlots.combine(name, judged) match {
+      case InheritedClosedSlots.Keep           => ()
+      case InheritedClosedSlots.Refuse(reason) => errors += reason
+      case InheritedClosedSlots.Drop           =>
+        val dropped = qualifiedValues.remove(key)
+        if (dropped.exists(values.get(name).contains)) values -= name
+    }
+
   // The parents one inherited declaration leaves to walk: nothing for a parent the source set does
-  // not define, and once per frame so a diamond does not read the same declaration twice.
+  // not define, and once per frame in one template's walk so a diamond is read once.
   private def scanParent(
-      seen: mutable.Set[String],
+      walked: mutable.LinkedHashMap[String, Frame],
       from: Frame,
       parent: Init
   ): List[(Frame, Init)] =
     resolver.lookup(typeName(parent.tpe), from) match {
-      case List(entry) => sourceParent(entry, seen, from, parent)
+      case List(entry) => sourceParent(entry, walked, from, parent)
       case Nil         => Nil
       case _           =>
         errors += s"ambiguous inherited parent: ${parent.tpe.syntax}"
@@ -121,24 +176,29 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private def sourceParent(
       entry: TypeEntry,
-      visited: mutable.Set[String],
+      walked: mutable.LinkedHashMap[String, Frame],
       from: Frame,
       inheritedParent: Init
   ): List[(Frame, Init)] =
     entry.self match {
-      case Some(declared) => scanDeclared(visited, from, inheritedParent, declared)
+      case Some(declared) => scanDeclared(walked, from, inheritedParent, declared)
       case None           =>
         errors += s"inherited parent declaration not resolved: ${inheritedParent.tpe.syntax}"
         Nil
     }
 
   private def scanDeclared(
-      seen: mutable.Set[String],
+      walked: mutable.LinkedHashMap[String, Frame],
       from: Frame,
       parent: Init,
       declared: Frame
   ): List[(Frame, Init)] =
-    if (seen.add(declared.id)) inherited(declared, parent, from) else Nil
+    if (walked.contains(declared.id)) Nil
+    else {
+      walked.update(declared.id, declared)
+      if (boundParents.add(declared.id)) inherited(declared, parent, from)
+      else declared.parents.map(declared -> _)
+    }
 
   // What an inherited frame contributes: its declarations, read in the scope that named it, then
   // the parents it introduces itself.
@@ -210,10 +270,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     frames(owner).foreach(scanFrame)
   }
 
-  // One owner's parameters as bindings: the positions the estimate did not read, since a space it
-  // read *is* the count and binding the position would only add a diagnostic for it.
+  // One owner's parameters as bindings: a constructor position read as a value space *is* its
+  // count, and binding it would count it a second time as a choice.
   private def bindParams(owner: Frame): Unit =
-    owner.params.foreach(p => if (leftToShape(p)) add(p.name.value, p.decltpe, owner))
+    owner.params.foreach(p =>
+      if (positions.leftToShape(p, owner)) add(p.name.value, p.decltpe, owner)
+    )
 
   // Package-level declarations are indexed across all files. Unrelated class parameters are never
   // pooled just because both happen to be named A.
@@ -238,7 +300,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     if (owner.id != target.frame.id) {
       captures += name
       // Shadowing the short name does not remove this.x / Outer.this.x / package.x.
-      if (!owner.local) qualifiedValues.update(s"${owner.id}:$name", binding)
+      if (!owner.local) {
+        qualifiedValues.update(s"${owner.id}:$name", binding)
+        declaredIn.update(s"${owner.id}:$name", owner.id -> name)
+      }
     }
   }
 
@@ -379,7 +444,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     tree.syntax.split("[^\\p{L}\\p{N}_$]+").toSet
 
   private def shadowable: Set[String] =
-    Set("Unit", "Nothing", "Boolean", "Option", "Either", "EmptyTuple")
+    Set("Unit", "Nothing", "Boolean", "Option", "Either", "EmptyTuple") ++ BuiltinTypes.groundNames
 
   private def flagReachableModules(): Unit = {
     val reachable = resolver.modules.filter { module =>
@@ -420,32 +485,13 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def constructorShape(): Resolved =
     sequence(
       target.frame.params
-        .filter(leftToShape)
+        .filter(positions.leftToShape(_, target.frame))
         .map(p =>
           p.decltpe
             .toRight(s"missing parameter type: ${p.name.value}")
             .flatMap(resolver.resolve(_, target.frame, variables))
         )
     ).map(Shape.Product(_))
-
-  // The one rule for a constructor's positions, wherever they are read: one the estimate read is
-  // counted by its space, and the shape model neither binds it nor reads it a second time — binding
-  // it would only plant a diagnostic for a name the report already answered.
-  private def leftToShape(param: Term.Param): Boolean = space(param.decltpe).isEmpty
-
-  /** What the estimate reads a constructor position as: the value space of the type, when this
-    * source answers it whole. None for a type parameter's slot and None for a type whose reading
-    * carries a reason; those stay with the shape model.
-    */
-  private def space(decltpe: Option[Type]): Option[Size] =
-    if (!target.constructor) None
-    else
-      decltpe
-        .filterNot {
-          case named: Type.Name => variables.contains(named.value)
-          case _                => false
-        }
-        .flatMap(resolver.reading(target.input).value)
 
   private def declaredShape(): Resolved =
     target.result
@@ -457,8 +503,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     else
       result.fold(
         unresolved,
-        shape =>
-          Count.product(target.frame.params.flatMap(p => space(p.decltpe)), inhabitation(shape))
+        shape => {
+          val (exact, estimated) = positions.factors
+          receivers.certify(shape, Count.product(exact, estimated, inhabitation(shape)))
+        }
       )
 
   private def unresolved(reason: String): Count = Count.Unresolved(List(reason))

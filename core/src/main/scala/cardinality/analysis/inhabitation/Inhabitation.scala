@@ -2,7 +2,7 @@ package cardinality.analysis.inhabitation
 
 import scala.collection.mutable
 
-import cardinality.capacity.{EffectiveOmega, FinitePart, Size, UnitSize}
+import cardinality.capacity.{EffectiveOmega, FinitePart, Size, TinySize}
 import dev.constructive.eo.data.PSVec
 import dev.constructive.eo.generics.prism
 import dev.constructive.eo.optics.{Getter, Plated}
@@ -37,6 +37,9 @@ object Inhabitation {
     case Repeated(element: Shape)
     case Evidence(left: Shape, right: Shape, equality: Boolean)
     case Existential(witnesses: List[String], body: Shape)
+    // A transparent scalar: every value is a literal and the type's own equality tells them apart,
+    // so a supplied one is split by case analysis and a goal of it is built from its literals.
+    case Ground(name: String, size: Card)
   }
 
   object Shape {
@@ -116,6 +119,9 @@ object Inhabitation {
 
   enum Count {
     case Finite(value: BigInt)
+
+    /** An exact count too large for a literal: `2^(2^37)` for an `Int` endomorphism. */
+    case Symbolic(value: Natural)
     case Countable
 
     /** A value space the estimate read: `2^32` for an `Int`, `ω` for a sealed family, `ε₀` for a
@@ -126,22 +132,23 @@ object Inhabitation {
     case Unresolved(reasons: List[String])
 
     def render: String = this match {
-      case Finite(value) => value.toString
-      case Countable     => "ω"
-      case Bounded(size) => size.render
-      case Unresolved(_) => "?"
+      case Finite(value)   => Natural.Lit(value).render
+      case Symbolic(value) => value.render
+      case Countable       => "ω"
+      case Bounded(size)   => size.render
+      case Unresolved(_)   => "?"
     }
 
     def isFinite: Boolean = this match {
-      case Finite(_)                 => true
+      case Finite(_) | Symbolic(_)   => true
       case Bounded(space)            => !space.hasInfinite
       case Countable | Unresolved(_) => false
     }
 
     def isCountable: Boolean = this match {
-      case Countable                 => true
-      case Bounded(space)            => space.hasInfinite && space.epsilon == 0
-      case Finite(_) | Unresolved(_) => false
+      case Countable                               => true
+      case Bounded(space)                          => space.hasInfinite && space.epsilon == 0
+      case Finite(_) | Symbolic(_) | Unresolved(_) => false
     }
 
     /** Above countable: the ε₀ tier the size algebra places a function space over a countable type.
@@ -155,24 +162,50 @@ object Inhabitation {
 
   object Count {
 
-    /** The count a constructor admits: the positions the estimate read multiply as the size algebra
-      * multiplies spaces — `2 × ω = ω`, a tier beside a higher tier answers the higher — and
-      * everything else goes in as the shape model's own count of the remaining positions. A
-      * position that stayed unresolved leaves the product unresolved: a number behind an unreadable
-      * name is not a count.
-      */
-    def product(spaces: List[Size], implementations: Count): Count = implementations match {
-      case Unresolved(reasons) => Unresolved(reasons)
-      case count               => spaces.foldLeft(count)((c, s) => bounded(sizeOf(c) * s))
+    /** The exact count a solver's card stands for. */
+    def of(card: Card): Count = card match {
+      case Card.Exact(Natural.Lit(value)) => Finite(value)
+      case Card.Exact(value)              => Symbolic(value)
+      case Card.Omega                     => Countable
     }
 
-    // The space a resolved count stands for, so the rest of the product is the size algebra's. The
-    // unresolved case is the one `product` answered before it multiplies.
-    private def sizeOf(count: Count): Size = count match {
-      case Finite(value)  => Size(0, 0, FinitePart.exact(value))
-      case Countable      => EffectiveOmega
-      case Bounded(space) => space
-      case Unresolved(_)  => UnitSize
+    /** The count a constructor admits: the product of its positions' value spaces. Exact spaces
+      * multiply exactly with the shape model's count of the remaining positions; the positions only
+      * the estimate read multiply as the size algebra multiplies spaces — `2 × ω = ω`, a tier
+      * beside a higher tier answers the higher. A position that stayed unresolved leaves the
+      * product unresolved: a number behind an unreadable name is not a count.
+      */
+    def product(exact: List[Card], estimated: List[Size], implementations: Count): Count =
+      implementations match {
+        case Unresolved(reasons) => Unresolved(reasons)
+        case solved              =>
+          Natural
+            .attempt {
+              val card = exact.foldLeft(cardOf(solved))(_ * _)
+              if (estimated.isEmpty) of(card)
+              else
+                sizeOf(card, estimated.exists(_.hasInfinite)).fold(
+                  Unresolved(List(s"constructor space has no estimate form: ${of(card).render}"))
+                )(space => bounded(estimated.foldLeft(space)(_ * _)))
+            }
+            .fold(reason => Unresolved(List(reason)), identity)
+      }
+
+    // The solver answers with an exact count, ω or a reason, never with an estimate's bound.
+    private def cardOf(count: Count): Card = count match {
+      case Finite(value)              => Card.exact(value)
+      case Symbolic(value)            => Card.Exact(value)
+      case Countable                  => Card.Omega
+      case Bounded(_) | Unresolved(_) =>
+        throw new IllegalArgumentException(s"a solver count has no exact card: $count")
+    }
+
+    // The size an exact card stands for beside an estimate. A symbolic value is at least 2, which
+    // is all a product with an infinite tier reads; beside finite capacities it has no size.
+    private def sizeOf(card: Card, besideInfinite: Boolean): Option[Size] = card match {
+      case Card.Exact(Natural.Lit(value)) => Some(Size(0, 0, FinitePart.exact(value)))
+      case Card.Omega                     => Some(EffectiveOmega)
+      case Card.Exact(_)                  => Option.when(besideInfinite)(TinySize(2))
     }
 
     private def bounded(space: Size): Count =
@@ -187,17 +220,29 @@ object Inhabitation {
   import Count.*
   import Shape.*
 
-  // Bound intermediate arithmetic as well as the grammar. This is a resource limit, not a
-  // replacement for exact arithmetic.
-  private val MaxBits = 65536
-
   private class Limit(message: String) extends RuntimeException(message)
 
   private class Unsupported(message: String) extends RuntimeException(message)
 
   private case class Value(path: List[String], shape: Shape)
 
-  private case class Rule(children: List[Int], reason: Option[String] = None)
+  // A rule's count is `weight · (Π children)^exponent`: a ground goal's literals are its weight, and
+  // a uniform split is one child raised to the split value's space.
+  private case class Rule(
+      children: List[Int],
+      reason: Option[String] = None,
+      weight: Card = Card.one,
+      exponent: Card = Card.one
+  ) {
+
+    def count(values: Int => Card): Card = {
+      val product = children.distinct.foldLeft(Card.one) { (p, id) =>
+        p * (values(id) ^ Card.exact(children.count(_ == id)))
+      }
+      weight * (product ^ exponent)
+    }
+
+  }
 
   private case class Producer(parameters: List[Shape], output: Shape)
 
@@ -211,9 +256,9 @@ object Inhabitation {
     }
 
   // With no cycle behind it the reachable graph is a DAG, so a memo-aware hylomorphism counts
-  // each goal as the sum of its rules' child products with a budget on intermediate bit-width.
-  private val liveCount: ((Live, Int, Int)) => BigInt =
-    cardinality.types.TypeSubstitution.hylo[(Live, Int, Int), BigInt](
+  // each goal as the sum of its rules' counts, exactly.
+  private val liveCount: ((Live, Int, Int)) => Card =
+    cardinality.types.TypeSubstitution.hylo[(Live, Int, Int), Card](
       (live, id, depth) => {
         live.inspect("solver count")
         if (depth >= live.maxDepth) throw new Limit("solver traversal depth budget exhausted")
@@ -224,11 +269,8 @@ object Inhabitation {
         val (live, id, _) = seed
         live.totals.getOrElseUpdate(
           id, {
-            val it = kids.iterator
-            live.rules(id).foldLeft(BigInt(0)) { (sum, rule) =>
-              val term = rule.children.foldLeft(BigInt(1))((p, _) => live.checked(p * it.next()))
-              live.checked(sum + term)
-            }
+            val values = live.rules(id).flatMap(_.children).zip(kids).toMap
+            live.rules(id).foldLeft(Card.zero)((sum, rule) => sum + rule.count(values))
           }
         )
       }
@@ -249,8 +291,9 @@ object Inhabitation {
           new Solver(maxStates, inspect, maxDepth).run(normalized, target)
       }
     catch {
-      case error: Limit       => Unresolved(List(error.getMessage))
-      case error: Unsupported => Unresolved(List(error.getMessage))
+      case error: Limit            => Unresolved(List(error.getMessage))
+      case error: Unsupported      => Unresolved(List(error.getMessage))
+      case error: Natural.Exceeded => Unresolved(List(error.getMessage))
     }
 
   private class Solver(maxStates: Int, inspect: String => Unit, maxDepth: Int) {
@@ -379,13 +422,27 @@ object Inhabitation {
     // An empty context alternative has a unique absurd eliminator, and the branch's own value
     // joins the environment.
     private def split(env: List[Value], target: Shape): Option[Rule] =
-      env.zipWithIndex.collectFirst {
-        case (Value(path, Sum(alternatives)), at) =>
-          Rule(alternatives.zipWithIndex.map {
-            case (shape, branch) =>
-              goal(env.patch(at, List(Value(path :+ s"case:$branch", shape)), 1), target)
-          })
+      env.zipWithIndex
+        .collectFirst {
+          case (Value(path, Sum(alternatives)), at) =>
+            Rule(alternatives.zipWithIndex.map {
+              case (shape, branch) =>
+                goal(env.patch(at, List(Value(path :+ s"case:$branch", shape)), 1), target)
+            })
+        }
+        .orElse(closedSplit(env, target))
+
+    // Closed values are split uniformly: every branch is the same goal without them, once per
+    // combination of their values, so the one memoised branch is raised to their joint space. An
+    // empty closed value (a function into Nothing from an inhabited domain) makes the context absurd.
+    private def closedSplit(env: List[Value], target: Shape): Option[Rule] = {
+      val (closed, open) = env.partition(value => ClosedSpaces.closed(value.shape))
+      Option.when(closed.nonEmpty) {
+        val exponent =
+          closed.map(value => ClosedSpaces.space(value.shape)).foldLeft(Card.one)(_ * _)
+        if (exponent.isZero) Rule(Nil) else Rule(List(goal(open, target)), exponent = exponent)
       }
+    }
 
     private def binders(parameters: List[Shape], id: Int): List[Value] =
       parameters.zipWithIndex.map {
@@ -395,6 +452,9 @@ object Inhabitation {
 
     private def constructors(env: List[Value], target: Shape): List[Rule] = target match {
       case Sum(alternatives) => alternatives.map(shape => Rule(List(goal(env, shape))))
+      // Every literal, and nothing the environment adds: its transparent values were split away
+      // and a producer of a ground result carries a reason.
+      case Ground(_, size) => List(Rule(Nil, weight = size))
       // Nil is a base case. Cons is productive only when an element can be constructed; the
       // ordinary productive-cycle proof then establishes infinitely many distinct lengths.
       case Repeated(element) =>
@@ -420,10 +480,15 @@ object Inhabitation {
         val opaque = value.output match {
           case Sum(alternatives) if alternatives.nonEmpty =>
             Some("Elimination of an opaque sum-producing callable is unsupported")
+          case Ground(_, _) =>
+            Some("Elimination of an opaque callable's transparent ground result is unsupported")
           case Existential(_, _) => Some(ExistentialInputs.callableBoundary)
           case _                 => None
         }
-        if (value.output != target && opaque.isEmpty) Nil
+        // Case analysis of a ground result has every literal's branch in the same environment, so
+        // it cannot prove the context absurd: no rule toward the empty goal.
+        val groundAbsurd = target == Sum(Nil) && value.output.isInstanceOf[Ground]
+        if (groundAbsurd || (value.output != target && opaque.isEmpty)) Nil
         else {
           val certified = TerminalHigherOrder.certified(env.map(_.shape))
           val dependencies =
@@ -490,13 +555,13 @@ object Inhabitation {
       private[Inhabitation] val inspect: String => Unit,
       private[Inhabitation] val maxDepth: Int
   ) {
-    private[Inhabitation] val totals = mutable.Map.empty[Int, BigInt]
+    private[Inhabitation] val totals = mutable.Map.empty[Int, Card]
 
     def result(root: Int): Count = {
       val reasons = reasonsAt(root)
       if (reasons.nonEmpty) Unresolved(reasons)
       else if (cyclic(root)) Countable
-      else Finite(liveCount((this, root, 0)))
+      else Count.of(liveCount((this, root, 0)))
     }
 
     // The reasons on the rules this root reads, in the order they were met.
@@ -548,11 +613,6 @@ object Inhabitation {
       }
       visit(root, 0)
     }
-
-    private[Inhabitation] def checked(value: BigInt): BigInt =
-      if (value.bitLength > MaxBits)
-        throw new Limit(s"Inhabitation arithmetic budget exceeded ($MaxBits bits)")
-      else value
 
   }
 

@@ -126,13 +126,13 @@ class OverrideIdentityImplementationSpec extends Specification {
     }
 
   def fileIdentity = {
+    // `seed` is a closed value of `get`'s environment: kept, it raises the four Boolean
+    // endomorphisms to one per value of `seed` (4^2); dropped, it would leave 4.
     val entries = analyze(
-      "One.scala" -> "def get[A](a:A):A = a",
+      "One.scala" -> "def get(a:Boolean):Boolean = a",
       "Two.scala" -> "def seed: Boolean"
     )
-    entries.find(_.name == "get").get.count must beLike {
-      case Count.Unresolved(_) => ok
-    }
+    entries.find(_.name == "get").get.count === Count.Finite(16)
   }
 
 }

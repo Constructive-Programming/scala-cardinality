@@ -22,6 +22,27 @@ final private[cardinality] case class ResolutionContext(
 
   def useSite: Frame = observer.getOrElse(frame)
 
+  /** This context read at `tpe`'s own reference. */
+  def referencing(tpe: Type): ResolutionContext = copy(at = referenceAt(tpe))
+
+  private def referenceAt(tpe: Type): Option[(String, Int)] =
+    val file = frame.input
+    if (tpe.pos.start >= 0) Some(file -> tpe.pos.start)
+    else
+      at match
+        // Reconstructed inside the caller's own file: the caller's reference decides.
+        case Some((callerFile, _)) if callerFile == file => at
+        // Reconstructed under another file's scope — a transparent alias's body: the scope's
+        // own declaration position is the lower bound, so clauses written before it bind.
+        case _ => frameAnchor(file)
+
+  // Root frames carry the path alone; a nested frame's id is `input:offset[...]`, the
+  // declaration point the scope was opened at.
+  private def frameAnchor(file: String): Option[(String, Int)] =
+    frame.id.drop(file.length + 1).takeWhile(_.isDigit) match
+      case digits if digits.nonEmpty => Some(file -> digits.toInt)
+      case _                         => None
+
   def read(tpe: Type, resolver: Resolver): Resolved =
     resolver.resolve(tpe, this)
 

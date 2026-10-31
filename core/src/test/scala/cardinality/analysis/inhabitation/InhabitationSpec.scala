@@ -14,6 +14,9 @@ class InhabitationSpec extends Specification {
   private val empty = Sum(Nil)
   private val x = Binding("x", a)
   private val y = Binding("y", a)
+  private val int = Ground("Int", Card.exact(BigInt(2).pow(32)))
+  private val long = Ground("Long", Card.exact(BigInt(2).pow(64)))
+  private val string = Ground("String", Card.Omega)
 
   private def fn(id: String, args: List[Shape], out: Shape) =
     Binding(id, Function(args, out))
@@ -70,9 +73,60 @@ class InhabitationSpec extends Specification {
       count(List(x, Binding("pair", Product(List(unit, a)))), a) mustEqual Finite(2)
     }
 
-    "retain exact arithmetic and bound arithmetic output" in {
+    "retain exact arithmetic and bound its representation, not its magnitude" in {
       count(List(x, y), Product(List.fill(100)(a))) mustEqual Finite(BigInt(2).pow(100))
-      count(List(x, y), Product(List.fill(65537)(a))) must beAnInstanceOf[Unresolved]
+      count(List(x, y), Product(List.fill(65537)(a))) mustEqual Symbolic(
+        NaturalSyntax.pow(2, 65537)
+      )
+      // 1,100 Long inputs: |Int|^(2^70400) = 2^(2^70405) is still a two-level tower.
+      count(List.tabulate(1100)(i => Binding(s"l$i", long)), int) mustEqual
+        Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 70405)))
+      // Each closed arrow adds a level: seven fit the tower budget, eight exceed it.
+      def tower(levels: Int): Shape =
+        (1 to levels).foldLeft(int: Shape)((acc, _) => Function(List(acc), int))
+      count(List(Binding("g", tower(7))), int) must beAnInstanceOf[Symbolic]
+      count(List(Binding("g", tower(8))), int) must beLike {
+        case Unresolved(reasons) =>
+          reasons.exists(_.contains("arithmetic budget exceeded (symbolic form: power tower")) must
+            beTrue
+      }
+    }
+
+    "split transparent ground values uniformly" in {
+      count(List(Binding("x", int)), int) mustEqual Symbolic(
+        NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))
+      )
+      count(List(x, Binding("n", int)), a) mustEqual Finite(1)
+      count(List(Binding("n", int)), a) mustEqual Finite(0)
+      count(List(Binding("s", string), x, y), a) mustEqual Countable
+      count(List(Binding("s", string), x), a) mustEqual Finite(1)
+      count(Nil, string) mustEqual Countable
+      // A closed callable is a value: split, never applied as a producer.
+      count(List(fn("g", List(int), int), Binding("n", int)), int) mustEqual
+        Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, Natural(BigInt(2).pow(37) + 37))))
+      count(List(fn("never", List(int), empty)), a) mustEqual Finite(1)
+    }
+
+    "keep a ground result of an opaque callable unresolved" in {
+      def refused(value: Count, reason: String) = value must beLike {
+        case Unresolved(reasons) => reasons.exists(_.contains(reason)) must beTrue
+      }
+      def eliminated(value: Count) = refused(value, "callable's transparent ground result")
+      eliminated(count(List(fn("g", List(a), int), x), int))
+      eliminated(count(List(fn("g", List(a), int), x, y), a))
+      // Case analysis of g's result cannot prove the context absurd, so the absurdity check of a
+      // goal that never applies g carries no reason.
+      count(List(fn("g", List(a), int), x), Singleton("s", None)) mustEqual Finite(1)
+      count(List(fn("g", List(int), a)), a) mustEqual Finite(BigInt(2).pow(32))
+      // OpaqueSumForwarding certifies no ground observation, so the producer's own reason stands;
+      // a functional argument over a ground domain is not certified either.
+      eliminated(
+        count(List(Binding("s", a), fn("p", List(a), int)), Function(List(a), Sum(List(unit, a))))
+      )
+      refused(
+        count(List(fn("h", List(Function(List(int), a)), a)), a),
+        "Higher-order application is unsupported"
+      )
     }
 
     "expose unsupported operations and resource limits" in {

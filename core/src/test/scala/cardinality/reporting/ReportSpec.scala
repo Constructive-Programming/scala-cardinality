@@ -43,6 +43,7 @@ class ReportSpec extends Specification {
       reports a path it cannot read             $missing
       reports a source it cannot parse          $unparsable
       renders the numbers it found              $renders
+      counts an exact symbolic row as finite    $symbolicRow
       orders rows by cardinality                $orders
       renders an empty report                   $empty
 
@@ -356,6 +357,15 @@ class ReportSpec extends Specification {
       .and(rendered must contain("  abstract  Types.scala:2"))
       .and(rendered must contain("depends on its instantiation (A)"))
       .and(estimate.last must contain("1  p.Shape   object"))
+  }
+
+  // (2^32)^(2^32) is above the literal budget, so the row is a symbolic exact count: it prints in
+  // its normal form and the headline tallies it with the finite rows, not the unresolved ones.
+  def symbolicRow = {
+    val root = temporary("Ints.scala" -> "package p\ndef f(x: Int): Int = x")
+    val rendered = Report.of(List(root)).render
+    (rendered must contain("2^(2^37)  p.f  f(x: Int): Int  Ints.scala:2  [method]"))
+      .and(rendered must contain("1 signature: 1 finite · 0 countably infinite · 0 unresolved"))
   }
 
   def appliedType = {

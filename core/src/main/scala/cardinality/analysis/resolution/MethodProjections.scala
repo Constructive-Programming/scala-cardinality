@@ -6,7 +6,7 @@ import cardinality.analysis.*
 import cardinality.analysis.model.*
 import cardinality.types.*
 
-import MethodAnalysis.{sequence, Frame, Resolved, TypeEntry}
+import MethodAnalysis.{sequence, Resolved, TypeEntry}
 
 /** Match types and transparent aliases share syntax-preserving projection normalization.
   * Constructor lambdas belong to application resolution, not this feature family.
@@ -19,16 +19,22 @@ private[cardinality] object MethodProjections {
     case _                                             => None
   }
 
-  def accepts(tpe: Type, frame: Frame, resolver: Resolver): Boolean = tpe match {
+  def accepts(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean = tpe match {
     case _: Type.Match                 => true
     case _: Type.Name | _: Type.Select =>
-      alias(TypeApplications.name(tpe), frame, resolver).nonEmpty
+      alias(TypeApplications.name(tpe), context, resolver).nonEmpty
     case _ => false
   }
 
-  def alias(name: String, frame: Frame, resolver: Resolver): Option[(TypeEntry, Defn.Type)] =
-    resolver.lookup(name, frame) match {
-      case List(entry) =>
+  // The declaration the name means at the reference — an explicit import before a package member
+  // of another file — read as a transparent alias when it is one.
+  def alias(
+      name: String,
+      context: ResolutionContext,
+      resolver: Resolver
+  ): Option[(TypeEntry, Defn.Type)] =
+    resolver.resolveName(name, context) match {
+      case Found.Entry(entry) =>
         ResolutionOptics.entryTypeDefinition
           .getOption(entry)
           .filter(definition =>
@@ -124,7 +130,7 @@ private[cardinality] object MethodProjections {
         case _ => TypeApplications.name(tpe) -> Nil
       }
       val definition =
-        if (context.variables.contains(name)) None else alias(name, context.frame, resolver)
+        if (context.variables.contains(name)) None else alias(name, context, resolver)
       definition match {
         case Some(declaration) => applyAlias(name, args, declaration, context)
         case None              => freeze(tpe, context)
