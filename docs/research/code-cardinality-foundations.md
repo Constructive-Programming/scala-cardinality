@@ -238,12 +238,49 @@ space. Counts above 65,536 bits are exact symbolic naturals (`Count.Symbolic`).
 **Boundary.** Transparency licenses equality on a ground type, never on an abstract or top type.
 A ground *result* of an opaque callable (`A => Int`) is not eliminated: it stays `?`. The split
 multiplies exponents, so it is sound only where each closed value is one independent supplied
-value: inherited declarations a template implements or restates are dropped or refused (so are
-ones two enclosing templates both inherit), and a member of an enum or sealed template, whose
-receiver is not bound, keeps only a terminal or (inhabited enum) ω count. A builtin name a
-channel lookup does not walk may bind to a supplied member is refused, constructor positions
-resting on it included. `String`'s ω is an idealization (the JVM bounds its length). See
+value: inherited declarations a template implements or restates are dropped or refused (a parent
+two enclosing templates both inherit is two members, one per receiver — D10), and a member of an
+enum or sealed template, whose receiver is not bound, keeps only a terminal or (inhabited enum) ω
+count. A builtin name a channel lookup does not walk may bind to a supplied member is refused,
+constructor positions resting on it included. `String`'s ω is an idealization (the JVM bounds its length). See
 [ground-scalar-types.md](ground-scalar-types.md).
+
+## D10. The environment holds what a body can reach
+
+**Decision.** A value joins a signature's environment only when the body can reach it the way
+Scala binds it: by name, as an inherited member under the substitution its `extends` chain gives,
+or — for an anonymous contextual parameter — through an implicit search that provably selects it.
+A name means the declaration Scala binds it to — an explicit import before a wildcard, a wildcard
+before a package member of another file, an inherited member before both, for a path's first
+segment as for a simple name. A family is a sum only when its named summands are all its values.
+Anything the reading cannot settle (an overlapping candidate, a parent instantiated twice, a self
+type, an anonymous, inner or local summand, a name an unsupplied parent may declare) is `?` with
+that reason. Details: [environment readings](environment-readings.md).
+
+**Evidence.**
+
+- **Executable**: `EnvironmentSoundnessSpec` and `NameLookupSoundnessSpec` pin each reading,
+  positive and adversarial.
+- **Compiler fixtures** (Scala 3.9.0, compiled — and where marked run — this session): anonymous
+  evidence of one type declared by one method (an extension's clauses included) or one template
+  (its own givens, named imports and exports included) is an ambiguity error; nested evidence beats
+  an enclosing one; a block's later given is selected (run); a parent's given loses to the class's
+  own evidence (run); an inherited alias beats a package-level one and an import, and is ambiguous
+  against an enclosing class's, object's, method's or type parameter's (E049); `package a.b` does
+  not open `a`; a covariant diamond gives an intersection member type; enum cases take the enum
+  parameters their fields or `extends` clause mention; an earlier import binds a later import's
+  prefix; a wildcard import beats a package member of another file (an outer wildcard against an
+  inner package member is E049); an inherited member beats an import inside the body; two
+  same-shaped classes of two scopes are two overloads (E231 when only one is implemented); evidence
+  of two distinct final classes is selected by type (run).
+- The Scala Language Specification's binding precedence (ch. 2) and base-type / matching-member
+  rules (§5.1) (**classical**, not re-read this session; the fixtures pin the behaviour used).
+
+**Boundary.** Only lexical contextual candidates and supplied parents are read: the implicit scope
+of companions matters only when the lexical search fails, which a counted parameter rules out, but
+members of a parent outside the source set stay unknown (a name such a parent may declare is
+refused where an inherited member would shadow its outer meaning), and same-level ranking
+(specificity, derived-over-base, which Scala has changed between versions) is never relied on.
 
 ## How to extend this register
 

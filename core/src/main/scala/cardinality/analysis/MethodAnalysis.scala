@@ -70,11 +70,6 @@ object MethodAnalysis {
 
   private[cardinality] type Resolved = Either[String, Shape]
 
-  // A source type's parameters and the cases its representation is built from: one case of one
-  // type for an alias, one case of its fields for a case class, one per case for an enum. A
-  // declaration the model cannot read carries the reason instead.
-  private type Representation = (List[Type.Param], Either[String, List[List[Type]]])
-
   // Traverse a list of resolutions: the first failure wins, and the successful ones keep their
   // order. (Used both for a case's fields and for the cases of an enum.) It is a free function
   // rather than an index method because the measurement needs it too.
@@ -127,6 +122,7 @@ object MethodAnalysis {
     private val sourceNames = inputs.flatMap(_.tree.collect { case name: Name => name.value }).toSet
 
     private val indexer = new SourceIndex(inputs, work)
+    private val representations = new Representations(indexer, accessible, packageGrant)
 
     def analyze(): List[Entry] = indexer.targets.toList.map(measure)
 
@@ -143,8 +139,11 @@ object MethodAnalysis {
     private val lookupIndex = new SourceLookup(
       indexer.types.toList,
       indexer.packageFrames.toList,
+      indexer.moduleFrames.toList,
       indexer.imports.toList.groupMap(_._1)(_._2)
     )
+
+    private val inheritedMembers = new InheritedTypeMembers(lookupIndex, this)
 
     private lazy val shadowedBuiltins = new ShadowedBuiltins(
       this,
@@ -208,60 +207,70 @@ object MethodAnalysis {
       // decides; a reconstructed tree read under another file's scope binds no import.
       expanding("resolve")(readType(tpe, context.referencing(tpe)))
 
-    private def readType(tpe: Type, context: ResolutionContext): Resolved = {
-      val ResolutionContext(frame, variables, visiting, _, _) = context
-      if (visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
+    // A simple name the template body inherits (or may inherit from an unread parent) is read as
+    // that member before any other reading of the name, an alias projection's included.
+    private def readType(tpe: Type, context: ResolutionContext): Resolved =
+      if (context.visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
       else
         tpe match {
-          case SingletonIntersections(syntax) =>
-            SingletonIntersections.resolve(syntax, context, this)
-          case n: Type.Name if variables.contains(n.value)     => variables(n.value)
-          case union: Type.ApplyInfix if union.op.value == "|" =>
-            resolveUnion(union, context)
-          case Type.Or(_, _) => resolveUnion(tpe, context)
-          case MethodProjections(projected)
-              if MethodProjections.accepts(projected, context, this) =>
-            MethodProjections.resolve(projected, context, this, sourceNames)
-          case Type.Tuple(args) =>
-            sequence(args.map(context.read(_, this))).map(Shape.Product(_))
-          case Type.Repeated(element) =>
-            context.read(element, this).map(Shape.Repeated(_))
-          case f: Type.Function =>
-            for {
-              args <- sequence(f.paramClause.values.map(context.read(_, this)))
-              result <- context.read(f.res, this)
-            } yield Shape.Function(args, result)
-          case f: Type.ContextFunction =>
-            Left(s"context function requires evidence analysis: ${f.syntax}")
-          case wildcard: Type.Wildcard => Left(TypePlaceholders.existential(wildcard))
-          case _: Type.AnonymousParam  =>
-            Left("constructor placeholder has no enclosing constructor application")
-          case _: Type.AnonymousLambda =>
-            Left("unapplied constructor placeholder requires a higher-kinded argument environment")
-          case f: Type.PolyFunction => MethodTypeLambdas.resolve(f, context, this)
-          case _: Type.Lambda       =>
-            Left("unapplied type lambda requires higher-kinded analysis")
-          case t: Type.Apply =>
-            resolveApplication(t.tpe, t.argClause.values, context)
-          case t: Type.ApplyInfix =>
-            resolveApplication(t.op, List(t.lhs, t.rhs), context)
-          case n: Type.Name    => namedType(n.value, Nil, context)
-          case p: Type.Project =>
-            RefinedMembers
-              .resolve(p.qual, p.name.value, context, this)
-              .flatMap(SingletonIntersections.validate(_, context.useSite, this))
-          case r: Type.Refine =>
-            Left(s"refined representation unavailable (constraints not erased): ${r.syntax}")
-          case s: Type.Select if RefinedMembers.pathType(s.qual, frame).nonEmpty =>
-            RefinedMembers.pathType(s.qual, frame).get.flatMap { (declared, owner) =>
-              val declaredContext = context.inScope(owner, typeParameters(owner))
-              RefinedMembers
-                .resolve(declared, s.name.value, declaredContext, this)
-                .flatMap(SingletonIntersections.validate(_, context.useSite, this))
-            }
-          case s: Type.Select => namedType(s.syntax.stripPrefix("_root_."), Nil, context)
-          case _              => Left(s"unsupported type: ${tpe.syntax.replaceAll("\\s+", " ")}")
+          case n: Type.Name if !context.variables.contains(n.value) =>
+            inheritedMembers
+              .find(n.value, context)
+              .fold(readShape(tpe, context))(inheritedType(n.value, Nil, _, context))
+          case _ => readShape(tpe, context)
         }
+
+    private def readShape(tpe: Type, context: ResolutionContext): Resolved = {
+      val ResolutionContext(frame, variables, _, _, _) = context
+      tpe match {
+        case SingletonIntersections(syntax) =>
+          SingletonIntersections.resolve(syntax, context, this)
+        case n: Type.Name if variables.contains(n.value)     => variables(n.value)
+        case union: Type.ApplyInfix if union.op.value == "|" =>
+          resolveUnion(union, context)
+        case Type.Or(_, _) => resolveUnion(tpe, context)
+        case MethodProjections(projected) if MethodProjections.accepts(projected, context, this) =>
+          MethodProjections.resolve(projected, context, this, sourceNames)
+        case Type.Tuple(args) =>
+          sequence(args.map(context.read(_, this))).map(Shape.Product(_))
+        case Type.Repeated(element) =>
+          context.read(element, this).map(Shape.Repeated(_))
+        case f: Type.Function =>
+          for {
+            args <- sequence(f.paramClause.values.map(context.read(_, this)))
+            result <- context.read(f.res, this)
+          } yield Shape.Function(args, result)
+        case f: Type.ContextFunction =>
+          Left(s"context function requires evidence analysis: ${f.syntax}")
+        case wildcard: Type.Wildcard => Left(TypePlaceholders.existential(wildcard))
+        case _: Type.AnonymousParam  =>
+          Left("constructor placeholder has no enclosing constructor application")
+        case _: Type.AnonymousLambda =>
+          Left("unapplied constructor placeholder requires a higher-kinded argument environment")
+        case f: Type.PolyFunction => MethodTypeLambdas.resolve(f, context, this)
+        case _: Type.Lambda       =>
+          Left("unapplied type lambda requires higher-kinded analysis")
+        case t: Type.Apply =>
+          resolveApplication(t.tpe, t.argClause.values, context)
+        case t: Type.ApplyInfix =>
+          resolveApplication(t.op, List(t.lhs, t.rhs), context)
+        case n: Type.Name    => lexicalType(n.value, Nil, context)
+        case p: Type.Project =>
+          RefinedMembers
+            .resolve(p.qual, p.name.value, context, this)
+            .flatMap(SingletonIntersections.validate(_, context.useSite, this))
+        case r: Type.Refine =>
+          Left(s"refined representation unavailable (constraints not erased): ${r.syntax}")
+        case s: Type.Select if RefinedMembers.pathType(s.qual, frame).nonEmpty =>
+          RefinedMembers.pathType(s.qual, frame).get.flatMap { (declared, owner) =>
+            val declaredContext = context.inScope(owner, typeParameters(owner))
+            RefinedMembers
+              .resolve(declared, s.name.value, declaredContext, this)
+              .flatMap(SingletonIntersections.validate(_, context.useSite, this))
+          }
+        case s: Type.Select => namedType(s.syntax, Nil, context)
+        case _              => Left(s"unsupported type: ${tpe.syntax.replaceAll("\\s+", " ")}")
+      }
     }
 
     // Scala unions carry no constructor tag. Only idempotence and empty alternatives are
@@ -299,7 +308,7 @@ object MethodAnalysis {
         context: ResolutionContext
     ): Resolved = {
       val name = TypeApplications.name(callee)
-      if (projectable(name, arguments, context))
+      if (projectable(callee, name, arguments, context))
         MethodProjections.resolve(
           Type.Apply(callee, Type.ArgClause(arguments)),
           context,
@@ -316,7 +325,7 @@ object MethodAnalysis {
                 context
                   .variables(name)
                   .flatMap(_ => Left(s"type parameter is not an applicable constructor: $name"))
-              case None => namedType(name, args, context)
+              case None => namedType(TypeApplications.spelled(callee), args, context)
             }
             resolved
               .map(shape => if (witnesses.isEmpty) shape else Shape.Existential(witnesses, shape))
@@ -324,16 +333,42 @@ object MethodAnalysis {
     }
 
     private def projectable(
+        callee: Type,
         name: String,
         arguments: List[Type],
         context: ResolutionContext
     ): Boolean =
       if (arguments.exists(_.is[Type.Wildcard])) false
       else if (context.variables.contains(name)) false
-      else MethodProjections.alias(name, context, this).nonEmpty
+      else if (inheritedMembers.find(name, context).nonEmpty) false
+      else MethodProjections.alias(callee, context, this).nonEmpty
+
+    def inheritsName(tpe: Type, name: String, context: ResolutionContext): Boolean =
+      inheritedMembers.find(name, context.referencing(tpe)).nonEmpty
+
+    def parent(init: Init, from: Frame): Either[String, Option[InheritedTypeMembers.Member]] =
+      inheritedMembers.parent(init, from)
+
+    def unsuppliedParent(init: Init, from: Frame): Boolean = inheritedMembers.unsupplied(init, from)
+
+    def declaration(tpe: Type, name: String, context: ResolutionContext): Found = {
+      val at = context.referencing(tpe)
+      inheritedMembers.find(name, at) match {
+        case Some(found) => found.fold(Found.Blocked(_), (entry, _) => Found.Entry(entry))
+        case None        =>
+          lookupIndex.resolveName(name, at.frame, at.at, accessible, inspect, inheritedMembers)
+      }
+    }
 
     def resolveName(name: String, context: ResolutionContext): Found =
-      lookupIndex.resolveName(name, context.frame, context.at, accessible, inspect)
+      lookupIndex.resolveName(
+        name,
+        context.frame,
+        context.at,
+        accessible,
+        inspect,
+        inheritedMembers
+      )
 
     def lookup(name: String, frame: Frame): List[TypeEntry] = {
       inspect("lookup")
@@ -378,26 +413,49 @@ object MethodAnalysis {
     private lazy val packagePrefixes: Set[List[String]] =
       indexer.packageFrames.flatMap(_.path.inits).toSet
 
+    // A name inside a template body that the template inherits from a supplied parent means that
+    // member before any enclosing declaration or import (Scala's precedence: members of the
+    // template, inherited ones included, sit in the body's own scope); its declaration is read
+    // under the arguments the `extends` chain gives the parent.
     private def namedType(
         name: String,
         args: List[Shape],
         context: ResolutionContext
     ): Resolved =
+      inheritedMembers
+        .find(name, context)
+        .fold(lexicalType(name, args, context))(inheritedType(name, args, _, context))
+
+    private def lexicalType(name: String, args: List[Shape], context: ResolutionContext): Resolved =
       resolveName(name, context) match {
-        case Found.Absent          => shadowedBuiltins.resolve(name, args, context)
+        case Found.Absent => shadowedBuiltins.resolve(name.stripPrefix("_root_."), args, context)
         case Found.Blocked(reason) => Left(reason)
+        case Found.Foreign(reason) => Left(reason)
         case Found.Entry(entry)    =>
-          sourceType(name, args, entry, context)
+          sourceType(name, args, entry, context, typeParameters(entry.owner))
             .flatMap(SingletonIntersections.validate(_, context.useSite, this))
       }
 
+    private def inheritedType(
+        name: String,
+        args: List[Shape],
+        found: Either[String, InheritedTypeMembers.Member],
+        context: ResolutionContext
+    ): Resolved =
+      found.flatMap { (entry, scope) =>
+        sourceType(name, args, entry, context, scope)
+          .flatMap(SingletonIntersections.validate(_, context.useSite, this))
+      }
+
     // A source type resolves through its own declaration: an alias body, a case class's fields, or
-    // a representation the model cannot read. Its identity guards against a resolution cycle.
+    // a representation the model cannot read, under its declaring scope's binders. Its identity
+    // guards against a resolution cycle.
     private def sourceType(
         name: String,
         args: List[Shape],
         entry: TypeEntry,
-        context: ResolutionContext
+        context: ResolutionContext,
+        scope: Map[String, Resolved]
     ): Resolved = {
       val key = (entry.owner.path :+ entry.name).mkString(".")
       if (context.visiting(key)) Left(s"recursive type requires a structural proof: $key")
@@ -414,7 +472,7 @@ object MethodAnalysis {
                   MethodTypeLambdas(
                     _,
                     args,
-                    context.inScope(entry.owner, typeParameters(entry.owner)).enter(key),
+                    context.inScope(entry.owner, scope).enter(key),
                     this
                   )
                 )
@@ -423,304 +481,12 @@ object MethodAnalysis {
                 s"parameterized type-lambda alias requires higher-kinded analysis: $name"
               )
           case _ =>
-            val (parameters, bodies) = representation(entry, key, context.useSite)
+            val (parameters, bodies) = representations.of(entry, key, context.useSite)
             bodies.flatMap(cases =>
-              parameterized(Applied(name, args, parameters, cases, entry, context, key))
+              parameterized(Applied(name, args, parameters, cases, entry, context, key, scope))
             )
         }
     }
-
-    private def representation(entry: TypeEntry, key: String, useSite: Frame): Representation =
-      entry.tree match {
-        case a: Defn.Type =>
-          (a.tparamClause.values, Right(List(List(a.body))))
-        case c: Defn.Class if Counter.isSealed(c) && Counter.isAbstractClass(c) =>
-          sealedSumRepresentation(c, entry, key, useSite)
-        case t: Defn.Trait if Counter.isSealed(t) =>
-          sealedSumRepresentation(t, entry, key, useSite)
-        case c: Defn.Class => caseClassRepresentation(c, key)
-        case e: Defn.Enum  => enumRepresentation(e, key)
-        case _             => abstractRepresentation(key)
-      }
-
-    // `sealed` is the compiler's promise that every direct subtype of a trait or abstract
-    // class is declared in its own source file. Where that promise holds, the model reads the
-    // family as a tagged sum: an object contributes one value, a case class or a final class
-    // with declared parameters contributes the product of those parameters, and a sealed
-    // abstract intermediate is enumerated in turn. A subtype the model cannot read whole —
-    // open extension, fields invisible at the use site, a parameter left unpinned — leaves
-    // the whole parent unreadable: a sum with one missing branch is a wrong sum, not a
-    // partial answer. Subtype slots must name the parent's parameters directly, or pin them
-    // bottom-up (nothing into covariant slots, anything into contravariant ones); a slot
-    // pinned to a fixed type would make membership depend on the caller's instantiation,
-    // which this model does not track.
-    private def sealedSumRepresentation(
-        declaration: Defn.Class | Defn.Trait,
-        entry: TypeEntry,
-        key: String,
-        useSite: Frame
-    ): Representation =
-      (declaration.tparamClause.values, sealedCases(entry, declaration, Nil, key, useSite))
-
-    private def sealedCases(
-        entry: TypeEntry,
-        level: Defn.Class | Defn.Trait,
-        seen: List[String],
-        key: String,
-        useSite: Frame
-    ): Either[String, List[List[Type]]] = {
-      val file = entry.owner.chain.last.id
-      val children = indexer.subtypes.getOrElse((file, entry.name), Nil)
-      if (seen.contains(entry.name)) Left(s"recursive sealed family: ${entry.name}")
-      else if (indexer.typesInFile(file, entry.name).size != 1)
-        Left(s"ambiguous sealed family: ${entry.name}")
-      else if (indexer.givenTargets.contains((file, entry.name)))
-        Left(s"sealed family has a given instance outside the fragment: ${entry.name}")
-      // A sealed family with no subtypes in its file has none anywhere: the compiler's own
-      // promise makes the empty enumeration an empty sum, and the empty sum says 0.
-      else
-        sequence(
-          children.map(child => sealedCase(child, entry, level, seen :+ entry.name, key, useSite))
-        ).map(_.flatten)
-    }
-
-    private def sealedCase(
-        child: TypeEntry,
-        parent: TypeEntry,
-        level: Defn.Class | Defn.Trait,
-        seen: List[String],
-        key: String,
-        useSite: Frame
-    ): Either[String, List[List[Type]]] =
-      if (!accessible(child.tree, child.owner, useSite))
-        Left(s"sealed subtype not visible at use site: ${child.name}")
-      else
-        child.tree match {
-          case d: Defn.Object =>
-            slotBindings(d.templ.inits, parent.name, level, Nil).map(_ => List(Nil))
-          case c: Defn.Class if c.mods.exists(_.is[Mod.Abstract]) =>
-            sealedIntermediate(
-              child,
-              c,
-              c.templ.inits,
-              c.tparamClause.values,
-              parent,
-              level,
-              seen,
-              key,
-              useSite
-            )
-          case t: Defn.Trait if Counter.isSealed(t) =>
-            sealedIntermediate(
-              child,
-              t,
-              t.templ.inits,
-              t.tparamClause.values,
-              parent,
-              level,
-              seen,
-              key,
-              useSite
-            )
-          case c: Defn.Class if isCaseClass(c) || c.mods.exists(_.is[Mod.Final]) =>
-            slotBindings(c.templ.inits, parent.name, level, c.tparamClause.values)
-              .flatMap { bindings =>
-                sealedLeaf(c, child.owner, useSite)
-                  .map(_.map(fields => fields.map(field => replaceSlots(field, bindings))))
-              }
-          case _ =>
-            Left(s"sealed subtype outside the closed fragment: ${child.name}")
-        }
-
-    private def sealedIntermediate(
-        child: TypeEntry,
-        declaration: Defn.Class | Defn.Trait,
-        inits: List[Init],
-        childParams: List[Type.Param],
-        parent: TypeEntry,
-        level: Defn.Class | Defn.Trait,
-        seen: List[String],
-        key: String,
-        useSite: Frame
-    ): Either[String, List[List[Type]]] =
-      slotBindings(inits, parent.name, level, childParams).flatMap { bindings =>
-        if (!Counter.isSealed(declaration))
-          Left(s"sealed family has an open abstract subtype: ${child.name}")
-        else
-          sealedCases(child, declaration, seen, key, useSite).map(
-            _.map(fields => fields.map(field => replaceSlots(field, bindings)))
-          )
-      }
-
-    // The fields a concrete leaf stores, read as a product: one parameter clause, every
-    // parameter declared, and — separately for the constructor and the fields — permission
-    // at the use site. Constructing a value and projecting its fields are different rights:
-    // a `private[p]` constructor hides who may build the summand, not what the space holds,
-    // while a field's qualifier decides whether this reading may project it at all. An
-    // unqualified `private`, `protected`, `var` or `implicit` reads neither and refuses the
-    // family. A case class body may hold methods — members add no values to the space — but
-    // a plain class must carry `final`, or outside subtypes would extend the family past
-    // its file.
-    private def sealedLeaf(
-        c: Defn.Class,
-        childOwner: Frame,
-        useSite: Frame
-    ): Either[String, List[List[Type]]] =
-      if (c.ctor.paramClauses.size != 1)
-        Left(s"sealed subtype shape unreadable: ${c.name.value}")
-      else if (!usableWhere(c.ctor.mods, childOwner, useSite))
-        Left(s"sealed subtype constructor not visible at use site: ${c.name.value}")
-      else {
-        val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
-        if (
-          parameters.exists(p =>
-            p.mods.exists(_.is[Mod.VarParam]) || !usableWhere(p.mods, childOwner, useSite)
-          )
-        )
-          Left(s"sealed subtype hides a parameter: ${c.name.value}")
-        else declaredFields(parameters, c.name.value).map(List(_))
-      }
-
-    // Mods that grant their declaration to an enclosing package are readable wherever that
-    // package reaches; anything else that restricts access is a refusal here.
-    private def usableWhere(mods: List[Mod], childOwner: Frame, useSite: Frame): Boolean =
-      mods.forall {
-        case _: Mod.ValParam => true
-        case m: Mod.Private  =>
-          packageGrant(List(m), childOwner.path)
-            .exists(prefix => useSite.chain.exists(_.path.startsWith(prefix)))
-        case _ => false
-      }
-
-    // Every slot of the parent's application in the child's `extends` clause, resolved:
-    // a child parameter bound to the slot, or the slot pinned bottom-up. Child parameters
-    // must bind exactly one slot each, and must not spell a name any enclosing level owns.
-    private def slotBindings(
-        inits: List[Init],
-        parentName: String,
-        level: Defn.Class | Defn.Trait,
-        childParams: List[Type.Param]
-    ): Either[String, List[(String, String)]] = {
-      val toParent = inits.collectFirst {
-        case init if plainCallee(init.tpe).contains(parentName) => init
-      }
-      val childNames = childParams.map(_.name.value)
-      toParent match {
-        case None =>
-          Left(s"sealed subtype reaches $parentName only through a qualified name: $parentName")
-        case Some(init) =>
-          val arguments = init.tpe match {
-            case application: Type.Apply => Right(application.argClause.values.toList)
-            case _: Type.Name            => Right(Nil)
-            case _ => Left(s"sealed subtype application unreadable: $parentName")
-          }
-          arguments.flatMap { args =>
-            val levelParams = level.tparamClause.values
-            if (args.size != levelParams.size)
-              Left(
-                s"sealed subtype pins $parentName with ${args.size} of its ${levelParams.size} parameters"
-              )
-            else
-              sequence(args.zip(levelParams).map { (arg, parameter) =>
-                arg match {
-                  case name: Type.Name if childNames.contains(name.value) =>
-                    Right(Some(name.value -> parameter.name.value))
-                  case _ if !mentionsAny(arg, childNames) && isBottomPinned(parameter, arg) =>
-                    Right(None)
-                  case _ =>
-                    Left(
-                      s"sealed subtype leaves a parameter of $parentName unpinned: " +
-                        arg.syntax.replaceAll("\\s+", " ")
-                    )
-                }
-              }).flatMap { perSlot =>
-                val bindings = perSlot.flatten
-                val duplicate = bindings.groupBy(_._1).exists(_._2.size > 1)
-                if (duplicate || childNames.exists(name => !bindings.exists(_._1 == name)))
-                  Left(
-                    s"sealed subtype parameter is not pinned exactly once by $parentName: $childNames"
-                  )
-                else Right(bindings)
-              }
-          }
-      }
-    }
-
-    // The callee of an `extends` clause, when it is a plain (unqualified) name: either bare
-    // or applied — `Focus` or `Focus[S, A]` — but never a selection like `data.Focus`, whose
-    // meaning depends on resolution this lookup does not model here.
-    private def plainCallee(tpe: Type): Option[String] = tpe match {
-      case n: Type.Name  => Some(n.value)
-      case a: Type.Apply =>
-        a.tpe match {
-          case n: Type.Name => Some(n.value)
-          case _            => None
-        }
-      case _ => None
-    }
-
-    private def mentionsAny(tpe: Type, names: List[String]): Boolean =
-      tpe.syntax.split("[^\\p{L}\\p{N}_$]+").iterator.exists(names.contains)
-
-    // Nothing inhabits every covariant slot; Any is the only value of a contravariant slot
-    // pinned from below — both make the subtype a member of every instantiation, which is
-    // all the sum needs. An invariant slot pinned to any other type is instantiation-
-    // dependent, which this fragment does not track.
-    private def isBottomPinned(parameter: Type.Param, arg: Type): Boolean =
-      (
-        arg,
-        parameter.mods.exists(_.is[Mod.Covariant]),
-        parameter.mods.exists(_.is[Mod.Contravariant])
-      ) match {
-        case (name: Type.Name, true, _) => name.value == "Nothing"
-        case (name: Type.Name, _, true) => name.value == "Any"
-        case _                          => false
-      }
-
-    private def replaceSlots(field: Type, bindings: List[(String, String)]): Type =
-      TypeSubstitution.replace(
-        field,
-        bindings.map((from, to) => TypeName.of(from) -> (Type.Name(to): Type)).toMap
-      )
-
-    // An enum is the sum of its cases; a repeated case is one constructor per name, and a case
-    // whose field type is not declared leaves the representation unreadable.
-    private def enumRepresentation(e: Defn.Enum, key: String): Representation =
-      if (e.mods.exists(_.is[Mod.Abstract])) abstractRepresentation(key)
-      else (e.tparamClause.values, enumCases(e, key))
-
-    private def abstractRepresentation(key: String): Representation =
-      (Nil, Left(s"abstract type or method-valued representation: $key"))
-
-    // Only a case class whose single parameter list *is* the product can be projected: no second
-    // list, no constructor modifiers, no parents, no members and no hidden parameter.
-    private def caseClassRepresentation(c: Defn.Class, key: String): Representation =
-      if (!isCaseClass(c) || !isPlainProduct(c)) abstractRepresentation(key)
-      else
-        (
-          c.tparamClause.values,
-          declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key).map(List(_))
-        )
-
-    private def isCaseClass(c: Defn.Class): Boolean =
-      c.mods.exists(_.is[Mod.Case]) && !c.mods.exists(_.is[Mod.Abstract])
-
-    private def isPlainProduct(c: Defn.Class): Boolean =
-      c.ctor.paramClauses.size == 1 &&
-        c.ctor.mods.isEmpty &&
-        c.templ.inits.isEmpty &&
-        c.templ.body.stats.isEmpty &&
-        !c.ctor.paramClauses.flatMap(_.values).exists(hiddenParameter)
-
-    private def hiddenParameter(p: Term.Param): Boolean =
-      p.mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected] || m.is[Mod.VarParam])
-
-    // A field without a declared type leaves the product unreadable.
-    private def declaredFields(
-        fields: List[Term.Param],
-        key: String
-    ): Either[String, List[Type]] =
-      sequence(fields.map(_.decltpe.toRight(s"missing field type: $key")))
 
     // One application of a source type: what it is applied to, and what its declaration says it
     // is built from.
@@ -731,14 +497,15 @@ object MethodAnalysis {
         cases: List[List[Type]],
         entry: TypeEntry,
         context: ResolutionContext,
-        key: String
+        key: String,
+        scope: Map[String, Resolved]
     )
 
     private def parameterized(applied: Applied): Resolved = {
-      import applied.{args, cases, context, entry, key, name, parameters}
+      import applied.{args, cases, context, entry, key, name, parameters, scope}
       TypeApplications.checkApplication(name, parameters, args.size).flatMap { _ =>
         val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
-        val env = typeParameters(entry.owner) ++ replacements
+        val env = scope ++ replacements
         val scoped = context.inScope(entry.owner, env).enter(key)
         sequence(
           cases.map(fields => sequence(fields.map(scoped.read(_, this))))
@@ -760,20 +527,10 @@ object MethodAnalysis {
         case _            => Shape.Product(cases.head)
       }
 
-    private def enumCases(e: Defn.Enum, key: String): Either[String, List[List[Type]]] =
-      sequence(
-        e.templ.body.stats.flatMap {
-          case c: Defn.EnumCase =>
-            List(declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key))
-          case r: Defn.RepeatedEnumCase => List.fill(r.cases.size)(Right(Nil))
-          case _                        => Nil
-        }
-      )
-
     // The concrete atoms a signature or a tree mentions, written either bare or qualified: a
     // producer of one of these could change the count of a signature that mentions it.
     private def mentionedNames(tree: Tree): Set[String] =
-      tree.syntax.split("[^\\p{L}\\p{N}_$]+").iterator.filter(ConcreteAtoms.contains).toSet
+      TypeName.words(tree).iterator.filter(ConcreteAtoms.contains).toSet
 
     def mentionedConcrete(target: Target): Set[String] =
       (target.frame.params.flatMap(_.decltpe) ++ target.result).flatMap(mentionedNames).toSet

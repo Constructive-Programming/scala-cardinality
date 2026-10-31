@@ -156,15 +156,19 @@ final private[cardinality] class ShadowedBuiltins(
           }
         }
 
-    // The frames a dotted prefix may denote, anchored at every package around `from`: objects,
-    // packages, and the companions of enums (their cases) and classes (nothing this reads).
+    // The frames a dotted prefix may denote, anchored at every package around `from` (a `_root_`
+    // prefix at the root alone): objects, packages, and the companions of enums (their cases) and
+    // classes (nothing this reads).
     private def targets(prefix: List[String], from: Frame, via: String): List[Step] = {
-      val paths = from.chain.flatMap(_.path.inits).distinct.map(_ ++ prefix)
+      val (relative, paths) = prefix match {
+        case SourceIndex.Root :: path => (path, List(path))
+        case _ => (prefix, from.chain.flatMap(_.path.inits).distinct.map(_ ++ prefix))
+      }
       val frames = paths.flatMap(path => modules.getOrElse(path, Nil) ++ resolver.peers(path))
       val companions = paths.flatMap(classes.getOrElse(_, Nil)).flatMap(_.self)
       if (frames.nonEmpty || companions.nonEmpty)
         (frames ++ companions.filter(frame => enums(frame.id))).map(Step.Reach(_, via))
-      else if (prefix.headOption.exists(terms)) List(doubt(prefix.mkString("."), via))
+      else if (relative.headOption.exists(terms)) List(doubt(relative.mkString("."), via))
       else Nil
     }
 
@@ -187,8 +191,8 @@ final private[cardinality] class ShadowedBuiltins(
                 case (None, alias: Defn.Type) => named(alias.body, entry.owner, via, depth + 1)
                 case _                        => List(doubt(parent, via))
               }
-            case Found.Blocked(_) => List(doubt(parent, via))
-            case Found.Absent     =>
+            case Found.Blocked(_) | Found.Foreign(_) => List(doubt(parent, via))
+            case Found.Absent                        =>
               if (typeNames(parent.split('.').last)) List(doubt(parent, via)) else Nil
           }
       }
@@ -261,7 +265,7 @@ private[cardinality] object ShadowedBuiltins {
 
   private def parentName(tpe: Type): Option[String] = tpe match {
     case Type.Name(value)      => Some(value)
-    case selected: Type.Select => Some(selected.syntax.stripPrefix("_root_."))
+    case selected: Type.Select => Some(selected.syntax)
     case applied: Type.Apply   => parentName(applied.tpe)
     case _                     => None
   }

@@ -52,21 +52,21 @@ Write `#(Γ ⊢ τ)` for the implementations of goal `τ` in environment `Γ`.
   cycle would claim. An empty closed value (`Int => Nothing`) makes the context absurd: 1.
 - **One value per member.** The split multiplies exponents, so every closed value in the
   environment must be one independent supplied value. A declared `def n: Int` is one only while a
-  subclass supplies it: in an object, a given or a final class every inherited member is
+  subclass supplies it: in an object, a given or a final concrete class every inherited member is
   implemented (Scala requires it), so it is a value the template's own environment fixes and is
   dropped, as a concrete member written there is; a `val` or case-class field is the member it
   implements, already bound; a member restated by the template or reached along several parents is
   one member, bound once. An open template that implements an inherited declaration (a subclass
-  may still override it) and a restatement with another shape (an overload, or a narrowed type)
+  may still override it) and one member read with two shapes (a `def` and a `val` of one name)
   are refused until capability records read them. Each enclosing template is its own receiver:
-  `Outer.this.n` and `Inner.this.n` are two members, so a declaration both keep is refused (one
-  binding cannot be two values), and a generic parent bound with the outer template's type
-  arguments is refused for the inner one. A declaration whose type holds a type parameter is
-  judged for identity alone: `def g(x: Int): X` in two parents of `C[X]` is one member (two
-  abstract members with one signature merge), so `def f(x: Boolean): X` there is `|Int|^|Bool| =
-  2^64`, not `(2 · 2^32)^2`; parameters that read differently are overloads, two members; a pair
-  whose parameters read alike but whose shapes or spellings differ is refused, which today
-  includes a restatement two `extends` levels up (read with the intermediate level's binder).
+  `Outer.this.n` and `Inner.this.n` are two members, each bound under its own template's type
+  arguments ([environment readings](environment-readings.md) §3), so `def f: Boolean` beside two
+  free `n: Boolean` is `2^(2·2) = 16`. Callables are keyed by the declarations their parameter
+  types resolve to (environment readings §3): `def g(x: Int): X` in two parents of `C[X]` is one
+  member (two abstract members with one signature merge), so `def f(x: Boolean): X` there is
+  `|Int|^|Bool| = 2^64`, not `(2 · 2^32)^2`, and so is a restatement two `extends` levels up, read
+  under the whole chain's substitution; parameters that resolve differently are overloads, two
+  members (`g(x: Int): Int` and `g(x: Long): Int` beside `def f: Boolean`: `2^(2^(2^37 + 2^69))`).
 - **Corollary.** Over finite closed types only, `#(Γ ⊢ τ) = |τ|^Π|Γᵢ|`, the set-theoretic count
   (type-arithmetic §3): `def f(x: Int): Int` is `2^(2^37)`, `def f(c: Char): Boolean` is
   `2^(2^16)`.
@@ -156,12 +156,14 @@ that tier.
   truly `(2^32)^(2^32 + 1)`; with `case A(n: Nothing)` only, 1).
 - A builtin comes from the root import `scala.*`, the weakest binding there is, so any supplied
   declaration a reference reaches by its simple name shadows it. Lookup reads lexical
-  declarations, package members and imports; it does not read an enclosing template's parents
-  (named through imports too) or self type, an enum's cases, what a wildcard-imported object
-  inherits or exports, a package object's parents, or export clauses. With `trait Base { type Int
-  = Boolean }`, `Int` is `Boolean` in each of those (Scala 3.9.0 rejects `val w: Int = 3` there),
-  so the builtin is refused, `builtin name Int may be shadowed by w8.Base.Int (wildcard import of
-  O)`, until those members are resolved where they are declared. A step the walk cannot follow is
+  declarations, package members, imports and (environment readings §3) what an enclosing
+  template inherits from a supplied parent — `final class Sub extends Base { def f(x: Int): Int }`
+  reads `Base.Int = Boolean`, 4 — refusing a name an unread parent (outside the sources, or an
+  alias of a parent) may declare. It does not read a self type, an enum's cases, what a
+  wildcard-imported object inherits or exports, a package object's parents, or export clauses.
+  With `trait Base { type Int = Boolean }`, `Int` is `Boolean` in each of those (Scala 3.9.0
+  rejects `val w: Int = 3` there), so the builtin is refused, `builtin name Int may be shadowed by
+  w8.Base.Int (wildcard import of O)`, until those members are resolved where they are declared. A step the walk cannot follow is
   refused too when it may lead into the sources (`import o.*` of a supplied value: `… shadowed
   through o, which is not resolved`). The walk runs only for a name a supplied type, enum case or
   export spells, so it never runs on eo 1.0.0. A primary constructor's parameters are read outside
@@ -171,7 +173,7 @@ that tier.
   count would be wrong. The stdlib model's wildcard refusal (feature A3) decides it; on eo 1.0.0,
   `AvroWalk.normalisedName` (ω) rests on this through `import scala.jdk.CollectionConverters.*`.
 - Two anonymous `using` parameters of one ground type are ambiguous for `summon`, so neither is
-  usable; the anonymous-evidence guard of the environment lane (B0) refuses them, and its
-  regressions cover ground types once both land.
+  usable: `def f(using Int, Int): Int` is truly `2^32`, and the anonymous-evidence guard refuses it
+  (`ambiguous anonymous evidence: Int`, `GroundEnvironmentSpec.anonymousGround`).
 
 Executable: `GroundTypesSpec`, `GroundEnvironmentSpec`, `NaturalSpec`, `InhabitationSpec`.

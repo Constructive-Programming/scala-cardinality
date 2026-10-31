@@ -21,19 +21,19 @@ private[cardinality] object MethodProjections {
 
   def accepts(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean = tpe match {
     case _: Type.Match                 => true
-    case _: Type.Name | _: Type.Select =>
-      alias(TypeApplications.name(tpe), context, resolver).nonEmpty
-    case _ => false
+    case _: Type.Name | _: Type.Select => alias(tpe, context, resolver).nonEmpty
+    case _                             => false
   }
 
-  // The declaration the name means at the reference — an explicit import before a package member
-  // of another file — read as a transparent alias when it is one.
+  /** The transparent alias a constructor names at its own position: imports and the precedence of
+    * its scope decide, as for any other reference.
+    */
   def alias(
-      name: String,
+      callee: Type,
       context: ResolutionContext,
       resolver: Resolver
   ): Option[(TypeEntry, Defn.Type)] =
-    resolver.resolveName(name, context) match {
+    resolver.declaration(callee, TypeApplications.spelled(callee), context) match {
       case Found.Entry(entry) =>
         ResolutionOptics.entryTypeDefinition
           .getOption(entry)
@@ -124,13 +124,15 @@ private[cardinality] object MethodProjections {
       }
 
     private def prepareReference(tpe: Type, context: ResolutionContext): Prepared = {
-      val (name, args) = tpe match {
-        case application: Type.Apply =>
-          TypeApplications.name(application.tpe) -> application.argClause.values
-        case _ => TypeApplications.name(tpe) -> Nil
+      val (callee, args) = tpe match {
+        case application: Type.Apply => application.tpe -> application.argClause.values
+        case _                       => tpe -> Nil
       }
+      val name = TypeApplications.name(callee)
+      // An inherited member is read where it is declared, by the ordinary resolution.
       val definition =
-        if (context.variables.contains(name)) None else alias(name, context, resolver)
+        if (context.variables.contains(name) || resolver.inheritsName(tpe, name, context)) None
+        else alias(callee, context, resolver)
       definition match {
         case Some(declaration) => applyAlias(name, args, declaration, context)
         case None              => freeze(tpe, context)

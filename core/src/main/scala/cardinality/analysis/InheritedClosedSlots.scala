@@ -4,6 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{ClosedSpaces, Inhabitation}
+import cardinality.analysis.resolution.FinalImplementations
 import cardinality.types.TypeApplications
 
 import Inhabitation.Binding
@@ -14,32 +15,22 @@ import MethodAnalysis.Frame
   * A closed declaration — `def n: Int`, `def g(x: Int): Int` — is split as a value of its space, so
   * it must be one member that a subclass supplies, read once. Three readings break that:
   *
-  *   - The template fixes its receiver (an object, a given, a final class) or keeps the member in a
-  *     field of its own: Scala then requires the member to be implemented, so it is a value the
-  *     template's own environment determines, not a choice. It is dropped — as a concrete member
-  *     written in the template is — and the field, already bound, is the member.
+  *   - The template fixes its receiver (an object, a given, a final concrete class) or keeps the
+  *     member in a field of its own: Scala then requires the member to be implemented, so it is a
+  *     value the template's own environment determines, not a choice. It is dropped — as a concrete
+  *     member written in the template is — and the field, already bound, is the member.
   *   - An open template or one of its supplied parents implements it: a subclass may still override
   *     it, and how such a member counts is the capability records' decision, so it is refused.
   *   - The template restates it, or reaches it along several parent paths: a class has one member
-  *     per name and signature, so a restatement with the same shape and parameter spelling is
-  *     dropped, and one with another shape (an overload, or a narrowed type) is refused.
+  *     per name and signature, so a restatement under the same key with the same shape and
+  *     parameter spelling is dropped, and one with another shape (a narrowed type) is refused.
   *
-  * A declaration two enclosing templates both keep is two members (`Outer.this.n`, `Inner.this.n`)
-  * under one binding, so it is refused; one kept by a single template and dropped by the others is
-  * that template's member. A generic parent is bound once, with the type arguments of the template
-  * that reached it first, so another template keeps one of its declarations only by refusing it
-  * (`borrowed`): its own arguments may differ.
-  *
-  * A declaration whose shape holds a type parameter is judged for identity only: the same member
-  * reached twice — `def g(x: Int): X` in two parents — is one capability, an overload (parameters
-  * that read differently) is another, and anything else is refused. Whether a template implements
-  * one is the capability records' decision.
+  * Each template judges its own slots (a parent two enclosing templates extend is two members,
+  * `Outer.this.n` and `Inner.this.n`), and a callable's key is the member `DeclaredMembers`
+  * settled. A declaration whose shape holds a type parameter is judged for identity only; whether a
+  * template implements one is the capability records' decision.
   */
-final private[cardinality] class InheritedClosedSlots(
-    root: Frame,
-    ancestors: List[Frame],
-    borrowed: Set[String]
-) {
+final private[cardinality] class InheritedClosedSlots(root: Frame, ancestors: List[Frame]) {
   import InheritedClosedSlots.*
 
   private val kept = mutable.Map.empty[String, List[Member]]
@@ -49,20 +40,15 @@ final private[cardinality] class InheritedClosedSlots(
     */
   val frames: List[Frame] = root :: ancestors
 
-  /** The verdict on one bound declaration of the template or one of its supplied parents, in the
-    * order they were bound: the template's own declarations first.
+  /** The verdict on one declaration bound as a member of the template — its own or a supplied
+    * parent's, under the member name and the binding key — in the order they were bound: the
+    * template's own declarations first.
     */
-  def verdict(declaring: Frame, name: String, binding: Binding): Verdict =
-    judged(declaring, name, binding) match {
-      case Keep if borrowed(declaring.id) =>
-        Refuse(s"inherited declaration $name is bound with another template's type arguments")
-      case verdict => verdict
-    }
-
-  private def judged(declaring: Frame, name: String, binding: Binding): Verdict =
-    if (declaring.id == root.id) restated(declaring, name, binding)
+  def verdict(declaring: Frame, name: String, key: String, binding: Binding): Verdict =
+    if (declaring.id == root.id)
+      if (plainParameter(root, name)) Keep else restated(declaring, name, key, binding)
     else if (fields(root)(name)) Drop
-    else if (!ClosedSpaces.closed(binding.shape)) restated(declaring, name, binding)
+    else if (!ClosedSpaces.closed(binding.shape)) restated(declaring, name, key, binding)
     else if (fixed(root)) Drop
     else
       frames.find(concrete(_)(name)) match {
@@ -71,18 +57,18 @@ final private[cardinality] class InheritedClosedSlots(
             s"inherited declaration $name is implemented in ${implementer.path.last}; " +
               "implemented members are not modelled as capabilities"
           )
-        case None => restated(declaring, name, binding)
+        case None => restated(declaring, name, key, binding)
       }
 
-  // One member per name and parameter types: a declaration with the shape and parameter spelling of
-  // one already kept is that member again, one whose parameters read differently is an overload
-  // (kept for an open shape, refused for a closed one, as before), and any other is refused.
-  private def restated(declaring: Frame, name: String, binding: Binding): Verdict = {
+  // One member per key: a declaration with the shape and parameter spelling of one already kept
+  // under its key is that member again, one whose parameters read differently is an overload (kept
+  // for an open shape, refused for a closed one), and any other is refused.
+  private def restated(declaring: Frame, name: String, key: String, binding: Binding): Verdict = {
     val member = Member(binding.shape, spelling(declaring, name))
-    val prior = kept.getOrElse(name, Nil)
+    val prior = kept.getOrElse(key, Nil)
     if (prior.exists(_.same(member))) Drop
     else if (prior.isEmpty || (member.open && prior.forall(_.overloads(member)))) {
-      kept.update(name, prior :+ member)
+      kept.update(key, prior :+ member)
       Keep
     } else Refuse(s"inherited declaration identity not resolved: $name")
   }
@@ -136,22 +122,15 @@ private[cardinality] object InheritedClosedSlots {
 
   export Verdict.*
 
-  /** One declaration's verdict over every enclosing template that reaches it. */
-  def combine(name: String, verdicts: List[Verdict]): Verdict =
-    verdicts.collectFirst { case refused: Refuse => refused }.getOrElse {
-      verdicts.count(_ == Keep) match {
-        case 0 => Drop
-        case 1 => Keep
-        case _ => Refuse(s"inherited declaration $name is a member of several enclosing templates")
-      }
-    }
+  // A receiver no subclass can replace and that has instances: every member it inherits is
+  // implemented by now. An `abstract final` class implements nothing by being final.
+  private def fixed(frame: Frame): Boolean =
+    frame.tree.exists(tree => FinalImplementations.isFinal(tree) || tree.is[Pkg.Object])
 
-  // A receiver no subclass can replace: every member it inherits is implemented by now.
-  private def fixed(frame: Frame): Boolean = frame.tree.exists {
-    case _: Defn.Object | _: Defn.Given | _: Pkg.Object => true
-    case d: Defn.Class                                  => d.mods.exists(_.is[Mod.Final])
-    case _                                              => false
-  }
+  // A parameter that is no field is a value of the scope, not a member: it neither restates nor
+  // implements an inherited declaration of its name (`SimpleLens(get: S => A)` beside `CanGet.get`).
+  private def plainParameter(frame: Frame, name: String): Boolean =
+    frame.params.exists(_.name.value == name) && !fields(frame)(name)
 
   // Constructor parameters that are members: `val`/`var` ones, and a case class's first clause.
   private def fields(frame: Frame): Set[String] = frame.tree match {

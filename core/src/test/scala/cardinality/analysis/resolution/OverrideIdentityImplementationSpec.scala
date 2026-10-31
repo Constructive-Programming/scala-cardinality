@@ -16,6 +16,7 @@ class OverrideIdentityImplementationSpec extends Specification {
       substitutes sum constructors without supplying reverseGet       $sum
       keeps unrelated inherited capabilities                         $capability
       does not identify nominal products with tuples                  $nominal
+      settles the identity in an object that implements the member    $nominalObject
       retains unresolved imported constructor identity                 $imported
       keeps a foreign method binder distinct from a class binder       $foreignBinder
       does not drop declarations at matching offsets in other files    $fileIdentity
@@ -73,20 +74,34 @@ class OverrideIdentityImplementationSpec extends Specification {
       }
     """) === Count.Finite(1)
 
+  // An open template: in a final one (an object) a same-shaped member implements or overloads the
+  // declaration, which is then never a capability, and the identity is not asked.
   def nominal =
     count("""
       case class Pair[X,A](x:X,a:A)
       trait Base[F[_,_]] { def get[X,A](fa:F[X,A]):A }
-      object Instance extends Base[Pair] {
+      abstract class Instance extends Base[Pair] {
         def get[X,A](fa:(X,A)):A = fa._2
       }
     """) must beLike { case Count.Unresolved(_) => ok }
+
+  // In an object (a final template) the member implemented with `Pair[X,A]` is that body, not a
+  // capability: `fa.a` is the only `A` — 1. (`(X,A)` there would leave `Base.get` unimplemented,
+  // which 3.9.0 rejects, so the open twin above carries the tuple question.)
+  def nominalObject =
+    count("""
+      case class Pair[X,A](x:X,a:A)
+      trait Base[F[_,_]] { def get[X,A](fa:F[X,A]):A }
+      object Instance extends Base[Pair] {
+        def get[X,A](fa:Pair[X,A]):A = fa.a
+      }
+    """) === Count.Finite(1)
 
   def imported =
     count("""
       import external.Foreign
       trait Base[F[_,_]] { def get[X,A](fa:F[X,A]):A }
-      object Instance extends Base[Foreign] {
+      abstract class Instance extends Base[Foreign] {
         def get[X,A](fa:Foreign[X,A]):A = ???
       }
     """) must beLike {

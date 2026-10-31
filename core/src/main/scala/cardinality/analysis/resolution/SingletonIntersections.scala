@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
+import cardinality.types.TypeName
 
 import Inhabitation.Shape
 import MethodAnalysis.{Frame, Resolved}
@@ -216,7 +217,7 @@ private[cardinality] object SingletonIntersections {
       !context.frame.chain.exists(_.stats.exists(markerImportOrExport))
 
   private def markerImportOrExport(stat: Stat): Boolean = stat match {
-    case i: Import => i.syntax.split("[^\\p{L}\\p{N}_$]+").contains("Singleton")
+    case i: Import => TypeName.words(i).contains("Singleton")
     case _: Export => true
     case _         => false
   }

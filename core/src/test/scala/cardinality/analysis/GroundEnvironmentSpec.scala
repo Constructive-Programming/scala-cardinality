@@ -21,10 +21,11 @@ class GroundEnvironmentSpec extends Specification {
       a field is the member it implements                            $fieldAlias
       one member reached along several parents is one value          $restated
       an open template that implements it is refused                 $openImplemented
-      a differently shaped restatement is refused                    $overloaded
+      an overload is a second member; another shape is refused      $overloaded
       an unimplemented declaration of an open template is supplied   $supplied
       nested templates sharing a parent judge it for each receiver   $nestedReceivers
       an open declaration reached from two parents is one member     $openRestated
+      a plain constructor parameter is not the member it is named as $plainParameter
     Enum and sealed receivers
       a member reading the receiver is refused                       $receiverRefused
       an uninhabited enum's member is not ω                          $uninhabited
@@ -34,7 +35,7 @@ class GroundEnvironmentSpec extends Specification {
       a self type's members shadow the builtin                       $selfTypes
       a wildcard-imported object's inherited members shadow it       $importedInherited
       a package object's parents shadow it in its package            $packageObject
-      a parent named through an import is walked                     $importedParents
+      a parent named through an import declares the member           $importedParents
       exports shadow it where they forward                           $exports
       an enum's cases shadow it after a wildcard import              $enumCases
       a wildcard import of a supplied value is refused               $valueImport
@@ -54,6 +55,8 @@ class GroundEnvironmentSpec extends Specification {
       an enclosing template's parameters are captures                $outerCaptures
       a singleton beside a value has no value-space reading          $singletonPositions
       a symbolic value space disagrees with a narrow estimate        $symbolicDisagreement
+    Anonymous evidence
+      two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
       ground evidence endpoints keep the evidence reason             $evidence
       an empty-domain function position has two conventions          $emptyDomain
@@ -137,6 +140,13 @@ class GroundEnvironmentSpec extends Specification {
           "B.f"
         ) === Count.Finite(4)
       )
+      .and(
+        count(
+          "trait A { val n: Boolean }\ntrait B extends A { val n: Boolean }\n" +
+            "trait C extends B { def f: Boolean = n }",
+          "C.f"
+        ) === Count.Finite(4)
+      )
 
   def openImplemented =
     unresolvedOn(
@@ -148,15 +158,24 @@ class GroundEnvironmentSpec extends Specification {
       "inherited declaration pick is implemented in Q"
     )
 
+  // Two overloads are two supplied functions: 2^(|Int => Int| · |Long => Int|) = 2^(2^(2^37 + 2^69)).
+  // A `def` and a `val` of one name are one member whose two readings have different shapes.
   def overloaded =
-    unresolvedOn(
-      count(
-        "trait A { def g(x: Int): Int }\ntrait B { def g(x: Long): Int }\n" +
-          "trait C extends A with B { def f: Boolean = true }",
-        "C.f"
-      ),
-      "inherited declaration identity not resolved: g"
-    )
+    (count(
+      "trait A { def g(x: Int): Int }\ntrait B { def g(x: Long): Int }\n" +
+        "trait C extends A with B { def f: Boolean = true }",
+      "C.f"
+    ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + BigInt(2).pow(69)))))
+      .and(
+        unresolvedOn(
+          count(
+            "trait A { def n: Boolean }\ntrait B { val n: Boolean }\n" +
+              "trait C extends A with B { def f: Boolean = n }",
+            "C.f"
+          ),
+          "inherited declaration identity not resolved: n"
+        )
+      )
 
   // Two receivers, two members: Outer.this.k and Inner.this.n are independent, 2^(2·2).
   def supplied =
@@ -170,46 +189,36 @@ class GroundEnvironmentSpec extends Specification {
         ) === Count.Finite(16)
       )
 
-  // `Outer.this.n` and `Inner.this.n` are two members bound under one key. A fixed outer one leaves
-  // the inner one (4, not 2); two free ones (true 16) and a generic parent read with the outer
-  // template's arguments (2^(2^32) claimed for a true 4) are refused.
+  // `Outer.this.n` and `Inner.this.n` are two members, each its own template's slot. A fixed outer
+  // one leaves the inner one (4, not 2); two free ones are 2^(2·2) = 16; a generic parent is read
+  // with each template's own arguments (Inner.this.n: Boolean, 4; not 2^(2^32)).
   def nestedReceivers = {
     def inner(code: String, pkg: String) =
       counts("Example.scala" -> s"package $pkg\n$code")(s"$pkg.Outer.Inner.f")
-    val several = "inherited declaration n is a member of several enclosing templates"
     (inner(
       "trait A { def n: Boolean }\n" +
         "object Outer extends A { def n: Boolean = true; trait Inner extends A { def f: Boolean = true } }",
       "n1"
     ) === Count.Finite(4))
       .and(
-        unresolvedOn(
-          inner(
-            "trait A { def n: Boolean }\n" +
-              "trait Outer extends A { trait Inner extends A { def f: Boolean = true } }",
-            "n3"
-          ),
-          several
-        )
+        inner(
+          "trait A { def n: Boolean }\n" +
+            "trait Outer extends A { trait Inner extends A { def f: Boolean = true } }",
+          "n3"
+        ) === Count.Finite(16)
       )
       .and(
-        unresolvedOn(
-          inner(
-            "trait Outer { def n: Boolean; trait Inner extends Outer { def f: Boolean = true } }",
-            "n5"
-          ),
-          several
-        )
+        inner(
+          "trait Outer { def n: Boolean; trait Inner extends Outer { def f: Boolean = true } }",
+          "n5"
+        ) === Count.Finite(16)
       )
       .and(
-        unresolvedOn(
-          inner(
-            "trait A[X] { def n: X }\nobject Outer extends A[Int] {\n  def n: Int = 3\n" +
-              "  trait Inner extends A[Boolean] { def f: Boolean = true }\n}",
-            "n6"
-          ),
-          "inherited declaration n is bound with another template's type arguments"
-        )
+        inner(
+          "trait A[X] { def n: X }\nobject Outer extends A[Int] {\n  def n: Int = 3\n" +
+            "  trait Inner extends A[Boolean] { def f: Boolean = true }\n}",
+          "n6"
+        ) === Count.Finite(4)
       )
       .and(
         inner(
@@ -283,13 +292,8 @@ class GroundEnvironmentSpec extends Specification {
           "final class Leaf extends Deep { def k(x: Int): Int = x; def h(x: Boolean): Boolean = x }\n" +
           "final class Other { def g(x: Int): Int = x }")
     )
-    unresolvedOn(rows("Sub.f"), "builtin name Int may be shadowed by Base.Int (parents of Sub)")
-      .and(
-        unresolvedOn(
-          rows("Leaf.k"),
-          "builtin name Int may be shadowed by Base.Int (parents of Leaf)"
-        )
-      )
+    (rows("Sub.f") === Count.Finite(4))
+      .and(rows("Leaf.k") === Count.Finite(4))
       .and(rows("Leaf.h") === Count.Finite(4))
       .and(rows("Other.g") === Count.Symbolic(pow(2, pow(2, 37))))
   }
@@ -347,8 +351,7 @@ class GroundEnvironmentSpec extends Specification {
       "b.scala" ->
         s"package w15\n${defs}import Defs.*\nfinal class Sub extends Base { def f(x: Int): Int = x }"
     )
-    shadowed(rows, "w14.Sub.f", "w14.Defs.Base.Int (parents of w14.Sub)")
-      .and(shadowed(rows, "w15.Sub.f", "w15.Defs.Base.Int (parents of w15.Sub)"))
+    (rows("w14.Sub.f") === Count.Finite(4)).and(rows("w15.Sub.f") === Count.Finite(4))
   }
 
   def exports = {
@@ -388,9 +391,10 @@ class GroundEnvironmentSpec extends Specification {
       "builtin name Int may be shadowed through o, which is not resolved (wildcard import of o)"
     )
 
-  // An alias parent is followed; an enum's class case is in scope in its body; an explicit export
-  // forwards the member; a refined self type or a parent whose import lookup refuses is a step the
-  // walk cannot follow (`bp` assumes an unsupplied `nowhere`).
+  // An enum's class case is in scope in its body; an explicit export forwards the member; a refined
+  // self type is a step the walk cannot follow. A parent the inherited-member reading does not have
+  // — an alias of the parent, or an import outside the sources (`bp` assumes an unsupplied
+  // `nowhere`) — may declare `Int`, and is refused there before any builtin reading (true counts 4).
   def moreChannels = {
     val rows = counts(
       "ap.scala" -> s"package ap\n${base}type B = Base\nfinal class Sub extends B { def f(x: Int): Int = x }",
@@ -402,7 +406,7 @@ class GroundEnvironmentSpec extends Specification {
       "bp.scala" ->
         s"package bp\n${base}import nowhere.Base\nfinal class Sub extends Base { def f(x: Int): Int = x }"
     )
-    shadowed(rows, "ap.Sub.f", "ap.Base.Int (parents of ap.Sub)")
+    unresolvedOn(rows("ap.Sub.f"), "inherited type member not resolved: Int (unsupplied parent B)")
       .and(shadowed(rows, "eb.E.f", "eb.E.Int (case of eb.E)"))
       .and(shadowed(rows, "ex.f", "export O.Int (wildcard import of P)"))
       .and(
@@ -414,7 +418,7 @@ class GroundEnvironmentSpec extends Specification {
       .and(
         unresolvedOn(
           rows("bp.Sub.f"),
-          "shadowed through Base, which is not resolved (parents of bp.Sub)"
+          "inherited type member not resolved: Int (unsupplied parent Base)"
         )
       )
   }
@@ -446,7 +450,7 @@ class GroundEnvironmentSpec extends Specification {
         s"package cp\n${base}class Sub(val x: Int) extends Base\nobject O extends Base { final case class P(x: Int) }"
     )
     (rows("cp.Sub.<init>") === Count.Finite(BigInt(2).pow(32)))
-      .and(shadowed(rows, "cp.O.P.<init>", "cp.Base.Int (parents of cp.O)"))
+      .and(rows("cp.O.P.<init>") === Count.Finite(2))
   }
 
   // A namespace no supplied term heads is foreign: whether `org.foo` declares `Int` is the stdlib
@@ -459,7 +463,7 @@ class GroundEnvironmentSpec extends Specification {
 
   // C has one `g`: two abstract members with the same signature merge (f = g ∘ h, h: Bool => Int,
   // so |Int|^|Bool| = 2^64, not (2·2^32)^2). Overloads stay two members. A restatement two levels
-  // up is read with the intermediate level's binder, so its shape differs and it is refused.
+  // up is read under the whole chain's substitution (A's X is C's X), so it is the same member.
   def openRestated = {
     def c(code: String) =
       count(code + "\ntrait C[X] extends A[X], B[X] { def f(x: Boolean): X }", "C.f")
@@ -474,15 +478,26 @@ class GroundEnvironmentSpec extends Specification {
           Count.Finite(9)
       )
       .and(
-        unresolvedOn(
-          count(
-            "trait A[X] { def g(x: Int): X }\ntrait B[X] extends A[X] { def g(x: Int): X }\n" +
-              "trait C[X] extends B[X] { def f(x: Boolean): X }",
-            "C.f"
-          ),
-          "inherited declaration identity not resolved: g"
-        )
+        count(
+          "trait A[X] { def g(x: Int): X }\ntrait B[X] extends A[X] { def g(x: Int): X }\n" +
+            "trait C[X] extends B[X] { def f(x: Boolean): X }",
+          "C.f"
+        ) === Count.Finite(BigInt(2).pow(64))
       )
+  }
+
+  // `get: S => A` is a parameter, not a member, so it is no restatement of the inherited `get`
+  // (directly, or through an intermediate class as eo's `SimpleLens`); no S is built: `s => s`.
+  def plainParameter = {
+    val rows = counts(
+      "Example.scala" ->
+        ("package sl\ntrait CanGet[S, A] { def get(s: S): A }\n" +
+          "class SCL[S, A](read: S => A) extends CanGet[S, A] { def get(s: S): A = read(s) }\n" +
+          "final class SL[S, A](get: S => A) extends SCL[S, A](get) { def place(a: A): S => S = s => s }\n" +
+          "abstract class P[S, A] { def get(s: S): A }\n" +
+          "abstract class D[S, A](get: S => A) extends P[S, A] { def place(a: A): S => S = s => s }")
+    )
+    (rows("sl.SL.place") === Count.Finite(1)).and(rows("sl.D.place") === Count.Finite(1))
   }
 
   def chainedPackages = {
@@ -598,6 +613,21 @@ class GroundEnvironmentSpec extends Specification {
     ).and(
       count("final case class P(p: Char => Boolean)", "P.<init>") === Count.Symbolic(pow(2, 65536))
     )
+
+  // `summon[Int]` is ambiguous between two anonymous `Int`s (3.9.0: E172), so a body reaches
+  // neither: the true count of `f` is 2^32 (a literal), not 2^(2^37) (one Int read) or 2^(2^64). One
+  // anonymous Int is reachable: `g` reads it, (2^32)^(2^32), and `k` beside `x`, 2^(2^32 · 2^32).
+  def anonymousGround = {
+    val rows = counts(
+      "r19.scala" ->
+        ("package r19\ndef f(using Int, Int): Int = 0\ndef g(using Int): Int = summon[Int]\n" +
+          "def h(using Boolean, Boolean): Boolean = true\ndef k(x: Int)(using Int): Boolean = true")
+    )
+    unresolvedOn(rows("r19.f"), "ambiguous anonymous evidence: Int")
+      .and(unresolvedOn(rows("r19.h"), "ambiguous anonymous evidence: Boolean"))
+      .and(rows("r19.g") === Count.Symbolic(pow(2, pow(2, 37))))
+      .and(rows("r19.k") === Count.Symbolic(pow(2, pow(2, 64))))
+  }
 
   def evidence = {
     val reason = "=:= requires free-atom endpoints"

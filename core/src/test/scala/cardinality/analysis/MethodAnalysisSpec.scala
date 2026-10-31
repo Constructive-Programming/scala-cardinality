@@ -309,9 +309,11 @@ class MethodAnalysisSpec extends Specification {
   }
 
   def packagePrivateSubpackage = {
+    // Chained clauses: `package example.sub` alone would not open `example`, and Scala would not
+    // find `Wrapper` there at all.
     val source = inputs(
       "Wrapper.scala" -> "package example\nprivate[example] case class Wrapper[A](value: A)",
-      "Sub.scala" -> "package example.sub\ndef unwrap[A](w: Wrapper[A]): A = w.value"
+      "Sub.scala" -> "package example\npackage sub\ndef unwrap[A](w: Wrapper[A]): A = w.value"
     )
     MethodAnalysis.analyze(source).find(_.name == "example.sub.unwrap").get.count === Count.Finite(
       1

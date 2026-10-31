@@ -4,7 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
-import cardinality.types.TypeApplications
+import cardinality.types.{TypeApplications, TypeName}
 
 final private[cardinality] case class ImportBinding(
     start: Int,
@@ -64,6 +64,59 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // about it being one of the enumerated cases, so a family a given reaches into is not one
   // this fragment can read whole.
   private[cardinality] val givenTargets: Set[(String, String)] = givens.toSet
+
+  // The parents an anonymous class instance (`new P {…}`) extends, by file: such a value belongs to
+  // a sealed family without being one of its named subtypes, and `sealed` lets it appear only in
+  // the family's own file, so the file is the whole search.
+  private[cardinality] val anonymousTargets: Set[(String, String)] =
+    inputs.iterator.flatMap { input =>
+      input.tree
+        .collect { case n: Term.NewAnonymous => n.templ.inits.map(initParentName) }
+        .flatten
+        .map(input.path -> _)
+    }.toSet
+
+  // Named classes, traits, objects and enums nested anywhere but in packages and objects — in a
+  // class, trait or given body, or in any block (a method's, a val's, a lambda's, an if arm's) — by
+  // file and the parent name their clauses spell: each is a class per enclosing instance or
+  // evaluation, so a sealed family one of them extends is not the sum of its static children.
+  private[cardinality] val innerChildren: Map[(String, String), List[String]] =
+    inputs.iterator
+      .flatMap { input =>
+        input.tree.collect {
+          case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum) if !static(d) =>
+            d.templ.inits.map(init => (input.path, initParentName(init)) -> d.name.value)
+        }.flatten
+      }
+      .toList
+      .groupMap(_._1)(_._2)
+
+  private def static(tree: Tree): Boolean =
+    Iterator.iterate(tree.parent)(_.flatMap(_.parent)).takeWhile(_.nonEmpty).flatten.forall {
+      case _: Source | _: Pkg | _: Pkg.Body | _: Pkg.Object | _: Defn.Object | _: Template.Body =>
+        true
+      case t: Template => t.parent.exists(p => p.is[Defn.Object] || p.is[Pkg.Object])
+      case _           => false
+    }
+
+  // The type aliases that may denote a family: those whose body mentions its name or another such
+  // alias, by simple name — a superset, so a family is refused rather than enumerated short.
+  private[cardinality] def aliasesOf(family: String): Set[String] =
+    aliases.getOrElseUpdate(family, closeAliases(Set(family)) - family)
+
+  private val aliases = mutable.Map.empty[String, Set[String]]
+
+  private lazy val aliasBodies: List[(String, Set[String])] =
+    types.iterator.collect {
+      case TypeEntry(name, d: Defn.Type, _, _) =>
+        name -> TypeName.words(d.body).toSet
+    }.toList
+
+  @scala.annotation.tailrec
+  private def closeAliases(found: Set[String]): Set[String] = {
+    val next = found ++ aliasBodies.collect { case (name, words) if words.exists(found) => name }
+    if (next == found) found else closeAliases(next)
+  }
 
   // The declarations of a name in one file: uniqueness here is what makes a `sealed` parent's
   // simple name in a child's `extends` clause denote exactly the family being enumerated.
@@ -163,12 +216,12 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
           case _: Importee.Wildcard => path
         }
         if (named.nonEmpty || wildcards.nonEmpty)
-          imports += ((frame.id, ImportBinding(clause.pos.start, named, wildcards)))
+          imports += ((frame.id, ImportBinding(importer.pos.start, named, wildcards)))
       }
     }
 
-  // A pure dotted term path, `_root_` stripped; anything deeper (a `this`, a term prefix)
-  // names no package the model can reach and binds nothing.
+  // A pure dotted term path, a leading `_root_` kept as the anchor; anything deeper (a `this`, a
+  // term prefix) names no package the model can reach and binds nothing.
   private def importPath(ref: Term): Option[List[String]] = SourceIndex.importPath(ref)
 
   private def indexPackage(input: String, frame: Frame, pkg: Pkg): Unit = {
@@ -320,14 +373,21 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
 object SourceIndex {
 
-  /** A pure dotted term path, `_root_` stripped; anything deeper (a `this`, a term prefix) names no
-    * package the model can reach and binds nothing.
+  /** A pure dotted term path; anything deeper (a `this`, a term prefix) names no package the model
+    * can reach and binds nothing. A leading `_root_` stays as the path's first segment: it anchors
+    * the path at the root package instead of at the enclosing packages, so it is kept for lookup to
+    * read rather than stripped — and only there, since the segment names the root nowhere else.
     */
   def importPath(ref: Term): Option[List[String]] =
-    (ref match {
-      case n: Term.Name   => Some(List(n.value))
-      case s: Term.Select => importPath(s.qual).map(_ :+ s.name.value)
-      case _              => None
-    }).map(_.dropWhile(_ == "_root_")).filter(_.nonEmpty)
+    segments(ref).filterNot(_.drop(1).contains(Root))
+
+  /** The anchor segment of an absolute path. */
+  val Root = "_root_"
+
+  private def segments(ref: Term): Option[List[String]] = ref match {
+    case n: Term.Name   => Some(List(n.value))
+    case s: Term.Select => segments(s.qual).map(_ :+ s.name.value)
+    case _              => None
+  }
 
 }

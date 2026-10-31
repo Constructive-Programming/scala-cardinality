@@ -211,10 +211,10 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     Option.when(mods.forall(_.is[Mod.Annot]))(())
 
   private def key(tpe: Type, context: ResolutionContext, bindings: Bindings): Key = tpe match {
-    case n: Type.Name  => named(n.value, Nil, context, bindings)
+    case n: Type.Name  => simple(n, Nil, context, bindings)
     case t: Type.Apply =>
       t.tpe match {
-        case n: Type.Name => named(n.value, t.argClause.values, context, bindings)
+        case n: Type.Name => simple(n, t.argClause.values, context, bindings)
         case s: Type.Select if !termQualifier(s, context.frame) =>
           named(
             s.syntax.stripPrefix("_root_."),
@@ -232,6 +232,17 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
         .map(k => s"function:$k")
     case other => decoratedKey(other, context, bindings)
   }
+
+  // A name the template inherits is a member this keying does not follow: its identity is left
+  // open rather than read through a same-spelled outer declaration.
+  private def simple(
+      name: Type.Name,
+      args: List[Type],
+      context: ResolutionContext,
+      bindings: Bindings
+  ): Key =
+    if (resolver.inheritsName(name, name.value, context)) None
+    else named(name.value, args, context, bindings)
 
   private def decoratedKey(tpe: Type, context: ResolutionContext, bindings: Bindings): Key =
     tpe match {

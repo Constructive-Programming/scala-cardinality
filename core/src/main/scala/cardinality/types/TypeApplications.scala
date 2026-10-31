@@ -37,9 +37,18 @@ private[cardinality] object TypeApplications {
     name => Pat.Var(Term.Name(name))
   )
 
-  def name(tpe: Type): String = tpe match {
+  /** The template a class, trait, object, enum or given instance declares. */
+  def template(tree: Tree): Option[Template] = tree match {
+    case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum | Defn.Given) => Some(d.templ)
+    case _                                                                   => None
+  }
+
+  def name(tpe: Type): String = spelled(tpe).stripPrefix("_root_.")
+
+  /** A constructor's name as written, a `_root_` anchor kept for lookup to read. */
+  def spelled(tpe: Type): String = tpe match {
     case n: Type.Name => n.value
-    case _            => tpe.syntax.stripPrefix("_root_.")
+    case _            => tpe.syntax
   }
 
   def lambda(tpe: Type): Option[Either[String, Type.Lambda]] = tpe match {
