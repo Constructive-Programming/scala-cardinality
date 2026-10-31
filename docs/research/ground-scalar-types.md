@@ -92,25 +92,36 @@ nothing the solver builds reaches either.
 
 A constructor counts the product of its positions' value spaces. A **closed** position is a value
 space, never a choice of supplied values: `P3(x: Int, y: Option[Int])` is exactly
-`2^64 + 2^32` (the estimate's bound was `2^65`), and a position whose type the estimate cannot
-read (two packages declaring the same name) is still `|T|`, not `|T|^|T|`. `Float` and `Double`
+`2^64 + 2^32` (the estimate's bound was `2^65`), and a position is `|T|`, never `|T|^|T|`, whatever
+other packages declare under the same name (the estimate reads it where the constructor is
+written — [stored-value-names.md](stored-value-names.md)). `Float` and `Double`
 positions are exact too (`P(x: Double)` is `2^64 − 2^53 + 3`): the method side counts `equals`
 classes, while the definition's stored-value row keeps the estimate's lossy capacity
 (`2^64 (lossy)`) — two views of one type, documented apart.
 
-An infinite closed position keeps the estimate's tier (`Reducer(run: String => String)` stays ε₀).
-Where the estimate cannot read the position, the factor is the size algebra's own reading of the
-closed shape (products multiply, sums add, `|B|^|A|`, sequences ω), so `R(run: C => String)` with
-`C(n: String)` is ε₀ whether or not another package also declares a `C`; the solver's finite
-programs would saturate the same space at ω, which under-states the tier.
+An infinite closed position keeps the estimate's tier (`Reducer(run: String => String)` stays ε₀),
+so `R(run: C => String)` with `C(n: String)` is ε₀ whether or not another package also declares a
+`C`; the solver's finite programs would saturate the same space at ω, which under-states the tier.
+Where the estimate gives no reading and names no reason, the factor is the size algebra's own
+reading of the closed shape (products multiply, sums add, `|B|^|A|`, sequences ω). Where it
+declines the position for a reason — an import it does not follow, a wildcard over a namespace no
+source supplies, a family it does not sum — the row is `?` with that reason: the method side's
+value space would have nothing to agree with.
 
-The two readings must agree where both exist: an exact literal space must lie within a finite
-estimate's capacity, and an infinite space needs an infinite estimate (and vice versa). Otherwise
-one side read a different type — `Outer(i: O.Inner)` where the estimate took a top-level `Inner`
-for `O.Inner` — and the position is refused (`constructor position readings disagree: i (value
-space ω, estimate 2^8)`). A symbolic exact space is at least 2^65,536 (every smaller value is a
-literal), so it agrees only with an infinite estimate, which may saturate a power that wide, or a
-capacity of at least 65,536 bits (`P(p: Char => Boolean)` is `2^(2^16)` against `2^65536`).
+The two readings must agree: the size algebra must read the method side's closed type as the
+estimate reads its own — the same count where both are exact (up to 127), the same capacity width
+above — and an infinite space needs an infinite estimate (and vice versa). A literal merely within
+the estimate's capacity is not enough: in `Dep(q: Other)(val x: q.X)` the method side reads `q.X`
+through an object `q` (`X = Boolean`, 2) while the estimate reads the parameter's `Other.X = Int`
+(2^32), and in `object O extends Base { final case class P(x: Int) }` the method side reads the
+inherited `Base.Int = Boolean` (2) while the estimate, which does not bind inherited type members,
+reads the builtin (2^32) — the same two numbers, opposite readings right. Otherwise one side read
+a different type and the position is refused (`constructor position readings disagree: x (value
+space 2, estimate 2^32)`). Rounding is the only way one type reads to two capacities (sums round
+by `max(bits) + 1`, not associatively), and it refuses rather than guesses. A symbolic exact space
+is at least 2^65,536 (every smaller value is a literal), so it agrees only with an infinite
+estimate, which may saturate a power that wide, or a capacity of at least 65,536 bits
+(`P(p: Char => Boolean)` is `2^(2^16)` against `2^65536`).
 
 Only the constructor's own positions are value spaces. The parameters of an enclosing template
 are captures, bound like a method's: `Inner(a: A)` inside `Outer[A](val n: Int, val g: Int => A)`
@@ -119,8 +130,8 @@ fills its slot from `a` or `g(c)` for each `n`, `(1 + 2^32)^(2^32)`.
 A position with no type parameter is a value space even when it is not closed. Beside a singleton,
 evidence or existential (`p: (Inner.type, C)`) the closed algebra cannot read it, and the shape
 model would count the functions of the position's own value (`(2^8)^(2^8)` for `|C| = 2^8`); it
-takes the estimate's reading, and is refused where the estimate has none (`constructor position
-has no value-space reading: p`). A position whose name the method side refuses as a shadowed
+takes the estimate's reading (`W(p: (Inner.type, C))` is the estimate's `2^8`), and the row is `?`
+where the estimate declines it. A position whose name the method side refuses as a shadowed
 builtin (below) is refused with that reason: the estimate reads the builtin, the same misreading.
 
 The stored-value algebra counts a function from `Nothing` as 0 (it can never run, type-arithmetic

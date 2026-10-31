@@ -524,8 +524,10 @@ The current API and representation have important limits:
   one arm, an `Option` field beside a hole, a domain with two or more inputs, a sealed parent with
   several continuing children) saturates at ω under the §4 finite-program reading, one program per
   unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded outright — strict self
-  argument, tuple, `Set[X]`, function domain — blocks coiteration and is left at the sound
-  least-fixed-point under-count.
+  argument, tuple, `Set[X]`, function domain — blocks coiteration: totals keep the
+  least-fixed-point value, and a row on or reading a blocked cycle that a by-name or function field
+  closes is `?` (`lazy cycle not completed`), because a lazy knot builds values that value omits
+  (see [stored-value names](research/stored-value-names.md)).
 - A growing recursive component is widened to its tier, as §8 describes: a name that can reach
   itself and keeps growing is replaced by the tier it has grown into, so the iteration terminates.
   Separately, completion of each lazy/coinductive type combines its μ estimate and infinite
@@ -550,7 +552,7 @@ it separates implemented rules from executable **targets**:
 | Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; `μX.X` counts `0` |
 | Recursive types (eager) with a base constructor | Asserted: productive recursion widened to `ω`, and an `ε₀` payload never demoted |
 | Lazy (coinductive) recursion through recognized continuations — holes, strict `Option[X]` fields, inhabited function fields `D => X`, sealed-parent pass-throughs | Asserted: deterministic cycles add their label space raised to ω, then lazy-type completion normalizes the combined total (`νX.X` = 1, conaturals = ω, endless `νX.(2·X)` = ω, `LazyList[String]` = `ε₀`); branching cycles saturate at ω (§4 finite-program reading), an empty label space stays `0`, and a chain of consumers sees the settled value |
-| Coiteration blocked by a strict self argument (`x: X`) or a mention nested past the recognized forms (tuples, `Set[X]`, function domains, `Either`) | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
+| Coiteration blocked by a strict self argument (`x: X`) or a mention nested past the recognized forms (tuples, `Set[X]`, function domains, `Either`) | Totals keep the least-fixed-point value; rows on a blocked cycle a by-name or function field closes are `?` (`lazy cycle not completed`), never the under-count |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at `ω` into a finite codomain and `ε₀` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |

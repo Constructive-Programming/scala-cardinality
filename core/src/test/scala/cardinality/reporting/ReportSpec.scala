@@ -468,25 +468,25 @@ class ReportSpec extends Specification {
       "c/Use.scala" -> "package c\nimport a.Widget\ncase class Use(w: Widget)",
     )
     // The import decides what the name means and the calculator does not follow imports, so the
-    // name stays a reason even though the source set defines it.
-    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
+    // name stays a reason even though the source set defines it — and the reason says so.
+    rowsOf(root).filter(_._1 == "c.Use") ===
+      List(("c.Use", Some(EffectiveOmega), List("Widget (imported from a.Widget, not followed)")))
   }
 
   def crossSourceSealed = {
     val root = temporary(
-      "Nat.scala" -> "package p\nsealed trait Nat",
-      "Cases.scala" -> "package p\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
+      "Nat.scala" -> "package p\nsealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
       "Use.scala" -> "package p\ncase class Use(n: Nat)",
     )
-    // The package's equations are solved as one system, so the sealed parent sums the cases a
-    // sibling file defines, and the recursion is read through it. Rows follow the sources, so
-    // `Cases.scala` comes before `Nat.scala`.
-    (rowsOf(root).map(_._1) === List("p.Zero", "p.Succ", "p.Nat", "p.Use"))
+    // Scala keeps a sealed parent's subtypes in its own file ("Cannot extend sealed trait Nat in a
+    // different source file"), where the parent sums them; a sibling file reads the sum, recursion
+    // included, through the package's system.
+    (rowsOf(root).map(_._1) === List("p.Nat", "p.Zero", "p.Succ", "p.Use"))
       .and(
         rowsOf(root) === List(
+          ("p.Nat", Some(EffectiveOmega), Nil),
           ("p.Zero", Some(UnitSize), Nil),
           ("p.Succ", Some(EffectiveOmega), Nil),
-          ("p.Nat", Some(EffectiveOmega), Nil),
           ("p.Use", Some(EffectiveOmega), Nil),
         )
       )
@@ -577,17 +577,18 @@ class ReportSpec extends Specification {
     val found = definitions(
       """|object Outer { type B = Boolean }
          |trait Foo[A] { type B = A }
-         |case class C(x: Outer.B, y: Foo.B)
+         |case class C(x: Outer.B)
          |""".stripMargin,
     )
-    // A qualified reference is a member the sources declare: the owner's parameters are replaced by
-    // what the reference supplied, so `Foo[Boolean].B` is `Boolean`.
+    // A qualified reference is a member the object's body declares: `Outer.B` is `Boolean`. A
+    // trait's member is read through a value of the trait (`memberByValue`): `Foo.B` with no
+    // `object Foo` is not Scala, and `NamespaceSpec` keeps it a reason.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Outer", Some(UnitSize), Nil),
       ("Outer.B", Some(BooleanSize), Nil),
       ("Foo", None, Nil),
       ("Foo.B", Some(EffectiveOmega), List("A")),
-      ("C", Some(EffectiveOmega), List("A")),
+      ("C", Some(BooleanSize), Nil),
     )
   }
 

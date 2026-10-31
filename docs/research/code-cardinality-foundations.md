@@ -282,6 +282,51 @@ members of a parent outside the source set stay unknown (a name such a parent ma
 refused where an inherited member would shadow its outer meaning), and same-level ranking
 (specificity, derived-over-base, which Scala has changed between versions) is never relied on.
 
+## D11. A name denotes the declaration Scala binds it to
+
+**Decision.** The stored-value estimate, and the constructor-slot reading it lends the method
+side, resolve a type name as Scala binds it: types and terms are separate (an object never stands
+in for a type), `O.T` is the member of the object or package `O` and nothing else (no
+last-segment fallback), a qualifier's first name is the innermost term binding (pattern
+variables and self aliases included), bare names follow the precedence local definition >
+explicit import or export > wildcard import > another file's package member > root import, an
+import binds only the statements after it and an export its whole template, a wildcard over a
+namespace no source supplies may bind any name the reading file does not define, package clauses
+open exactly the packages they name, each file reads with its own clauses, a binder (an abstract
+type member too) is innermost, a match type's case body reads where the match type is written,
+and a slot is read where its constructor is written — a ground slot it refuses leaves no number
+on the method side either. A name whose binding is outside the sources, or a clause the
+calculator does not follow, is a reason naming that clause, never a same-named declaration found
+elsewhere. Rows that would rest on an uncomputed value say why: `sealed family not summed`,
+`sealed child parameter not pinned`, `lazy cycle not completed`, `cross-package cycle not
+solved`, `type constructor`. See [stored-value names](stored-value-names.md).
+
+**Evidence.**
+
+- Scala Language Specification, chapter 2, "Identifiers, Names and Scopes" (**classical**, not
+  re-verified this session; scala-lang.org was not reachable): separate type and term
+  namespaces, qualified identifiers as members of stable paths, package-clause visibility, and
+  binding precedence with inner-scope shadowing.
+- **Compiler fixture** (Scala 3.9.0, this session): scalac rejects `Foo.B` for a trait `Foo` with
+  no companion, rejects `W` under `package a.b` when only `a` defines it, rejects a sealed
+  subtype in another file, and accepts the readings the rules give for chained clauses, an inner
+  subpackage over an outer object, wildcard imports over another file's package member, a
+  package's own `Int` over `scala.Int`, inner terms over outer objects, class members read in
+  their class's body, local classes in method bodies, and a lazy knot through a blocked cycle;
+  it rejects an outer definition and an inner wildcard that both bind a name as ambiguous, and
+  accepts the readings for positional imports, object wildcards, `import x.*` naming a package's
+  own object `x`, wildcard exports, package values and pattern variables as first names, self
+  aliases, match-type case bodies in their own scope, and abstract type members.
+- Bekić's lemma (**classical**): solving an object's members jointly with the enclosing body
+  gives the same least fixed point as solving the body and then the object.
+- **Executable**: `NamespaceSpec`, `NamespaceScopingSpec`, `ReportSpec`.
+
+**Boundary.** This decides only *which* declaration a name denotes, and refuses where the value
+is not computed; it adds no counting rule. It does not follow explicit imports or exports, does
+not read enums as namespaces, does not read a namespace no source supplies (the standard
+library's included), and does not sum generic sealed families or families with a subtype outside
+the body — each stays `?` with its reason.
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

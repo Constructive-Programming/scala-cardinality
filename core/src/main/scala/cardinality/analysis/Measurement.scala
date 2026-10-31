@@ -6,7 +6,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.capacity.Counter
+import cardinality.capacity.Reading
 import cardinality.types.{TypeApplications, TypeName}
 
 import ContextualEvidence.Nominal
@@ -23,7 +23,7 @@ private[cardinality] trait Resolver {
   /** The estimate's reading of the source a signature was indexed from, so a constructor position
     * can answer with the same space the definitions' rows use.
     */
-  def reading(path: String): Counter.Reading
+  def reading(path: String): Reading
 
   def lookup(name: String, frame: Frame): List[TypeEntry]
 
@@ -533,15 +533,17 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       .flatMap(resolver.resolve(_, target.frame, variables))
 
   private def count(result: Resolved): Count =
-    if (errors.nonEmpty) Count.Unresolved(errors.toList.distinct.sorted)
-    else
-      result.fold(
-        unresolved,
-        shape => {
-          val (exact, estimated) = positions.factors
-          receivers.certify(shape, Count.product(exact, estimated, inhabitation(shape)))
-        }
-      )
+    positions.declining(
+      if (errors.nonEmpty) Count.Unresolved(errors.toList.distinct.sorted)
+      else
+        result.fold(
+          unresolved,
+          shape => {
+            val (exact, estimated) = positions.factors
+            receivers.certify(shape, Count.product(exact, estimated, inhabitation(shape)))
+          }
+        )
+    )
 
   private def unresolved(reason: String): Count = Count.Unresolved(List(reason))
 

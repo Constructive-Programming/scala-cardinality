@@ -32,16 +32,20 @@ object Definition {
 
     case Unknown(name: String)
 
+    /** A name a clause binds that the estimate does not follow, and which clause (`provenance`). */
+    case Imported(name: String, provenance: String)
+
     /** Syntax the calculator does not model yet: a match type, a type lambda, a refinement. */
     case Syntax(what: String)
 
     /** How the kind reads in a row: a name, or what kind of syntax it is. */
     def render: String = this match {
-      case Parameter(name)           => name
-      case HigherKinded(name, arity) => s"$name[${List.fill(arity)("_").mkString(", ")}]"
-      case Open(name)                => name
-      case Unknown(name)             => name
-      case Syntax(what)              => what
+      case Parameter(name)            => name
+      case HigherKinded(name, arity)  => s"$name[${List.fill(arity)("_").mkString(", ")}]"
+      case Open(name)                 => name
+      case Unknown(name)              => name
+      case Imported(name, provenance) => s"$name ($provenance)"
+      case Syntax(what)               => what
     }
 
   }

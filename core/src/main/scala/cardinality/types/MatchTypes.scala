@@ -66,16 +66,35 @@ private[cardinality] object MatchTypes {
         }
     )
 
-  // A match type read on a known scrutinee: every case pattern is matched against the scrutinee with
-  // the definition's parameters already replaced by the arguments, and the first case that matches
-  // gives its body with the pattern's binders replaced by the parts of the scrutinee they stood
-  // for. The patterns a case can have are the ones a reducer earns: a tuple of binders, a bare
-  // binder, a wildcard, and anything else by spelling.
+  // A match type read on a known scrutinee: every case pattern is matched against the scrutinee
+  // with the definition's parameters already replaced by the arguments, and the first case that
+  // matches gives its body with the pattern's binders replaced by the parts of the scrutinee they
+  // stood for. The patterns a case can have are the ones a reducer earns: a tuple of binders, a
+  // bare binder, a wildcard, and anything else by spelling.
   private[cardinality] def reduced(matchType: Type, arguments: Map[TypeName, Type]): Option[Type] =
     TypeSubstitution.replace(matchType, arguments) match {
       case Type.Match.After_4_9_9(scrutinee, block) =>
         block.cases.collectFirst(Function.unlift(caseOf(_, scrutinee)))
       case other => Some(other)
+    }
+
+  /** The case a match type takes on known arguments, unsubstituted, with what each of its names
+    * stands for: the definition's parameters their arguments, and the pattern's binders the parts
+    * of the scrutinee they matched — so a reader can read the arguments where they are written and
+    * the body where the match type is.
+    */
+  private[cardinality] def matched(
+      matchType: Type,
+      arguments: Map[TypeName, Type]
+  ): Option[(Type, Map[TypeName, Type])] =
+    matchType match {
+      case Type.Match.After_4_9_9(scrutinee, block) =>
+        val known = TypeSubstitution.replace(scrutinee, arguments)
+        block.cases.collectFirst(Function.unlift { c =>
+          bindingsHylo((TypeSubstitution.replace(c.pat, arguments), known))
+            .map(bound => c.body -> (arguments ++ bound))
+        })
+      case other => Some(other -> arguments)
     }
 
   private def caseOf(caseType: TypeCase, scrutinee: Type): Option[Type] =

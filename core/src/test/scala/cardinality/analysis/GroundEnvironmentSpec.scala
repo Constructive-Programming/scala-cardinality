@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
+import cardinality.capacity.ByteSize
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -53,7 +54,7 @@ class GroundEnvironmentSpec extends Specification {
       a representation budget breach names its limit                 $budget
       floating point positions count equals classes exactly          $floats
       an enclosing template's parameters are captures                $outerCaptures
-      a singleton beside a value has no value-space reading          $singletonPositions
+      a singleton beside a value takes the estimate's reading        $singletonPositions
       a symbolic value space disagrees with a narrow estimate        $symbolicDisagreement
     Anonymous evidence
       two anonymous evidences of one ground type are unreachable     $anonymousGround
@@ -443,14 +444,22 @@ class GroundEnvironmentSpec extends Specification {
     )
 
   // `new Sub(3)` compiles: a primary constructor's parameters are read outside the template's
-  // members. A case class nested in a template that inherits `Int` reads the member.
+  // members. A case class nested in a template that inherits `Int` reads the member: the method side
+  // reads `Base.Int = Boolean` (2), but the estimate does not bind inherited type members and reads
+  // the builtin (2^32). A value merely within the estimate's capacity does not show one type was
+  // read (`q.X` below has the same two numbers with the estimate right), so the readings disagree.
   def constructorScope = {
     val rows = counts(
       "a.scala" ->
         s"package cp\n${base}class Sub(val x: Int) extends Base\nobject O extends Base { final case class P(x: Int) }"
     )
     (rows("cp.Sub.<init>") === Count.Finite(BigInt(2).pow(32)))
-      .and(rows("cp.O.P.<init>") === Count.Finite(2))
+      .and(
+        unresolvedOn(
+          rows("cp.O.P.<init>"),
+          "constructor position readings disagree: x (value space 2, estimate 2^32)"
+        )
+      )
   }
 
   // A namespace no supplied term heads is foreign: whether `org.foo` declares `Int` is the stdlib
@@ -521,20 +530,36 @@ class GroundEnvironmentSpec extends Specification {
       "e.scala" -> "package yy\nfinal case class Inner(b: Boolean)",
       "f.scala" -> "package xx\nimport yy.Inner\ndef f(i: Inner): Boolean = true"
     )
+    // The constructor's position has no estimate to agree with: the estimate does not follow
+    // explicit imports, so the method side's reading of `y.Inner` stands unconfirmed.
     (rows("x.f") === Count.Countable)
-      .and(rows("x.Outer.<init>").render === "ω")
+      .and(
+        rows("x.Outer.<init>") ===
+          Count.Unresolved(List("unresolved type: Inner (imported from y.Inner, not followed)"))
+      )
       .and(rows("xx.f") === Count.Finite(4))
   }
 
-  // The estimate reads `O.Inner` as the top-level Inner (2^8); the method side reads O.Inner (ω).
+  // Both readings take `O.Inner` as the object's member (ω), not the top-level Inner (2^8): they
+  // agree. The method side reads `q.X` through the object `q` (2), the estimate through the
+  // parameter `q: Other` (`X = String`, ω): they disagree, and the position is refused.
   def disagreement = {
     val rows = counts(
       "Example.scala" ->
         ("final case class Inner(b: Byte)\nobject O { final case class Inner(s: String) }\n" +
-          "final case class Outer(i: O.Inner)\nfinal case class Outer4(i: O.Inner, f: Int => Int)")
+          "final case class Outer(i: O.Inner)\nfinal case class Outer4(i: O.Inner, f: Int => Int)"),
+      "d1.scala" ->
+        ("package d1\nobject q { type X = Boolean }\nfinal class Other { type X = String }\n" +
+          "final case class Dep(q: Other)(val x: q.X)")
     )
-    val reason = "constructor position readings disagree: i (value space ω, estimate 2^8)"
-    unresolvedOn(rows("Outer.<init>"), reason).and(unresolvedOn(rows("Outer4.<init>"), reason))
+    (rows("Outer.<init>").render === "ω")
+      .and(rows("Outer4.<init>").render === "ω")
+      .and(
+        unresolvedOn(
+          rows("d1.Dep.<init>"),
+          "constructor position readings disagree: x (value space 2, estimate ω)"
+        )
+      )
   }
 
   // Two packages declaring `C` keep the estimate from reading the positions; the answer is the one a
@@ -583,36 +608,49 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("OuterB.InnerB.<init>") === Count.Finite(9))
   }
 
-  // Two packages declaring `C` keep the estimate from reading W's position. Its value space is
-  // |Inner.type|·|C| (2^8, 2); the shape model would count the functions of the position instead.
+  // Each `W` position is read in its own package, as the estimate binds `C`: |Inner.type|·|C| (2^8 —
+  // a capacity —, 2). The shape model would count the functions of the position instead. A position
+  // the estimate declines (an unsupplied `Missing`) is `?` with the estimate's reason.
   def singletonPositions = {
     val rows = counts(
       "kg.scala" ->
         ("package kg\nfinal case class C(n: Byte)\nobject Inner\nfinal case class W(p: (Inner.type, C))\n" +
-          "final case class V(p: C)"),
+          "final case class V(p: C)\nfinal case class M(p: (Inner.type, Missing))"),
       "kb.scala" ->
         "package kb\nfinal case class C(n: Boolean)\nobject Inner\nfinal case class W(p: (Inner.type, C))",
       "kh.scala" -> "package kh\nfinal case class C(n: Byte)"
     )
-    val reason = "constructor position has no value-space reading: p"
-    unresolvedOn(rows("kg.W.<init>"), reason)
-      .and(unresolvedOn(rows("kb.W.<init>"), reason))
+    (rows("kg.W.<init>") === Count.Bounded(ByteSize))
+      .and(rows("kb.W.<init>") === Count.Finite(2))
       .and(rows("kg.V.<init>") === Count.Finite(256))
+      .and(rows("kg.M.<init>") === Count.Unresolved(List("unresolved type: Missing")))
   }
 
-  // The estimate reads `O.Inner` as the top-level Inner (2^8); the method side's value space is a
-  // symbolic count, wider than any literal, so the two cannot be the same type.
+  // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
+  // at an infinite tier: they agree. Where the method side reads `q.X` through the object `q` (a
+  // symbolic space) and the estimate through the parameter `q: Other` (`X = Byte`, 2^8), the
+  // symbolic space is wider than any literal, so the two cannot be the same type.
   def symbolicDisagreement =
-    unresolvedOn(
-      count(
-        "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
-          "final case class Outer(i: O.Inner)",
-        "Outer.<init>"
-      ),
-      "constructor position readings disagree: i (value space 2^(2^137438953477), estimate 2^8)"
-    ).and(
-      count("final case class P(p: Char => Boolean)", "P.<init>") === Count.Symbolic(pow(2, 65536))
-    )
+    (count(
+      "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
+        "final case class Outer(i: O.Inner)",
+      "Outer.<init>"
+    ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + 5))))
+      .and(
+        unresolvedOn(
+          count(
+            "package d2\nobject q { type X = (Int => Int) => Int }\nfinal class Other { type X = Byte }\n" +
+              "final case class Dep(q: Other)(val x: q.X)",
+            "d2.Dep.<init>"
+          ),
+          "constructor position readings disagree: x (value space 2^(2^137438953477), estimate 2^8)"
+        )
+      )
+      .and(
+        count("final case class P(p: Char => Boolean)", "P.<init>") === Count.Symbolic(
+          pow(2, 65536)
+        )
+      )
 
   // `summon[Int]` is ambiguous between two anonymous `Int`s (3.9.0: E172), so a body reaches
   // neither: the true count of `f` is 2^32 (a literal), not 2^(2^37) (one Int read) or 2^(2^64). One

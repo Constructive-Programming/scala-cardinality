@@ -6,7 +6,7 @@ import scala.util.control.NonFatal
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.capacity.{Counter, Library}
+import cardinality.capacity.{Counter, Library, Reading}
 import cardinality.types.*
 
 /** Source-set analysis of pure, total parametric implementations, not stored-value cardinality.
@@ -129,12 +129,12 @@ object MethodAnalysis {
     // One reading per source: the estimate's scope, solved with every supplied file behind it, so
     // a constructor's parameter answers `Int` with 2^32 and `Nat` with its sealed sum — the same
     // numbers the definitions' rows carry.
-    private lazy val readings: Map[String, Counter.Reading] = {
+    private lazy val readings: Map[String, Reading] = {
       val library = Library.of(inputs.map(_.tree))
-      inputs.map(input => input.path -> Counter.Reading.of(input.tree, library)).toMap
+      inputs.map(input => input.path -> Reading.of(input.tree, library)).toMap
     }
 
-    def reading(path: String): Counter.Reading = readings.getOrElse(path, Counter.Reading.bare)
+    def reading(path: String): Reading = readings.getOrElse(path, Reading.bare)
 
     private val lookupIndex = new SourceLookup(
       indexer.types.toList,
