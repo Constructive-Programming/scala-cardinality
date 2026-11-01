@@ -35,10 +35,9 @@ eliminate (`Elimination of an opaque … callable … is unsupported`), a name o
 **Not covered: overridable members.** Cross-check X5 (fixture `ow`): a concrete member of an open
 class may be overridden in the same file, so it is a capability, not fixed code
 (`Box.target` = 3, `FBox.target` = 2). The environment memo's "closed-world dispatch" (§3.0(1)) is
-superseded. Reading those members as capabilities is the capability-records feature's (B3). This
-rule neither adds nor removes that skip, which predates it: until B3 lands, an open class's own
-concrete members are still skipped and `ow.Box.target` reads 2 — a known wrong number, deferred to
-B3, not an instance of this rule.
+superseded. Reading those members as capabilities is the capability records' rule
+([capability records](capability-records.md), register D20), not this one: `ow.Box.target` reads
+3 and the final twin `FBox.target` 2.
 
 ## 2. A `var` holds the value it was given
 
@@ -169,8 +168,8 @@ fixtures, but without compiler metadata it is not syntax) and is not done.
 
 ## Limits left as `?`
 
-- Overridable concrete members of open classes (X5): B3; `ow.Box.target` reads 2 (true 3) until
-  then.
+- Overridable concrete members of open classes (X5) are capabilities, read by the capability
+  records (D20); their own limits (possible views, polymorphic members) are listed there.
 - `Optional`'s `Fused` leaf with a free `M0` (`sealed subtype Fused binds M0 to no slot of
   Optional`): the environment memo reads it as an existential summand, but no eo count can move
   (the summand's existential sits in result positions, which stay `?`), so the sound refusal stays.

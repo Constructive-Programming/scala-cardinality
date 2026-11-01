@@ -28,7 +28,7 @@ class ContextualOverrideIdentitySpec extends Specification {
     Conservative boundaries
       does not guess identity across ordinary and contextual clauses   $ordinary
       keeps dependent contextual results unresolved                    $dependent
-      keeps imported evidence identity unresolved                      $imported
+      keys imported evidence by the path its import binds              $imported
       preserves additional unsupported contextual modifiers            $inlineParameter
   """
 
@@ -143,14 +143,20 @@ class ContextualOverrideIdentitySpec extends Specification {
       }
     """)
 
+  // Both signatures spell `Evidence` under one import, so the parameters are one key
+  // (`foreign:external.Evidence`) and Base.get is the measured declaration; what stays unknown is
+  // the evidence's own declaration, which was not supplied (capabilities C9 (b)).
   def imported =
-    identityUnresolved("""
+    count("""
       import external.Evidence
       trait Base[A] { def get(a: A)(using ev: Evidence[A]): A }
       abstract class Instance[A] extends Base[A] {
         def get(a: A)(using ev: Evidence[A]): A = a
       }
-    """)
+    """) must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons === List("declaration not supplied: external.Evidence (named import Evidence)")
+    }
 
   def contextOnly =
     count("""

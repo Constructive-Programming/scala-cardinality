@@ -2,7 +2,7 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.model.{MemberPath, ResolutionContext, ScopeTerms}
+import cardinality.analysis.model.{MemberPath, MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.{Traversals, TypeApplications}
 
@@ -136,8 +136,8 @@ final private[cardinality] class OverriddenResults(
   // matches by name alone, and its parameters are not compared.
   private def sameShape(method: Signature): Boolean =
     ownBounded || bounded(method.groups) ||
-      FinalImplementations.shape(method.groups) ==
-      FinalImplementations.shape(definition.paramClauseGroups)
+      MemberSyntax.shape(method.groups) ==
+      MemberSyntax.shape(definition.paramClauseGroups)
 
   private def bounded(groups: List[Member.ParamClauseGroup]): Boolean =
     groups.exists(_.tparamClause.values.exists(p => (p.bounds.context ++ p.bounds.view).nonEmpty))

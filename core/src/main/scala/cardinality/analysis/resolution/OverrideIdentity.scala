@@ -4,15 +4,25 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.model.*
-import cardinality.types.Traversals
 import dev.constructive.eo.generics.lens
 
-import MethodAnalysis.{Frame, Target, TypeEntry}
-import OverrideIdentity.{aliasFrame, depthLens, localsLens, Bindings, Key, Side}
+import MethodAnalysis.{Frame, Target}
+import OverrideIdentity.{known, lexical, localsLens, Bindings, Key, MethodMember, Side, Spelled}
 
 private[cardinality] object OverrideIdentity {
 
-  type Key = Option[String]
+  /** A type's identity as override identity compares it, and whether it rests on a declaration
+    * whose equalities the keying does not see (a name outside the sources, an opaque type).
+    */
+  final case class Spelled(spelling: String, tentative: Boolean)
+
+  type Key = Option[Spelled]
+
+  /** The key of a spelling that rests on nothing tentative. */
+  def known(spelling: String): Key = Some(Spelled(spelling, tentative = false))
+
+  /** A method member a template declares or defines. */
+  type MethodMember = Decl.Def | Defn.Def
 
   // Immediate method/alias formals take precedence; enclosing binders compete with declarations
   // in lexical order. Scoped identities retain receiver substitutions across shadowing.
@@ -30,139 +40,165 @@ private[cardinality] object OverrideIdentity {
   val depthLens = lens[Bindings](_.expansionDepth)
   val aliasFrame = lens[Bindings](_.locals, _.expansionDepth)
 
+  /** A frame's class binders, each its own identity unless replaced, beside the replacements other
+    * levels' binders already carry: an alias read at another level keys its binders as composed.
+    */
+  def lexical(frame: Frame, replacements: Map[(String, String), Key] = Map.empty): Bindings = {
+    val own = frame.chain
+      .flatMap(scope =>
+        scope.typeParams
+          .map(p => (scope.id -> p.name.value) -> known(s"binder:${scope.id}:${p.name.value}"))
+      )
+      .toMap
+    Bindings(Map.empty, own ++ replacements)
+  }
+
 }
 
 /** Override identity is nominal type identity, not equality of inhabitant representations.
   * Unsupported signatures deliberately leave an obligation instead of guessing an override.
+  *
+  * Two members are one slot when their names and parameter signatures match as seen from the
+  * receiver (capabilities C9): each side's class binders are keyed through every `extends` clause
+  * between its level and the receiver, so a grandparent's `A` is the argument the chain gives it.
+  * Result types are not compared — SLS §5.1.3 matches members by parameter types; a matching member
+  * whose result does not conform is a type error, not an overload, and the analyzed sources
+  * typecheck — so equal parameters are an override, a covariant result included.
   */
-final private[cardinality] class OverrideIdentity(target: Target, resolver: Resolver) {
-  private given Dialect = dialects.Scala3
+final private[cardinality] class OverrideIdentity(resolver: Resolver) {
+  private val keys = new OverrideKeys(resolver)
 
-  def matches(declaration: Decl.Def, parent: Init, from: Frame, owner: Frame): Option[Boolean] =
+  /** Whether an inherited member is the measured declaration, seen from the target's template. */
+  def matches(
+      target: Target,
+      declaration: MethodMember,
+      step: InheritedScopes.Step,
+      steps: List[InheritedScopes.Step]
+  ): Option[Boolean] =
     target.tree match {
       case method: (Defn.Def | Decl.Def) if method.name.value == declaration.name.value =>
-        directMatch(declaration, method, parent -> from, owner)
+        if (!target.frame.parent.exists(_.id == step.root.id)) None
+        else {
+          val current = Side(
+            ResolutionContext(target.frame, resolver.typeParameters(target.frame), Set.empty),
+            lexical(target.frame)
+          )
+          side(declaration, step.declared, step.root, steps)
+            .flatMap(inherited => compare(declaration, inherited, method, current))
+        }
       case _ => Some(false)
     }
 
-  private def directMatch(
-      declaration: Decl.Def,
-      method: Tree,
-      inheritance: (Init, Frame),
-      owner: Frame
+  /** Whether two members of one receiver's linearization are one slot — an implementation and the
+    * declaration it implements — each read at its own level.
+    */
+  def sameMember(
+      left: (MethodMember, Frame),
+      right: (MethodMember, Frame),
+      root: Frame,
+      steps: List[InheritedScopes.Step]
   ): Option[Boolean] =
-    if (
-      !target.frame.parent.exists(_.id == inheritance._2.id) ||
-      declaration.mods.exists(_.is[Mod.Private])
-    ) None
-    else
-      parentIdentity(inheritance).flatMap { _ =>
-        // The inherited declaration is a member of the receiver: its type members are the
-        // receiver's (members M2), so both signatures key them alike.
-        val receiver = inheritance._2
-        val scope = ResolutionContext(owner, resolver.typeParameters(owner), Set.empty)
-          .as(MemberPath.self(receiver, resolver.typeParameters(receiver)))
-        compare(declaration, method, Side(scope, parentBindings(inheritance._1, receiver, owner)))
-      }
-
-  private def parentIdentity(inheritance: (Init, Frame)): Key = {
-    val context =
-      ResolutionContext(inheritance._2, resolver.typeParameters(inheritance._2), Set.empty)
-    key(inheritance._1.tpe, context, lexical(inheritance._2))
-  }
-
-  private def compare(declaration: Decl.Def, method: Tree, inherited: Side): Option[Boolean] = {
-    val current = Side(
-      ResolutionContext(target.frame, resolver.typeParameters(target.frame), Set.empty),
-      lexical(target.frame)
-    )
-    val currentGroups = method match {
-      case d: (Defn.Def | Decl.Def) => d.paramClauseGroups
-      case _                        => Nil
-    }
-    val currentSignature = method match {
-      case d: Defn.Def => d.decltpe.flatMap(signature(d.paramClauseGroups, _, current))
-      case d: Decl.Def => signature(d.paramClauseGroups, d.decltpe, current)
-      case _           => None
-    }
-    for {
-      left <- signature(declaration.paramClauseGroups, declaration.decltpe, inherited)
-      right <- currentSignature
-      inheritedConvention <- conventions(declaration.paramClauseGroups)
-      currentConvention <- conventions(currentGroups)
-      matched <- sameSignature(left, right, inheritedConvention == currentConvention)
-    } yield matched
-  }
-
-  private def sameSignature(
-      left: (String, String),
-      right: (String, String),
-      sameConvention: Boolean
-  ): Option[Boolean] =
-    if (left._1 != right._1) Some(false)
-    else if (!sameConvention) None
-    // A covariant return can implement the same slot; unequal returns are not proof of an overload.
-    else Option.when(left._2 == right._2)(true)
-
-  private def parentBindings(parent: Init, from: Frame, owner: Frame): Bindings = {
-    val arguments = ResolutionOptics.typeArguments.getOption(parent.tpe).getOrElse(Nil)
-    val caller = ResolutionContext(from, resolver.typeParameters(from), Set.empty)
-    val replacements = owner.typeParams
-      .map(p => (owner.id, p.name.value))
-      .zip(arguments.map(key(_, caller, lexical(from))))
-      .toMap
-    lexical(owner, replacements)
-  }
-
-  private def lexical(
-      frame: Frame,
-      replacements: Map[(String, String), Key] = Map.empty
-  ): Bindings = {
-    val scoped = frame.chain
-      .flatMap(scope =>
-        scope.typeParams.map(p => {
-          val id = scope.id -> p.name.value
-          id -> replacements.getOrElse(id, Some(s"binder:${scope.id}:${p.name.value}"))
-        })
-      )
-      .toMap
-    Bindings(Map.empty, scoped)
-  }
-
-  private def signature(
-      groups: List[Member.ParamClauseGroup],
-      result: Type,
-      side: Side
-  ): Option[(String, String)] = {
-    val parameters = groups.flatMap(_.tparamClause.values)
-    val method = parameters.zipWithIndex.map { (p, index) =>
-      p.name.value -> Some(s"method:$index")
-    }.toMap
-    val context = side.context
-    val bindings = localsLens.replace(method)(side.bindings)
-    val clauses = groups.map(groupKey(_, context, bindings))
-    if (groups.drop(1).exists(_.tparamClause.values.nonEmpty) || dependent(groups, result)) None
+    if (left._1.name.value != right._1.name.value) Some(false)
+    // A member with another number of binders or parameters per clause is another signature.
+    else if (arity(left._1) != arity(right._1)) Some(false)
     else
       for {
-        params <- combine(clauses)
-        res <- key(result, context, bindings)
-      } yield params -> res
+        leftSide <- side(left._1, left._2, root, steps)
+        rightSide <- side(right._1, right._2, root, steps)
+        matched <- compare(left._1, leftSide, right._1, rightSide)
+      } yield matched
+
+  private def arity(member: MethodMember): List[Int] = MemberSyntax.shape(member.paramClauseGroups)
+
+  // A member read at its level, with `this` the receiver: its type members are the receiver's
+  // (members M2), so both signatures key them alike. A private member is no inherited slot.
+  private def side(
+      member: MethodMember,
+      level: Frame,
+      root: Frame,
+      steps: List[InheritedScopes.Step]
+  ): Option[Side] =
+    Option.unless(member.mods.exists(_.is[Mod.Private]))(()).flatMap { _ =>
+      bindingsAt(level, root, steps, 0).map { bindings =>
+        val scope = ResolutionContext(level, resolver.typeParameters(level), Set.empty)
+        Side(
+          if (level.id == root.id) scope
+          else scope.as(MemberPath.self(root, resolver.typeParameters(root))),
+          bindings
+        )
+      }
+    }
+
+  // A level's class binders as the receiver sees them: the receiver's own, or the keys of the
+  // arguments the clause naming the level gives it, read under that clause's level — composed
+  // along the walk, so every level is keyed in the receiver's binders.
+  private def bindingsAt(
+      level: Frame,
+      root: Frame,
+      steps: List[InheritedScopes.Step],
+      depth: Int
+  ): Option[Bindings] =
+    if (level.id == root.id) Some(lexical(root))
+    else if (depth > steps.size) None
+    else
+      InheritedScopes.at(steps, root, level).flatMap { step =>
+        bindingsAt(step.from, root, steps, depth + 1).flatMap { from =>
+          val caller = ResolutionContext(step.from, resolver.typeParameters(step.from), Set.empty)
+          val side = Side(caller, from)
+          keys.key(step.parent.tpe, side).map { _ =>
+            val arguments = ResolutionOptics.typeArguments.getOption(step.parent.tpe).getOrElse(Nil)
+            val replacements = step.declared.typeParams
+              .map(p => (step.declared.id, p.name.value))
+              .zip(arguments.map(keys.key(_, side)))
+              .toMap
+            lexical(step.declared, from.scoped ++ replacements)
+          }
+        }
+      }
+
+  private def compare(left: MethodMember, leftSide: Side, right: MethodMember, rightSide: Side) =
+    for {
+      leftSignature <- signature(left.paramClauseGroups, MemberSyntax.result(left), leftSide)
+      rightSignature <- signature(
+        right.paramClauseGroups,
+        MemberSyntax.result(right),
+        rightSide
+      )
+      leftConvention <- conventions(left.paramClauseGroups)
+      rightConvention <- conventions(right.paramClauseGroups)
+      matched <- sameSignature(leftSignature, rightSignature, leftConvention == rightConvention)
+    } yield matched
+
+  // Equal parameters are one slot whatever the results; different ones are an overload — unless a
+  // key rests on a declaration whose equalities this keying cannot see.
+  private def sameSignature(left: Spelled, right: Spelled, sameConvention: Boolean) =
+    if (left.spelling != right.spelling) Option.unless(left.tentative || right.tentative)(false)
+    else Option.when(sameConvention)(true)
+
+  // The parameter signature: method binders keyed by position, every clause's types; a result
+  // that depends on a term parameter, or binders past the first clause group, stay unknown.
+  private def signature(
+      groups: List[Member.ParamClauseGroup],
+      result: Option[Type],
+      side: Side
+  ): Key = {
+    val parameters = groups.flatMap(_.tparamClause.values)
+    val method = parameters.zipWithIndex.map((p, index) => p.name.value -> known(s"method:$index"))
+    val bound = side.copy(bindings = localsLens.replace(method.toMap)(side.bindings))
+    if (groups.drop(1).exists(_.tparamClause.values.nonEmpty) || dependent(groups, result)) None
+    else keys.combine(groups.map(groupKey(_, bound)))
   }
 
-  private def dependent(groups: List[Member.ParamClauseGroup], result: Type): Boolean = {
-    val terms = groups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toSet
-    val trees: List[Tree] = result :: groups
+  private def dependent(groups: List[Member.ParamClauseGroup], result: Option[Type]): Boolean = {
+    val terms = MemberSyntax.parameterNames(groups)
+    val trees: List[Tree] = result.toList ++ groups
     trees.exists(_.collect {
       case selected: Type.Select => selected.qual.syntax.takeWhile(_ != '.')
     }.exists(terms))
   }
 
-  private def groupKey(
-      group: Member.ParamClauseGroup,
-      context: ResolutionContext,
-      bindings: Bindings
-  ): Key = {
-    val types = group.tparamClause.values.map(parameterKey(_, context, bindings))
+  private def groupKey(group: Member.ParamClauseGroup, side: Side): Key = {
+    val types = group.tparamClause.values.map(parameterKey(_, side))
     val clauses = group.paramClauses.map { clause =>
       val params = clause.values.map { p =>
         for {
@@ -170,258 +206,43 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
           _ <- plainModifiers(
             p.mods.filterNot(mod => clause.mod.exists(_.structure == mod.structure))
           )
-          tpe <- p.decltpe.flatMap(key(_, context, bindings))
+          tpe <- p.decltpe.flatMap(keys.key(_, side))
         } yield tpe
       }
       for {
         _ <- clauseKind(clause.mod)
-        types <- combine(params)
+        types <- keys.combine(params)
       } yield types
     }
-    combine(List(combine(types), combine(clauses)))
+    keys.combine(List(keys.combine(types), keys.combine(clauses)))
   }
 
   // `implicit` and `using` are two spellings of a contextual clause. A different calling
   // convention is not by itself proof of a separate inherited slot, so compare leaves it unknown.
   private def conventions(groups: List[Member.ParamClauseGroup]): Key =
-    combine(groups.flatMap(_.paramClauses).map(clause => clauseKind(clause.mod)))
+    keys.combine(groups.flatMap(_.paramClauses).map(clause => clauseKind(clause.mod)))
 
   private def clauseKind(mod: Option[Mod]): Key = mod match {
-    case None                                 => Some("ordinary")
-    case Some(_: Mod.Using | _: Mod.Implicit) => Some("contextual")
+    case None                                 => known("ordinary")
+    case Some(_: Mod.Using | _: Mod.Implicit) => known("contextual")
     case _                                    => None
   }
 
-  private def parameterKey(
-      parameter: Type.Param,
-      context: ResolutionContext,
-      bindings: Bindings
-  ): Key =
+  private def parameterKey(parameter: Type.Param, side: Side): Key =
     // A rigid higher-kinded binder is keyed by its kind beside its bounds: `F[_]` and `F[_, _]`
     // are different signatures.
     if (cardinality.types.Kinds.refusal(parameter).nonEmpty) None
     else {
       val bounds = parameter.bounds
-      val keys = List(bounds.lo.toList, bounds.hi.toList, bounds.context, bounds.view)
-        .map(types => combine(types.map(key(_, context, bindings))))
-      val kind = Some(s"kind:${cardinality.types.Kinds.of(parameter).render}")
-      plainModifiers(parameter.mods).flatMap(_ => combine(kind :: keys))
+      val bounded = List(bounds.lo.toList, bounds.hi.toList, bounds.context, bounds.view)
+        .map(types => keys.combine(types.map(keys.key(_, side))))
+      val kind = known(s"kind:${cardinality.types.Kinds.of(parameter).render}")
+      plainModifiers(parameter.mods).flatMap(_ => keys.combine(kind :: bounded))
     }
 
   // An annotation does not distinguish an overload's parameter type or calling convention.
   // Other parameter modifiers need semantic normalization before we can compare.
   private def plainModifiers(mods: List[Mod]): Option[Unit] =
     Option.when(mods.forall(_.is[Mod.Annot]))(())
-
-  private def key(tpe: Type, context: ResolutionContext, bindings: Bindings): Key = tpe match {
-    case n: Type.Name  => simple(n, Nil, context, bindings)
-    case t: Type.Apply =>
-      t.tpe match {
-        case n: Type.Name => simple(n, t.argClause.values, context, bindings)
-        case s: Type.Select if !termQualifier(s, context.frame) =>
-          named(
-            s.syntax.stripPrefix("_root_."),
-            t.argClause.values,
-            context,
-            bindings,
-            qualified = true
-          )
-        case _ => application(key(t.tpe, context, bindings), t.argClause.values, context, bindings)
-      }
-    // Tuple and arrow syntax spell `scala.TupleN` and `scala.FunctionN` themselves: one key per
-    // declaration, whichever way it is written (scalac accepts an override that respells them).
-    case Type.Tuple(args) =>
-      application(Some(s"builtin:scala.Tuple${args.size}"), args, context, bindings)
-    case f: Type.Function =>
-      val parameters = f.paramClause.values
-      application(
-        Some(s"builtin:scala.Function${parameters.size}"),
-        parameters :+ f.res,
-        context,
-        bindings
-      )
-    case other => decoratedKey(other, context, bindings)
-  }
-
-  // A name the template inherits is a member this keying does not follow: its identity is left
-  // open rather than read through a same-spelled outer declaration.
-  private def simple(
-      name: Type.Name,
-      args: List[Type],
-      context: ResolutionContext,
-      bindings: Bindings
-  ): Key =
-    memberKey(name, args, context, bindings).getOrElse {
-      if (resolver.inheritsName(name, name.value, context)) None
-      else named(name.value, args, context, bindings)
-    }
-
-  // A type member keys as its path's: an alias as its body where it is declared, an abstract member
-  // as its atom (members M2), however it is spelled (`Member`, `this.Member`, `p.Member`). Method
-  // binders shadow members, so they are read first.
-  private def memberKey(
-      tpe: Type,
-      args: List[Type],
-      context: ResolutionContext,
-      bindings: Bindings
-  ): Option[Key] =
-    Option
-      .unless(methodBinder(tpe, bindings))(
-        resolver.unappliedMember(tpe, args, context.referencing(tpe))
-      )
-      .flatten
-      .map(_.toOption.flatMap(_.fold(aliasKey(_, _, bindings), Some(_))))
-
-  private def methodBinder(tpe: Type, bindings: Bindings): Boolean = tpe match {
-    case n: Type.Name => bindings.locals.contains(n.value)
-    case _            => false
-  }
-
-  private def aliasKey(body: Type, scope: ResolutionContext, bindings: Bindings): Key =
-    if (bindings.expansionDepth >= resolver.limits.maxTypeDepth) None
-    else
-      key(
-        body,
-        scope,
-        depthLens.replace(bindings.expansionDepth + 1)(lexical(scope.frame, bindings.scoped))
-      )
-
-  private def decoratedKey(tpe: Type, context: ResolutionContext, bindings: Bindings): Key =
-    tpe match {
-      case selected: Type.Select =>
-        memberKey(selected, Nil, context, bindings).getOrElse {
-          if (termQualifier(selected, context.frame)) None
-          else
-            named(selected.syntax.stripPrefix("_root_."), Nil, context, bindings, qualified = true)
-        }
-      case Type.ByName(value)   => key(value, context, bindings).map(k => s"byname:$k")
-      case Type.Repeated(value) => key(value, context, bindings).map(k => s"repeated:$k")
-      case _                    => None
-    }
-
-  private def named(
-      name: String,
-      args: List[Type],
-      context: ResolutionContext,
-      bindings: Bindings,
-      qualified: Boolean = false
-  ): Key = {
-    val entries = resolver.lookup(name, context.frame)
-    val enclosing = context.frame.chain
-      .find(scope => bindings.scoped.contains(scope.id -> name))
-      .filterNot { binder =>
-        val nearer = context.frame.chain.takeWhile(_.id != binder.id)
-        entries.exists(entry => nearer.exists(_.id == entry.owner.id)) || imports(name, nearer)
-      }
-      .map(scope => bindings.scoped(scope.id -> name))
-    val bound = if (qualified) None else bindings.locals.get(name).orElse(enclosing)
-    bound match {
-      case Some(binding)                         => applied(binding, args, context, bindings)
-      case None if imported(name, context.frame) => None
-      case None                                  =>
-        entries match {
-          case List(entry) =>
-            ResolutionOptics.entryTypeDefinition.getOption(entry) match {
-              case Some(declaration) => alias(entry, declaration, args, context, bindings)
-              case None              => applied(constructor(name, context), args, context, bindings)
-            }
-          case _ => applied(constructor(name, context), args, context, bindings)
-        }
-    }
-  }
-
-  private def applied(
-      constructor: Key,
-      args: List[Type],
-      context: ResolutionContext,
-      bindings: Bindings
-  ): Key =
-    if (args.isEmpty) constructor else application(constructor, args, context, bindings)
-
-  private def alias(
-      entry: TypeEntry,
-      declaration: Defn.Type,
-      args: List[Type],
-      context: ResolutionContext,
-      bindings: Bindings
-  ): Key = {
-    val parameters = declaration.tparamClause.values
-    val id = s"override-alias:${entry.owner.id}:${declaration.pos.start}"
-    if (
-      declaration.mods.exists(_.is[Mod.Opaque]) ||
-      parameters.size != args.size ||
-      parameters.exists(p =>
-        p.tparamClause.values.nonEmpty || p.mods.nonEmpty ||
-          p.bounds.lo.nonEmpty || p.bounds.hi.nonEmpty ||
-          p.bounds.context.nonEmpty || p.bounds.view.nonEmpty
-      ) ||
-      context.visiting(id) || bindings.expansionDepth >= resolver.limits.maxTypeDepth
-    ) None
-    else {
-      val depth = bindings.expansionDepth + 1
-      val deeper = depthLens.replace(depth)(bindings)
-      val arguments = args.map(key(_, context, deeper))
-      val lexicalBindings = lexical(entry.owner, bindings.scoped)
-      val replacements = parameters.map(_.name.value).zip(arguments).toMap
-      val scoped = context.inScope(entry.owner, resolver.typeParameters(entry.owner)).enter(id)
-      key(
-        declaration.body,
-        scoped,
-        aliasFrame.replace((replacements, depth))(lexicalBindings)
-      )
-    }
-  }
-
-  private def termQualifier(tpe: Type.Select, frame: Frame): Boolean = {
-    val root = tpe.qual.syntax.takeWhile(_ != '.')
-    frame.chain.exists { scope =>
-      scope.params.exists(_.name.value == root) || scope.stats.exists {
-        case v: (Defn.Val | Decl.Val) =>
-          v.pats.exists(_.collect { case Pat.Var(n) => n.value }.contains(root))
-        case _ => false
-      }
-    }
-  }
-
-  private def application(
-      constructor: Key,
-      args: List[Type],
-      context: ResolutionContext,
-      bindings: Bindings
-  ): Key =
-    for {
-      name <- constructor
-      arguments <- combine(args.map(key(_, context, bindings)))
-    } yield s"apply:$name:$arguments"
-
-  private def constructor(name: String, context: ResolutionContext): Key =
-    if (imported(name, context.frame)) None
-    else
-      resolver.lookup(name, context.frame) match {
-        // Aliases are expanded by `named`; abstract members remain unsupported.
-        case List(entry) if entry.tree.is[Defn.Type] || entry.tree.is[Decl.Type] => None
-        case List(entry) => Some(s"source:${entry.owner.id}:${entry.tree.pos.start}")
-        // Every spelling of a builtin or model entry is one key: `Tuple2`, `scala.Tuple2` and
-        // `(A, B)`.
-        case Nil => BuiltinTypes.canonical(name).map(builtin => s"builtin:$builtin")
-        case _   => None
-      }
-
-  private def imported(name: String, frame: Frame): Boolean =
-    imports(name, frame.chain)
-
-  private def imports(name: String, scopes: List[Frame]): Boolean =
-    scopes.flatMap(_.stats).exists {
-      case i: Import =>
-        val tokens = i.syntax.split("[^\\p{L}\\p{N}_$*]+").toSet
-        name.split('.').exists(tokens) || tokens("*") || tokens("_")
-      case _: Export => true
-      case _         => false
-    }
-
-  private def combine(keys: List[Key]): Key =
-    Traversals
-      .defined(keys)
-      .map(_.map(k => s"${k.length}:$k").mkString("[", ",", "]"))
 
 }

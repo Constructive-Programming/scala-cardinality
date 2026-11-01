@@ -3,7 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation
-import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
+import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.{Spelling, TypeName, TypeSubstitution}
 
@@ -85,7 +85,7 @@ private[cardinality] object InferredResults {
 
   /** Whether a result names one of the definition's term parameters (a dependent result). */
   def dependent(result: Type, groups: List[Member.ParamClauseGroup]): Boolean =
-    TypeName.words(result).exists(FinalImplementations.parameterNames(groups))
+    TypeName.words(result).exists(MemberSyntax.parameterNames(groups))
 
   /** A method's name, clauses and declared result, as a definition or a declaration writes them. */
   final case class Signature(

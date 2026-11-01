@@ -22,6 +22,7 @@ class MethodAnalysisSpec extends Specification {
       widen a method body's type aliases into their own scope     $bodyAlias
       keep a known identity from becoming an opaque omega         $knownIdentity
       fold a forward alias chain onto the value it names          $aliasChain
+      read an open class's overridable members as capabilities    $openMembers
     Source-set environment
       capture enclosing values and callable producers             $captures
       preserve type binder identity under shadowing               $shadowing
@@ -55,7 +56,7 @@ class MethodAnalysisSpec extends Specification {
       keep an import after the reference from binding it          $importOrder
       keep a nested module's binders in scope                     $nestedModule
       let a subpackage sit inside its parent's grant              $packagePrivateSubpackage
-      read a package-private abstraction's own reason             $packagePrivateType
+      read a package-private abstraction as its record            $packagePrivateType
       keep a file-private type from a sibling file                $filePrivateType
       read a package-private product from a sibling file          $packagePrivateProduct
   """
@@ -126,7 +127,8 @@ class MethodAnalysisSpec extends Specification {
     // identity (the free theorem): applying it yields values the scope already has, so the choices
     // are still just `seed`. Not ω, and no longer unknown.
     val pick = entry(
-      "class E[A](seed: A) { def id(x: A): A = x; val step: A => A = id; def pick(): A = seed }",
+      "final class E[A](seed: A) { def id(x: A): A = x; val step: A => A = id; " +
+        "def pick(): A = seed }",
       "E.pick"
     )
     (pick.count === Count.Finite(1)).and(pick.count !== Count.Countable)
@@ -135,7 +137,7 @@ class MethodAnalysisSpec extends Specification {
   def aliasChain =
     // `alias` and `later` name the same value as `seed`, so the choices are x, y and seed.
     entry(
-      "class E[A](seed: A) { lazy val alias: A = later; lazy val later: A = seed; " +
+      "final class E[A](seed: A) { lazy val alias: A = later; lazy val later: A = seed; " +
         "def pick(x: A, y: A): A = x }",
       "E.pick"
     ).count === Count.Finite(3)
@@ -199,12 +201,39 @@ class MethodAnalysisSpec extends Specification {
     ).count === Count.Finite(2)
 
   def concreteMethod =
-    // A total parametric method is a specific inhabitant of its type, and what it can compute is
-    // already in the environment: `id` adds nothing that x and y do not already supply.
+    // A total parametric method no instance replaces is a specific inhabitant of its type, and what
+    // it can compute is already in the environment: `id` adds nothing that x and y do not supply.
     entry(
-      "class Env[A](x: A, y: A) { def id(a: A): A = a\ndef pick(): A = x }",
+      "final class Env[A](x: A, y: A) { def id(a: A): A = a\ndef pick(): A = x }",
       "Env.pick"
     ).count === Count.Finite(2)
+
+  // The open twins of the final fixtures above (capabilities C5): a subclass may override a concrete
+  // member with any behavior its type allows — `class G extends E[Int](0) { override def id(x: Int)
+  // = x + 1 }` tells seed, id(seed), id(id(seed)) apart — so each is a capability, as an abstract
+  // member is: pick is ω through id or step, the alias chain adds alias and later (x, y, seed,
+  // alias, later — 5), the captured alias adds alias (x, captured, alias — 3).
+  def openMembers = {
+    val identity = entry(
+      "class E[A](seed: A) { def id(x: A): A = x; val step: A => A = id; def pick(): A = seed }",
+      "E.pick"
+    )
+    val chain = entry(
+      "class E[A](seed: A) { lazy val alias: A = later; lazy val later: A = seed; " +
+        "def pick(x: A, y: A): A = x }",
+      "E.pick"
+    )
+    val captured = entry(
+      "class Env[A](captured: A) { val alias: A = captured; def choose(x: A): A = x }",
+      "Env.choose"
+    )
+    val method =
+      entry("class Env[A](x: A, y: A) { def id(a: A): A = a\ndef pick(): A = x }", "Env.pick")
+    (identity.count === Count.Countable)
+      .and(chain.count === Count.Finite(5))
+      .and(captured.count === Count.Finite(3))
+      .and(method.count === Count.Countable)
+  }
 
   def sourceEnum =
     entry("enum Unit { case One, Two, Three }\ndef pick(): Unit = Unit.One", "pick").count === Count
@@ -273,7 +302,7 @@ class MethodAnalysisSpec extends Specification {
 
   def aliases =
     entry(
-      "class Env[A](captured: A) { val alias: A = captured; def choose(x: A): A = x }",
+      "final class Env[A](captured: A) { val alias: A = captured; def choose(x: A): A = x }",
       "Env.choose"
     ).count === Count.Finite(2)
 
@@ -319,18 +348,14 @@ class MethodAnalysisSpec extends Specification {
   }
 
   def packagePrivateType = {
-    // Resolved, yet still a sealed abstraction the fragment cannot read as a sum: the row must
-    // carry the representation's own reason, the one the same declaration gets inside its file.
+    // Resolved across files through the package grant, and every subclass of it is written in
+    // `example`, where `loop` is: the open abstract class is the record of its member (capabilities
+    // C3) — `f.get` is the one A.
     val source = inputs(
       "Focus.scala" -> "package example\nprivate[example] abstract class Focus[A] { def get: A }",
       "Use.scala" -> "package example\ndef loop[A](f: Focus[A]): A = loop(f)"
     )
-    val loop = MethodAnalysis.analyze(source).find(_.name == "example.loop").get
-    loop.count must beLike {
-      case Count.Unresolved(reasons) =>
-        (reasons.exists(_.startsWith("abstract type or method-valued representation")) must beTrue)
-          .and(reasons.exists(_.startsWith("unresolved type")) must beFalse)
-    }
+    MethodAnalysis.analyze(source).find(_.name == "example.loop").get.count === Count.Finite(1)
   }
 
   def filePrivateType = {

@@ -249,8 +249,8 @@ class InferredResultsSpec extends Specification {
       )
   }
 
-  // `CBox[A](a)` and `new CBox[A](a)` are a `CBox[A]`: its one field holds `a` (1). A plain class's
-  // representation is not read: `Box` stays refused as a `Box[A]`.
+  // `CBox[A](a)` and `new CBox[A](a)` are a `CBox[A]`: its one field holds `a` (1). `Box[A](a)` and
+  // `new Box[A](a)` are a `Box[A]`, the final record of its public `val a` (capabilities C4): `a` (1).
   def creatorApplications = {
     val found = rows("""final case class CBox[A](a: A)
       |object CJ { def mk[A](a: A) = CBox[A](a); def mk2[A](a: A) = new CBox[A](a) }
@@ -258,8 +258,8 @@ class InferredResultsSpec extends Specification {
       |object J { def mk[A](a: A) = Box[A](a); def mk2[A](a: A) = new Box[A](a) }""".stripMargin)
     (found("CJ.mk") === Count.Finite(1))
       .and(found("CJ.mk2") === Count.Finite(1))
-      .and(refused(found("J.mk"), "abstract type or method-valued representation: Box"))
-      .and(refused(found("J.mk2"), "abstract type or method-valued representation: Box"))
+      .and(found("J.mk") === Count.Finite(1))
+      .and(found("J.mk2") === Count.Finite(1))
   }
 
   // A companion `apply` or a nearer term `Box` would be the callee, not the constructor.

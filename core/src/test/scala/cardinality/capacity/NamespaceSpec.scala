@@ -534,11 +534,9 @@ class NamespaceSpec extends Specification {
     val found = rows(code)
     (found(("Holder#Y", Alias)) === "2")
       .and(found(("Holder3#Y", Alias)) === "2")
-      .and(
-        constructor("Holder.UsesY.<init>", "M.scala" -> code) === Count.Unresolved(
-          List("abstract type or method-valued representation: Prism")
-        )
-      )
+      // The final Prism is the record of its public field (capabilities C4), so the constructor
+      // reads its one parameter, p.X = p.Span: 2.
+      .and(constructor("Holder.UsesY.<init>", "M.scala" -> code) === Count.Finite(2))
   }
 
   // The first name of `p.X` is the innermost term: `Inner`'s `val p = new Prism2` (its `X = Unit`,

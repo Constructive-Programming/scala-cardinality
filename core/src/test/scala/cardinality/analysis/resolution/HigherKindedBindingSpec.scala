@@ -143,7 +143,7 @@ class HigherKindedBindingSpec extends Specification {
 
   def shadowing = {
     val counts = entries("""
-      class Shadow[F[_]] {
+      final class Shadow[F[_]] {
         def inner[F[_], A](fa: F[A]): F[A] = fa
         def outer[G[_], A](fa: F[A]): G[A] = ???
       }

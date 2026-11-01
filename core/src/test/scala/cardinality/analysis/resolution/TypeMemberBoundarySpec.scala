@@ -89,8 +89,8 @@ class TypeMemberBoundarySpec extends Specification {
       trait T:
         self =>
         type X
-        def f(self: R)(x: self.X, y: X): X = ???
-        def g(other: R)(x: other.X, y: X): X = ???
+        final def f(self: R)(x: self.X, y: X): X = ???
+        final def g(other: R)(x: other.X, y: X): X = ???
     """)
     (found("T.f") === Count.Finite(1)).and(found("T.g") === Count.Finite(1))
   }
@@ -161,7 +161,7 @@ class TypeMemberBoundarySpec extends Specification {
         private type X = Boolean
         def get: X
       abstract class C extends P with Q:
-        def pick(y: X): Boolean = ???
+        final def pick(y: X): Boolean = ???
         def same(y: X): X = ???
       abstract class P2[A]:
         private type X = Boolean
@@ -199,14 +199,18 @@ class TypeMemberBoundarySpec extends Specification {
         type X
       def selfy(c: Selfy): Boolean = ???
     """)
-    val templates = List("CNothing", "Abs", "Priv", "Sub", "Selfy")
+    // Each keeps the capability record's own reason (CNothing has no instance — X6 — and its
+    // hidden parameter is what the record cannot witness).
+    val reasons = List(
+      "open class with hidden constructor state: CNothing.n",
+      "open class with hidden constructor state: Abs.n",
+      "capability record of a template only its scope instantiates: Priv",
+      "capability record with abstract type member not read: Sub.X",
+      "self type not resolved: Base"
+    )
     val open = List("nothing", "abs", "priv", "sub", "selfy")
-      .zip(templates)
-      .map((name, template) =>
-        found(name) === Count.Unresolved(
-          List(s"abstract type or method-valued representation: $template")
-        )
-      )
+      .zip(reasons)
+      .map((name, reason) => found(name) === Count.Unresolved(List(reason)))
     (found("h") === Count.Finite(1))
       .and(found("k") === Count.Finite(4))
       .and(found("CNothing.<init>") === Count.Finite(0))

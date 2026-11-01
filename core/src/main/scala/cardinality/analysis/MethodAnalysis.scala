@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 import scala.util.control.NonFatal
 
+import cardinality.analysis.capability.{CapabilityRecords, Insertions}
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
@@ -129,6 +130,7 @@ object MethodAnalysis {
     val operators = new TypeOperators(resolve(_, _), constructorKinds.of(_, _))
     val boundedBinders: Map[String, (Frame, Type.Param)] = indexer.boundedBinders.toMap
     private val representations = new Representations(indexer, accessible, packageGrant)
+    private lazy val records = new CapabilityRecords(this, new OverrideIdentity(this))
 
     def analyze(): List[Entry] = indexer.targets.toList.map(measure)
 
@@ -195,6 +197,8 @@ object MethodAnalysis {
 
     def unreadChannel(context: ResolutionContext): Option[String] =
       shadowedBuiltins.unread(context)
+
+    lazy val insertions: Insertions = Insertions.of(inputs.map(_.tree))
 
     def rootShadow(name: String, context: ResolutionContext): Option[String] =
       shadowedBuiltins.rootShadow(name, context)
@@ -483,6 +487,8 @@ object MethodAnalysis {
                   )
                 )
             else Left(s"type constructor used as a proper type: $name")
+          case tree if CapabilityRecords.applies(tree) =>
+            records.resolve(name, entry, args, context.inScope(entry.owner, scope))
           case _ =>
             val (parameters, bodies) = representations.of(entry, key, context.useSite)
             bodies.flatMap(cases =>
@@ -512,11 +518,9 @@ object MethodAnalysis {
     private def parameterized(applied: Applied): Resolved = {
       import applied.{cases, context, entry, key, name, parameters, scope}
       val args = applied.arguments.shapes
-      TypeApplications
-        .checkApplication(name, parameters, args.size)
-        .flatMap(_ => operators.kinded(name, parameters, args))
-        .flatMap { _ =>
-          val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
+      operators
+        .applied(name, parameters)(args)
+        .flatMap { replacements =>
           // Proper parameters remember their arguments as written, for a projection to reread.
           val written = parameters.zip(applied.arguments.written).collect {
             case (p, argument) if Kinds.of(p) == Kind.Proper => p.name.value -> argument

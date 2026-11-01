@@ -527,8 +527,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
 
   // The union is code however it is spelled — lower-case names, literals holding `: ` or a bracket,
   // a refinement's or a match type's keywords — so unions that stopped on one reason tally once,
-  // read from sources as from reasons. An abstract class with a method is the alternative that
-  // stops (an empty open trait reads as one value and leaves the union to the overlap proof).
+  // read from sources as from reasons. A case class with a body is the alternative that stops (an
+  // abstract class with a method reads as a capability record and an empty open trait as one value,
+  // either leaving the union to the overlap proof).
   def unionAlternatives = {
     val why = "abstract type or method-valued representation"
     val written = List(
@@ -544,8 +545,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
     ).map(union => Blockers.category(s"union ($union): $why: x")).distinct
     val code =
       """|package ul
-         |abstract class json { def run: Int }
-         |abstract class Data { def run: Int }
+         |case class json(n: Int) { def run: Int = n }
+         |case class Data(n: Int) { def run: Int = n }
          |trait Missing
          |object L {
          |  def f(x: json | Missing): Boolean = true

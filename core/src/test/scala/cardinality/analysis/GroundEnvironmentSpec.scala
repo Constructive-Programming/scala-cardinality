@@ -21,7 +21,7 @@ class GroundEnvironmentSpec extends Specification {
       a fixed receiver implements what it inherits                   $fixedReceiver
       a field is the member it implements                            $fieldAlias
       one member reached along several parents is one value          $restated
-      an open template that implements it is refused                 $openImplemented
+      an open template's overridable implementation is a capability  $openImplemented
       an overload is a second member; another shape is refused      $overloaded
       an unimplemented declaration of an open template is supplied   $supplied
       nested templates sharing a parent judge it for each receiver   $nestedReceivers
@@ -149,18 +149,18 @@ class GroundEnvironmentSpec extends Specification {
         ) === Count.Finite(4)
       )
 
+  // A subclass of the open Q may override pick with either literal (capabilities C5), so pick is a
+  // supplied Boolean: other is true, false, pick or !pick — 4.
   def openImplemented =
-    unresolvedOn(
-      count(
-        "abstract class P { def pick: Boolean }\n" +
-          "class Q extends P { def pick: Boolean = true; def other: Boolean = true }",
-        "Q.other"
-      ),
-      "inherited declaration implemented, not modelled as a capability: pick (implemented in Q)"
-    )
+    count(
+      "abstract class P { def pick: Boolean }\n" +
+        "class Q extends P { def pick: Boolean = true; def other: Boolean = true }",
+      "Q.other"
+    ) === Count.Finite(4)
 
   // Two overloads are two supplied functions: 2^(|Int => Int| · |Long => Int|) = 2^(2^(2^37 + 2^69)).
-  // A `def` and a `val` of one name are one member whose two readings have different shapes.
+  // A parameterless `def` and a `val` of one name and type are one member: n, !n, true, false — 4.
+  // Read at another type (`Any` against `Boolean`) the one member's readings differ: refused.
   def overloaded =
     (count(
       "trait A { def g(x: Int): Int }\ntrait B { def g(x: Long): Int }\n" +
@@ -168,9 +168,16 @@ class GroundEnvironmentSpec extends Specification {
       "C.f"
     ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + BigInt(2).pow(69)))))
       .and(
+        count(
+          "trait A { def n: Boolean }\ntrait B { val n: Boolean }\n" +
+            "trait C extends A with B { def f: Boolean = n }",
+          "C.f"
+        ) === Count.Finite(4)
+      )
+      .and(
         unresolvedOn(
           count(
-            "trait A { def n: Boolean }\ntrait B { val n: Boolean }\n" +
+            "trait A { def n: Any }\ntrait B { val n: Boolean }\n" +
               "trait C extends A with B { def f: Boolean = n }",
             "C.f"
           ),

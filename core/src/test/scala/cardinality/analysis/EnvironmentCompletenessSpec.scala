@@ -24,7 +24,7 @@ class EnvironmentCompletenessSpec extends Specification {
       a class with a private constructor stays unread                $privateConstructor
       an opaque callable's Boolean result stays unread               $opaqueCallable
       a final template's member is its own concrete code             $finalMembers
-      an open class's member is a capability (X5, pending B3)        $overridableMembers
+      an open class's member is a capability (X5)                    $overridableMembers
     Exports define members
       an export outranks an outer definition                         $exportOutranks
       an export outranks an import of its own body                   $exportBeatsImport
@@ -143,31 +143,33 @@ class EnvironmentCompletenessSpec extends Specification {
       "FBox.target"
     ) === Count.Finite(2)
 
-  // `Box` is open: a subclass may override `other` to return `a`, so `other` is a capability, and
-  // `target` may return a, b or `other` (3). Until the capability records (B3) read it, the open
-  // class's own concrete member is skipped and the count is 2.
+  // `Box` is open: a subclass may override `other` to return `a`, so `other` is a capability
+  // (capabilities C5, register D20), and `target` may return a, b or `other` (3).
   def overridableMembers =
-    pendingUntilFixed("X5: overridable members are capabilities (B3)")(
-      count("class Box[A](a: A, b: A) { def other: A = b; def target: A = a }", "Box.target") ===
-        Count.Finite(3)
-    )
+    count("class Box[A](a: A, b: A) { def other: A = b; def target: A = a }", "Box.target") ===
+      Count.Finite(3)
 
   // Cross-check X1 (fixture c3): inside `C`, `T` is the exported `A.T = Boolean`, not `Outer.T =
-  // Int`. g: Boolean => Boolean = 4; P's one field is a Boolean = 2 (the estimate agrees).
+  // Int`. In the final `C`, g: Boolean => Boolean = 4; P's one field is a Boolean = 2 (the estimate
+  // agrees). In the open `D` each of g and h is the other's overridable capability, a Boolean =>
+  // Boolean (capabilities C5): every Boolean function of t, g(true) and g(false) — 2^8.
   def exportOutranks = {
     val found = rows("""object Outer {
       |  object A { type T = Boolean }
       |  type T = Int
-      |  class C {
+      |  final class C {
       |    export A.T
       |    final case class P(t: T)
       |    def g(t: T): Boolean = true
       |    def h(t: T): T = t
       |  }
+      |  class D { export A.T; def g(t: T): Boolean = true; def h(t: T): T = t }
       |}""".stripMargin)
     (found("Outer.C.g") === Count.Finite(4))
       .and(found("Outer.C.h") === Count.Finite(4))
       .and(found("Outer.C.P.<init>") === Count.Finite(2))
+      .and(found("Outer.D.g") === Count.Finite(256))
+      .and(found("Outer.D.h") === Count.Finite(256))
   }
 
   // Fixture c6: an export defines a member, so it wins over an import of the same body: T = Y.T.
@@ -195,12 +197,13 @@ class EnvironmentCompletenessSpec extends Specification {
   }
 
   // A rename exports `U` only, an unimport leaves `T` out, a given selector exports givens: `T` is
-  // `Outer.T = Int` in each, so g ranges over Int => Boolean (2^(2^32)); `U` is Boolean (4).
+  // `Outer.T = Int` in each, so g ranges over Int => Boolean (2^(2^32)); `U` is Boolean (4). `Ren`
+  // is final: open, its `h` would be a capability g could also read.
   def exportSelectors = {
     val found = rows("""object Types { type T = Boolean; given g: Boolean = true }
       |object Outer {
       |  type T = Int
-      |  class Ren { export Types.{T => U}; def g(t: T): Boolean = true; def h(u: U): Boolean = u }
+      |  final class Ren { export Types.{T => U}; def g(t: T): Boolean = true; def h(u: U): Boolean = u }
       |  class Hid { export Types.{T as _, *}; def g(t: T): Boolean = true }
       |  class Giv { export Types.given; def g(t: T): Boolean = true }
       |}""".stripMargin)
@@ -427,9 +430,10 @@ class EnvironmentCompletenessSpec extends Specification {
   }
 
   // An abstract var is an abstract getter (and a Unit setter): x or cur (2), in the trait and in an
-  // abstract class that inherits it unimplemented.
+  // abstract class that inherits it unimplemented. `pick` is final: an overridable one would be a
+  // capability A => A of `Open`, and `other` would range over x, cur, pick(x), pick(pick(x)), … (ω).
   def abstractVariable = {
-    val found = rows("""trait T[A] { var cur: A; def pick(x: A): A = x }
+    val found = rows("""trait T[A] { var cur: A; final def pick(x: A): A = x }
       |abstract class Open[A] extends T[A] { def other(x: A): A = x }""".stripMargin)
     (found("T.pick") === Count.Finite(2)).and(found("Open.other") === Count.Finite(2))
   }

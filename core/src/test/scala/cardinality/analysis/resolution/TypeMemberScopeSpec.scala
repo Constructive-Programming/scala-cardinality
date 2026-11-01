@@ -248,7 +248,9 @@ class TypeMemberScopeSpec extends Specification {
   }
 
   // KT and K have a member with two bounds and FA no instance (`facts`): g and make have no
-  // implementation and f one (the bounds witness A <: B), where the empty record gave 1, 1, 0.
+  // implementation and f one (the bounds witness A <: B), where the empty record gave 1, 1, 0. The
+  // capability record does not open abstract type members (refused); the `final abstract` class has
+  // no value at all, so make has none: 0.
   // One-sided bounds are met by Nothing and Any: OneSided is one value — 1.
   def boundedTemplates = {
     val found = entries("""
@@ -265,9 +267,9 @@ class TypeMemberScopeSpec extends Specification {
         type Y >: Int
       def one(o: OneSided, p: OneSided): OneSided = ???
     """)
-    (found("g") === refusal("abstract type or method-valued representation: KT"))
-      .and(found("f") === refusal("abstract type or method-valued representation: K"))
-      .and(found("make") === refusal("abstract type or method-valued representation: Never"))
+    (found("g") === refusal("capability record with abstract type member not read: KT.X"))
+      .and(found("f") === refusal("capability record with abstract type member not read: K.X"))
+      .and(found("make") === Count.Finite(0))
       .and(found("one") === Count.Finite(1))
   }
 

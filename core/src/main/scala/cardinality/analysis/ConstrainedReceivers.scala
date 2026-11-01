@@ -2,6 +2,8 @@ package cardinality.analysis
 
 import scala.meta.*
 
+import cardinality.analysis.model.MemberSyntax
+
 import MethodAnalysis.Frame
 
 /** A member reads its receiver's fields as any values of their types. That holds only where any
@@ -24,15 +26,15 @@ private[cardinality] object ConstrainedReceivers {
   private def builder(owner: Frame, tree: Tree): Option[String] = {
     val kind = if (tree.is[Defn.Trait]) "trait" else "class"
     val constructor = tree match {
-      case d: Defn.Class => d.ctor.mods.exists(restricted)
+      case d: Defn.Class => d.ctor.mods.exists(MemberSyntax.restricted)
       case _             => false
     }
     Option
       .when(constructor)("a non-public constructor")
-      .orElse(Option.when(modifiers(tree).exists(restricted))(s"a non-public $kind"))
+      .orElse(Option.when(modifiers(tree).exists(MemberSyntax.restricted))(s"a non-public $kind"))
       .orElse(owner.chain.tail.takeWhile(_.tree.nonEmpty).collectFirst {
         case scope if scope.local => s"a $kind local to ${scope.path.mkString(".")}"
-        case scope if scope.tree.exists(modifiers(_).exists(restricted)) =>
+        case scope if scope.tree.exists(modifiers(_).exists(MemberSyntax.restricted)) =>
           s"a $kind nested in non-public ${scope.path.mkString(".")}"
       })
   }
@@ -45,7 +47,5 @@ private[cardinality] object ConstrainedReceivers {
     case d: Defn.Given  => d.mods
     case _              => Nil
   }
-
-  private def restricted(mod: Mod): Boolean = mod.is[Mod.Private] || mod.is[Mod.Protected]
 
 }

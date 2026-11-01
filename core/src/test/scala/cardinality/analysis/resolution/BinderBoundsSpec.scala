@@ -295,11 +295,13 @@ class BinderBoundsSpec extends Specification {
       .and(refused(counts, "K.viaEv", classReason + "A <: AnyVal"))
   }
 
+  // The source `AnyRef` is a capability record now; a structural bound beside a lower one is the
+  // evidence analysis's limit, still refused.
   def declaredAnyRef =
     unresolved(
       flag + "class AnyRef { def get: Int = 0 }\nobject K { def f[A >: Flag <: AnyRef](x: A): A = x }",
       "K.f",
-      "upper bound requires capability analysis: A >: Flag <: AnyRef"
+      "unsupported subtype evidence interaction: a structural lower bound meets an upper one"
     )
 
   // `g` takes B, and a contravariant use of A <: B is not read: refused.
@@ -389,11 +391,10 @@ class BinderBoundsSpec extends Specification {
   def inconsistentBounds =
     unresolved(flag + "object U { def f[A >: Flag <: Boolean](x: A): Boolean = ??? }", "U.f", meet)
 
+  // The bound is the record of Open (capabilities C3): a's `get` is an Int, and nothing builds an
+  // A but a — 1.
   def openBound =
-    unresolved(
-      "trait Open { def get: Int }\nobject V { def f[A <: Open](a: A): A = a }",
-      "V.f",
-      "upper bound requires capability analysis: A <: Open"
-    )
+    count("trait Open { def get: Int }\nobject V { def f[A <: Open](a: A): A = a }", "V.f") ===
+      Count.Finite(1)
 
 }

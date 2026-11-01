@@ -17,12 +17,12 @@ class OverrideIdentityImplementationSpec extends Specification {
       keeps unrelated inherited capabilities                         $capability
       does not identify nominal products with tuples                  $nominal
       settles the identity in an object that implements the member    $nominalObject
-      retains unresolved imported constructor identity                 $imported
+      keys an imported constructor by the path its import binds        $imported
       keeps a foreign method binder distinct from a class binder       $foreignBinder
       does not drop declarations at matching offsets in other files    $fileIdentity
       preserves a same-name overload with different arity              $overload
       recognizes transparent alias equivalence                          $alias
-      does not classify a covariant return as an unrelated overload      $covariance
+      reads a covariant return as the override it is                  $covariance
       ignores parameter annotations when identifying the target slot     $annotated
   """
 
@@ -106,7 +106,7 @@ class OverrideIdentityImplementationSpec extends Specification {
       }
     """) must beLike {
       case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inherited override identity")) must beTrue
+        reasons === List("declaration not supplied: external.Foreign (named import Foreign)")
     }
 
   def foreignBinder =
@@ -131,14 +131,13 @@ class OverrideIdentityImplementationSpec extends Specification {
       abstract class Instance[A] extends Base[A] { def get(a:A):A = a }
     """) === Count.Finite(1)
 
+  // Members match by parameters (SLS 5.1.3): a same-parameter member with a non-conforming result
+  // is a type error, so `get(a: A): A` overrides `get(a: A): Any` — the only A is a: 1.
   def covariance =
     count("""
       trait Base[A] { def get(a:A):Any }
       abstract class Instance[A] extends Base[A] { def get(a:A):A = a }
-    """) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inherited override identity")) must beTrue
-    }
+    """) === Count.Finite(1)
 
   def fileIdentity = {
     // `seed` is a closed value of `get`'s environment: kept, it raises the four Boolean

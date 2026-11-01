@@ -55,6 +55,19 @@ private[cardinality] object TemplateClosures {
     case _             => false
   }
 
+  /** Whether only code of the template's own file may extend it: it is local, it or an enclosing
+    * template is private to a template, or its own constructor is (its companion is in the file). A
+    * top-level `private` template is visible in its whole package, an ancestor's private
+    * constructor closes no public subclass, and a `private[p]` constructor is reached package-wide.
+    */
+  def fileScoped(template: Frame): Boolean =
+    template.chain.exists(frame =>
+      frame.local || (frame.parent.exists(_.isTemplate) && frame.tree.exists(privateTo(_, frame)))
+    ) || template.tree.exists {
+      case c: Defn.Class => confining(c.ctor.mods, template.chain)
+      case _             => false
+    }
+
   private def hiddenScope(template: Frame): Option[Closure] =
     template.chain.collectFirst {
       case frame if frame.local => Closure.Hidden(s"${template.path.last} is local")
@@ -65,14 +78,16 @@ private[cardinality] object TemplateClosures {
   // A private modifier that confines a template to a template's scope: unqualified, `this`, or
   // naming an enclosing template rather than a package.
   private def privateTo(tree: Tree, frame: Frame): Boolean = tree match {
-    case d: Stat.WithMods =>
-      d.mods.collectFirst { case m: Mod.Private => m.within }.exists {
-        case _: Name.Anonymous | _: Term.This => true
-        case name: Name                       =>
-          frame.chain.drop(1).exists(f => f.path.lastOption.contains(name.value) && f.isTemplate)
-        case _ => false
-      }
-    case _ => false
+    case d: Stat.WithMods => confining(d.mods, frame.chain.drop(1))
+    case _                => false
   }
+
+  // A `private` among `mods` whose qualifier, if any, names one of the `scopes` templates.
+  private def confining(mods: List[Mod], scopes: List[Frame]): Boolean =
+    mods.collectFirst { case m: Mod.Private => m.within }.exists {
+      case _: Name.Anonymous | _: Term.This => true
+      case name: Name => scopes.exists(f => f.path.lastOption.contains(name.value) && f.isTemplate)
+      case _          => false
+    }
 
 }

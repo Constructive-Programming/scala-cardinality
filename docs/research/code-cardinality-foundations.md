@@ -675,8 +675,8 @@ concrete `var` — denotes one of the parametric inhabitants the solver already 
 neither bound nor reported; the `qualified member environment not resolved` diagnostic is gone.
 This rests on the contract's assumption that helper bodies obey the model (no effects, casts,
 runtime type tests, `null`). Overridable concrete members of open classes are capabilities, not
-fixed code (cross-check X5; the environment memo's "closed-world dispatch" is superseded; until
-the capability records land they are still skipped, so `ow.Box.target` reads 2, true 3). The
+fixed code (cross-check X5; the environment memo's "closed-world dispatch" is superseded; the
+capability records classify them, D20, so `ow.Box.target` reads 3 and the final `FBox.target` 2). The
 model excludes mutation, so a `var` reads as the value it was given. An export defines members of
 its template (they rank with its own declarations, an object's inherited members included), a
 path whose first segment is a value is no object, a protected inherited member is not selected
@@ -733,6 +733,85 @@ export, a
 package-level export of another file, a path through a value, an override a base class outside
 the sources may intersect, a call an import, export or inherited member may bind, and inference
 that matches argument types stay `?` with their reasons.
+
+## D20. A value of a source class is the record of its observations
+
+**Decision.** A value is observed only through its accessible members, the universal ones (runtime
+equality and reflection: `Any`'s `toString`, `hashCode`, `equals(Any)`) excluded. A member an
+instance may replace — abstract, or concrete and not effectively final, a parent's constructor `val`
+included — is a free capability of its type; a member none may replace (`final`, `private`,
+concrete `inline`, a given or member object, any member of a final class, object or given) is
+concrete code over the receiver's observable state and adds no choice. So an open trait, or an open class whose constructor
+parameters are all public `val`s, is the product of its open members and fields, as input and as
+goal; a final class with a public constructor whose every parameter is a public `val` or exposed by
+an η-alias member is the product of its parameters; a `final abstract` class is the empty sum. On
+the measured declaration's own receiver (and on enclosing ones) the same classification holds for
+its own and inherited concrete members (a member is overridden by the levels before it in the
+receiver's linearization). A member whose default evaluates the declaration whenever it is
+evaluated (the one member its arguments select, every value clause applied, at a position the
+compiler wraps in nothing that defers it: no extension, conversion or `==` overload taking it by
+name, no context-function parameter, no implicit search) is a view: dropped when definite, a reason
+when it depends on arguments, on a by-name operand, on a nested template's body, on `super`, on an
+η-expansion or on such an insertion. An inherited member is the
+measured declaration when parameters match as seen from the receiver, through every level, keyed by
+the declarations the scope-correct lookup binds; results are not compared. Details: [capability
+records](capability-records.md).
+
+**Evidence.**
+
+- Scala 3 reference *Open Classes* ([22], **inspected**): traits and abstract classes are always
+  open and any non-final class may be extended; Scala 3 draft specification ch. 5 and SLS 2.13
+  ch. 5 ([30], [33], **inspected**): a final member may not be overridden, members of final classes
+  or objects are implicitly final, a concrete definition overrides an abstract one; *Inline* ([17],
+  **inspected**): inline methods are effectively final; *The Matchable Trait* ([19],
+  **inspected**): the universal members excluded. Member matching by parameters (SLS §5.1.3) is
+  **classical**.
+- Cook 2009 (**metadata-verified**: the abstract reports abstract data types and objects as two
+  distinct forms of data abstraction); Cook & Palsberg 1989 (**metadata-verified**: the abstract
+  reports self-reference as a fixed point, so late binding leaves overridable members open); Pierce
+  & Turner 1994, Bruce, Cardelli & Pierce 1999 (**metadata-verified**, background only). The
+  record reading, the coincidence condition and the view rule are this register's derivations.
+- Environment readings' §3.0(1) "closed-world dispatch" is **superseded** for overridable members
+  (crosscheck X5): an open class's concrete member is a capability (`ow`: `Box.target` 3, `FBox`
+  2).
+- **Compiler fixtures** (Scala 3.9.0, B3 probes): every `CapabilitySpec` and `TargetViewsSpec`
+  fixture compiles; a class leaving an inherited abstract member undefined must be abstract; a
+  given or member object cannot be overridden; a parent's `val` parameter can (a warning), and the
+  override is what the parent's code reads (run); a by-name left operand of a right-associative
+  operator is not evaluated (run); review round 2 (Scala 3.9.0 runs): a diamond `R extends C with
+  B` reads B's final `m` though a breadth-first walk meets A first; a by-name extension receiver,
+  `==` overload or conversion, a context-function parameter and `summon[T]` of `given self: T =
+  this` each behave as the view rule says; at landing (Scala 3.9.0 runs, `probes/b3land/fix`): an
+  extension with a by-name receiver imported by the file, the template or a block, or exported by
+  the template, never runs its receiver.
+- **Executable**: `CapabilitySpec` (open siblings, fixed siblings, definite and possible views,
+  open implementations, outer receivers, Unit members, the reviewed views; multi-level, imported,
+  covariant and arity identity; trait inputs and goals, restated members, final records, the
+  composed-getter laws; hidden members, unexposed fields, X6, `final abstract`, existentials, self
+  views; file-closed templates, givens, universal members, overloads, parent fields and unpassed
+  parent state; linearization diamonds, refined restatements, body `var`s, file-closed mixins,
+  tentative keys), `TargetViewsSpec` (arity, η-expansion, operators, `using` clauses, local
+  bindings, `Outer.this`, enclosing and nested templates; every definite position; by-name
+  `==`, extensions and conversions, context functions, SAM lambdas, implicit search, `super`,
+  imported or exported extensions, block imports),
+  `MethodAnalysisSpec.openMembers`,
+  `OverrideIdentityImplementationSpec`,
+  `ContextualOverrideIdentitySpec`, `GroundEnvironmentSpec.openImplemented`.
+
+**Boundary.** Records with abstract type members, self types, trait parameters, `var`, extension
+or pattern-defined members, members hidden at the use site, hidden state of an open class or of a
+parameterized parent no class passes arguments to (no instance may exist: X6), unexposed or
+non-injectively exposed final fields, non-public or scoped constructors, recursive records (the
+type reading's structural-proof guard) and polymorphic open members are refused with their reasons; case
+classes, sealed families and enums keep their own readings. A possible view, a record member that
+may be the declaration on its receiver, a view through code the compiler inserts, and an
+override identity resting on foreign or opaque declarations stay `?`. The view rule assumes no
+unsupplied *named* import brings a by-name implicit conversion and no unsupplied class overloads
+`==` by name; every other unsupplied channel (wildcard import, parent, self type, an import or
+export of the selected name, a block's import) refuses. Open: a by-name conversion or extension in
+the companion of a type outside the sources is not seen (a definite view read where none exists:
+fixture `fc`, 4 for true 16). Only a member that builds Unit is dropped regardless of unreadable
+parameters; any other unreadable member type fails the environment eagerly.
 
 ## How to extend this register
 

@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.types.{Kind, Kinds, Spelling}
+import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
 
 /** What a higher-kinded name is bound to: a rigid binder, or a constructor written at some scope
   * and applied later — a closure over the scope it was written in, so applying it reads the
@@ -99,6 +99,17 @@ final private[cardinality] class TypeOperators(
         case Kind.Proper => proper(argument, context)
         case arrow       => operand(argument, arrow, context)
       }
+
+  /** A declaration's parameters bound to the arguments it is applied to, once their number and
+    * kinds agree.
+    */
+  def applied(name: String, parameters: List[Type.Param])(
+      args: List[Shape]
+  ): Either[String, List[(String, Resolved)]] =
+    for {
+      _ <- TypeApplications.checkApplication(name, parameters, args.size)
+      _ <- kinded(name, parameters, args)
+    } yield parameters.map(_.name.value).zip(args.map(Right(_)))
 
   /** Whether resolved arguments have the kinds their declared parameters take: a constructor for a
     * higher-kinded parameter, a type for a proper one.

@@ -3,12 +3,14 @@ package cardinality.analysis
 import scala.collection.mutable
 import scala.meta.*
 
+import cardinality.analysis.capability.ReceiverCapabilities
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
 import cardinality.types.{Spelling, TypeApplications, TypeName}
 
 import ContextualEvidence.Nominal
+import MemberSyntax.Observation
 import Inhabitation.{Binding, Count, Shape}
 import MethodAnalysis.{sequence, Entry, Frame, Resolved, Target}
 
@@ -25,12 +27,15 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private val captures = mutable.ListBuffer.empty[String]
   private val variables = resolver.typeParameters(target.frame)
   private val owners = target.frame.chain.reverse
-  private val overrideIdentity = new OverrideIdentity(target, resolver)
+  private val overrideIdentity = new OverrideIdentity(resolver)
   private val declaredMembers = new DeclaredMembers
   // The values each owner's scan left visible, and the implementations a final template gives its
   // inherited declarations: a local one may read a capture the target hides.
   private val visibleAt = mutable.Map.empty[String, Map[String, Binding]]
   private val implementations = mutable.ListBuffer.empty[(Frame, Tree)]
+  // The bindings of open concrete members (capabilities C5): each is its receiver's effective
+  // member, never a restatement of a declaration.
+  private val concreteMembers = mutable.Set.empty[String]
   // The slot, member name and short key each qualified binding was declared under.
   private val declaredIn = mutable.Map.empty[String, Declared]
 
@@ -87,13 +92,15 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     )
 
   // A declaration inherited from a parent the source set defines is a slot as well: the caller
-  // fills it through the subclass. Only declarations travel — a parent's concrete members hold
-  // values built from the environment it already shares — and an external parent of an open owner
-  // is reported, not guessed at (`ForeignParents`). Each level is read under the arguments the
-  // whole `extends` chain gives it, so a grandparent's `seed: X` is this scope's type, not an
-  // intermediate level's binder. Each owner is its own receiver: a parent two of them inherit gives
-  // each its own members, and each owner then judges the closed declarations bound as its members
-  // (`InheritedClosedSlots`).
+  // fills it through the subclass. Declarations travel, and so do the open concrete members the
+  // receiver tables classify — a parent's overridable fields and an unpassed parent's fields among
+  // them (`ReceiverCapabilities`, capabilities C5); derived (final, private, inline, given) members
+  // do not — they are concrete code over the environment the receiver already shares. An external
+  // parent of an open owner is reported, not guessed at (`ForeignParents`). Each level is read
+  // under the arguments the whole `extends` chain gives it, so a grandparent's `seed: X` is this
+  // scope's type, not an intermediate level's binder. Each owner is its own receiver: a parent two
+  // of them inherit gives each its own members, and each owner then judges the closed declarations
+  // bound as its members (`InheritedClosedSlots`).
   private def scanParents(): List[InheritedScopes.Step] = {
     val steps = walked
       .flatMap {
@@ -103,9 +110,21 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         case Right(step) => Some(step)
       }
     val ancestors = steps.groupMap(_.root.id)(_.declared).withDefaultValue(Nil)
-    steps.foreach(step => inherited(step, step.root :: ancestors(step.root.id)))
+    val capabilities = new ReceiverCapabilities(target, resolver, overrideIdentity, steps)
+    steps.foreach(step =>
+      inherited(step, step.root :: ancestors(step.root.id), steps, capabilities)
+    )
+    capabilities.members.foreach {
+      case Left(reason)  => errors += reason
+      case Right(member) =>
+        val slot = member.slot.copy(concrete = true)
+        member.tree match {
+          case p: Term.Param => add(member.name, p.decltpe, slot, slot.scope)
+          case stat: Stat    => addMember(slot, stat, member.name)
+        }
+    }
     owners.foreach { root =>
-      judge(root, ancestors(root.id))
+      judge(root)
       // A constructor chooses only its parameters: no owner's parents add a choice to it.
       if (!target.constructor)
         errors ++= ForeignParents.reasons(root :: ancestors(root.id), resolver)
@@ -115,35 +134,47 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   // One template's members in the order they were bound, its own declarations first. A closed one
   // the template implements or restates is not a choice: dropped, or refused.
-  private def judge(root: Frame, ancestors: List[Frame]): Unit = {
-    val slots = new InheritedClosedSlots(root, ancestors)
+  private def judge(root: Frame): Unit = {
+    val slots = new InheritedClosedSlots(root)
     qualifiedValues.toList.foreach { (id, binding) =>
-      declaredIn.get(id).filter(_.slot.template.id == root.id).foreach { declared =>
-        slots.verdict(declared.slot.scope, declared.member, declared.key, binding) match {
-          case InheritedClosedSlots.Keep           => ()
-          case InheritedClosedSlots.Refuse(reason) => errors += reason
-          case InheritedClosedSlots.Drop           =>
-            val dropped = qualifiedValues.remove(id)
-            if (dropped.exists(values.get(declared.key).contains)) values -= declared.key
+      declaredIn
+        .get(id)
+        .filter(d => d.slot.template.id == root.id && !concreteMembers(id))
+        .foreach { declared =>
+          slots.verdict(declared.slot.scope, declared.member, declared.key, binding) match {
+            case InheritedClosedSlots.Keep           => ()
+            case InheritedClosedSlots.Refuse(reason) => errors += reason
+            case InheritedClosedSlots.Drop           =>
+              val dropped = qualifiedValues.remove(id)
+              if (dropped.exists(values.get(declared.key).contains)) values -= declared.key
+          }
         }
-      }
     }
   }
 
   // What an inherited frame contributes: its declarations, read in the scope that named it, except
-  // those a final root implements, in its own body or at another level of its linearization.
+  // those a final root implements, in its own body or at another level of its linearization, and
+  // those an open root's concrete members or fields implement (that member is classified instead,
+  // capabilities C5).
   //
   // Members gate G1: a final root's inherited declaration that another level of its linearization
   // implements is that level's concrete code — no subclass replaces it — never a free capability:
   // concrete code computes from the environment it is given, so it is dropped as the root's own
   // implementations are. One a local template implements may read a capture the target hides (no
-  // prefix names it), so there it is refused. An open root's implemented members stay the open
-  // capabilities a subclass may override.
-  private def inherited(step: InheritedScopes.Step, linearization: List[Frame]): Unit =
-    step.declared.stats.foreach { stat =>
+  // prefix names it), so there it is refused.
+  private def inherited(
+      step: InheritedScopes.Step,
+      linearization: List[Frame],
+      steps: List[InheritedScopes.Step],
+      capabilities: ReceiverCapabilities
+  ): Unit = {
+    val implementedOpen =
+      step.declared.stats.map(stat => stat -> capabilities.implemented(stat, step))
+    errors ++= implementedOpen.collect { case (_, Left(reason)) => reason }
+    implementedOpen.collect { case (stat, Right(false)) => stat }.foreach { stat =>
       val implemented = FinalImplementations.implementation(step.root, stat)
       implemented.foreach((_, tree) => implementations += step.root -> tree)
-      val slot = Slot(step.declared, step.env, step.root)
+      val slot = MemberSlot(step.declared, step.env, step.root)
       val implementer =
         if (implemented.nonEmpty) None
         else FinalImplementations.implementer(step.root, linearization, stat)
@@ -151,15 +182,21 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         case (_, Some(level))     => errors ++= FinalImplementations.localImplementer(level, stat)
         case (value: Decl.Val, _) => addDeclaredValue(slot, value, implemented.map(_._1).toSet)
         case _ if implemented.nonEmpty => ()
-        case (method: Decl.Def, _)     => inheritedCallable(step, slot, method)
+        case (method: Decl.Def, _)     => inheritedCallable(step, slot, method, steps)
         case (other, _)                => declaration(slot, other)
       }
     }
+  }
 
-  private def inheritedCallable(step: InheritedScopes.Step, slot: Slot, method: Decl.Def): Unit =
-    overrideIdentity.matches(method, step.parent, step.from, step.declared) match {
+  private def inheritedCallable(
+      step: InheritedScopes.Step,
+      slot: MemberSlot,
+      method: Decl.Def,
+      steps: List[InheritedScopes.Step]
+  ): Unit =
+    overrideIdentity.matches(target, method, step, steps) match {
       case Some(true)  => ()
-      case Some(false) => addDeclaredCallable(slot, method)
+      case Some(false) => addMember(slot, method, method.name.value)
       case None => errors += s"inherited override identity not resolved: ${method.name.value}"
     }
 
@@ -206,11 +243,11 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     receiver.fold(context)(r => context.as(MemberPath.self(r, resolver.typeParameters(r))))
   }
 
-  private def declaration(slot: Slot, stat: Stat): Unit =
+  private def declaration(slot: MemberSlot, stat: Stat): Unit =
     stat match {
       case v: Decl.Val       => addDeclaredValue(slot, v)
       case v: Decl.Var       => addDeclaredValue(slot, Decl.Val(v.mods, v.pats, v.decltpe))
-      case d: Decl.Def       => addDeclaredCallable(slot, d)
+      case d: Decl.Def       => addMember(slot, d, d.name.value)
       case d: Decl.GivenLike => addDeclaredGiven(slot, d)
       case _                 => ()
     }
@@ -282,7 +319,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
           if (ContextualEvidence.anonymous(p)) ContextualEvidence.key(owner.path, index)
           else p.name.value,
           p.decltpe,
-          Slot(owner, resolver.typeParameters(owner), owner),
+          MemberSlot(owner, resolver.typeParameters(owner), owner),
           ParameterScope.of(owner)
         )
     }
@@ -301,7 +338,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def scanFrame(scope: Frame): Unit = {
     resolver.inspect("scope")
     val visible = scope.stats.filter(visibleIn(scope, _))
-    new Aliases(visible, scope).report()
+    new CaptureAliases(visible, values.get, resolveIn(_, scope), resolver).bindings.foreach(
+      (name, binding) => bind(name, binding, scope)
+    )
     visible.foreach(flagStat(scope, _))
   }
 
@@ -335,28 +374,15 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     }
   }
 
-  /** Where a declaration is read: the frame that declares it, the environment its types are read
-    * under, and the template whose member it is — a parent's member reached from two receivers is
-    * two slots, `Outer.this.seed` and `Inner.this.seed`.
-    */
-  private case class Slot(scope: Frame, env: Map[String, Resolved], template: Frame) {
-
-    def id(name: String): String =
-      if (template.id == scope.id) s"${scope.id}:$name" else s"${template.id}<${scope.id}:$name"
-
-    /** The template whose member an inherited declaration is. */
-    def receiver: Option[Frame] = Option.when(template.id != scope.id)(template)
-
-  }
-
   /** A declaration bound in a slot: the member's name, and the key `values` holds it under (an
     * overload's or an anonymous parameter's own).
     */
-  private case class Declared(slot: Slot, member: String, key: String)
+  private case class Declared(slot: MemberSlot, member: String, key: String)
 
-  private def bindSlot(slot: Slot, member: String, key: String, shape: Shape): Unit = {
+  private def bindSlot(slot: MemberSlot, member: String, key: String, shape: Shape): Unit = {
     val binding = Binding(slot.id(key), shape)
     bind(key, binding, slot.scope)
+    if (slot.concrete) concreteMembers += binding.id
     if (qualifiedValues.contains(binding.id))
       declaredIn.update(binding.id, Declared(slot, member, key))
   }
@@ -364,7 +390,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // A declaration is read where its slot declares it; a parameter, where its owner types it. A
   // stable value's type-only refinement pins members of its path, which its path's reading follows:
   // the value itself is a value of the refined type.
-  private def add(name: String, tpe: Option[Type], slot: Slot, reading: Frame): Unit =
+  private def add(name: String, tpe: Option[Type], slot: MemberSlot, reading: Frame): Unit =
     tpe
       .toRight(s"missing type of accessible value: $name")
       .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
@@ -379,7 +405,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // and an abstract `var` is an abstract getter (its setter returns `Unit`): a declared slot.
   private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
     case d: (Decl.Val | Decl.Var | Decl.Def | Decl.GivenLike) =>
-      if (!isTarget(d)) declaration(Slot(scope, resolver.typeParameters(scope), scope), d)
+      if (!isTarget(d)) declaration(MemberSlot(scope, resolver.typeParameters(scope), scope), d)
     case i: Import => flagShadowing(i)
     case _         => ()
   }
@@ -389,7 +415,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def isTarget(stat: Stat): Boolean = DeclarationIdentity.same(stat, target.tree)
 
   private def addDeclaredValue(
-      slot: Slot,
+      slot: MemberSlot,
       declaration: Decl.Val,
       implemented: Set[String] = Set.empty
   ): Unit =
@@ -401,47 +427,42 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       }
     }
 
-  // A declaration is not an implementation: someone else supplies it, so its result is a value this
-  // scope has, and a callable declaration is a callable it can apply. Its *type* is what the count
-  // works with: `def modify(f: A => B): S => T` applies like any other callable, while `def get[M]():
-  // M` reads as unresolved, since its own binder M is not a shape this scope has.
-  private def addDeclaredCallable(slot: Slot, declaration: Decl.Def): Unit = {
-    val groups = declaration.paramClauseGroups
-    val params = groups.flatMap(_.paramClauses).flatMap(_.values)
-    if (!params.forall(_.decltpe.isDefined))
-      errors += s"missing callable parameter type: ${declaration.name.value}"
-    else {
-      val tpes = params.flatMap(_.decltpe)
-      val callable = Type.Function(Type.FuncParamClause(tpes), declaration.decltpe)
-      val binders = groups
-        .flatMap(_.tparamClause.values)
-        .map(p => p.name.value -> Left(s"polymorphic capability binder: ${p.name.value}"))
-        .toMap
-      resolveIn(callable, slot.scope, slot.env ++ binders, slot.receiver) match {
-        case Left(reason) => errors += reason
-        case Right(shape) => bindMember(slot, declaration, tpes, shape)
-      }
+  // A declaration (or an open member) is not an implementation: someone else supplies it, so its
+  // result is a value this scope has, and a callable one is a callable it can apply. Its *type* is
+  // what the count works with: `def modify(f: A => B): S => T` applies like any other callable,
+  // while `def get[M](): M` reads as unresolved, since its own binder M is not a shape this scope
+  // has. A member that only ever builds Unit is irrelevant (capabilities C7, the exact case).
+  private def addMember(slot: MemberSlot, member: Stat, name: String): Unit =
+    MemberSyntax.observation(member, name) match {
+      case Left(reason)                                 => errors += reason
+      case Right(Observation.Value(tpe))                => add(name, Some(tpe), slot, slot.scope)
+      case Right(Observation.Applied(callable, result)) =>
+        val env = slot.env ++ callable.binders
+        val read = resolveIn(_, slot.scope, env, slot.receiver)
+        read(callable.tpe) match {
+          case Left(_) if MemberSyntax.buildsUnit(result, read) => ()
+          case Left(reason)                                     => errors += reason
+          case Right(shape) => bindMember(slot, name, member, shape)
+        }
     }
-  }
 
-  // One key per member: an overload is a second key, a restatement none.
-  private def bindMember(
-      slot: Slot,
-      declaration: Decl.Def,
-      tpes: List[Type],
-      shape: Shape
-  ): Unit = {
+  // One key per member: an overload is a second key, a restatement none. Its parameter types'
+  // identities tell the two apart.
+  private def bindMember(slot: MemberSlot, name: String, declaration: Stat, shape: Shape): Unit = {
     val context = readingContext(slot.scope, slot.env)
-    val identities = tpes.map(TypeIdentities.of(_, context, resolver))
+    val identities = MemberSyntax
+      .parameters(MemberSyntax.groups(declaration))
+      .flatMap(_.decltpe)
+      .map(TypeIdentities.of(_, context, resolver))
     val member = DeclaredMembers.Declared(slot.template.id, slot.scope.id, shape, identities)
-    declaredMembers.key(declaration.name.value, declaration, member) match {
+    declaredMembers.key(name, declaration, member) match {
       case Left(reason)     => errors += reason
       case Right(None)      => ()
-      case Right(Some(key)) => bindSlot(slot, declaration.name.value, key, shape)
+      case Right(Some(key)) => bindSlot(slot, name, key, shape)
     }
   }
 
-  private def addDeclaredGiven(slot: Slot, declaration: Decl.GivenLike): Unit =
+  private def addDeclaredGiven(slot: MemberSlot, declaration: Decl.GivenLike): Unit =
     declaration.name match {
       case name: Term.Name => add(name.value, Some(declaration.decltpe), slot, slot.scope)
       case _               => errors += "anonymous given not resolved"
@@ -549,73 +570,5 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       resolver.inspect,
       resolver.solverDepth
     )
-
-  /** A concrete value's initializer and declared type. */
-  private case class Initialized(body: Term, decltpe: Option[Type])
-
-  /** One scope's value declarations, each resolved to the binding it names.
-    *
-    * A forward alias chain folds onto the value at its end; a chain that loops, names something
-    * invisible, or has a body the model cannot read fails closed, as a diagnostic.
-    */
-  private class Aliases(stats: List[Stat], owner: Frame) {
-
-    // A `var` is read as the value it was initialized with: the model excludes the mutation that
-    // could make it anything else.
-    private val declared = stats
-      .collect {
-        case v: Defn.Val => (v.pats, Initialized(v.rhs, v.decltpe))
-        case v: Defn.Var => (v.pats, Initialized(v.body, v.decltpe))
-      }
-      .flatMap((pats, v) => pats.flatMap(TypeApplications.patVarName.getOption(_).map(_ -> v)))
-      .toMap
-
-    private val done = mutable.Map.empty[String, Either[String, Binding]]
-
-    def report(): Unit = declared.keys.toList.sorted.foreach(reportOne)
-
-    private def reportOne(name: String): Unit =
-      value(name, Set.empty) match {
-        case Right(binding) => bind(name, binding, owner)
-        // A body this pass cannot follow is a *specific* inhabitant of the value's type, and a
-        // total parametric body can only compute what the environment already holds: its value is
-        // one of the bindings in scope, so skipping it loses nothing and blocking the count would
-        // lose everything. Only an alias is worth following, because it *names* one of those
-        // bindings and so raises the count's precision.
-        case Left(_) => ()
-      }
-
-    private def value(name: String, active: Set[String]): Either[String, Binding] =
-      resolver.expanding("capture alias") {
-        if (active(name)) Left(s"recursive capture alias: $name")
-        else done.getOrElseUpdate(name, source(name, active))
-      }
-
-    private def source(name: String, active: Set[String]): Either[String, Binding] = {
-      val declaration = declared(name)
-      val named = declaration.body match {
-        case Term.Name(n) if declared.contains(n) => value(n, active + name)
-        case Term.Name(n)                         =>
-          values.get(n).toRight(s"capture alias not resolved: $name -> $n")
-        case _ => Left(s"$name is not an alias")
-      }
-      named.flatMap(binding => checked(name, binding, declaration))
-    }
-
-    // A declared type must agree with the binding the alias names; a mismatch is a conversion the
-    // model cannot follow.
-    private def checked(
-        name: String,
-        binding: Binding,
-        declaration: Initialized
-    ): Either[String, Binding] =
-      declaration.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
-        resolveIn(tpe, owner).flatMap { shape =>
-          if (binding.shape == shape) Right(binding)
-          else Left(s"capture alias type conversion not resolved: $name")
-        }
-      }
-
-  }
 
 }

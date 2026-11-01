@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.SourceIndex
-import cardinality.analysis.model.ScopeTerms
+import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.capacity.Counter
 import cardinality.types.TypeApplications
 
@@ -125,9 +125,9 @@ private[cardinality] object FinalImplementations {
 
   private def implements(stat: Stat, name: String, groups: List[Member.ParamClauseGroup]): Boolean =
     stat match {
-      case d: Defn.Def        => d.name.value == name && shape(d.paramClauseGroups) == shape(groups)
-      case g: Defn.GivenAlias => g.name.value == name && shape(g.paramClauseGroups) == shape(groups)
-      case g: Defn.Given      => g.name.value == name && shape(g.paramClauseGroups) == shape(groups)
+      case d: (Defn.Def | Defn.GivenAlias | Defn.Given) =>
+        MemberSyntax.names(d).contains(name) &&
+        MemberSyntax.shape(MemberSyntax.groups(d)) == MemberSyntax.shape(groups)
       // Mutation is excluded, so a `var` holds its initializer: a parameterless member's value.
       case v: Defn.Val => groups.isEmpty && TypeApplications.boundNames(v.pats).contains(name)
       case v: Defn.Var => groups.isEmpty && TypeApplications.boundNames(v.pats).contains(name)
@@ -139,15 +139,10 @@ private[cardinality] object FinalImplementations {
     */
   def field(param: Term.Param, name: String, template: Frame): Boolean =
     param.name.value == name &&
-      (param.mods.exists(m => m.is[Mod.ValParam] || m.is[Mod.VarParam]) || template.tree.exists {
+      (MemberSyntax.keptParameter(param) || template.tree.exists {
         case c: Defn.Class => c.mods.exists(_.is[Mod.Case])
         case _             => false
       })
-
-  // Type parameter count, then each term clause's size: what tells an override from an overload
-  // without reading a type.
-  def shape(groups: List[Member.ParamClauseGroup]): List[Int] =
-    groups.flatMap(group => group.tparamClause.values.size :: group.paramClauses.map(_.values.size))
 
   /** The term names templates declare or take as parameters: inside an implementation they mean the
     * template's own members, which every receiver path reaches.
@@ -156,10 +151,6 @@ private[cardinality] object FinalImplementations {
     templates
       .flatMap(frame => frame.params.map(_.name.value) ++ ScopeTerms.defined(frame.stats))
       .toSet
-
-  /** The term parameters' names of a definition's clauses. */
-  def parameterNames(groups: List[Member.ParamClauseGroup]): Set[String] =
-    groups.flatMap(_.paramClauses.flatMap(_.values.map(_.name.value))).toSet
 
   /** The names an implementation's body reads that its own parameters do not bind, and whether the
     * body is that one name (`def seed: A = a1`): a member that is an alias of a capture.
@@ -173,7 +164,7 @@ private[cardinality] object FinalImplementations {
       case g: Defn.Given      => (g.paramClauseGroups, Some(g.templ))
       case _                  => (Nil, None)
     }
-    val own = parameterNames(params)
+    val own = MemberSyntax.parameterNames(params)
     val names = body.toList.flatMap(_.collect { case n: Term.Name => n.value }).toSet -- own
     val alias = body.collect { case Term.Name(n) if params.isEmpty && !own(n) => n }
     (names, alias)

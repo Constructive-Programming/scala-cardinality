@@ -2,6 +2,7 @@ package cardinality.analysis
 
 import scala.meta.*
 
+import cardinality.analysis.capability.Insertions
 import cardinality.analysis.model.{ResolutionContext, TypeOperators}
 import cardinality.analysis.resolution.{Found, InheritedTypeMembers, TypeMembers}
 import cardinality.capacity.Reading
@@ -64,6 +65,9 @@ private[cardinality] trait Resolver {
 
   /** A channel through which declarations the sources do not supply may bind a builtin name. */
   def unreadChannel(context: ResolutionContext): Option[String]
+
+  /** The source declarations that may defer an expression the compiler inserts them around. */
+  def insertions: Insertions
 
   /** The channel through which another declaration may bind a name the stdlib model reads, where
     * the name is read, if one is open there.
