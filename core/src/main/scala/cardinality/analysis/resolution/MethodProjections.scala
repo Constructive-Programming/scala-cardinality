@@ -26,7 +26,9 @@ private[cardinality] object MethodProjections {
   }
 
   /** The transparent alias a constructor names at its own position: imports and the precedence of
-    * its scope decide, as for any other reference.
+    * its scope decide, as for any other reference. An alias with a higher-kinded parameter is read
+    * by kind (`ConstructorApplications`), not by this normalizer, which freezes every argument as a
+    * type.
     */
   def alias(
       callee: Type,
@@ -39,7 +41,8 @@ private[cardinality] object MethodProjections {
           .getOption(entry)
           .filter(definition =>
             !definition.mods.exists(_.is[Mod.Opaque]) &&
-              TypeApplications.lambda(definition.body).isEmpty
+              TypeApplications.lambda(definition.body).isEmpty &&
+              definition.tparamClause.values.forall(Kinds.of(_) == Kind.Proper)
           )
           .map(entry -> _)
       case _ => None
@@ -146,7 +149,7 @@ private[cardinality] object MethodProjections {
         context: ResolutionContext
     ): Prepared = {
       val (entry, declared) = declaration
-      val key = (entry.owner.path :+ entry.name).mkString(".")
+      val key = entry.key
       val parameters = declared.tparamClause.values
       if (context.visiting(key)) Left(s"recursive type requires a structural proof: $key")
       else

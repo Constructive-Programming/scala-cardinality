@@ -399,6 +399,56 @@ shape. Union aliases
 are read as their alternatives at the use. Builtins are a fixed list of final or
 standard-library-sealed classes. A callable that returns a union is still not eliminated.
 
+## D14. A rigid constructor is an uninterpreted base type
+
+**Decision.** An unbounded higher-kinded binder with plain holes is rigid: `F[τ…]` is a base type
+over its arguments' nominal keys, equal only to the same head over the same keys, with no
+constructor or eliminator. A higher-kinded argument is an operator read where it is written (a
+closure, applied by β-reduction in that scope). A context bound is one more contextual parameter;
+a subtype bound an ambient `<:<` proof — between binders or rigid applications a directed view, to
+a closed structural type an elimination-only view (upper) or a construction (lower). Details:
+[higher-kinded binders](higher-kinded-binders.md).
+
+**Evidence.**
+
+- Strong normalisation of System Fω (Girard 1972) and the absence of eliminators for an abstract
+  application in a β-normal term (**classical**); completeness of the set-theoretic model over ℕ
+  for βη (Friedman 1975, **metadata-verified via secondary sources**) and with coproducts
+  (Dougherty & Subrahmanyam 2000, **metadata and abstract verified**) — instantiating each rigid
+  head as a constant constructor separates distinct normal forms.
+- Relational parametricity for higher kinds (Atkey 2012, **metadata-verified**) and the
+  identity-only inhabitation of an equality type (Vytiniotis & Weirich 2010, **metadata and
+  abstract verified**): the semantic form of the rule, and the licence for rewriting under `=:=`
+  through any `F`.
+- Undecidability of F<: subtyping (Pierce 1994, **metadata-verified**) bounds the fragment: a
+  finite graph of binder bounds plus closed structural views.
+- **Compiler fixtures** (Scala 3.9.0, this session): context bounds are `using` parameters, two of
+  one type ambiguous (E172); for `A <: B` with evidence of both, `summon[B]` selects the `B`
+  parameter (run); every positive fixture of the spec compiles; `F[?]` for an abstract `F` is
+  E043; `[A >: Flag <: Boolean]`, `[A >: Flag <: AnyVal]` compile and every call is E057; bounds
+  referring back through bounds alone are E140, F-bounds compile; view bounds and constructor
+  arguments of the wrong kind are rejected.
+- **Executable**: `HigherKindedBindingSpec`, `HigherKindedRefusalSpec`, `BinderBoundsSpec`,
+  `KindedIdentitySpec` (positive and adversarial: nominal keys separate `Option[A]` from
+  `Either[Unit, A]`, hygiene, closure scope, views of views, bounds, refusals).
+
+**Boundary.** Nothing structural is assumed of a rigid `F` — no law, no variance (a variant hole is
+refused), no bound (a bounded higher-kinded binder is refused). A key never identifies two types
+by their shapes: a structurally substituted argument, a union of distinct keys, a path, an
+abstract member or an unsupplied name has no key and stays `?`. A subtype proof beside a callable
+or a sum value is refused (contravariant uses are not read); a callable producing a structurally
+bounded value is refused (its output would be eliminated). Structural lower and upper bounds
+that share a supertype are refused: a viewed value and a lower-bound construction may be one value,
+and the bounds may admit no type (a vacuous context); so is a structural lower bound under
+`AnyRef` / `AnyVal` / `Matchable` whose declared class does not fit. A bound whose structure holds
+its binder again (an F-bound through a structure, directly, via bounds or via a proof) is refused:
+its inhabitation is a fixpoint question; bounds referring back through bounds alone, and view
+bounds, are invalid programs, refused whether or not the binder is read and whatever the result
+(D12's one-valued goal presumes a program). A top or `Nothing` bound is a no-op only past every
+channel that may rebind the name (D12). An opaque type outside its
+scope is no key (its API may relate it to other types). Bounds to open traits wait for the
+capability records.
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

@@ -56,13 +56,13 @@ private[cardinality] object TypeApplications {
     case _                   => TypePlaceholders.lambda(tpe)
   }
 
+  /** A binder a polymorphic function type cannot take: any bound, or a kind of its own. */
   def constrained(parameter: Type.Param): Boolean =
-    parameter.bounds.lo.nonEmpty || parameter.bounds.hi.nonEmpty ||
-      parameter.bounds.context.nonEmpty || parameter.bounds.view.nonEmpty ||
-      parameter.tparamClause.values.nonEmpty
+    !Kinds.plain(parameter) || parameter.tparamClause.values.nonEmpty
 
-  /** The checks an applied type constructor must pass before its arguments are substituted: no
-    * constrained parameters, and exactly one argument per declared parameter.
+  /** The checks an applied type constructor must pass before its arguments are substituted: every
+    * parameter plain (`Kinds.plain`: a rigid higher-kinded one included), and exactly one argument
+    * per declared parameter.
     */
   def checkApplication(
       name: String,
@@ -71,7 +71,7 @@ private[cardinality] object TypeApplications {
       kind: String = "type constructor",
       arityKind: String = "type"
   ): Either[String, Unit] =
-    if (parameters.exists(constrained)) Left(s"constrained $kind: $name")
+    if (!parameters.forall(Kinds.plain)) Left(s"constrained $kind: $name")
     else if (parameters.size != argCount) Left(s"$arityKind argument arity: $name")
     else Right(())
 

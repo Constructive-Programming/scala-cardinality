@@ -88,12 +88,12 @@ class GeneralInfixApplicationSpec extends Specification {
       "Option[A] < Var[A]" -> "<[Option[A], Var[A]]",
       "A < Unit" -> "<[A, Unit]"
     )
+    // The callee is read first: with `<` unsupplied, nothing says whether its arguments are types
+    // or constructors, so the missing callee is the one true reason, whatever its arguments name.
     pairs
       .map { (infix, prefix) =>
-        val expected =
-          if (infix.contains("Env")) "Env" else if (infix.contains("Var")) "Var" else "<"
         (count("", infix) === count("", prefix))
-          .and(count("", infix) === Count.Unresolved(List(s"unresolved type: $expected")))
+          .and(count("", infix) === Count.Unresolved(List("unresolved type: <")))
       }
       .reduce(_.and(_))
   }

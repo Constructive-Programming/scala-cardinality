@@ -100,7 +100,12 @@ object MethodAnalysis {
       tree: Tree,
       owner: Frame,
       self: Option[Frame] = None
-  )
+  ) {
+
+    /** The declaration's qualified path: its identity among the scopes a reading has entered. */
+    def key: String = (owner.path :+ name).mkString(".")
+
+  }
 
   final private[cardinality] case class Target(
       input: String,
@@ -118,10 +123,12 @@ object MethodAnalysis {
       val limits: Limits,
       work: Option[AnalysisWork] = None
   ) extends Resolver {
-    private val existentialCaptures = new ExistentialInputs.Captures
     private val sourceNames = inputs.flatMap(_.tree.collect { case name: Name => name.value }).toSet
 
     private val indexer = new SourceIndex(inputs, work)
+
+    val operators = new TypeOperators(resolve(_, _), constructorKinds.of(_, _))
+    val boundedBinders: Map[String, (Frame, Type.Param)] = indexer.boundedBinders.toMap
     private val representations = new Representations(indexer, accessible, packageGrant)
 
     def analyze(): List[Entry] = indexer.targets.toList.map(measure)
@@ -144,6 +151,8 @@ object MethodAnalysis {
     )
 
     private val inheritedMembers = new InheritedTypeMembers(lookupIndex, this)
+
+    private lazy val constructorKinds = new ConstructorKinds(this)
 
     private lazy val shadowedBuiltins = new ShadowedBuiltins(
       this,
@@ -168,6 +177,13 @@ object MethodAnalysis {
 
     def narrowedResult(tpe: Type, context: ResolutionContext): Option[String] =
       transparentResults.narrowed(tpe, context)
+
+    private lazy val applications = new ConstructorApplications(
+      this,
+      new NominalKeys(this, shadowedBuiltins.shadowing),
+      namedType,
+      sourceNames
+    )
 
     def selected(paths: Set[String], names: Set[String]): List[Target] =
       indexer.targets.toList
@@ -204,7 +220,7 @@ object MethodAnalysis {
           )
 
     def typeParameters(frame: Frame): Map[String, Resolved] =
-      SourceBindings.of(frame, inspect)
+      SourceBindings.of(frame, inspect, operators)
 
     def resolve(
         tpe: Type,
@@ -242,7 +258,7 @@ object MethodAnalysis {
       tpe match {
         case SingletonIntersections(syntax) =>
           SingletonIntersections.resolve(syntax, context, this)
-        case n: Type.Name if variables.contains(n.value) => variables(n.value)
+        case n: Type.Name if variables.contains(n.value) => proper(n.value, variables(n.value))
         case TypeSubstitution.Union(_, _)                => unions.resolve(tpe, context)
         case MethodProjections(projected) if MethodProjections.accepts(projected, context, this) =>
           MethodProjections.resolve(projected, context, this, sourceNames)
@@ -261,15 +277,15 @@ object MethodAnalysis {
         case _: Type.AnonymousParam  =>
           Left("constructor placeholder has no enclosing constructor application")
         case _: Type.AnonymousLambda =>
-          Left("unapplied constructor placeholder requires a higher-kinded argument environment")
+          Left("unapplied constructor placeholder used as a proper type")
         case f: Type.PolyFunction => MethodTypeLambdas.resolve(f, context, this)
         case _: Type.Lambda       =>
-          Left("unapplied type lambda requires higher-kinded analysis")
+          Left("unapplied type lambda used as a proper type")
         case t: Type.Apply if unions.aliased(t, context) => unions.resolve(t, context)
         case t: Type.Apply                               =>
-          resolveApplication(t.tpe, t.argClause.values, context)
+          applications.resolve(t.tpe, t.argClause.values, context)
         case t: Type.ApplyInfix =>
-          resolveApplication(t.op, List(t.lhs, t.rhs), context)
+          applications.resolve(t.op, List(t.lhs, t.rhs), context)
         case n: Type.Name    => lexicalType(n.value, Nil, context)
         case p: Type.Project =>
           RefinedMembers
@@ -289,49 +305,11 @@ object MethodAnalysis {
       }
     }
 
-    // Infix types are binary constructor applications, not term-method calls: even a colon-ending
-    // operator keeps lhs before rhs. Associativity is already encoded in the parser's nested AST.
-    // Both spellings share argument resolution, qualified lookup and representation/arity checks.
-    private def resolveApplication(
-        callee: Type,
-        arguments: List[Type],
-        context: ResolutionContext
-    ): Resolved = {
-      val name = TypeApplications.name(callee)
-      if (projectable(callee, name, arguments, context))
-        MethodProjections.resolve(
-          Type.Apply(callee, Type.ArgClause(arguments)),
-          context,
-          this,
-          sourceNames
-        )
-      else
-        existentialCaptures
-          .arguments(callee, arguments, context.frame, context.read(_, this))
-          .flatMap { (witnesses, args) =>
-            val resolved = TypeApplications.lambda(callee) match {
-              case Some(lambda) => lambda.flatMap(MethodTypeLambdas(_, args, context, this))
-              case None if context.variables.contains(name) =>
-                context
-                  .variables(name)
-                  .flatMap(_ => Left(s"type parameter is not an applicable constructor: $name"))
-              case None => namedType(TypeApplications.spelled(callee), args, context)
-            }
-            resolved
-              .map(shape => if (witnesses.isEmpty) shape else Shape.Existential(witnesses, shape))
-          }
+    // A higher-kinded name read where a value type is expected is a kind error, not a value.
+    private def proper(name: String, bound: Resolved): Resolved = bound.flatMap {
+      case _: Shape.Constructor => Left(s"higher-kinded parameter used as a proper type: $name")
+      case shape                => Right(shape)
     }
-
-    private def projectable(
-        callee: Type,
-        name: String,
-        arguments: List[Type],
-        context: ResolutionContext
-    ): Boolean =
-      if (arguments.exists(_.is[Type.Wildcard])) false
-      else if (context.variables.contains(name)) false
-      else if (inheritedMembers.find(name, context).nonEmpty) false
-      else MethodProjections.alias(callee, context, this).nonEmpty
 
     def inheritsName(tpe: Type, name: String, context: ResolutionContext): Boolean =
       inheritedMembers.find(name, context.referencing(tpe)).nonEmpty
@@ -419,9 +397,8 @@ object MethodAnalysis {
     private def lexicalType(name: String, args: List[Shape], context: ResolutionContext): Resolved =
       resolveName(name, context) match {
         case Found.Absent => shadowedBuiltins.resolve(name.stripPrefix("_root_."), args, context)
-        case Found.Blocked(reason) => Left(reason)
-        case Found.Foreign(reason) => Left(reason)
-        case Found.Entry(entry)    =>
+        case failed: Found.Failed => Left(failed.reason)
+        case Found.Entry(entry)   =>
           sourceType(name, args, entry, context, typeParameters(entry.owner))
             .flatMap(SingletonIntersections.validate(_, context.useSite, this))
       }
@@ -447,11 +424,8 @@ object MethodAnalysis {
         context: ResolutionContext,
         scope: Map[String, Resolved]
     ): Resolved = {
-      val key = (entry.owner.path :+ entry.name).mkString(".")
-      if (context.visiting(key)) Left(s"recursive type requires a structural proof: $key")
-      else if (OpaqueTypes.hidden(entry, context.useSite))
-        Left(s"opaque representation is not visible at use site: $key")
-      else
+      val key = entry.key
+      OpaqueTypes.readable(context, entry).flatMap { _ =>
         entry.tree match {
           case alias: Defn.Type if TypeApplications.lambda(alias.body).nonEmpty =>
             if (alias.tparamClause.values.isEmpty)
@@ -466,16 +440,14 @@ object MethodAnalysis {
                     this
                   )
                 )
-            else
-              Left(
-                s"parameterized type-lambda alias requires higher-kinded analysis: $name"
-              )
+            else Left(s"type constructor used as a proper type: $name")
           case _ =>
             val (parameters, bodies) = representations.of(entry, key, context.useSite)
             bodies.flatMap(cases =>
               parameterized(Applied(name, args, parameters, cases, entry, context, key, scope))
             )
         }
+      }
     }
 
     // One application of a source type: what it is applied to, and what its declaration says it
@@ -491,17 +463,19 @@ object MethodAnalysis {
         scope: Map[String, Resolved]
     )
 
+    // Arguments were read by the declaration's own kinds: a constructor for a higher-kinded
+    // parameter, a type for a proper one.
     private def parameterized(applied: Applied): Resolved = {
       import applied.{args, cases, context, entry, key, name, parameters, scope}
-      TypeApplications.checkApplication(name, parameters, args.size).flatMap { _ =>
-        val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
-        val env = scope ++ replacements
-        val scoped = context.inScope(entry.owner, env).enter(key)
-        sequence(
-          cases.map(fields => sequence(fields.map(scoped.read(_, this))))
-        )
-          .map(shapeOf(entry, _))
-      }
+      TypeApplications
+        .checkApplication(name, parameters, args.size)
+        .flatMap(_ => operators.kinded(name, parameters, args))
+        .flatMap { _ =>
+          val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
+          val scoped = context.inScope(entry.owner, scope ++ replacements).enter(key)
+          sequence(cases.map(fields => sequence(fields.map(scoped.read(_, this)))))
+            .map(shapeOf(entry, _))
+        }
     }
 
     // A case class denotes the product of its fields; an alias the single type it names.

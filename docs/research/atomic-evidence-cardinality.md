@@ -30,9 +30,12 @@ alongside them.
 
 ## Supported fragment and limits
 
-- Endpoints must resolve to free atoms. Structural representation equality does not prove
-  nominal Scala type equality: two case classes can have identical product shapes. Therefore
-  structural, concrete, higher-kinded, dependent, and unresolved endpoints remain `?`.
+- Endpoints must resolve to free atoms or rigid applications (`F[A]`, keyed nominally — see
+  [higher-kinded binders](higher-kinded-binders.md)). Structural representation equality does not
+  prove nominal Scala type equality: two case classes can have identical product shapes. Therefore
+  structural, concrete, dependent, and unresolved endpoints of written evidence remain `?`; a
+  binder's bound to a closed structural type is the one structural proof, read as an
+  elimination-only view or a construction.
 - Equality is propagated through the supported shape algebra, including arrows. An ordinary
   opaque callable remains opaque; equality evidence does not make it an identity function.
 - Nonreflexive subtype evidence supports atomic values and products only. Sums, callables,

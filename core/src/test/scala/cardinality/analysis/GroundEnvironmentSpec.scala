@@ -668,7 +668,7 @@ class GroundEnvironmentSpec extends Specification {
   }
 
   def evidence = {
-    val reason = "=:= requires free-atom endpoints"
+    val reason = "=:= requires free-atom or rigid-application endpoints"
     unresolvedOn(count("def f[A](ev: A =:= Int, a: A): Int = 0", "f"), reason)
       .and(unresolvedOn(count("def g(ev: Int =:= Int): Int = 0", "g"), reason))
   }

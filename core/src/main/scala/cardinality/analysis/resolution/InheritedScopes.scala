@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.model.ResolutionContext
-import cardinality.types.TypeApplications
+import cardinality.types.{Kinds, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved}
 
@@ -141,10 +141,13 @@ private[cardinality] object InheritedScopes {
         case None       => Map.empty
         case Some(args) =>
           declared.typeParams
-            .map(_.name.value)
             .zip(args)
-            .map((name, arg) =>
-              name -> resolver.resolve(arg, ResolutionContext(from, env, Set.empty, Some(observer)))
+            .map((parameter, arg) =>
+              parameter.name.value -> resolver.operators.argument(
+                Kinds.of(parameter),
+                arg,
+                ResolutionContext(from, env, Set.empty, Some(observer))
+              )
             )
             .toMap
       }

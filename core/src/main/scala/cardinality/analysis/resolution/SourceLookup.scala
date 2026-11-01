@@ -1,9 +1,10 @@
 package cardinality.analysis.resolution
 
 import scala.annotation.tailrec
-import scala.meta.Tree
+import scala.meta.{Tree, Type}
 
 import cardinality.analysis.*
+import cardinality.analysis.model.ResolutionContext
 import cardinality.types.TypeApplications
 
 import MethodAnalysis.{Frame, TypeEntry}
@@ -12,13 +13,37 @@ import MethodAnalysis.{Frame, TypeEntry}
   * reason, a declaration outside the source set, or nothing — which is where the model's own
   * vocabulary may still answer.
   */
-private[cardinality] enum Found {
-  case Entry(entry: TypeEntry)
-  case Blocked(reason: String)
+sealed private[cardinality] trait Found
+
+private[cardinality] object Found {
+  final case class Entry(entry: TypeEntry) extends Found
+
+  /** A lookup that reached neither a supplied declaration nor the builtins, with its reason. */
+  sealed trait Failed extends Found {
+    def reason: String
+  }
+
+  final case class Blocked(reason: String) extends Failed
+
   // An import binds the name to a path outside the source set: a declaration that exists, but was
   // not supplied.
-  case Foreign(reason: String)
-  case Absent
+  final case class Foreign(reason: String) extends Failed
+
+  case object Absent extends Found
+
+  /** What a type written as a name (`T`, `p.T`) denotes where it is read; None for any other type.
+    */
+  def named(
+      resolver: Resolver,
+      tpe: Type,
+      name: String,
+      context: ResolutionContext
+  ): Option[Found] =
+    tpe match {
+      case _: Type.Name | _: Type.Select => Some(resolver.declaration(tpe, name, context))
+      case _                             => None
+    }
+
 }
 
 /** The member objects a template body inherits, which the first segment of a path may name: at a
@@ -59,7 +84,7 @@ final private[cardinality] class SourceLookup(
 
   private val qualified = types
     .filterNot(_.owner.chain.exists(_.local))
-    .groupBy(entry => (entry.owner.path :+ entry.name).mkString("."))
+    .groupBy(_.key)
 
   private val packagePaths = packages.groupBy(_.path)
   private val packageIds = packages.map(_.id).toSet

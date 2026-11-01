@@ -35,6 +35,11 @@ import cardinality.types.TypeSubstitution
   * ext.X`, `Any` after `import Defs.*` is `Boolean` when `X` declares `type Any = Boolean`), and so
   * is the one-value shortcut on a declared result. Every other builtin name waits for the stdlib
   * and foreign-names cluster, which knows the namespaces whose members it can list.
+  *
+  * One foreign namespace is read here because its members are known to clash: under `import
+  * java.lang.*` the names `Boolean`, `Byte`, `Short`, `Long`, `Float` and `Double` are the boxed
+  * classes (3.9.0 accepts `val b: Boolean = null` there and rejects `F[Boolean]` as an
+  * `F[scala.Boolean]`), so the builtin is refused.
   */
 final private[cardinality] class ShadowedBuiltins(
     resolver: Resolver,
@@ -73,11 +78,25 @@ final private[cardinality] class ShadowedBuiltins(
     * may bind it.
     */
   def resolve(name: String, args: List[Shape], context: ResolutionContext): Either[String, Shape] =
-    BuiltinTypes.resolve(name, args).flatMap { builtin =>
+    BuiltinTypes.resolve(name, args).flatMap(builtin => shadowing(name, context).toLeft(builtin))
+
+  /** Why a builtin name read at this reference may mean another declaration instead, if it may.
+    */
+  def shadowing(name: String, context: ResolutionContext): Option[String] =
+    boxed(name, context).orElse {
       val walked = Option.when(spelled(name))(new Walk(Some(name)).from(context)).flatten
       val unread = TopTypes.named(name).flatMap(_ => channel(context))
-      walked.orElse(unread).map(refusal(s"builtin name $name", _)).toLeft(builtin)
+      walked.orElse(unread).map(refusal(s"builtin name $name", _))
     }
+
+  private def boxed(name: String, context: ResolutionContext): Option[String] =
+    Option.when(
+      Boxed(name) && context.frame.chain.exists(scope =>
+        wildcards(scope, context.at).exists(prefix =>
+          JavaLang(prefix.dropWhile(_ == SourceIndex.Root))
+        )
+      )
+    )(s"builtin name $name may be shadowed by java.lang.$name (wildcard import of java.lang)")
 
   /** Whether a supplied declaration, enum case or export selector spells this simple name: one no
     * channel can reach is not a declaration of the sources.
@@ -258,6 +277,11 @@ private[cardinality] object ShadowedBuiltins {
 
   // Alias hops a parent name is followed through before the walk gives up on it.
   private val MaxHops = 16
+
+  // The `java.lang` classes whose simple names are also builtin value types.
+  private val Boxed = Set("Boolean", "Byte", "Short", "Long", "Float", "Double")
+
+  private val JavaLang = Set(List("java", "lang"))
 
   private enum Step {
     case Reach(frame: Frame, via: String)

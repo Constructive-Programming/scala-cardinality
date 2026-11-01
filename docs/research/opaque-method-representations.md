@@ -30,8 +30,9 @@ the concrete identity-carrier operations do not manufacture additional generic
 values. Higher-kinded/evidence-bearing operations are not covered by that argument.
 
 The real report's `Direct.fold.foldMap`, `Direct.traverse.traverse` and the two
-composition methods remain unresolved for their other obligations. `ForgetK`
-and `MultiFocusK` retain their higher-kinded limitations.
+composition methods remain unresolved for their other obligations. `ForgetK`'s
+`apply` / `.value` and `MultiFocusK`'s `.context` / `.foci` count 1 once their
+carrier `F` is a rigid constructor ([higher-kinded binders](higher-kinded-binders.md)).
 
 ## Visibility and alias expansion
 

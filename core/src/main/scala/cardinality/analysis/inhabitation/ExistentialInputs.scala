@@ -13,6 +13,7 @@ import MethodAnalysis.{Frame, Resolved}
   * Opening an input replaces those names with rigid atoms owned by that value's provenance.
   */
 private[cardinality] object ExistentialInputs {
+  private given Dialect = dialects.Scala3
 
   /** Capture names describe a type template. Runtime input identity comes from the solver's binding
     * provenance, so two inputs of the same alias do not share their hidden witnesses. Re-resolving
@@ -23,25 +24,34 @@ private[cardinality] object ExistentialInputs {
     private val templates =
       scala.collection.mutable.Map.empty[(String, String, Int, Int), String]
 
+    /** The arguments of one application, each read by `resolve` at the kind its parameter takes,
+      * except a wildcard at a proper position, which is a witness of the package the application
+      * becomes. A wildcard where a constructor is expected stands for an unknown constructor.
+      */
     def arguments(
         callee: Type,
-        types: List[Type],
+        kinded: List[(Type, Kind)],
         frame: Frame,
-        resolve: Type => Resolved
+        resolve: (Type, Kind) => Resolved
     ): Either[String, (List[String], List[Shape])] = {
       val witnesses = List.newBuilder[String]
-      val prepared = types.zipWithIndex.map { (tpe, index) =>
-        tpe match {
-          case wildcard: Type.Wildcard
-              if wildcard.bounds.lo.nonEmpty || wildcard.bounds.hi.nonEmpty =>
-            Left(TypePlaceholders.existential(wildcard))
-          case wildcard: Type.Wildcard =>
-            val key = (frame.id, TypeApplications.name(callee), wildcard.pos.start, index)
-            val name = templates.getOrElseUpdate(key, s"$$existentialTemplate${templates.size}")
-            witnesses += name
-            Right(Atom(name))
-          case other => resolve(other)
-        }
+      val prepared = kinded.zipWithIndex.map {
+        case ((tpe, kind), index) =>
+          tpe match {
+            case wildcard: Type.Wildcard if kind != Kind.Proper =>
+              Left(
+                s"existential type constructor requires witness-kind analysis: ${wildcard.syntax}"
+              )
+            case wildcard: Type.Wildcard
+                if wildcard.bounds.lo.nonEmpty || wildcard.bounds.hi.nonEmpty =>
+              Left(TypePlaceholders.existential(wildcard))
+            case wildcard: Type.Wildcard =>
+              val key = (frame.id, TypeApplications.name(callee), wildcard.pos.start, index)
+              val name = templates.getOrElseUpdate(key, s"$$existentialTemplate${templates.size}")
+              witnesses += name
+              Right(Atom(name))
+            case other => resolve(other, kind)
+          }
       }
       MethodAnalysis.sequence(prepared).map(shapes => witnesses.result() -> shapes)
     }

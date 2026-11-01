@@ -21,8 +21,7 @@ private[cardinality] object MethodTypeLambdas {
       resolver: Resolver
   ): Resolved = {
     val parameters = lambda.tparamClause.values
-    TypeApplications
-      .checkApplication(lambda.syntax, parameters, arguments.size, "type lambda", "type lambda")
+    checked(lambda, arguments.size)
       .flatMap { _ =>
         TypeSubstitution.lambdaBody
           .getOption(lambda)
@@ -36,6 +35,16 @@ private[cardinality] object MethodTypeLambdas {
           }
       }
   }
+
+  /** A lambda applied to `count` arguments: one per parameter, every parameter plain. */
+  def checked(lambda: Type.Lambda, count: Int): Either[String, Unit] =
+    TypeApplications.checkApplication(
+      lambda.syntax,
+      lambda.tparamClause.values,
+      count,
+      "type lambda",
+      "type lambda"
+    )
 
   def resolve(
       poly: Type.PolyFunction,

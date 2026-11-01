@@ -36,8 +36,11 @@ scope.
 
 ## What the reference supports that the solver does not yet do
 
-- Rank-N and higher-kinded quantification (`∀f. f A -> f B`, Yoneda for higher kinds): the frontend
-  reports `?` for a bounded or higher-kinded parameter rather than guessing.
+- Rank-N quantification and Yoneda-style reasoning: the frontend reads a plain higher-kinded binder
+  as a rigid, uninterpreted constructor (`F[A]` and `F[B]` are distinct base types; see
+  [higher-kinded binders](research/higher-kinded-binders.md)), so `∀f. f A -> f B` counts 0 without
+  evidence and 1 with `A =:= B`, but it assumes no functor law and refuses variant or bounded
+  constructor binders rather than guessing.
 - Laws: "counting inhabitants of types given laws is hard" — the reference says so itself. A functor
   law, or an optic law, is an extra condition on inhabitant counts and is never assumed here.
 - Non-regular types such as `Set` beyond the `2^|a|` identity, and types whose inhabitants depend on

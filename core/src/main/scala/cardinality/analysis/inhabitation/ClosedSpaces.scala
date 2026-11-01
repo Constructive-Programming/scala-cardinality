@@ -5,18 +5,18 @@ import cardinality.capacity.{EffectiveOmega, FinitePart, NothingSize, Size, Unit
 import Inhabitation.Shape
 import Shape.*
 
-/** Closed shapes hold no atom, singleton, evidence or existential. A closed value only yields
-  * closed values, each a literal the empty environment builds, so eliminating one is a uniform
-  * split: one branch without the value, raised to its value space. Products multiply, sums add, a
-  * function space is its codomain raised to its domain, a sequence is ω (1 if its element is
-  * empty); an infinite operand saturates at 0, 1 or ω (register D2).
+/** Closed shapes hold no atom (a rigid application is one), singleton, evidence or existential. A
+  * closed value only yields closed values, each a literal the empty environment builds, so
+  * eliminating one is a uniform split: one branch without the value, raised to its value space.
+  * Products multiply, sums add, a function space is its codomain raised to its domain, a sequence
+  * is ω (1 if its element is empty); an infinite operand saturates at 0, 1 or ω (register D2).
   */
 private[cardinality] object ClosedSpaces {
 
   def closed(shape: Shape): Boolean =
     !Shape.exists(shape) {
-      case _: Atom | _: Singleton | _: Evidence | _: Existential => true
-      case _                                                     => false
+      case _: Singleton | _: Evidence | _: Existential => true
+      case other                                       => atomic(other)
     }
 
   /** The method-side value space of a closed shape. Callers test `closed` first: an open shape has
@@ -33,16 +33,21 @@ private[cardinality] object ClosedSpaces {
   /** Atoms beside ground values: neither a value space nor a choice of supplied values. */
   def mixed(shape: Shape): Boolean =
     !closed(shape) && Shape.exists(shape)(_.isInstanceOf[Ground]) &&
-      Shape.exists(shape)(_.isInstanceOf[Atom])
+      Shape.exists(shape)(atomic)
 
   /** No atom, but a singleton, evidence or existential beside a node with a choice of values: a
     * value space this algebra does not read, whose functions differ from its values.
     */
   def valued(shape: Shape): Boolean =
-    !closed(shape) && !Shape.exists(shape)(_.isInstanceOf[Atom]) && Shape.exists(shape) {
+    !closed(shape) && !Shape.exists(shape)(atomic) && Shape.exists(shape) {
       case _: Ground | _: Sum | _: Function | _: Repeated => true
       case _                                              => false
     }
+
+  private def atomic(shape: Shape): Boolean = shape match {
+    case _: Atom | _: Applied | _: Constructor => true
+    case _                                     => false
+  }
 
   // The two readings share one structure — products multiply, sums add, a function space is its
   // codomain raised to its domain, a sequence is ω unless its element is empty — and differ only in

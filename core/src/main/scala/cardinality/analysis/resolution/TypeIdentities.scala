@@ -14,11 +14,6 @@ import MethodAnalysis.TypeEntry
   */
 private[cardinality] object TypeIdentities {
 
-  /** The names the model spells itself, as their `scala` declarations, ground scalars included. */
-  private val Builtins =
-    Set("Unit", "Nothing", "Null", "Boolean", "Option", "Either", "util.Either", "Function1") ++
-      BuiltinTypes.groundNames
-
   /** A canonical spelling of `tpe`: each name the declaration it resolves to, each binder its own
     * identity. None when a name is an abstract member, a parameterized alias or unresolved, or a
     * binder stands for an instantiation — an identity this reading does not know.
@@ -26,20 +21,22 @@ private[cardinality] object TypeIdentities {
   def of(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] = tpe match {
     case n: Type.Name =>
       context.variables.get(n.value) match {
-        case Some(Right(Shape.Atom(id))) => Some(s"binder $id")
-        case Some(_)                     => None
-        case None                        => named(tpe, n.value, context, resolver)
+        case Some(Right(Shape.Atom(id)))                         => Some(s"binder $id")
+        case Some(Right(constructor @ Shape.Constructor(token))) =>
+          Option.when(resolver.operators.isRigid(constructor))(token)
+        case Some(_) => None
+        case None    => named(tpe, n.value, context, resolver)
       }
     case s: Type.Select     => named(tpe, s.syntax, context, resolver)
     case a: Type.Apply      => applied(a.tpe, a.argClause.values, context, resolver)
     case a: Type.ApplyInfix =>
       applied(a.op, List(a.lhs, a.rhs), context, resolver)
-    case Type.Tuple(args) => all(args, context, resolver).map(_.mkString("(", ", ", ")"))
+    // Sugar is the type it spells: `(A, B)` is `Tuple2[A, B]`, `A => B` is `Function1[A, B]`.
+    case Type.Tuple(args) =>
+      all(args, context, resolver).map(_.mkString(s"scala.Tuple${args.size}[", ", ", "]"))
     case f: Type.Function =>
-      for {
-        params <- all(f.paramClause.values, context, resolver)
-        result <- of(f.res, context, resolver)
-      } yield params.mkString("(", ", ", ") => ") + result
+      all(f.paramClause.values :+ f.res, context, resolver)
+        .map(_.mkString(s"scala.Function${f.paramClause.values.size}[", ", ", "]"))
     case _ => None
   }
 
@@ -95,10 +92,8 @@ private[cardinality] object TypeIdentities {
   ): Option[String] =
     resolver.declaration(tpe, name, context) match {
       case Found.Entry(entry) => declared(entry, context, resolver)
-      case Found.Absent       =>
-        val plain = name.stripPrefix("_root_.").stripPrefix("scala.")
-        Option.when(Builtins(plain))(s"scala.$plain")
-      case _ => None
+      case Found.Absent       => BuiltinTypes.canonical(name).map(plain => s"scala.$plain")
+      case _                  => None
     }
 
   // A class, trait, enum or opaque type is its own identity; a plain alias is the type it names,
@@ -119,6 +114,7 @@ private[cardinality] object TypeIdentities {
     case _            => Some(key(entry))
   }
 
-  private def key(entry: TypeEntry): String = s"${entry.owner.id}#${entry.name}"
+  /** A declaration's identity: its declaring scope and its name. */
+  def key(entry: TypeEntry): String = s"${entry.owner.id}#${entry.name}"
 
 }

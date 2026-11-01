@@ -66,7 +66,17 @@ private[cardinality] object TopTypes {
 
   /** Whether `tpe` is the builtin `Null` where it is read. */
   def isNull(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
-    builtinNamed(tpe, context, resolver)(NullType).nonEmpty
+    denotes(NullType)(tpe, context, resolver)
+
+  /** Whether `tpe` is the builtin `Nothing` where it is read. */
+  def isNothing(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
+    denotes(NothingType)(tpe, context, resolver)
+
+  private def denotes(empty: Builtin[Unit])(
+      tpe: Type,
+      context: ResolutionContext,
+      resolver: Resolver
+  ): Boolean = builtinNamed(tpe, context, resolver)(empty).nonEmpty
 
   // A builtin's spellings, and the shape a read that reaches it gives.
   final private case class Builtin[+A](spelled: String => Option[A], reading: Shape)
@@ -148,8 +158,7 @@ private[cardinality] object TopTypes {
     // recognised by its spelling, not by identity.
     Option.unless(
       written.exists(connective) ||
-        (written.exists(spellsNothing) &&
-          builtinNamed(Type.Name("Nothing"), context, resolver)(NothingType).isEmpty)
+        (written.exists(spellsNothing) && !isNothing(Type.Name("Nothing"), context, resolver))
     )(rewritten)
   }
 

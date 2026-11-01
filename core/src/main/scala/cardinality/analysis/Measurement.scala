@@ -65,6 +65,12 @@ private[cardinality] trait Resolver {
 
   def typeParameters(frame: Frame): Map[String, Resolved]
 
+  /** The operators higher-kinded names are bound to. */
+  def operators: TypeOperators
+
+  /** Every proper binder that carries a subtype bound, by its atom, with its declaring frame. */
+  def boundedBinders: Map[String, (Frame, Type.Param)]
+
   def accessible(tree: Tree, owner: Frame, from: Frame): Boolean
 
   def packages: List[Frame]
@@ -117,8 +123,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private val receivers = new SealedReceivers(target, resolver)
 
+  private val bounded = new BinderBounds(resolver, target.frame)
+
   def entry(): Entry = {
-    variables.values.collect { case Left(reason) => reason }.foreach(errors += _)
     owners.foreach { owner =>
       scan(owner)
       visibleAt.update(owner.id, values.toMap)
@@ -127,7 +134,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     val steps = scanParents()
     flagReachableModules()
     errors ++= ContextualEvidence.unreachable(
-      new ContextualScope(owners, steps, scopeReader).candidates
+      new ContextualScope(owners, steps, scopeReader).candidates,
+      resolver.boundedBinders.contains
     )
     // Parameters of the target hide outer names, but their type binders keep their identities.
     bindParams(target.frame)
@@ -140,10 +148,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     hiddenReads(steps)
     val result = resultShape()
     result.left.foreach(errors += _)
+    val (proofs, refusals) = bounded.of(environment.map(_.shape) ++ result.toOption)
+    errors ++= refusals
     Entry.of(
       target,
       resolver.kindOf(target),
-      count(result),
+      count(result, proofs.zipWithIndex.map((proof, i) => Binding(s"<bound#$i>", proof))),
       captures.toList.distinct.sorted
     )
   }
@@ -503,9 +513,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def names(tree: Tree): Set[String] =
     TypeName.words(tree).toSet
 
-  private def shadowable: Set[String] =
-    Set("Unit", "Nothing", "Null", "Boolean", "Option", "Either", "EmptyTuple") ++
-      BuiltinTypes.groundNames ++ TopTypes.names
+  // Every name the model reads as a builtin type: the shape vocabulary, the nominal keys of a
+  // rigid constructor's arguments and the top types' spellings.
+  private def shadowable: Set[String] = BuiltinTypes.nominalNames ++ TopTypes.names
 
   private def flagReachableModules(): Unit = {
     val reachable = resolver.modules.filter { module =>
@@ -577,17 +587,21 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // A goal with one value has one implementation whatever the environment holds, so nothing left
   // unresolved around it can change the count — unless an import or export clause may rebind a
   // builtin name, or a channel around the result reaches declarations the sources do not supply,
-  // which may give any name the result spells another meaning.
-  private def count(result: Resolved): Count = result match {
-    case Right(shape) if !target.constructor && !rebound && TopTypes.terminalGoal(shape) =>
+  // which may give any name the result spells another meaning. A type parameter clause that is no
+  // Scala program makes the signature none either: it has no implementation to count.
+  private def count(result: Resolved, bounds: List[Binding]): Count = result match {
+    case Right(shape)
+        if !target.constructor && !rebound && bounded.invalid.isEmpty &&
+          TopTypes.terminalGoal(shape) =>
       target.result.flatMap(tpe => resolver.unreadChannel(resultContext(tpe))) match {
         case None         => Count.Finite(1)
-        case Some(reason) => measured(result, List(reason))
+        case Some(reason) => measured(result, bounds, List(reason))
       }
-    case _ => measured(result, Nil)
+    case _ => measured(result, bounds, Nil)
   }
 
-  private def measured(result: Resolved, doubts: List[String]): Count =
+  // The ambient proofs of the bounded binders the environment mentions join it for the solver.
+  private def measured(result: Resolved, bounds: List[Binding], doubts: List[String]): Count =
     positions.declining(
       if (errors.nonEmpty) Count.Unresolved((errors.toList ++ doubts).distinct.sorted)
       else
@@ -595,16 +609,19 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
           unresolved,
           shape => {
             val (exact, estimated) = positions.factors
-            receivers.certify(shape, Count.product(exact, estimated, inhabitation(shape)))
+            receivers.certify(shape, Count.product(exact, estimated, inhabitation(shape, bounds)))
           }
         )
     )
 
   private def unresolved(reason: String): Count = Count.Unresolved(List(reason))
 
-  private def inhabitation(shape: Shape): Count =
+  // The values the body can read, without the ambient proofs of their binders' bounds.
+  private def environment: List[Binding] = (values.values ++ qualifiedValues.values).toList
+
+  private def inhabitation(shape: Shape, bounds: List[Binding]): Count =
     Inhabitation.count(
-      (values.values ++ qualifiedValues.values).toList,
+      environment ++ bounds,
       shape,
       resolver.limits.maxStates,
       resolver.inspect,

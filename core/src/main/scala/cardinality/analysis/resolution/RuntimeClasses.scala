@@ -126,14 +126,14 @@ final private[cardinality] class RuntimeClasses(
         Left(s"$name has no runtime class (type parameter or alias argument)")
       case s: Type.Select if RefinedMembers.pathType(s.qual, context.frame).nonEmpty =>
         Left(s"$name has no runtime class (path-dependent member)")
-      case _: Type.Name | _: Type.Select =>
-        resolver.declaration(head, name, context) match {
-          case Found.Entry(entry) => declaration(entry, name, context)
-          case Found.Foreign(why) => Left(why)
-          case Found.Absent       => builtin(name, whole, context)
-          case Found.Blocked(why) => Left(why)
+      case _ =>
+        Found.named(resolver, head, name, context) match {
+          case Some(Found.Entry(entry)) => declaration(entry, name, context)
+          case Some(Found.Foreign(why)) => Left(why)
+          case Some(Found.Absent)       => builtin(name, whole, context)
+          case Some(Found.Blocked(why)) => Left(why)
+          case None                     => Left(s"${spell(head)} has no runtime class")
         }
-      case other => Left(s"${spell(other)} has no runtime class")
     }
   }
 

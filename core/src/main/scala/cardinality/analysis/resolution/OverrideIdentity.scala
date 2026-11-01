@@ -197,12 +197,15 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       context: ResolutionContext,
       bindings: Bindings
   ): Key =
-    if (parameter.tparamClause.values.nonEmpty) None
+    // A rigid higher-kinded binder is keyed by its kind beside its bounds: `F[_]` and `F[_, _]`
+    // are different signatures.
+    if (cardinality.types.Kinds.refusal(parameter).nonEmpty) None
     else {
       val bounds = parameter.bounds
       val keys = List(bounds.lo.toList, bounds.hi.toList, bounds.context, bounds.view)
         .map(types => combine(types.map(key(_, context, bindings))))
-      plainModifiers(parameter.mods).flatMap(_ => combine(keys))
+      val kind = Some(s"kind:${cardinality.types.Kinds.of(parameter).render}")
+      plainModifiers(parameter.mods).flatMap(_ => combine(kind :: keys))
     }
 
   // An annotation does not distinguish an overload's parameter type or calling convention.
@@ -227,9 +230,14 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       }
     case Type.Tuple(args) =>
       application(Some(s"builtin:Tuple${args.size}"), args, context, bindings)
+    // Sugar keys as the type it spells, so `A => B` and `Function1[A, B]` are one key.
     case f: Type.Function =>
-      combine(f.paramClause.values.map(key(_, context, bindings)) :+ key(f.res, context, bindings))
-        .map(k => s"function:$k")
+      application(
+        Some(s"builtin:Function${f.paramClause.values.size}"),
+        f.paramClause.values :+ f.res,
+        context,
+        bindings
+      )
     case other => decoratedKey(other, context, bindings)
   }
 
@@ -349,42 +357,16 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       arguments <- combine(args.map(key(_, context, bindings)))
     } yield s"apply:$name:$arguments"
 
-  private val builtins = Set(
-    "Nothing",
-    "Any",
-    "AnyVal",
-    "AnyRef",
-    "Unit",
-    "Boolean",
-    "Byte",
-    "Short",
-    "Int",
-    "Long",
-    "Float",
-    "Double",
-    "Char",
-    "String",
-    "Option",
-    "Either",
-    "Tuple1",
-    "Tuple2",
-    "Tuple3",
-    "Tuple4",
-    "EmptyTuple"
-  )
-
   private def constructor(name: String, context: ResolutionContext): Key =
     if (imported(name, context.frame)) None
-    else {
-      val bare = name.stripPrefix("scala.")
+    else
       resolver.lookup(name, context.frame) match {
         // Aliases are expanded by `named`; abstract members remain unsupported.
         case List(entry) if entry.tree.is[Defn.Type] || entry.tree.is[Decl.Type] => None
-        case List(entry)           => Some(s"source:${entry.owner.id}:${entry.tree.pos.start}")
-        case Nil if builtins(bare) => Some(s"builtin:$bare")
-        case _                     => None
+        case List(entry) => Some(s"source:${entry.owner.id}:${entry.tree.pos.start}")
+        case Nil         => BuiltinTypes.canonical(name).map(builtin => s"builtin:$builtin")
+        case _           => None
       }
-    }
 
   private def imported(name: String, frame: Frame): Boolean =
     imports(name, frame.chain)

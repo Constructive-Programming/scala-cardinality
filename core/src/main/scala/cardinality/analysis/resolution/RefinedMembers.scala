@@ -203,7 +203,11 @@ private[cardinality] object RefinedMembers {
           val replacements = defined.parameters
             .zip(arguments)
             .map { (parameter, argument) =>
-              parameter.name.value -> context.read(argument, resolver)
+              parameter.name.value -> resolver.operators.argument(
+                Kinds.of(parameter),
+                argument,
+                context
+              )
             }
             .toMap
           context.inScope(defined.owner, resolver.typeParameters(defined.owner) ++ replacements)

@@ -4,7 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
-import cardinality.analysis.model.ResolutionContext
+import cardinality.analysis.model.{ContextBounds, ResolutionContext}
 import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes}
 import cardinality.capacity.{Definition, FinitePart, Size}
 import cardinality.types.TypeSubstitution
@@ -54,7 +54,7 @@ final private[cardinality] class ConstructorPositions(
 
   import Position.*
 
-  private val read = mutable.Map.empty[(String, String), Position]
+  private val read = mutable.Map.empty[(String, Int), Position]
 
   /** Whether the shape model binds this position: always outside a constructor. */
   def leftToShape(param: Term.Param, owner: Frame): Boolean = classify(param, owner) match {
@@ -90,10 +90,12 @@ final private[cardinality] class ConstructorPositions(
   private def own: List[Position] = target.frame.params.map(classify(_, target.frame))
 
   // An enclosing template's parameter is a capture of the nested constructor, bound like a
-  // method's: only the constructor's own positions are its value spaces.
+  // method's: only the constructor's own positions are its value spaces. A position is keyed by its
+  // place, since every anonymous parameter has the empty name.
   private def classify(param: Term.Param, owner: Frame): Position =
     if (!target.constructor || owner.id != target.frame.id) Shaped
-    else read.getOrElseUpdate(owner.id -> param.name.value, position(param, owner))
+    else
+      read.getOrElseUpdate(owner.id -> owner.params.indexWhere(_ eq param), position(param, owner))
 
   private def position(param: Term.Param, owner: Frame): Position = param.decltpe match {
     case None                                                      => Shaped
@@ -107,7 +109,8 @@ final private[cardinality] class ConstructorPositions(
       val context = ResolutionContext(owner, variables, Set.empty)
       val unread = TopTypes.unestimable(tpe, context, resolver)
       val slot = unread.fold(TopTypes.implementationSlot(tpe, context, resolver))(_ => None)
-      val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), tpe)
+      val written = ContextBounds.written(param, tpe, owner.typeParams)
+      val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), written)
       declined(tpe, reading).getOrElse(
         readPosition(param.name.value, tpe, owner, unread, slot.flatMap(_ => reading.toOption))
       )

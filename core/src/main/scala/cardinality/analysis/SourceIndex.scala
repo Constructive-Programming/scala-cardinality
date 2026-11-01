@@ -4,7 +4,8 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
-import cardinality.types.{TypeApplications, TypeName}
+import cardinality.analysis.model.{ContextBounds, SourceBindings}
+import cardinality.types.{Kinds, TypeApplications, TypeName}
 
 final private[cardinality] case class ImportBinding(
     start: Int,
@@ -24,6 +25,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // onward. The binding records what each introduces: explicit names with the qualified key
   // they reach, and the prefixes a wildcard opens.
   private[cardinality] val imports = mutable.ListBuffer.empty[(String, ImportBinding)]
+  // Every proper binder that carries a subtype bound, by its atom, with the frame declaring it: the
+  // bound is read wherever the measurement meets the atom (`BinderBounds`).
+  private[cardinality] val boundedBinders = mutable.LinkedHashMap.empty[String, (Frame, Type.Param)]
 
   inputs.sortBy(_.path).foreach { input =>
     val root = Frame(input.path, Nil, None, input.tree.stats)
@@ -146,18 +150,23 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       params: List[Term.Param],
       local: Boolean = false,
       parents: List[Init] = Nil
-  ): Frame =
-    Frame(
+  ): Frame = {
+    val frame = Frame(
       s"$input:${node.pos.start}",
       owner.path :+ name,
       Some(owner),
       stats,
       tparams,
-      params,
+      params ++ ContextBounds.evidence(tparams),
       local,
       parents,
       Some(node)
     )
+    tparams
+      .filter(p => p.tparamClause.values.isEmpty && Kinds.subtypeBounded(p))
+      .foreach(p => boundedBinders.update(SourceBindings.atom(frame, p), frame -> p))
+    frame
+  }
 
   // One pass over a frame's statements, naming what each declaration introduces for the second
   // pass to resolve. Each kind gets its own method: what differs between them is the body a

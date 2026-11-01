@@ -476,8 +476,11 @@ The article only sketches this area. One target, for arbitrary type constructors
 ```
 
 This requires type-equality evidence: for fixed equal types there is the identity;
-for distinct types there is no general conversion. Nested quantifiers and
-higher-kinded parameters require their own binding/variance-aware analysis.
+for distinct types there is no general conversion. The method side reads a plain
+higher-kinded binder exactly so (a rigid constructor over nominal argument keys — see
+[higher-kinded binders](research/higher-kinded-binders.md)); variance-annotated or
+bounded constructor binders and nested quantifiers still require their own
+binding/variance-aware analysis.
 Neither sampling instantiations nor treating an unknown constructor as infinite
 implements these rules.
 

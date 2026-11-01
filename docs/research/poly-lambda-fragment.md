@@ -17,11 +17,12 @@ replacement. Consequently a caller's `A` cannot be captured by a lambda binder s
 `A`; nested binders shadow only their own lexical name. Alias bodies are resolved in
 the alias declaration's scope, not the application's scope.
 
-This does not implement arbitrary higher-kinded substitution. Unapplied lambdas,
-bounded/higher-kinded lambda parameters, and aliases with both outer parameters and a
-lambda body remain unresolved. Unknown external constructors such as `ZIO[R,E,x]`
-are not assumed to be structural containers. A reducible lambda cannot make unknown
-constructor semantics known.
+Higher-kinded substitution — a lambda or constructor passed where a constructor is
+expected, and aliases with both outer parameters and a lambda body applied in two steps —
+is the operator-closure reading of [higher-kinded binders](higher-kinded-binders.md).
+Unapplied lambdas in a type position and bounded lambda parameters remain unresolved.
+Unknown external constructors such as `ZIO[R,E,x]` are not assumed to be structural
+containers. A reducible lambda cannot make unknown constructor semantics known.
 
 ## Closed polymorphic identity
 

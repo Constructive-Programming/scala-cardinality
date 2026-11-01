@@ -80,7 +80,7 @@ private[cardinality] object ContextualEvidence {
   /** A diagnostic per anonymous candidate a search may not select. An unread type that is already a
     * diagnostic blocks the count by its own reason, so it is not repeated as an overlap.
     */
-  def unreachable(candidates: List[Candidate]): List[String] =
+  def unreachable(candidates: List[Candidate], bounded: String => Boolean): List[String] =
     candidates.filter(c => c.anonymous && c.shape.nonEmpty).flatMap { evidence =>
       candidates
         .filter(other => (other ne evidence) && other.level >= evidence.level)
@@ -88,7 +88,7 @@ private[cardinality] object ContextualEvidence {
         .collectFirst {
           case other if ambiguous(evidence, other) =>
             s"ambiguous anonymous evidence: ${evidence.label}"
-          case other if overlaps(evidence, other) =>
+          case other if overlaps(evidence, other, bounded) =>
             s"anonymous evidence selection not resolved: ${evidence.label} (overlaps ${other.label})"
         }
     }
@@ -100,12 +100,24 @@ private[cardinality] object ContextualEvidence {
     other.site == evidence.site && evidence.nominal.identity.nonEmpty &&
       other.nominal.identity == evidence.nominal.identity
 
-  private def overlaps(evidence: Candidate, other: Candidate): Boolean =
+  private def overlaps(evidence: Candidate, other: Candidate, bounded: String => Boolean): Boolean =
     (evidence.shape, other.shape) match {
-      case (Some(mine), Some(theirs)) =>
-        !unrelated(mine, theirs) && !distinctFinal(evidence.nominal, other.nominal)
-      case _ => true
+      case (Some(_), Some(_)) if distinctFinal(evidence.nominal, other.nominal) => false
+      case (Some(mine), Some(theirs)) => !provablyApart(mine, theirs, bounded)
+      case _                          => true
     }
+
+  // A binder with a subtype bound may relate to anything its bound reaches: no type mentioning one
+  // is provably unrelated.
+  private def provablyApart(mine: Shape, theirs: Shape, bounded: String => Boolean): Boolean = {
+    val mentionsBounded = List(mine, theirs).exists(shape =>
+      Shape.exists(shape) {
+        case Shape.Atom(id) => bounded(id)
+        case _              => false
+      }
+    )
+    if (mentionsBounded) false else unrelated(mine, theirs)
+  }
 
   // Two distinct final concrete classes: neither is a subtype of the other.
   private def distinctFinal(left: Nominal, right: Nominal): Boolean =
@@ -115,17 +127,18 @@ private[cardinality] object ContextualEvidence {
     }
 
   /** Neither type can be a subtype of the other in the body. Distinct unbounded binders, and a
-    * binder against a nominal type (only top and bottom relate to every binder); functions and
+    * binder against a nominal type (only top and bottom relate to every binder); two distinct
+    * applications of rigid constructors (invariant, so only equal keys relate); functions and
     * products at different arities or with an unrelated component. Sums, the empty product, the
-    * empty sum, paths, existentials and evidence are assumed related. Every `Shape.Atom` is an
-    * unbounded binder today (bounded ones are refused before they are read).
+    * empty sum, paths, existentials and evidence are assumed related. `provablyApart` rules out
+    * bounded binders first: every `Shape.Atom` here is unbounded.
     */
-  def unrelated(left: Shape, right: Shape): Boolean = (left, right) match {
-    case _ if left == right                               => false
-    case (Shape.Atom(_), Shape.Atom(_))                   => true
-    case (Shape.Atom(_), other)                           => nominal(other)
-    case (other, Shape.Atom(_))                           => nominal(other)
-    case (Shape.Function(lp, lr), Shape.Function(rp, rr)) =>
+  private def unrelated(left: Shape, right: Shape): Boolean = (left, right) match {
+    case _ if left == right                                                   => false
+    case (_: Shape.Atom | _: Shape.Applied, _: Shape.Atom | _: Shape.Applied) => true
+    case (_: Shape.Atom | _: Shape.Applied, other)                            => nominal(other)
+    case (other, _: Shape.Atom | _: Shape.Applied)                            => nominal(other)
+    case (Shape.Function(lp, lr), Shape.Function(rp, rr))                     =>
       lp.size != rp.size || lp.lazyZip(rp).exists(unrelated) || unrelated(lr, rr)
     case (Shape.Product(l), Shape.Product(r)) if l.nonEmpty && r.nonEmpty =>
       l.size != r.size || l.lazyZip(r).exists(unrelated)

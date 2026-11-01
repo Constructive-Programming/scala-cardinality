@@ -40,6 +40,22 @@ object Inhabitation {
     // A transparent scalar: every value is a literal and the type's own equality tells them apart,
     // so a supplied one is split by case analysis and a goal of it is built from its literals.
     case Ground(name: String, size: Card)
+    // A rigid type constructor applied to nominal argument keys: no constructor and no eliminator,
+    // so a value of it is produced only by one of the same head over the same keys.
+    case Applied(head: Head, arguments: List[Shape])
+    // A name bound to a type constructor in a binding environment, never a value type.
+    case Constructor(token: String)
+  }
+
+  /** The head of an application: a rigid binder, a declared or builtin type (a key's head), or —
+    * inside an operator's key — a type lambda and its parameters, numbered so that α-equivalent
+    * lambdas get one key.
+    */
+  enum Head {
+    case Rigid(binder: String)
+    case Nominal(declaration: String)
+    case Lambda(id: Int, arity: Int)
+    case Bound(id: Int, index: Int)
   }
 
   object Shape {
@@ -54,8 +70,12 @@ object Inhabitation {
       case Evidence(left, right, eq) =>
         List(left, right) -> (kids => Evidence(kids.head, kids(1), eq))
       case Existential(w, body) => List(body) -> (kids => Existential(w, kids.head))
+      case Applied(head, args)  => args -> (kids => Applied(head, kids))
       case leaf                 => Nil -> (_ => leaf)
     }
+
+    /** A rigid binder applied to its arguments' keys. */
+    def rigid(binder: String, keys: List[Shape]): Shape = Applied(Head.Rigid(binder), keys)
 
     def cata[A](alg: (Shape, Iterable[A]) => A): Getter[Shape, A] =
       Schemes.cata[Shape, A]((node, kids) => alg(node, kids.toList))
@@ -224,7 +244,15 @@ object Inhabitation {
 
   private class Unsupported(message: String) extends RuntimeException(message)
 
-  private case class Value(path: List[String], shape: Shape)
+  // How a value stands to the subtype proofs: not yet read through them, read (its supertypes are
+  // values beside it), or one of those supertypes — the same value seen as its bound, never read
+  // further. A mark of its own, not a step of the path: a path is provenance, and its first steps
+  // are binding ids, which any spelling may start.
+  private enum Reading {
+    case Unread, Read, View
+  }
+
+  private case class Value(path: List[String], shape: Shape, reading: Reading = Reading.Unread)
 
   // A rule's count is `weight · (Π children)^exponent`: a ground goal's literals are its weight, and
   // a uniform split is one child raised to the split value's space.
@@ -358,31 +386,65 @@ object Inhabitation {
     private def readGoal(raw: List[Value], target: Shape): Int = {
       val flat = flatten(raw)
       val evidence = EvidenceAnalysis
-        .context(flat.map(_.shape), target)
+        .context(flat.map(_.shape))
         .fold(reason => throw new Unsupported(reason), identity)
       def rewrite(shape: Shape): Shape =
         evidence.rewrite(shape).fold(reason => throw new Unsupported(reason), identity)
-      val env = flat.flatMap { value =>
-        val shape = rewrite(value.shape)
-        evidence.views(shape).map(view => Value(value.path, view))
-      }.distinct
+      // An available proof stays in the environment, so a value a later split or binder brings is
+      // read under it too.
+      val env = flat.flatMap(value => withViews(value, evidence, rewrite)).distinct
       val normalized = rewrite(target)
+      // The interactions are judged on what the goal reads, views and their fields included. A
+      // Unit goal has its one construction whatever the context holds.
+      if (normalized != Product(Nil)) {
+        val (views, own) = env.partition(_.reading == Reading.View)
+        evidence
+          .validate(own.map(_.shape), views.map(_.shape), normalized)
+          .left
+          .foreach(reason => throw new Unsupported(reason))
+      }
       memo.get((env, normalized)) match {
         case Some(id) => id
-        case None     => record(env, normalized)
+        case None     => record(env, normalized, evidence.lowers(normalized).map(rewrite))
       }
     }
 
-    private def record(env: List[Value], target: Shape): Int = {
+    // A view is the same value read as a supertype, once: a structural one is flattened or split
+    // like a value, and must not come back after it was eliminated. The fields a view is flattened
+    // into are values of their own, read through their own bounds in the same pass (`A <: P[B]`,
+    // `B <: C`: `a.x` is a C), so what the goal can read does not depend on whether a later goal is
+    // recorded. The proofs rule out a bound whose structure holds its own type, so this ends.
+    private def withViews(
+        value: Value,
+        evidence: EvidenceAnalysis.Context,
+        rewrite: Shape => Shape
+    ): List[Value] =
+      value match {
+        case Value(_, _: Evidence, _)           => List(value)
+        case Value(path, shape, Reading.Unread) =>
+          val own = rewrite(shape)
+          val supertypes = evidence.views(own).filterNot(_ == own)
+          Value(path, own, Reading.Read) :: supertypes.zipWithIndex.flatMap { (above, i) =>
+            flatten(List(Value(path :+ s"view:$i", rewrite(above), Reading.View)))
+              .flatMap(withViews(_, evidence, rewrite))
+          }
+        case read => List(read.copy(shape = rewrite(read.shape)))
+      }
+
+    private def record(env: List[Value], target: Shape, lowers: List[Shape]): Int = {
       inspect("solver state")
       tick()
       val id = nodes.size
       nodes += Nil
       memo((env, target)) = id
-      val ordinary = rules(env, target, id)
+      val ordinary = rules(Recorded(env, target, id, lowers))
       nodes(id) = ordinary ++ absurdRule(env, target, id)
       id
     }
+
+    // A goal being recorded: what it reads, what it builds, its node, and the structural types a
+    // lower bound lets it be built as — one more way per bound.
+    private case class Recorded(env: List[Value], target: Shape, id: Int, lowers: List[Shape])
 
     private def absurdRule(env: List[Value], shape: Shape, id: Int): List[Rule] =
       shape match {
@@ -396,17 +458,18 @@ object Inhabitation {
           List(Rule(List(impossible)))
       }
 
-    private def rules(env: List[Value], target: Shape, id: Int): List[Rule] =
-      split(env, target) match {
+    private def rules(recorded: Recorded): List[Rule] =
+      split(recorded.env, recorded.target) match {
         case Some(rule) => List(rule)
         case None       =>
-          OpaqueSumForwarding.count(env.map(_.shape), target) match {
+          OpaqueSumForwarding.count(data(recorded.env), recorded.target) match {
             case Some(count) => List.fill(count)(Rule(Nil))
-            case None        => ordinaryRules(env, target, id)
+            case None        => ordinaryRules(recorded)
           }
       }
 
-    private def ordinaryRules(env: List[Value], target: Shape, id: Int): List[Rule] =
+    private def ordinaryRules(recorded: Recorded): List[Rule] = {
+      import recorded.{env, id, lowers, target}
       target match {
         case Existential(_, _) =>
           List(Rule(Nil, Some(ExistentialInputs.resultBoundary)))
@@ -416,15 +479,18 @@ object Inhabitation {
         case Function(parameters, result) =>
           List(Rule(List(goal(env ++ binders(parameters, id), result))))
         case _ =>
-          constructors(env, target) ++ producers(env, target)
+          constructors(env, target) ++
+            lowers.map(bound => Rule(List(goal(env, bound)))) ++
+            producers(env, target)
       }
+    }
 
     // An empty context alternative has a unique absurd eliminator, and the branch's own value
     // joins the environment.
     private def split(env: List[Value], target: Shape): Option[Rule] =
       env.zipWithIndex
         .collectFirst {
-          case (Value(path, Sum(alternatives)), at) =>
+          case (Value(path, Sum(alternatives), _), at) =>
             Rule(alternatives.zipWithIndex.map {
               case (shape, branch) =>
                 goal(env.patch(at, List(Value(path :+ s"case:$branch", shape)), 1), target)
@@ -465,9 +531,10 @@ object Inhabitation {
     private def producers(env: List[Value], target: Shape): List[Rule] =
       env.flatMap { value =>
         value.shape match {
-          case atom: Atom if atom == target => List(Rule(Nil))
-          case function: Function           => application(env, target, function)
-          case _                            => Nil
+          case atom: Atom if atom == target          => List(Rule(Nil))
+          case applied: Applied if applied == target => List(Rule(Nil))
+          case function: Function                    => application(env, target, function)
+          case _                                     => Nil
         }
       }
 
@@ -490,7 +557,7 @@ object Inhabitation {
         val groundAbsurd = target == Sum(Nil) && value.output.isInstanceOf[Ground]
         if (groundAbsurd || (value.output != target && opaque.isEmpty)) Nil
         else {
-          val certified = TerminalHigherOrder.certified(env.map(_.shape))
+          val certified = TerminalHigherOrder.certified(data(env))
           val dependencies =
             value.parameters.filter(p => certified || !higherOrder(p)).map(goal(env, _))
           List(Rule(dependencies, unsupported(value, opaque, certified)))
@@ -508,6 +575,12 @@ object Inhabitation {
         )
       )
 
+    // The values the certificates read: a proof is no datum, only the unit it was discharged to.
+    private def data(env: List[Value]): List[Shape] = env.map {
+      case Value(_, _: Evidence, _) => Product(Nil)
+      case value                    => value.shape
+    }
+
     private def tick(): Unit = {
       work += 1
       if (work > maxStates) throw new Limit(s"Inhabitation state budget exceeded ($maxStates)")
@@ -515,7 +588,7 @@ object Inhabitation {
 
     private def flatten(values: List[Value]): List[Value] =
       values.flatMap {
-        case Value(path, Existential(bound, body)) =>
+        case Value(path, Existential(bound, body), _) =>
           // Binder positions, not display names, keep identity stable under alpha-renaming.
           val replacements = bound.zipWithIndex.map { (name, index) =>
             name -> witnesses.getOrElseUpdate((path, index), freshWitness())
@@ -523,10 +596,10 @@ object Inhabitation {
           val opened =
             ExistentialInputs.mapAtoms(body)(atom => replacements.getOrElse(atom.id, atom))
           flatten(List(Value(path :+ "existential", opened)))
-        case Value(_, Singleton(id, Some(underlying))) =>
+        case Value(_, Singleton(id, Some(underlying)), _) =>
           flatten(List(Value(List("input", id), underlying)))
-        case Value(_, Singleton(_, None)) => Nil
-        case Value(path, Product(fields)) =>
+        case Value(_, Singleton(_, None), _) => Nil
+        case Value(path, Product(fields), _) =>
           flatten(fields.zipWithIndex.map {
             case (shape, index) =>
               Value(path :+ s"field:$index", shape)

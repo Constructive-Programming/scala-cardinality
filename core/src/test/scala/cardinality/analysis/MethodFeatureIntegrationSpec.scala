@@ -64,7 +64,7 @@ class MethodFeatureIntegrationSpec extends Specification {
 
   def equalitySingleton =
     EvidenceAnalysis
-      .context(List(equality), Singleton("x", Some(b)))
+      .context(List(equality))
       .flatMap(_.rewrite(Singleton("x", Some(b)))) === Right(Singleton("x", Some(a)))
 
   def singletonProof =
@@ -79,7 +79,7 @@ class MethodFeatureIntegrationSpec extends Specification {
       unit
     ) must beLike {
       case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("free-atom endpoints")) must beTrue
+        reasons.exists(_.contains("free-atom or rigid-application endpoints")) must beTrue
     }
 
   def privateRepeatedAlias = {
