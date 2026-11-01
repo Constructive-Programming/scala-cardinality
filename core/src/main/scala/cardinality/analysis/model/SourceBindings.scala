@@ -19,6 +19,12 @@ private[cardinality] object SourceBindings {
   /** The identity of a binder: its declaring scope and its name. */
   def atom(scope: Frame, parameter: Type.Param): String = s"${scope.id}:${parameter.name.value}"
 
+  /** How a reason names a binder's atom: the binder's own name. */
+  def name(atom: String): String = atom.substring(atom.lastIndexOf(':') + 1)
+
+  /** How a reason names an atom: a member by its path, a binder by its name. */
+  def label(atom: String): String = MemberPath.Atom.unapply(atom).getOrElse(name(atom))
+
   def of(frame: Frame, inspect: String => Unit, operators: TypeOperators): Map[String, Resolved] =
     frame.chain.reverse.foldLeft(Map.empty[String, Resolved]) { (env, scope) =>
       inspect("binder scope")

@@ -141,7 +141,7 @@ final private[cardinality] class NominalKeys(
 
   private def named(application: Application): Keyed = {
     import application.{callee, scope, spelled}
-    callee match {
+    member(application).getOrElse(callee match {
       case s: Type.Select if RefinedMembers.pathType(s.qual, scope.frame).nonEmpty =>
         Left(s"nominal identity of path type not established: ${s.syntax}")
       case _ =>
@@ -157,8 +157,15 @@ final private[cardinality] class NominalKeys(
             builtins.importedKey(path, binding, scope).flatMap(builtin(_, application))
           case failed: Found.Failed => Left(failed.reason)
         }
-    }
+    })
   }
+
+  // A type member is its path's: an alias the key of its body where it is declared, an abstract
+  // member its atom (members M1) — the identity a binder has.
+  private def member(application: Application): Option[Keyed] =
+    resolver
+      .unappliedMember(application.callee, application.args, application.scope)
+      .map(_.flatMap(_.fold(read, atom => Right(Shape.Atom(atom)))))
 
   // An alias, opaque or not, is read through: a transparent one is the type it names, an opaque
   // one only where it is visible. Outside its scope an opaque type is not a readable key: its API

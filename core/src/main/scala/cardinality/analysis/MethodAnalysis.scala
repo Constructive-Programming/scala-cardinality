@@ -89,6 +89,9 @@ object MethodAnalysis {
   ) {
     def chain: List[Frame] = this :: parent.toList.flatMap(_.chain)
 
+    /** Whether the frame is a class, trait, object, enum or given body. */
+    def isTemplate: Boolean = tree.exists(TypeApplications.template(_).nonEmpty)
+
     // The source a frame was indexed from: the file path is the root frame's identity and the
     // head of every nested `input:offset` id, so positions compared against it are positions
     // in the same file.
@@ -152,6 +155,26 @@ object MethodAnalysis {
     )
 
     private val inheritedMembers = new InheritedTypeMembers(lookupIndex, this)
+
+    private val members = new TypeMembers(lookupIndex, inheritedMembers, this)
+
+    def typeMember(
+        tpe: Type,
+        context: ResolutionContext
+    ): Option[Either[String, TypeMembers.Meaning]] = members.of(tpe, context)
+
+    def stableInput(tpe: Type, context: ResolutionContext): Either[String, Type] =
+      members.stableInput(tpe, context)
+
+    def declaresMember(owner: Type, name: String, context: ResolutionContext): Boolean =
+      members.declaresMember(owner, name, context)
+
+    def openFamily(template: Frame): Boolean =
+      (template.tree, template.parent) match {
+        case (Some(tree), Some(owner)) =>
+          representations.openSubtype(TypeEntry(template.path.last, tree, owner)).nonEmpty
+        case _ => false
+      }
 
     private lazy val constructorKinds = new ConstructorKinds(this)
 
@@ -250,16 +273,21 @@ object MethodAnalysis {
     private def readType(tpe: Type, context: ResolutionContext): Resolved =
       if (context.visiting.size >= limits.maxTypeDepth) Left("type resolution budget exhausted")
       else
-        tpe match {
-          case n: Type.Name if !context.variables.contains(n.value) =>
-            inheritedMembers
-              .find(n.value, context)
-              .fold(readShape(tpe, context))(inheritedType(n.value, Nil, _, context))
-          case _ => readShape(tpe, context)
+        typeMember(tpe, context) match {
+          case Some(meaning) => meaning.flatMap(members.denoted(_, context))
+          case None          =>
+            tpe match {
+              case n: Type.Name if !context.variables.contains(n.value) =>
+                inheritedMembers
+                  .find(n.value, context)
+                  .fold(readShape(tpe, context))(inheritedType(n.value, Arguments.none, _, context))
+              case _ => readShape(tpe, context)
+            }
         }
 
     private def readShape(tpe: Type, context: ResolutionContext): Resolved = {
-      val ResolutionContext(frame, variables, _, _, _) = context
+      val frame = context.frame
+      val variables = context.variables
       tpe match {
         case SingletonIntersections(syntax) =>
           SingletonIntersections.resolve(syntax, context, this)
@@ -291,13 +319,12 @@ object MethodAnalysis {
           applications.resolve(t.tpe, t.argClause.values, context)
         case t: Type.ApplyInfix =>
           applications.resolve(t.op, List(t.lhs, t.rhs), context)
-        case n: Type.Name    => lexicalType(n.value, Nil, context)
+        case n: Type.Name    => lexicalType(n.value, Arguments.none, context)
         case p: Type.Project =>
           RefinedMembers
-            .resolve(p.qual, p.name.value, context, this)
+            .resolve(p.qual, p.name.value, context, this, projection = true)
             .flatMap(SingletonIntersections.validate(_, context.useSite, this))
-        case r: Type.Refine =>
-          Left(s"refined representation unavailable (constraints not erased): ${r.syntax}")
+        case r: Type.Refine => members.refinement(r, context)
         case s: Type.Select if RefinedMembers.pathType(s.qual, frame).nonEmpty =>
           RefinedMembers.pathType(s.qual, frame).get.flatMap { (declared, owner) =>
             val declaredContext = context.inScope(owner, typeParameters(owner))
@@ -305,7 +332,7 @@ object MethodAnalysis {
               .resolve(declared, s.name.value, declaredContext, this)
               .flatMap(SingletonIntersections.validate(_, context.useSite, this))
           }
-        case s: Type.Select => namedType(s.syntax, Nil, context)
+        case s: Type.Select => namedType(s.syntax, Arguments.none, context)
         case _              => Left(s"unsupported type: ${tpe.syntax.replaceAll("\\s+", " ")}")
       }
     }
@@ -397,34 +424,38 @@ object MethodAnalysis {
     // under the arguments the `extends` chain gives the parent.
     private def namedType(
         name: String,
-        args: List[Shape],
+        arguments: Arguments,
         context: ResolutionContext
     ): Resolved =
       inheritedMembers
         .find(name, context)
-        .fold(lexicalType(name, args, context))(inheritedType(name, args, _, context))
+        .fold(lexicalType(name, arguments, context))(inheritedType(name, arguments, _, context))
 
-    private def lexicalType(name: String, args: List[Shape], context: ResolutionContext): Resolved =
+    private def lexicalType(
+        name: String,
+        arguments: Arguments,
+        context: ResolutionContext
+    ): Resolved =
       resolveName(name, context) match {
-        case Found.Absent => shadowedBuiltins.resolve(name, args, context)
+        case Found.Absent => shadowedBuiltins.resolve(name, arguments.shapes, context)
         // An import binds the name to its target outright: a builtin or the model reads it when it
         // holds it.
         case Found.Foreign(path, binding) =>
-          shadowedBuiltins.imported(path, binding, args, context)
+          shadowedBuiltins.imported(path, binding, arguments.shapes, context)
         case failed: Found.Failed => Left(failed.reason)
         case Found.Entry(entry)   =>
-          sourceType(name, args, entry, context, typeParameters(entry.owner))
+          sourceType(name, arguments, entry, context, typeParameters(entry.owner))
             .flatMap(SingletonIntersections.validate(_, context.useSite, this))
       }
 
     private def inheritedType(
         name: String,
-        args: List[Shape],
+        arguments: Arguments,
         found: Either[String, InheritedTypeMembers.Member],
         context: ResolutionContext
     ): Resolved =
       found.flatMap { (entry, scope) =>
-        sourceType(name, args, entry, context, scope)
+        sourceType(name, arguments, entry, context, scope)
           .flatMap(SingletonIntersections.validate(_, context.useSite, this))
       }
 
@@ -433,12 +464,13 @@ object MethodAnalysis {
     // guards against a resolution cycle.
     private def sourceType(
         name: String,
-        args: List[Shape],
+        arguments: Arguments,
         entry: TypeEntry,
         context: ResolutionContext,
         scope: Map[String, Resolved]
     ): Resolved = {
       val key = entry.key
+      val args = arguments.shapes
       OpaqueTypes.readable(context, entry).flatMap { _ =>
         entry.tree match {
           case alias: Defn.Type if TypeApplications.lambda(alias.body).nonEmpty =>
@@ -458,7 +490,9 @@ object MethodAnalysis {
           case _ =>
             val (parameters, bodies) = representations.of(entry, key, context.useSite)
             bodies.flatMap(cases =>
-              parameterized(Applied(name, args, parameters, cases, entry, context, key, scope))
+              parameterized(
+                Applied(name, arguments, parameters, cases, entry, context, key, scope)
+              )
             )
         }
       }
@@ -468,7 +502,7 @@ object MethodAnalysis {
     // is built from.
     private case class Applied(
         name: String,
-        args: List[Shape],
+        arguments: Arguments,
         parameters: List[Type.Param],
         cases: List[List[Type]],
         entry: TypeEntry,
@@ -480,13 +514,19 @@ object MethodAnalysis {
     // Arguments were read by the declaration's own kinds: a constructor for a higher-kinded
     // parameter, a type for a proper one.
     private def parameterized(applied: Applied): Resolved = {
-      import applied.{args, cases, context, entry, key, name, parameters, scope}
+      import applied.{cases, context, entry, key, name, parameters, scope}
+      val args = applied.arguments.shapes
       TypeApplications
         .checkApplication(name, parameters, args.size)
         .flatMap(_ => operators.kinded(name, parameters, args))
         .flatMap { _ =>
           val replacements = parameters.zip(args).map((p, a) => p.name.value -> Right(a))
-          val scoped = context.inScope(entry.owner, scope ++ replacements).enter(key)
+          // Proper parameters remember their arguments as written, for a projection to reread.
+          val written = parameters.zip(applied.arguments.written).collect {
+            case (p, argument) if Kinds.of(p) == Kind.Proper => p.name.value -> argument
+          }
+          val scoped =
+            context.inScope(entry.owner, scope ++ replacements).written(written).enter(key)
           sequence(cases.map(fields => sequence(fields.map(scoped.read(_, this)))))
             .map(shapeOf(entry, _))
         }
@@ -497,8 +537,9 @@ object MethodAnalysis {
     // sealed family reached with readable cases is the sum of them.
     private def shapeOf(entry: TypeEntry, cases: List[List[Shape]]): Shape =
       entry.tree match {
-        case _: Defn.Enum  => Shape.Sum(cases.map(Shape.Product(_)))
-        case _: Defn.Trait => Shape.Sum(cases.map(Shape.Product(_)))
+        case _: Defn.Enum                                  => Shape.Sum(cases.map(Shape.Product(_)))
+        case t: Defn.Trait if Representations.typesOnly(t) => Shape.Product(Nil)
+        case _: Defn.Trait                                 => Shape.Sum(cases.map(Shape.Product(_)))
         case c: Defn.Class if Counter.isSealed(c) && Counter.isAbstractClass(c) =>
           Shape.Sum(cases.map(Shape.Product(_)))
         case _: Defn.Type => cases.head.head

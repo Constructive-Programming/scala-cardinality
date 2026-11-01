@@ -31,40 +31,59 @@ import MethodAnalysis.{Frame, Resolved, TypeEntry}
   */
 final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, resolver: Resolver)
     extends InheritedObjects {
-  import InheritedTypeMembers.{Ancestry, Located, Member, Outside}
+  import InheritedTypeMembers.{Ancestry, Located, Location, Member, Outside}
 
   private val ancestries = mutable.Map.empty[String, Ancestry]
   private val members = mutable.Map.empty[(String, String, String), Option[Member]]
+
+  // A name's meaning at one reference: a member reading and a type reading both ask for it.
+  private val located =
+    mutable.Map.empty[(String, String, Option[(String, Int)], String), Option[Location]]
 
   /** The inherited member a simple name means at the context's reference, with its declaring
     * scope's type environment, or why that meaning is not known; None when a nearer declaration or
     * no parent answers. A dotted name's first segment is read by the lookup (`at`).
     */
   def find(name: String, context: ResolutionContext): Option[Either[String, Member]] =
+    locate(name, context).map(_.map(_._2))
+
+  /** As `find`, with the template whose body inherits the member: the receiver whose `this` the
+    * member is read on.
+    */
+  def locate(name: String, context: ResolutionContext): Option[Location] =
     if (name.contains('.')) None
     else
-      context.at.flatMap { (file, position) =>
-        // Inner frames first. Past a body with an unread parent, only a declaration of an
-        // enclosing class, object, method or block keeps its meaning.
-        @tailrec
-        def scan(chain: List[Frame], unread: Option[String]): Option[Either[String, Member]] =
-          chain match {
-            case Nil                                                   => unread.map(Left(_))
-            case frame :: _ if lookup.declaredIn(frame, name).nonEmpty =>
-              unread.filter(_ => lookup.isPackage(frame)).map(Left(_))
-            case frame :: outer if inBody(frame, file, position) =>
-              val ancestry = ancestryOf(frame)
-              val inherited =
-                if (ancestry.names(name)) member(frame, name, context.useSite) else None
-              (inherited, unread) match {
-                case (Some(found), None)     => Some(Right(found))
-                case (Some(_), Some(reason)) => Some(Left(reason))
-                case (None, _) => scan(outer, unread.orElse(unreadReason(name, ancestry)))
-              }
-            case _ :: outer => scan(outer, unread)
-          }
-        scan(context.frame.chain, None)
-      }
+      located.getOrElseUpdate(
+        (name, context.frame.id, context.at, context.useSite.id),
+        scan(name, context)
+      )
+
+  private def scan(name: String, context: ResolutionContext): Option[Location] =
+    context.at.flatMap { (file, position) =>
+      // Inner frames first. Past a body with an unread parent, only a declaration of an
+      // enclosing class, object, method or block keeps its meaning.
+      @tailrec
+      def walk(chain: List[Frame], unread: Option[String]): Option[Location] =
+        chain match {
+          case Nil                                                   => unread.map(Left(_))
+          case frame :: _ if lookup.declaredIn(frame, name).nonEmpty =>
+            unread.filter(_ => lookup.isPackage(frame)).map(Left(_))
+          case frame :: outer if inBody(frame, file, position) =>
+            val ancestry = ancestryOf(frame)
+            val inherited =
+              if (ancestry.names(name)) member(frame, name, context.useSite) else None
+            (inherited, unread) match {
+              case (Some(found), None)     => Some(Right(frame -> found))
+              case (Some(_), Some(reason)) => Some(Left(reason))
+              case (None, _) => walk(outer, unread.orElse(unreadReason(name, ancestry)))
+            }
+          case _ :: outer => walk(outer, unread)
+        }
+      walk(context.frame.chain, None)
+    }
+
+  /** The parents of a template's supplied ancestry that are outside the source set, as spelled. */
+  def unsuppliedAncestors(frame: Frame): List[String] = ancestryOf(frame).unsupplied
 
   def at(head: InheritedObjects.Head): InheritedObjects.Path =
     if (!inBody(head.frame, head.file, head.position)) None
@@ -228,8 +247,10 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
       }
     )
 
-  // A private member is not inherited; a qualified `private[p]` one is, where `p` reaches.
-  private def visible(tree: Tree, owner: Frame, useSite: Frame): Boolean = tree match {
+  /** Whether a member is inherited: a private one is not, a qualified `private[p]` one is where `p`
+    * reaches.
+    */
+  def visible(tree: Tree, owner: Frame, useSite: Frame): Boolean = tree match {
     case d: Stat.WithMods if d.mods.exists(_.is[Mod.Private]) =>
       resolver.accessible(d, owner, useSite)
     case _ => true
@@ -246,6 +267,9 @@ private[cardinality] object InheritedTypeMembers {
 
   /** A member found, with the type environment of the scope that declares it. */
   type Member = (TypeEntry, Map[String, Resolved])
+
+  /** An inherited member with the template whose body inherits it, or why it is not known. */
+  type Location = Either[String, (Frame, Member)]
 
   /** What a template inherits: the type names and objects its supplied ancestors declare, and its
     * ancestors outside the source set (as spelled), whose declarations are unknown.

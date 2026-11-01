@@ -37,6 +37,16 @@ private[cardinality] object TypeApplications {
     name => Pat.Var(Term.Name(name))
   )
 
+  /** Whether one of a definition's patterns binds the name as a variable. */
+  def binds(name: String, patterns: List[Pat]): Boolean =
+    patterns.exists(patVarName.getOption(_).contains(name))
+
+  /** A value class: its first parent is `AnyVal`. */
+  def valueClass(c: Defn.Class): Boolean =
+    c.templ.inits.headOption.exists(
+      _.tpe.syntax.stripPrefix("_root_.").stripPrefix("scala.") == "AnyVal"
+    )
+
   /** The template a class, trait, object, enum or given instance declares. */
   def template(tree: Tree): Option[Template] = tree match {
     case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum | Defn.Given) => Some(d.templ)

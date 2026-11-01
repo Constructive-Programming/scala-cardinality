@@ -187,10 +187,10 @@ final private[cardinality] class ConstructorPositions(
   // A literal agrees when the size algebra reads the method side's type as the estimate reads its
   // own: the same count up to 127, where both are exact, and the same capacity width above it, where
   // both round alike. A literal merely within the estimate's capacity is not enough: a position the
-  // method side reads through another declaration (`q.X` through an object `q` where the estimate
-  // reads the parameter `q`) can hold fewer values than the type the estimate names. A symbolic
-  // value is at least 2^65536, so it fits only a capacity that wide, or an infinite estimate, which
-  // may saturate a power that large.
+  // method side reads through another declaration (`x.T` through another package's object `x` where
+  // the estimate reads a nearer package's `val x`) can hold fewer values than the type the estimate
+  // names. A symbolic value is at least 2^65536, so it fits only a capacity that wide, or an infinite
+  // estimate, which may saturate a power that large.
   private def agrees(value: Natural, shape: Shape, size: Size): Boolean = value match {
     case Natural.Lit(_) =>
       val image = ClosedSpaces.estimate(shape)

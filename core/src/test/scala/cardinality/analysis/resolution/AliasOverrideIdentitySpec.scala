@@ -28,7 +28,7 @@ class AliasOverrideIdentitySpec extends Specification {
       guards recursive alias expansion                                 $recursive
       guards mutually recursive aliases                                $mutual
       guards opaque aliases                                            $opaque
-      guards abstract type members                                     $abstractMember
+      keys abstract type members as the receiver's                     $abstractMember
       guards higher-kinded alias parameters                            $higherKinded
       guards type-lambda aliases                                        $lambda
       guards bounded alias parameters                                  $bounded
@@ -168,11 +168,14 @@ class AliasOverrideIdentitySpec extends Specification {
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
     """)
 
+  // An abstract member keys as the receiver's (members M2): fixed to A in Instance, `get(a:
+  // Member)` is the override of `get(a: A)` — a, 1. (Left abstract, the two are distinct members
+  // with one erasure: Scala 3.9.0 rejects the class, E120.)
   def abstractMember =
-    unresolved("""
+    count("""
       trait Base[A] { type Member; def get(a: Member): A }
-      abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+      abstract class Instance[A] extends Base[A] { type Member = A; def get(a: A): A = a }
+    """) === Count.Finite(1)
 
   def higherKinded =
     unresolved("""

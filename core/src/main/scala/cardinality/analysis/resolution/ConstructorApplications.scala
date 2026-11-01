@@ -1,11 +1,11 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{Decl, Defn, Tree, Type, XtensionClassifiable}
+import scala.meta.{Decl, Defn, Tree, Type, XtensionClassifiable, XtensionSyntax}
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.ExistentialInputs
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.analysis.model.{Operator, ResolutionContext}
+import cardinality.analysis.model.{Arguments, Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
 import cardinality.types.{Kind, Kinds, TypeApplications}
@@ -26,7 +26,7 @@ final private[cardinality] class ConstructorApplications(
     resolver: Resolver,
     keys: NominalKeys,
     builtins: ShadowedBuiltins,
-    named: (String, List[Shape], ResolutionContext) => Resolved,
+    named: (String, Arguments, ResolutionContext) => Resolved,
     sourceNames: Set[String]
 ) {
   private val existentialCaptures = new ExistentialInputs.Captures
@@ -36,14 +36,23 @@ final private[cardinality] class ConstructorApplications(
   // operator keeps lhs before rhs. Associativity is already encoded in the parser's nested AST.
   // Both spellings share argument resolution, qualified lookup and representation/arity checks.
   def resolve(callee: Type, arguments: List[Type], context: ResolutionContext): Resolved =
-    if (projectable(callee, arguments, context))
-      MethodProjections.resolve(
-        Type.Apply(callee, Type.ArgClause(arguments)),
-        context,
-        resolver,
-        sourceNames
-      )
-    else applyCallee(callee, context, arguments, context)
+    memberApplied(callee, context).map(Left(_)).getOrElse {
+      if (projectable(callee, arguments, context))
+        MethodProjections.resolve(
+          Type.Apply(callee, Type.ArgClause(arguments)),
+          context,
+          resolver,
+          sourceNames
+        )
+      else applyCallee(callee, context, arguments, context)
+    }
+
+  // A first-order member applied to arguments is ill-kinded, and a higher-kinded one is refused
+  // where its path is read (members M1): an applied member is never read as a type here.
+  private def memberApplied(callee: Type, context: ResolutionContext): Option[String] =
+    resolver
+      .typeMember(callee, context)
+      .map(_.fold(identity, _ => s"type member applied to arguments: ${callee.syntax}"))
 
   // A projection reads a source alias's applied body; a wildcard argument, a binder or an
   // inherited member has no such body to read.
@@ -96,7 +105,14 @@ final private[cardinality] class ConstructorApplications(
       if (kinds.size != arguments.size) Left(s"type argument arity: $name")
       else
         read(callee, arguments.zip(kinds), context).flatMap((witnesses, args) =>
-          named(name, args, calleeContext).map(packaged(witnesses, _))
+          // The name is read at its own reference: a closure's callee, written in a parent clause,
+          // sees the imports of the file that wrote it.
+          named(
+            name,
+            Arguments(args, arguments.map(_ -> context)),
+            calleeContext.referencing(callee)
+          )
+            .map(packaged(witnesses, _))
         )
     }
   }

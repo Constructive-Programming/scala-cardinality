@@ -89,7 +89,7 @@ class SingletonIntersectionMethodSpec extends Specification {
     unknown("def pick[A](x: A, y: A): x.type & y.type = ???")
 
   def unsupported =
-    unknown("trait A\ntrait B\ndef pick(x: A & B): A = x")
+    unknown("trait A { def a: Int }\ntrait B { def b: Int }\ndef pick(x: A & B): A = x")
       .and(unknown("def pick[A](x: A): (A, A) & A = ???"))
       .and(unknown("def pick(): String & Singleton = ???"))
 

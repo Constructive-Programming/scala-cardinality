@@ -9,7 +9,7 @@ import cardinality.analysis.inhabitation.{EvidenceAnalysis, ExistentialInputs}
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.Kinds
+import cardinality.types.{Kinds, TypeApplications}
 
 /** A subtype bound on a proper binder is an ambient proof (hkt R5): `A <: U` is `A <:< U`, `A >: L`
   * is `L <:< A`, always available and never a value — in the body, `summon[A <:< U]` compiles, and
@@ -140,9 +140,7 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
       case Some(entry)                    =>
         entry.tree match {
           case c: Defn.Class =>
-            val value =
-              c.templ.inits.headOption.exists(_.tpe.syntax.stripPrefix("scala.") == "AnyVal")
-            Some(if (value) "AnyVal" else "AnyRef")
+            Some(if (TypeApplications.valueClass(c)) "AnyVal" else "AnyRef")
           case t: Defn.Trait if t.templ.inits.isEmpty => Some("AnyRef")
           case t: Defn.Trait                          =>
             val scope =

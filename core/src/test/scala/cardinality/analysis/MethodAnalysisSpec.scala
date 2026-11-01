@@ -324,7 +324,7 @@ class MethodAnalysisSpec extends Specification {
     // Resolved, yet still a sealed abstraction the fragment cannot read as a sum: the row must
     // carry the representation's own reason, the one the same declaration gets inside its file.
     val source = inputs(
-      "Focus.scala" -> "package example\nprivate[example] abstract class Focus[A]",
+      "Focus.scala" -> "package example\nprivate[example] abstract class Focus[A] { def get: A }",
       "Use.scala" -> "package example\ndef loop[A](f: Focus[A]): A = loop(f)"
     )
     val loop = MethodAnalysis.analyze(source).find(_.name == "example.loop").get

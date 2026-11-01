@@ -73,7 +73,10 @@ final private[cardinality] class SealedReceivers(target: Target, resolver: Resol
 
 private[cardinality] object SealedReceivers {
 
-  private def family(frame: Frame): Boolean = frame.tree.exists {
+  private def family(frame: Frame): Boolean = frame.tree.exists(sealedTree)
+
+  /** An enum, or a sealed trait or class: a template whose cases are all in its file. */
+  def sealedTree(tree: Tree): Boolean = tree match {
     case _: Defn.Enum  => true
     case d: Defn.Trait => d.mods.exists(_.is[Mod.Sealed])
     case d: Defn.Class => d.mods.exists(_.is[Mod.Sealed])

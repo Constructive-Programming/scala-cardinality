@@ -17,7 +17,16 @@ final private[cardinality] case class ResolutionContext(
     // The position the name is read from, as (source, offset): the reference decides which
     // import clauses of the enclosing blocks have already bound their names. `resolve` sets it
     // from the type it is given, so every read carries the position of its own reference.
-    at: Option[(String, Int)] = None
+    at: Option[(String, Int)] = None,
+    // The stable path `this` denotes while a parent's declaration or a member alias is read as a
+    // member of another receiver (members M2): its type members are that receiver's.
+    self: Option[MemberPath] = None,
+    // Where each binder was bound by an application, the argument as written and the scope it was
+    // written in: a projection reads the argument again rather than its frozen shape (members MT1').
+    arguments: Map[String, (Type, ResolutionContext)] = Map.empty,
+    // The value whose refinement is being read: inside `p: T { … }`, `this` and the members the
+    // refinement or T declares are p's.
+    refinedThis: Option[MemberPath] = None
 ) {
 
   def useSite: Frame = observer.getOrElse(frame)
@@ -47,14 +56,32 @@ final private[cardinality] case class ResolutionContext(
     resolver.resolve(tpe, this)
 
   def bind(entries: Iterable[(String, Resolved)]): ResolutionContext =
-    ResolutionOptics.variablesLens.modify(_ ++ entries)(this)
+    ResolutionOptics.variablesLens
+      .modify(_ ++ entries)(this)
+      .copy(arguments = arguments -- entries.map(_._1))
+
+  /** This context with the arguments, as written, that bound the given binders. */
+  def written(bound: Iterable[(String, (Type, ResolutionContext))]): ResolutionContext =
+    copy(arguments = arguments ++ bound)
+
+  /** This context reading `this` as the given path. */
+  def as(path: MemberPath): ResolutionContext = copy(self = Some(path))
+
+  /** This context inside a refinement of the given path. */
+  def refining(path: MemberPath): ResolutionContext = copy(refinedThis = Some(path))
 
   def enter(key: String): ResolutionContext =
     ResolutionOptics.visitingLens.modify(_ + key)(this)
 
   /** Alias declarations supply lexical names, not their caller's representation permissions. */
   def inScope(owner: Frame, bindings: Map[String, Resolved]): ResolutionContext =
-    copy(frame = owner, variables = bindings, observer = Some(useSite))
+    copy(
+      frame = owner,
+      variables = bindings,
+      observer = Some(useSite),
+      arguments = Map.empty,
+      refinedThis = None
+    )
 
   /** An alias body's own scope: its declaring frame's binders, and its parameters as the given
     * readings (an argument it is applied to, or why none is known). A reading of an alias has no

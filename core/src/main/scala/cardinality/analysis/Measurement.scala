@@ -6,102 +6,11 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.capacity.Reading
 import cardinality.types.{TypeApplications, TypeName}
 
 import ContextualEvidence.Nominal
 import Inhabitation.{Binding, Count, Shape}
-import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEntry}
-
-/** The narrow view of the index the measurement needs: resolve a name to the types that declare it,
-  * resolve a type to its shape, the frames a name may be read in, and the package and module lists
-  * an outside member could come from. The measurement holds this rather than the whole index, so
-  * the two files stay apart without a second copy of the resolution rules.
-  */
-private[cardinality] trait Resolver {
-
-  /** The estimate's reading of the source a signature was indexed from, so a constructor position
-    * can answer with the same space the definitions' rows use.
-    */
-  def reading(path: String): Reading
-
-  def lookup(name: String, frame: Frame): List[TypeEntry]
-
-  /** The declaration a simple or dotted name means at the context's reference, imports included. */
-  def resolveName(name: String, context: ResolutionContext): Found
-
-  /** Whether a simple name, read at `tpe`'s position, means a member its template inherits. */
-  def inheritsName(tpe: Type, name: String, context: ResolutionContext): Boolean
-
-  /** The supplied declaration an `extends` clause names, with its declaring scope's environment;
-    * None for a parent outside the source set.
-    */
-  def parent(init: Init, from: Frame): Either[String, Option[(TypeEntry, Map[String, Resolved])]]
-
-  /** Whether a parent clause names a type whose members this reading does not have. */
-  def unsuppliedParent(init: Init, from: Frame): Boolean
-
-  /** A parent clause outside the source set: its path, how its name was bound, and whether the
-    * stdlib model's declaration of that path is the one it names.
-    */
-  def outsideParent(init: Init, from: Frame): Option[InheritedTypeMembers.Outside]
-
-  /** Whether every instance of a template is of a supplied declaration no subclass extends. */
-  def fixedTemplate(frame: Frame): Boolean
-
-  /** The declaration a type name means at `tpe`'s position, an inherited member first. */
-  def declaration(tpe: Type, name: String, context: ResolutionContext): Found
-
-  /** A channel around the reference through which declarations the sources do not supply may bind a
-    * builtin name, if one is open there.
-    */
-  def unreadChannel(context: ResolutionContext): Option[String]
-
-  /** The channel through which another declaration may bind a name the stdlib model reads, where
-    * the name is read, if one is open there.
-    */
-  def rootShadow(name: String, context: ResolutionContext): Option[String]
-
-  /** Why the call site of a `transparent inline` method may observe more than its declared result
-    * `tpe`, if it may.
-    */
-  def narrowedResult(tpe: Type, context: ResolutionContext): Option[String]
-
-  def resolve(
-      tpe: Type,
-      frame: Frame,
-      variables: Map[String, Resolved],
-      visiting: Set[String] = Set.empty
-  ): Resolved
-
-  def resolve(tpe: Type, context: ResolutionContext): Resolved
-
-  def typeParameters(frame: Frame): Map[String, Resolved]
-
-  /** The operators higher-kinded names are bound to. */
-  def operators: TypeOperators
-
-  /** Every proper binder that carries a subtype bound, by its atom, with its declaring frame. */
-  def boundedBinders: Map[String, (Frame, Type.Param)]
-
-  def accessible(tree: Tree, owner: Frame, from: Frame): Boolean
-
-  def packages: List[Frame]
-
-  def modules: List[Frame]
-
-  def mentionedConcrete(target: Target): Set[String]
-
-  def kindOf(target: Target): String
-
-  def limits: Limits
-
-  def inspect(operation: String): Unit
-  def expanding[A](operation: String)(read: => A): A
-  def solverDepth: Int
-  def peers(path: List[String]): List[Frame]
-  def isPackage(frame: Frame): Boolean
-}
+import MethodAnalysis.{sequence, Entry, Frame, Resolved, Target}
 
 /** One signature's environment: the bindings visible from its frame, the diagnostics that make that
   * environment incomplete, and the count the two admit.
@@ -161,8 +70,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     hiddenReads(steps)
     val result = resultShape()
     result.left.foreach(errors += _)
-    val (proofs, refusals) = bounded.of(environment.map(_.shape) ++ result.toOption)
+    val shapes = environment.map(_.shape) ++ result.toOption
+    val (proofs, refusals) = bounded.of(shapes)
     errors ++= refusals
+    errors ++= StuckProjections.refusal(shapes, proofs)
     Entry.of(
       target,
       resolver.kindOf(target),
@@ -186,15 +97,15 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         case Left(reason) =>
           errors += reason
           None
-        case Right(step) =>
-          inherited(step)
-          Some(step)
+        case Right(step) => Some(step)
       }
+    val ancestors = steps.groupMap(_.root.id)(_.declared).withDefaultValue(Nil)
+    steps.foreach(step => inherited(step, step.root :: ancestors(step.root.id)))
     owners.foreach { root =>
-      val ancestors = steps.filter(_.root.id == root.id).map(_.declared)
-      judge(root, ancestors)
+      judge(root, ancestors(root.id))
       // A constructor chooses only its parameters: no owner's parents add a choice to it.
-      if (!target.constructor) errors ++= ForeignParents.reasons(root :: ancestors, resolver)
+      if (!target.constructor)
+        errors ++= ForeignParents.reasons(root :: ancestors(root.id), resolver)
     }
     steps
   }
@@ -217,17 +128,28 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   }
 
   // What an inherited frame contributes: its declarations, read in the scope that named it, except
-  // those the root, a final template, implements in its own body.
-  private def inherited(step: InheritedScopes.Step): Unit =
+  // those a final root implements, in its own body or at another level of its linearization.
+  //
+  // Members gate G1: a final root's inherited declaration that another level of its linearization
+  // implements is that level's concrete code — no subclass replaces it — never a free capability:
+  // concrete code computes from the environment it is given, so it is dropped as the root's own
+  // implementations are. One a local template implements may read a capture the target hides (no
+  // prefix names it), so there it is refused. An open root's implemented members stay the open
+  // capabilities a subclass may override.
+  private def inherited(step: InheritedScopes.Step, linearization: List[Frame]): Unit =
     step.declared.stats.foreach { stat =>
       val implemented = FinalImplementations.implementation(step.root, stat)
       implemented.foreach((_, tree) => implementations += step.root -> tree)
       val slot = Slot(step.declared, step.env, step.root)
-      stat match {
-        case value: Decl.Val           => addDeclaredValue(slot, value, implemented.map(_._1).toSet)
+      val implementer =
+        if (implemented.nonEmpty) None
+        else FinalImplementations.implementer(step.root, linearization, stat)
+      (stat, implementer) match {
+        case (_, Some(level))     => errors ++= FinalImplementations.localImplementer(level, stat)
+        case (value: Decl.Val, _) => addDeclaredValue(slot, value, implemented.map(_._1).toSet)
         case _ if implemented.nonEmpty => ()
-        case method: Decl.Def          => inheritedCallable(step, slot, method)
-        case other                     => declaration(slot, other)
+        case (method: Decl.Def, _)     => inheritedCallable(step, slot, method)
+        case (other, _)                => declaration(slot, other)
       }
     }
 
@@ -265,12 +187,20 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def resolveIn(
       tpe: Type,
       owner: Frame,
-      env: Map[String, Resolved] = Map.empty
-  ): Resolved = resolver.resolve(tpe, readingContext(owner, env))
+      env: Map[String, Resolved] = Map.empty,
+      receiver: Option[Frame] = None
+  ): Resolved = resolver.resolve(tpe, readingContext(owner, env, receiver))
 
-  private def readingContext(owner: Frame, env: Map[String, Resolved]): ResolutionContext = {
+  // A parent's declaration is a member of the template that inherits it: its type members are
+  // that receiver's (members M2), so `to: S => F[X, A]` reads the receiver's `X`.
+  private def readingContext(
+      owner: Frame,
+      env: Map[String, Resolved],
+      receiver: Option[Frame] = None
+  ): ResolutionContext = {
     val bindings = if (env.isEmpty) resolver.typeParameters(owner) else env
-    ResolutionContext(owner, bindings, Set.empty, Some(target.frame))
+    val context = ResolutionContext(owner, bindings, Set.empty, Some(target.frame))
+    receiver.fold(context)(r => context.as(MemberPath.self(r, resolver.typeParameters(r))))
   }
 
   private def declaration(slot: Slot, stat: Stat): Unit =
@@ -313,10 +243,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // template is exempt: the instance whose `this` it would read does not exist yet.
   private def selfType(owner: Frame): Unit =
     if (!(target.constructor && owner.id == target.frame.id))
-      owner.tree
-        .flatMap(TypeApplications.template)
-        .flatMap(_.body.selfOpt.flatMap(_.decltpe))
-        .foreach(tpe => errors += s"self type not resolved: ${tpe.syntax}")
+      TypeMembers.selfType(owner).foreach(errors += _)
 
   // Package-level declarations are indexed across all files. Unrelated class parameters are never
   // pooled just because both happen to be named A.
@@ -371,6 +298,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     def id(name: String): String =
       if (template.id == scope.id) s"${scope.id}:$name" else s"${template.id}<${scope.id}:$name"
 
+    /** The template whose member an inherited declaration is. */
+    def receiver: Option[Frame] = Option.when(template.id != scope.id)(template)
+
   }
 
   /** A declaration bound in a slot: the member's name, and the key `values` holds it under (an
@@ -385,11 +315,14 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       declaredIn.update(binding.id, Declared(slot, member, key))
   }
 
-  // A declaration is read where its slot declares it; a parameter, where its owner types it.
+  // A declaration is read where its slot declares it; a parameter, where its owner types it. A
+  // stable value's type-only refinement pins members of its path, which its path's reading follows:
+  // the value itself is a value of the refined type.
   private def add(name: String, tpe: Option[Type], slot: Slot, reading: Frame): Unit =
     tpe
       .toRight(s"missing type of accessible value: $name")
-      .flatMap(resolveIn(_, reading, slot.env)) match {
+      .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
+      .flatMap(resolveIn(_, reading, slot.env, slot.receiver)) match {
       case Left(reason) => errors += reason
       case Right(shape) => bindSlot(slot, name, name, shape)
     }
@@ -448,7 +381,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         .flatMap(_.tparamClause.values)
         .map(p => p.name.value -> Left(s"polymorphic capability binder: ${p.name.value}"))
         .toMap
-      resolveIn(callable, slot.scope, slot.env ++ binders) match {
+      resolveIn(callable, slot.scope, slot.env ++ binders, slot.receiver) match {
         case Left(reason) => errors += reason
         case Right(shape) => bindMember(slot, declaration, tpes, shape)
       }

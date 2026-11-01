@@ -8,7 +8,7 @@ import cardinality.types.Traversals
 import dev.constructive.eo.generics.lens
 
 import MethodAnalysis.{Frame, Target, TypeEntry}
-import OverrideIdentity.{aliasFrame, depthLens, localsLens, Bindings, Key}
+import OverrideIdentity.{aliasFrame, depthLens, localsLens, Bindings, Key, Side}
 
 private[cardinality] object OverrideIdentity {
 
@@ -21,6 +21,10 @@ private[cardinality] object OverrideIdentity {
       scoped: Map[(String, String), Key],
       expansionDepth: Int = 0
   )
+
+  // One side of an override comparison: the scope its signature is read in (with `this` the
+  // receiver) and the identities of its binders.
+  final case class Side(context: ResolutionContext, bindings: Bindings)
 
   val localsLens = lens[Bindings](_.locals)
   val depthLens = lens[Bindings](_.expansionDepth)
@@ -53,12 +57,12 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     ) None
     else
       parentIdentity(inheritance).flatMap { _ =>
-        compare(
-          declaration,
-          method,
-          parentBindings(inheritance._1, inheritance._2, owner),
-          owner
-        )
+        // The inherited declaration is a member of the receiver: its type members are the
+        // receiver's (members M2), so both signatures key them alike.
+        val receiver = inheritance._2
+        val scope = ResolutionContext(owner, resolver.typeParameters(owner), Set.empty)
+          .as(MemberPath.self(receiver, resolver.typeParameters(receiver)))
+        compare(declaration, method, Side(scope, parentBindings(inheritance._1, receiver, owner)))
       }
 
   private def parentIdentity(inheritance: (Init, Frame)): Key = {
@@ -67,27 +71,23 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     key(inheritance._1.tpe, context, lexical(inheritance._2))
   }
 
-  private def compare(
-      declaration: Decl.Def,
-      method: Tree,
-      bindings: Bindings,
-      owner: Frame
-  ): Option[Boolean] = {
-    val inherited = signature(declaration.paramClauseGroups, declaration.decltpe, owner, bindings)
+  private def compare(declaration: Decl.Def, method: Tree, inherited: Side): Option[Boolean] = {
+    val current = Side(
+      ResolutionContext(target.frame, resolver.typeParameters(target.frame), Set.empty),
+      lexical(target.frame)
+    )
     val currentGroups = method match {
       case d: (Defn.Def | Decl.Def) => d.paramClauseGroups
       case _                        => Nil
     }
-    val current = method match {
-      case d: Defn.Def =>
-        d.decltpe.flatMap(signature(d.paramClauseGroups, _, target.frame, lexical(target.frame)))
-      case d: Decl.Def =>
-        signature(d.paramClauseGroups, d.decltpe, target.frame, lexical(target.frame))
-      case _ => None
+    val currentSignature = method match {
+      case d: Defn.Def => d.decltpe.flatMap(signature(d.paramClauseGroups, _, current))
+      case d: Decl.Def => signature(d.paramClauseGroups, d.decltpe, current)
+      case _           => None
     }
     for {
-      left <- inherited
-      right <- current
+      left <- signature(declaration.paramClauseGroups, declaration.decltpe, inherited)
+      right <- currentSignature
       inheritedConvention <- conventions(declaration.paramClauseGroups)
       currentConvention <- conventions(currentGroups)
       matched <- sameSignature(left, right, inheritedConvention == currentConvention)
@@ -132,15 +132,14 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
   private def signature(
       groups: List[Member.ParamClauseGroup],
       result: Type,
-      frame: Frame,
-      outer: Bindings
+      side: Side
   ): Option[(String, String)] = {
     val parameters = groups.flatMap(_.tparamClause.values)
     val method = parameters.zipWithIndex.map { (p, index) =>
       p.name.value -> Some(s"method:$index")
     }.toMap
-    val context = ResolutionContext(frame, resolver.typeParameters(frame), Set.empty)
-    val bindings = localsLens.replace(method)(outer)
+    val context = side.context
+    val bindings = localsLens.replace(method)(side.bindings)
     val clauses = groups.map(groupKey(_, context, bindings))
     if (groups.drop(1).exists(_.tparamClause.values.nonEmpty) || dependent(groups, result)) None
     else
@@ -252,14 +251,49 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
       context: ResolutionContext,
       bindings: Bindings
   ): Key =
-    if (resolver.inheritsName(name, name.value, context)) None
-    else named(name.value, args, context, bindings)
+    memberKey(name, args, context, bindings).getOrElse {
+      if (resolver.inheritsName(name, name.value, context)) None
+      else named(name.value, args, context, bindings)
+    }
+
+  // A type member keys as its path's: an alias as its body where it is declared, an abstract member
+  // as its atom (members M2), however it is spelled (`Member`, `this.Member`, `p.Member`). Method
+  // binders shadow members, so they are read first.
+  private def memberKey(
+      tpe: Type,
+      args: List[Type],
+      context: ResolutionContext,
+      bindings: Bindings
+  ): Option[Key] =
+    Option
+      .unless(methodBinder(tpe, bindings))(
+        resolver.unappliedMember(tpe, args, context.referencing(tpe))
+      )
+      .flatten
+      .map(_.toOption.flatMap(_.fold(aliasKey(_, _, bindings), Some(_))))
+
+  private def methodBinder(tpe: Type, bindings: Bindings): Boolean = tpe match {
+    case n: Type.Name => bindings.locals.contains(n.value)
+    case _            => false
+  }
+
+  private def aliasKey(body: Type, scope: ResolutionContext, bindings: Bindings): Key =
+    if (bindings.expansionDepth >= resolver.limits.maxTypeDepth) None
+    else
+      key(
+        body,
+        scope,
+        depthLens.replace(bindings.expansionDepth + 1)(lexical(scope.frame, bindings.scoped))
+      )
 
   private def decoratedKey(tpe: Type, context: ResolutionContext, bindings: Bindings): Key =
     tpe match {
       case selected: Type.Select =>
-        if (termQualifier(selected, context.frame)) None
-        else named(selected.syntax.stripPrefix("_root_."), Nil, context, bindings, qualified = true)
+        memberKey(selected, Nil, context, bindings).getOrElse {
+          if (termQualifier(selected, context.frame)) None
+          else
+            named(selected.syntax.stripPrefix("_root_."), Nil, context, bindings, qualified = true)
+        }
       case Type.ByName(value)   => key(value, context, bindings).map(k => s"byname:$k")
       case Type.Repeated(value) => key(value, context, bindings).map(k => s"repeated:$k")
       case _                    => None

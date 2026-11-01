@@ -600,6 +600,72 @@ of a receiver whose class has a non-public constructor are refused, since its fa
 build one (`NonEmpty.head`, true ω). Infinite `Seq` inputs are covered by continuity (a total
 program reads a finite prefix), not by a separate rule. See [stdlib-model.md](stdlib-model.md).
 
+## D18. An abstract member of a stable path is a rigid atom
+
+**Decision.** A type member is a member of a stable path (`this`, a parameter, a declared `val`, a
+singleton alias of one). Along the path's linearization the first alias is its meaning, read where
+it is declared with `this` still the path — so a parent's declaration reads its receiver's members
+(`Optic.to` in `PickFold` is `S => Affine[(Unit, Unit), A]`). A member every level leaves abstract
+and unbounded is the atom `member:<path>#N`, counted as a class type parameter is; a type-only
+trait or class has one value; a single-case tuple projection on a rigid atom is the atom
+`proj:n:i:(α)` when one arity per scrutinee lets one instantiation reduce them all; an irrefutable
+first case reduces. A final root's inherited declaration another level implements is that level's
+code (members gate G1). Details: [type members](type-members.md).
+
+**Evidence.**
+
+- Mitchell & Plotkin 1988 (C-10, **metadata-verified**: the abstract reports abstract data type
+  declarations typed as existential types); reading a parameter path as the opening of that
+  package, whose witness the caller picks, is this register's derivation. Cardelli & Leroy 1990
+  (**metadata-verified**, background only): dot notation.
+- Scala 3 draft specification ch. 3 ([29], **inspected**): abstract types have bounds, and the
+  lower-bound rule breaks transitivity, so only unbounded members are free atoms; Hu & Lhoták 2020
+  (**metadata-verified**: the abstract reports undecidable `D<:` subtyping and decidable
+  fragments without bad bounds) is why bounded members stay `?`.
+- Match types: Scala 3 reference *Match Types* ([18], **inspected**), SIP-56 ([1], **inspected**)
+  and [29]: reduction only past provably disjoint cases, otherwise stuck, "just an abstract type";
+  Blanvillain et al. 2022 (**metadata-verified**: the abstract reports match types formalized in
+  a calculus based on F<: and proved sound).
+- **Compiler fixtures** (Scala 3.9.0): two paths do not share a member, `q: p.type` does; a final
+  class may leave a member undefined; an inherited alias beats a package alias inside the body;
+  `Fst[T]` does not type from a `T` nor as `Snd[T]`, `First[T]` is `Fst[T]`, `case _` reduces on
+  an abstract scrutinee (`TypeMemberSpec`, `memberfixture`; members design session `c01`–`c08`);
+  `Boolean { type X }` and a final class refined against its own alias have no value, an alias
+  cannot be overridden by another, a value class or a private constructor admits no outside
+  subclass (`TypeMemberBoundarySpec.refinementFacts`); an inherited `O.this.X` stays the outer
+  instance's in a receiver extending `O`, a parameter hides a self alias, a parent's private alias
+  is not the receiver's, a class member cannot be overridden (B2 review fixtures, compiled with
+  scalac 3.9.0); inside a refinement `this` and a member the refinement or its base declares are
+  the refined value's, a subclass may narrow a field an alias reads, `=:=` rewrites a stuck
+  projection (`substituteCo[Fst]`), and a `final abstract` class, a member with two bounds, a
+  private constructor below a trait and a private template's scope admit no instance or no outside
+  subclass (`TypeMemberScopeSpec.facts`).
+- **Executable**: `TypeMemberSpec` (parity with a type parameter, distinct paths, singleton and
+  self aliases, refinements, receivers, projections and their arity refusal, G1/G2),
+  `TypeMemberBoundarySpec` (outer paths, shadowing, class members, unsubclassable templates,
+  private aliases, unsatisfiable refinements, X6), `TypeMemberScopeSpec` (refinement bodies, a
+  field read for its receiver, closed scopes, bounded templates, evidence on stuck projections),
+  `MethodMatchProjectionSpec`, `MethodRefinementSpec`.
+
+**Boundary.** Only a member someone may pick is an atom: a final class (abstract or not, a value
+class too), object or given never instantiates it; a private constructor (the template's own or an
+ancestor class's), a private or local template's scope, and a sealed family whose cases are all
+closed keep every subclass where none is enumerated (inside the family the receiver gate answers;
+an open case lets any file pick); a `val` fixed by its definition (local, private or final, or of
+a closed template) is no choice; and an unsupplied parent may define it — each refused with its
+reason; a member some level declares as a class is no atom. A field an alias reads is the
+receiver's field, at its most derived declaration. Inside a refinement `this` and the members it or
+its base declares are the refined value's; a projection `R#X` whose body reads either is refused.
+A stable input's type-only refinement is read as its base only where some value of the base may
+have its members (open supplied template, nothing it pins already fixed or bounded, bounds exact
+or one-sided and uncontradicted); otherwise the input may be empty and is refused. Bounded and higher-kinded members, `R#X`
+projections of abstract members, structural refinements with term members, nested or bounded
+stuck projections, projections on nominal, opaque or bounded scrutinees and projections whose
+scrutinee type evidence mentions stay `?`. Opaque types outside their scope are not atoms. The
+empty record covers only templates with no parent, parameter, constructor modifier or self type (a
+constructor argument must exist for an instance to exist), that are not `final abstract` and whose
+members have at most one bound each (Nothing meets an upper bound, Any a lower one).
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

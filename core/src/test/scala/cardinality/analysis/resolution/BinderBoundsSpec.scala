@@ -297,7 +297,7 @@ class BinderBoundsSpec extends Specification {
 
   def declaredAnyRef =
     unresolved(
-      flag + "class AnyRef\nobject K { def f[A >: Flag <: AnyRef](x: A): A = x }",
+      flag + "class AnyRef { def get: Int = 0 }\nobject K { def f[A >: Flag <: AnyRef](x: A): A = x }",
       "K.f",
       "upper bound requires capability analysis: A >: Flag <: AnyRef"
     )
@@ -391,7 +391,7 @@ class BinderBoundsSpec extends Specification {
 
   def openBound =
     unresolved(
-      "trait Open\nobject V { def f[A <: Open](a: A): A = a }",
+      "trait Open { def get: Int }\nobject V { def f[A <: Open](a: A): A = a }",
       "V.f",
       "upper bound requires capability analysis: A <: Open"
     )

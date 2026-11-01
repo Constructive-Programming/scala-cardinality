@@ -49,13 +49,13 @@ class GroundEnvironmentSpec extends Specification {
       chained package clauses read the innermost package first       $chainedPackages
       an explicit import wins over another file's package member     $explicitImport
     Constructor readings
-      disagreeing readings of a position are refused                 $disagreement
+      readings of a member path agree; disagreeing ones are refused  $disagreement
       an unreadable infinite position takes the size algebra's tier   $fallbackTier
       a representation budget breach names its limit                 $budget
       floating point positions count equals classes exactly          $floats
       an enclosing template's parameters are captures                $outerCaptures
       a singleton beside a value takes the estimate's reading        $singletonPositions
-      a symbolic value space disagrees with a narrow estimate        $symbolicDisagreement
+      a symbolic value space agrees only with a wide estimate        $symbolicDisagreement
     Anonymous evidence
       two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
@@ -541,8 +541,11 @@ class GroundEnvironmentSpec extends Specification {
   }
 
   // Both readings take `O.Inner` as the object's member (ω), not the top-level Inner (2^8): they
-  // agree. The method side reads `q.X` through the object `q` (2), the estimate through the
-  // parameter `q: Other` (`X = String`, ω): they disagree, and the position is refused.
+  // agree. Both read `q.X` through the parameter `q: Other` (`X = String`, ω), not the object `q`
+  // (members M1: a path is the nearest stable binding): they agree too. The method side still
+  // reads a `val` path of another file's package through the lookup (`NamespaceScopingSpec
+  // .termBindings`): `x.S` as package `a`'s object (`S = String`, ω) where the estimate reads
+  // `a.b`'s `val x: Foo` (`S = Byte`, 2^8) — the readings disagree, and the position is refused.
   def disagreement = {
     val rows = counts(
       "Example.scala" ->
@@ -554,13 +557,22 @@ class GroundEnvironmentSpec extends Specification {
     )
     (rows("Outer.<init>").render === "ω")
       .and(rows("Outer4.<init>").render === "ω")
+      .and(rows("d1.Dep.<init>").render === "ω")
       .and(
-        unresolvedOn(
-          rows("d1.Dep.<init>"),
-          "constructor position readings disagree: x (value space 2, estimate ω)"
+        counts(valPath*)("a.b.UsesS.<init>") === Count.Unresolved(
+          List("constructor position readings disagree: s (value space ω, estimate 2^8)")
         )
       )
   }
+
+  // Package `a`'s object `x` and package `a.b`'s `val x: Foo`: inside `package a; package b` the
+  // nearer `val` is `x` (scalac reads `x.T` as Foo's).
+  private val valPath = List(
+    "A.scala" -> "package a\nobject x { type T = (Int => Int) => Int; type S = String }",
+    "B.scala" -> "package a.b\nfinal class Foo { type T = Byte; type S = Byte }\nval x: Foo = new Foo",
+    "C.scala" ->
+      "package a\npackage b\nfinal case class UsesT(t: x.T)\nfinal case class UsesS(s: x.S)"
+  )
 
   // Two packages declaring `C` keep the estimate from reading the positions; the answer is the one a
   // single package gets: ω^ω is ε₀ in the size algebra, 2^ω is ω.
@@ -630,9 +642,10 @@ class GroundEnvironmentSpec extends Specification {
   }
 
   // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
-  // at an infinite tier: they agree. Where the method side reads `q.X` through the object `q` (a
-  // symbolic space) and the estimate through the parameter `q: Other` (`X = Byte`, 2^8), the
-  // symbolic space is wider than any literal, so the two cannot be the same type.
+  // at an infinite tier: they agree. Both read `q.X` through the parameter `q: Other` (`X = Byte`,
+  // 2^8), not the object `q` (a symbolic space): they agree, at the estimate's 2^8. Where the method
+  // side reads `x.T` through package `a`'s object (a symbolic space) and the estimate through `a.b`'s
+  // `val x: Foo` (2^8), the symbolic space is wider than any literal: they cannot be one type.
   def symbolicDisagreement =
     (count(
       "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
@@ -640,18 +653,22 @@ class GroundEnvironmentSpec extends Specification {
       "Outer.<init>"
     ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + 5))))
       .and(
-        unresolvedOn(
-          count(
-            "package d2\nobject q { type X = (Int => Int) => Int }\nfinal class Other { type X = Byte }\n" +
-              "final case class Dep(q: Other)(val x: q.X)",
-            "d2.Dep.<init>"
-          ),
-          "constructor position readings disagree: x (value space 2^(2^137438953477), estimate 2^8)"
-        )
+        count(
+          "package d2\nobject q { type X = (Int => Int) => Int }\nfinal class Other { type X = Byte }\n" +
+            "final case class Dep(q: Other)(val x: q.X)",
+          "d2.Dep.<init>"
+        ).render === "2^8"
       )
       .and(
         count("final case class P(p: Char => Boolean)", "P.<init>") === Count.Symbolic(
           pow(2, 65536)
+        )
+      )
+      .and(
+        counts(valPath*)("a.b.UsesT.<init>") === Count.Unresolved(
+          List(
+            "constructor position readings disagree: t (value space 2^(2^137438953477), estimate 2^8)"
+          )
         )
       )
 

@@ -3,6 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.*
+import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
 import cardinality.types.*
 
@@ -57,9 +58,20 @@ private[cardinality] object MethodProjections {
     new Normalizer(resolver, sourceNames)
       .syntax(tpe, context)
       .flatMap { (normalized, bindings) =>
-        ResolutionOptics.variablesLens.replace(bindings)(context).read(normalized, resolver)
+        ResolutionOptics.variablesLens
+          .replace(bindings)(context)
+          .copy(arguments = Map.empty)
+          .read(normalized, resolver)
       }
       .flatMap(SingletonIntersections.validate(_, context.useSite, resolver))
+
+  // A match type as written, and whether its alias bounds it (a bounded one never stands stuck).
+  private case class MatchType(
+      whole: Type,
+      scrutinee: Type,
+      block: Type.CasesBlock,
+      bounded: Boolean
+  )
 
   private class Normalizer(resolver: Resolver, sourceNames: Set[String]) {
     private type Prepared = Either[String, (Type, Map[String, Resolved])]
@@ -83,7 +95,7 @@ private[cardinality] object MethodProjections {
         tpe match {
           case Type.Tuple(parts)                        => prepareTuple(parts, context)
           case Type.Match.After_4_9_9(scrutinee, block) =>
-            prepareMatch(tpe, scrutinee, block, context)
+            prepareMatch(MatchType(tpe, scrutinee, block, bounded = false), context)
           case other => prepareReference(other, context)
         }
 
@@ -92,21 +104,55 @@ private[cardinality] object MethodProjections {
         Type.Tuple(prepared.map(_._1)) -> prepared.flatMap(_._2).toMap
       }
 
-    private def prepareMatch(
-        matched: Type,
-        scrutinee: Type,
-        block: Type.CasesBlock,
+    // A first case that matches everything reduces whatever the scrutinee is: no earlier case needs
+    // a disjointness proof (members MT2). A single projection case on a rigid scrutinee is stuck,
+    // and stands as its projection atom (MT3) unless the match type is bounded.
+    private def prepareMatch(matched: MatchType, context: ResolutionContext): Prepared = {
+      val entered = context.enter(matched.whole.structure)
+      matched.block.cases.headOption.filter(c =>
+        c.pat.is[Type.Wildcard] || c.pat.is[Type.PatWildcard]
+      ) match {
+        case Some(irrefutable) => syntax(irrefutable.body, entered)
+        case None              =>
+          syntax(matched.scrutinee, context).flatMap { (known, bindings) =>
+            reduceOrStick(known, bindings, matched, entered)
+          }
+      }
+    }
+
+    // A scrutinee known to be a tuple reduces; a rigid one under a single projection is stuck.
+    private def reduceOrStick(
+        known: Type,
+        bindings: Map[String, Resolved],
+        matched: MatchType,
         context: ResolutionContext
     ): Prepared =
-      syntax(scrutinee, context).flatMap { (known, bindings) =>
-        projectionFailure(known, block.cases) match {
-          case Some(reason) => Left(reason)
-          case None         =>
-            reduceMatch(
-              Type.Match.After_4_9_9(known, block),
-              context.bind(bindings).enter(matched.structure)
-            )
-        }
+      stuck(known, bindings, matched).getOrElse {
+        projectionFailure(known, matched.block.cases)
+          .toLeft(())
+          .flatMap(_ =>
+            reduceMatch(Type.Match.After_4_9_9(known, matched.block), context.bind(bindings))
+          )
+      }
+
+    private def stuck(
+        known: Type,
+        bindings: Map[String, Resolved],
+        matched: MatchType
+    ): Option[Prepared] =
+      (known, StuckProjections.projection(matched.block.cases)) match {
+        case (Type.Name(token), Some((arity, index))) =>
+          bindings.get(token).collect {
+            case Right(Shape.Atom(id))
+                if StuckProjections.instantiable(id, resolver.boundedBinders.contains) =>
+              if (matched.bounded)
+                Left(
+                  s"inert match type: a bounded match type stays stuck on ${SourceBindings.label(id)}"
+                )
+              else
+                frozen(Right(Shape.Atom(StuckProjections.Projection(arity, index, id))), bindings)
+          }
+        case _ => None
       }
 
     // Every case must be eligible, including cases that precede the selected projection.
@@ -132,15 +178,39 @@ private[cardinality] object MethodProjections {
         case _                       => tpe -> Nil
       }
       val name = TypeApplications.name(callee)
-      // An inherited member is read where it is declared, by the ordinary resolution.
-      val definition =
-        if (context.variables.contains(name) || resolver.inheritsName(tpe, name, context)) None
-        else alias(callee, context, resolver)
-      definition match {
-        case Some(declaration) => applyAlias(name, args, declaration, context)
-        case None              => freeze(tpe, context)
+      (args, context.arguments.get(name)) match {
+        case (Nil, Some(written)) if context.variables.contains(name) => rewritten(name, written)
+        case _                                                        =>
+          member(callee, args, context).getOrElse {
+            // An inherited member is read where it is declared, by the ordinary resolution.
+            val definition =
+              if (context.variables.contains(name) || resolver.inheritsName(tpe, name, context))
+                None
+              else alias(callee, context, resolver)
+            definition match {
+              case Some(declaration) => applyAlias(name, args, declaration, context)
+              case None              => freeze(tpe, context)
+            }
+          }
       }
     }
+
+    // A binder an application bound is read again from the argument as written, in the scope it was
+    // written in: a tuple argument stays a tuple a projection can reduce (members MT1').
+    private def rewritten(name: String, written: (Type, ResolutionContext)): Prepared = {
+      val (argument, scope) = written
+      val key = s"argument:$name:${argument.structure}"
+      if (scope.visiting(key)) Left(s"recursive type argument: $name")
+      else syntax(argument, scope.enter(key))
+    }
+
+    // A type member's alias is normalized where it is declared, with `this` its path's; an abstract
+    // member is its atom, frozen like any other leaf.
+    private def member(callee: Type, args: List[Type], context: ResolutionContext) =
+      resolver.unappliedMember(callee, args, context).map {
+        case Right(meaning) => meaning.fold(syntax, _ => freeze(callee, context))
+        case Left(_)        => freeze(callee, context)
+      }
 
     private def applyAlias(
         name: String,
@@ -175,15 +245,20 @@ private[cardinality] object MethodProjections {
           .toMap
       val bindings = resolver.typeParameters(entry.owner) ++ prepared.flatMap(_._2).toMap
       // Alias bodies use the declaration scope; only frozen arguments retain caller bindings.
-      syntax(
-        TypeSubstitution.replace(declared.body, substitutions),
-        context.inScope(entry.owner, bindings)
-      )
+      val scope = context.inScope(entry.owner, bindings)
+      TypeSubstitution.replace(declared.body, substitutions) match {
+        case matched @ Type.Match.After_4_9_9(scrutinee, block) =>
+          prepareMatch(MatchType(matched, scrutinee, block, declared.bounds.hi.nonEmpty), scope)
+        case body => syntax(body, scope)
+      }
     }
 
-    private def freeze(tpe: Type, context: ResolutionContext): Prepared = {
-      val token = freshToken(context.variables)
-      Right(Type.Name(token) -> Map(token -> context.read(tpe, resolver)))
+    private def freeze(tpe: Type, context: ResolutionContext): Prepared =
+      frozen(context.read(tpe, resolver), context.variables)
+
+    private def frozen(shape: Resolved, variables: Map[String, Resolved]): Prepared = {
+      val token = freshToken(variables)
+      Right(Type.Name(token) -> Map(token -> shape))
     }
 
   }

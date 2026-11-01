@@ -111,9 +111,8 @@ private[cardinality] object InheritedClosedSlots {
             .flatMap(_.values)
             .map(_.decltpe.fold("")(_.syntax))
         )
-      case d: Decl.Val if d.pats.exists(TypeApplications.patVarName.getOption(_).contains(name)) =>
-        List(Nil)
-      case _ => Nil
+      case d: Decl.Val if TypeApplications.binds(name, d.pats) => List(Nil)
+      case _                                                   => Nil
     } match {
       case List(parameters)           => Some(parameters)
       case Nil if fields(frame)(name) => Some(Nil)

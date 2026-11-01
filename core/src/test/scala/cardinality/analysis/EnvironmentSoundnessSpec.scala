@@ -51,7 +51,7 @@ class EnvironmentSoundnessSpec extends Specification {
       read a type alias the template inherits before an outer one  $inheritedAlias
       keep nearer declarations and private members as they were    $inheritedAliasPrecedence
       refuse a name an unsupplied parent may declare               $unsuppliedParentName
-      leave an override through an inherited name open unless final $inheritedOverride
+      key an override through an inherited name as the member $inheritedOverride
     Templates and families
       refuse a `var` constructor parameter as a mutable capture    $varParameter
       refuse a self type this reading does not enumerate           $selfType
@@ -592,18 +592,16 @@ class EnvironmentSoundnessSpec extends Specification {
       )
   }
 
-  // `G.get` implements `HasO.get`, but its `X` is the inherited member, which override keying does
-  // not follow: the identity stays open (the true count is 2) rather than keyed through the
-  // package's `Unit`. In the final twin `E` the declaration is implemented by `get` itself, so no
-  // identity is asked: true, false — 2.
+  // `G.get` implements `HasO.get`: both signatures key `X` as the receiver's member (members M2),
+  // the inherited alias Boolean, never the package's `Unit`, so the identity is found: true, false
+  // — 2. In the final twin `E` the declaration is implemented by `get` itself: 2.
   def inheritedOverride = {
     val found = counts("Over.scala" -> """package w
       |type X = Unit
       |trait HasO { type X = Boolean; def get(): X }
       |class G extends HasO { def get(): X = ??? }
       |final class E extends HasO { def get(): X = ??? }""".stripMargin)
-    refused(found("w.G.get"), "inherited override identity not resolved: get")
-      .and(found("w.E.get") === Count.Finite(2))
+    (found("w.G.get") === Count.Finite(2)).and(found("w.E.get") === Count.Finite(2))
   }
 
   // A `var` parameter is a field the instance reassigns: like the `var` member twin, a mutable

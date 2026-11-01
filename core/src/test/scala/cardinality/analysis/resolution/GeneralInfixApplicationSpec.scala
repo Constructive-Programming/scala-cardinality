@@ -103,7 +103,7 @@ class GeneralInfixApplicationSpec extends Specification {
   }
 
   def effectRepresentation = {
-    val definitions = "trait <[A, S]"
+    val definitions = "trait <[A, S] { def run: A }"
     val prefix = count(definitions, "<[A, Unit]")
     (prefix === Count.Unresolved(List("abstract type or method-valued representation: <")))
       .and(count(definitions, "A < Unit") === prefix)

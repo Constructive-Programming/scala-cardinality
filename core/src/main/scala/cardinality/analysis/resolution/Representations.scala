@@ -27,6 +27,8 @@ final private[cardinality] class Representations(
         (c.tparamClause.values, sealedCases(Family(entry, c, Nil, useSite)))
       case t: Defn.Trait if Counter.isSealed(t) =>
         (t.tparamClause.values, sealedCases(Family(entry, t, Nil, useSite)))
+      case d: (Defn.Trait | Defn.Class) if Representations.typesOnly(d) =>
+        (d.tparamClause.values, Right(List(Nil)))
       case c: Defn.Class => caseClassRepresentation(c, key)
       case e: Defn.Enum  => enumRepresentation(e, key)
       case _             => abstractRepresentation(key)
@@ -62,6 +64,26 @@ final private[cardinality] class Representations(
         )(Left(_))
   }
 
+  /** A subtype of a sealed family through which a file outside the family's may extend it: a trait,
+    * an abstract class or a plain class that is neither sealed nor final, at any depth of the
+    * family's sealed intermediates.
+    */
+  def openSubtype(entry: TypeEntry, seen: Set[String] = Set.empty): Option[String] = {
+    val file = entry.owner.chain.last.id
+    indexer.subtypes
+      .getOrElse((file, entry.name), Nil)
+      .filterNot(child => seen(child.key))
+      .collectFirst(Function.unlift { child =>
+        child.tree match {
+          case _: Defn.Object                                      => None
+          case c: Defn.Class if closedLeaf(c)                      => None
+          case d: (Defn.Class | Defn.Trait) if Counter.isSealed(d) =>
+            openSubtype(child, seen + entry.key)
+          case _ => Some(child.name)
+        }
+      })
+  }
+
   private def sealedCase(child: TypeEntry, family: Family): Either[String, List[List[Type]]] = {
     val Family(parent, level, _, useSite) = family
     if (!accessible(child.tree, child.owner, useSite))
@@ -73,7 +95,7 @@ final private[cardinality] class Representations(
             .instantiation(slots(parent.name, level), SealedSlots.subtype(d, inFile(d)))
             .map(_ => List(Nil))
         case d: (Defn.Class | Defn.Trait) if intermediate(d) => sealedIntermediate(child, d, family)
-        case c: Defn.Class if isCaseClass(c) || c.mods.exists(_.is[Mod.Final]) =>
+        case c: Defn.Class if closedLeaf(c)                  =>
           SealedSlots
             .instantiation(slots(parent.name, level), SealedSlots.subtype(c, inFile(c)))
             .flatMap(i => sealedLeaf(c, child.owner, useSite).map(renamed(_, i.bindings)))
@@ -81,6 +103,9 @@ final private[cardinality] class Representations(
           Left(s"sealed subtype outside the closed fragment: ${child.name}")
       }
   }
+
+  // A leaf no file outside the family's extends: a case class or a final class.
+  private def closedLeaf(c: Defn.Class): Boolean = isCaseClass(c) || c.mods.exists(_.is[Mod.Final])
 
   private def intermediate(declaration: Defn.Class | Defn.Trait): Boolean = declaration match {
     case c: Defn.Class => c.mods.exists(_.is[Mod.Abstract])
@@ -224,6 +249,24 @@ final private[cardinality] class Representations(
 
 private[cardinality] object Representations {
   type Representation = (List[Type.Param], Either[String, List[List[Type]]])
+
+  /** A trait or plain class whose only members are types (members M3): no parent, parameter or self
+    * type adds a term member, so no observation tells two of its values apart — its record is
+    * empty. It has a value only where it can be instantiated: not a `final abstract` class, and no
+    * member with two bounds (`type X >: Int <: String` has no instance, and `>: A <: B` holds only
+    * where A conforms to B). A sealed family is the sum of its cases instead, and a case class has
+    * its product.
+    */
+  def typesOnly(d: Defn.Trait | Defn.Class): Boolean =
+    !Counter.isSealed(d) && !d.mods.exists(_.is[Mod.Case]) && d.templ.inits.isEmpty &&
+      d.ctor.mods.isEmpty && d.ctor.paramClauses.forall(_.values.isEmpty) &&
+      d.templ.body.selfOpt.forall(_.decltpe.isEmpty) && !finalAbstract(d) &&
+      d.templ.body.stats.forall(stat => stat.is[Decl.Type] || stat.is[Defn.Type]) &&
+      TypeMembers.instantiable(d.templ.body.stats)
+
+  /** A `final abstract` class: neither instantiated nor extended, so it has no value. */
+  def finalAbstract(d: Defn.Trait | Defn.Class): Boolean =
+    d.mods.exists(_.is[Mod.Final]) && d.mods.exists(_.is[Mod.Abstract])
 
   /** One family being enumerated: its entry and declaration, the families already open above it (a
     * cycle is refused) and the use site that reads it.

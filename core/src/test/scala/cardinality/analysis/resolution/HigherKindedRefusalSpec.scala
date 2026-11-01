@@ -28,7 +28,7 @@ class HigherKindedRefusalSpec extends Specification {
       distinct union alternatives have no key                       $unionKeys
       variance on a rigid hole                                      $variant
       a bounded higher-kinded binder                                $boundedHk
-      abstract members, paths and inherited members have no key     $members
+      abstract members, paths and inherited members key as members  $members
       a structural bound beside a proof                             $coercionBound
       a higher-kinded name or a lambda where a type is expected     $constructorsAsTypes
       java.lang's boxed names under its wildcard import             $boxedNames
@@ -194,9 +194,12 @@ class HigherKindedRefusalSpec extends Specification {
       trait Base { type T = Int }
       trait D extends Base { def h[F[_]](x: F[T]): F[Int] }
     """)
-    refused(counts, "M.g", "nominal identity of abstract type member not established: X")
-      .and(refused(counts, "Q.f", "nominal identity of path type not established: p.T"))
-      .and(refused(counts, "D.h", "nominal identity of inherited type member not established: T"))
+    // Type members now key as their paths' (members M1/M2): `M.this.X` is an atom, so F[X] and
+    // F[Int] are two keys and g has no F[Int] — 0, as for a class parameter X; `p.T` and the
+    // inherited `T` are the alias Int, so F[Int] is x — 1 each.
+    (counts("M.g") === Count.Finite(0))
+      .and(counts("Q.f") === Count.Finite(1))
+      .and(counts("D.h") === Count.Finite(1))
   }
 
   def coercionBound =

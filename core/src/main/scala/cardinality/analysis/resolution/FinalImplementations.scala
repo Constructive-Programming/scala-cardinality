@@ -33,6 +33,32 @@ private[cardinality] object FinalImplementations {
           .map(name -> _)
       }
 
+  /** The level of a final root's linearization that implements an inherited declaration, if one
+    * does: a concrete member of its name and clause shape, or for a parameterless one a field or a
+    * `var` (members gate G1). An open root implements nothing for good: a subclass may override.
+    */
+  def implementer(root: Frame, linearization: List[Frame], declaration: Stat): Option[Frame] =
+    if (!root.tree.exists(isFinal)) None
+    else linearization.find(implementedIn(_, declaration))
+
+  private def implementedIn(template: Frame, declaration: Stat): Boolean =
+    declared(declaration).exists { (name, groups) =>
+      template.stats.exists(implements(_, name, groups)) ||
+      (groups.isEmpty && template.params.exists(field(_, name, template)))
+    }
+
+  /** Why an implementation G1 drops cannot be read, if it cannot: a local template's member may
+    * read a capture the target hides, and no prefix names it.
+    */
+  def localImplementer(level: Frame, declaration: Stat): Option[String] =
+    Option.when(level.chain.exists(_.local))(
+      s"inherited declaration ${names(declaration).mkString(", ")} " +
+        s"is implemented in local ${level.path.last}, whose captures are not read"
+    )
+
+  /** The names an inherited declaration introduces. */
+  def names(declaration: Stat): List[String] = declared(declaration).map(_._1)
+
   // The names an inherited declaration introduces, each with its clauses.
   private def declared(declaration: Stat): List[(String, List[Member.ParamClauseGroup])] =
     declaration match {
@@ -81,9 +107,10 @@ private[cardinality] object FinalImplementations {
       case d: Defn.Def        => d.name.value == name && shape(d.paramClauseGroups) == shape(groups)
       case g: Defn.GivenAlias => g.name.value == name && shape(g.paramClauseGroups) == shape(groups)
       case g: Defn.Given      => g.name.value == name && shape(g.paramClauseGroups) == shape(groups)
-      case v: Defn.Val        =>
-        groups.isEmpty && v.pats.exists(TypeApplications.patVarName.getOption(_).contains(name))
-      case _ => false
+      // Mutation is excluded, so a `var` holds its initializer: a parameterless member's value.
+      case v: Defn.Val => groups.isEmpty && TypeApplications.binds(name, v.pats)
+      case v: Defn.Var => groups.isEmpty && TypeApplications.binds(name, v.pats)
+      case _           => false
     }
 
   private def field(param: Term.Param, name: String, template: Frame): Boolean =

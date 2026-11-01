@@ -400,13 +400,11 @@ class NamespaceSpec extends Specification {
 
   // In `Dep(q: Other)(val x: q.X)`, `q` is the first clause's parameter, of type `Other`, whose `X`
   // is `Int` (2^32) — not the package's object `q` (`X = Boolean`). The method side reads the
-  // object's `X` (2), so the constructor's two readings disagree and the row is refused.
+  // parameter's path too (members M1), so the constructor's two readings agree: 2^32.
   def slotParameterPath = {
     val code =
       "package u\nobject q { type X = Boolean }\nfinal class Other { type X = Int }\nfinal case class Dep(q: Other)(val x: q.X)"
-    (constructor("u.Dep.<init>", "S.scala" -> code) === Count.Unresolved(
-      List("constructor position readings disagree: x (value space 2, estimate 2^32)")
-    ))
+    (constructor("u.Dep.<init>", "S.scala" -> code).render === "2^32")
       .and(rowsOf("S.scala" -> code)(("u.Dep", Class)) === "2^32")
   }
 
@@ -522,9 +520,9 @@ class NamespaceSpec extends Specification {
   // `p.X` reads `Prism`'s `X = Span` in Prism's body, where `Span` is `Prism.Span(b: Boolean)` —
   // 2 — never the top-level `Span(u: Unit)` the reader sees (1). Likewise `Prism3`'s `X = W` is
   // its own `W = Boolean` (2), not `Holder3`'s `W = Unit`. scalac accepts `val check: Y =
-  // p.Span(true)` and `val check: Y = true`. The method side reads `UsesY`'s slot as the top-level
-  // `Span` (1): the readings disagree, and its environment (`p: Prism`, a class with type members)
-  // is unresolved as well.
+  // p.Span(true)` and `val check: Y = true`. The method side now reads `UsesY`'s slot through the
+  // path `p` as Prism's own `Span` (members M1: Prism's alias read in Prism's body, 2), so the
+  // readings agree; its environment (`p: Prism`, a class with a term member) stays unresolved.
   def classMemberScope = {
     val code =
       """|final case class Span(u: Unit)
@@ -538,10 +536,7 @@ class NamespaceSpec extends Specification {
       .and(found(("Holder3.Y", Alias)) === "2")
       .and(
         constructor("Holder.UsesY.<init>", "M.scala" -> code) === Count.Unresolved(
-          List(
-            "abstract type or method-valued representation: Prism",
-            "constructor position readings disagree: y (value space 1, estimate 2)"
-          )
+          List("abstract type or method-valued representation: Prism")
         )
       )
   }
