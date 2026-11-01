@@ -63,6 +63,12 @@ private[cardinality] object Namespaces {
   def key(prefix: TypeName, member: TypeName): TypeName =
     TypeName.of(s"${prefix.value}.${member.value}")
 
+  // The key infix of a name a clause binds to a namespace no body solves.
+  private val imported = ".import "
+
+  /** A key as its reference was written: a clause-bound name's own name, any other key itself. */
+  def written(key: String): String = key.split(imported).last
+
   /** The objects a body defines, each keyed inside `outer` when it is nested. */
   def modules(stats: List[Stat], outer: Option[TypeName] = None): List[Module] =
     stats.collect { case d: Defn.Object => module(d, outer) }
@@ -96,41 +102,37 @@ private[cardinality] object Namespaces {
       Counter.equations(m.stats).map {
         case (name, named) =>
           val at: Scope => Scope = sc => m.atType(name)(view(sc))
-          (
-            m.key(name) -> named
-              .viewed(at)
-              .copy(children = named.children.map(c => c.copy(name = m.key(c.name)))),
-            at
-          )
+          (m.key(name) -> named.viewed(at), at)
       }
     }
 
   /** What the solver reads off a body with its objects: the body's own shapes with references to
     * its objects' members keyed, and each object's shapes under its keys. A name a member reads is
     * its object's own member first, then an enclosing object's, then the body's; a name a clause
-    * written before it binds is the clause's (a key no body solves), and a definition's own
-    * parameters stay themselves.
+    * written before it binds is the clause's — the key of the object member it names when the
+    * object is solved here, else a key no body solves — and a definition's own parameters stay
+    * themselves.
     */
   def shapes(stats: List[Stat], modules: List[Module], clauses: Stat => Imports): Shapes = {
     val top = modules.map(m => m.name -> m.prefix).toMap
-    def names(st: Stat) = importKeys(TypeName.of(""), clauses(st).named.keySet)
+    val solved = Clauses(top, everyModule(modules).map(m => m.prefix -> m.layer.types).toMap)
+    val own = Walk.typeNames(stats)
+    def names(st: Stat) = solved.keys(TypeName.of(""), clauses(st)) -- own
     modules.foldLeft(
       Shapes.of(stats, (d, tpe) => keyed(tpe, names(d) -- Counter.parameterNames(d), top))
-    )((acc, m) => acc ++ moduleShapes(m, names(m.defn), top))
+    )((acc, m) => acc ++ moduleShapes(m, names(m.defn), solved))
   }
 
-  private def moduleShapes(
-      m: Module,
-      outer: Map[TypeName, Type],
-      outerModules: Map[TypeName, TypeName]
-  ): Shapes = {
-    def names(st: Stat) = {
-      val imported = m.clauses(st).named.keySet
-      (outer -- m.layer.types -- imported) ++
-        m.layer.types.map(n => n -> Type.Name(m.key(n).value)) ++
-        importKeys(m.prefix, imported)
-    }
-    val inScope = outerModules ++ m.nested.map(n => n.name -> n.prefix)
+  /** Every object, at any depth. */
+  private[capacity] def everyModule(modules: List[Module]): List[Module] =
+    modules.flatMap(m => m :: everyModule(m.nested))
+
+  private def moduleShapes(m: Module, outer: Map[TypeName, Type], around: Clauses): Shapes = {
+    val solved = around.copy(modules = around.modules ++ m.nested.map(n => n.name -> n.prefix))
+    val inScope = solved.modules
+    def names(st: Stat) =
+      outer ++ solved.keys(m.prefix, m.clauses(st)) ++
+        m.layer.types.map(n => n -> Type.Name(m.key(n).value))
     val own = Shapes.of(
       m.stats,
       (d, tpe) => keyed(tpe, names(d) -- Counter.parameterNames(d), inScope)
@@ -139,14 +141,45 @@ private[cardinality] object Namespaces {
       own.aliases.map((n, body) => m.key(n) -> body),
       own.arms.map((n, arms) => m.key(n) -> arms),
       own.parents.map((n, children) => m.key(n) -> children.map(m.key)),
+      own.reads.map((n, held) => m.key(n) -> held),
     )
-    m.nested.foldLeft(rekeyed)((acc, n) => acc ++ moduleShapes(n, names(n.defn), inScope))
+    m.nested.foldLeft(rekeyed)((acc, n) => acc ++ moduleShapes(n, names(n.defn), solved))
   }
 
-  // An imported name as a key no body solves, so the solver's dependency graph never links it to a
-  // same-named definition the import shadows.
-  private def importKeys(owner: TypeName, imported: Set[TypeName]): Map[TypeName, Type] =
-    imported.map(n => n -> Type.Name(s"${owner.value}.import ${n.value}")).toMap
+  /** The objects in scope by name, with their key prefixes, and the types each object (at any
+    * depth, by prefix) defines: what a clause over an object solved in this system binds.
+    */
+  final private case class Clauses(
+      modules: Map[TypeName, TypeName],
+      types: Map[TypeName, Set[TypeName]]
+  ) {
+
+    // The names a statement's clauses bind, each as the key it is solved under, so the solver's
+    // dependency graph links a recursion through a clause: a wildcard's members over an object
+    // solved here (a later wildcard over an earlier one), and an explicit selector's member — or,
+    // for one whose object is not solved here, a key no body solves, so the graph never links it to
+    // a same-named definition the clause shadows.
+    def keys(owner: TypeName, imports: Imports): Map[TypeName, Type] = {
+      val wildcarded = imports.wildcards.reverse.flatMap { w =>
+        prefix(w.path).toList.flatMap { p =>
+          types.getOrElse(p, Set.empty).filterNot(w.excluded).map(n => n -> keyName(key(p, n)))
+        }
+      }
+      val selected = imports.types.map { (n, selector) =>
+        n -> prefix(selector.path).fold(keyName(TypeName.of(s"${owner.value}$imported${n.value}")))(
+          p => keyName(key(p, selector.member))
+        )
+      }
+      wildcarded.toMap ++ selected
+    }
+
+    private def prefix(path: List[TypeName]): Option[TypeName] = path match {
+      case root :: rest if modules.contains(root) => Some(keyOf(modules(root), rest))
+      case _                                      => None
+    }
+
+    private def keyName(name: TypeName): Type = Type.Name(name.value)
+  }
 
   // A type with references to objects' members replaced by their keys (`O.T` → the name `O.T`),
   // then plain names by what `names` maps them to.
@@ -188,7 +221,7 @@ private[cardinality] object Namespaces {
     */
   enum Target {
     case Package(path: List[TypeName], library: Library)
-    case Obj(prefix: TypeName, in: Scope)
+    case Obj(prefix: TypeName, in: Scope, inherits: Boolean = false, exports: Boolean = false)
     case Value(declared: Option[Type], in: Scope)
     case Unknown(provenance: Option[String])
     case Absent
@@ -208,8 +241,8 @@ private[cardinality] object Namespaces {
           .pkg(path)
           .flatMap(s => s.term(name).map(target(_, s)))
           .orElse(Option.when(library.isPackage(path :+ name))(Package(path :+ name, library)))
-      case Obj(prefix, in) => in.term(key(prefix, name)).map(target(_, in))
-      case _               => None
+      case Obj(prefix, in, _, _) => in.term(key(prefix, name)).map(target(_, in))
+      case _                     => None
     }
 
     /** How a wildcard over this namespace binds a type name: the namespace's own member, a reason —
@@ -217,13 +250,7 @@ private[cardinality] object Namespaces {
       * anything — or nothing.
       */
     def member(name: TypeName, wildcard: Wildcard): Option[Found] = this match {
-      case Package(path, library) =>
-        library.pkg(path) match {
-          case Some(s) => Option.when(s.defines(name))(Found.Defined(s, name))
-          case None    => library.pendingMember(path, name).map(Found.Reason(_))
-        }
-      case Obj(prefix, in) =>
-        Option.when(in.defines(key(prefix, name)))(Found.Defined(in, key(prefix, name)))
+      case _: (Package | Obj) => declared(name)
       case Unknown(Some(why)) =>
         val first = wildcard.path.headOption.fold("")(_.value)
         Some(
@@ -232,6 +259,36 @@ private[cardinality] object Namespaces {
           )
         )
       case _ => Some(Found.Reason(Definition.Unbound.Imported(name.value, mayBind(wildcard))))
+    }
+
+    /** How an explicit clause over this namespace binds the type it names: the member a supplied
+      * package or object defines; a member of a package of a cycle still being solved; none when
+      * the namespace has only a term of that name (the clause imports no type); otherwise a reason
+      * (`unfollowed`).
+      */
+    def selected(selector: Selector): Option[Found] =
+      declared(selector.member).orElse {
+        Option.unless(supplied && bindsTerm(selector.member))(
+          Found.Reason(
+            Definition.Unbound.Imported(selector.member.value, unfollowed(selector, this))
+          )
+        )
+      }
+
+    // Whether this is a namespace a source supplies.
+    private def supplied: Boolean = isInstanceOf[Package | Obj]
+
+    // The member a supplied package or object defines, or the reason a package of a cycle still
+    // being solved gives; nothing for anything else.
+    private def declared(name: TypeName): Option[Found] = this match {
+      case Package(path, library) =>
+        library.pkg(path) match {
+          case Some(s) => Option.when(s.defines(name))(Found.Defined(s, name))
+          case None    => library.pendingMember(path, name).map(Found.Reason(_))
+        }
+      case Obj(prefix, in, _, _) =>
+        Option.when(in.defines(key(prefix, name)))(Found.Defined(in, key(prefix, name)))
+      case _ => None
     }
 
     /** Whether a wildcard over this namespace may bind a term name. */
@@ -247,13 +304,28 @@ private[cardinality] object Namespaces {
           .pkg(path)
           .map(Located.Member(member, _))
           .orElse(library.pendingMember(path, member).map(Located.Pending(_)))
-      case Obj(prefix, in)           => Some(Located.Member(key(prefix, member), in))
+      case Obj(prefix, in, _, _)     => Some(Located.Member(key(prefix, member), in))
       case Value(Some(declared), in) => Some(Located.Instance(declared, in))
       case Value(None, _)            => Some(Located.Unread(None))
       case Unknown(provenance)       => Some(Located.Unread(provenance))
       case Absent                    => None
     }
 
+  }
+
+  // Why an explicit clause's path names nothing the estimate reads: a value's member, or one an
+  // object inherits or exports, is not followed; a path whose first name is in doubt (a wildcard
+  // over an unsupplied namespace may bind it) passes the doubt on — the clause may well name a
+  // supplied declaration; any other path names no supplied source.
+  private def unfollowed(selector: Selector, path: Target): String = path match {
+    case _: Target.Value              => selector.because("not followed")
+    case Target.Obj(_, _, true, true) =>
+      selector.because("inherited or exported member not followed")
+    case Target.Obj(_, _, true, _)     => selector.because("inherited member not followed")
+    case Target.Obj(_, _, false, true) => selector.because("exported member not followed")
+    case Target.Unknown(Some(why))     =>
+      selector.because(s"${selector.path.headOption.fold("")(_.value)} $why")
+    case _ => selector.because("not supplied")
   }
 
   /** The provenance of a name a wildcard over an unknown namespace may bind. */
@@ -266,16 +338,16 @@ private[cardinality] object Namespaces {
   }
 
   private def target(bound: Bound, in: Scope): Target = bound match {
-    case Bound.Module(prefix)  => Target.Obj(prefix, in)
-    case Bound.Value(declared) => Target.Value(declared, in)
+    case Bound.Module(prefix, inherits, exports) => Target.Obj(prefix, in, inherits, exports)
+    case Bound.Value(declared)                   => Target.Value(declared, in)
   }
 
   /** What a stable path names where it is read. Its first name resolves as Scala resolves an
     * identifier: the innermost term binding around the read — an object, a value or a parameter of
-    * an enclosing body — then an explicit clause (not followed), then a member of a namespace a
-    * wildcard names (latest first; one no source supplies may bind it), then an object, value or
-    * subpackage of the packages the read's clauses open, innermost first, then a root package.
-    * `_root_.` starts from the root packages.
+    * an enclosing body — then an explicit clause (the namespace it names), then a member of a
+    * namespace a wildcard names (latest first; one no source supplies may bind it), then an object,
+    * value or subpackage of the packages the read's clauses open, innermost first, then a root
+    * package. `_root_.` starts from the root packages.
     */
   def target(scope: Scope, names: List[TypeName]): Target = names match {
     case `root` :: first :: rest =>
@@ -292,8 +364,8 @@ private[cardinality] object Namespaces {
       case Some(bound) => target(bound, scope)
       case None        =>
         scope.clause(first) match {
-          case Some(provenance) => Target.Unknown(Some(provenance))
-          case None             =>
+          case Some(selector) => selected(scope, selector)
+          case None           =>
             val library = scope.library
             wildcardHead(scope, first)
               .orElse(
@@ -306,6 +378,18 @@ private[cardinality] object Namespaces {
               )
               .getOrElse(Target.Absent)
         }
+    }
+
+  // A first name an explicit clause binds: the namespace its member is, its path read with the
+  // clauses written before it, or the clause as a reason when no supplied source declares it.
+  private def selected(scope: Scope, selector: Selector): Target =
+    target(scope.withClauses(selector.prior), selector.path) match {
+      case path @ (_: Target.Package | _: Target.Obj) =>
+        path.select(selector.member) match {
+          case Target.Absent => Target.Unknown(Some(unfollowed(selector, path)))
+          case found         => found
+        }
+      case other => Target.Unknown(Some(unfollowed(selector, other)))
     }
 
   // The first wildcard, latest first, whose namespace has a term of that name — or that names a

@@ -4,6 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.model.*
+import cardinality.types.Traversals
 import dev.constructive.eo.generics.lens
 
 import MethodAnalysis.{Frame, Target, TypeEntry}
@@ -381,8 +382,8 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
     }
 
   private def combine(keys: List[Key]): Key =
-    inhabitation.Inhabitation.Shape
-      .sequenceOptions(keys)
+    Traversals
+      .defined(keys)
       .map(_.map(k => s"${k.length}:$k").mkString("[", ",", "]"))
 
 }

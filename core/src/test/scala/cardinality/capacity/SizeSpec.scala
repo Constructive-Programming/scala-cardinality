@@ -19,7 +19,7 @@ class SizeSpec extends Specification {
     tiny arithmetic spills into bits           ${TinySize(100) + TinySize(100) === FiniteSize(8)}
     tiny powers do not saturate                ${(BooleanSize ^ TinySize(100)) === FiniteSize(100)}
     equal finite sums terminate                ${IntSize + IntSize === FiniteSize(33)}
-    sums keep the larger bit count             ${FloatSize + LongSize === FiniteSize(65)}
+    sums keep the larger bit count             ${FloatSize + LongSize === LossyInfiniteSize(65)}
     Nothing absorbs products                   ${(NothingSize * IntSize === NothingSize).and(
       EffectiveOmega * NothingSize === NothingSize
     )}

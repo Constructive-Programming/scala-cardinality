@@ -83,8 +83,8 @@ class NamespaceSpec extends Specification {
 
   import Definition.Kind.*
 
-  private val widget = "unresolved[Widget (imported from zz.Widget, not followed)]"
-  private val schema = "Schema (imported from zz.Schema, not followed)"
+  private val widget = "unresolved[Widget (imported from zz.Widget, not supplied)]"
+  private val schema = "Schema (imported from zz.Schema, not supplied)"
 
   // `object Foo`'s value has type `Foo.type`; the type `Foo` is the open trait, which any class
   // anywhere may extend: no bound. Before, the module's `1` stood in for the trait and its users.
@@ -95,15 +95,13 @@ class NamespaceSpec extends Specification {
       .and(found(("UsesFoo", Class)) === "open[Foo]")
   }
 
-  // `Light`'s cases live in its companion, which this estimate does not sum yet: the parent has a
-  // value space (the truth is 2) that is not computed here, so it is named — never the module's 1,
-  // and never the dash an open abstraction reads.
+  // `Light`'s cases live in its companion, where Scala 3 code keeps them: the parent sums them,
+  // 1 + 1 = 2 — never the module's 1, and never the dash an open abstraction reads.
   def sealedCompanion = {
     val found = rows(
       "sealed trait Light\nobject Light { case object Red extends Light; case object Green extends Light }\nfinal case class UsesLight(l: Light)"
     )
-    (found(("Light", Abstract)) === "unresolved[sealed family not summed: Light]")
-      .and(found(("UsesLight", Class)) === "unresolved[sealed family not summed: Light]")
+    (found(("Light", Abstract)) === "2").and(found(("UsesLight", Class)) === "2")
   }
 
   // Beside the parent each `case object` is one value: |Light| = 1 + 1 = 2. The companion
@@ -149,7 +147,7 @@ class NamespaceSpec extends Specification {
 
   // Inside `Sh`, `Bx` is `Sh.Bx` (1 value), not the enclosing body's `Bx` (2). Inside `Imp`,
   // `Widget` is the import's — an explicit import outranks a package member another file defines
-  // (scalac agrees; in the same file the two would be ambiguous) — and the import is not followed:
+  // (scalac agrees; in the same file the two would be ambiguous) — and no source supplies `zz`:
   // never the package's `Widget` (2 values).
   def objectShadowing = {
     val shadowed = rows(
@@ -622,8 +620,8 @@ class NamespaceSpec extends Specification {
   }
 
   // `P` is not generic: `C[A] extends P` holds an `x: A` for every `A`, so no instantiation of `P`
-  // fixes it (the values range over everything). The reason says so — never `depends on A`, and
-  // never the ω a read of `O.P2` used to borrow.
+  // fixes it (the values range over everything): the family is not summed, and the reason says
+  // why — never `depends on A`, and never the ω a read of `O.P2` used to borrow.
   def childBinders = {
     val found = rows(
       """|sealed trait P
@@ -633,20 +631,29 @@ class NamespaceSpec extends Specification {
          |final case class UsesQ(q: O.P2)
          |""".stripMargin
     )
-    (found(("P", Abstract)) === "unresolved[sealed child parameter not pinned: C[A]]")
-      .and(found(("O.P2", Abstract)) === "unresolved[sealed child parameter not pinned: O.C2[A]]")
-      .and(found(("Q", Alias)) === "unresolved[sealed child parameter not pinned: O.C2[A]]")
-      .and(found(("UsesQ", Class)) === "unresolved[sealed child parameter not pinned: O.C2[A]]")
+    def unpinned(parent: String, child: String) =
+      s"unresolved[sealed family not summed: $parent (sealed subtype $child binds A to no slot " +
+        s"of ${parent.split('.').last})]"
+    (found(("P", Abstract)) === unpinned("P", "C"))
+      .and(found(("O.P2", Abstract)) === unpinned("P2", "C2"))
+      .and(found(("Q", Alias)) === unpinned("O.P2", "C2"))
+      .and(found(("UsesQ", Class)) === unpinned("O.P2", "C2"))
   }
 
-  // A sealed family whose subtype is abstract, or that is extended with arguments, is not summed:
-  // named, never the dash an open abstraction reads.
+  // A sealed intermediate is summed in turn (A = |B| = |C| = 2), a parent extended with arguments
+  // through its slots (`Opt[X]` = |X|: a function of the instantiation); an abstract subtype that
+  // is not sealed is open to extension, so its family is not summed: named, never the dash an open
+  // abstraction reads.
   def unsummedFamily = {
     val found = rows(
-      "sealed trait A\nsealed trait B extends A\nfinal case class C(b: Boolean) extends B\nsealed trait Opt[X]\nfinal case class Som[X](x: X) extends Opt[X]"
+      "sealed trait A\nsealed trait B extends A\nfinal case class C(b: Boolean) extends B\nsealed trait Opt[X]\nfinal case class Som[X](x: X) extends Opt[X]\nsealed trait O2\ntrait Mid extends O2\ncase object K extends O2"
     )
-    (found(("A", Abstract)) === "unresolved[sealed family not summed: A]")
-      .and(found(("Opt", Abstract)) === "unresolved[sealed family not summed: Opt]")
+    (found(("A", Abstract)) === "2")
+      .and(found(("Opt", Abstract)) === "instantiation[X]")
+      .and(
+        found(("O2", Abstract)) ===
+          "unresolved[sealed family not summed: O2 (an abstract subtype open to extension: Mid)]"
+      )
   }
 
   // `S(head, tail: => O.Cell)` and `O.Cell(s: S)` form a lazy cycle whose strict `s: S` blocks the ν

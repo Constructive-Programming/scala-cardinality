@@ -123,19 +123,20 @@ class NamespaceScopingSpec extends Specification {
       )
   }
 
-  // `export x.Obj` makes `Obj` a member of `O`: inside `O` it is the export's, not followed (`?`),
-  // never the package's `Obj(u: Unit)` (1). `export Src.*` makes `Src.Obj(b: Boolean)` a member of
-  // `O2`, which outranks the package's `Obj`: 2. The method side reads the package's `Obj` (1) for
-  // `O2.U`'s slot, so the constructor's readings disagree and its row is refused.
+  // `export x.Obj` makes `Obj` a member of `O`: inside `O` it is the export's, followed to
+  // `x.Obj(b: Boolean)` (2), never the package's `Obj(u: Unit)` (1); an export of a name no source
+  // supplies stays a reason. `export Src.*` makes `Src.Obj(b: Boolean)` a member of `O2`, which
+  // outranks the package's `Obj`: 2. The method side reads the package's `Obj` (1) for `O2.U`'s
+  // slot, so the constructor's readings disagree and its row is refused.
   def exports = {
     val files = List(
       x,
-      "p/P.scala" -> "package p\nfinal case class Obj(u: Unit)\nobject O { export x.Obj; final case class U(o: Obj); type Y = Obj }\nobject Src { final case class Obj(b: Boolean) }\nobject O2 { export Src.*; final case class U(o: Obj) }",
+      "p/P.scala" -> "package p\nfinal case class Obj(u: Unit)\nobject O { export x.Obj; final case class U(o: Obj); type Y = Obj }\nobject Src { final case class Obj(b: Boolean) }\nobject O2 { export Src.*; final case class U(o: Obj) }\nobject O3 { export zz.Obj; type Y = Obj }",
     )
     val found = rowsOf(files*)
-    val exported = "unresolved[Obj (exported from x.Obj, not followed)]"
-    (found(("p.O.U", Class)) === exported)
-      .and(found(("p.O.Y", Alias)) === exported)
+    (found(("p.O.U", Class)) === "2")
+      .and(found(("p.O.Y", Alias)) === "2")
+      .and(found(("p.O3.Y", Alias)) === "unresolved[Obj (exported from zz.Obj, not supplied)]")
       .and(found(("p.O2.U", Class)) === "2")
       .and(
         constructor("p.O2.U.<init>", files*) === Count.Unresolved(
@@ -144,10 +145,10 @@ class NamespaceScopingSpec extends Specification {
       )
   }
 
-  // A bare `Option` or `List` the sources bind is that binding's: an explicit import (not
-  // followed), a source open trait (any class may extend it — `Impl` alone holds functions), a
-  // source sealed `Option` whose generic children are not summed. Unbound, `Option[Boolean]` is
-  // the standard one: 1 + 2 = 3.
+  // A bare `Option` or `List` the sources bind is that binding's: an explicit import of a namespace
+  // no source supplies, a source open trait (any class may extend it — `Impl` alone holds
+  // functions), a source sealed `Option` summed through its slots — `Some[Boolean](a, b)` (4) plus
+  // `None` (1): 5. Unbound, `Option[Boolean]` is the standard one: 1 + 2 = 3.
   def modelledShadowing = {
     val imported = rows(
       "import zz.Option\nimport java.util.List\nfinal case class UsesO(o: Option[Boolean])\nfinal case class J(xs: List[Nothing])"
@@ -155,12 +156,12 @@ class NamespaceScopingSpec extends Specification {
     val source = rows(
       "trait List[A]\nfinal case class UsesL(xs: List[Boolean])\nsealed trait Option[+A]\nfinal case class Some[+A](a: A, b: A) extends Option[A]\ncase object None extends Option[Nothing]\nfinal case class UsesO(o: Option[Boolean])"
     )
-    (imported(("UsesO", Class)) === "unresolved[Option (imported from zz.Option, not followed)]")
+    (imported(("UsesO", Class)) === "unresolved[Option (imported from zz.Option, not supplied)]")
       .and(
-        imported(("J", Class)) === "unresolved[List (imported from java.util.List, not followed)]"
+        imported(("J", Class)) === "unresolved[List (imported from java.util.List, not supplied)]"
       )
       .and(source(("UsesL", Class)) === "open[List]")
-      .and(source(("UsesO", Class)) === "unresolved[sealed family not summed: Option]")
+      .and(source(("UsesO", Class)) === "5")
       .and(rows("final case class Plain(o: Option[Boolean])")(("Plain", Class)) === "3")
   }
 
@@ -200,12 +201,16 @@ class NamespaceScopingSpec extends Specification {
       .and(found(("Holder2.Y", Alias)) === "unresolved[p.X]")
   }
 
-  // `U(w: W)` inside `Holder` holds `Holder`'s abstract `W`, which each implementor chooses
-  // (`Impl` puts Ints in it): open, never the outer `W(b: Boolean)` (2).
-  def abstractMember =
-    rows(
-      "final case class W(b: Boolean)\ntrait Holder { type W; final case class U(w: W) }\nobject Impl extends Holder { type W = Int }"
-    )(("Holder.U", Class)) === "open[W]"
+  // `U(w: W)` inside `Holder` holds `Holder`'s abstract `W` — `this.W`, which each instance
+  // chooses (`Impl` puts Ints in it): a function of that choice, as of a parameter, never the outer
+  // `W(b: Boolean)` (2). An object's abstract member has one instance and stays open.
+  def abstractMember = {
+    val found = rows(
+      "final case class W(b: Boolean)\ntrait Holder { type W; final case class U(w: W) }\nobject Impl extends Holder { type W = Int }\nobject O { type V; final case class UV(v: V) }"
+    )
+    (found(("Holder.U", Class)) === "instantiation[member W]")
+      .and(found(("O.UV", Class)) === "open[V]")
+  }
 
   // `O.Pair2`, `O.One` and `Pair3` are type constructors: |Pair2[Nothing]| = 0, |Pair2[Boolean]|
   // = 4, so no one number is theirs (before: the template's placeholder ω, and 1).
@@ -231,21 +236,24 @@ class NamespaceScopingSpec extends Specification {
       .and(constructor("UsesY.<init>", "M.scala" -> code) === Count.Finite(2))
   }
 
-  // `P`'s subtypes are `D` (1) and the companion's `C(b: Boolean)` (2): 3 values, which the body
-  // does not sum (before: 1, `D` alone). `A`'s subtypes include the abstract `B`; `Q` has an
-  // anonymous instance. Each is a family not summed, as are its readers and constructor rows.
+  // `P`'s subtypes are `D` (1) and the companion's `C(b: Boolean)` (2): 3, summed across the
+  // companion. `A`'s are `X` (1) and the sealed `B`, whose own sum is `C(b: Boolean)` (2): 3. `Q`
+  // has an anonymous instance in its file, a value no subtype enumerates: not summed, nor its
+  // readers or constructor rows — whose method side names that cause once, in its own words.
   def partialFamily = {
     val code =
       "sealed trait P\ncase object D extends P\nobject P { final case class C(b: Boolean) extends P }\nfinal case class UsesP(p: P)\nsealed trait A\ncase object X extends A\nsealed trait B extends A\nfinal case class C(b: Boolean) extends B\nfinal case class UsesA(a: A)\nsealed trait Q\ncase object Q1 extends Q\nobject Make { val q: Q = new Q {} }\nfinal case class UsesQ(q: Q)"
     val found = rows(code)
-    def unsummed(n: String) = s"unresolved[sealed family not summed: $n]"
-    (found(("P", Abstract)) === unsummed("P"))
-      .and(found(("UsesP", Class)) === unsummed("P"))
-      .and(found(("UsesA", Class)) === unsummed("A"))
-      .and(found(("UsesQ", Class)) === unsummed("Q"))
+    val anonymous = "sealed family not summed: Q (an anonymous instance in its file)"
+    (found(("P", Abstract)) === "3")
+      .and(found(("UsesP", Class)) === "3")
+      .and(found(("UsesA", Class)) === "3")
+      .and(found(("UsesQ", Class)) === s"unresolved[$anonymous]")
+      .and(constructor("UsesP.<init>", "S.scala" -> code) === Count.Finite(3))
       .and(
-        constructor("UsesP.<init>", "S.scala" -> code) ===
-          Count.Unresolved(List("sealed family not summed: P"))
+        constructor("UsesQ.<init>", "S.scala" -> code) === Count.Unresolved(
+          List("sealed family has anonymous instances in its file: Q")
+        )
       )
   }
 
@@ -258,9 +266,9 @@ class NamespaceScopingSpec extends Specification {
       "type Thunk = () => Cell\nfinal class S(val head: Boolean, val tail: Thunk)\nfinal case class Cell(s: S)\nfinal case class UsesCell(c: Cell)\ntype Next = () => Node\nfinal case class Node(b: Boolean, next: Next)"
     )
     def cycle(names: String*) = names.map(n => s"lazy cycle not completed: $n").mkString(", ")
-    (found(("Cell", Class)) === s"unresolved[${cycle("Cell", "S")}]")
-      .and(found(("S", Class)) === s"unresolved[${cycle("S", "Thunk")}]")
-      .and(found(("UsesCell", Class)) === s"unresolved[${cycle("Cell")}]")
+    (found(("Cell", Class)) === s"unresolved[${cycle("Cell", "S", "Thunk")}]")
+      .and(found(("S", Class)) === s"unresolved[${cycle("S", "Thunk", "Cell")}]")
+      .and(found(("UsesCell", Class)) === s"unresolved[${cycle("Cell", "S", "Thunk")}]")
       .and(found(("Node", Class)) === "ω")
   }
 
@@ -280,32 +288,48 @@ class NamespaceScopingSpec extends Specification {
       .and(rowsOf(cycle*)(("p.A", Class)) === "unresolved[cross-package cycle not solved: p.A]")
   }
 
-  // `U(w: W)` with `W` imported: the estimate does not follow the import, and the shape model
-  // would count `W` as an argument (|U|^|W| = 4), not the 2 values `U` holds, so `?` naming the
-  // import; `V(w: a.W)` reads it: 2. `U(l: L)` with `L`'s cases in its companion: not summed, `?`.
+  // `U(w: W)` with `W` imported from a supplied package: the estimate follows the import to
+  // `a.W(b: Boolean)`, 2, as `V(w: a.W)` reads it; with `W` imported from a namespace no source
+  // supplies, the shape model would count `W` as an argument (|U|^|W|), not the values `U` holds,
+  // so `?` naming the import. `U(l: L)` with `L`'s cases `R`, `G` in its companion: 2; with a
+  // class open to extension beside them, not summed, `?`.
   def groundSlot = {
     val imported = List(
       "a/W.scala" -> "package a\nfinal case class W(b: Boolean)",
       "b/U.scala" -> "package b\nimport a.W\nfinal case class U(w: W)\nfinal case class V(w: a.W)",
+      "c/U.scala" -> "package c\nimport zz.W\nfinal case class U(w: W)",
     )
     val family = "F.scala" ->
       "package f\nsealed trait L\nobject L { case object R extends L; case object G extends L }\nfinal case class U(l: L)"
-    (constructor("b.U.<init>", imported*) ===
-      Count.Unresolved(List("unresolved type: W (imported from a.W, not followed)")))
+    val open = "G.scala" ->
+      "package g\nsealed trait L\nobject L { case object R extends L; class O extends L }\nfinal case class U(l: L)"
+    (constructor("b.U.<init>", imported*) === Count.Finite(2))
       .and(constructor("b.V.<init>", imported*) === Count.Finite(2))
       .and(
-        constructor("f.U.<init>", family) === Count.Unresolved(List("sealed family not summed: L"))
+        constructor("c.U.<init>", imported*) ===
+          Count.Unresolved(List("unresolved type: W (imported from zz.W)"))
+      )
+      .and(constructor("f.U.<init>", family) === Count.Finite(2))
+      .and(
+        constructor("g.U.<init>", open) must beLike {
+          case Count.Unresolved(reasons) =>
+            reasons must contain("sealed family not summed: L (a subtype open to extension: L.O)")
+        }
       )
   }
 
   // `focus: Fam[A]` is over `A`, the shape model's to count — but the estimate refused it for a
-  // family it does not sum, a declaration of the sources: no number may rest on it.
+  // family it does not sum (a class open to extension beside `Leaf`), a declaration of the sources:
+  // no number may rest on it.
   def declarationSlot =
     constructor(
       "f.P.<init>",
-      "F.scala" -> "package f\nsealed trait Fam[A]\nobject Fam { final case class Leaf[A](a: A) extends Fam[A] }\nfinal class P[A](steps: List[Boolean], focus: Fam[A])",
+      "F.scala" -> "package f\nsealed trait Fam[A]\nobject Fam { final case class Leaf[A](a: A) extends Fam[A]; class Open[A] extends Fam[A] }\nfinal class P[A](steps: List[Boolean], focus: Fam[A])",
     ) must beLike {
-      case Count.Unresolved(reasons) => reasons must contain("sealed family not summed: Fam")
+      case Count.Unresolved(reasons) =>
+        reasons must contain(
+          "sealed family not summed: Fam (a subtype open to extension: Fam.Open)"
+        )
     }
 
   // The estimate's refusal of an imported `Int` says where the name comes from, in place of the

@@ -88,11 +88,14 @@ final private[cardinality] class Representations(
     else
       child.tree match {
         case d: Defn.Object =>
-          slotBindings(d.templ.inits, parent.name, level, Nil).map(_ => List(Nil))
+          SealedSlots
+            .instantiation(slots(parent.name, level), SealedSlots.subtype(d, inFile(d)))
+            .map(_ => List(Nil))
         case d: (Defn.Class | Defn.Trait) if intermediate(d) => sealedIntermediate(child, d, family)
         case c: Defn.Class if isCaseClass(c) || c.mods.exists(_.is[Mod.Final]) =>
-          slotBindings(c.templ.inits, parent.name, level, c.tparamClause.values)
-            .flatMap(bindings => sealedLeaf(c, child.owner, useSite).map(renamed(_, bindings)))
+          SealedSlots
+            .instantiation(slots(parent.name, level), SealedSlots.subtype(c, inFile(c)))
+            .flatMap(i => sealedLeaf(c, child.owner, useSite).map(renamed(_, i.bindings)))
         case _ =>
           Left(s"sealed subtype outside the closed fragment: ${child.name}")
       }
@@ -108,18 +111,26 @@ final private[cardinality] class Representations(
       declaration: Defn.Class | Defn.Trait,
       family: Family
   ): Either[String, List[List[Type]]] =
-    slotBindings(
-      declaration.templ.inits,
-      family.entry.name,
-      family.level,
-      declaration.tparamClause.values
-    ).flatMap { bindings =>
-      if (!Counter.isSealed(declaration))
-        Left(s"sealed family has an open abstract subtype: ${child.name}")
-      else
-        sealedCases(Family(child, declaration, family.seen, family.useSite))
-          .map(renamed(_, bindings))
-    }
+    SealedSlots
+      .instantiation(
+        slots(family.entry.name, family.level),
+        SealedSlots.subtype(declaration, inFile(declaration))
+      )
+      .flatMap { i =>
+        if (!Counter.isSealed(declaration))
+          Left(s"sealed family has an open abstract subtype: ${child.name}")
+        else
+          sealedCases(Family(child, declaration, family.seen, family.useSite))
+            .map(renamed(_, i.bindings))
+      }
+
+  private def slots(name: String, level: Defn.Class | Defn.Trait): SealedSlots.Parent =
+    SealedSlots.Parent(name, level.tparamClause.values)
+
+  // The constructor a subtype's field names: the one its file declares under that name, when it
+  // declares exactly one.
+  private def inFile(d: Tree): String => Option[List[Variance]] =
+    SealedSlots.declaredIn(d, (_, _) => true)
 
   private def renamed(cases: List[List[Type]], bindings: List[(String, String)]): List[List[Type]] =
     cases.map(rename(_, bindings))
@@ -166,101 +177,6 @@ final private[cardinality] class Representations(
       case _ => false
     }
 
-  // Every slot of the parent's application in the child's `extends` clause, resolved: a child
-  // parameter bound to the slot, or the slot pinned bottom-up. Child parameters must bind exactly
-  // one slot each, and must not spell a name any enclosing level owns.
-  private def slotBindings(
-      inits: List[Init],
-      parentName: String,
-      level: Defn.Class | Defn.Trait | Defn.Enum,
-      childParams: List[Type.Param]
-  ): Either[String, List[(String, String)]] = {
-    val childNames = childParams.map(_.name.value)
-    parentArguments(inits, parentName).flatMap { args =>
-      val levelParams = level.tparamClause.values
-      if (args.size != levelParams.size)
-        Left(
-          s"sealed subtype pins $parentName with ${args.size} of its ${levelParams.size} parameters"
-        )
-      else
-        sequence(args.zip(levelParams).map(slotBinding(_, _, childNames, parentName)))
-          .flatMap(perSlot => bindsEachOnce(perSlot.flatten, childNames, parentName))
-    }
-  }
-
-  // The arguments the child's clause gives the parent: none for a bare name.
-  private def parentArguments(inits: List[Init], parentName: String): Either[String, List[Type]] =
-    inits.find(init => plainCallee(init.tpe).contains(parentName)) match {
-      case None =>
-        Left(s"sealed subtype reaches $parentName only through a qualified name: $parentName")
-      case Some(init) =>
-        init.tpe match {
-          case application: Type.Apply => Right(application.argClause.values.toList)
-          case _: Type.Name            => Right(Nil)
-          case _ => Left(s"sealed subtype application unreadable: $parentName")
-        }
-    }
-
-  private def slotBinding(
-      arg: Type,
-      parameter: Type.Param,
-      childNames: List[String],
-      parentName: String
-  ): Either[String, Option[(String, String)]] =
-    arg match {
-      case name: Type.Name if childNames.contains(name.value) =>
-        Right(Some(name.value -> parameter.name.value))
-      case _ if !mentionsAny(arg, childNames) && isBottomPinned(parameter, arg) => Right(None)
-      case _                                                                    =>
-        Left(
-          s"sealed subtype leaves a parameter of $parentName unpinned: " +
-            arg.syntax.replaceAll("\\s+", " ")
-        )
-    }
-
-  private def bindsEachOnce(
-      bindings: List[(String, String)],
-      childNames: List[String],
-      parentName: String
-  ): Either[String, List[(String, String)]] =
-    if (
-      bindings.groupBy(_._1).exists(_._2.size > 1) ||
-      childNames.exists(name => !bindings.exists(_._1 == name))
-    )
-      Left(s"sealed subtype parameter is not pinned exactly once by $parentName: $childNames")
-    else Right(bindings)
-
-  // The callee of an `extends` clause, when it is a plain (unqualified) name: either bare or
-  // applied — `Focus` or `Focus[S, A]` — but never a selection like `data.Focus`, whose meaning
-  // depends on resolution this lookup does not model here.
-  private def plainCallee(tpe: Type): Option[String] = tpe match {
-    case n: Type.Name  => Some(n.value)
-    case a: Type.Apply =>
-      a.tpe match {
-        case n: Type.Name => Some(n.value)
-        case _            => None
-      }
-    case _ => None
-  }
-
-  private def mentionsAny(tpe: Type, names: List[String]): Boolean =
-    TypeName.words(tpe).iterator.exists(names.contains)
-
-  // Nothing inhabits every covariant slot; Any is the only value of a contravariant slot pinned
-  // from below — both make the subtype a member of every instantiation, which is all the sum
-  // needs. An invariant slot pinned to any other type is instantiation-dependent, which this
-  // fragment does not track.
-  private def isBottomPinned(parameter: Type.Param, arg: Type): Boolean =
-    (
-      arg,
-      parameter.mods.exists(_.is[Mod.Covariant]),
-      parameter.mods.exists(_.is[Mod.Contravariant])
-    ) match {
-      case (name: Type.Name, true, _) => name.value == "Nothing"
-      case (name: Type.Name, _, true) => name.value == "Any"
-      case _                          => false
-    }
-
   private def replaceSlots(field: Type, bindings: List[(String, String)]): Type =
     TypeSubstitution.replace(
       field,
@@ -271,9 +187,7 @@ final private[cardinality] class Representations(
   // field type is not declared leaves the representation unreadable. A case with its own `extends`
   // clause is a subtype like any sealed family's: it must instantiate the enum's parameters with
   // its own or bottom-pin them, since `case I extends G[Unit]` is a value of `G[Unit]` only, not of
-  // every `G[A]`. Its own parameters are the ones it declares or, failing that, the enum's
-  // parameters its fields or its `extends` clause mention — Scala gives `case K(a: A) extends G[A]`
-  // and `case K(n: Boolean) extends G[A]` the parameter `A` (3.9.0 fixtures: `G.K[String](…)`).
+  // every `G[A]` (its own parameters: `SealedSlots.caseParams`).
   private def enumRepresentation(e: Defn.Enum, key: String): Representation =
     if (e.mods.exists(_.is[Mod.Abstract])) abstractRepresentation(key)
     else (e.tparamClause.values, enumCases(e, key))
@@ -290,15 +204,9 @@ final private[cardinality] class Representations(
   private def enumCase(c: Defn.EnumCase, e: Defn.Enum, key: String): Either[String, List[Type]] = {
     val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
     val fields = declaredFields(parameters, key)
-    val mentioned = parameters.flatMap(_.decltpe) ++ c.inits.map(_.tpe)
-    val own =
-      if (c.tparamClause.values.nonEmpty) c.tparamClause.values
-      else e.tparamClause.values.filter(p => mentioned.exists(mentionsAny(_, List(p.name.value))))
     if (c.inits.isEmpty) fields
     else
-      slotBindings(c.inits, e.name.value, e, own).flatMap(bindings =>
-        fields.map(rename(_, bindings))
-      )
+      SealedSlots.enumCase(c, e, inFile(c)).flatMap(i => fields.map(rename(_, i.bindings)))
   }
 
   private def abstractRepresentation(key: String): Representation =

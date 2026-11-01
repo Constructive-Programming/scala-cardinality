@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.meta.*
 
@@ -7,18 +8,13 @@ import cardinality.types.*
 import dev.constructive.eo.generics.lens
 import dev.constructive.eo.optics.Lens
 
-// The state one read carries: the names a body solves, what a reference can resolve to, and the
-// library of the other supplied sources. `Counter` reads with it; the walk builds it.
-//
-// The names of the types a source defines are each mapped to their cardinality, so a field can
-// refer to a sibling, forward or recursive definition by name. The equations are solved by Kleene
-// iteration from the empty type (`Solver`), so the walk hands every definition the value a
-// reference has; unresolved names are collected so a report can say *why* a size is unbounded.
-// Notes are shared across a body's iteration; `measured` starts a fresh record per definition.
+// The state one read carries: each type a body defines mapped to its solved cardinality (Kleene
+// iteration from the empty type, `Solver`), what a reference can resolve to, and the library of
+// the other supplied sources. Unresolved names are collected so a report can say *why* a size is
+// unbounded; `measured` starts a fresh record per definition.
 
-/** What a read carries besides solved names: definitions, frames, binders and members, what each
-  * term name in scope denotes, the library, the package clauses the read is inside (innermost
-  * first), the import and export clauses in scope, the body's families and how the read is made.
+/** What a read carries besides solved names; `opened` are its package clauses, innermost first, and
+  * `slots` which slots of each generic definition solved around it are positive (`Positivity`).
   */
 final private[cardinality] case class World(
     definitions: Map[TypeName, Named] = Map.empty,
@@ -31,35 +27,83 @@ final private[cardinality] case class World(
     imports: Imports = Imports.none,
     families: Families = Families(),
     session: Session = Session(),
+    slots: Map[TypeName, Positivity.Slots] = Map.empty,
 )
 
-/** The abstractions a body holds: open ones, sealed families it does not sum, and the definitions
-  * on a lazy cycle the solver could not complete.
+/** The abstractions a body holds: open ones, the abstract type members of a class or trait template
+  * (`members`, each instance's to choose), sealed families it does not sum, and the definitions the
+  * solver left on a cycle without a count (`blocked`).
   */
 final private[cardinality] case class Families(
     open: Set[TypeName] = Set.empty,
-    unsummed: Set[TypeName] = Set.empty,
-    blocked: Set[TypeName] = Set.empty,
+    unsummed: Map[TypeName, String] = Map.empty,
+    blocked: Map[TypeName, Blocked] = Map.empty,
+    members: Set[TypeName] = Set.empty,
 )
 
+/** Why the solver gives a definition on a cycle no count: a lazy cycle the ν completion did not
+  * finish (its μ value counts the finite values only); a recursion through a function's domain,
+  * which no fixed point of the model counts, or through a constructor whose use of its argument the
+  * estimate does not read (`Positivity`); or a recursion through a type member read off a value
+  * (`x: q.X`), which the solver reads over an earlier solve and never iterates (`Solver`).
+  */
+private[cardinality] enum Blocked(val reason: String) {
+  case Lazy extends Blocked("lazy cycle not completed")
+  case Negative extends Blocked("recursion through a function's domain")
+
+  case Unread(constructor: String)
+      extends Blocked(s"recursion through $constructor, a constructor the estimate does not read")
+
+  case Unseen extends Blocked("recursion through a type member of a value")
+
+  /** Whether the definition has no count at all, not only an incomplete one. */
+  def uncounted: Boolean = this != Lazy
+}
+
 /** How a read is made: `template` frames bind a definition's own parameters while its reasons are
-  * collected, `active` guards re-entry, `self` is the definition whose own equation is read,
-  * `recording` marks a row's own measurement, and `taint` collects a reference's reasons.
+  * collected; `placeholders` stand for parameters no instantiation fixed; `arguments` are what the
+  * frame's names were written as; `active` guards re-entry; `self` and `summing` say whose own
+  * equation is read; `recursion` notices an instantiation's recursion on its parameters;
+  * `recording` and `taint` collect a row's reasons; `saturating` marks the method side's reading.
   */
 final private[cardinality] case class Session(
     template: Boolean = false,
+    placeholders: Set[TypeName] = Set.empty,
+    arguments: Map[TypeName, Argument] = Map.empty,
     active: Set[TypeName] = Set.empty,
-    self: Option[Named] = None,
+    self: Option[Itself] = None,
+    summing: List[Itself] = Nil,
+    recursion: Option[Recursion] = None,
     recording: Boolean = false,
     taint: Option[Taint] = None,
+    saturating: Boolean = false,
 )
 
+/** The type an instantiation bound a parameter to, as the reference wrote it, and the scope that
+  * reads it: a match type over the parameter reduces on this syntax, its parts read where written.
+  */
+final private[cardinality] case class Argument(tpe: Type, in: Scope)
+
+/** The definition whose own equation is being read, and the names that stand for its parameters
+  * there, slot by slot — its own, or, while a sealed parent reads a subtype, the subtype's
+  * parameters each slot binds (none for a slot pinned bottom-up) — so that a reference applying it
+  * to them is its recursion.
+  */
+final private[cardinality] case class Itself(named: Named, own: List[Option[TypeName]])
+
+private[cardinality] object Itself {
+
+  /** A definition reading its own equation: its parameters stand for themselves. */
+  def of(named: Named): Itself = Itself(named, named.params.map(Some(_)))
+}
+
 /** What a term name denotes where it is read: an object, by the key prefix its members are solved
-  * under, or a value (a `val`, a parameter, a `def`) with the type it is known to have, if any.
-  * Scala resolves a path's first name innermost first over all of them.
+  * under (and whether it inherits or exports members, which the estimate does not follow), or a
+  * value (a `val`, a parameter, a `def`) with the type it is known to have, if any. Scala resolves
+  * a path's first name innermost first over all of them.
   */
 private[cardinality] enum Bound {
-  case Module(prefix: TypeName)
+  case Module(prefix: TypeName, inherits: Boolean = false, exports: Boolean = false)
   case Value(declared: Option[Type])
 }
 
@@ -75,10 +119,8 @@ private[cardinality] enum Binding {
   case Free
 }
 
-/** One lexical layer a body adds to the scope it reads in: the type names it defines, the term
-  * names it binds, the clauses in effect and, for a file of a package, the package clauses that
-  * file opens. `rekey` gives the keys an enclosing system solved the types under (an object's);
-  * without it the body is about to solve them itself.
+/** One lexical layer a body adds to the scope it reads in. `rekey` gives the keys an enclosing
+  * system solved its types under (an object's); without it the body is about to solve them.
   */
 final private[cardinality] case class Layer(
     types: Set[TypeName] = Set.empty,
@@ -88,13 +130,38 @@ final private[cardinality] case class Layer(
     rekey: Option[TypeName => TypeName] = None,
 )
 
-/** One reference's collection of reasons: each definition it reads adds its reasons once. */
+/** One instantiation of `named` being solved for its own least fixed point: the approximation its
+  * recursion on its own parameters reads (`value`), and whether it read one.
+  */
+final private[cardinality] class Recursion(val named: Named, val value: Size) {
+
+  private var read = false
+
+  def recursed: Boolean = read
+
+  def notice(): Size = { read = true; value }
+}
+
+/** One reference's collection of reasons: each definition it reads adds its reasons once, and a
+  * definition on a lazy cycle is named once, whichever key or plain name it is read by.
+  */
 final private[cardinality] class Taint {
 
-  private val seen =
-    java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Named, java.lang.Boolean])
+  private val seen = Taint.identities()
+
+  private val lazies = Taint.identities()
 
   def visit(named: Named): Boolean = seen.add(named)
+
+  def blockedOnce(named: Named): Boolean = lazies.add(named)
+}
+
+private object Taint {
+
+  // Definitions by identity: two equal-looking equations are different definitions.
+  def identities(): java.util.Set[Named] =
+    java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Named, java.lang.Boolean])
+
 }
 
 /** The type members a class, trait or enum (`owner`) declares: what an instance path (`x.B`)
@@ -118,16 +185,25 @@ final private[cardinality] case class Binder(name: TypeName, arity: Int) {
   def higherKinded: Boolean = arity > 0
 }
 
-/** A sealed parent's subtype, as its defining statement says: a module counts its one value, and a
-  * class's type parameters are existential from the parent's side — a parent the estimate sums is
-  * extended without arguments, so no instantiation of it fixes them.
+/** A sealed parent's subtype, under the key its system solves it by: a module counts its one value;
+  * any other is read with each of its parameters bound to the parent parameter its slot binds
+  * (`bindings`, subtype parameter to parent parameter), or by its solved value when it has none.
+  * `standard` says, from the scope the family is read in, why the subtype is a member of some
+  * instantiations only: a name its clause or fields take for the standard library's that a source
+  * binds where it is written.
   */
-final private[cardinality] case class Child(name: TypeName, module: Boolean, params: List[TypeName])
+final private[cardinality] case class Child(
+    name: TypeName,
+    module: Boolean,
+    bindings: List[(TypeName, TypeName)] = Nil,
+    standard: Scope => Option[String] = _ => None,
+)
 
 final private[cardinality] class Scope(
     private val values: Map[TypeName, Size],
     private val notes: mutable.LinkedHashSet[Definition.Unbound],
     private val world: World,
+    private val outer: Option[Scope] = None,
 ) {
 
   /** The members a namespace solved under `key`. */
@@ -171,23 +247,36 @@ final private[cardinality] class Scope(
 
   /** Where a bare type name binds. A body around the read outranks every clause — except that, for
     * a file read with the rest of its package, a wildcard of the file outranks a name only another
-    * file defines. Then an explicit clause, then the wildcards (latest first), then the packages
-    * the read's clauses open; a package the library has not solved yet is a reason of its own.
+    * file defines. Then an explicit clause (followed to the member it names), then the wildcards
+    * (latest first), then the packages the read's clauses open; a package the library has not
+    * solved yet is a reason of its own.
     */
   def binding(name: TypeName): Binding =
     exported(name).getOrElse {
       if (here(name) && !(world.imports.foreign(name) && wildcard(name).isDefined)) Binding.Here
       else
-        world.imports.named.get(name) match {
-          case Some(provenance) =>
-            Binding.Clause(Definition.Unbound.Imported(name.value, provenance))
-          case None =>
-            wildcard(name)
-              .orElse(world.library.frame(name, world).map(Binding.Elsewhere(_, name)))
-              .orElse(world.library.pending(name, world).map(Binding.Clause(_)))
-              .getOrElse(Binding.Free)
-        }
+        world.imports.types
+          .get(name)
+          .flatMap(selected(name, _))
+          .orElse(wildcard(name))
+          .orElse(world.library.frame(name, world).map(Binding.Elsewhere(_, name)))
+          .orElse(world.library.pending(name, world).map(Binding.Clause(_)))
+          .getOrElse(Binding.Free)
     }
+
+  // An explicit clause binds the name to the member its path names, read with the clauses written
+  // before it: a supplied namespace's member under its key, or a reason naming the clause — or no
+  // type at all when the namespace has only a term of that name, the one thing the clause imports.
+  private def selected(name: TypeName, selector: Selector): Option[Binding] =
+    Namespaces.target(withClauses(selector.prior), selector.path).selected(selector).map {
+      case Namespaces.Found.Defined(in, key) => Binding.Elsewhere(in, key)
+      case Namespaces.Found.Reason(why)      => Binding.Clause(why.renamed(name))
+    }
+
+  /** This scope reading with `imports` in place of its own clauses: where a clause's path is read.
+    */
+  def withClauses(imports: Imports): Scope =
+    new Scope(values, notes, world.copy(imports = imports), outer)
 
   // An export wildcard defines members of the body it is written in, which outrank every binding
   // outside that body; the body's own definitions, and those of bodies inside it, outrank it.
@@ -201,7 +290,7 @@ final private[cardinality] class Scope(
   // abstraction with no value of its own.
   private def here(name: TypeName): Boolean =
     values.contains(name) || world.definitions.contains(name) || world.members.contains(name) ||
-      world.families.open(name) || world.families.unsummed(name)
+      world.families.open(name) || world.families.unsummed.contains(name)
 
   // The first wildcard, latest first, that binds the name: a supplied namespace that defines it, or
   // one the sources do not supply, which may. Each reads its path with the wildcards before it. Two
@@ -236,7 +325,8 @@ final private[cardinality] class Scope(
     new Scope(
       values,
       notes,
-      world.copy(imports = world.imports.copy(wildcards = world.imports.wildcards.drop(i + 1)))
+      world.copy(imports = world.imports.copy(wildcards = world.imports.wildcards.drop(i + 1))),
+      outer
     )
 
   /** The wildcards in scope, latest first. */
@@ -254,8 +344,9 @@ final private[cardinality] class Scope(
     */
   def solved(in: Scope, name: TypeName): Option[Size] =
     in.size(name).map { size =>
-      if (in.isBlocked(name)) noteLazyCycle(name)
-      if (world.session.taint.isDefined) in.definition(name).foreach(taintOf(_, in))
+      in.blocking(name).foreach(noteBlocked(name, _, in.definition(name)))
+      if (world.session.taint.isDefined)
+        in.definition(name).foreach(named => taintOf(named, in.home(name, named)))
       size
     }
 
@@ -273,8 +364,8 @@ final private[cardinality] class Scope(
       }
     }
 
-  /** Where an explicit clause binds a name, which the estimate does not follow. */
-  def clause(name: TypeName): Option[String] = world.imports.named.get(name)
+  /** The explicit clause that binds a name, if one does. */
+  def clause(name: TypeName): Option[Selector] = world.imports.terms.get(name)
 
   def library: Library = world.library
 
@@ -284,25 +375,56 @@ final private[cardinality] class Scope(
   /** Whether a key names an abstraction this scope leaves open. */
   def isOpen(name: TypeName): Boolean = world.families.open(name)
 
-  /** Whether a name is a sealed family this scope does not sum. */
-  def isUnsummed(name: TypeName): Boolean = world.families.unsummed(name)
+  /** Why a sealed family this scope does not sum is not summed, if it is one. */
+  def unsummed(name: TypeName): Option[String] = world.families.unsummed.get(name)
 
-  /** Whether the solver left a name on a lazy cycle it could not complete. */
-  def isBlocked(name: TypeName): Boolean = world.families.blocked(name)
+  /** Why the solver left a name on a cycle without a count, if it did. */
+  def blocking(name: TypeName): Option[Blocked] = world.families.blocked.get(name)
+
+  /** Which slots of a generic definition solved around the read are positive, if one is. */
+  def slots(name: TypeName): Option[Positivity.Slots] = world.slots.get(name)
 
   /** Whether a name is a type parameter in scope that no instantiation has bound. */
   def unboundBinder(name: TypeName): Boolean =
     frame(name).isEmpty && world.binders.exists(_.name == name)
 
-  /** Whether `named`'s own equation is what is being read: a reference to it with its own
-    * parameters is a recursion, not an instantiation.
+  /** Whether a name is a parameter the reading has not fixed: one no instantiation bound, or one a
+    * template reading binds only to read a definition's reasons — a reference's to supply.
     */
-  def readingItself(named: Named): Boolean = world.session.self.exists(_ eq named)
+  def unfixed(name: TypeName): Boolean =
+    if (frame(name).isDefined) world.session.template || world.session.placeholders(name)
+    else unboundBinder(name)
+
+  /** The names that stand for `named`'s parameters when its own equation is what is being read: a
+    * reference applying it to them is a recursion, not an instantiation.
+    */
+  def readingItself(named: Named): Option[List[Option[TypeName]]] =
+    (world.session.self.toList ++ world.session.summing).find(_.named eq named).map(_.own)
+
+  /** The approximation the instantiation of `named` being solved reads for its own recursion,
+    * marking that the recursion was read.
+    */
+  def noticeRecursion(named: Named): Option[Size] =
+    world.session.recursion.filter(_.named eq named).map(_.notice())
 
   /** Whether the sources bind a name here, which takes it from the standard library's base type of
     * that spelling: a root import is the outermost binding there is.
     */
   def binds(name: TypeName): Boolean = binding(name) != Binding.Free
+
+  /** The declaration a bare type name denotes here, for telling two reads apart: the definition it
+    * binds (one per declaration), the standard library's when no source binds it (`Some(None)`), or
+    * nothing comparable — a type parameter, a clause's reason, an abstraction with no equation.
+    */
+  def declaration(name: TypeName): Option[Option[Named]] =
+    if (isBinder(name)) None
+    else
+      binding(name) match {
+        case Binding.Free               => Some(None)
+        case Binding.Here               => definition(name).map(Some(_))
+        case Binding.Elsewhere(in, key) => in.definition(key).map(Some(_))
+        case Binding.Clause(_)          => None
+      }
 
   /** `other`'s names and world, recording into this scope's notes: how a member another scope
     * solved — a library package, an object, a class body — is read for a row, so its reasons become
@@ -318,58 +440,81 @@ final private[cardinality] class Scope(
         session = other.world.session.copy(
           template = false,
           active = other.world.session.active ++ session.active,
+          recursion = session.recursion,
+          saturating = session.saturating,
           recording = session.recording,
           taint = if (session.recording) Some(session.taint.getOrElse(new Taint)) else None,
         ),
       ),
+      other.outer,
     )
   }
 
-  /** This scope reading an instantiation: `frame` is the only one the equation reads. */
-  def instantiating(frame: Map[TypeName, Size]): Scope =
+  /** Where `named`, bound to `name` here, was solved: the outermost scope around this read that
+    * binds the name to that very definition. Its equation reads there — through its own statement's
+    * view — never in a body nested inside, whose own types would shadow the names it reads.
+    */
+  @tailrec
+  def home(name: TypeName, named: Named): Scope = outer match {
+    case Some(o) if o.definition(name).exists(_ eq named) => o.home(name, named)
+    case _                                                => this
+  }
+
+  /** `named`, bound to `name` here, read where it was solved, recording into this scope's notes. */
+  def origin(name: TypeName, named: Named): Scope = {
+    val at = home(name, named)
+    if (at eq this) this else borrow(at)
+  }
+
+  /** This scope reading an instantiation: `frame` is the only one the equation reads,
+    * `placeholders` are its names that stand for parameters the reader has not fixed, and
+    * `arguments` what its names were bound to as written.
+    */
+  def instantiating(
+      frame: Map[TypeName, Size],
+      placeholders: Set[TypeName] = Set.empty,
+      arguments: Map[TypeName, Argument] = Map.empty
+  ): Scope =
     new Scope(
       values,
       notes,
-      world.copy(frames = List(frame), session = world.session.copy(template = false))
+      world.copy(
+        frames = List(frame),
+        session = world.session
+          .copy(template = false, placeholders = placeholders, arguments = arguments, summing = Nil)
+      ),
+      outer
     )
 
+  /** What the instantiation being read bound a frame name to, as written. */
+  def argument(name: TypeName): Option[Argument] =
+    frame(name).flatMap(_ => world.session.arguments.get(name))
+
   /** Notes the reasons `named` rests on, read in `context`, transitively: every solved name its
-    * equation reads adds its own, once per definition. Its own parameters are read as bound — a
-    * reference supplies them or reads the template on purpose — and every other binder stays a
-    * reason, whichever definition reads it.
+    * equation reads adds its own, once per definition — a sealed parent's equation reads its
+    * subtypes. Its own parameters are read as bound — a reference supplies them or reads the
+    * template on purpose — and every other binder stays a reason, whichever definition reads it.
     */
   def taintOf(named: Named, context: Scope): Unit =
     if (world.session.recording) {
-      val session = Some(world.session.taint.getOrElse(new Taint))
-      if (session.forall(_.visit(named))) {
-        named.equation(reading(context, named.params, session))
-        reading(context, Nil, session).readChildren(named.children, session)
-      }
-    }
-
-  /** Reads a sealed parent's subtypes for the reasons the parent's sum rests on — transitively
-    * while a reference collects them, directly for the parent's own row. A subtype's type parameter
-    * ranges over every type from the parent's side: no instantiation of the parent fixes it, so it
-    * is a reason of its own, never a parameter the parent depends on.
-    */
-  def readChildren(children: List[Child], session: Option[Taint]): Unit =
-    children.filterNot(_.module).foreach { child =>
-      definition(child.name).filter(n => session.forall(_.visit(n))).foreach { named =>
-        if (child.params.nonEmpty) notes += Scope.unpinnedReason(child)
-        named.equation(reading(this, child.params, session))
+      val session = world.session.taint.getOrElse(new Taint)
+      if (session.visit(named)) {
+        val _ = named.equation(reading(context, named.params, session))
       }
     }
 
   // A scope that records into this one's notes, reading `context`'s names with `bound` as the
   // template's own parameters: bound, and never a reason of the reader's.
-  private def reading(context: Scope, bound: List[TypeName], session: Option[Taint]): Scope =
+  private def reading(context: Scope, bound: List[TypeName], session: Taint): Scope =
     new Scope(
       context.values,
       notes,
       context.world.copy(
         frames = List(bound.map(_ -> (UnitSize: Size)).toMap),
-        session = context.world.session.copy(template = true, recording = true, taint = session),
+        session = context.world.session
+          .copy(template = true, recording = true, taint = Some(session)),
       ),
+      context.outer,
     )
 
   /** The names a body reads in, from a scope that solved them under their keys: its own types under
@@ -378,13 +523,14 @@ final private[cardinality] class Scope(
     * shadow. A type the body defines is its own, whichever other file of a package defines it too.
     */
   def within(layer: Layer): Scope = {
-    val named = layer.imports.named.keySet
+    val named = layer.imports.types.keySet
     val hidden = layer.types ++ named
     val keys = layer.rekey.toList.flatMap(rekey => layer.types.map(n => n -> rekey(n)))
     def own[V](map: Map[TypeName, V]): Map[TypeName, V] =
       (map -- hidden) ++ keys.flatMap((n, key) => map.get(key).map(n -> _))
     def ownSet(set: Set[TypeName]): Set[TypeName] =
       (set -- hidden) ++ keys.collect { case (n, key) if set(key) => n }
+    val families = world.families
     val imports = (world.imports ++ layer.imports).definingInside(layer.types ++ layer.terms.keySet)
     new Scope(
       own(values),
@@ -393,15 +539,18 @@ final private[cardinality] class Scope(
         definitions = own(world.definitions),
         members = own(world.members),
         families = Families(
-          ownSet(world.families.open),
-          ownSet(world.families.unsummed),
-          ownSet(world.families.blocked)
+          ownSet(families.open),
+          own(families.unsummed),
+          own(families.blocked),
+          ownSet(families.members)
         ),
-        terms = (world.terms -- named) ++ layer.terms,
+        terms = (world.terms -- layer.imports.terms.keySet) ++ layer.terms,
+        slots = own(world.slots),
         imports = imports.copy(foreign = imports.foreign -- layer.types -- layer.terms.keySet),
         opened = layer.opened.getOrElse(world.opened),
         binders = world.binders.filterNot(b => hidden(b.name)),
       ),
+      Some(this),
     )
   }
 
@@ -409,19 +558,26 @@ final private[cardinality] class Scope(
   def defines(name: TypeName): Boolean = here(name)
 
   def updated(name: TypeName, size: Size): Scope =
-    new Scope(values.updated(name, size), notes, world)
+    new Scope(values.updated(name, size), notes, world, outer)
 
   /** Names added by the solver's own round, which carries no notes of its own. */
   def ++(entries: Iterable[(TypeName, Size)]): Scope =
-    new Scope(values ++ entries, notes, world)
+    new Scope(values ++ entries, notes, world, outer)
 
-  /** The same names with a fresh record of unresolved ones: a row's (or a slot's) own reading. */
+  /** The same names with a fresh record of unresolved ones: a row's (or a slot's) own reading,
+    * which collects the reasons of every definition it reads — a number resting on a sibling's
+    * unknown name is no more bounded than the sibling.
+    */
   def measured: Scope =
     new Scope(
       values,
       mutable.LinkedHashSet.empty,
-      world.copy(session = world.session.copy(recording = true, taint = None))
+      world.copy(session = world.session.copy(recording = true, taint = Some(new Taint))),
+      outer
     )
+
+  /** Whether this is the reading lent to the method side (`Session.saturating`). */
+  def saturating: Boolean = world.session.saturating
 
   /** What this scope could not bound, by kind and in the order it met them. */
   def unbound: List[Definition.Unbound] = notes.toList
@@ -431,7 +587,7 @@ final private[cardinality] class Scope(
     * parameter, applied, is the reference's to supply, not a reason.
     */
   def note(tpe: Type): Unit = tpe match {
-    case Type.Name(name) if world.session.template && frame(TypeName.of(name)).isDefined => ()
+    case Type.Name(name) if frame(TypeName.of(name)).isDefined && unfixed(TypeName.of(name)) => ()
     case _ => notes += reason(tpe); ()
   }
 
@@ -444,15 +600,14 @@ final private[cardinality] class Scope(
   /** Records an abstraction a member is supplied by, named as the reference is written. */
   def noteOpen(reference: String): Unit = note(Definition.Unbound.Open(reference))
 
-  /** Records a sealed family whose subtypes the estimate does not sum. */
-  def noteUnsummed(name: TypeName): Unit = note(Scope.unsummedReason(name))
+  /** Records a sealed family whose subtypes the estimate does not sum, and why. */
+  def noteUnsummed(name: TypeName, because: String): Unit =
+    note(Scope.unsummedReason(name, Some(because)))
 
-  /** Records that a value rests on a lazy cycle the solver could not complete: its least fixed
-    * point counts the finite values only, and the cyclic ones a by-name or function field lets a
-    * program build are not counted, so the number would be an under-count.
-    */
-  def noteLazyCycle(name: TypeName): Unit =
-    note(Definition.Unbound.Syntax(s"lazy cycle not completed: ${name.value}"))
+  /** Records that a value rests on a cycle the solver gives no count, once per definition. */
+  def noteBlocked(name: TypeName, blocked: Blocked, named: Option[Named]): Unit =
+    if (named.forall(n => world.session.taint.forall(_.blockedOnce(n))))
+      note(Definition.Unbound.Refusal(s"${blocked.reason}: ${name.value}"))
 
   // Why a type could not be bounded: the binder it stands for, the syntax it is, or the name
   // itself when it is neither.
@@ -469,8 +624,9 @@ final private[cardinality] class Scope(
   // summed), the clause that binds it, or the name.
   private def nameReason(name: TypeName): Definition.Unbound = {
     def kind(in: Scope, key: TypeName): Definition.Unbound =
-      if (in.isOpen(key)) Definition.Unbound.Open(name.value)
-      else if (in.isUnsummed(key)) Scope.unsummedReason(name)
+      if (in.world.families.members(key)) Definition.Unbound.Member(name.value)
+      else if (in.isOpen(key)) Definition.Unbound.Open(name.value)
+      else if (in.unsummed(key).isDefined) Scope.unsummedReason(name, in.unsummed(key))
       else Definition.Unbound.Unknown(name.value)
     binding(name) match {
       case Binding.Here               => kind(this, name)
@@ -495,19 +651,28 @@ private[cardinality] object Scope {
 
   val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
 
-  /** The reason a sealed family the estimate does not sum carries, in its row and in a reference.
+  /** Whether a name denotes one declaration in every one of `readers`: the standard library's in
+    * all, or one definition (by identity) in all.
     */
-  def unsummedReason(name: TypeName): Definition.Unbound =
-    Definition.Unbound.Syntax(s"sealed family not summed: ${name.value}")
+  def sameDeclaration(readers: List[Scope], name: TypeName): Boolean =
+    Traversals.defined(readers.map(_.declaration(name))) match {
+      case Some(first :: rest) =>
+        rest.forall(other =>
+          other.isEmpty == first.isEmpty && other.forall(o => first.exists(_ eq o))
+        )
+      case _ => false
+    }
 
-  /** The reason a sealed parent carries for a subtype whose parameters it does not fix. */
-  def unpinnedReason(child: Child): Definition.Unbound = {
-    val written = child.name.value + child.params.map(_.value).mkString("[", ", ", "]")
-    Definition.Unbound.Syntax(s"sealed child parameter not pinned: $written")
-  }
+  /** The reason a sealed family the estimate does not sum carries, in its row and in a reference:
+    * the family, and why its subtypes are not its whole value space.
+    */
+  def unsummedReason(name: TypeName, because: Option[String]): Definition.Unbound =
+    Definition.Unbound.Refusal(
+      s"sealed family not summed: ${name.value}" + because.fold("")(b => s" ($b)")
+    )
 
   private val worldLens =
-    Lens[Scope, World](_.world, (s, w) => new Scope(s.values, s.notes, w))
+    Lens[Scope, World](_.world, (s, w) => new Scope(s.values, s.notes, w, s.outer))
 
   private val familiesLens = worldLens.andThen(lens[World](_.families))
   private val sessionLens = worldLens.andThen(lens[World](_.session))
@@ -521,10 +686,15 @@ private[cardinality] object Scope {
   val openLens = familiesLens.andThen(lens[Families](_.open))
   val unsummedLens = familiesLens.andThen(lens[Families](_.unsummed))
   val blockedLens = familiesLens.andThen(lens[Families](_.blocked))
+  val slotsLens = worldLens.andThen(lens[World](_.slots))
+  val membersOfLens = familiesLens.andThen(lens[Families](_.members))
   val activeLens = sessionLens.andThen(lens[Session](_.active))
   val selfLens = sessionLens.andThen(lens[Session](_.self))
+  val summingLens = sessionLens.andThen(lens[Session](_.summing))
+  val recursionLens = sessionLens.andThen(lens[Session](_.recursion))
   val recordingLens = sessionLens.andThen(lens[Session](_.recording))
   val taintLens = sessionLens.andThen(lens[Session](_.taint))
+  val saturatingLens = sessionLens.andThen(lens[Session](_.saturating))
 
 }
 

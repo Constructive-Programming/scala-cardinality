@@ -355,21 +355,9 @@ object Report {
       Definition.signature(definition),
       definition.kind.toString.toLowerCase,
       s"${fileName(source.path)}:${definition.line}",
-      reason(definition),
+      Definition.reasons(definition),
     )
   }
-
-  // How a row's reasons read. A row whose only reasons are the parameters it declares has no number
-  // to show and says so; a row an open abstraction unbounds says that; any other row lists what it
-  // could not read (a name, a match type, a refinement).
-  private def reason(definition: Definition): String =
-    if (definition.unbound.isEmpty) ""
-    else {
-      val rendered = definition.unbound.map(_.render).mkString(", ")
-      if (Definition.instantiationDependent(definition)) s"depends on its instantiation ($rendered)"
-      else if (Definition.open(definition)) s"open to implementations ($rendered)"
-      else s"unresolved: $rendered"
-    }
 
   private def padded(text: String, width: Int): String = text + " " * (width - text.length)
 
@@ -411,10 +399,15 @@ object Report {
   private object SizeClass {
 
     def apply(definition: Definition): SizeClass =
-      if (Definition.instantiationDependent(definition)) Instantiation
-      else if (Definition.open(definition)) Open
-      else if (unresolved(definition)) Unresolved
-      else if (definition.kind == Definition.Kind.Constructor) Constructor
+      Definition.gap(definition) match {
+        case Some(Definition.Gap.Unresolved)    => Unresolved
+        case Some(Definition.Gap.Open)          => Open
+        case Some(Definition.Gap.Instantiation) => Instantiation
+        case None                               => valued(definition)
+      }
+
+    private def valued(definition: Definition): SizeClass =
+      if (definition.kind == Definition.Kind.Constructor) Constructor
       else
         definition.size match {
           case None              => Abstract

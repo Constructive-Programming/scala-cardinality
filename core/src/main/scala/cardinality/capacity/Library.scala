@@ -20,6 +20,7 @@ final class Library private[cardinality] (
     private val packages: Map[List[TypeName], Scope],
     private val declared: Map[List[TypeName], Set[TypeName]],
     private val unsolved: Set[List[TypeName]],
+    private[cardinality] val synonyms: SealedFamilies.Synonyms = SealedFamilies.Synonyms.none,
 ) {
 
   // Every package path the source set opens or nests inside: `a.b.c` makes `a` and `a.b` packages.
@@ -41,7 +42,7 @@ final class Library private[cardinality] (
       name: TypeName
   ): Option[Definition.Unbound] =
     Option.when(unsolved(path) && declared.get(path).exists(_(name)))(
-      Definition.Unbound.Syntax(
+      Definition.Unbound.Refusal(
         s"cross-package cycle not solved: ${(path :+ name).map(_.value).mkString(".")}"
       )
     )
@@ -68,10 +69,13 @@ object Library {
       .groupBy(_.path)
     val declared = parts.view.mapValues(_.flatMap(p => Walk.typeNames(p.stats)).toSet).toMap
     val reads = parts.map((path, found) => path -> Reads.of(path, found, parts.keySet))
+    // Every alias and renaming the sources write: one may name a sealed family a subtype extends
+    // through it.
+    val synonyms = SealedFamilies.Synonyms.of(sources)
     Reads
       .components(parts.keySet.toList.sortBy(_.mkString(".")), reads)
       .foldLeft(
-        new Library(Map.empty, declared, Set.empty)
+        new Library(Map.empty, declared, Set.empty, synonyms)
       ) { (library, component) =>
         val cyclic = component.size > 1 || component.exists(p => reads(p)(p))
         solve(parts, component, if (cyclic) component.size + 3 else 1, library)
@@ -87,7 +91,7 @@ object Library {
       rounds: Int,
       done: Library
   ): Library = {
-    val start = new Library(done.packages, done.declared, component.toSet)
+    val start = new Library(done.packages, done.declared, component.toSet, done.synonyms)
     Iterator
       .iterate(start) { behind =>
         new Library(
@@ -97,7 +101,8 @@ object Library {
             path -> Walk.solvedParts(parts(path), base)
           },
           done.declared,
-          Set.empty
+          Set.empty,
+          done.synonyms
         )
       }
       .drop(rounds)

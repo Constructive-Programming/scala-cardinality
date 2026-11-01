@@ -3,7 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.ByteSize
+import cardinality.capacity.{ByteSize, EffectiveOmega}
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -530,13 +530,10 @@ class GroundEnvironmentSpec extends Specification {
       "e.scala" -> "package yy\nfinal case class Inner(b: Boolean)",
       "f.scala" -> "package xx\nimport yy.Inner\ndef f(i: Inner): Boolean = true"
     )
-    // The constructor's position has no estimate to agree with: the estimate does not follow
-    // explicit imports, so the method side's reading of `y.Inner` stands unconfirmed.
+    // Both readings follow the import to `y.Inner(s: String)`, ω, over package `x`'s `Inner`
+    // (2^8): an explicit import outranks another file's package member.
     (rows("x.f") === Count.Countable)
-      .and(
-        rows("x.Outer.<init>") ===
-          Count.Unresolved(List("unresolved type: Inner (imported from y.Inner, not followed)"))
-      )
+      .and(rows("x.Outer.<init>") === Count.Bounded(EffectiveOmega))
       .and(rows("xx.f") === Count.Finite(4))
   }
 

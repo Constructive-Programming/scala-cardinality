@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
+import cardinality.types.Traversals
 
 import MethodAnalysis.TypeEntry
 
@@ -77,12 +78,7 @@ private[cardinality] object TypeIdentities {
       context: ResolutionContext,
       resolver: Resolver
   ): Option[List[String]] =
-    types.foldRight(Option(List.empty[String])) { (tpe, rest) =>
-      for {
-        found <- of(tpe, context, resolver)
-        tail <- rest
-      } yield found :: tail
-    }
+    Traversals.defined(types.map(of(_, context, resolver)))
 
   private def named(
       tpe: Type,

@@ -3,6 +3,7 @@ package cardinality.analysis.inhabitation
 import scala.annotation.tailrec
 
 import cardinality.analysis.*
+import cardinality.types.Traversals
 
 import Inhabitation.Shape
 import Inhabitation.Shape.*
@@ -67,7 +68,7 @@ private[cardinality] object EvidenceAnalysis {
     // Only already available proofs participate: do not descend into sums or callables.
     def extract(shapes: List[Shape]): Either[String, List[Evidence]] = {
       val proofs = shapes.flatMap(Shape.evidencePrism.getOption)
-      Shape.sequenceEithers(proofs.map(validate)).map(_ => proofs)
+      Traversals.sequence(proofs.map(validate)).map(_ => proofs)
     }
 
     def validate(proof: Evidence): Either[String, Unit] =

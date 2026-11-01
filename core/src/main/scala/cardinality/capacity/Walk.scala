@@ -1,5 +1,6 @@
 package cardinality.capacity
 
+import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.types.*
@@ -126,24 +127,33 @@ private[cardinality] object Walk {
     val views = bodies.flatMap(b => Namespaces.views(b.modules, b.viewAt))
     def keys(of: List[Stat] => Set[TypeName]): Set[TypeName] =
       of(stats) ++ views.flatMap((m, _) => of(m.stats).map(m.key))
-    val withNames = Scope.termsLens.modify(_ ++ views.flatMap(_._1.keyedTerms))(
-      Scope.unsummedLens.modify(_ ++ keys(unsummedNames))(
-        Scope.openLens.modify(_ ++ keys(openNames))(base)
+    val families = SealedFamilies
+      .of(
+        bodies.map(_.stats),
+        bodies.flatMap(_.modules),
+        base.library.synonyms,
+        sites(bodies, views)
       )
-    )
+    val withNames = Function.chain(
+      List(
+        Scope.openLens.modify(_ ++ keys(openNames)),
+        Scope.membersOfLens.modify(_ ++ bodies.flatMap(b => instanceMembers(b.stats))),
+        Scope.unsummedLens.modify(_ ++ SealedFamilies.unsummed(families)),
+        Scope.termsLens.modify(_ ++ views.flatMap(_._1.keyedTerms)),
+      )
+    )(base)
     val site = Scope.bindersLens.get(withNames)
     val entries = bodies.flatMap { b =>
       Counter.equations(b.stats).map { (name, eq) =>
         val at: Scope => Scope = b.viewOf(name)
         (name -> within(eq, at)) -> at
       } ++ Namespaces.lifted(b.modules, b.viewAt)
-    }
+    } ++ SealedFamilies.equations(families).map(_ -> (identity: Scope => Scope))
     val marked = entries.map { case ((name, eq), _) => name -> mark(eq, site) }
     val surroundings = Scope.definitionsLens.modify(marked.toMap ++ _)(withNames)
     val shapes = bodies
       .map(b => Namespaces.shapes(b.stats, b.modules, b.clauses))
-      .reduceOption(_ ++ _)
-      .getOrElse(Shapes(Map.empty, Map.empty, Map.empty))
+      .foldLeft(Shapes(Map.empty, Map.empty, SealedFamilies.edges(families)))(_ ++ _)
     val arms = entries.map { case ((name, _), view) => name -> view }.toMap
     def solve(around: Scope): Scope =
       Solver.solve(marked, shapes, around, name => arms.getOrElse(name, identity))
@@ -171,6 +181,18 @@ private[cardinality] object Walk {
     result
   }
 
+  // The view each statement of a system reads its own syntax in: its body's, at the statement, or
+  // its object's.
+  private def sites(
+      bodies: List[Body],
+      views: List[(Namespaces.Module, Scope => Scope)]
+  ): Stat => Scope => Scope = {
+    val at = new java.util.IdentityHashMap[Stat, Scope => Scope]
+    bodies.foreach(b => b.stats.foreach(st => at.put(st, b.viewAt(st))))
+    views.foreach((m, view) => m.stats.foreach(st => at.put(st, sc => m.at(st)(view(sc)))))
+    st => Option(at.get(st)).getOrElse(identity)
+  }
+
   // Whether a statement is a class, trait or enum whose body declares a type member.
   private def declaresTypes(st: Stat): Boolean = st match {
     case d: (Defn.Class | Defn.Trait | Defn.Enum) =>
@@ -188,7 +210,9 @@ private[cardinality] object Walk {
   private def mark(named: Named, site: List[Binder]): Named = {
     lazy val self: Named = named.copy(
       equation = sc =>
-        named.equation(Scope.selfLens.replace(Some(self))(Scope.bindersLens.replace(site)(sc))),
+        named.equation(
+          Scope.selfLens.replace(Some(Itself.of(self)))(Scope.bindersLens.replace(site)(sc))
+        ),
       read = sc => named.read(Scope.bindersLens.replace(site)(sc))
     )
     self
@@ -238,6 +262,23 @@ private[cardinality] object Walk {
 
   private def abstractTypes(stats: List[Stat]): Set[TypeName] =
     stats.collect { case t: Decl.Type => TypeName.of(t.name.value) }.toSet
+
+  // The abstract type members a class, trait or enum template declares. Inside the template `M` is
+  // `this.M`, which each instance chooses, so a row reading it waits for that choice as for a
+  // parameter; an object's abstract member has one instance and stays open.
+  private def instanceMembers(stats: List[Stat]): Set[TypeName] =
+    stats.headOption.flatMap(owner) match {
+      case Some(_: (Defn.Class | Defn.Trait | Defn.Enum)) => abstractTypes(stats)
+      case _                                              => Set.empty
+    }
+
+  // The definition whose body a statement is in, if any.
+  @tailrec
+  private def owner(tree: Tree): Option[Defn] = tree.parent match {
+    case Some(d: Defn) => Some(d)
+    case Some(other)   => owner(other)
+    case None          => None
+  }
 
   /** Each type a body defines, by the statement that defines it. */
   private[cardinality] def statements(stats: List[Stat]): Map[TypeName, Stat] =
@@ -290,7 +331,7 @@ private[cardinality] object Walk {
   // their keys: its rows report the values a qualified reference from outside reads.
   private def moduleView(scope: Scope, d: Defn.Object): Option[Scope] =
     scope.term(named(d)).collect {
-      case Bound.Module(prefix) => Namespaces.Module(named(d), prefix, d).view(scope)
+      case Bound.Module(prefix, _, _) => Namespaces.Module(named(d), prefix, d).view(scope)
     }
 
   // The type members a body declares: what a qualified reference can resolve to. A member with a
@@ -341,12 +382,14 @@ private[cardinality] object Walk {
       key: TypeName => TypeName = identity
   ): Map[TypeName, Bound] =
     stats.flatMap {
-      case o: Defn.Object => List(named(o) -> Bound.Module(key(named(o))))
-      case v: Defn.Val    => values(v.pats, v.decltpe.orElse(constructed(v.rhs)))
-      case v: Defn.Var    => values(v.pats, v.decltpe)
-      case v: Decl.Val    => values(v.pats, Some(v.decltpe))
-      case d: Defn.Def    => List(TypeName.of(d.name.value) -> Bound.Value(None))
-      case d: Decl.Def    => List(TypeName.of(d.name.value) -> Bound.Value(None))
+      case o: Defn.Object =>
+        val exports = o.templ.body.stats.exists(_.is[Export])
+        List(named(o) -> Bound.Module(key(named(o)), o.templ.inits.nonEmpty, exports))
+      case v: Defn.Val => values(v.pats, v.decltpe.orElse(constructed(v.rhs)))
+      case v: Defn.Var => values(v.pats, v.decltpe)
+      case v: Decl.Val => values(v.pats, Some(v.decltpe))
+      case d: Defn.Def => List(TypeName.of(d.name.value) -> Bound.Value(None))
+      case d: Decl.Def => List(TypeName.of(d.name.value) -> Bound.Value(None))
       case g: Defn.GivenAlias if g.name.value.nonEmpty =>
         List(TypeName.of(g.name.value) -> Bound.Value(None))
       case _ => Nil
@@ -384,19 +427,13 @@ private[cardinality] object Walk {
   // The abstractions a body leaves open — an abstract type member among them, whose value each
   // implementor chooses; a sealed parent is not one, its sum being the children's.
   private def openNames(stats: List[Stat]): Set[TypeName] =
-    abstractions(stats, sealedOnes = false) ++ abstractTypes(stats)
+    abstractions(stats) ++ abstractTypes(stats)
 
-  // The sealed families a body declares but does not sum: their subtypes sit in a companion or
-  // another body, or one of them is abstract.
-  private def unsummedNames(stats: List[Stat]): Set[TypeName] =
-    abstractions(stats, sealedOnes = true) -- Counter.sealedSums(stats).keySet
-
-  // The traits and abstract classes a body declares, sealed or not.
-  private def abstractions(stats: List[Stat], sealedOnes: Boolean): Set[TypeName] =
+  // The unsealed traits and abstract classes a body declares.
+  private def abstractions(stats: List[Stat]): Set[TypeName] =
     stats.collect {
-      case d: Defn.Trait if Counter.isSealed(d) == sealedOnes => named(d)
-      case d: Defn.Class if Counter.isAbstractClass(d) && Counter.isSealed(d) == sealedOnes =>
-        named(d)
+      case d: Defn.Trait if !Counter.isSealed(d)                               => named(d)
+      case d: Defn.Class if Counter.isAbstractClass(d) && !Counter.isSealed(d) => named(d)
     }.toSet
 
   // A statement in a body: a package clause opens its package (where the library's lookups start,
@@ -479,18 +516,19 @@ private[cardinality] object Walk {
   }
 
   // The row an abstract definition reads: no inhabitants of its own, but a *sealed* parent shows
-  // the solved sum of its children (`sealed trait Nat` reads `ω`), with the reasons the children
-  // carry; a sealed parent the body does not sum names that; an open one stays a dash.
+  // the solved sum of its children (`sealed trait Nat` reads `ω`), with the reasons its equation
+  // reads — its own parameters and its children's; a sealed parent the system does not sum names
+  // that, and why; an open one stays a dash.
   private def abstractRow(scope: Scope, prefix: List[String], d: Defn): Introduced = {
     val name = named(d)
     scope.definition(name) match {
-      case Some(definition) if definition.children.nonEmpty =>
+      case Some(family) =>
         measured(scope, d) { s =>
-          s.readChildren(definition.children, None)
+          family.equation(s)
           introduced(prefix, d, Definition.Kind.Abstract, s.unbound, s.size(name), NothingSize)
         }
-      case _ if scope.isUnsummed(name) =>
-        val reason = List(Scope.unsummedReason(name))
+      case _ if scope.unsummed(name).isDefined =>
+        val reason = List(Scope.unsummedReason(name, scope.unsummed(name)))
         Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None, reason)))
       case _ =>
         Introduced(
@@ -519,9 +557,9 @@ private[cardinality] object Walk {
   // definition's own equation does — so a reference to itself is its recursion — and noting a
   // lazy cycle the solver could not complete.
   private def measured(scope: Scope, d: Defn)(f: Scope => Introduced): Introduced = {
-    val own = Scope.selfLens.replace(scope.definition(named(d)))(scope)
+    val own = Scope.selfLens.replace(scope.definition(named(d)).map(Itself.of))(scope)
     val s = Counter.signature(d)(own).measured
-    if (s.isBlocked(named(d))) s.noteLazyCycle(named(d))
+    s.blocking(named(d)).foreach(s.noteBlocked(named(d), _, s.definition(named(d))))
     f(s)
   }
 

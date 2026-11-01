@@ -20,7 +20,8 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   body binds — an object, a `val` (with its declared type, or the class a `val x = new C`
   constructs), every variable of a pattern `val` (`val (p, n) = …`, of no type read here unless
   ascribed), a template's self alias (`self: Prism =>`, of the type it declares), a constructor or
-  method parameter, a `def` — then an explicit import or export (not followed), then a term of a
+  method parameter, a `def` — then an explicit import or export (followed to the member it names,
+  [stored-value-families.md](stored-value-families.md)), then a term of a
   namespace a wildcard names (latest first; a wildcard over a namespace no source supplies may
   bind it, so it stops the read), then an object, value or subpackage of the packages the read's
   clauses open, innermost first (`package a; package b` opens `a.b` and then `a`, so `a.b.x` —
@@ -30,7 +31,7 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   `import x.*` inside package `p` names `p`'s object `x` before a root package `x`, and
   `import Scanner.*` names an object. There is no "the one object of that name anywhere" fallback.
 - **A bare name binds as Scala binds it.** A definition of an enclosing body, then an explicit
-  import or export (not followed), then the wildcards in scope, latest first — a supplied
+  import or export (followed), then the wildcards in scope, latest first — a supplied
   namespace (package or object) that defines it, or a namespace no source supplies, which may
   bind any name and so stops the read (`StringBuilder (may be imported by
   scala.collection.mutable.*)`) — then the packages the read's clauses open, innermost first, then
@@ -44,7 +45,7 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
 - **Clauses bind where Scala says.** An import binds the statements after it in its block or
   template, never the ones before (`UseBare(o: Obj); import x.*; After(o: Obj)` reads two
   different `Obj`s). An export defines members of its template, so it binds the whole body: an
-  `export x.Obj` names a member not followed; an `export Src.*` makes `Src`'s members the body's,
+  `export x.Obj` names `x.Obj`; an `export Src.*` makes `Src`'s members the body's,
   outranking every binding outside it.
 - **Each file of a package reads with what that file adds.** A package's definitions across files
   solve as one system, but each definition reads with its own file's package clauses and with the
@@ -101,7 +102,7 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   slot over a type parameter, not the value space the convention counts for any other slot. So a
   ground slot the reading refuses makes the row `?`, whatever the shape model answers, and so
   does a slot over a type parameter refused for a declaration of the sources the reading could
-  not read whole (an import not followed, a family not summed, a cycle not solved). The row
+  not read whole (an import not supplied, a family not summed, a cycle not solved). The row
   names what the reading stopped at — with the clause a name comes from — beside the shape
   model's own reasons, each once. Where the method side reads a closed slot's exact value space
   itself ([ground-scalar-types.md](ground-scalar-types.md) §Constructors), that space stands only
@@ -111,15 +112,9 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
 
 ## No number, and why
 
-- **Sealed families the body does not sum.** A sealed parent any of whose subtypes the file writes
-  outside the body's own concrete classes, enums and modules — in a companion or another body,
-  even beside local ones, an abstract subtype, an anonymous instance (`new P {}`), an enum case —
-  or that is extended with arguments (`extends P[A]`), has a value space that is not computed
-  here: its row and every reference say `sealed family not summed: P`, never the dash an open
-  abstraction reads, nor the sum of the local subtypes alone.
-- **A summed family's generic subtype.** In `sealed trait P; C[A](x: A) extends P`, `A` ranges
-  over every type from `P`'s side — no instantiation of `P` fixes it — so `P` says `sealed child
-  parameter not pinned: C[A]`, never "depends on its instantiation".
+- **Sealed families that are not closed.** A family is summed over its file's subtypes, or refused
+  with `sealed family not summed: P (why)` — see
+  [stored-value-families.md](stored-value-families.md).
 - **Lazy cycles the ν completion could not finish.** A by-name or function field naming a
   definition that reaches back (`S(head, tail: => Cell)`, `Cell(s: S)`) — directly or through an
   alias the body defines (`tail: Thunk`, `type Thunk = () => Cell`) — lets a program tie a lazy
@@ -129,10 +124,11 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
 - **Packages that read each other in a cycle.** Solved together in rounds; a read down the cycle
   longer than the rounds stops at a member of a package not solved yet, and says
   `cross-package cycle not solved: q.B` — never a supplied declaration called unresolved.
-- **Clauses not followed.** An explicitly imported or exported name stays a reason, with its
-  clause: `Widget (imported from zz.Widget, not followed)`; a name a wildcard over an unsupplied
-  namespace may bind says so: `Int (may be imported by scala.jdk.CollectionConverters.*)` — the
-  standard library's own namespaces too, until their declarations are supplied.
+- **Clauses the sources do not supply.** An explicitly imported or exported name whose path names
+  no supplied declaration stays a reason, with its clause: `Widget (imported from zz.Widget, not
+  supplied)`; a name a wildcard over an unsupplied namespace may bind says so: `Int (may be
+  imported by scala.jdk.CollectionConverters.*)` — the standard library's own namespaces too, until
+  their declarations are supplied.
 
 ## Derivation
 
@@ -177,20 +173,12 @@ source-to-count regressions for every rule above), `ReportSpec.memberByName`,
 
 ## Limits (what stays `?`, and why)
 
-- **Explicit imports are not followed.** An explicitly imported or exported name — a bare type or
-  a qualifier's first name — stays a reason naming its clause, even when the declaration it names
-  is supplied (`import a.W`; `V(w: a.W)` reads it). Following them is a separate step.
 - **A wildcard over an unsupplied namespace** may bind any name the reading file does not define
   — a base type, a modelled constructor, another file's package member, another wildcard's first
   name — so each such name is refused, naming the clause (`scala.jdk.CollectionConverters.*`,
   `cats.syntax.all.*`, `quotes.reflect.*` alike), until those namespaces' declarations are
   supplied.
-- **Bare reads inside one body do not yet carry reasons.** A row that reads a sibling resting on
-  an unknown name, a sealed child's free parameter or a blocked lazy cycle reports the
-  placeholder's number for the sibling's reasons (lazy cycles excepted); qualified reads, reads of
-  the library and the method side's slot reading collect them.
 - **Enums are not namespaces here.** `Shape.Circle` stays a reason.
-- **Generic sealed families are not summed** (see above), nor families with an abstract subtype.
 - **A blocked lazy cycle with no knot.** `X(b: => X, a: X)` admits no value (the strict `a`
   demands one first), so μ = 0 is exact, but the cycle is still read as blocked.
 - **A pattern variable or an untyped self alias** is a value of no type read here: a path through

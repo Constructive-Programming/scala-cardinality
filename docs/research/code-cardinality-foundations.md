@@ -322,10 +322,9 @@ solved`, `type constructor`. See [stored-value names](stored-value-names.md).
 - **Executable**: `NamespaceSpec`, `NamespaceScopingSpec`, `ReportSpec`.
 
 **Boundary.** This decides only *which* declaration a name denotes, and refuses where the value
-is not computed; it adds no counting rule. It does not follow explicit imports or exports, does
-not read enums as namespaces, does not read a namespace no source supplies (the standard
-library's included), and does not sum generic sealed families or families with a subtype outside
-the body — each stays `?` with its reason.
+is not computed; it adds no counting rule. It does not read enums as namespaces and does not read
+a namespace no source supplies (the standard library's included) — each stays `?` with its
+reason. Explicit imports and sealed families are D15's.
 
 ## D12. Top types are terminal; a goal with one value has one implementation
 
@@ -448,6 +447,78 @@ bounds, are invalid programs, refused whether or not the binder is read and what
 channel that may rebind the name (D12). An opaque type outside its
 scope is no key (its API may relate it to other types). Bounds to open traits wait for the
 capability records.
+
+## D15. Sealed families are tagged sums; a number rests on everything it reads
+
+**Decision.** In the stored-value estimate (and the constructor-slot reading it lends the method
+side):
+
+- A sealed trait or abstract class is the sum of the direct subtypes its file declares in its body
+  and nested objects: each case or final class, enum, object or sealed intermediate a member of
+  every instantiation. Its parameters bind the parent's slots exactly once, or slots are pinned
+  bottom-up with the standard `Nothing`/`Any` where the clause is written; its bounds are the
+  slot's, read alike (beside the parent); it varies as the slot does, holding a parameter through
+  a covariant slot only by a constructor its name denotes or a standard one no source binds.
+- Otherwise the family is a refusal naming why: an anonymous or given instance; an open, inner,
+  aliased or renamed subtype; a subtype whose parent name a scope may rebind; a GADT pin; an
+  unpinned, bounded or wrongly varying parameter (the reason names the subtype and the parameter);
+  an overlap. The parent's name is read where each clause is written, inherited members and
+  exports included.
+- An instantiation that recurses on its own parameters through positive positions is its own
+  least fixed point. A cycle through a function's domain, a constructor no reading knows (a
+  constructor's slots are its declaration's, wherever its name is written) or a type member of a
+  value has no count.
+- A match type in a subtype reduces on the parent's arguments as written, matching a pattern by
+  spelling only where its names mean one declaration, and passing a case only when provably
+  disjoint from it.
+- Explicit imports and exports are followed into the supplied sources, an export outranking an
+  import and reading its path with the imports before it; a selector binds the namespaces its
+  member has, a body's own definition outranking it in that namespace only.
+- A row carries the non-parameter reasons of every definition it reads, transitively. Context
+  bounds are stored evidence. A finite collection is at least its element's tier. An enclosing
+  template's abstract type member and a match type stuck only on the reading's free parameters are
+  instantiation-dependent. A lossy width survives `+` and `×`. Reason classes rank unresolved >
+  open > instantiation, all rendered.
+
+See [stored-value families](stored-value-families.md).
+
+**Evidence.**
+
+- [30] Scala 3 draft specification, ch. 5, and [33] SLS 2.13, ch. 5 (**Inspected (full text) —
+  bibliographer**, bibliography T5): `sealed` and `final` inheritance. [24] Scala 3 reference,
+  *Translation of Enums and ADTs* (**Inspected (full text) — bibliographer**, T5): enums as sealed
+  abstract classes, cases as final case classes, explicit `extends` pins. [22] Scala 3 reference,
+  *Open Classes* (**Inspected (full text)** (verifier), T5): a sealed class is extended only in its
+  source file. [29] Scala 3 draft specification, ch. 3 (**Inspected — bibliographer**, T5): a
+  sealed class is disjoint only "without anonymous child".
+- [15] Scala 3 reference, *Context Bounds* (**Inspected (full text) — bibliographer**, T2): a
+  context bound is a `using` parameter of the bound applied to the type parameter.
+- Sum of products and the least fixed point for recursive types (type-arithmetic §2, §8;
+  **classical**); `|List[A]| = Σₙ aⁿ` ≥ `a` (type-arithmetic §4; **classical**); no set X ≅ 2^X
+  (Cantor; **classical**), so a negative recursion has no count.
+- Scala 3 reference, *Match Types*, and the Scala 3 draft specification, ch. 3: a case is passed
+  only when provably disjoint (**Inspected (full text) — bibliographer**, bibliography T4).
+- **Compiler fixture** (Scala 3.9.0, this session): every fixture of `StoredValueSoundnessSpec`
+  compiles; scalac accepts a subtype and an anonymous instance through an alias of a sealed
+  parent and a bounded subtype parameter, rejects an inner import or wildcard rebinding an outer
+  family's name in the family's file as ambiguous, and rejects an enum case relying on the enum's
+  context bound (cases do not inherit it); it types a subtype under an object that inherits or
+  exports the parent's name as that other type, accepts `C[Any]` in a contravariant slot of
+  `P[Boolean]`, rejects a GADT enum case and a shadowed `Nothing` pin as members of other
+  instantiations, leaves `H[Any]` unreduced past an undecided case, and binds an exported name
+  over an imported one; it rejects a subtype's bound read in an object that rebinds its names
+  (E057), accepts a subtype through a renaming import, distinguishes closed values of a negative
+  recursion through a source `List` or a value's type member, reduces a spelled `case Int` only
+  for the same `Int`, and scopes renamed, term-only and body-shadowed selectors as the page says.
+- **Executable**: `StoredValueSoundnessSpec`, `NamespaceSpec`, `NamespaceScopingSpec`,
+  `ReportSpec`, `CounterSpec`, `SizeSpec`.
+
+**Boundary.** A model-level rule over constructor inputs; it does not decide `|Any|` or
+`|Double|` (D12, D9) and leaves the method side's own collection and family readings to it.
+Mutual recursion between generic families, a match type over another match type's result,
+absorption by an exact 0, an instantiation's recursion through `&` that settles late, negative
+recursion, recursion through an unread constructor or a value's type member, and a match case only
+subtyping would match stay `?`, as the page's limits state.
 
 ## How to extend this register
 

@@ -74,7 +74,7 @@ object MethodAnalysis {
   // order. (Used both for a case's fields and for the cases of an enum.) It is a free function
   // rather than an index method because the measurement needs it too.
   private[cardinality] def sequence[A](values: List[Either[String, A]]): Either[String, List[A]] =
-    Inhabitation.Shape.sequenceEithers(values)
+    Traversals.sequence(values)
 
   final private[cardinality] case class Frame(
       id: String,

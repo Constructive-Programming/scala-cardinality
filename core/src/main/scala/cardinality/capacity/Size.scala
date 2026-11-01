@@ -176,7 +176,7 @@ sealed trait FinitePart { self =>
   def add(other: FinitePart): FinitePart = (self, other) match {
     case (Zero, _) => other
     case (_, Zero) => self
-    case _         => FinitePart.Capacity(bits.max(other.bits) + 1)
+    case _         => width(bits.max(other.bits) + 1, other)
   }
 
   /** Product of two finite counts. */
@@ -185,7 +185,7 @@ sealed trait FinitePart { self =>
     case (_, Zero) => FinitePart.Zero
     case (One, _)  => other
     case (_, One)  => self
-    case _         => FinitePart.Capacity(bits + other.bits)
+    case _         => width(bits + other.bits, other)
   }
 
   /** `this ^ other` for finite operands, or None when the exponent is too large to materialize: the
@@ -196,11 +196,17 @@ sealed trait FinitePart { self =>
     case (_, One)                    => Some(self)
     case (Zero, _)                   => Some(FinitePart.Zero)
     case (One, _)                    => Some(FinitePart.One)
-    case (_, FinitePart.Exact(that)) => Some(FinitePart.Capacity(bits * that))
-    case _ if other.bits.isValidInt  =>
-      Some(FinitePart.Capacity(bits * (BigInt(1) << other.bits.toInt)))
-    case _ => None
+    case (_, FinitePart.Exact(that)) => Some(width(bits * that, other))
+    case _ if other.bits.isValidInt  => Some(width(bits * (BigInt(1) << other.bits.toInt), other))
+    case _                           => None
   }
+
+  // A rounded result of an operation with `other`: a floating-point operand's unmodelled precision
+  // reaches the result, so a sum or product over a `Double` stays marked as its stand-in.
+  private def width(bits: BigInt, other: FinitePart): FinitePart =
+    if (self.isInstanceOf[FinitePart.Lossy] || other.isInstanceOf[FinitePart.Lossy])
+      FinitePart.Lossy(bits)
+    else FinitePart.Capacity(bits)
 
   /** Strict comparison through the `FinitePart.order` instance, by rank first. */
   def larger(other: FinitePart): Boolean = FinitePart.order.compare(self, other) > 0

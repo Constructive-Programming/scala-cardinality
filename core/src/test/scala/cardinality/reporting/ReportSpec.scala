@@ -163,9 +163,8 @@ class ReportSpec extends Specification {
         reasons("case class Text(run: String => String)", "Text") === Nil
       )
       .and(
-        reasons("type Fst[T] = T match { case (a, b) => a }", "Fst") === List(
-          "a match type"
-        )
+        // A match type stuck only on the definition's own parameter is that parameter's to decide.
+        reasons("type Fst[T] = T match { case (a, b) => a }", "Fst") === List("T")
       )
   }
 
@@ -388,7 +387,14 @@ class ReportSpec extends Specification {
       ("TwoBools", Some(TinySize(4)), Nil),
       ("Use", Some(TinySize(48)), Nil),
     ))
-      .and(found.map(Definition.instantiationDependent) === List(true, true, false, false))
+      .and(
+        found.map(d => Definition.gap(d).contains(Definition.Gap.Instantiation)) === List(
+          true,
+          true,
+          false,
+          false
+        )
+      )
   }
 
   def parameterisedRecursion = {
@@ -467,10 +473,8 @@ class ReportSpec extends Specification {
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "c/Use.scala" -> "package c\nimport a.Widget\ncase class Use(w: Widget)",
     )
-    // The import decides what the name means and the calculator does not follow imports, so the
-    // name stays a reason even though the source set defines it — and the reason says so.
-    rowsOf(root).filter(_._1 == "c.Use") ===
-      List(("c.Use", Some(EffectiveOmega), List("Widget (imported from a.Widget, not followed)")))
+    // The import decides what the name means, and it names a supplied declaration: `a.Widget`.
+    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(BooleanSize), Nil))
   }
 
   def crossSourceSealed = {
@@ -519,11 +523,12 @@ class ReportSpec extends Specification {
     )
     // A match type reduces on the argument's syntax: `Fst[(Boolean, Boolean)]` is `Boolean` because
     // the case pattern is that tuple and its body is the first binder. A concrete pattern matches
-    // by spelling and falls through to the binder case when it does not.
+    // by spelling and falls through to the binder case when it does not. The definitions' own rows
+    // are stuck only on their parameter `T`: each instantiation decides them.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
-      ("Fst", Some(EffectiveOmega), List("a match type")),
-      ("Snd", Some(EffectiveOmega), List("a match type")),
-      ("Pick", Some(EffectiveOmega), List("a match type")),
+      ("Fst", Some(EffectiveOmega), List("T")),
+      ("Snd", Some(EffectiveOmega), List("T")),
+      ("Pick", Some(EffectiveOmega), List("T")),
       ("Two", Some(BooleanSize), Nil),
       ("Second", Some(BooleanSize), Nil),
       ("ANumber", Some(BooleanSize), Nil),
@@ -561,7 +566,9 @@ class ReportSpec extends Specification {
       ("Only", Some(UnitSize), Nil),
       ("Uses", Some(EffectiveOmega), List("Open")),
     ))
-      .and(found.find(_.name == "Uses").exists(Definition.open))
+      .and(
+        found.find(_.name == "Uses").exists(d => Definition.gap(d).contains(Definition.Gap.Open))
+      )
   }
 
   def constructorRow = {
@@ -621,7 +628,7 @@ class ReportSpec extends Specification {
       ("C", Some(EffectiveOmega), List("O")),
       ("C.Y", Some(EffectiveOmega), List("x.Z")),
     ))
-      .and(found.find(_.name == "C.Y").exists(Definition.open))
+      .and(found.find(_.name == "C.Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
   }
 
   def memberUnknown = {
@@ -648,7 +655,7 @@ class ReportSpec extends Specification {
       ("Value", Some(BooleanSize), Nil),
       ("Use", Some(EffectiveOmega), List("Open")),
     ))
-      .and(found.find(_.name == "Use").exists(Definition.open))
+      .and(found.find(_.name == "Use").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
   }
 
   def openRow = {
@@ -672,7 +679,7 @@ class ReportSpec extends Specification {
       ("Pairish", List("F[_, _]")),
       ("Mixed", List("A", "F[_]")),
     ))
-      .and(found.forall(Definition.instantiationDependent))
+      .and(found.forall(d => Definition.gap(d).contains(Definition.Gap.Instantiation)))
   }
 
   def latticeEnds = {
@@ -684,12 +691,13 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     // `Null` has the one value `null`; `Any` is the top of the lattice, and nothing the analysis can
-    // place is above the ε₀ tier, so it sits there — which makes an `Array[Any]` the countable
-    // space its length makes it, rather than an unknown name. eo's `PSVec.Slice` is that shape.
+    // place is above the ε₀ tier, so it sits there — and an `Array[Any]` holds each one-element
+    // array, so it is ε₀ too (`Σₙ aⁿ` from n = 1), never below its element. eo's `PSVec.Slice` is
+    // that shape.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("MaybeNull", Some(UnitSize), Nil),
       ("Anything", Some(EffectiveEpsilon0), Nil),
-      ("Elements", Some(EffectiveOmega), Nil),
+      ("Elements", Some(EffectiveEpsilon0), Nil),
       ("Nullable", Some(EffectiveOmega + UnitSize), Nil),
     )
   }

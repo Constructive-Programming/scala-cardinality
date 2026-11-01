@@ -3,6 +3,7 @@ package cardinality.analysis.inhabitation
 import scala.collection.mutable
 
 import cardinality.capacity.{EffectiveOmega, FinitePart, Size, TinySize}
+import cardinality.types.Traversals
 import dev.constructive.eo.data.PSVec
 import dev.constructive.eo.generics.prism
 import dev.constructive.eo.optics.{Getter, Plated}
@@ -95,19 +96,8 @@ object Inhabitation {
     val evidencePrism = prism[Shape, Evidence]
     val repeatedPrism = prism[Shape, Repeated]
 
-    def sequenceEithers[A](values: Iterable[Either[String, A]]): Either[String, List[A]] =
-      values.foldRight(Right(Nil): Either[String, List[A]])((head, tail) =>
-        for {
-          h <- head
-          t <- tail
-        } yield h :: t
-      )
-
-    def sequenceOptions[A](values: Iterable[Option[A]]): Option[List[A]] =
-      sequenceEithers(values.map(_.toRight(""))).toOption
-
     def tryRebuild(node: Shape, kids: Iterable[Either[String, Shape]]): Either[String, Shape] =
-      sequenceEithers(kids).map(rebuild(node, _)(identity))
+      Traversals.sequence(kids).map(rebuild(node, _)(identity))
 
     def freshName(prefix: String, start: Int = 0)(taken: String => Boolean): (String, Int) = {
       val index = Iterator.from(start).find(i => !taken(s"$prefix$i")).get
@@ -118,7 +108,7 @@ object Inhabitation {
       cata[Option[List[Atom]]] { (node, kids) =>
         node match {
           case a: Atom    => Some(List(a))
-          case Product(_) => sequenceOptions(kids).map(_.flatten)
+          case Product(_) => Traversals.defined(kids).map(_.flatten)
           case _          => None
         }
       }

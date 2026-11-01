@@ -212,13 +212,9 @@ final private[cardinality] class ConstructorPositions(
 private object ConstructorPositions {
 
   // The estimate's reasons that name a declaration of the sources it could not read whole.
-  private val declarations =
-    List("sealed family not summed", "lazy cycle not completed", "cross-package cycle not solved")
-
   def declarationRefusal(reason: Definition.Unbound): Boolean = reason match {
-    case _: Definition.Unbound.Imported  => true
-    case Definition.Unbound.Syntax(what) => declarations.exists(what.startsWith)
-    case _                               => false
+    case _: (Definition.Unbound.Imported | Definition.Unbound.Refusal) => true
+    case _                                                             => false
   }
 
   def render(tpe: Type, reason: Definition.Unbound): Option[String] = reason match {
@@ -228,15 +224,18 @@ private object ConstructorPositions {
     case Definition.Unbound.Open(name)             => Some(s"open to implementations: $name")
     case Definition.Unbound.Syntax("a match type") => Some(s"unreduced match type in ${tpe.syntax}")
     case Definition.Unbound.Syntax(what)           => Some(what)
+    case Definition.Unbound.Refusal(what)          => Some(what)
     case _                                         => None
   }
 
   // A declined position's reason joins the row's unless the row already names the same thing: the
   // same text up to its parenthesised provenance — the one that says where the name comes from is
-  // kept — or, for an unreduced match type, the shape model's inert one.
+  // kept — for an unreduced match type, the shape model's inert one, or the same family refused
+  // for the same cause in the method side's own words.
   def join(reasons: List[String], declined: List[String]): List[String] =
     declined.foldLeft(reasons) { (acc, r) =>
       if (r.startsWith("unreduced match type") && acc.exists(_.startsWith("inert match type"))) acc
+      else if (restated(acc, r)) acc
       else
         acc.indexWhere(a => head(a) == head(r)) match {
           case -1                                       => acc :+ r
@@ -244,6 +243,25 @@ private object ConstructorPositions {
           case _                                        => acc
         }
     }
+
+  // The estimate's family refusal (`sealed family not summed: F (why)`) beside the method side's
+  // refusal of F for the same cause.
+  private def restated(reasons: List[String], reason: String): Boolean = reason match {
+    case Unsummed(family, why) =>
+      sameCause.exists((method, estimate) =>
+        why.startsWith(estimate) && reasons.contains(s"$method: $family")
+      )
+    case _ => false
+  }
+
+  private val Unsummed = """sealed family not summed: (\S+) \((.*)\)""".r
+
+  // A family refusal's cause as each reading words it.
+  private val sameCause = List(
+    "sealed family has anonymous instances in its file" -> "an anonymous instance in its file",
+    "sealed family has a given instance outside the fragment" -> "a given instance in its file",
+    "sealed family is extended through an alias" -> "a subtype extends it through an alias",
+  )
 
   private def head(reason: String): String = reason.indexOf(" (") match {
     case -1 => reason

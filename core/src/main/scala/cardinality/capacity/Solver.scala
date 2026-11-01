@@ -10,17 +10,24 @@ import cardinality.types.*
 // (docs/type-arithmetic.md §8). `Scope` and `Walk` drive it through `Solver.solve`.
 
 /** What the solver reads off a body's syntax besides its equations: the aliases' bodies, the
-  * constructor arms, and the sealed parents with their children, every name already the key the
-  * system solves it under — a member of an object joins its enclosing body's system as `O.T`.
+  * constructor arms, the sealed parents with their children, and the types a class holds through a
+  * member of a value it stores (`reads`), every name already the key the system solves it under — a
+  * member of an object joins its enclosing body's system as `O.T`.
   */
 final private[cardinality] case class Shapes(
     aliases: Map[TypeName, Option[Type]],
     arms: Map[TypeName, List[List[Type]]],
     parents: Map[TypeName, List[TypeName]],
+    reads: Map[TypeName, List[Type]] = Map.empty,
 ) {
 
   def ++(other: Shapes): Shapes =
-    Shapes(aliases ++ other.aliases, arms ++ other.arms, parents ++ other.parents)
+    Shapes(
+      aliases ++ other.aliases,
+      arms ++ other.arms,
+      parents ++ other.parents,
+      reads ++ other.reads
+    )
 
 }
 
@@ -29,31 +36,54 @@ private[cardinality] object Shapes {
   /** A body's shapes, each type read through `rewrite` with the definition it belongs to — the
     * identity for a body solved under its own names.
     */
-  def of(stats: List[Stat], rewrite: (Defn, Type) => Type = (_, t) => t): Shapes =
+  def of(stats: List[Stat], rewrite: (Defn, Type) => Type = (_, t) => t): Shapes = {
+    val classes = stats.collect { case d: Defn.Class if Counter.isConcreteClass(d) => d }
     Shapes(
       stats.collect {
         // An opaque alias hides its body: nothing it names is a dependency outside its scope.
         case d: Defn.Type if Counter.isOpaqueAlias(d) => Counter.nameOf(d) -> None
         case d: Defn.Type => Counter.nameOf(d) -> Some(rewrite(d, d.body))
       }.toMap,
-      stats.collect {
-        case d: Defn.Class if Counter.isConcreteClass(d) =>
-          Counter.nameOf(d) -> List(paramTypes(d.ctor).map(rewrite(d, _)))
+      classes.map { d =>
+        Counter.nameOf(d) -> List(stored(d.tparamClause.values, d.ctor).map(rewrite(d, _)))
+      }.toMap ++ stats.collect {
         case d: Defn.Enum =>
           Counter.nameOf(d) -> d.templ.body.stats.collect {
-            case c: Defn.EnumCase         => paramTypes(c.ctor).map(rewrite(d, _))
+            case c: Defn.EnumCase => stored(c.tparamClause.values, c.ctor).map(rewrite(d, _))
             case _: Defn.RepeatedEnumCase => Nil
           }
       }.toMap,
-      // A module child has no arms and no dependencies: it is one value, whatever type shares
-      // its name.
-      Counter
-        .sealedSums(stats)
-        .map((parent, children) => parent -> children.filterNot(_.module).map(_.name)),
+      // A system adds its sealed families' subtypes (`SealedFamilies.edges`).
+      Map.empty,
+      classes.map(d => Counter.nameOf(d) -> memberReads(stats, d).map(rewrite(d, _))).toMap,
     )
+  }
 
-  private def paramTypes: Ctor.Primary => List[Type] =
-    _.paramClauses.flatMap(_.values).flatMap(_.decltpe).toList
+  // A field typed by a member of another field's value (`x: q.X` beside `q: C`) holds what the
+  // body's class `C` makes that member: a dependency no name of the field shows. The solver reads
+  // such a member over an earlier solve of the body, so a cycle through it is never iterated.
+  private def memberReads(stats: List[Stat], d: Defn.Class): List[Type] = {
+    val declared = d.ctor.paramClauses
+      .flatMap(_.values)
+      .flatMap { p =>
+        p.decltpe.flatMap(Counter.nameOf).map(p.name.value -> _.value)
+      }
+      .toMap
+    def member(owner: String, name: String): Option[Type] =
+      stats.collectFirst {
+        case c: (Defn.Class | Defn.Trait) if c.name.value == owner =>
+          c.templ.body.stats.collectFirst { case t: Defn.Type if t.name.value == name => t.body }
+      }.flatten
+    Trees
+      .fields(d.ctor)
+      .flatMap(_.collect {
+        case Type.Select(Term.Name(q), Type.Name(m)) => declared.get(q).flatMap(member(_, m))
+      }.flatten)
+  }
+
+  // The types a constructor stores, its context bounds' evidence included.
+  private def stored(tparams: List[Type.Param], ctor: Ctor.Primary): List[Type] =
+    Trees.fields(ctor) ++ Counter.evidence(tparams)
 
 }
 
@@ -78,28 +108,84 @@ private[cardinality] object Solver {
     val succ: TypeName => Set[TypeName] = n => deps.getOrElse(n, Set.empty)
     val reaches = deps.keySet.map(name => name -> closure(succ, succ(name), Set.empty)).toMap
     val cyclic = deps.keySet.filter(name => reaches(name).contains(name))
-    val mu = iterate(eqs, cyclic, base, frozen = Set.empty)
-    val ctx = NuContext.of(shapes, views)
-    val groups = cycleGroups(ctx)
-    val completed = groups.flatMap { case (members, attached) => members.union(attached) }.toSet
-    Scope.blockedLens.modify(_ ++ blocked(shapes, reaches, completed))(
-      greatestFixpoint(eqs, ctx, groups, mu, cyclic)
+    // A cycle through a non-positive position has no count: its definitions hold the unknown's ω
+    // and are never iterated, so no consumer reads a number off the equation.
+    val positivity = Positivity.of(
+      shapes,
+      entries.map((n, named) => n -> named.params).toMap,
+      reaches,
+      (owner, callee, arity) => slotsOf(views(owner)(base), callee, arity)
     )
+    // A cycle through a member read off a value is solved against an earlier solve's values, never
+    // iterated from 0: no count either, unless positivity already refused it.
+    val blocks = positivity.blocked.map((n, c) => n -> blocking(c)) ++
+      (unseen(shapes, reaches) -- positivity.blocked.keySet).map(_ -> Blocked.Unseen)
+    val negative = blocks.keySet
+    val marked = Scope.blockedLens.modify(_ ++ blocks)(
+      Scope.slotsLens.modify(_ ++ positivity.slots)(base ++ negative.map(_ -> EffectiveOmega))
+    )
+    val system = Equations(eqs, cyclic, negative)
+    val mu = iterate(system, marked, frozen = negative)
+    val ctx = NuContext.of(shapes, views)
+    val groups = cycleGroups(ctx).filterNot((members, _) => members.exists(negative))
+    val completed = groups.flatMap { case (members, attached) => members.union(attached) }.toSet
+    val lazily = blocked(shapes, reaches, completed) -- negative
+    Scope.blockedLens.modify(_ ++ lazily.map(_ -> Blocked.Lazy))(
+      greatestFixpoint(system, ctx, groups, mu)
+    )
+  }
+
+  /** A system's equations: which of them are on a cycle of the syntactic graph, and which hold a
+    * fixed value no round re-evaluates (`fixed`).
+    */
+  final private case class Equations(
+      eqs: List[(TypeName, Scope => Size)],
+      cyclic: Set[TypeName],
+      fixed: Set[TypeName]
+  )
+
+  // The definitions on a cycle through a type a class holds by a member of a value (`reads`).
+  private def unseen(shapes: Shapes, reaches: Map[TypeName, Set[TypeName]]): Set[TypeName] =
+    shapes.reads.toList.flatMap { (from, held) =>
+      def back(to: TypeName) = to == from || reaches.getOrElse(to, Set.empty)(from)
+      if (!held.flatMap(namesOf).exists(back)) Nil
+      else from :: reaches.getOrElse(from, Set.empty).filter(back).toList
+    }.toSet
+
+  private def blocking(cause: Positivity.Cause): Blocked = cause match {
+    case Positivity.Cause.Domain              => Blocked.Negative
+    case Positivity.Cause.Unread(constructor) => Blocked.Unread(Namespaces.written(constructor))
+  }
+
+  // Which slots of a constructor the system does not define hold their arguments positively, as
+  // the definition naming it reads the name: a definition solved around the read says (its system
+  // found them), a standard constructor no source binds by the standard table (a partial
+  // function's keys are its domain), and nothing else is read.
+  private def slotsOf(scope: Scope, callee: String, arity: Int): Option[Positivity.Slots] = {
+    val name = TypeName.of(callee)
+    scope.binding(name) match {
+      case Binding.Free =>
+        StandardConstructors
+          .slots(callee, arity)
+          .map(_.map(data => Option.unless(data)(Positivity.Cause.Domain)))
+      case Binding.Here               => scope.slots(name)
+      case Binding.Elsewhere(in, key) => in.slots(key)
+      case Binding.Clause(_)          => None
+    }
   }
 
   // The widening iteration. `base` seeds every equation — except the frozen ones — with the
   // empty type, and a frozen name keeps the value `base` gives it instead of being
-  // re-evaluated, which is how the caller re-derives consumers around a settled cycle.
-  private def iterate(
-      eqs: List[(TypeName, Scope => Size)],
-      cyclic: Set[TypeName],
-      base: Scope,
-      frozen: Set[TypeName]
-  ): Scope = {
+  // re-evaluated, which is how the caller re-derives consumers around a settled cycle. A name the
+  // budget guard widens (below) is on a cycle neither the graph nor positivity saw: blocked, so
+  // every read of it is a reason, never the number.
+  private def iterate(system: Equations, base: Scope, frozen: Set[TypeName]): Scope = {
+    val Equations(eqs, cyclic, _) = system
     val seeded =
       base ++ eqs.collect {
         case (name, _) if !frozen(name) => name -> (NothingSize: Size)
       }
+    val rounds = eqs.size + 8
 
     @tailrec
     def step(
@@ -113,10 +199,18 @@ private[cardinality] object Solver {
         case (name, equation) if !frozen(name) && !widened(name) => name -> equation(scope)
       }.toMap
       val grown = evaluated.collect { case (name, size) if scope(name) != size => name }.toSet
-      if (grown.isEmpty) scope ++ evaluated
+      if (grown.isEmpty)
+        Scope.blockedLens.modify(_ ++ (widened -- cyclic).map(_ -> Blocked.Unseen))(
+          scope ++ evaluated
+        )
       else {
         val lastRounds = if (budget > 0) grewLastRound else grewEver
-        val toWiden = grown.intersect(lastRounds).intersect(cyclic)
+        // An acyclic chain settles within as many rounds as it has links once its inputs settle,
+        // so a name still growing a whole budget after the first one ran out is on a cycle the
+        // graph could not see, and takes a cycle's widening: a termination guard (no fixture
+        // reaches it since a member read off a value is a dependency, `Shapes.reads`).
+        val recursive = if (budget > -rounds) cyclic else grown
+        val toWiden = grown.intersect(lastRounds).intersect(recursive)
         step(
           scope = scope ++ evaluated ++ toWiden.map(name => name -> evaluated(name).widen),
           grewLastRound = grown,
@@ -132,7 +226,7 @@ private[cardinality] object Solver {
       grewLastRound = Set.empty,
       grewEver = Set.empty,
       widened = Set.empty,
-      budget = eqs.size + 8
+      budget = rounds
     )
   }
 
@@ -159,7 +253,9 @@ private[cardinality] object Solver {
     val arms = shapes.arms.view.mapValues(_.flatten.flatMap(namesOf).toSet)
     val direct = aliases.toMap ++ arms
     defined.map { name =>
-      name -> (direct.getOrElse(name, Set.empty[TypeName]) ++ shapes.parents.getOrElse(name, Nil))
+      name -> (direct.getOrElse(name, Set.empty[TypeName]) ++
+        shapes.parents.getOrElse(name, Nil) ++
+        shapes.reads.getOrElse(name, Nil).flatMap(namesOf))
     }.toMap
   }
 
@@ -228,11 +324,10 @@ private[cardinality] object Solver {
   // as coefficients. A cycle may consume another cycle's ν, so the environment is refined
   // until stable, within a budget that only guards the loop.
   private def greatestFixpoint(
-      eqs: List[(TypeName, Scope => Size)],
+      system: Equations,
       ctx: NuContext,
       groups: List[(Set[TypeName], Set[TypeName])],
-      mu: Scope,
-      cyclic: Set[TypeName]
+      mu: Scope
   ): Scope =
     if (groups.isEmpty) mu
     else {
@@ -265,7 +360,7 @@ private[cardinality] object Solver {
       // cyclic dependency was still growing lands here on the value its own definition has, so
       // a definition and a reference to it always agree, and a chain of consumers carries the
       // ν count all the way down.
-      iterate(eqs, cyclic, settled, frozen)
+      iterate(system, settled, frozen ++ system.fixed)
     }
 
   // Collapse the completed lazy type, not an enclosing sum or source/signature total. Guard
@@ -480,12 +575,6 @@ private[cardinality] object Solver {
 
   private[cardinality] def bareName(tpe: Type): String =
     Counter.nameOf(tpe).fold("")(_.value)
-
-  // The parent type of an `extends` clause: `Init`'s *name* field is the anonymous
-  // method-name slot, not the parent — the type is the first `Init` field. `extends S`,
-  // `extends S(1)` and `extends a.b.S` all yield `S`; anything shaped differently is
-  // ignored (""), matching no local name.
-  private[cardinality] def initParent: Init => String = init => bareName(init.tpe)
 
   private def namesOf(tpe: Type): Set[TypeName] =
     TypeSubstitution.typeNames(tpe).map(TypeName.of).toSet

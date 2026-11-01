@@ -1,6 +1,5 @@
 package cardinality.capacity
 
-import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.types.*
@@ -61,22 +60,12 @@ object Counter {
         Some(nameOf(d) -> Named(parameterNames(d), equation, matchType, read = signature(d)))
       case d: Defn.Enum => Some(nameOf(d) -> Named(parameterNames(d), bound(d)(enumSize(_)(d))))
       case d: Defn.Class if isConcreteClass(d) =>
-        Some(nameOf(d) -> Named(parameterNames(d), bound(d)(ctorIn(_)(d.ctor))))
+        Some(
+          nameOf(d) -> Named(parameterNames(d), bound(d)(stored(_)(d.tparamClause.values, d.ctor)))
+        )
       case _ => None
     }
-    types ++ sealedSums(stats).toList.map {
-      case (parent, children) =>
-        // A sealed parent's equation is the sum of its children, and it keeps them: a report
-        // reads the parent's value from it, and the children's reasons are the parent's.
-        parent -> Named(
-          Nil,
-          (sc: Scope) =>
-            children.foldLeft(NothingSize: Size)((acc, child) =>
-              acc + (if (child.module) UnitSize else sc.getOrElse(child.name, NothingSize))
-            ),
-          children = children
-        )
-    }
+    types
   }
 
   // An equation read with the definition's own binders innermost, and its constructor's parameters
@@ -121,59 +110,6 @@ object Counter {
 
   private[cardinality] def isOpaqueAlias(d: Defn.Type): Boolean = d.mods.exists(_.is[Mod.Opaque])
 
-  // A sealed trait or abstract class stands for the sum of the body's subtypes that extend it,
-  // so a recursive reference through the parent (`Succ(n: Nat)`) resolves. The sum is complete
-  // only when every subtype the file writes is one of the body's concrete classes, enums or
-  // modules; a subtype anywhere else — in a companion, nested in another definition, an abstract
-  // one, an anonymous instance, an enum case — leaves a family the body does not sum. A parent
-  // extended with arguments (`extends P[A]`) is not matched (`Solver.initParent`), so a summed
-  // parent's subtypes pass it none.
-  private[cardinality] def sealedSums(stats: List[Stat]): Map[TypeName, List[Child]] = {
-    val sealedNames: Set[TypeName] = stats.collect {
-      case d: Defn.Trait if isSealed(d)                       => nameOf(d)
-      case d: Defn.Class if isSealed(d) && isAbstractClass(d) => nameOf(d)
-    }.toSet
-    val subtypes = stats.collect { case d: (Defn.Class | Defn.Object | Defn.Enum) => d }
-    val written = if (sealedNames.isEmpty) Map.empty else extenders(stats)
-    sealedNames.iterator
-      .map(parent => parent -> subtypes.filter(extendsParent(_, parent)))
-      .collect {
-        case (parent, children)
-            if children.nonEmpty && children.forall(concrete) &&
-              written.getOrElse(parent.value, Nil).forall(o => children.exists(_ eq o)) =>
-          parent -> children.map(d => Child(nameOf(d), d.is[Defn.Object], parameterNames(d)))
-      }
-      .toMap
-  }
-
-  // Every template and enum case of the body's file, by the simple name of each parent it extends.
-  private def extenders(stats: List[Stat]): Map[String, List[Tree]] = {
-    @tailrec def top(tree: Tree): Tree = tree.parent match {
-      case Some(parent) => top(parent)
-      case None         => tree
-    }
-    val roots = stats.headOption.map(top).toList
-    roots
-      .flatMap(_.collect {
-        case t: Template => t.inits.map(init => Solver.initParent(init) -> t.parent.getOrElse(t))
-        case c: Defn.EnumCase => c.inits.map(init => Solver.initParent(init) -> c)
-      })
-      .flatten
-      .groupMap(_._1)(_._2)
-  }
-
-  private def extendsParent(d: Defn, parent: TypeName): Boolean =
-    d.children
-      .collect { case t: Template => t.inits }
-      .flatten
-      .map(Solver.initParent)
-      .contains(parent.value)
-
-  private def concrete(d: Defn): Boolean = d match {
-    case c: Defn.Class => isConcreteClass(c)
-    case _             => true
-  }
-
   // A statement's contribution to a source total. A definition the solver gave an equation
   // contributes that solved value rather than a fresh evaluation: twice would count the base
   // summand twice (`Q = 1 + Q` contributing `ω + 2` where a reference to `Q` gives `ω + 1`).
@@ -181,7 +117,7 @@ object Counter {
     case p: Pkg                              => Walk.body(p.body.stats, scope)
     case p: Pkg.Object                       => Walk.body(p.templ.body.stats, scope)
     case d: Defn.Class if isConcreteClass(d) =>
-      scope.getOrElse(nameOf(d), ctorIn(scope)(d.ctor))
+      scope.getOrElse(nameOf(d), stored(scope)(d.tparamClause.values, d.ctor))
     case d: Defn.Enum   => scope.getOrElse(nameOf(d), enumSize(scope)(d))
     case _: Defn.Object => UnitSize
     // scalameta's `Stat` is not sealed and hides `Stat.Quasi` as `private[meta]`, so an
@@ -195,7 +131,7 @@ object Counter {
     // Abstract classes contribute no inhabitants of their own; only their concrete
     // subclasses do.
     case c: Defn.Class if c.mods.exists(_.is[Mod.Abstract]) => NothingSize
-    case c: Defn.Class                                      => ctorIn(scope)(c.ctor)
+    case c: Defn.Class => stored(scope)(c.tparamClause.values, c.ctor)
     // An enum's cardinality is the sum over its cases; the enum's own constructor
     // arguments are shared state, not extra inhabitants.
     case e: Defn.Enum => enumSize(scope)(e)
@@ -208,15 +144,52 @@ object Counter {
     case _ => NothingSize
   }
 
-  private def enumSize(scope: Scope): Defn.Enum => Size =
-    _.templ.body.stats.foldLeft(NothingSize: Size) {
-      case (acc, c: Defn.EnumCase)         => acc + ctorIn(scope)(c.ctor)
+  private def enumSize(scope: Scope): Defn.Enum => Size = e =>
+    e.templ.body.stats.foldLeft(NothingSize: Size) {
+      case (acc, c: Defn.EnumCase)         => acc + enumCase(scope, e, c)
       case (acc, r: Defn.RepeatedEnumCase) => r.cases.foldLeft(acc)((a, _) => a + UnitSize)
       case (acc, _)                        => acc
     }
 
+  // A case with its own `extends` is a member of the instantiations it admits, as a family's
+  // subtype is: `case Y extends E[Int]` (a GADT index), or a source's `Nothing`, is no summand.
+  private def enumCase(scope: Scope, e: Defn.Enum, c: Defn.EnumCase): Size = {
+    val enumName = e.name.value
+    val why =
+      if (c.inits.isEmpty) None
+      else
+        SealedSlots
+          .enumCase(c, e, SealedFamilies.denoted(c))
+          .fold(Some(_), SealedFamilies.unstandard(scope, enumName, _).map(why => s"it $why"))
+    why.fold(stored(scope)(c.tparamClause.values, c.ctor)) { reason =>
+      scope.note(
+        Definition.Unbound.Refusal(s"enum case not summed: $enumName.${c.name.value} ($reason)")
+      )
+      EffectiveOmega
+    }
+  }
+
   private def ctorIn(scope: Scope): Ctor.Primary => Size =
     _.paramClauses.flatMap(_.values).foldLeft(UnitSize: Size)(_ * paramIn(scope)(_))
+
+  // What a constructor stores: its parameters, and the evidence each context bound of the class's
+  // type parameters adds — Scala 3 desugars `C[T: TC]` to `C[T](using TC[T])`, a field like any
+  // other, so `final class TT[T[_]: Traverse]` holds a `Traverse[T]`.
+  private def stored(scope: Scope)(tparams: List[Type.Param], ctor: Ctor.Primary): Size =
+    evidence(tparams).foldLeft(ctorIn(scope)(ctor))((acc, tpe) => acc * typeIn(scope)(tpe))
+
+  /** The evidence types a definition's context bounds add to its constructor: `TC[T]` per bound. */
+  private[cardinality] def evidence(tparams: List[Type.Param]): List[Type] =
+    tparams.flatMap { p =>
+      p.bounds.context.map { bound =>
+        // A named bound (`T: Ord as o`) names the evidence; its type is the bound.
+        val tc = bound match {
+          case named: Type.BoundsAlias => named.bounds
+          case plain                   => plain
+        }
+        Type.Apply(tc, Type.ArgClause(List(Type.Name(p.name.value))))
+      }
+    }
 
   private def paramIn(scope: Scope): Term.Param => Size =
     _.decltpe.fold(EffectiveOmega: Size)(typeIn(scope))
@@ -228,11 +201,12 @@ object Counter {
   // case and enum-case parameters, a plain class's `val`/`var` parameters, and the body's values,
   // variables and methods — a parameter without an accessor builds a class, it does not expose it.
   private def signatureBody(stats: List[Stat], scope: Scope): Size = {
-    val entries = equations(stats)
+    val families = SealedFamilies.of(List(stats), Nil)
+    val entries = equations(stats) ++ SealedFamilies.equations(families)
     val solved =
       Solver.solve(
         entries,
-        Shapes.of(stats),
+        Shapes.of(stats).copy(parents = SealedFamilies.edges(families)),
         Scope.definitionsLens.modify(entries.toMap ++ _)(scope)
       )
     stats.foldLeft(NothingSize: Size)((acc, st) => acc + signatureIn(solved)(st))
@@ -338,9 +312,8 @@ object Counter {
 
     case Type.ByName(tpe) => typeIn(scope)(tpe)
 
-    // A repeated parameter holds the sequence of its arguments: the empty one alone over an empty
-    // element type, countably many over any other — the linear collections' rule.
-    case Type.Repeated(tpe) => if (typeIn(scope)(tpe) == NothingSize) UnitSize else EffectiveOmega
+    // A repeated parameter holds the sequence of its arguments — the linear collections' rule.
+    case Type.Repeated(tpe) => sequence(scope, typeIn(scope)(tpe))
 
     // Products: tuples multiply the sizes of their elements; `EmptyTuple` is the unit.
     // A named-tuple element carries its type inside a `Type.TypedParam`.
@@ -357,6 +330,9 @@ object Counter {
     // Intersection: the overlap of two types is their meet, which is exact when (as here)
     // one is a subtype of the other.
     case Type.ApplyInfix(l, Type.Name("&"), r) => typeIn(scope)(l).min(typeIn(scope)(r))
+
+    // A match type written in place reduces only through an alias applied to known arguments.
+    case m: Type.Match => Instantiations.stuck(scope, m, List(m.tpe))
 
     // Exponentials: a function type's cardinality is codomain ^ domain; multi-argument
     // and curried functions multiply/nest the same way. Context functions behave as functions.
@@ -422,8 +398,8 @@ object Counter {
       case Some(_) if in.definition(key).exists(_.params.nonEmpty) =>
         constructor(scope, select.syntax)
       case Some(size) =>
-        if (in.isBlocked(key)) scope.noteLazyCycle(key)
-        in.definition(key).foreach(scope.taintOf(_, in))
+        in.blocking(key).foreach(scope.noteBlocked(key, _, in.definition(key)))
+        in.definition(key).foreach(named => scope.taintOf(named, in.home(key, named)))
         size
       case None => missing(scope, select, key, in)
     }
@@ -432,8 +408,11 @@ object Counter {
   // or the reference as written.
   private def missing(scope: Scope, select: Type.Select, key: TypeName, in: Scope): Size = {
     if (in.isOpen(key)) scope.noteOpen(select.syntax)
-    else if (in.isUnsummed(key)) scope.noteUnsummed(TypeName.of(select.syntax))
-    else scope.note(select)
+    else
+      in.unsummed(key) match {
+        case Some(why) => scope.noteUnsummed(TypeName.of(select.syntax), why)
+        case None      => scope.note(select)
+      }
     EffectiveOmega
   }
 
@@ -511,71 +490,22 @@ object Counter {
   private def constructor(scope: Scope, written: String): Size =
     unbound(scope, Definition.Unbound.Syntax(s"type constructor: $written"))
 
-  // The size of `C[args]` when `C` names a definition with that many parameters; None otherwise.
-  // Two recursive readings stay careful: inside C's own equation, `C` applied to C's own
-  // parameters borrows the fixed point the solver solved under the name (how a parameterised
-  // recursion keeps its μ/ν reading) — the same spelling read anywhere else is an instantiation
-  // like any other — and one re-entered while its own name is substituting has no such fixed
-  // point, so it keeps the old fallback: ω, with the name as the reason.
+  // The size of `C[args]` when `C` names a definition with that many parameters; None otherwise
+  // (`Instantiations` reads it).
   private def instantiation(scope: Scope, callee: Type, args: List[Type]): Option[Size] = {
-    // A qualified reference reads with the reasons its member rests on; a bare one reads the
-    // definition in place, or a namespace's while a reference's reasons are collected.
+    // A definition reads where it was solved — never in a body nested inside that shadows a name it
+    // reads — recording into the reference's notes, with the instantiations it is inside of.
     val found = Namespaces.lookup(scope, callee) { (in, key, qualified) =>
-      val context =
-        if (qualified || !(in eq scope) && scope.collecting) scope.borrow(in)
-        else in
-      in.definition(key).map((key, context, _))
+      in.definition(key).map { named =>
+        val home = in.home(key, named)
+        (key, if (qualified || !(home eq scope)) scope.borrow(home) else scope, named)
+      }
     }
     found
       .filter(_._3.params.size == args.size)
-      .map(resolved => instantiated(scope, callee, args, resolved))
-  }
-
-  // One instantiation of a definition, read: the definition's recursion on its own parameters
-  // borrows the solved fixed point, a repeat inside its own substitution keeps the old fallback, a
-  // match type reduces on the argument's syntax, and everything else substitutes the arguments
-  // into the equation.
-  private def instantiated(
-      scope: Scope,
-      callee: Type,
-      args: List[Type],
-      resolved: (TypeName, Scope, Named)
-  ): Size = {
-    val (name, context, named) = resolved
-    val self = scope.readingItself(named) && named.params.zip(args).forall {
-      case (param, Type.Name(arg)) => arg == param.value
-      case _                       => false
-    }
-    if (self && context.size(name).isDefined) context(name)
-    else if (Scope.activeLens.get(context)(name)) {
-      scope.note(callee)
-      EffectiveOmega
-    } else
-      named.matchType match {
-        // A match type reduces on the arguments' *syntax*. They, and the parts of them a case
-        // pattern binds, are read where the reference is; the case body where the match type is
-        // written, with those bound — a recursion through the body is a reason.
-        case Some(matchType) =>
-          MatchTypes.matched(matchType, named.params.zip(args).toMap) match {
-            case Some((body, bindings)) =>
-              val frame = bindings.map((binder, part) => binder -> typeIn(scope)(part))
-              typeIn(named.read(Scope.activeLens.modify(_ + name)(context).instantiating(frame)))(
-                body
-              )
-            case None =>
-              // Stuck: the arguments still carry their own reasons — a parameter over which
-              // the match type stays inert is one of them — and the match type is another.
-              args.foreach(typeIn(scope))
-              scope.note(matchType)
-              EffectiveOmega
-          }
-        case None =>
-          // The instantiation's frame is the only one its equation reads: the definition's names
-          // resolve where it was written, not in whatever instantiation the reference sits in.
-          val frame =
-            named.params.zip(args).map((param, arg) => param -> typeIn(scope)(arg)).toMap
-          named.equation(Scope.activeLens.modify(_ + name)(context).instantiating(frame))
-      }
+      .map((name, context, named) =>
+        Instantiations.read(Instantiations.Instance(scope, callee, args, name, context, named))
+      )
   }
 
   // The simple name a type constructor is spelled with: `Pair`, or `data.Pair`'s last segment. Only
@@ -591,15 +521,18 @@ object Counter {
   // `Map`/`PartialFunction` (into an Option of the codomain), and the collections whose unbounded
   // length is their infinity; `Size.pow` keeps a finite base countable over an infinite exponent.
   private def builtin(scope: Scope): (Type, List[Type]) => Size = {
-    case (Modelled("Option"), List(t))                     => UnitSize + typeIn(scope)(t)
-    case (Modelled("Either"), List(l, r))                  => typeIn(scope)(l) + typeIn(scope)(r)
-    case (Modelled("Set"), List(t))                        => BooleanSize.pow(typeIn(scope)(t))
-    case (Modelled("Map" | "PartialFunction"), List(k, v)) =>
+    case (Modelled("Option"), List(t))    => UnitSize + typeIn(scope)(t)
+    case (Modelled("Either"), List(l, r)) => typeIn(scope)(l) + typeIn(scope)(r)
+    case (Modelled("Set"), List(t))       =>
+      val element = typeIn(scope)(t)
+      finite(scope, element, BooleanSize.pow(element))
+    case (Modelled("Map"), List(k, v)) =>
+      val key = typeIn(scope)(k)
+      finite(scope, key, (typeIn(scope)(v) + UnitSize).pow(key))
+    case (Modelled("PartialFunction"), List(k, v)) =>
       (typeIn(scope)(v) + UnitSize).pow(typeIn(scope)(k))
-    // A linear collection over an empty element type holds just the empty collection; over any
-    // other it is countably infinite — a number the algebra knows, so no reason is recorded.
     case (Modelled("List" | "Vector" | "Seq" | "IndexedSeq" | "Array"), List(t)) =>
-      if (typeIn(scope)(t) == NothingSize) UnitSize else EffectiveOmega
+      sequence(scope, typeIn(scope)(t))
     // `LazyList`/`Stream` are the greatest fixed point `νX. 1 + A*X` (§8): all the finite ones
     // (ℵ₀ over a nonempty finitely-countable alphabet) plus the infinite streams (the alphabet
     // raised to ℵ₀), collapsed to the highest tier; sums around it keep coefficients, and an
@@ -618,36 +551,33 @@ object Counter {
     case (callee, _) => unbound(scope, callee)
   }
 
+  // A linear collection over an empty element type holds just the empty one; over any other it is
+  // `Σₙ aⁿ` — at least ω and, by its `n = 1` term, the element's tier: a number, no reason.
+  private def sequence(scope: Scope, element: Size): Size =
+    if (element == NothingSize) UnitSize else finite(scope, element, EffectiveOmega)
+
+  // A finite collection holds each one-element collection, so it is never below its element's
+  // tier (ε₀ over `String => String`, however `2^a` or `ω` rounds); the empty one alone stays 1.
+  // The method side's own model, and the reading lent to it, saturate at ω.
+  private def finite(scope: Scope, element: Size, collection: Size): Size =
+    if (scope.saturating || element.epsilon == 0 || !collection.larger(UnitSize)) collection
+    else Size.order.max(collection, EffectiveEpsilon0)
+
   // A constructor the algebra models, spelled bare (`Option`) or in full under the standard
   // library's qualifiers (`scala.Option`, `scala.collection.immutable.List`): its simple name.
   private object Modelled {
 
-    private val names: Set[String] = Set(
-      "Option",
-      "Either",
-      "Set",
-      "Map",
-      "PartialFunction",
-      "List",
-      "Vector",
-      "Seq",
-      "IndexedSeq",
-      "Array",
-      "LazyList",
-      "Stream",
-    )
-
     def unapply(tpe: Type): Option[String] = tpe match {
-      case Type.Name(name) if names(name) => Some(name)
-      case Type.Select(q, Type.Name(name)) if Namespaces.standardQualifier(q) && names(name) =>
+      case Type.Name(name) if StandardConstructors.modelled(name) => Some(name)
+      case Type.Select(q, Type.Name(name))
+          if Namespaces.standardQualifier(q) && StandardConstructors.modelled(name) =>
         Some(name)
       case _ => None
     }
 
   }
 
-  // A function's domain is the product of its parameter types; `Unit` (a single empty
-  // tuple) when it takes none.
+  // A function's domain: the product of its parameter types (`Unit` for none).
   private[cardinality] def domain(scope: Scope)(params: List[Type]): Size =
     params.foldLeft(UnitSize: Size)((acc, p) => acc * typeIn(scope)(p))
 

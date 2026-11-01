@@ -25,7 +25,9 @@ final class Reading private (private val top: Scope) {
     * so it reads in the scope of the tree it was rebuilt from.
     */
   def read(tpe: Type, written: Tree): Either[List[Definition.Unbound], Size] = {
-    val probe = Scope.taintLens.replace(Some(new Taint))(at(written).measured)
+    // The method side counts a sequence of any non-empty element as ω (its closed algebra), so the
+    // tier a finite collection keeps from its element is the stored-value side's alone.
+    val probe = Scope.saturatingLens.replace(true)(at(written).measured)
     val size = Counter.typeIn(probe)(tpe)
     if (probe.unbound.isEmpty) Right(size) else Left(probe.unbound)
   }

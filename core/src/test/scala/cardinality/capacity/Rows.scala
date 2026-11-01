@@ -16,16 +16,11 @@ private[capacity] object Rows {
   def verdict(d: Definition): String =
     if (d.unbound.isEmpty) d.size.fold("—")(_.render)
     else {
-      val unknown = d.unbound.exists {
-        case _: (Definition.Unbound.Unknown | Definition.Unbound.Syntax |
-              Definition.Unbound.Imported) =>
-          true
-        case _ => false
+      val kind = Definition.gap(d) match {
+        case Some(Definition.Gap.Unresolved) => "unresolved"
+        case Some(Definition.Gap.Open)       => "open"
+        case _                               => "instantiation"
       }
-      val kind =
-        if (unknown) "unresolved"
-        else if (Definition.open(d)) "open"
-        else "instantiation"
       d.unbound.map(_.render).mkString(s"$kind[", ", ", "]")
     }
 

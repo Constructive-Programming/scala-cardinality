@@ -466,10 +466,13 @@ class HigherKindedBindingSpec extends Specification {
       Count.Finite(2)
 
   // A class's bound is the `using` parameter it stands for, also as a constructor position: the
-  // estimate reads it inside the class, where `Tag` is the generic sealed family it does not sum
-  // (read at the top of the file, `Tag` was no name it knew and the shape model's 2 stood). Both
-  // spellings read alike: `K` and `KU` hold `Default[A]` beside `a` (4), `B` and `BU` a `Boolean`
-  // beside `a` (2).
+  // estimate reads it inside the class, where `Tag` is a name it knows. `O.Tag[A]` is the sum
+  // T1[A]() + T2[A]() = 2 whatever `A` is, so `Bound` and `Using` hold it beside `a`: 1 · 2 = 2.
+  // `R.Mark` has a subtype written through a renamed import, which the estimate refuses and the
+  // shape model misses (it would read 1 · 1 = 1; scalac's `R.Mark[Int]` holds `R.Z.M2`, so the
+  // truth is 2): read at the top of the file, `Mark` was no name the estimate knew and that 1 stood.
+  // Both spellings read alike: `K` and `KU` hold `Default[A]` beside `a` (4), `B` and `BU` a
+  // `Boolean` beside `a` (2).
   def classBoundPosition = {
     val counts = entries("""
       object O {
@@ -485,13 +488,27 @@ class HigherKindedBindingSpec extends Specification {
         final class B[A: Ev](a: A)
         final class BU[A](a: A)(using Ev[A])
       }
+      object R {
+        sealed trait Mark[A]
+        final case class M1[A]() extends Mark[A]
+        object Z {
+          import R.{Mark as Q}
+          final case class M2[A]() extends Q[A]
+        }
+        final class Bound[A: Mark](a: A)
+        final class Using[A](a: A)(using Mark[A])
+      }
     """)
     def unsummed(name: String) = counts(name) must beLike {
       case Count.Unresolved(reasons) =>
-        reasons must contain("sealed family not summed: Tag")
+        reasons must contain(
+          "sealed family not summed: Mark (a subtype extends it through a renamed import: M2)"
+        )
     }
-    unsummed("O.Bound.<init>")
-      .and(unsummed("O.Using.<init>"))
+    (counts("O.Bound.<init>") === Count.Finite(2))
+      .and(counts("O.Using.<init>") === Count.Finite(2))
+      .and(unsummed("R.Bound.<init>"))
+      .and(unsummed("R.Using.<init>"))
       .and(counts("O.K.<init>") === Count.Finite(4))
       .and(counts("O.KU.<init>") === Count.Finite(4))
       .and(counts("O.B.<init>") === Count.Finite(2))
