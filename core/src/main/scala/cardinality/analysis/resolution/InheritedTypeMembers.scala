@@ -6,7 +6,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
-import cardinality.types.TypeApplications
+import cardinality.types.{Spelling, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
 
@@ -111,7 +111,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
         if (resolver.typeParameters(step.declared).isEmpty) Right(module.path)
         else
           Left(
-            s"inherited member path not resolved: $head (type arguments of ${step.parent.tpe.syntax})"
+            s"inherited member path not resolved: $head (type arguments of ${Spelling.of(step.parent.tpe)})"
           )
       }
 

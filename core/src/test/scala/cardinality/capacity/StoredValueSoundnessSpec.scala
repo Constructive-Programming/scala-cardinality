@@ -245,31 +245,46 @@ class StoredValueSoundnessSpec extends Specification {
   def notUniform =
     (refused(
       "sealed abstract class W[S]\nobject W { final class Fused[S, M0](keep: S => M0) extends W[S] }\nfinal case class Use(w: W[Boolean])"
-    ) === notSummed("W", "sealed subtype Fused binds M0 to no slot of W"))
+    ) === notSummed(
+      "W",
+      "sealed subtype binds a parameter to no slot of its parent: Fused (M0, of W)"
+    ))
       .and(
         refused(
           "sealed trait W[A, B]\nfinal case class Twice[A](a: A) extends W[A, A]\nfinal case class Use(w: W[Boolean, Unit])"
-        ) === notSummed("W", "sealed subtype Twice binds A to several slots of W")
+        ) === notSummed(
+          "W",
+          "sealed subtype binds a parameter to several slots of its parent: Twice (A, of W)"
+        )
       )
       .and(
         refused(
           "sealed trait W[A]\nfinal case class IntW(i: Int) extends W[Int]\nfinal case class Use(w: W[Boolean])"
-        ) === notSummed("W", "sealed subtype IntW leaves a parameter of W unpinned: Int")
+        ) === notSummed(
+          "W",
+          "sealed subtype leaves a parameter of its parent unpinned: IntW (Int, of W)"
+        )
       )
       .and(
         refused(
           "sealed trait W[A]\ncase object Z extends W[Nothing]\nfinal case class Use(w: W[Boolean])"
-        ) === notSummed("W", "sealed subtype Z leaves a parameter of W unpinned: Nothing")
+        ) === notSummed(
+          "W",
+          "sealed subtype leaves a parameter of its parent unpinned: Z (Nothing, of W)"
+        )
       )
       .and(
         refused(
           "sealed trait W[A]\nfinal case class C[A <: Int](a: A) extends W[A]\nfinal case class Use(w: W[Boolean])"
-        ) === notSummed("W", "sealed subtype parameter C.A is bounded otherwise than its slot of W")
+        ) === notSummed(
+          "W",
+          "sealed subtype parameter is bounded otherwise than its slot: C.A (of W)"
+        )
       )
       .and(
         rows(
           "sealed trait W[A <: Int]\nfinal case class C[A <: Int](a: A) extends W[A]\nfinal case class Use(w: W[Int])"
-        )(("Use", Class)) === "2^32"
+        )(("Use", Class)) === "≤2^32"
       )
 
   // A bound spelled as its slot's means what the slot's does only where both read alike: `O.C[A <:
@@ -280,7 +295,10 @@ class StoredValueSoundnessSpec extends Specification {
   def boundScope =
     (refused(
       "type X = Any\nsealed trait P[A <: X]\nobject O {\n  type X = Nothing\n  final case class C[A <: X](a: A) extends P[A]\n}\nfinal case class Use(p: P[Boolean])"
-    ) === notSummed("P", "sealed subtype parameter C.A is bounded otherwise than its slot of P"))
+    ) === notSummed(
+      "P",
+      "sealed subtype parameter is bounded otherwise than its slot: C.A (of P)"
+    ))
       .and(
         rows(
           "sealed trait Q[A <: B, B]\nfinal case class D[A <: B, B](a: A, b: B) extends Q[A, B]\nfinal case class Use(q: Q[Boolean, Boolean])"
@@ -289,7 +307,10 @@ class StoredValueSoundnessSpec extends Specification {
       .and(
         refused(
           "sealed trait Q[A <: B, B, C]\nfinal case class D[A <: B, B <: C, C](a: A) extends Q[A, C, B]\nfinal case class Use(q: Q[Boolean, Boolean, Boolean])"
-        ) === notSummed("Q", "sealed subtype parameter D.A is bounded otherwise than its slot of Q")
+        ) === notSummed(
+          "Q",
+          "sealed subtype parameter is bounded otherwise than its slot: D.A (of Q)"
+        )
       )
 
   // `X extends WA` with `type WA = W` is a subtype the parent's name does not spell (the sum would
@@ -329,7 +350,7 @@ class StoredValueSoundnessSpec extends Specification {
 
   // An object's parent or export binds the parent's name inside it (scalac: `val y: P = O.Z`
   // fails, `val x: Base.P = O.Z` compiles): the top-level `P` has the one subtype `A`, so |Use| =
-  // 1 (the sum said 2). `Base.P`'s subtype sits in `O`, outside its body: refused. A parent the
+  // 1 (the sum said 2). `Base#P`'s subtype sits in `O`, outside its body: refused. A parent the
   // file does not declare may bind it: refused. A same-file parent without a `P` changes nothing.
   def rebinding = {
     val inherited =
@@ -340,7 +361,7 @@ class StoredValueSoundnessSpec extends Specification {
     )
     (found(("Use", Class)) === "1")
       .and(
-        found(("Base.P", Abstract)) === notSummed("P", "a subtype outside its body and objects: Z")
+        found(("Base#P", Abstract)) === notSummed("P", "a subtype outside its body and objects: Z")
       )
       .and(constructor("Use.<init>", "A.scala" -> inherited) === Count.Finite(1))
       .and(exported(("Use", Class)) === "1")
@@ -380,12 +401,15 @@ class StoredValueSoundnessSpec extends Specification {
     ) ===
       notSummed(
         "P",
-        "sealed subtype parameter C.A of a contravariant slot of P is not contravariant"
+        "sealed subtype parameter of a contravariant slot is not contravariant: C.A (of P)"
       ))
       .and(found(("UseQ", Class)) === "4")
       .and(
         found(("UseR", Class)) ===
-          notSummed("R", "sealed subtype parameter E.A of a covariant slot of R is not covariant")
+          notSummed(
+            "R",
+            "sealed subtype parameter of a covariant slot is not covariant: E.A (of R)"
+          )
       )
       .and(found(("UseS", Class)) === "ω + 1")
       .and(constructor("UseR.<init>", "A.scala" -> code) must beLike {
@@ -425,7 +449,8 @@ class StoredValueSoundnessSpec extends Specification {
     val gadt =
       "enum E[A] {\n  case X(a: A)\n  case Y extends E[Int]\n}\nfinal case class Use(e: E[Boolean])"
     val reason =
-      "unresolved[enum case not summed: E.Y (sealed subtype Y leaves a parameter of E unpinned: Int)]"
+      "unresolved[enum case not summed: E.Y (sealed subtype leaves a parameter of its parent " +
+        "unpinned: Y (Int, of E))]"
     (refused(gadt) === reason)
       .and(
         refused(
@@ -496,7 +521,11 @@ class StoredValueSoundnessSpec extends Specification {
     (list(("n.UseP", Class)) === "unresolved[recursion through a function's domain: P]")
       .and(option(("q.P", Class)) === "unresolved[recursion through a function's domain: P]")
       .and(box(("b.UseT", Class)) === "ω")
-      .and(foreign(("T", Abstract)) must contain("recursion through Chunk, a constructor"))
+      .and(
+        foreign(("T", Abstract)) must contain(
+          "recursion through a constructor the estimate does not read: T (through Chunk)"
+        )
+      )
   }
 
   // Scala passes over a case only where the scrutinee is provably disjoint from its pattern:
@@ -672,7 +701,7 @@ class StoredValueSoundnessSpec extends Specification {
   // Inside `Opt[T]`, `M` is `this.M`, which each instance chooses: `X = (T, M)` is a function of
   // that choice and of T.
   def abstractMember =
-    rows("sealed abstract class Opt[T] { type M; type X = (T, M) }")(("Opt.X", Alias)) ===
+    rows("sealed abstract class Opt[T] { type M; type X = (T, M) }")(("Opt#X", Alias)) ===
       "instantiation[T, member M]"
 
   // `Fst[T]` and `Miss[A](fst: Fst[A])` are stuck on their own parameters: each instantiation
@@ -694,13 +723,13 @@ class StoredValueSoundnessSpec extends Specification {
       .and(found(("UD", Class)) === "unresolved[a match type]")
   }
 
-  // |Double| stands in as 2^64 (lossy): 2^64 + 2^64 rounds to 2^65, 2^64·2^32 to 2^96, both still
-  // marked.
+  // |Double| stands in as at most 2^64 (lossy): 2^64 + 2^64 rounds to 2^65, 2^64·2^32 to 2^96,
+  // both bounds, both still marked.
   def lossy = {
     val found = rows(
       "enum Shape { case C(r: Double); case S(s: Double) }\nfinal case class P(a: Double, b: Int)"
     )
-    (found(("Shape", Enum)) === "2^65 (lossy)").and(found(("P", Class)) === "2^96 (lossy)")
+    (found(("Shape", Enum)) === "≤2^65 (lossy)").and(found(("P", Class)) === "≤2^96 (lossy)")
   }
 
   // An unknown name is not hidden behind an open abstraction, nor an open one behind a parameter:

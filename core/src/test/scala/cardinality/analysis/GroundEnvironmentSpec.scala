@@ -156,7 +156,7 @@ class GroundEnvironmentSpec extends Specification {
           "class Q extends P { def pick: Boolean = true; def other: Boolean = true }",
         "Q.other"
       ),
-      "inherited declaration pick is implemented in Q"
+      "inherited declaration implemented, not modelled as a capability: pick (implemented in Q)"
     )
 
   // Two overloads are two supplied functions: 2^(|Int => Int| · |Long => Int|) = 2^(2^(2^37 + 2^69)).
@@ -232,7 +232,7 @@ class GroundEnvironmentSpec extends Specification {
 
   // True counts (2^32)^(2^32 + 1) for E.f and 4 for Color.f: a body matches on `this`.
   def receiverRefused = {
-    val reason = "is a sum this measurement does not split"
+    val reason = "receiver is a sealed family this measurement does not split: "
     unresolvedOn(count("enum E { case A(x: Int); case B; def f: Int = 0 }", "E.f"), reason)
       .and(
         unresolvedOn(
@@ -272,9 +272,8 @@ class GroundEnvironmentSpec extends Specification {
     val rows = counts(
       "Example.scala" -> "enum E { case A(n: Nothing); def m: String = \"\"; def k: Int = 0 }"
     )
-    unresolvedOn(rows("E.m"), "receiver of sealed family E").and(
-      unresolvedOn(rows("E.k"), "receiver of sealed family E")
-    )
+    val reason = "receiver is a sealed family this measurement does not split: E"
+    unresolvedOn(rows("E.m"), reason).and(unresolvedOn(rows("E.k"), reason))
   }
 
   def receiverCertified = {
@@ -304,7 +303,7 @@ class GroundEnvironmentSpec extends Specification {
   private val base = "trait Base { type Int = Boolean }\n"
 
   private def shadowed(rows: Map[String, Count], row: String, by: String): Result =
-    unresolvedOn(rows(row), s"builtin name Int may be shadowed by $by")
+    unresolvedOn(rows(row), s"builtin name Int may be shadowed by a declaration: $by")
 
   def selfTypes = {
     val rows = counts(
@@ -331,7 +330,10 @@ class GroundEnvironmentSpec extends Specification {
       .and(shadowed(rows, "a2.f", "a2.Base.Int (wildcard import of O)"))
       .and(shadowed(rows, "zz.f", "w8.Base.Int (wildcard import of _root_.w8.O)"))
       .and(
-        unresolvedOn(rows("w8b.f"), "builtin name Boolean may be shadowed by w8b.Base.Boolean")
+        unresolvedOn(
+          rows("w8b.f"),
+          "builtin name Boolean may be shadowed by a declaration: w8b.Base.Boolean"
+        )
       )
   }
 
@@ -389,7 +391,7 @@ class GroundEnvironmentSpec extends Specification {
         s"package vi\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Int): Int = x }",
         "vi.Z.f"
       ),
-      "builtin name Int may be shadowed through o, which is not resolved (wildcard import of o)"
+      "builtin name Int may be shadowed through a reference not resolved: o (wildcard import of o)"
     )
 
   // An enum's class case is in scope in its body; an explicit export forwards the member; a refined
@@ -413,7 +415,7 @@ class GroundEnvironmentSpec extends Specification {
       .and(
         unresolvedOn(
           rows("rs.Sub.f"),
-          "shadowed through Base { type X = Unit }, which is not resolved (self type of rs.Sub)"
+          "shadowed through a reference not resolved: Base { type X = Unit } (self type of rs.Sub)"
         )
       )
       .and(
@@ -457,7 +459,7 @@ class GroundEnvironmentSpec extends Specification {
       .and(
         unresolvedOn(
           rows("cp.O.P.<init>"),
-          "constructor position readings disagree: x (value space 2, estimate 2^32)"
+          "constructor position readings disagree: x (value space 2, estimate a capacity of width 32 bits)"
         )
       )
   }
@@ -470,7 +472,7 @@ class GroundEnvironmentSpec extends Specification {
         s"package fw\n${base}import org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
         "fw.C.f"
       ),
-      "builtin name Int may be shadowed through org.foo, which is not supplied (wildcard import of org.foo)"
+      "builtin name Int may be shadowed through a reference not supplied: org.foo (wildcard import of org.foo)"
     )
 
   // C has one `g`: two abstract members with the same signature merge (f = g ∘ h, h: Bool => Int,
@@ -560,7 +562,10 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("d1.Dep.<init>").render === "ω")
       .and(
         counts(valPath*)("a.b.UsesS.<init>") === Count.Unresolved(
-          List("constructor position readings disagree: s (value space ω, estimate 2^8)")
+          List(
+            "constructor position readings disagree: s (value space ω, estimate a capacity of " +
+              "width 8 bits)"
+          )
         )
       )
   }
@@ -667,7 +672,8 @@ class GroundEnvironmentSpec extends Specification {
       .and(
         counts(valPath*)("a.b.UsesT.<init>") === Count.Unresolved(
           List(
-            "constructor position readings disagree: t (value space 2^(2^137438953477), estimate 2^8)"
+            "constructor position readings disagree: t (value space 2^(2^137438953477), " +
+              "estimate a capacity of width 8 bits)"
           )
         )
       )
@@ -710,7 +716,7 @@ class GroundEnvironmentSpec extends Specification {
         "package imp\nimport org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
         "imp.C.f"
       ),
-      "builtin name Int may be shadowed through org.foo, which is not supplied"
+      "builtin name Int may be shadowed through a reference not supplied: org.foo"
     )
 
 }

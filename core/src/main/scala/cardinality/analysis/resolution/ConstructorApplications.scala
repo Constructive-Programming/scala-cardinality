@@ -1,6 +1,6 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{Decl, Defn, Tree, Type, XtensionClassifiable, XtensionSyntax}
+import scala.meta.{Decl, Defn, Tree, Type, XtensionClassifiable}
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.ExistentialInputs
@@ -8,7 +8,7 @@ import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{Arguments, Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.{Kind, Kinds, TypeApplications}
+import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
 
 /** Constructor applications, read by kind (hkt R1, R3).
   *
@@ -52,7 +52,7 @@ final private[cardinality] class ConstructorApplications(
   private def memberApplied(callee: Type, context: ResolutionContext): Option[String] =
     resolver
       .typeMember(callee, context)
-      .map(_.fold(identity, _ => s"type member applied to arguments: ${callee.syntax}"))
+      .map(_.fold(identity, _ => s"type member applied to arguments: ${Spelling.of(callee)}"))
 
   // A projection reads a source alias's applied body; a wildcard argument, a binder or an
   // inherited member has no such body to read.

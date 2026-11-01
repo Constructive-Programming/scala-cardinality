@@ -243,7 +243,7 @@ class BinderBoundsSpec extends Specification {
     """
     val counts = entries(code)
     def channel(name: String) =
-      s"builtin name $name may be shadowed through foreign, which is not supplied " +
+      s"builtin name $name may be shadowed through a reference not supplied: foreign " +
         "(wildcard import of foreign)"
     refused(counts, "W.ok", channel("AnyRef"))
       .and(refused(counts, "W.obj", channel("Object")))

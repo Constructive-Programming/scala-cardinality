@@ -3,7 +3,7 @@ package cardinality.capacity
 import scala.annotation.tailrec
 import scala.meta.*
 
-import cardinality.types.{Trees, TypeName, TypeSubstitution}
+import cardinality.types.{Spelling, Trees, TypeName, TypeSubstitution}
 
 // A recursion has a count in the model only through positive positions (docs/type-arithmetic.md §8
 // covers covariant constructions only). Through a function's domain the numeric equation is no
@@ -133,7 +133,7 @@ private[capacity] object Positivity {
 
     private def unread(callee: Type): Cause = callee match {
       case Type.Name(n) => Cause.Unread(n)
-      case other        => Cause.Unread(other.syntax)
+      case other        => Cause.Unread(Spelling.of(other))
     }
 
   }

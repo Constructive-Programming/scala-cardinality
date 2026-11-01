@@ -252,15 +252,25 @@ class TopTypesUnionSpec extends Specification {
   // Ext may declare `type Unit = Boolean` and `type Any = Boolean`: g and h could have 2.
   def foreignSelf = {
     val code = "import ext.Ext\ntrait T { self: Ext => def g(): Unit; def h(): Any }"
-    reasonContains(code, "T.g", "self type not resolved: Ext", "through ext.Ext")
-      .and(reasonContains(code, "T.h", "builtin name Any may be shadowed through ext.Ext"))
+    reasonContains(
+      code,
+      "T.g",
+      "self type not resolved: Ext",
+      "builtin name Unit may be shadowed through a reference not supplied: ext.Ext (self type of T)"
+    ).and(
+      reasonContains(
+        code,
+        "T.h",
+        "builtin name Any may be shadowed through a reference not supplied: ext.Ext (self type of T)"
+      )
+    )
   }
 
   def selfUnsuppliedParent =
     reasonContains(
       "trait Base extends ext.X\ntrait T { self: Base => def g(): Unit; def h(): Any }",
       "T.g",
-      "builtin name Unit may be shadowed through ext.X, which is not supplied (self type of T)"
+      "builtin name Unit may be shadowed through a reference not supplied: ext.X (self type of T)"
     )
 
   def suppliedSelf =
@@ -272,8 +282,19 @@ class TopTypesUnionSpec extends Specification {
     val code =
       "object Defs extends ext.X\nobject W { import Defs.*; def k(x: Any): Boolean = true\n" +
         "  def f(s: ext.Schema): Unit = () }"
-    reasonContains(code, "W.k", "through ext.X, which is not supplied (wildcard import of Defs)")
-      .and(reasonContains(code, "W.f", "builtin name Unit may be shadowed through ext.X"))
+    reasonContains(
+      code,
+      "W.k",
+      "builtin name Any may be shadowed through a reference not supplied: ext.X " +
+        "(wildcard import of Defs)"
+    ).and(
+      reasonContains(
+        code,
+        "W.f",
+        "builtin name Unit may be shadowed through a reference not supplied: ext.X " +
+          "(wildcard import of Defs)"
+      )
+    )
   }
 
   def packageObject = {
@@ -286,16 +307,16 @@ class TopTypesUnionSpec extends Specification {
   def foreignWildcard = {
     val imported = "import ext.*\ndef g(): Any = ()\ndef f(s: Schema): Unit = ()"
     val exported = "object E { export ext.defs.*; def f(s: ext.Schema): Unit = () }"
-    reasonContains(imported, "g", "through ext, which is not supplied (wildcard import of ext)")
+    reasonContains(imported, "g", "reference not supplied: ext (wildcard import of ext)")
       .and(
         reasonContains(
           imported,
           "f",
           "declaration not supplied: Schema",
-          "builtin name Unit may be shadowed through ext"
+          "builtin name Unit may be shadowed through a reference not supplied: ext"
         )
       )
-      .and(reasonContains(exported, "E.f", "through ext.defs, which is not supplied (export of E)"))
+      .and(reasonContains(exported, "E.f", "reference not supplied: ext.defs (export of E)"))
   }
 
   // Scala 3.9.0 reads `final class E(val a: Any) extends ext.X` with `scala.Any` even when X
@@ -335,12 +356,12 @@ class TopTypesUnionSpec extends Specification {
     reasonContains(
       chained,
       "extp.inner.U.f",
-      "builtin name Any may be shadowed through extp, which is not supplied (package clause extp)"
+      "builtin name Any may be shadowed through a reference not supplied: extp (package clause extp)"
     ).and(
       reasonContains(
         chained,
         "extp.inner.U.g",
-        "builtin name Unit may be shadowed through extp",
+        "builtin name Unit may be shadowed through a reference not supplied: extp",
         "declaration not supplied: Foo"
       )
     ).and(
@@ -665,7 +686,7 @@ class TopTypesUnionSpec extends Specification {
     reasonContains(
       "import ext.Json\nfinal case class Red(level: Boolean)\ndef m(j: Json, r: Red): Json | Red = r",
       "m",
-      "union Json | Red: declaration not supplied: ext.Json (named import Json)"
+      "union (Json | Red): declaration not supplied: ext.Json (named import Json)"
     )
 
   def callableSum =

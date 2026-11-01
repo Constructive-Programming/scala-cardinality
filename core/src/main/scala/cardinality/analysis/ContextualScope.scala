@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.ContextualEvidence
 import cardinality.analysis.resolution.InheritedScopes
+import cardinality.types.Spelling
 
 import ContextualEvidence.{Candidate, Nominal}
 import Inhabitation.Shape
@@ -63,7 +64,13 @@ final private[cardinality] class ContextualScope(
       ((owner -> owner.parents) :: inherited.map(s => s.declared -> s.declared.parents))
         .flatMap((from, parents) => parents.filter(reader.unsupplied(_, from)))
         .map(parent =>
-          Candidate(place.level, place.site, s"unsupplied parent ${parent.tpe.syntax}", None, false)
+          Candidate(
+            place.level,
+            place.site,
+            s"unsupplied parent ${Spelling.of(parent.tpe)}",
+            None,
+            false
+          )
         )
   }
 

@@ -6,7 +6,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.types.{TypeApplications, TypeName}
+import cardinality.types.{Spelling, TypeApplications, TypeName}
 
 import ContextualEvidence.Nominal
 import Inhabitation.{Binding, Count, Shape}
@@ -438,7 +438,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     }
     if (shadowable.exists(unbound.contains)) {
       rebound = true
-      errors += s"imported environment not resolved: ${tree.syntax.replaceAll("\\s+", " ")}"
+      errors += s"imported environment not resolved: ${Spelling.of(tree)}"
     }
   }
 

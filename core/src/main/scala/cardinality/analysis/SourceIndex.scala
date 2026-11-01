@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
 import cardinality.analysis.model.{ContextBounds, SourceBindings}
-import cardinality.types.{Kinds, TypeApplications, TypeName}
+import cardinality.types.{Kinds, Spelling, TypeApplications, TypeName}
 
 final private[cardinality] case class ImportBinding(
     start: Int,
@@ -223,12 +223,12 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
         indexGiven(input, frame, d)
       case d: Defn.ExtensionGroup => indexExtension(input, frame, d)
       case d: Defn.Def            =>
-        method(input, d, d.name.value, d.paramClauseGroups, d.decltpe, Some(d.body), frame)
+        method(input, d, d.name, d.paramClauseGroups, d.decltpe, Some(d.body), frame)
       case d: Decl.Def =>
         method(
           input,
           d,
-          d.name.value,
+          d.name,
           d.paramClauseGroups,
           Some(d.decltpe),
           None,
@@ -287,7 +287,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
         input,
         d,
         (nested.path :+ "<init>").mkString("."),
-        d.name.syntax + d.tparamClause.syntax + d.ctor.paramClauses.map(_.syntax).mkString,
+        d.name.syntax + Spelling.of(d.tparamClause) + d.ctor.paramClauses.map(Spelling.of).mkString,
         nested.copy(stats = Nil, parents = Nil),
         None,
         constructor = true
@@ -365,7 +365,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private def method(
       input: String,
       node: Tree,
-      name: String,
+      name: Term.Name,
       groups: List[Member.ParamClauseGroup],
       result: Option[Type],
       body: Option[Term],
@@ -374,9 +374,13 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   ): Unit = {
     val params = groups.flatMap(_.paramClauses).flatMap(_.values)
     val tparams = groups.flatMap(_.tparamClause.values)
-    val frame = child(input, node, name, owner, Nil, tparams, params, local = true)
+    val frame = child(input, node, name.value, owner, Nil, tparams, params, local = true)
+    // Each clause is spelled on its own, so curried clauses read `(x: A)(y: A)` however they were
+    // laid out; `<inferred>` is no Scala the tokenizer can read back.
+    val clauses = groups.flatMap(group => group.tparamClause :: group.paramClauses)
     val signature =
-      name + groups.map(_.syntax).mkString + result.fold(": <inferred>")(t => s": ${t.syntax}")
+      Spelling.declared(name, beforeColon = groups.isEmpty) + clauses.map(Spelling.of).mkString +
+        result.fold(": <inferred>")(t => s": ${Spelling.of(t)}")
     targets += Target(
       input,
       node,

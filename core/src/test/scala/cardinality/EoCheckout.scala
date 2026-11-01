@@ -16,11 +16,13 @@ import java.nio.file.{Files, Path}
   * Git-tracked production source of the project — every module, `core` included — as one combined
   * scope, and additionally re-runs `core` alone for comparison with the jar baseline. A green run
   * means the analyzer *processed* the whole project: every file parsed, the production `Report.of`
-  * path agrees with the assembled report, input order cannot change a result, and every row has a
-  * unique identity. The counts remain analyzer output, not independently validated answers.
+  * path agrees with the assembled report, input order cannot change a method or a stored-value
+  * result, and every method and definition row has a unique identity. The counts remain analyzer
+  * output, not independently validated answers.
   *
   * Supply the checkout, an output directory and the analyzer revision. The command in
-  * docs/baselines/eo-checkout-2026-10-27-full.md fetches the input separately.
+  * docs/baselines/eo-checkout-2026-10-27-full.md fetches the input separately. `EoDelta` compares
+  * two runs row by row.
   */
 object EoCheckout {
 
@@ -48,13 +50,13 @@ object EoCheckout {
     val trees = inputs.map(input => input.path -> input.tree).toMap
     def key(entry: MethodAnalysis.Entry) = EoBaseline.identity(entry, trees(entry.path))
 
-    val library = Library.of(inputs.map(_.tree))
     val forward = MethodAnalysis.analyze(inputs).sortBy(key)
     val reverse = MethodAnalysis.analyze(inputs.reverse).sortBy(key)
     require(reverse == forward, "method results depend on source input order")
     require(forward.map(key).distinct.size == forward.size, "duplicate method row identity")
+    val (definitions, rows) = checkedDefinitions(inputs)
 
-    val report = assemble(inputs, library, forward)
+    val report = assemble(inputs, definitions, forward)
     val production = Report.of(selected.map(checkout.resolve))
     require(production.errors.isEmpty, production.errors.mkString("\n"))
     require(
@@ -65,32 +67,14 @@ object EoCheckout {
     val coreInputs = inputs.filter(_.path.startsWith("core/"))
     val coreReport = assemble(
       coreInputs,
-      Library.of(coreInputs.map(_.tree)),
+      definitionsOf(coreInputs),
       MethodAnalysis.analyze(coreInputs)
     )
 
-    val header =
-      s"""# scala-cardinality full-checkout run — cats-eo project at $commit
-         |#
-         |# Provisional analyzer output, not independently validated answers.
-         |# analyzer: $revision
-         |# versions: sbt 2.1.0-RC1, Scala ${scala.util.Properties.versionNumberString}, scalameta 4.17.4
-         |# input: Git-tracked */src/main/*.scala of the checkout, excluding benchmarks/, tests/, demos/
-         |# limits: MethodAnalysis.Limits(maxTypeDepth = 64, maxStates = 256); supplied sources only
-         |# command: sbt 'core/Test/runMain cardinality.EoCheckout <checkout> <output> $revision'
-         |# checks: every tracked source parsed; forward/reversed input results equal; unique row
-         |#         identities; the production Report.of path renders the same report
-         |#
-         |""".stripMargin
-
     val _ = Files.createDirectories(output)
-    write(output.resolve("eo-checkout.txt"), header + report.render + "\n")
+    write(output.resolve("eo-checkout.txt"), header(commit, revision) + report.render + "\n")
     write(output.resolve("eo-checkout-core.txt"), coreReport.render + "\n")
-    write(
-      output.resolve("eo-checkout-methods.tsv"),
-      "module\tsource\tqualified_name\tkind\tenclosing_signature\tsignature\tanalyzer_count\tunresolved_reasons\n" +
-        forward.map(entry => row(entry, key(entry)._4)).mkString("\n") + "\n"
-    )
+    writeTables(output, forward.map(entry => row(entry, key(entry)._4)), rows)
     write(output.resolve("eo-checkout-blockers.tsv"), blockers(forward, coreReport))
 
     println(
@@ -105,30 +89,110 @@ object EoCheckout {
     println(s"Artifacts written to $output.")
   }
 
+  private def header(commit: String, revision: String): String =
+    s"""# scala-cardinality full-checkout run — cats-eo project at $commit
+       |#
+       |# Provisional analyzer output, not independently validated answers.
+       |# analyzer: $revision
+       |# versions: sbt 2.1.0-RC1, Scala ${scala.util.Properties.versionNumberString}, scalameta 4.17.4
+       |# input: Git-tracked */src/main/*.scala of the checkout, excluding benchmarks/, tests/, demos/
+       |# limits: MethodAnalysis.Limits(maxTypeDepth = 64, maxStates = 256); supplied sources only
+       |# command: sbt 'core/Test/runMain cardinality.EoCheckout <checkout> <output> $revision'
+       |# checks: every tracked source parsed; forward/reversed input results equal for methods
+       |#         and stored values; unique method and definition row identities; the production
+       |#         Report.of path renders the same report
+       |#
+       |""".stripMargin
+
+  /** Every source's definitions and the definition rows in table order, once input order is shown
+    * not to move a stored value and no two rows share an identity.
+    */
+  private[cardinality] def checkedDefinitions(
+      inputs: List[MethodAnalysis.Input]
+  ): (Map[String, List[Definition]], List[Report.DefinitionRow]) = {
+    val definitions = definitionsOf(inputs)
+    require(
+      definitionsOf(inputs.reverse) == definitions,
+      "stored-value results depend on source input order"
+    )
+    val rows = Report(
+      inputs.map(input => Report.Source(input.path, definitions(input.path))),
+      Nil
+    ).definitionRows.sortBy(definitionOrder)
+    require(rows.map(rowIdentity).distinct.size == rows.size, "duplicate definition row identity")
+    (definitions, rows)
+  }
+
+  private def writeTables(
+      output: Path,
+      methods: List[List[String]],
+      definitions: List[Report.DefinitionRow]
+  ): Unit = {
+    write(output.resolve("eo-checkout-methods.tsv"), Tsv.table(MethodColumns, methods))
+    write(
+      output.resolve("eo-checkout-definitions.tsv"),
+      Tsv.table(DefinitionColumns, definitions.map(definitionRow))
+    )
+  }
+
+  val MethodColumns = List(
+    "module",
+    "source",
+    "qualified_name",
+    "kind",
+    "enclosing_signature",
+    "signature",
+    "analyzer_count",
+    "unresolved_reasons"
+  )
+
+  /** A definition row's identity is its source, qualified name, kind and parameters: the kind tells
+    * a class from its companion object, and the name a member of each instance from a member of the
+    * object (`O#T`, `O.T`); the line is left out, so moving a declaration does not make it a new
+    * row. `reasons` is the report's own text; `reason_kinds` lists each reason tagged by its kind
+    * (`imported:Schema (…)`, `param:A`, `member:M`).
+    */
+  val DefinitionColumns = List(
+    "module",
+    "source",
+    "qualified_name",
+    "kind",
+    "params",
+    "line",
+    "size",
+    "class",
+    "reasons",
+    "reason_kinds"
+  )
+
   // The report as Report.of assembles it, but with checkout-relative paths so artifacts stay
   // repository-relative rather than carrying one developer's cache directory.
   private def assemble(
       inputs: List[MethodAnalysis.Input],
-      library: Library,
+      definitions: Map[String, List[Definition]],
       entries: List[MethodAnalysis.Entry]
   ): Report = {
     val methods = entries.groupBy(_.path)
     Report(
       inputs.map(input =>
-        Report.Source(
-          input.path,
-          Counter.definitions(input.tree, library),
-          methods.getOrElse(input.path, Nil)
-        )
+        Report.Source(input.path, definitions(input.path), methods.getOrElse(input.path, Nil))
       ),
       Nil
     )
   }
 
-  private def row(entry: MethodAnalysis.Entry, enclosing: String): String = {
+  // Every source's definitions, read against one library of the sources in the order given.
+  private[cardinality] def definitionsOf(
+      inputs: List[MethodAnalysis.Input]
+  ): Map[String, List[Definition]] = {
+    val library = Library.of(inputs.map(_.tree))
+    inputs.map(input => input.path -> Counter.definitions(input.tree, library)).toMap
+  }
+
+  private[cardinality] def row(entry: MethodAnalysis.Entry, enclosing: String): List[String] = {
     val reasons = entry.count match
-      case unresolved: Inhabitation.Count.Unresolved => unresolved.reasons.mkString("; ")
-      case _                                         => ""
+      case unresolved: Inhabitation.Count.Unresolved => unresolved.reasons
+      case _                                         => Nil
     List(
       module(entry.path),
       entry.path,
@@ -137,9 +201,31 @@ object EoCheckout {
       enclosing,
       entry.signature,
       entry.count.render,
-      reasons
-    ).mkString("\t")
+      Tsv.list(reasons)
+    )
   }
+
+  private def kind(definition: Definition): String = definition.kind.toString.toLowerCase
+
+  private def rowIdentity(row: Report.DefinitionRow): (String, String, String, List[String]) =
+    (row.source, row.definition.name, kind(row.definition), row.definition.params)
+
+  private def definitionOrder(row: Report.DefinitionRow): (String, Int, String, String) =
+    (row.source, row.definition.line, row.definition.name, kind(row.definition))
+
+  private[cardinality] def definitionRow(row: Report.DefinitionRow): List[String] =
+    List(
+      module(row.source),
+      row.source,
+      row.definition.name,
+      kind(row.definition),
+      Tsv.list(row.definition.params),
+      row.definition.line.toString,
+      row.size,
+      row.sizeClass,
+      Definition.reasons(row.definition),
+      Tsv.list(row.definition.unbound.map(reason => s"${reason.tag}:${reason.subject}"))
+    )
 
   // One line per blocker category: how many distinct signatures it stopped, combined and core.
   private def blockers(
@@ -152,7 +238,7 @@ object EoCheckout {
           val reasons = entry.count match
             case unresolved: Inhabitation.Count.Unresolved => unresolved.reasons
             case _                                         => Nil
-          reasons.map(reason => (reason.split(':').head, (entry.path, entry.line, entry.name)))
+          reasons.map(reason => (Blockers.category(reason), (entry.path, entry.line, entry.name)))
         }
         .groupBy(_._1)
         .map { (category, hits) => category -> hits.map(_._2).toSet }

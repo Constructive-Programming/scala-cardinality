@@ -30,7 +30,7 @@ final private[cardinality] class SealedReceivers(target: Target, resolver: Resol
     case Some(family) if !stands(goal, count) =>
       val name = family.path.last
       Count.Unresolved(
-        List(s"receiver of sealed family $name is a sum this measurement does not split")
+        List(s"receiver is a sealed family this measurement does not split: $name")
       )
     case _ => count
   }

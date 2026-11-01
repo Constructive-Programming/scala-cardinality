@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.model.ResolutionContext
-import cardinality.types.{Kinds, TypeApplications}
+import cardinality.types.{Kinds, Spelling, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved}
 
@@ -66,7 +66,7 @@ private[cardinality] object InheritedScopes {
                 case Some(first) if first == step.env => (Nil, Nil, seen)
                 case Some(_)                          =>
                   (
-                    List(Left(s"inherited parent instantiated twice: ${parent.tpe.syntax}")),
+                    List(Left(s"inherited parent instantiated twice: ${Spelling.of(parent.tpe)}")),
                     Nil,
                     seen
                   )
@@ -112,7 +112,7 @@ private[cardinality] object InheritedScopes {
         case None                 => Right(None)
         case Some((entry, scope)) =>
           entry.self
-            .toRight(s"inherited parent declaration not resolved: ${parent.tpe.syntax}")
+            .toRight(s"inherited parent declaration not resolved: ${Spelling.of(parent.tpe)}")
             .map { declared =>
               val own = declared.typeParams.map(_.name.value).toSet
               Some(

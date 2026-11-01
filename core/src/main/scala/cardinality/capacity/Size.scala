@@ -60,8 +60,8 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
   def min(other: Size): Size = Size.order.min(self, other)
 
   /** How many values this size holds, in a report's language: exact counts as digits, capacities as
-    * bounding powers of two (never the digits a bound might stand for), tiers as `ω` and `ε₀`.
-    * `toString` instead names the algebra's constructors (`TinySize(2)`) for failing tests.
+    * the bounds they are (`≤2^33`, never the digits a bound might stand for), tiers as `ω` and
+    * `ε₀`. `toString` instead names the algebra's constructors (`TinySize(2)`) for failing tests.
     */
   def render: String = Size.render(self)
 
@@ -137,8 +137,8 @@ object Size {
     */
   def bits(cardinality: BigInt): Int = (cardinality - 1).bitLength
 
-  /** The report's rendering of a size: exact digits, capacities as bounding powers of two, lossy
-    * stand-ins marked, tiers as `ε₀` and `ω`; zero terms drop out.
+  /** The report's rendering of a size: exact digits, capacities as upper bounds (`≤2^b`), lossy
+    * stand-ins as bounds marked `(lossy)`, tiers as `ε₀` and `ω`; zero terms drop out.
     */
   def render(size: Size): String = {
     val terms = List(
@@ -158,10 +158,10 @@ object Size {
 }
 
 /** The finite component of a `Size`: the third coordinate of `a·ε₀ + b·ω + n`. Counts up to 127 are
-  * exact (`Exact`); above that only a capacity is kept (the count lies in `(2^(bits-1), 2^bits]`),
-  * and `Lossy` stands in for floating point. The capacity-like algebra lives here once: two exact
-  * counts combine exactly, every other combination rounds up (a sum by `max(bits) + 1`), not
-  * associatively — the finite coordinate is an estimate.
+  * exact (`Exact`); above that only a width is kept (`Capacity`), and `Lossy` stands in for
+  * floating point. The capacity-like algebra lives here once: two exact counts combine exactly,
+  * every other combination rounds up (a sum by `max(bits) + 1`), not associatively — the finite
+  * coordinate is an estimate.
   */
 sealed trait FinitePart { self =>
 
@@ -272,7 +272,12 @@ object FinitePart {
 
   }
 
-  /** A count in `(2^(bits-1), 2^bits]`: the width is tracked, not the count. */
+  /** A count of at most `2^bits`: the width is tracked, not the count. One read from a single count
+    * (`Int`) is also above `2^(bits-1)`, but a sum or product rounds its width up
+    * (`Option[Option[Byte]]`, 258 values, reads width 10), so only the upper bound survives the
+    * algebra — and `Int` and `2^31 + 1` values both read width 32. A report prints it as that
+    * bound, `≤2^bits`, never as the power itself.
+    */
   final case class Capacity(bits: BigInt) extends FinitePart {
 
     def rank: Int = 1
@@ -281,7 +286,7 @@ object FinitePart {
 
   }
 
-  /** A floating-point stand-in: finite, of unmodelled precision, wider than any exact width. */
+  /** A floating-point stand-in above exact widths; like a capacity's, its width is a bound. */
   final case class Lossy(bits: BigInt) extends FinitePart {
 
     def rank: Int = 2
@@ -294,13 +299,13 @@ object FinitePart {
   def exact(cardinality: BigInt): FinitePart =
     if (cardinality.isValidByte) Exact(cardinality) else Capacity(Size.bits(cardinality))
 
-  /** The finite coordinate in report language: exact digits, bounding powers of two, lossy widths
+  /** The finite coordinate in report language: exact digits, any width as its bound, a lossy one
     * marked. The zero part renders as nothing; an all-tier size prints without `+ 0`.
     */
   def render(part: FinitePart): String = part match {
     case Exact(repr)    => if (repr == 0) "" else repr.toString
-    case Capacity(bits) => s"2^$bits"
-    case Lossy(bits)    => s"2^$bits (lossy)"
+    case Capacity(bits) => s"≤2^$bits"
+    case Lossy(bits)    => s"≤2^$bits (lossy)"
   }
 
 }
@@ -312,14 +317,14 @@ object TinySize {
 
 }
 
-/** A size of `2^bits` at most: the count lies in `(2^(bits-1), 2^bits]`. */
+/** A size of `2^bits` at most: a capacity, which a report prints as `≤2^bits`. */
 object FiniteSize {
 
   def apply(bits: BigInt): Size = Size(0, 0, FinitePart.Capacity(bits))
 
 }
 
-/** A size of unmodelled precision, at least as wide as `bits`: the floating-point stand-in. */
+/** A size of unmodelled precision and at most `2^bits` values: the floating-point stand-in. */
 object LossyInfiniteSize {
 
   def apply(bits: BigInt): Size = Size(0, 0, FinitePart.Lossy(bits))

@@ -36,7 +36,8 @@ object MethodAnalysis {
 
   object Entry:
 
-    /** One report row for a target: the signature is flattened to a single line, and scalameta's
+    /** One report row for a target: the signature (spelled tree by tree where it is built) and
+      * every reason are kept on one line, the way a row quotes them (`Spelling`), and scalameta's
       * zero-based line becomes the line an editor shows.
       */
     def of(
@@ -48,10 +49,13 @@ object MethodAnalysis {
       Entry(
         target.input,
         target.name,
-        target.signature.replaceAll("\\s+", " "),
+        Spelling.line(target.signature),
         target.tree.pos.startLine + 1,
         kind,
-        count,
+        count match {
+          case Count.Unresolved(reasons) => Count.Unresolved(reasons.map(Spelling.line))
+          case solved                    => solved
+        },
         captures
       )
 
@@ -305,7 +309,7 @@ object MethodAnalysis {
             result <- context.read(f.res, this)
           } yield Shape.Function(args, result)
         case f: Type.ContextFunction =>
-          Left(s"context function requires evidence analysis: ${f.syntax}")
+          Left(s"context function requires evidence analysis: ${Spelling.of(f)}")
         case wildcard: Type.Wildcard => Left(TypePlaceholders.existential(wildcard))
         case _: Type.AnonymousParam  =>
           Left("constructor placeholder has no enclosing constructor application")
@@ -333,7 +337,7 @@ object MethodAnalysis {
               .flatMap(SingletonIntersections.validate(_, context.useSite, this))
           }
         case s: Type.Select => namedType(s.syntax, Arguments.none, context)
-        case _              => Left(s"unsupported type: ${tpe.syntax.replaceAll("\\s+", " ")}")
+        case _              => Left(s"unsupported type: ${Spelling.of(tpe)}")
       }
     }
 

@@ -96,8 +96,8 @@ space, never a choice of supplied values: `P3(x: Int, y: Option[Int])` is exactl
 other packages declare under the same name (the estimate reads it where the constructor is
 written — [stored-value-names.md](stored-value-names.md)). `Float` and `Double`
 positions are exact too (`P(x: Double)` is `2^64 − 2^53 + 3`): the method side counts `equals`
-classes, while the definition's stored-value row keeps the estimate's lossy capacity
-(`2^64 (lossy)`) — two views of one type, documented apart.
+classes, while the definition's stored-value row keeps the estimate's lossy capacity, a bound
+(`≤2^64 (lossy)`) — two views of one type, documented apart.
 
 An infinite closed position keeps the estimate's tier (`Reducer(run: String => String)` stays ε₀),
 so `R(run: C => String)` with `C(n: String)` is ε₀ whether or not another package also declares a
@@ -162,8 +162,8 @@ that tier.
   class parameters are fixed by the case; neither is bound yet. Its count stands only for a terminal
   goal (1 in every environment) and for a goal with infinitely many literals in an enum with a case
   built from nothing (ω: the solver's ω shows the rest of the context is not absurd, the receiver
-  keeps it so, and finite programs bound it). Anything else is refused: `receiver of sealed family
-  F is a sum this measurement does not split` (`enum E { case A(x: Int); case B; def f: Int }` is
+  keeps it so, and finite programs bound it). Anything else is refused: `receiver is a sealed
+  family this measurement does not split: F` (`enum E { case A(x: Int); case B; def f: Int }` is
   truly `(2^32)^(2^32 + 1)`; with `case A(n: Nothing)` only, 1).
 - A builtin comes from the root import `scala.*`, the weakest binding there is, so any supplied
   declaration a reference reaches by its simple name shadows it. Lookup reads lexical
@@ -174,13 +174,13 @@ that tier.
   wildcard-imported object inherits or exports, a package object's parents, or export clauses.
   With `trait Base { type Int = Boolean }`, `Int` is `Boolean` in each of those (Scala 3.9.0
   rejects `val w: Int = 3` there), so the builtin is refused, `builtin name Int may be shadowed by
-  w8.Base.Int (wildcard import of O)`, until those members are resolved where they are declared. A step the walk cannot follow is
+  a declaration: w8.Base.Int (wildcard import of O)`, until those members are resolved where they are declared. A step the walk cannot follow is
   refused too when it may lead into the sources (`import o.*` of a supplied value: `… shadowed
-  through o, which is not resolved`). The walk runs only for a name a supplied type, enum case or
+  through a reference not resolved: o`). The walk runs only for a name a supplied type, enum case or
   export spells, so it never runs on eo 1.0.0. A primary constructor's parameters are read outside
   the template's members (`class Sub(x: Int) extends Base` reads `scala.Int`).
 - Ground names under a wildcard import of a foreign namespace (`import org.foo.*`) are refused
-  (`builtin name Int may be shadowed through org.foo, which is not supplied …`): `org.foo` may
+  (`builtin name Int may be shadowed through a reference not supplied: org.foo …`): `org.foo` may
   declare `type Int = Unit`. The stdlib namespaces the model lists declare no root name
   ([stdlib-model.md](stdlib-model.md)), so on eo 1.0.0 `AvroWalk.normalisedName` (ω) keeps its
   count under `import scala.jdk.CollectionConverters.*`.

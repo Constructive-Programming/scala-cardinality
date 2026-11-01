@@ -247,7 +247,7 @@ class HigherKindedRefusalSpec extends Specification {
       refused(
         counts,
         name,
-        s"builtin name $builtin may be shadowed through $prefix, which is not supplied " +
+        s"builtin name $builtin may be shadowed through a reference not supplied: $prefix " +
           s"(wildcard import of $prefix)"
       )
     boxed("boxed.T.plain", "Boolean", "java.lang")

@@ -115,8 +115,8 @@ private[cardinality] object SealedSlots {
     parentArguments(subtype, parent.name).flatMap { args =>
       if (args.size != parent.params.size)
         Left(
-          s"sealed subtype ${subtype.name} pins ${parent.name} with ${args.size} of its " +
-            s"${parent.params.size} parameters"
+          s"sealed subtype pins its parent with another number of arguments: ${subtype.name} " +
+            s"(${args.size} of the ${parent.params.size} parameters of ${parent.name})"
         )
       else
         Traversals
@@ -150,12 +150,16 @@ private[cardinality] object SealedSlots {
   private def parentArguments(subtype: Subtype, parentName: String): Either[String, List[Type]] =
     subtype.inits.find(init => plainCallee(init.tpe).contains(parentName)) match {
       case None =>
-        Left(s"sealed subtype ${subtype.name} reaches $parentName only through a qualified name")
+        Left(
+          s"sealed subtype reaches its parent only through a qualified name: ${subtype.name} " +
+            s"(of $parentName)"
+        )
       case Some(init) =>
         init.tpe match {
           case application: Type.Apply => Right(application.argClause.values.toList)
           case _: Type.Name            => Right(Nil)
-          case _ => Left(s"sealed subtype ${subtype.name} applies $parentName unreadably")
+          case _                       =>
+            Left(s"sealed subtype applies its parent unreadably: ${subtype.name} (of $parentName)")
         }
     }
 
@@ -172,8 +176,8 @@ private[cardinality] object SealedSlots {
       case _ if !mentionsAny(arg, childNames) && isBottomPinned(parameter, arg) => Right(None)
       case _                                                                    =>
         Left(
-          s"sealed subtype ${subtype.name} leaves a parameter of $parentName unpinned: " +
-            arg.syntax.replaceAll("\\s+", " ")
+          s"sealed subtype leaves a parameter of its parent unpinned: ${subtype.name} " +
+            s"(${Spelling.of(arg)}, of $parentName)"
         )
     }
   }
@@ -189,10 +193,14 @@ private[cardinality] object SealedSlots {
     def offending(count: Int => Boolean) =
       names.filter(n => count(bindings.count(_._1 == n))).mkString(", ")
     if (names.exists(n => !bindings.exists(_._1 == n)))
-      Left(s"sealed subtype ${subtype.name} binds ${offending(_ == 0)} to no slot of $parentName")
+      Left(
+        s"sealed subtype binds a parameter to no slot of its parent: ${subtype.name} " +
+          s"(${offending(_ == 0)}, of $parentName)"
+      )
     else if (bindings.groupBy(_._1).exists(_._2.size > 1))
       Left(
-        s"sealed subtype ${subtype.name} binds ${offending(_ > 1)} to several slots of $parentName"
+        s"sealed subtype binds a parameter to several slots of its parent: ${subtype.name} " +
+          s"(${offending(_ > 1)}, of $parentName)"
       )
     else Right(bindings)
   }
@@ -219,10 +227,10 @@ private[cardinality] object SealedSlots {
         case Some((child, slot)) =>
           val name = s"${subtype.name}.$childName"
           def refusal(v: String) =
-            s"sealed subtype parameter $name of a $v slot of ${parent.name} is not $v"
+            s"sealed subtype parameter of a $v slot is not $v: $name (of ${parent.name})"
           if (!sameBounds(child, slot))
             Left(
-              s"sealed subtype parameter $name is bounded otherwise than its slot of ${parent.name}"
+              s"sealed subtype parameter is bounded otherwise than its slot: $name (of ${parent.name})"
             )
           else
             (Variance.of(slot), Variance.of(child)) match {

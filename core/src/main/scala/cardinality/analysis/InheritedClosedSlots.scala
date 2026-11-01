@@ -54,8 +54,8 @@ final private[cardinality] class InheritedClosedSlots(root: Frame, ancestors: Li
       frames.find(concrete(_)(name)) match {
         case Some(implementer) =>
           Refuse(
-            s"inherited declaration $name is implemented in ${implementer.path.last}; " +
-              "implemented members are not modelled as capabilities"
+            "inherited declaration implemented, not modelled as a capability: " +
+              s"$name (implemented in ${implementer.path.last})"
           )
         case None => restated(declaring, name, key, binding)
       }

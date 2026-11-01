@@ -9,7 +9,7 @@ import cardinality.analysis.inhabitation.{EvidenceAnalysis, ExistentialInputs}
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.{Kinds, TypeApplications}
+import cardinality.types.{Kinds, Spelling, TypeApplications}
 
 /** A subtype bound on a proper binder is an ambient proof (hkt R5): `A <: U` is `A <:< U`, `A >: L`
   * is `L <:< A`, always available and never a value — in the body, `summon[A <:< U]` compiles, and
@@ -105,9 +105,9 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
     resolver.resolve(bound, context) match {
       case Right(shape) if EvidenceAnalysis.endpoint(shape) || closed(shape) => Right(shape)
       case Right(_)                                                          =>
-        Left(s"bound to a structural type requires coercion analysis: ${parameter.syntax}")
+        Left(s"bound to a structural type requires coercion analysis: ${Spelling.of(parameter)}")
       case Left(_) if upper && membersOnly(bound, context) =>
-        Left(s"upper bound requires capability analysis: ${parameter.syntax}")
+        Left(s"upper bound requires capability analysis: ${Spelling.of(parameter)}")
       case Left(reason) => Left(reason)
     }
 

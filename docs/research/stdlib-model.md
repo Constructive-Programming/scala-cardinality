@@ -117,8 +117,8 @@ qualified ones, and named imports of a model path (`import java.util.List` reads
 
 **Wildcard refusal.** A wildcard import of a namespace the sources do not supply may declare any
 name — `import java.util.*` brings `java.util.List` over `scala.List`. Every builtin and model
-name is refused there (`builtin name List may be shadowed through java.util, which is not supplied
-(wildcard import of java.util)`), as is any other channel to undeclared names (an unsupplied
+name is refused there (`builtin name List may be shadowed through a reference not
+supplied: java.util (wildcard import of java.util)`), as is any other channel to undeclared names (an unsupplied
 parent, self type or package clause). A `_root_.`-anchored path is exempt. The table lists the
 stdlib namespaces whose wildcards it knows — `scala.quoted.*`, `quotes.reflect.*` and
 `scala.jdk.CollectionConverters.*` — and none of them declares a name the root imports bind
@@ -156,8 +156,8 @@ an unsupplied wildcard does.
 **Assumption.** No package outside the sources is named `scala` or `java` inside a package of the
 sources: inside `package r7`, `scala.Option` is read as the library's, though an unsupplied
 `r7.scala` would outrank the root package (Scala's reason for `_root_`). A package `r7.scala` the
-sources do supply refuses the reading (`builtin name scala.Option may be shadowed by package
-r7.scala (a package of the sources)`). A relative path (`util.Either`) is refused without such
+sources do supply refuses the reading (`builtin name scala.Option may be shadowed by a
+declaration: package r7.scala (a package of the sources)`). A relative path (`util.Either`) is refused without such
 evidence, since top-level packages of those names are commonplace.
 
 ## Parents outside the sources
@@ -172,7 +172,7 @@ concrete code no subclass can override cannot change a count whose inputs and re
 environment reading's rule for concrete code). Constructors are exempt: a constructor
 chooses only its parameters. A sealed template whose subtypes are all fixed receivers in turn
 (final classes, objects, sealed templates of such, with no anonymous or given instance) is one too:
-its own receiver's family is what stays unread (`receiver of sealed family P …`). The table
+its own receiver's family is what stays unread (`receiver is a sealed family this measurement does not split: P`). The table
 summarizes the parents eo extends: the root and marker types (`Any`, `AnyRef`, `Object`,
 `Matchable`, `AnyVal`, `Serializable`, `Dynamic`) declare no member a count reads; `Product` and
 `Equals` declare no type member, but term members the table does not hold; `IterableOnce`

@@ -52,11 +52,12 @@ private[cardinality] object MethodTypeLambdas {
       resolver: Resolver
   ): Resolved =
     if (poly.tparamClause.values.exists(TypeApplications.constrained))
-      Left(s"constrained polymorphic function: ${poly.syntax}")
+      Left(s"constrained polymorphic function: ${Spelling.of(poly)}")
     else
       readBody(poly, context, resolver).flatMap { _ =>
         if (identity(poly)) Right(Shape.Product(Nil))
-        else Left(s"polymorphic function outside the closed identity fragment: ${poly.syntax}")
+        else
+          Left(s"polymorphic function outside the closed identity fragment: ${Spelling.of(poly)}")
       }
 
   // Reading the body first retains dependency/evidence diagnostics; no context evidence executes.

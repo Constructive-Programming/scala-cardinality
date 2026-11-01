@@ -633,8 +633,16 @@ class EnvironmentSoundnessSpec extends Specification {
     val found = counts("Gadt.scala" -> """enum G2[A] { case I2 extends G2[Unit]; case S2(a: A) }
       |enum L[A] { case Lc(a: A) extends L[Int]; case Ln(a: A) }
       |object Use { def g2[A](a: A): G2[A] = ???; def l[A](a: A): L[A] = ??? }""".stripMargin)
-    refused(found("Use.g2"), "sealed subtype I2 leaves a parameter of G2 unpinned: Unit")
-      .and(refused(found("Use.l"), "sealed subtype Lc leaves a parameter of L unpinned: Int"))
+    refused(
+      found("Use.g2"),
+      "sealed subtype leaves a parameter of its parent unpinned: I2 (Unit, of G2)"
+    )
+      .and(
+        refused(
+          found("Use.l"),
+          "sealed subtype leaves a parameter of its parent unpinned: Lc (Int, of L)"
+        )
+      )
   }
 
   // `Sw[X, Y](x: X, y: Y) extends P[Y, X]` is `P[A, B]` with x: B, y: A: only `Sw(b, a)`, 1.

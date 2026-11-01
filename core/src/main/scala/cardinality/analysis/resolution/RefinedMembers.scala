@@ -26,7 +26,7 @@ private[cardinality] object RefinedMembers {
       resolver: Resolver,
       projection: Boolean = false
   ): Resolved =
-    new Reader(resolver, Option.when(projection)(s"${qualifier.syntax}#$member"))
+    new Reader(resolver, Option.when(projection)(s"${Spelling.of(qualifier)}#$member"))
       .member(qualifier, member, context)
 
   def pathType(path: Term.Ref, frame: Frame): Option[Either[String, (Type, Frame)]] = path match {
@@ -116,7 +116,7 @@ private[cardinality] object RefinedMembers {
 
     def member(qualifier: Type, name: String, context: ResolutionContext): Resolved = {
       val key = s"member:${context.frame.id}:${qualifier.syntax}#$name"
-      if (context.visiting(key)) Left(s"recursive refined member: ${qualifier.syntax}#$name")
+      if (context.visiting(key)) Left(s"recursive refined member: ${Spelling.of(qualifier)}#$name")
       else if (context.visiting.size >= resolver.limits.maxTypeDepth)
         Left("type resolution budget exhausted")
       else readQualifier(qualifier, name, context.enter(key))
@@ -130,7 +130,7 @@ private[cardinality] object RefinedMembers {
         case n: Type.Name          => source(n.value, Nil, name, context)
         case selected: Type.Select =>
           source(selected.syntax.stripPrefix("_root_."), Nil, name, context)
-        case _ => Left(s"unavailable refined member: ${qualifier.syntax}#$name")
+        case _ => Left(s"unavailable refined member: ${Spelling.of(qualifier)}#$name")
       }
 
     private def refinement(
@@ -179,7 +179,7 @@ private[cardinality] object RefinedMembers {
         known: String => Boolean
     ): Option[String] =
       if (body.collect { case _: Term.This => () }.nonEmpty)
-        Some(s"refined member $name refers to its own value: ${body.syntax}")
+        Some(s"refined member $name refers to its own value: ${Spelling.of(body)}")
       else
         owner.flatMap { (tpe, scope) =>
           TypeSubstitution
@@ -213,7 +213,7 @@ private[cardinality] object RefinedMembers {
         Left(s"type projection of abstract member ${projected.mkString}: no stable path")
       case _ =>
         Left(
-          s"abstract refined member ${declaration.name.value} has non-exact bounds: ${declaration.syntax}"
+          s"abstract refined member has non-exact bounds: ${Spelling.of(declaration)}"
         )
     }
 

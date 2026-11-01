@@ -59,6 +59,25 @@ object Definition {
       case Refusal(what)              => what
     }
 
+    /** What the reason is about, without the word `render` gives its kind: the name or syntax an
+      * artifact puts after the reason's `tag` (`member:M`, not `member:member M`).
+      */
+    def subject: String = this match {
+      case Member(name) => name
+      case other        => other.render
+    }
+
+    /** The kind as a machine-readable artifact tags a reason (`unknown:Schema`, `param:F[_]`). */
+    def tag: String = this match {
+      case _: (Parameter | HigherKinded) => "param"
+      case _: Member                     => "member"
+      case _: Open                       => "open"
+      case _: Unknown                    => "unknown"
+      case _: Imported                   => "imported"
+      case _: Syntax                     => "syntax"
+      case _: Refusal                    => "refusal"
+    }
+
     /** The same reason for a name a clause renamed (`import a.{N as M}` binds `M`). */
     def renamed(name: TypeName): Unbound = this match {
       case Imported(_, provenance) => Imported(name.value, provenance)

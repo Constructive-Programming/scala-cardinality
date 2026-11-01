@@ -180,7 +180,7 @@ class GroundTypesSpec extends Specification {
       .and(
         unresolvedOn(
           count("def f[A](x: Predef.String, a: A): A = a"),
-          "builtin name Predef.String may be shadowed by a top-level package Predef outside the sources"
+          "builtin name Predef.String may be shadowed by a top-level package outside the sources: Predef"
         )
       )
       .and(count("def f[A](x: scala.Predef.String, a: A): A = a") === Count.Finite(1))
@@ -261,7 +261,7 @@ class GroundTypesSpec extends Specification {
     unresolvedOn(
       count(foo + "case class G(f: (Int => Int) => Int, q: Foo)", "G.<init>"),
       "constructor space has no estimate form: 2^(2^137438953477)"
-    ).and(count(foo + "case class H(x: Int, q: Foo)", "H.<init>").render === "2^64")
+    ).and(count(foo + "case class H(x: Int, q: Foo)", "H.<init>").render === "≤2^64")
       .and(count(nat + "case class K(f: (Int => Int) => Int, n: Nat)", "K.<init>").render === "ω")
   }
 

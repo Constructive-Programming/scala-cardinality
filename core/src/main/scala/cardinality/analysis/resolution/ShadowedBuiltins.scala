@@ -8,7 +8,7 @@ import cardinality.analysis.StdlibModel.Spelling
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, ImportBinding, Resolver, SourceIndex, StdlibModel}
-import cardinality.types.TypeSubstitution
+import cardinality.types.{Spelling as TreeSpelling, TypeSubstitution}
 
 /** A builtin name (`Int`, `Boolean`, `Option`) a reference may bind through a channel simple-name
   * lookup does not walk.
@@ -139,7 +139,9 @@ final private[cardinality] class ShadowedBuiltins(
       case Spelling.TopLevel(_) =>
         Left(absent(written, context))
       case Spelling.Relative(name, head) if known(s"scala.$name").nonEmpty =>
-        Left(s"builtin name $name may be shadowed by a top-level package $head outside the sources")
+        Left(
+          s"builtin name $name may be shadowed by a top-level package outside the sources: $head"
+        )
       case Spelling.Relative(name, _)      => Left(absent(name, context))
       case Spelling.Rooted(name, anchored) =>
         known(name) match {
@@ -561,19 +563,28 @@ private[cardinality] object ShadowedBuiltins {
   // Where a search stops: a declaration of the name, or a step it cannot see past.
   private type Stop = Step.Found | Step.Doubt | Step.Unread
 
+  // What may shadow the name, and through which clause, follow the separator: a namespace such as
+  // `cats` reads like prose, and a report tallies one category per kind of stop, not per namespace.
   private def refusal(subject: String, stop: Stop): String = stop match {
-    case Step.Found(declaration, via) => s"$subject may be shadowed by $declaration ($via)"
-    case other                        => s"$subject may be shadowed ${route(other)}"
+    case Step.Found(declaration, via) =>
+      s"$subject may be shadowed by a declaration: $declaration ($via)"
+    case doubt: Step.Doubt =>
+      s"$subject may be shadowed through a reference not resolved: ${doubt.unread} (${why(doubt)})"
+    case Step.Unread(what, via) =>
+      s"$subject may be shadowed through a reference not supplied: $what ($via)"
   }
 
   // A step a search could not see past, as the way a binding may come through it.
   private def route(stop: Stop): String = stop match {
     case Step.Found(declaration, via) => s"through $declaration ($via)"
-    case Step.Doubt(what, via, cycle) =>
-      val why = if (cycle && via != SelfReached) s"$via, in $SelfReached" else via
-      s"through $what, which is not resolved ($why)"
+    case doubt: Step.Doubt      => s"through ${doubt.unread}, which is not resolved (${why(doubt)})"
     case Step.Unread(what, via) => s"through $what, which is not supplied ($via)"
   }
+
+  // The clause a doubt came through, and the search under way its standing rests on.
+  private def why(doubt: Step.Doubt): String =
+    if (doubt.selfReached && doubt.via != SelfReached) s"${doubt.via}, in $SelfReached"
+    else doubt.via
 
   /** Whether a resolution's reason is this refusal: a builtin reading that may stand for a
     * different declaration, so no other reading of the same name may be trusted in its place.
@@ -634,7 +645,7 @@ private[cardinality] object ShadowedBuiltins {
   private def qualified(frame: Frame): String = frame.path.mkString(".")
 
   // A tree as one line of a reason.
-  private def spell(tree: Tree): String = tree.syntax.replaceAll("\\s+", " ")
+  private def spell(tree: Tree): String = TreeSpelling.of(tree)
 
   private def label(frame: Frame): String = frame.tree match {
     case Some(_: Pkg.Object)        => s"package object ${qualified(frame)}"

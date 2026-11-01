@@ -7,7 +7,7 @@ import cardinality.analysis.MethodAnalysis.{Frame, Resolved, TypeEntry}
 import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberPath, ResolutionContext}
-import cardinality.types.{Kinds, TypeApplications}
+import cardinality.types.{Kinds, Spelling, TypeApplications}
 
 import TemplateClosures.Closure
 
@@ -208,7 +208,7 @@ final private[cardinality] class TypeMembers(
       Left(s"higher-kinded abstract type member $member")
     else
       declared.find(!trivial(_)) match {
-        case Some(d) => Left(s"bounded abstract type member $member (${d.bounds.syntax.trim})")
+        case Some(d) => Left(s"bounded abstract type member $member (${Spelling.of(d.bounds)})")
         case None    =>
           unsupplied(path, name)
             .orElse(unfree(path, name))
@@ -378,13 +378,16 @@ final private[cardinality] class TypeMembers(
       r.tpe match {
         case None       => unshown(r.body.stats).toLeft(tpe)
         case Some(base) =>
-          declaredPath(Named(s"input:${r.syntax}", r.syntax), r, context) match {
+          declaredPath(Named(s"input:${r.syntax}", Spelling.of(r)), r, context) match {
             case Some(found) => found.map(_ => base)
             case None        =>
               Left(
                 resolver
                   .resolve(base, context)
-                  .fold(identity, _ => notShown(r, s"${base.syntax} is not a supplied template"))
+                  .fold(
+                    identity,
+                    _ => notShown(r, s"${Spelling.of(base)} is not a supplied template")
+                  )
               )
           }
       }
@@ -403,17 +406,17 @@ final private[cardinality] class TypeMembers(
       case None if terms.isEmpty => unshown(r.body.stats).toLeft(Shape.Product(Nil))
       case Some(base) if terms.forall(stat => baseDeclares(base, stat, context)) =>
         Left(
-          s"refined representation unavailable (constraints not erased): ${spelled(r)}"
+          s"refined representation unavailable (constraints not erased): ${Spelling.of(r)}"
         )
       case _ =>
-        Left(s"structural refinement with term members: ${spelled(r)}")
+        Left(s"structural refinement with term members: ${Spelling.of(r)}")
     }
   }
 
   /** Whether a type declares or inherits a type member; one this reading has no template for may.
     */
   def declaresMember(owner: Type, name: String, context: ResolutionContext): Boolean =
-    declaredPath(Named(s"owner:${owner.syntax}", owner.syntax), owner, context) match {
+    declaredPath(Named(s"owner:${owner.syntax}", Spelling.of(owner)), owner, context) match {
       case Some(Right(path)) => declarationsOf(path, name).nonEmpty
       case _                 => true
     }
@@ -421,7 +424,7 @@ final private[cardinality] class TypeMembers(
   // Whether a base declares every term a refinement statement narrows; a base that is no supplied
   // template may, as far as this reading knows.
   private def baseDeclares(base: Type, stat: Stat, context: ResolutionContext): Boolean =
-    declaredPath(Named(s"base:${base.syntax}", base.syntax), base, context) match {
+    declaredPath(Named(s"base:${base.syntax}", Spelling.of(base)), base, context) match {
       case Some(Right(path)) =>
         levels(path).forall(found =>
           FinalImplementations
@@ -621,7 +624,7 @@ private[cardinality] object TypeMembers {
     case d: Decl.Type if d.tparamClause.values.nonEmpty =>
       s"higher-kinded refined member: ${d.name.value}"
     case d: Decl.Type if twoSided(d) =>
-      s"abstract refined member ${d.name.value} has non-exact bounds: ${d.syntax}"
+      s"abstract refined member has non-exact bounds: ${Spelling.of(d)}"
     case d: Defn.Type if !alias(d) => s"higher-kinded or opaque refined member: ${d.name.value}"
   }
 
@@ -658,9 +661,7 @@ private[cardinality] object TypeMembers {
   }
 
   private def notShown(r: Type.Refine, why: String): String =
-    s"refinement not shown satisfiable: ${spelled(r)} ($why)"
-
-  private def spelled(r: Type.Refine): String = r.syntax.replaceAll("\\s+", " ")
+    s"refinement not shown satisfiable: ${Spelling.of(r)} ($why)"
 
   private def declares(stat: Stat, name: String): Boolean = declaredName(stat).contains(name)
 
@@ -675,7 +676,7 @@ private[cardinality] object TypeMembers {
     template.tree
       .flatMap(TypeApplications.template)
       .flatMap(_.body.selfOpt.flatMap(_.decltpe))
-      .map(tpe => s"self type not resolved: ${tpe.syntax}")
+      .map(tpe => s"self type not resolved: ${Spelling.of(tpe)}")
 
   private def isTemplate(frame: Frame): Boolean = frame.isTemplate
 

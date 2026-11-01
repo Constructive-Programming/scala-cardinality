@@ -91,8 +91,8 @@ another meaning may hide behind a name:
   chained `package a; package b` when no supplied unit declares a member of `a` (the clause opens
   all of `a`'s members, wherever they are written). Scala 3.9.0 compiles
   `def g(): Unit = false` in each case when the outside declaration is `type Unit = Boolean`, so
-  the rows keep their other reasons plus `builtin names may be shadowed through <step>, which is
-  not supplied (<channel>)` (`… not resolved …` for a step this reading cannot follow). The top
+  the rows keep their other reasons plus `builtin names may be shadowed through a reference not
+  supplied: <step> (<channel>)` (`… not resolved …` for a step this reading cannot follow). The top
   names themselves are refused there the same way (`builtin name Any may be shadowed through …`),
   and so is every other builtin and stdlib-model name ([stdlib-model.md](stdlib-model.md));
 - a `transparent inline` result must also pass rule X.
@@ -268,7 +268,7 @@ family, any other may.
 | literal and stable-value singleton alternatives | the alternative's own reason (no runtime class without ground equality analysis) |
 | callable returning an open union | `Elimination of an opaque sum-producing callable is unsupported` |
 | transparent result naming a top type, a function type or a class a subclass may extend | `transparent inline result: …` |
-| self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through …, which is not supplied (…)` |
+| self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
 | a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |
 | a top-typed parameter of an `inline` method | `inline parameter reads a top type, which the expansion may match on: <param>` |
 | `Any` shadowed (alias, binder, import, inherited member) | the shadowing declaration's reading or refusal, unchanged |

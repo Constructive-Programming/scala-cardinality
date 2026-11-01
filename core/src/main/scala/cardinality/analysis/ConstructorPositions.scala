@@ -7,7 +7,7 @@ import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natu
 import cardinality.analysis.model.{ContextBounds, ResolutionContext}
 import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes}
 import cardinality.capacity.{Definition, FinitePart, Size}
-import cardinality.types.TypeSubstitution
+import cardinality.types.{Spelling, TypeSubstitution}
 
 import Inhabitation.{Count, Shape}
 import MethodAnalysis.{Frame, Resolved, Target}
@@ -205,11 +205,18 @@ final private[cardinality] class ConstructorPositions(
       case _                                                   => image.bits == estimate.bits
     }
 
-  private def disagree(name: String, space: Card, size: Size): Position =
+  // A finite estimate above 127 is a capacity, and readings are compared by its width (`agrees`),
+  // so the reason names the width: `≤2^32` would read as agreeing with a value space of 2.
+  private def disagree(name: String, space: Card, size: Size): Position = {
+    val estimate = size.finite match {
+      case FinitePart.Capacity(bits) if !size.hasInfinite => s"a capacity of width $bits bits"
+      case _                                              => size.render
+    }
     Refused(
       s"constructor position readings disagree: $name (value space ${Count.of(space).render}, " +
-        s"estimate ${size.render})"
+        s"estimate $estimate)"
     )
+  }
 
 }
 
@@ -232,10 +239,11 @@ private object ConstructorPositions {
     case Definition.Unbound.Imported(name, provenance) =>
       Some(s"unresolved type: $name ($provenance)")
     case Definition.Unbound.Open(name)             => Some(s"open to implementations: $name")
-    case Definition.Unbound.Syntax("a match type") => Some(s"unreduced match type in ${tpe.syntax}")
-    case Definition.Unbound.Syntax(what)           => Some(what)
-    case Definition.Unbound.Refusal(what)          => Some(what)
-    case _                                         => None
+    case Definition.Unbound.Syntax("a match type") =>
+      Some(s"unreduced match type: ${Spelling.of(tpe)}")
+    case Definition.Unbound.Syntax(what)  => Some(what)
+    case Definition.Unbound.Refusal(what) => Some(what)
+    case _                                => None
   }
 
   // A declined position's reason joins the row's unless the row already names the same thing: the

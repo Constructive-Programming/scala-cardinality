@@ -186,8 +186,8 @@ class NamespaceScopingSpec extends Specification {
           List("constructor position readings disagree: t (value space 1, estimate 2)")
         )
       )
-      .and(local(("H.Y", Alias)) === "unresolved[p.X]")
-      .and(local(("T.Y", Alias)) === "2")
+      .and(local(("H#Y", Alias)) === "unresolved[p.X]")
+      .and(local(("T#Y", Alias)) === "2")
   }
 
   // `p: Prism` reads `p.X` through whatever `Prism` binds where `p` is: `O`'s alias `Prism =
@@ -197,8 +197,8 @@ class NamespaceScopingSpec extends Specification {
     val found = rows(
       "final class Prism { type X = Unit }\nclass Other { type X = Boolean }\nobject O { type Prism = Other; final class Holder(val p: Prism) { type Y = p.X } }\nfinal class Holder2[Prism <: Other](val p: Prism) { type Y = p.X }"
     )
-    (found(("O.Holder.Y", Alias)) === "unresolved[p.X]")
-      .and(found(("Holder2.Y", Alias)) === "unresolved[p.X]")
+    (found(("O.Holder#Y", Alias)) === "unresolved[p.X]")
+      .and(found(("Holder2#Y", Alias)) === "unresolved[p.X]")
   }
 
   // `U(w: W)` inside `Holder` holds `Holder`'s abstract `W` — `this.W`, which each instance
@@ -208,7 +208,7 @@ class NamespaceScopingSpec extends Specification {
     val found = rows(
       "final case class W(b: Boolean)\ntrait Holder { type W; final case class U(w: W) }\nobject Impl extends Holder { type W = Int }\nobject O { type V; final case class UV(v: V) }"
     )
-    (found(("Holder.U", Class)) === "instantiation[member W]")
+    (found(("Holder#U", Class)) === "instantiation[member W]")
       .and(found(("O.UV", Class)) === "open[V]")
   }
 
@@ -232,7 +232,7 @@ class NamespaceScopingSpec extends Specification {
     val found = rows(code)
     (found(("Y", Alias)) === "2")
       .and(found(("UsesY", Class)) === "2")
-      .and(found(("P.Inner.Z", Alias)) === "2")
+      .and(found(("P.Inner#Z", Alias)) === "2")
       .and(constructor("UsesY.<init>", "M.scala" -> code) === Count.Finite(2))
   }
 
@@ -345,7 +345,7 @@ class NamespaceScopingSpec extends Specification {
       Count.Unresolved(List("declaration not supplied: zz.Int (named import Int)")))
       .and(
         constructor("g.G.<init>", g) === Count.Unresolved(
-          List("inert match type: scrutinee is not a proven tuple; concrete substitution required")
+          List("inert match type: scrutinee is not a proven tuple (concrete substitution required)")
         )
       )
   }

@@ -6,7 +6,7 @@ import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.analysis.model.{Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.{Kind, Kinds, TypeApplications, TypeSubstitution}
+import cardinality.types.{Kind, Kinds, Spelling, TypeApplications, TypeSubstitution}
 
 import MethodAnalysis.{sequence, Resolved, TypeEntry}
 
@@ -90,7 +90,7 @@ final private[cardinality] class NominalKeys(
           applied(written(a.op, List(a.lhs, a.rhs), context))
         case _: Type.Name | _: Type.Select            => applied(written(tpe, Nil, context))
         case _: Type.Lambda | _: Type.AnonymousLambda =>
-          Left(s"type constructor used as a proper type: ${tpe.syntax}")
+          Left(s"type constructor used as a proper type: ${Spelling.of(tpe)}")
         case other => unestablished(other)
       }
 
@@ -143,7 +143,7 @@ final private[cardinality] class NominalKeys(
     import application.{callee, scope, spelled}
     member(application).getOrElse(callee match {
       case s: Type.Select if RefinedMembers.pathType(s.qual, scope.frame).nonEmpty =>
-        Left(s"nominal identity of path type not established: ${s.syntax}")
+        Left(s"nominal identity of path type not established: ${Spelling.of(s)}")
       case _ =>
         resolver.declaration(callee, spelled, scope) match {
           // An inherited member is read under its parent's instantiation, which a key does not
@@ -240,7 +240,7 @@ final private[cardinality] class NominalKeys(
     Shape.Applied(Head.Nominal(declaration), args)
 
   private def unestablished(tree: Tree): Keyed =
-    Left(s"nominal identity of argument not established: ${tree.syntax.replaceAll("\\s+", " ")}")
+    Left(s"nominal identity of argument not established: ${Spelling.of(tree)}")
 
 }
 

@@ -134,9 +134,9 @@ object Inhabitation {
     case Symbolic(value: Natural)
     case Countable
 
-    /** A value space the estimate read: `2^32` for an `Int`, `ω` for a sealed family, `ε₀` for a
-      * function space. The size's own rendering, bound and not proof — an exact count still renders
-      * as `Finite`.
+    /** A value space the estimate read: the capacity `≤2^32` for an `Int`, `ω` for a sealed family,
+      * `ε₀` for a function space. The size's own rendering, bound and not proof — an exact count
+      * still renders as `Finite`.
       */
     case Bounded(size: Size)
     case Unresolved(reasons: List[String])

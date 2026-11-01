@@ -164,8 +164,8 @@ class NamespaceSpec extends Specification {
     (shadowed(("ShY", Alias)) === "1")
       .and(imported(("t.Imp.Use", Class)) === widget)
       .and(imported(("t.ImpY", Alias)) === widget)
-      .and(rows(innerTrait)(("C.U", Class)) === "open[Foo]")
-      .and(rowsOf("S.scala" -> innerTrait)(("C.U", Class)) === "open[Foo]")
+      .and(rows(innerTrait)(("C#U", Class)) === "open[Foo]")
+      .and(rowsOf("S.scala" -> innerTrait)(("C#U", Class)) === "open[Foo]")
   }
 
   def objectOpenTrait =
@@ -223,7 +223,7 @@ class NamespaceSpec extends Specification {
     )
     (found(("dev.app.V1", Alias)) === "2")
       .and(found(("dev.app.V2", Alias)) === "2")
-      .and(found(("dev.app.V3", Alias)) === "2^64")
+      .and(found(("dev.app.V3", Alias)) === "≤2^64")
       .and(found(("dev.app2.V4", Alias)) === "unresolved[data.Vec]")
       .and(found(("dev.app2.V5", Alias)) === "2")
   }
@@ -250,7 +250,7 @@ class NamespaceSpec extends Specification {
          |object Other { type W = Unit }
          |""".stripMargin
     )
-    (found(("Holder.X", Alias)) === "ω").and(found(("Other.V", Alias)) === "1")
+    (found(("Holder#X", Alias)) === "ω").and(found(("Other#V", Alias)) === "1")
   }
 
   // `b.Bytes` is `a.Bytes` = Array[Byte] = ω. Read by its last segment it named itself, and the
@@ -283,7 +283,7 @@ class NamespaceSpec extends Specification {
          |type J = java.util.List[Boolean]
          |""".stripMargin
     )
-    (found(("I", Alias)) === "2^32")
+    (found(("I", Alias)) === "≤2^32")
       .and(found(("O", Alias)) === "3")
       .and(found(("S", Alias)) === "ω")
       .and(found(("L", Alias)) === "ω")
@@ -333,7 +333,7 @@ class NamespaceSpec extends Specification {
   def innerTypeShadowsBinder =
     rows(
       "class Outer[Item] { object Inner { final case class Item(n: Boolean); final case class Use(x: Item) } }"
-    )(("Outer.Inner.Use", Class)) === "2"
+    )(("Outer#Inner.Use", Class)) === "2"
 
   // `Schema.Type` under `import org.apache.avro.Schema` is not the unrelated `Type()` (1 value),
   // and the reason names the import its first name rests on — the method side's, which names the
@@ -405,7 +405,7 @@ class NamespaceSpec extends Specification {
     val code =
       "package u\nobject q { type X = Boolean }\nfinal class Other { type X = Int }\nfinal case class Dep(q: Other)(val x: q.X)"
     (constructor("u.Dep.<init>", "S.scala" -> code).render === "2^32")
-      .and(rowsOf("S.scala" -> code)(("u.Dep", Class)) === "2^32")
+      .and(rowsOf("S.scala" -> code)(("u.Dep", Class)) === "≤2^32")
   }
 
   // `Failure`'s `Failed` case holds a `Throwable` nobody supplied: the estimate refuses the slot,
@@ -532,8 +532,8 @@ class NamespaceSpec extends Specification {
          |final class Holder3(val p: Prism3) { type W = Unit; type Y = p.X }
          |""".stripMargin
     val found = rows(code)
-    (found(("Holder.Y", Alias)) === "2")
-      .and(found(("Holder3.Y", Alias)) === "2")
+    (found(("Holder#Y", Alias)) === "2")
+      .and(found(("Holder3#Y", Alias)) === "2")
       .and(
         constructor("Holder.UsesY.<init>", "M.scala" -> code) === Count.Unresolved(
           List("abstract type or method-valued representation: Prism")
@@ -559,10 +559,10 @@ class NamespaceSpec extends Specification {
       "F2.scala" -> "package p\nfinal class Prism2(val n: Int) { type X = Unit }\nfinal class H(val n: Int) { val q = new Prism2(1); type Y = q.X }",
       "C.scala" -> "package t\nobject p { type X = Boolean }\nfinal class Other { type X = Int }\nfinal class Holder { val p = new Other; type Y = p.X }",
     )
-    (nested(("Outer.Inner.X", Alias)) === "1")
-      .and(nested(("Outer2.Inner2.X", Alias)) === "1")
-      .and(files(("p.H.Y", Alias)) === "1")
-      .and(files(("t.Holder.Y", Alias)) === "2^32")
+    (nested(("Outer#Inner.X", Alias)) === "1")
+      .and(nested(("Outer2#Inner2.X", Alias)) === "1")
+      .and(files(("p.H#Y", Alias)) === "1")
+      .and(files(("t.Holder#Y", Alias)) === "≤2^32")
   }
 
   // `val p = make()` has no type the estimate reads, and it shadows the object `p`: the reference
@@ -570,7 +570,7 @@ class NamespaceSpec extends Specification {
   def untypedValue =
     rows(
       "object p { type X = Boolean }\nfinal class Other { type X = Int }\nfinal class Holder { def make(): Other = new Other; val p = make(); type Y = p.X }"
-    )(("Holder.Y", Alias)) === "unresolved[p.X]"
+    )(("Holder#Y", Alias)) === "unresolved[p.X]"
 
   // `g.Int` is the package's own class (2 values), which scalac binds over `scala.Int` even from
   // another file of the package.
@@ -613,8 +613,8 @@ class NamespaceSpec extends Specification {
          |class K2[A] { object Q { final case class In(a: A); final case class Outer[A](i: In, x: A) }; type X = Q.Outer[Unit] }
          |""".stripMargin
     )
-    (found(("K.X", Alias)) === "instantiation[B]")
-      .and(found(("K2.X", Alias)) === "instantiation[A]")
+    (found(("K#X", Alias)) === "instantiation[B]")
+      .and(found(("K2#X", Alias)) === "instantiation[A]")
   }
 
   // `P` is not generic: `C[A] extends P` holds an `x: A` for every `A`, so no instantiation of `P`
@@ -630,8 +630,8 @@ class NamespaceSpec extends Specification {
          |""".stripMargin
     )
     def unpinned(parent: String, child: String) =
-      s"unresolved[sealed family not summed: $parent (sealed subtype $child binds A to no slot " +
-        s"of ${parent.split('.').last})]"
+      s"unresolved[sealed family not summed: $parent (sealed subtype binds a parameter to no " +
+        s"slot of its parent: $child (A, of ${parent.split('.').last}))]"
     (found(("P", Abstract)) === unpinned("P", "C"))
       .and(found(("O.P2", Abstract)) === unpinned("P2", "C2"))
       .and(found(("Q", Alias)) === unpinned("O.P2", "C2"))

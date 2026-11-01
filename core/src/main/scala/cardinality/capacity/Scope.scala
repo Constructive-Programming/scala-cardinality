@@ -52,9 +52,15 @@ private[cardinality] enum Blocked(val reason: String) {
   case Negative extends Blocked("recursion through a function's domain")
 
   case Unread(constructor: String)
-      extends Blocked(s"recursion through $constructor, a constructor the estimate does not read")
+      extends Blocked("recursion through a constructor the estimate does not read")
 
   case Unseen extends Blocked("recursion through a type member of a value")
+
+  // A constructor a recursion runs through follows the name, after the separator.
+  def about(name: String): String = this match {
+    case Unread(constructor) => s"$reason: $name (through $constructor)"
+    case _                   => s"$reason: $name"
+  }
 
   /** Whether the definition has no count at all, not only an incomplete one. */
   def uncounted: Boolean = this != Lazy
@@ -607,7 +613,7 @@ final private[cardinality] class Scope(
   /** Records that a value rests on a cycle the solver gives no count, once per definition. */
   def noteBlocked(name: TypeName, blocked: Blocked, named: Option[Named]): Unit =
     if (named.forall(n => world.session.taint.forall(_.blockedOnce(n))))
-      note(Definition.Unbound.Refusal(s"${blocked.reason}: ${name.value}"))
+      note(Definition.Unbound.Refusal(blocked.about(name.value)))
 
   // Why a type could not be bounded: the binder it stands for, the syntax it is, or the name
   // itself when it is neither.

@@ -478,7 +478,7 @@ class StdlibModelSpec extends Specification {
       |}""".stripMargin
     refused(
       count(code, "P.rel"),
-      "builtin name util.Either may be shadowed by a top-level package util outside the sources"
+      "builtin name util.Either may be shadowed by a top-level package outside the sources: util"
     )
       .and(count(code, "P.full") === Count.Finite(2))
       .and(count(code, "P.rooted") === Count.Finite(2))
@@ -491,8 +491,13 @@ class StdlibModelSpec extends Specification {
       "package p\nimport lib.*\nobject T { def f[A](x: A): Option[A] = ???; def u(x: Int): Unit = () }"
     refused(
       count(code, "p.T.f"),
-      "builtin name Option may be shadowed through lib, which is not supplied (wildcard import of lib)"
-    ).and(refused(count(code, "p.T.u"), "builtin name Unit may be shadowed through lib"))
+      "builtin name Option may be shadowed through a reference not supplied: lib (wildcard import of lib)"
+    ).and(
+      refused(
+        count(code, "p.T.u"),
+        "builtin name Unit may be shadowed through a reference not supplied: lib"
+      )
+    )
   }
 
   // Supplied, `lib`'s own Option[A] holds two A's: (x, x) only.
@@ -506,7 +511,7 @@ class StdlibModelSpec extends Specification {
   def javaWildcard =
     refused(
       count("import java.util.*\nobject W { def l[A](a: A): List[A] = ??? }", "W.l"),
-      "builtin name List may be shadowed through java.util, which is not supplied"
+      "builtin name List may be shadowed through a reference not supplied: java.util"
     )
 
   // scala.quoted, scala.jdk.CollectionConverters and quotes.reflect declare no model spelling
@@ -616,7 +621,7 @@ class StdlibModelSpec extends Specification {
         "Lib.scala" -> "package r7.scala\ntype Int = Boolean",
         "Use.scala" -> "package r7\nobject T { def h[A](a: A): scala.Option[A] = ??? }"
       )("r7.T.h"),
-      "builtin name scala.Option may be shadowed by package r7.scala (a package of the sources)"
+      "builtin name scala.Option may be shadowed by a declaration: package r7.scala (a package of the sources)"
     )
 
   // `Base` may declare abstract members a subclass of the trait provides: capabilities nobody can
@@ -741,7 +746,7 @@ class StdlibModelSpec extends Specification {
     val closed = s"sealed trait P extends IterableOnce[Int] $body\nfinal class D1 extends P"
     val open = s"sealed trait P extends IterableOnce[Int] $body\nclass D1 extends P"
     val overridable = "inherited stdlib member a subclass may override"
-    refused(count(closed, "P.g"), "receiver of sealed family P is a sum")
+    refused(count(closed, "P.g"), "receiver is a sealed family this measurement does not split: P")
       .and(clean(count(closed, "P.g"), overridable))
       .and(refused(count(open, "P.g"), overridable))
   }
@@ -766,6 +771,8 @@ class StdlibModelSpec extends Specification {
     val route =
       "through Serializable, which is not resolved (wildcard import of O, in a search that reaches " +
         "itself)"
+    val doubted = "through a reference not resolved: Serializable (wildcard import of O, in a " +
+      "search that reaches itself)"
     (counts.map(_._1).filter(Set("T.h", "U.f", "U.g")) === List("T.h", "U.f", "U.g"))
       .and(
         refused(
@@ -773,9 +780,9 @@ class StdlibModelSpec extends Specification {
           s"inherited parent declaration not supplied: Serializable (may be bound $route)"
         )
       )
-      .and(refused(found("U.f"), s"builtin name Boolean may be shadowed $route"))
-      .and(refused(found("U.g"), s"builtin name Boolean may be shadowed $route"))
-      .and(refused(found("U.g"), s"builtin name Int may be shadowed $route"))
+      .and(refused(found("U.f"), s"builtin name Boolean may be shadowed $doubted"))
+      .and(refused(found("U.g"), s"builtin name Boolean may be shadowed $doubted"))
+      .and(refused(found("U.g"), s"builtin name Int may be shadowed $doubted"))
   }
 
 }

@@ -62,8 +62,8 @@ subtype belongs to every instantiation of `P`. The estimate checks both conditio
   library's `Nothing` or `Any` where the clause is written: with `type Nothing = Boolean`, `Z
   extends P[Nothing]` is a `P[Boolean]` only. The slot logic is `types/SealedSlots`, which the
   method side's representation shares, bounds and variance included; each refusal names the
-  subtype and only the parameter at fault (`sealed subtype Fused binds M0 to no slot of
-  Optional`).
+  subtype and only the parameter at fault (`sealed subtype binds a parameter to no slot of its
+  parent: Fused (M0, of Optional)`).
 - **Recursion.** An instantiation that recurses on its own parameters is its own least fixed
   point, found by Kleene iteration from 0 (`|L[Nothing]|` = μX. 1 + 0·X = 1, `|T[Nothing]|` =
   μX. 0 + X² = 0). The template's fixed point does not work here, because it reads the
@@ -199,7 +199,7 @@ parameter an instantiation bound to a size whose syntax is lost.
 ## Marks and classes
 
 A `Double` or `Float` stands in as a lossy width, and that mark survives sums and products:
-`2^65 (lossy)`. A row's reasons fall into three classes, in this order of precedence:
+`≤2^65 (lossy)`, a bound as every width is. A row's reasons fall into three classes, in this order of precedence:
 - **unresolved**: an unknown name, a clause, unmodelled syntax or a refusal;
 - **open**: an abstraction any code may extend;
 - **instantiation-dependent**: the row's own parameters and members.

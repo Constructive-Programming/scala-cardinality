@@ -173,7 +173,7 @@ private[cardinality] object TypeSubstitution {
           case _: Type.Lambda       => "a type lambda"
           case _: Type.PolyFunction => "a polymorphic function type"
           case _: Type.Wildcard     => "a wildcard"
-          case other                => other.syntax.replaceAll("\\s+", " ")
+          case other                => Spelling.of(other)
         }
     )
 

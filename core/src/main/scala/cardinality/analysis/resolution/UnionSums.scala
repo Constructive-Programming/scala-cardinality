@@ -5,7 +5,7 @@ import scala.meta.{Defn, Type, XtensionSyntax}
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
-import cardinality.types.{TypeApplications, TypeSubstitution}
+import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{sequence, Resolved, TypeEntry}
@@ -42,7 +42,7 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
     else {
       val kept = absorbed(written)
       sequence(kept.map(w => w.context.read(w.tpe, resolver))).left
-        .map(reason => s"union ${union.syntax}: $reason")
+        .map(reason => s"union (${Spelling.of(union)}): $reason")
         .flatMap { shapes =>
           kept.zip(shapes).filterNot(_._2 == Shape.Sum(Nil)) match {
             case Nil               => Right(Shape.Sum(Nil))
@@ -53,7 +53,7 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
               tagged(inhabited.map(_._1)).left
                 .map(detail =>
                   "union alternatives require an overlap and discrimination proof: " +
-                    s"${union.syntax} — $detail"
+                    s"${Spelling.of(union)} — $detail"
                 )
                 .map(_ => Shape.Sum(inhabited.map(_._2)))
           }

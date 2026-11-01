@@ -166,7 +166,7 @@ produce (`D.other` would read ω, true 1).
   defined by unsupplied parent P`.
 - `refinement not shown satisfiable: B { … } (<why>)` — `B is final`, `is sealed`, `has a private
   constructor`, `already defines X`, `unsupplied parent P`, `B is not a supplied template`;
-  `abstract refined member X has non-exact bounds: …` for a refinement's own bounds.
+  `abstract refined member has non-exact bounds: <declaration>` for a refinement's own bounds.
 - `structural refinement with term members: …` (a term member no supplied base declares); a
   refinement outside a stable input position, or one narrowing its base's own term, keeps `refined
   representation unavailable (constraints not erased)`; `path through member q of refined p`;

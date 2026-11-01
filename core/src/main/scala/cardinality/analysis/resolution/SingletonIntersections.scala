@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
-import cardinality.types.{TypeName, TypeSubstitution}
+import cardinality.types.{Spelling, TypeName, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{Frame, Resolved}
@@ -84,7 +84,7 @@ private[cardinality] object SingletonIntersections {
         .collectFirst { case Some(result) => result }
         .getOrElse(module(name, context.frame, resolver))
     case _: Term.Select => module(ref.syntax.stripPrefix("_root_."), context.frame, resolver)
-    case _ => Left(s"unsupported stable singleton path: ${ref.syntax.stripPrefix("_root_.")}")
+    case _ => Left(s"unsupported stable singleton path: ${Spelling.of(ref).stripPrefix("_root_.")}")
   }
 
   private def local(
@@ -207,7 +207,9 @@ private[cardinality] object SingletonIntersections {
         a <- context.read(left, resolver)
         b <- context.read(right, resolver)
         result <- provedIntersection(a, b)
-          .toRight(s"unsupported intersection relationship: ${left.syntax} & ${right.syntax}")
+          .toRight(
+            s"unsupported intersection relationship: ${Spelling.of(left)} & ${Spelling.of(right)}"
+          )
       } yield result
   }
 

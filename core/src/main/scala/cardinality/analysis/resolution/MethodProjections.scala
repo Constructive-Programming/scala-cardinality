@@ -54,8 +54,9 @@ private[cardinality] object MethodProjections {
       context: ResolutionContext,
       resolver: Resolver,
       sourceNames: Set[String]
-  ): Resolved =
-    new Normalizer(resolver, sourceNames)
+  ): Resolved = {
+    val normalizer = new Normalizer(resolver, sourceNames)
+    normalizer
       .syntax(tpe, context)
       .flatMap { (normalized, bindings) =>
         ResolutionOptics.variablesLens
@@ -64,6 +65,18 @@ private[cardinality] object MethodProjections {
           .read(normalized, resolver)
       }
       .flatMap(SingletonIntersections.validate(_, context.useSite, resolver))
+      .left
+      .map(normalizer.spelled)
+  }
+
+  private val Placeholder = "$cardinalityProjection"
+
+  // A whole placeholder name: a source name that merely starts or ends with one's text
+  // (`` `$cardinalityProjection1a` ``) is not one.
+  private val PlaceholderToken = {
+    val quoted = java.util.regex.Pattern.quote(Placeholder)
+    ("(?<![\\p{L}\\p{N}_$])" + quoted + "\\d+(?![\\p{L}\\p{N}_$])").r
+  }
 
   // A match type as written, and whether its alias bounds it (a bounded one never stands stuck).
   private case class MatchType(
@@ -76,15 +89,23 @@ private[cardinality] object MethodProjections {
   private class Normalizer(resolver: Resolver, sourceNames: Set[String]) {
     private type Prepared = Either[String, (Type, Map[String, Resolved])]
     private var tokenNumber = 0
+    private var spellings = Map.empty[String, String]
 
     private def freshToken(variables: Map[String, Resolved]): String = {
       val (token, next) =
-        inhabitation.Inhabitation.Shape.freshName("$cardinalityProjection", tokenNumber + 1)(t =>
+        inhabitation.Inhabitation.Shape.freshName(Placeholder, tokenNumber + 1)(t =>
           sourceNames(t) || variables.contains(t)
         )
       tokenNumber = next - 1
       token
     }
+
+    /** A reason in the reader's words: each frozen leaf a reason quotes is a placeholder only this
+      * normalizer knows, so it is spelled back as the type the source wrote there. A literal type's
+      * text is what the source wrote, whatever it looks like (`"$cardinalityProjection1"`).
+      */
+    def spelled(reason: String): String =
+      Spelling.outsideLiterals(reason, PlaceholderToken)(found => spellings.getOrElse(found, found))
 
     // Keep tuple shells, but freeze all other leaves to caller-resolved Shapes. A nominal
     // product must never become a tuple merely because its stored representation is a product.
@@ -150,7 +171,11 @@ private[cardinality] object MethodProjections {
                   s"inert match type: a bounded match type stays stuck on ${SourceBindings.label(id)}"
                 )
               else
-                frozen(Right(Shape.Atom(StuckProjections.Projection(arity, index, id))), bindings)
+                frozen(
+                  Right(Shape.Atom(StuckProjections.Projection(arity, index, id))),
+                  bindings,
+                  Spelling.of(matched.whole)
+                )
           }
         case _ => None
       }
@@ -158,7 +183,7 @@ private[cardinality] object MethodProjections {
     // Every case must be eligible, including cases that precede the selected projection.
     private def projectionFailure(known: Type, cases: List[TypeCase]): Option[String] =
       if (!known.is[Type.Tuple])
-        Some("inert match type: scrutinee is not a proven tuple; concrete substitution required")
+        Some("inert match type: scrutinee is not a proven tuple (concrete substitution required)")
       else if (!cases.forall(c => MatchTypes.projectionPattern(c.pat)))
         Some("match type requires type-identity/disjointness proof for fixed or nominal patterns")
       else if (!cases.forall(c => MatchTypes.determinateHylo((c.pat, known))))
@@ -253,11 +278,19 @@ private[cardinality] object MethodProjections {
       }
     }
 
+    // A leaf an alias body passes on may itself be a placeholder of an outer alias's argument
+    // (`PGrate[S, …]` expands to `Aux[$1, …]`): it is recorded already spelled, so one pass
+    // restores a reason however deep the aliases nest.
     private def freeze(tpe: Type, context: ResolutionContext): Prepared =
-      frozen(context.read(tpe, resolver), context.variables)
+      frozen(context.read(tpe, resolver), context.variables, Spelling.of(tpe))
 
-    private def frozen(shape: Resolved, variables: Map[String, Resolved]): Prepared = {
+    private def frozen(
+        shape: Resolved,
+        variables: Map[String, Resolved],
+        written: String
+    ): Prepared = {
       val token = freshToken(variables)
+      spellings += token -> spelled(written)
       Right(Type.Name(token) -> Map(token -> shape))
     }
 

@@ -13,9 +13,6 @@ import cardinality.types.*
 // fixed point: a reason that says so.
 private[capacity] object Instantiations {
 
-  // Trees are parsed and reprinted under Scala 3 dialect rules.
-  private given scala3: Dialect = dialects.Scala3
-
   /** One reference `callee[args]` read in `scope`: the definition `named` it resolved to, solved
     * under `name` in `context`.
     */
@@ -72,7 +69,9 @@ private[capacity] object Instantiations {
         // Re-entered through another definition's instantiation (`Ev[A]` inside `Od[A]` inside
         // `Ev[A]`): no fixed point is solved for the pair, and the name itself is not unknown.
         i.scope.note(
-          Definition.Unbound.Refusal(s"recursive instantiation not solved: ${i.callee.syntax}")
+          Definition.Unbound.Refusal(
+            s"recursive instantiation not solved: ${Spelling.of(i.callee)}"
+          )
         )
         EffectiveOmega
       } else if (blocked.exists(_.uncounted)) EffectiveOmega
@@ -138,7 +137,7 @@ private[capacity] object Instantiations {
       val bound = next.widen
       if (bound.larger(at(bound)._1))
         read.note(
-          Definition.Unbound.Refusal(s"recursive instantiation not settled: ${callee.syntax}")
+          Definition.Unbound.Refusal(s"recursive instantiation not settled: ${Spelling.of(callee)}")
         )
       bound
     }

@@ -48,7 +48,7 @@ class ImportClausesSpec extends Specification {
       .and(found(("c.Use", Class)) === "2")
       .and(found(("c.Use2", Class)) === "2")
       .and(found(("dev.app.Use", Class)) === "2")
-      .and(found(("dev.C.X", Alias)) === "4")
+      .and(found(("dev.C#X", Alias)) === "4")
       .and(found(("o2.P", Class)) === "8")
   }
 
@@ -71,12 +71,12 @@ class ImportClausesSpec extends Specification {
         found(("d.Use", Class)) ===
           "unresolved[Widget (imported from a.Widget, a may be imported by scala.jdk.CollectionConverters.*)]"
       )
-      .and(found(("e.H.Y", Alias)) === "unresolved[T (imported from x.T, not followed)]")
+      .and(found(("e.H#Y", Alias)) === "unresolved[T (imported from x.T, not followed)]")
   }
 
   // An export defines a member of its template, which outranks an import of the name there and an
   // outer definition of it (crosscheck X1; scalac: `def g(t: T): Boolean = t` compiles in both):
-  // |C.P| = |Y.T| = 2, not |X.T| = 2^32, and |Outer.D.Q| = |A.T| = 2.
+  // |C#P| = |Y.T| = 2, not |X.T| = 2^32, and |Outer.D#Q| = |A.T| = 2.
   def exportsOutrank = {
     val found = rows(
       """|object X { type T = Int }
@@ -96,7 +96,7 @@ class ImportClausesSpec extends Specification {
          |}
          |""".stripMargin
     )
-    (found(("C.P", Class)) === "2").and(found(("Outer.D.Q", Class)) === "2")
+    (found(("C#P", Class)) === "2").and(found(("Outer.D#Q", Class)) === "2")
   }
 
   // An export's path reads with the template's imports before it: `import ea.Inner; export

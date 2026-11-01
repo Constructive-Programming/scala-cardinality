@@ -130,7 +130,7 @@ class ReportSpec extends Specification {
     val found = definitions(
       "sealed trait Light {\n  case object Red extends Light\n  case object Green extends Light\n}",
     )
-    (found.map(_.name) === List("Light", "Light.Red", "Light.Green"))
+    (found.map(_.name) === List("Light", "Light#Red", "Light#Green"))
       .and(found.map(_.size) === List(None, Some(UnitSize), Some(UnitSize)))
   }
 
@@ -169,7 +169,7 @@ class ReportSpec extends Specification {
   }
 
   def enclosing = {
-    val found = definition("class Outer(a: Boolean) { case class Inner(o: Outer) }", "Outer.Inner")
+    val found = definition("class Outer(a: Boolean) { case class Inner(o: Outer) }", "Outer#Inner")
     found.size === Some(BooleanSize)
   }
 
@@ -291,7 +291,7 @@ class ReportSpec extends Specification {
     (report.definitions.map(_.name) === List("Fine"))
       .and(report.errors.map(_.path) === List(root.resolve("Broken.scala").toString))
       .and(report.errors.map(_.message).mkString must contain("line"))
-      .and(report.render must contain(s"could not read ${root.resolve("Broken.scala")}"))
+      .and(report.render must contain("could not read Broken.scala: "))
   }
 
   def orders = {
@@ -328,7 +328,7 @@ class ReportSpec extends Specification {
   def empty = {
     val rendered = Report.of(Nil).render
     rendered === """scala-cardinality — 0 sources, 0 definitions
-                  |  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+                  |  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
                   |  ?: no single number here — the reason after the row says what would give one""".stripMargin
   }
 
@@ -588,13 +588,13 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     // A qualified reference is a member the object's body declares: `Outer.B` is `Boolean`. A
-    // trait's member is read through a value of the trait (`memberByValue`): `Foo.B` with no
+    // trait's member `Foo#B` is read through a value of the trait (`memberByValue`): `Foo.B` with no
     // `object Foo` is not Scala, and `NamespaceSpec` keeps it a reason.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Outer", Some(UnitSize), Nil),
       ("Outer.B", Some(BooleanSize), Nil),
       ("Foo", None, Nil),
-      ("Foo.B", Some(EffectiveOmega), List("A")),
+      ("Foo#B", Some(EffectiveOmega), List("A")),
       ("C", Some(BooleanSize), Nil),
     )
   }
@@ -609,9 +609,9 @@ class ReportSpec extends Specification {
     // member of `Foo[Boolean]`.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Foo", None, Nil),
-      ("Foo.B", Some(EffectiveOmega), List("A")),
+      ("Foo#B", Some(EffectiveOmega), List("A")),
       ("D", Some(EffectiveOmega), List("Foo")),
-      ("D.Y", Some(BooleanSize), Nil),
+      ("D#Y", Some(BooleanSize), Nil),
     )
   }
 
@@ -626,9 +626,9 @@ class ReportSpec extends Specification {
     (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("O", None, Nil),
       ("C", Some(EffectiveOmega), List("O")),
-      ("C.Y", Some(EffectiveOmega), List("x.Z")),
+      ("C#Y", Some(EffectiveOmega), List("x.Z")),
     ))
-      .and(found.find(_.name == "C.Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
+      .and(found.find(_.name == "C#Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
   }
 
   def memberUnknown = {
@@ -637,7 +637,7 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     // The sources do not say what `x` is, so the reference is the reason, as it was written.
-    found.find(_.name == "C.Y").map(d => (d.size, d.unbound.map(_.render))) ===
+    found.find(_.name == "C#Y").map(d => (d.size, d.unbound.map(_.render))) ===
       Some((Some(EffectiveOmega), List("x.Z")))
   }
 

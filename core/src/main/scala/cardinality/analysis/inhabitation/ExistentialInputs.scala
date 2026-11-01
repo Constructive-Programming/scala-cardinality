@@ -13,7 +13,6 @@ import MethodAnalysis.{Frame, Resolved}
   * Opening an input replaces those names with rigid atoms owned by that value's provenance.
   */
 private[cardinality] object ExistentialInputs {
-  private given Dialect = dialects.Scala3
 
   /** Capture names describe a type template. Runtime input identity comes from the solver's binding
     * provenance, so two inputs of the same alias do not share their hidden witnesses. Re-resolving
@@ -40,7 +39,7 @@ private[cardinality] object ExistentialInputs {
           tpe match {
             case wildcard: Type.Wildcard if kind != Kind.Proper =>
               Left(
-                s"existential type constructor requires witness-kind analysis: ${wildcard.syntax}"
+                s"existential type constructor requires witness-kind analysis: ${Spelling.of(wildcard)}"
               )
             case wildcard: Type.Wildcard
                 if wildcard.bounds.lo.nonEmpty || wildcard.bounds.hi.nonEmpty =>

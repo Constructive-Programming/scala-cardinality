@@ -454,7 +454,7 @@ class TypeMemberSpec extends Specification {
         """,
         "Affine.fold"
       ),
-      "receiver of sealed family Affine"
+      "receiver is a sealed family this measurement does not split: Affine"
     )
 
   // Mid implements Q's to and from (identities on A), so in the final D they are that code: other

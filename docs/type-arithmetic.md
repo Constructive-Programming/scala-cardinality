@@ -502,11 +502,16 @@ The current API and representation have important limits:
 - [`Size`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Size.scala)
   is `a·ε₀ + b·ω + n`: contributions counted per tier and added componentwise, so
   `Either[String, String]` is `2ω`. Counts up to 127 are exact in the finite part, and
-  `FiniteSize(bits)` records only the binary width above that — it stands for a count in
-  `(2^(bits-1), 2^bits]`, so `2^32 + 3` becomes `FiniteSize(33)` instead of an exact count, and
-  algebraically equal expressions can round differently. The finite coordinate is an estimate
-  rather than a natural number: its addition is not associative. `FloatSize` and `DoubleSize` are
-  lossy stand-ins for the real types, not consequences of the integral-width rules.
+  `FiniteSize(bits)` records only the binary width above that — a count of at most `2^bits`, so
+  `2^32 + 3` becomes `FiniteSize(33)` instead of an exact count, and algebraically equal
+  expressions can round differently. A width read from one count (`Int`) also has more than
+  `2^(bits-1)` values, but sums and products round up, so a computed width keeps only the upper
+  bound: `Option[Option[Byte]]` holds 258 values and reads `FiniteSize(10)`. A report therefore
+  prints a capacity as the bound it is, `≤2^10`, never as the power itself. The finite coordinate
+  is an estimate rather than a natural number: its addition is not associative. `FloatSize` and
+  `DoubleSize` are lossy stand-ins for the real types, not consequences of the integral-width
+  rules; their widths round the same way (`Option[Option[Double]]`, at most `2^64 + 2` values,
+  reads width 66), so a report prints them as bounds too, marked: `≤2^66 (lossy)`.
 - Multiplication and exponentiation are coarse above the finite tier: after the zero and one
   identities (`p * 0 = 0`, `p * 1 = p`, `p^0 = 1`, `p^1 = p`), an infinite operand is projected to
   its dominant tier. So `2 * ω = ω` and `ω * ω = ω` even though `Either[String, String]` is `2ω`:

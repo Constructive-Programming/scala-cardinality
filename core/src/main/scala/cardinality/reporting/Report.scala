@@ -18,13 +18,23 @@ import java.util.zip.ZipFile
   * stopped it.
   *
   * The sources can be a project's, or the published `-sources.jar` of a library, which is what
-  * makes a dependency's types measurable from outside.
+  * makes a dependency's types measurable from outside. `locations` holds where `Report.of` placed
+  * each source it read below its input; a report assembled from sources alone places them below the
+  * directory they share (`Report.locations`).
   */
-final case class Report(sources: List[Report.Source], errors: List[Report.Error]) {
+final case class Report(
+    sources: List[Report.Source],
+    errors: List[Report.Error],
+    locations: Map[String, String] = Map.empty
+) {
 
   def definitions: List[Definition] = sources.flatMap(_.definitions)
 
   def methods: List[MethodAnalysis.Entry] = sources.flatMap(_.methods)
+
+  /** The stored-value rows, source by source, each as the estimate table reads it. */
+  def definitionRows: List[Report.DefinitionRow] =
+    sources.flatMap(source => source.definitions.map(Report.DefinitionRow.of(source.path, _)))
 
   /** The report as it reads: the generic method and constructor implementation cardinalities, then
     * the stored-value estimate over the definitions a source introduces.
@@ -35,9 +45,18 @@ final case class Report(sources: List[Report.Source], errors: List[Report.Error]
     * before method counts existed. Neither is a proof of infinity: what the analysis could not
     * bound is `?`, with the reason.
     */
-  def render: String =
-    (Report.methods(models) ++ Report.summary(this) ++ Report.estimate(this) ++
-      errors.map(Report.failed)).mkString("\n")
+  def render: String = {
+    val location = located
+    (Report.methods(models, location) ++ Report.summary(this) ++
+      Report.estimate(definitionRows, location) ++ errors.map(Report.failed(_, location)))
+      .mkString("\n")
+  }
+
+  /** Where a row of each source says it is. */
+  def located: String => String = {
+    val shared = Report.locations(sources.map(_.path).filterNot(locations.contains))
+    path => locations.getOrElse(path, shared(path))
+  }
 
   // The method and constructor rows, ordered by file so a reader can walk the sources.
   private def models: List[(Report.Source, MethodAnalysis.Entry)] =
@@ -77,7 +96,8 @@ object Report {
         analysis.toList.flatMap(
           _.usage.map(u => s"work: ${u.path} ${u.name}: ${u.consumed}/${u.quota}")
         ) ++
-        Report.methods(report.models) ++ report.errors.map(Report.failed)).mkString("\n")
+        Report.methods(report.models, report.located) ++
+        report.errors.map(Report.failed(_, report.located))).mkString("\n")
 
   }
 
@@ -169,15 +189,41 @@ object Report {
   /** A source the report could not read or parse, and what went wrong. */
   final case class Error(path: String, message: String)
 
+  /** One stored-value row as the report reads it: the size cell — `?` for a row with reasons, `—`
+    * for a definition with no size of its own — and the summary class the row counts under.
+    */
+  final case class DefinitionRow(
+      source: String,
+      definition: Definition,
+      size: String,
+      sizeClass: String
+  )
+
+  object DefinitionRow {
+
+    def of(source: String, definition: Definition): DefinitionRow =
+      DefinitionRow(
+        source,
+        definition,
+        if (unresolved(definition)) "?" else definition.size.fold("—")(_.render),
+        SizeClass(definition).label
+      )
+
+  }
+
+  /** Where a row says it is: the source's path below the deepest directory holding every source of
+    * the report (`Locations.shared`).
+    */
+  def locations(paths: List[String]): String => String = Locations.shared(paths)
+
   /** Reads every Scala source under `paths` — a file, a directory walked recursively, or a jar such
     * as the `-sources.jar` a library publishes — and measures the definitions it finds.
     */
   def of(paths: Seq[Path]): Report = {
-    val parsed: List[Either[Error, MethodAnalysis.Input]] = paths.toList.distinct.flatMap { path =>
-      read(path) match {
-        case Left(error)  => List(Left(error))
-        case Right(found) => found.map(parse)
-      }
+    val found = paths.toList.distinct.map(path => path -> read(path))
+    val parsed: List[Either[Error, MethodAnalysis.Input]] = found.flatMap {
+      case (_, Left(error))    => List(Left(error))
+      case (_, Right(sources)) => sources.map(parse)
     }
     val inputs = parsed.collect { case Right(input) => input }
     // One library for the whole run: every source is read against the others, so a reference can
@@ -192,7 +238,8 @@ object Report {
           methods.getOrElse(input.path, Nil)
         )
       ),
-      parsed.collect { case Left(error) => error }
+      parsed.collect { case Left(error) => error },
+      Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1))))
     )
   }
 
@@ -213,13 +260,15 @@ object Report {
     try
       Right(
         if (Files.isDirectory(path)) walk(path).map(file => (file.toString, Files.readString(file)))
-        else if (isJar(path)) entries(path)
+        else if (Locations.jar(path)) entries(path)
         else List((path.toString, Files.readString(path))),
       )
     catch
+      // A file exception's message is the path as given, which may be absolute: the line places
+      // the path itself, and the exception's name says what went wrong.
       case e: IOException =>
-        val message = Option(e.getMessage).filter(_.nonEmpty).getOrElse(path.toString)
-        Left(Error(path.toString, s"${e.getClass.getSimpleName}: $message"))
+        val message = Option(e.getMessage).filter(m => m.nonEmpty && m != path.toString)
+        Left(Error(path.toString, e.getClass.getSimpleName + message.fold("")(m => s": $m")))
 
   private def walk(directory: Path): List[Path] = {
     val found = Files.walk(directory)
@@ -242,11 +291,6 @@ object Report {
     finally archive.close()
   }
 
-  private def isJar(path: Path): Boolean = {
-    val name = path.toString
-    name.endsWith(".jar") || name.endsWith(".zip")
-  }
-
   private def isScala(name: String): Boolean = name.endsWith(".scala")
 
   // What the report says, above the table: what was measured, what the sizes mean, and that a
@@ -260,7 +304,8 @@ object Report {
     }
     List(
       s"scala-cardinality — ${plural(report.sources.size, "source")}, ${plural(definitions.size, "definition")}",
-      "  stored-value estimates: constructor inputs only; finite capacities are upper bounds",
+      "  stored-value estimates: constructor inputs only; a finite capacity prints as the bound " +
+        "≤2^b, marked (lossy) when it holds floating point",
       "  ?: no single number here — the reason after the row says what would give one",
     ) ++
       (if (counts.isEmpty) Nil else List(s"  ${counts.mkString(" · ")}"))
@@ -283,7 +328,10 @@ object Report {
 
   // The generic method and constructor counts, with what stands between the report and a number
   // for the rest: the triage list a reader works down.
-  private def methods(models: List[(Source, MethodAnalysis.Entry)]): List[String] =
+  private def methods(
+      models: List[(Source, MethodAnalysis.Entry)],
+      location: String => String
+  ): List[String] =
     if (models.isEmpty) Nil
     else {
       val entries = models.map(_._2)
@@ -293,7 +341,7 @@ object Report {
       val unresolved = entries.size - finite - countable - beyond
       val blocking = entries
         .flatMap(entry => entryReasons.getOption(entry).toList.flatMap(_.reasons).map(entry -> _))
-        .groupBy { case (_, reason) => reason.split(':').head }
+        .groupBy { case (_, reason) => Blockers.category(reason) }
         .toList
         .map { case (kind, blocked) => (blocked.map(_._1).distinct.size, kind) }
         .sortBy { case (count, kind) => (-count, kind) }
@@ -301,7 +349,7 @@ object Report {
       val rows = models.flatMap {
         case (source, entry) =>
           List(
-            s"${entry.count.render}  ${entry.name}  ${entry.signature}  ${fileName(source.path)}:${entry.line}  [${entry.kind}]"
+            s"${entry.count.render}  ${entry.name}  ${entry.signature}  ${location(source.path)}:${entry.line}  [${entry.kind}]"
           ) ++
             (if (entry.captures.isEmpty) Nil
              else List(s"    captures: ${entry.captures.mkString(", ")}")) ++
@@ -324,11 +372,11 @@ object Report {
     }
 
   // The stored-value estimate over the definitions a source introduces, ordered by cardinality.
-  private def estimate(report: Report): List[String] = {
-    val rows = report.sources
-      .flatMap(source => source.definitions.map(definition => (source, definition)))
-      .sortBy(entry => order(entry._2))
-      .map(row)
+  private def estimate(
+      definitions: List[DefinitionRow],
+      location: String => String
+  ): List[String] = {
+    val rows = definitions.sortBy(found => order(found.definition)).map(row(_, location))
     if (rows.isEmpty) Nil
     else {
       val widths = List(
@@ -337,32 +385,32 @@ object Report {
         rows.map(_._3.length).maxOption.getOrElse(0),
       )
       val table = rows.map {
-        case (size, name, kind, location, reason) =>
+        case (size, name, kind, where, reason) =>
           val line =
-            s"${padded(size, widths(0))}  ${padded(name, widths(1))}  ${padded(kind, widths(2))}  $location"
+            s"${padded(size, widths(0))}  ${padded(name, widths(1))}  ${padded(kind, widths(2))}  $where"
           if (reason.isEmpty) line else s"$line  $reason"
       }
       List("Stored-value estimates (constructor inputs; `?` = unresolved)", "") ++ table
     }
   }
 
-  private def failed(error: Error): String = s"  could not read ${error.path}: ${error.message}"
+  // A source or input that could not be read, placed as a row would be.
+  private def failed(error: Error, location: String => String): String =
+    s"  could not read ${location(error.path)}: ${error.message}"
 
-  private def row(entry: (Source, Definition)): (String, String, String, String, String) = {
-    val (source, definition) = entry
+  private def row(
+      found: DefinitionRow,
+      location: String => String
+  ): (String, String, String, String, String) =
     (
-      if (unresolved(definition)) "?" else definition.size.fold("—")(_.render),
-      Definition.signature(definition),
-      definition.kind.toString.toLowerCase,
-      s"${fileName(source.path)}:${definition.line}",
-      Definition.reasons(definition),
+      found.size,
+      Definition.signature(found.definition),
+      found.definition.kind.toString.toLowerCase,
+      s"${location(found.source)}:${found.definition.line}",
+      Definition.reasons(found.definition),
     )
-  }
 
   private def padded(text: String, width: Int): String = text + " " * (width - text.length)
-
-  // Jar entries are always named with `/`; a path read from disk may use either separator.
-  private def fileName(path: String): String = path.split("[/\\\\]").last
 
   // The order the report reads in: what the calculator could not bound first, then the bounded
   // sizes from the largest down — ε₀, then ω, then finite capacities and exact counts — and the
@@ -385,7 +433,7 @@ object Report {
   // could not bound and the abstract types that have no cardinality of their own held apart. A row
   // that is only waiting for an instantiation is not a gap in the calculator, and a row an open
   // abstraction unbounds is a fact about the sources, so neither joins the unresolved ones.
-  private enum SizeClass(val label: String) {
+  private[cardinality] enum SizeClass(val label: String) {
     case Unresolved extends SizeClass("unresolved")
     case Instantiation extends SizeClass("instantiation-dependent")
     case Open extends SizeClass("unbounded by an open abstraction")
@@ -396,7 +444,7 @@ object Report {
     case Abstract extends SizeClass("abstract")
   }
 
-  private object SizeClass {
+  private[cardinality] object SizeClass {
 
     def apply(definition: Definition): SizeClass =
       Definition.gap(definition) match {

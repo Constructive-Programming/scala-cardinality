@@ -7,7 +7,7 @@ import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.{AliasReading, ResolutionContext}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.capacity.Counter
-import cardinality.types.{TypeApplications, TypeSubstitution}
+import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{sequence, Frame, TypeEntry}
@@ -274,7 +274,7 @@ final private[cardinality] class RuntimeClasses(
       family.id,
       sources
         .get(family.owner.input)
-        .toRight(s"sealed family ${family.label}: source not supplied")
+        .toRight(s"sealed family source not supplied: ${family.label}")
         .flatMap { source =>
           val names = spellings(family.label)
           sequence(templates(source).flatMap { (tree, inits) =>
@@ -437,7 +437,7 @@ private[cardinality] object RuntimeClasses {
   private def words(tree: Tree): Set[String] =
     tree.syntax.split("[^\\p{L}\\p{N}_$]+").toSet
 
-  private def spell(tree: Tree): String = tree.syntax.replaceAll("\\s+", " ")
+  private def spell(tree: Tree): String = Spelling.of(tree)
 
   private def isClass(d: Declared): Boolean = !d.tree.is[Defn.Trait]
 

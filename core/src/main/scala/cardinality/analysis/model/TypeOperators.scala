@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.types.{Kind, Kinds}
+import cardinality.types.{Kind, Kinds, Spelling}
 
 /** What a higher-kinded name is bound to: a rigid binder, or a constructor written at some scope
   * and applied later — a closure over the scope it was written in, so applying it reads the
@@ -69,7 +69,7 @@ final private[cardinality] class TypeOperators(
     */
   def operand(argument: Type, kind: Kind, context: ResolutionContext): Either[String, Shape] = {
     def mismatch(own: String) =
-      Left(s"kind mismatch: ${argument.syntax} has kind $own, expected ${kind.render}")
+      Left(s"kind mismatch: ${Spelling.of(argument)} has kind $own, expected ${kind.render}")
     argument match {
       case n: Type.Name if context.variables.contains(n.value) =>
         applicable(n, context) match {

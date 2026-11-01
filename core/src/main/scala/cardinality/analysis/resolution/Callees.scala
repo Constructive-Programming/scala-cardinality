@@ -1,10 +1,10 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{dialects, Defn, Dialect, Type, XtensionSyntax}
+import scala.meta.{Defn, Type}
 
 import cardinality.analysis.model.{Operator, ResolutionContext, ResolutionOptics, TypeOperators}
 import cardinality.analysis.{MethodAnalysis, Resolver}
-import cardinality.types.{Kinds, TypeApplications}
+import cardinality.types.{Kinds, Spelling, TypeApplications}
 
 import MethodAnalysis.{sequence, Resolved, TypeEntry}
 
@@ -32,7 +32,6 @@ final private[cardinality] case class Application(
 
 /** The callees of one reading of applications, whose arguments it binds as `bind` reads them. */
 final private[cardinality] class Callees(resolver: Resolver, bind: TypeOperators.Binder) {
-  private given Dialect = dialects.Scala3
 
   def of(callee: Type, context: ResolutionContext): Either[String, Callee] =
     TypeApplications.lambda(callee) match {
@@ -64,7 +63,8 @@ final private[cardinality] class Callees(resolver: Resolver, bind: TypeOperators
   ): Either[String, (Type.Lambda, ResolutionContext)] = {
     val head = applied.tpe
     val name = TypeApplications.spelled(head)
-    val notAlias = s"partially applied constructor is not a type-lambda alias: ${applied.syntax}"
+    val notAlias =
+      s"partially applied constructor is not a type-lambda alias: ${Spelling.of(applied)}"
     Found.named(resolver, head, name, context) match {
       // An inherited alias reads under its parent's instantiation, which this scope lacks.
       case Some(Found.Entry(_)) if resolver.inheritsName(head, name, context) =>

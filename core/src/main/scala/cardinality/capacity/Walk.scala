@@ -586,13 +586,23 @@ private[cardinality] object Walk {
         case _: Defn.Class => Definition.Kind.Class
         case _: Defn.Enum  => Definition.Kind.Enum
       introduced(prefix, d, kind, s.unbound, Some(size), size)
-        .inside(withSize(s, size), prefix :+ named(d).value, template(d))
+        .inside(withSize(s, size), instances(prefix, d), template(d))
     }
 
   // An abstraction the body leaves open: its row reads through `abstractRow`, and its declared
   // members carry into the body below.
   private def openRow(scope: Scope, prefix: List[String], d: Defn): Introduced =
-    abstractRow(scope, prefix, d).inside(declared(scope, d), prefix :+ named(d).value, template(d))
+    abstractRow(scope, prefix, d).inside(declared(scope, d), instances(prefix, d), template(d))
+
+  // The prefix a class, trait or enum body names its members under. They are members of each
+  // instance, which Scala writes `O#T`; a member of an object or package is `O.T`. So a class and
+  // its companion that both declare `T` give two rows with two names. An enum's cases belong to
+  // its companion, but they have no rows of their own. The instance mark is a segment of its own,
+  // which no name can be, so a class `+` (`+#T`) and an object `+#` (`+#.T`) stay apart.
+  private def instances(prefix: List[String], d: Defn): List[String] =
+    prefix :+ named(d).value :+ Instance
+
+  private val Instance = ""
 
   private def row(
       prefix: List[String],
@@ -602,7 +612,7 @@ private[cardinality] object Walk {
       unbound: List[Definition.Unbound] = Nil,
   ): Definition =
     Definition(
-      (prefix :+ named(d).value).mkString("."),
+      qualified(prefix :+ named(d).value),
       kind,
       Counter.parameters(d).map(_.name.value),
       size,
@@ -610,13 +620,25 @@ private[cardinality] object Walk {
       d.pos.startLine + 1
     )
 
+  // Path segments joined by `.`; the instance mark reads `#` and joins its owner to its member.
+  private def qualified(segments: List[String]): String =
+    segments
+      .zip(None :: segments.map(Some(_)))
+      .map {
+        case (Instance, _)             => "#"
+        case (segment, None)           => segment
+        case (segment, Some(Instance)) => segment
+        case (segment, _)              => s".$segment"
+      }
+      .mkString
+
   // Values and variables are named by the patterns they bind; every other definition the report
   // lists carries its name directly. `Defn` is not sealed, so the last case stands in for the
   // members the walk never names.
   private[cardinality] def named(d: Defn): TypeName = d match {
-    case v: (Defn.Val | Defn.Var) => TypeName.of(v.pats.map(_.syntax).mkString(", "))
+    case v: (Defn.Val | Defn.Var) => TypeName.of(v.pats.map(Spelling.of).mkString(", "))
     case m: Member                => TypeName.of(m.name.value)
-    case other                    => TypeName.of(other.syntax)
+    case other                    => TypeName.of(Spelling.of(other))
   }
 
   // What a body holds together: what `Counter.source` reports for a source is this walk over its

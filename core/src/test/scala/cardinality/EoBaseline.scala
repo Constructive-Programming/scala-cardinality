@@ -7,6 +7,7 @@ import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.*
 import cardinality.reporting.*
+import cardinality.types.Spelling
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
@@ -18,8 +19,6 @@ import java.util.zip.ZipFile
   * docs/baselines/eo-core-0.16.0-review.md downloads the input separately.
   */
 object EoBaseline {
-
-  private given Dialect = dialects.Scala3
 
   private val checksum =
     "61907fc2f4e1c0892fa8723c7a014af942b825b64a916a9b53dd64b3f12dbfe3"
@@ -137,26 +136,29 @@ object EoBaseline {
       tree: Source
   ): (String, String, String, String, String) = {
     // Anonymous owners in the human-readable report contain line numbers. Replace those with
-    // their signature context so moving a declaration does not change its review identity.
+    // their signature context so moving a declaration does not change its review identity. The
+    // context is spelled on one line as the signature is, whatever the source's layout.
     val enclosing = tree
       .collect {
         case group: Defn.ExtensionGroup if contains(group, entry.line) =>
-          "extension " + group.paramClauseGroup.toList.map(_.syntax).mkString(" ")
+          "extension " + clauses(group.paramClauseGroup.toList)
         case givenDef: Defn.Given if contains(givenDef, entry.line) =>
-          "given " + givenDef.paramClauseGroups.map(_.syntax).mkString(" ") + ": " +
-            givenDef.templ.inits.map(_.syntax).mkString(" with ")
+          "given " + clauses(givenDef.paramClauseGroups) + ": " +
+            givenDef.templ.inits.map(Spelling.of).mkString(" with ")
       }
       .mkString(" / ")
-      .replaceAll("\\s+", " ")
-      .trim
-    (
-      entry.path,
-      entry.name.replaceAll("<(extension|given)@\\d+>", "<$1>"),
-      entry.kind,
-      enclosing,
-      entry.signature
-    )
+    (entry.path, anonymousOwners(entry.name), entry.kind, enclosing, entry.signature)
   }
+
+  // Each clause on its own, as `SourceIndex` spells a signature's: `[A](x: A)(using B)`.
+  private def clauses(groups: List[Member.ParamClauseGroup]): String =
+    groups.flatMap(group => group.tparamClause :: group.paramClauses).map(Spelling.of).mkString
+
+  /** A qualified name without the line numbers its anonymous owners carry (`p.<extension@3>.g`
+    * reads `p.<extension>.g`): the identity stands in the enclosing context for them.
+    */
+  private[cardinality] def anonymousOwners(name: String): String =
+    name.replaceAll("<(extension|given)@\\d+>", "<$1>")
 
   private def contains(tree: Tree, line: Int): Boolean =
     tree.pos.startLine + 1 <= line && line <= tree.pos.endLine + 1

@@ -30,7 +30,6 @@ private[cardinality] enum Kind {
   * structure on it, so it never refuses one.
   */
 private[cardinality] object Kinds {
-  private given Dialect = dialects.Scala3
 
   def of(parameter: Type.Param): Kind =
     parameter.tparamClause.values match {
@@ -44,11 +43,11 @@ private[cardinality] object Kinds {
     else if (parameter.tparamClause.values.isEmpty) None
     else if (subtypeBounded(parameter) || parameter.tparamClause.values.exists(boundedHole))
       Some(
-        s"bounded higher-kinded parameter requires its bound's capabilities: ${parameter.syntax}"
+        s"bounded higher-kinded parameter requires its bound's capabilities: ${Spelling.of(parameter)}"
       )
     else if (parameter.tparamClause.values.exists(variantHole))
       Some(
-        s"variant higher-kinded parameter requires subtyping between applications: ${parameter.syntax}"
+        s"variant higher-kinded parameter requires subtyping between applications: ${Spelling.of(parameter)}"
       )
     else None
 
@@ -66,14 +65,14 @@ private[cardinality] object Kinds {
     clause.flatMap { parameter =>
       val view = Option.when(parameter.bounds.view.nonEmpty)(viewBound(parameter))
       val cycle = Option.when(cyclic(parameter.name.value))(
-        s"cyclic type bound (an invalid program): ${parameter.syntax}"
+        s"cyclic type bound (an invalid program): ${Spelling.of(parameter)}"
       )
       view.toList ++ cycle
     }
   }
 
   private def viewBound(parameter: Type.Param): String =
-    s"view bound is not Scala 3 (an invalid program): ${parameter.syntax}"
+    s"view bound is not Scala 3 (an invalid program): ${Spelling.of(parameter)}"
 
   // The clause's binders the compiler reads while checking one binder's bounds for cycles.
   private def referenced(parameter: Type.Param, names: Set[String]): Set[String] = {
