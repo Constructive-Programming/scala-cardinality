@@ -93,8 +93,8 @@ another meaning may hide behind a name:
   `def g(): Unit = false` in each case when the outside declaration is `type Unit = Boolean`, so
   the rows keep their other reasons plus `builtin names may be shadowed through <step>, which is
   not supplied (<channel>)` (`… not resolved …` for a step this reading cannot follow). The top
-  names themselves are refused there the same way (`builtin name Any may be shadowed through …`);
-  other builtin names under a foreign wildcard are the stdlib and foreign-names work's;
+  names themselves are refused there the same way (`builtin name Any may be shadowed through …`),
+  and so is every other builtin and stdlib-model name ([stdlib-model.md](stdlib-model.md));
 - a `transparent inline` result must also pass rule X.
 
 Constructor rows are value spaces, not goals, and are untouched.

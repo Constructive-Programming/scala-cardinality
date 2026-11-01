@@ -229,13 +229,15 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
           )
         case _ => application(key(t.tpe, context, bindings), t.argClause.values, context, bindings)
       }
+    // Tuple and arrow syntax spell `scala.TupleN` and `scala.FunctionN` themselves: one key per
+    // declaration, whichever way it is written (scalac accepts an override that respells them).
     case Type.Tuple(args) =>
-      application(Some(s"builtin:Tuple${args.size}"), args, context, bindings)
-    // Sugar keys as the type it spells, so `A => B` and `Function1[A, B]` are one key.
+      application(Some(s"builtin:scala.Tuple${args.size}"), args, context, bindings)
     case f: Type.Function =>
+      val parameters = f.paramClause.values
       application(
-        Some(s"builtin:Function${f.paramClause.values.size}"),
-        f.paramClause.values :+ f.res,
+        Some(s"builtin:scala.Function${parameters.size}"),
+        parameters :+ f.res,
         context,
         bindings
       )
@@ -365,8 +367,10 @@ final private[cardinality] class OverrideIdentity(target: Target, resolver: Reso
         // Aliases are expanded by `named`; abstract members remain unsupported.
         case List(entry) if entry.tree.is[Defn.Type] || entry.tree.is[Decl.Type] => None
         case List(entry) => Some(s"source:${entry.owner.id}:${entry.tree.pos.start}")
-        case Nil         => BuiltinTypes.canonical(name).map(builtin => s"builtin:$builtin")
-        case _           => None
+        // Every spelling of a builtin or model entry is one key: `Tuple2`, `scala.Tuple2` and
+        // `(A, B)`.
+        case Nil => BuiltinTypes.canonical(name).map(builtin => s"builtin:$builtin")
+        case _   => None
       }
 
   private def imported(name: String, frame: Frame): Boolean =

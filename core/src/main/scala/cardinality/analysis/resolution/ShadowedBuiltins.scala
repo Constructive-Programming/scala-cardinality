@@ -4,9 +4,10 @@ import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
+import cardinality.analysis.StdlibModel.Spelling
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.ResolutionContext
-import cardinality.analysis.{BuiltinTypes, Resolver, SourceIndex}
+import cardinality.analysis.{BuiltinTypes, ImportBinding, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.TypeSubstitution
 
 /** A builtin name (`Int`, `Boolean`, `Option`) a reference may bind through a channel simple-name
@@ -31,21 +32,17 @@ import cardinality.types.TypeSubstitution
   *
   * A channel may also reach declarations the sources do not supply — a parent or self type outside
   * them, a wildcard namespace no supplied declaration provides — which may bind any name at all.
-  * The top names are refused there whether or not the sources spell them (with `object Defs extends
-  * ext.X`, `Any` after `import Defs.*` is `Boolean` when `X` declares `type Any = Boolean`), and so
-  * is the one-value shortcut on a declared result. Every other builtin name waits for the stdlib
-  * and foreign-names cluster, which knows the namespaces whose members it can list.
-  *
-  * One foreign namespace is read here because its members are known to clash: under `import
-  * java.lang.*` the names `Boolean`, `Byte`, `Short`, `Long`, `Float` and `Double` are the boxed
-  * classes (3.9.0 accepts `val b: Boolean = null` there and rejects `F[Boolean]` as an
-  * `F[scala.Boolean]`), so the builtin is refused.
+  * Every builtin and stdlib-model name is refused there whether or not the sources spell it (with
+  * `object Defs extends ext.X`, `Any` after `import Defs.*` is `Boolean` when `X` declares `type
+  * Any = Boolean`; `import lib.*` may bring a `lib.Option`), and so is the one-value shortcut on a
+  * declared result — except through the stdlib namespaces `StdlibModel` lists, none of which spells
+  * a builtin.
   */
 final private[cardinality] class ShadowedBuiltins(
     resolver: Resolver,
     types: List[TypeEntry],
     sources: List[Source],
-    wildcards: (Frame, Option[(String, Int)]) => List[List[String]]
+    clauses: (Frame, Option[(String, Int)]) => List[ImportBinding]
 ) {
   import ShadowedBuiltins.*
 
@@ -74,29 +71,247 @@ final private[cardinality] class ShadowedBuiltins(
   private val channels =
     scala.collection.mutable.Map.empty[(Frame, Option[(String, Int)]), Option[Stop]]
 
-  /** The builtin a simple name lookup did not find denotes, unless a channel lookup does not walk
-    * may bind it.
-    */
-  def resolve(name: String, args: List[Shape], context: ResolutionContext): Either[String, Shape] =
-    BuiltinTypes.resolve(name, args).flatMap(builtin => shadowing(name, context).toLeft(builtin))
+  // The searches under way, and how many met themselves again: a parent whose standing is asked
+  // while its own scope's channel is being searched (`import O.*` beside `trait T extends
+  // Serializable`, `object O extends T`) is doubted, and no search that met one is remembered.
+  private val searching = scala.collection.mutable.Set.empty[Search]
+  private var cycles = 0
 
-  /** Why a builtin name read at this reference may mean another declaration instead, if it may.
+  /** The builtin or stdlib-model entry a name lookup did not find denotes, unless a channel lookup
+    * does not walk may bind it; for a name neither holds, the declaration a stdlib namespace opened
+    * by a wildcard import declares, or why the information is absent.
+    *
+    * A root import is the weakest binding Scala has, so any channel to declarations the sources do
+    * not supply may rebind a builtin spelling — a wildcard import of an unsupplied namespace
+    * included, unless the model lists that namespace and it spells no builtin. A `_root_`-anchored
+    * path is read from the root alone, so it names a builtin only through `scala` or `java`. A
+    * dotted path relative to a root import (`Predef.String`, `util.Either`) is no builtin either: a
+    * top-level package of its first name outside the sources outranks the root import (Scala 3.9.0
+    * fixtures).
     */
-  def shadowing(name: String, context: ResolutionContext): Option[String] =
-    boxed(name, context).orElse {
-      val walked = Option.when(spelled(name))(new Walk(Some(name)).from(context)).flatten
-      val unread = TopTypes.named(name).flatMap(_ => channel(context))
-      walked.orElse(unread).map(refusal(s"builtin name $name", _))
+  def resolve(
+      written: String,
+      args: List[Shape],
+      context: ResolutionContext
+  ): Either[String, Shape] =
+    reading(BuiltinTypes.known(_, args))(written, context)
+
+  /** What a named import of a path outside the sources denotes: the builtin or stdlib-model entry
+    * at that path, read as a root-anchored spelling of it would be — unless a channel may bind the
+    * path's head `scala` or `java` to another declaration — or the absence of its declaration.
+    */
+  def imported(
+      path: String,
+      binding: String,
+      args: List[Shape],
+      context: ResolutionContext
+  ): Either[String, Shape] =
+    importedReading(BuiltinTypes.known(_, args))(path, binding, context)
+
+  /** The declaration `resolve` would read a spelling as, by its canonical key — what a nominal
+    * identity names — under the same refusals.
+    */
+  def denoted(written: String, context: ResolutionContext): Either[String, String] =
+    reading(keyed)(written, context)
+
+  /** The declaration `imported` would read a named import's path as, by its canonical key. */
+  def importedKey(
+      path: String,
+      binding: String,
+      context: ResolutionContext
+  ): Either[String, String] =
+    importedReading(keyed)(path, binding, context)
+
+  // How a root spelling the model holds is read; None for one it does not hold.
+  private type Known[A] = String => Option[Either[String, A]]
+
+  // A builtin or model entry is its own canonical key, whatever the model makes of its values: an
+  // identity, not a reading.
+  private val keyed: Known[String] = BuiltinTypes.canonical(_).map(Right(_))
+
+  // One reading of a spelling no source declaration answers: `known` reads a root spelling it
+  // holds, a listed namespace's wildcard reads a simple name as a named import of its member would.
+  private def reading[A](known: Known[A])(
+      written: String,
+      context: ResolutionContext
+  ): Either[String, A] =
+    Spelling.of(written) match {
+      case Spelling.TopLevel(_) =>
+        Left(absent(written, context))
+      case Spelling.Relative(name, head) if known(s"scala.$name").nonEmpty =>
+        Left(s"builtin name $name may be shadowed by a top-level package $head outside the sources")
+      case Spelling.Relative(name, _)      => Left(absent(name, context))
+      case Spelling.Rooted(name, anchored) =>
+        known(name) match {
+          case Some(reading) => standingReading(name, anchored, reading, context)
+          case None          =>
+            opened(name, context)
+              .map(importedReading(known)(_, Wildcard, context))
+              .getOrElse(Left(absent(name, context)))
+        }
     }
 
-  private def boxed(name: String, context: ResolutionContext): Option[String] =
-    Option.when(
-      Boxed(name) && context.frame.chain.exists(scope =>
-        wildcards(scope, context.at).exists(prefix =>
-          JavaLang(prefix.dropWhile(_ == SourceIndex.Root))
+  private def importedReading[A](known: Known[A])(
+      path: String,
+      binding: String,
+      context: ResolutionContext
+  ): Either[String, A] =
+    (Spelling.imported(path) match {
+      case Spelling.Rooted(name, _) =>
+        known(name).map(standingReading(name, anchored = false, _, context))
+      case _ => None
+    }).getOrElse(Left(Found.Foreign(path, binding).reason))
+
+  /** The channel through which a declaration other than the root imports' may bind a name the
+    * stdlib model reads (a parent clause's `Serializable`, `java.io.Serializable`), if one is open
+    * where the name is read. Only a spelling through the root imports names such a declaration.
+    */
+  def rootShadow(name: String, context: ResolutionContext): Option[String] =
+    Spelling.of(name) match {
+      case Spelling.Rooted(path, anchored) => standing(path, anchored, context).map(route)
+      case _                               => None
+    }
+
+  private def standingReading[A](
+      name: String,
+      anchored: Boolean,
+      reading: Either[String, A],
+      context: ResolutionContext
+  ): Either[String, A] =
+    standing(name, anchored, context).fold(reading)(stop =>
+      Left(refusal(s"builtin name $name", stop))
+    )
+
+  // Why a root spelling may stand for another declaration where it is read: a supplied declaration
+  // of the name lookup does not reach, a channel to declarations the sources do not supply, or a
+  // package `scala` / `java` of the sources inside an enclosing package. Model reading rests on the
+  // complement: no package outside the sources is named `scala` or `java` inside a source package.
+  private def standing(name: String, anchored: Boolean, context: ResolutionContext): Option[Stop] =
+    Option
+      .unless(anchored)(
+        walked(name, context).orElse(channel(context)).orElse(subpackage(name, context))
+      )
+      .flatten
+
+  private def walked(name: String, context: ResolutionContext): Option[Stop] =
+    Option.when(spelled(name))(guarded(Search(Some(name), context.frame, context.at))).flatten
+
+  private def subpackage(name: String, context: ResolutionContext): Option[Stop] = {
+    val head = name.takeWhile(_ != '.')
+    Option
+      .when(name.contains('.') && StdlibModel.roots(head))(
+        context.frame.chain
+          .filter(scope => resolver.isPackage(scope) && scope.path.nonEmpty)
+          .map(_.path :+ head)
+          .find(path => resolver.peers(path).nonEmpty)
+      )
+      .flatten
+      .map(path => Step.Found(s"package ${path.mkString(".")}", "a package of the sources"))
+  }
+
+  // The declaration a wildcard import of a listed stdlib namespace binds a simple name to around
+  // the reference, nearest scope first.
+  private def opened(name: String, context: ResolutionContext): Option[String] =
+    context.frame.chain.iterator.flatMap(listedMember(name, _, context.at)).nextOption()
+
+  /** The declaration a wildcard import of a stdlib namespace the model lists binds a simple name to
+    * in one scope, before a position: the namespace's member, when the model lists it there.
+    */
+  def listedMember(name: String, scope: Frame, at: Option[(String, Int)]): Option[String] =
+    Option
+      .unless(name.contains('.'))(
+        listedIn(scope, at)
+          .find(_.types.exists(_(name)))
+          .map(namespace => s"${namespace.path}.$name")
+      )
+      .flatten
+
+  // The stdlib namespaces wildcard imports open around the reference, nearest first.
+  private def namespaces(context: ResolutionContext): List[StdlibModel.Namespace] =
+    context.frame.chain.flatMap(listedIn(_, context.at))
+
+  // The stdlib namespaces one scope's wildcard imports open before `at`.
+  private def listedIn(scope: Frame, at: Option[(String, Int)]): List[StdlibModel.Namespace] =
+    clauses(scope, at).flatMap(clause =>
+      clause.wildcards.flatMap(listed(_, scope, ShadowedBuiltins.at(at, clause)))
+    )
+
+  // The stdlib namespace a wildcard prefix opens, when its first name denotes the library's.
+  private def listed(
+      prefix: List[String],
+      scope: Frame,
+      at: Option[(String, Int)]
+  ): Option[StdlibModel.Namespace] =
+    StdlibModel.namespace(prefix).filter(library(_, prefix, scope, at))
+
+  // Whether a prefix spelling a listed namespace is the library's: anchored at the root, or headed
+  // by the root package it names, which no named import or source term rebinds — or, for a
+  // namespace reached through a term (`quotes.reflect`), by that term: imported by name from its
+  // own path, or opened by a wildcard of the listed namespace declaring it, before the clause.
+  private def library(
+      namespace: StdlibModel.Namespace,
+      prefix: List[String],
+      scope: Frame,
+      at: Option[(String, Int)]
+  ): Boolean =
+    (namespace.anchor, prefix) match {
+      case (None, _) => rootHead(prefix, scope, at)
+      case (Some(anchor), head :: _) if head != SourceIndex.Root && !terms(head) =>
+        namedImport(head, scope, at).fold(opens(anchor, scope, at))(path =>
+          path.filterNot(_ == SourceIndex.Root) == anchor && rootHead(path, scope, at)
+        )
+      case _ => false
+    }
+
+  // Whether a path's first name is the root package it spells: anchored, or rebound by no named
+  // import or source term.
+  private def rootHead(path: List[String], scope: Frame, at: Option[(String, Int)]): Boolean =
+    path match {
+      case SourceIndex.Root :: _ => true
+      case head :: _             => !terms(head) && namedImport(head, scope, at).isEmpty
+      case Nil                   => false
+    }
+
+  // Whether a wildcard of the listed namespace declaring a term is open before `at`.
+  private def opens(term: List[String], scope: Frame, at: Option[(String, Int)]): Boolean =
+    scope.chain.exists(outer =>
+      clauses(outer, at).exists(clause =>
+        clause.wildcards.exists(prefix =>
+          listed(prefix, outer, ShadowedBuiltins.at(at, clause))
+            .exists(_.path == term.init.mkString("."))
         )
       )
-    )(s"builtin name $name may be shadowed by java.lang.$name (wildcard import of java.lang)")
+    )
+
+  // The path the nearest named import of a simple name imports, if one binds it before `at`.
+  private def namedImport(
+      name: String,
+      scope: Frame,
+      at: Option[(String, Int)]
+  ): Option[List[String]] =
+    scope.chain.iterator
+      .flatMap(outer =>
+        clauses(outer, at).reverse.flatMap(_.named).collectFirst { case (`name`, path) => path }
+      )
+      .nextOption()
+
+  // Why a name no supplied declaration and no model entry answers is not read. A name some supplied
+  // declaration spells or a path through a supplied term is a gap in reading the sources; any other
+  // is a declaration the sources do not hold, reached perhaps through a channel that leaves them.
+  private def absent(name: String, context: ResolutionContext): String = {
+    val head = name.takeWhile(_ != '.')
+    if (typeNames(name.split('.').last) || (name.contains('.') && terms(head)))
+      s"unresolved type: $name"
+    else {
+      val unlisted = namespaces(context).find(_.types.isEmpty).map { namespace =>
+        s", may be a member of ${namespace.path} (${namespace.what}), whose members the model " +
+          "does not list"
+      }
+      val through = channel(context).map(stop => s", may be bound ${route(stop)}")
+      s"declaration not supplied: $name (${StdlibModel.undeclared}" +
+        s"${unlisted.orElse(through).getOrElse("")})"
+    }
+  }
 
   /** Whether a supplied declaration, enum case or export selector spells this simple name: one no
     * channel can reach is not a declaration of the sources.
@@ -112,15 +327,34 @@ final private[cardinality] class ShadowedBuiltins(
   // The same for every name no supplied declaration spells, so it is read once per reference — and
   // per frame, not per frame id: a constructor's frame shares its class's id but not its members
   // (Scala 3.9.0 reads `class C(a: Any) extends X` with `scala.Any` beside `X`'s `type Any`).
-  private def channel(context: ResolutionContext): Option[Stop] =
-    channels.getOrElseUpdate(context.frame -> context.at, new Walk(None).from(context))
+  private def channel(context: ResolutionContext): Option[Stop] = {
+    val key = context.frame -> context.at
+    channels.getOrElse(
+      key, {
+        val before = cycles
+        val found = guarded(Search(None, context.frame, context.at))
+        if (cycles == before) channels.update(key, found)
+        found
+      }
+    )
+  }
+
+  private def guarded(search: Search): Option[Stop] =
+    if (searching(search)) {
+      cycles += 1
+      Some(Step.Doubt(search.name.getOrElse("a channel"), SelfReached, selfReached = true))
+    } else {
+      searching += search
+      try new Walk(search.name).from(search.frame, search.at)
+      finally searching -= search
+    }
 
   // One name's search — or, with no name, the search for a step that leaves the sources: each frame
   // whose members it may reach, once, with the step from the reference that first reached it.
   final private class Walk(name: Option[String]) {
 
-    def from(context: ResolutionContext): Option[Stop] =
-      search(context.frame.chain.flatMap(entrances(_, context.at)), Set.empty, None)
+    def from(frame: Frame, at: Option[(String, Int)]): Option[Stop] =
+      search(frame.chain.flatMap(entrances(_, at)), Set.empty, None)
 
     // A member found wins over a step that could not be followed; that one refuses only when the
     // walk finds nothing else. A step outside the sources binds no name the sources spell, so only
@@ -165,9 +399,12 @@ final private[cardinality] class ShadowedBuiltins(
         else if (unsupplied(scope))
           List(Step.Unread(qualified(scope), s"package clause ${qualified(scope)}"))
         else resolver.peers(scope.path).flatMap(members(_, None))
-      val imported = wildcards(scope, at).flatMap { prefix =>
-        targets(prefix, scope, s"wildcard import of ${prefix.mkString(".")}")
-      }
+      val imported = clauses(scope, at).flatMap(clause =>
+        clause.wildcards.flatMap { prefix =>
+          val via = s"wildcard import of ${prefix.mkString(".")}"
+          targets(prefix, scope, via, ShadowedBuiltins.at(at, clause))
+        }
+      )
       own ++ packaged ++ imported ++ unbound(scope)
     }
 
@@ -192,7 +429,7 @@ final private[cardinality] class ShadowedBuiltins(
           val via = s"wildcard import of $ref"
           // A root-anchored prefix is a package path read from the root alone.
           if (ref.startsWith("_root_."))
-            targets(ref.stripPrefix("_root_.").split('.').toList, scope.chain.last, via)
+            targets(ref.stripPrefix("_root_.").split('.').toList, scope.chain.last, via, None)
           else List(Step.Doubt(ref, via))
         }
 
@@ -218,8 +455,9 @@ final private[cardinality] class ShadowedBuiltins(
           val prefix = SourceIndex.importPath(importer.ref)
           importer.importees.flatMap {
             case _: Importee.Wildcard =>
-              prefix
-                .fold(List(Step.Doubt(s"export ${spell(importer)}", via)))(targets(_, frame, via))
+              prefix.fold(List(Step.Doubt(s"export ${spell(importer)}", via)))(
+                targets(_, frame, via, None)
+              )
             case selector if bound(selector).exists(isSearched) =>
               List(Step.Found(s"export ${spell(importer)}", via))
             case _ => Nil
@@ -229,7 +467,12 @@ final private[cardinality] class ShadowedBuiltins(
     // The frames a dotted prefix may denote, anchored at every package around `from` (a `_root_`
     // prefix at the root alone): objects, packages, and the companions of enums (their cases) and
     // classes (nothing this reads).
-    private def targets(prefix: List[String], from: Frame, via: String): List[Step] = {
+    private def targets(
+        prefix: List[String],
+        from: Frame,
+        via: String,
+        at: Option[(String, Int)]
+    ): List[Step] = {
       val (relative, paths) = prefix match {
         case SourceIndex.Root :: path => (path, List(path))
         case _ => (prefix, from.chain.flatMap(_.path.inits).distinct.map(_ ++ prefix))
@@ -239,6 +482,9 @@ final private[cardinality] class ShadowedBuiltins(
       if (frames.nonEmpty || companions.nonEmpty)
         (frames ++ companions.filter(frame => enums(frame.id))).map(Step.Reach(_, via))
       else if (relative.headOption.exists(terms)) List(Step.Doubt(relative.mkString("."), via))
+      // A stdlib namespace the model lists spells no builtin: it binds none of the names this walk
+      // is about.
+      else if (listed(prefix, from, at).nonEmpty) Nil
       else List(Step.Unread(prefix.mkString("."), via))
     }
 
@@ -251,22 +497,33 @@ final private[cardinality] class ShadowedBuiltins(
         case Some(_) if depth > MaxHops => List(Step.Doubt(spell(tpe), via))
         case Some(parent)               =>
           val at = Option.when(tpe.pos.start >= 0)(from.input -> tpe.pos.start)
-          resolver.resolveName(
-            parent,
-            ResolutionContext(from, Map.empty, Set.empty, at = at)
-          ) match {
+          val context = ResolutionContext(from, Map.empty, Set.empty, at = at)
+          resolver.resolveName(parent, context) match {
             case Found.Entry(entry) =>
               (entry.self, entry.tree) match {
                 case (Some(frame), _)         => List(Step.Reach(frame, via))
                 case (None, alias: Defn.Type) => named(alias.body, entry.owner, via, depth + 1)
                 case _                        => List(Step.Doubt(parent, via))
               }
-            case Found.Blocked(_) | Found.Foreign(_)               => List(Step.Doubt(parent, via))
+            case Found.Blocked(_) => List(Step.Doubt(parent, via))
+            // An import binds it outside the sources, where only the stdlib model's summaries are
+            // known to declare no type — and only where they are the root imports' declarations.
+            case Found.Foreign(path, _) if InheritedTypeMembers.markerName(path) =>
+              summarized(path, via, context)
+            case Found.Foreign(path, _)                            => List(Step.Unread(path, via))
             case Found.Absent if typeNames(parent.split('.').last) => List(Step.Doubt(parent, via))
             // A name found nowhere is outside the sources, unless it is a root or marker type.
-            case Found.Absent if InheritedTypeMembers.markerName(parent) => Nil
+            case Found.Absent if InheritedTypeMembers.markerName(parent) =>
+              summarized(parent, via, context)
             case Found.Absent => List(Step.Unread(parent, via))
           }
+      }
+
+    private def summarized(name: String, via: String, context: ResolutionContext): List[Step] =
+      standing(name, anchored = false, context).toList.map {
+        case _: Step.Unread    => Step.Unread(name, via)
+        case doubt: Step.Doubt => Step.Doubt(name, via, doubt.selfReached)
+        case _: Step.Found     => Step.Doubt(name, via)
       }
 
   }
@@ -278,16 +535,25 @@ private[cardinality] object ShadowedBuiltins {
   // Alias hops a parent name is followed through before the walk gives up on it.
   private val MaxHops = 16
 
-  // The `java.lang` classes whose simple names are also builtin value types.
-  private val Boxed = Set("Boolean", "Byte", "Short", "Long", "Float", "Double")
+  // How a name a listed namespace's wildcard binds is reported when the model does not read it.
+  private val Wildcard = "wildcard import"
 
-  private val JavaLang = Set(List("java", "lang"))
+  // Why a search doubts a parent whose standing it is itself establishing.
+  private val SelfReached = "a search that reaches itself"
+
+  // A clause's own position: where the names in its prefix are read.
+  private def at(reference: Option[(String, Int)], clause: ImportBinding): Option[(String, Int)] =
+    reference.map((file, _) => file -> (clause.start - 1))
+
+  // One search: a name's, or the nameless search for a channel, from a frame at a position.
+  private case class Search(name: Option[String], frame: Frame, at: Option[(String, Int)])
 
   private enum Step {
     case Reach(frame: Frame, via: String)
     case Found(declaration: String, via: String)
-    // A step this reading cannot follow, which may lead into the supplied sources.
-    case Doubt(unread: String, via: String)
+    // A step this reading cannot follow, which may lead into the supplied sources — or one whose
+    // standing rests on a search under way.
+    case Doubt(unread: String, via: String, selfReached: Boolean = false)
     // A step that leads outside the supplied sources.
     case Unread(unread: String, via: String)
   }
@@ -297,10 +563,16 @@ private[cardinality] object ShadowedBuiltins {
 
   private def refusal(subject: String, stop: Stop): String = stop match {
     case Step.Found(declaration, via) => s"$subject may be shadowed by $declaration ($via)"
-    case Step.Doubt(what, via)        =>
-      s"$subject may be shadowed through $what, which is not resolved ($via)"
-    case Step.Unread(what, via) =>
-      s"$subject may be shadowed through $what, which is not supplied ($via)"
+    case other                        => s"$subject may be shadowed ${route(other)}"
+  }
+
+  // A step a search could not see past, as the way a binding may come through it.
+  private def route(stop: Stop): String = stop match {
+    case Step.Found(declaration, via) => s"through $declaration ($via)"
+    case Step.Doubt(what, via, cycle) =>
+      val why = if (cycle && via != SelfReached) s"$via, in $SelfReached" else via
+      s"through $what, which is not resolved ($why)"
+    case Step.Unread(what, via) => s"through $what, which is not supplied ($via)"
   }
 
   /** Whether a resolution's reason is this refusal: a builtin reading that may stand for a

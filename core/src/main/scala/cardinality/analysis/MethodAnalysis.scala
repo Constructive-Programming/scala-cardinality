@@ -143,22 +143,23 @@ object MethodAnalysis {
 
     def reading(path: String): Reading = readings.getOrElse(path, Reading.bare)
 
-    private val lookupIndex = new SourceLookup(
+    private val lookupIndex: SourceLookup = new SourceLookup(
       indexer.types.toList,
       indexer.packageFrames.toList,
       indexer.moduleFrames.toList,
-      indexer.imports.toList.groupMap(_._1)(_._2)
+      indexer.imports.toList.groupMap(_._1)(_._2),
+      (name, scope, at) => shadowedBuiltins.listedMember(name, scope, at)
     )
 
     private val inheritedMembers = new InheritedTypeMembers(lookupIndex, this)
 
     private lazy val constructorKinds = new ConstructorKinds(this)
 
-    private lazy val shadowedBuiltins = new ShadowedBuiltins(
+    private lazy val shadowedBuiltins: ShadowedBuiltins = new ShadowedBuiltins(
       this,
       indexer.types.toList,
       inputs.map(_.tree),
-      lookupIndex.wildcardPrefixes
+      lookupIndex.clauses
     )
 
     private[cardinality] lazy val runtimeClasses = new RuntimeClasses(
@@ -175,12 +176,16 @@ object MethodAnalysis {
     def unreadChannel(context: ResolutionContext): Option[String] =
       shadowedBuiltins.unread(context)
 
+    def rootShadow(name: String, context: ResolutionContext): Option[String] =
+      shadowedBuiltins.rootShadow(name, context)
+
     def narrowedResult(tpe: Type, context: ResolutionContext): Option[String] =
       transparentResults.narrowed(tpe, context)
 
     private lazy val applications = new ConstructorApplications(
       this,
-      new NominalKeys(this, shadowedBuiltins.shadowing),
+      new NominalKeys(this, shadowedBuiltins),
+      shadowedBuiltins,
       namedType,
       sourceNames
     )
@@ -319,6 +324,11 @@ object MethodAnalysis {
 
     def unsuppliedParent(init: Init, from: Frame): Boolean = inheritedMembers.unsupplied(init, from)
 
+    def fixedTemplate(frame: Frame): Boolean = FinalImplementations.fixed(frame, indexer)
+
+    def outsideParent(init: Init, from: Frame): Option[InheritedTypeMembers.Outside] =
+      inheritedMembers.outside(init, from)
+
     def declaration(tpe: Type, name: String, context: ResolutionContext): Found = {
       val at = context.referencing(tpe)
       inheritedMembers.find(name, at) match {
@@ -396,7 +406,11 @@ object MethodAnalysis {
 
     private def lexicalType(name: String, args: List[Shape], context: ResolutionContext): Resolved =
       resolveName(name, context) match {
-        case Found.Absent => shadowedBuiltins.resolve(name.stripPrefix("_root_."), args, context)
+        case Found.Absent => shadowedBuiltins.resolve(name, args, context)
+        // An import binds the name to its target outright: a builtin or the model reads it when it
+        // holds it.
+        case Found.Foreign(path, binding) =>
+          shadowedBuiltins.imported(path, binding, args, context)
         case failed: Found.Failed => Left(failed.reason)
         case Found.Entry(entry)   =>
           sourceType(name, args, entry, context, typeParameters(entry.owner))

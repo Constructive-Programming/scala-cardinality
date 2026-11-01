@@ -93,7 +93,11 @@ class GeneralInfixApplicationSpec extends Specification {
     pairs
       .map { (infix, prefix) =>
         (count("", infix) === count("", prefix))
-          .and(count("", infix) === Count.Unresolved(List("unresolved type: <")))
+          .and(
+            count("", infix) === Count.Unresolved(
+              List(s"declaration not supplied: < (${StdlibModel.undeclared})")
+            )
+          )
       }
       .reduce(_.and(_))
   }

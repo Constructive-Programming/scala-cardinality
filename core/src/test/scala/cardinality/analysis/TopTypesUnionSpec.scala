@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.resolution.RuntimeClasses
+import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 
 /** Top types as the terminal type, goals with one value, and unions read as tagged sums only where
@@ -188,7 +189,11 @@ class TopTypesUnionSpec extends Specification {
   def shadowBinder = count("def p[Any](x: Any, y: Any): Any = x", "p") === Count.Finite(2)
 
   def shadowImport =
-    reasonContains("import ext.Any\ndef imp(): Any = ???", "imp", "imported from ext.Any")
+    reasonContains(
+      "import ext.Any\ndef imp(): Any = ???",
+      "imp",
+      "declaration not supplied: ext.Any (named import Any)"
+    )
 
   // Inside O, `Any` is Base's Boolean: no absorption, no unit of `&`, no terminal result. Red |
   // Boolean has 4 values over Red's 2 → 4^2; a Boolean over 2 inputs → 2^2.
@@ -247,15 +252,15 @@ class TopTypesUnionSpec extends Specification {
   // Ext may declare `type Unit = Boolean` and `type Any = Boolean`: g and h could have 2.
   def foreignSelf = {
     val code = "import ext.Ext\ntrait T { self: Ext => def g(): Unit; def h(): Any }"
-    reasonContains(code, "T.g", "self type not resolved: Ext", "through Ext")
-      .and(reasonContains(code, "T.h", "builtin name Any may be shadowed through Ext"))
+    reasonContains(code, "T.g", "self type not resolved: Ext", "through ext.Ext")
+      .and(reasonContains(code, "T.h", "builtin name Any may be shadowed through ext.Ext"))
   }
 
   def selfUnsuppliedParent =
     reasonContains(
       "trait Base extends ext.X\ntrait T { self: Base => def g(): Unit; def h(): Any }",
       "T.g",
-      "builtin names may be shadowed through ext.X, which is not supplied (self type of T)"
+      "builtin name Unit may be shadowed through ext.X, which is not supplied (self type of T)"
     )
 
   def suppliedSelf =
@@ -268,7 +273,7 @@ class TopTypesUnionSpec extends Specification {
       "object Defs extends ext.X\nobject W { import Defs.*; def k(x: Any): Boolean = true\n" +
         "  def f(s: ext.Schema): Unit = () }"
     reasonContains(code, "W.k", "through ext.X, which is not supplied (wildcard import of Defs)")
-      .and(reasonContains(code, "W.f", "builtin names may be shadowed through ext.X"))
+      .and(reasonContains(code, "W.f", "builtin name Unit may be shadowed through ext.X"))
   }
 
   def packageObject = {
@@ -282,7 +287,14 @@ class TopTypesUnionSpec extends Specification {
     val imported = "import ext.*\ndef g(): Any = ()\ndef f(s: Schema): Unit = ()"
     val exported = "object E { export ext.defs.*; def f(s: ext.Schema): Unit = () }"
     reasonContains(imported, "g", "through ext, which is not supplied (wildcard import of ext)")
-      .and(reasonContains(imported, "f", "unresolved type: Schema", "builtin names"))
+      .and(
+        reasonContains(
+          imported,
+          "f",
+          "declaration not supplied: Schema",
+          "builtin name Unit may be shadowed through ext"
+        )
+      )
       .and(reasonContains(exported, "E.f", "through ext.defs, which is not supplied (export of E)"))
   }
 
@@ -324,13 +336,18 @@ class TopTypesUnionSpec extends Specification {
       chained,
       "extp.inner.U.f",
       "builtin name Any may be shadowed through extp, which is not supplied (package clause extp)"
-    ).and(reasonContains(chained, "extp.inner.U.g", "builtin names", "unresolved type: Foo"))
-      .and(
-        countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.f") === Count.Finite(1)
+    ).and(
+      reasonContains(
+        chained,
+        "extp.inner.U.g",
+        "builtin name Unit may be shadowed through extp",
+        "declaration not supplied: Foo"
       )
-      .and(
-        countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.g") === Count.Finite(1)
-      )
+    ).and(
+      countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.f") === Count.Finite(1)
+    ).and(
+      countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.g") === Count.Finite(1)
+    )
   }
 
   def suppliedObject =
@@ -371,7 +388,7 @@ class TopTypesUnionSpec extends Specification {
   }
 
   def nonTerminal =
-    reasonContains(codec, "Codec.bad", "unresolved type: Schema")
+    reasonContains(codec, "Codec.bad", "declaration not supplied: ext.Schema (named import Schema)")
       .and(
         reasonContains("import ext.Schema\ndef b(s: Schema): Boolean = true", "b", "Schema")
       )
@@ -381,7 +398,7 @@ class TopTypesUnionSpec extends Specification {
     reasonContains(
       "import ext.Schema\ntransparent inline def tf(s: Schema): Int => Unit = _ => ()",
       "tf",
-      "unresolved type: Schema"
+      "declaration not supplied: ext.Schema (named import Schema)"
     ).and(
       count("import ext.Schema\ntransparent inline def t(s: Schema): Unit = ()", "t") ===
         Count.Finite(1)
@@ -466,7 +483,9 @@ class TopTypesUnionSpec extends Specification {
       .and(count(code, "T.<init>") === Count.Finite(4))
   }
 
-  // The method side reads the alias's Any as (); the estimate would read it as everything.
+  // The method side reads the alias's Any as (); the estimate would read it as everything. Through
+  // `Arr`, `Array[Any]` is the sequences of () — one per length, countably many: an infinite closed
+  // position keeps the estimate's tier, so the row is the bound ω (`Bounded`), not a count.
   def aliasedTopCtor = {
     val code = "type Top = Any\nfinal case class TA(x: Top)\ntype Fn = Any => Boolean\n" +
       "final case class TC(f: Fn)\ntype Arr = Array[Any]\nfinal case class TB(a: Arr)"
@@ -474,19 +493,20 @@ class TopTypesUnionSpec extends Specification {
       "final case class V[A](f: Any => A)"
     (count(code, "TA.<init>") === Count.Finite(1))
       .and(count(code, "TC.<init>") === Count.Finite(2))
-      .and(reasonContains(code, "TB.<init>", "top type or Null through an alias: a"))
+      .and(count(code, "TB.<init>") === Count.Bounded(EffectiveOmega))
       .and(count(slots, "W.<init>") === count(slots, "V.<init>"))
   }
 
   def nothingBinderCtor =
     count("final case class KN[Nothing](x: Null, b: Boolean)", "KN.<init>") === Count.Finite(0)
 
-  // An Array[Null] holds only the empty array, which the estimate reads where the method side
-  // cannot; it is not asked about a slot where `Nothing`, the empty type it is handed, is Boolean.
+  // An Array[Null] holds only the empty array (`new Array[Null](0)` needs no ClassTag the type
+  // lacks: Scala 3.9.0 fixture), so the slot is 1 and the case class 2. A source alias named
+  // `Nothing` does not reach `Null`: still 2.
   def nothingAliasCtor = {
     val slot = "final case class NA(x: Array[Null], b: Boolean)"
     (count(slot, "NA.<init>") === Count.Finite(2))
-      .and(reasonContains("type Nothing = Boolean\n" + slot, "NA.<init>", "unresolved type: Array"))
+      .and(count("type Nothing = Boolean\n" + slot, "NA.<init>") === Count.Finite(2))
   }
 
   // Set(1, "a") and Set(1) differ in size, though Any reads as (): Set[Any] is not Set[Unit]'s 2.
@@ -645,7 +665,7 @@ class TopTypesUnionSpec extends Specification {
     reasonContains(
       "import ext.Json\nfinal case class Red(level: Boolean)\ndef m(j: Json, r: Red): Json | Red = r",
       "m",
-      "union Json | Red: unresolved type: Json (imported from ext.Json)"
+      "union Json | Red: declaration not supplied: ext.Json (named import Json)"
     )
 
   def callableSum =

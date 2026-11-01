@@ -26,8 +26,12 @@ private[cardinality] object Found {
   final case class Blocked(reason: String) extends Failed
 
   // An import binds the name to a path outside the source set: a declaration that exists, but was
-  // not supplied.
-  final case class Foreign(reason: String) extends Failed
+  // not supplied — or one the stdlib model reads (`import java.util.List`).
+  final case class Foreign(path: String, binding: String) extends Failed {
+
+    /** Why a name bound outside the sources is not read: the information is absent. */
+    def reason: String = s"declaration not supplied: $path ($binding)"
+  }
 
   case object Absent extends Found
 
@@ -71,13 +75,16 @@ private[cardinality] object InheritedObjects {
   * there: the enclosing packages and the model's builtin vocabulary are out of reach of that name,
   * exactly as the compiler denies them when the import brings an unavailable target. Scala's
   * precedence decides the rest: a declaration of the same file or a named import before a wildcard,
-  * and a wildcard before a package member of another file.
+  * and a wildcard before a package member of another file — a wildcard of a stdlib namespace the
+  * model lists included, for the names it lists (`listed`: the declaration such a wildcard in one
+  * scope binds a name to, before a position).
   */
 final private[cardinality] class SourceLookup(
     types: List[TypeEntry],
     packages: List[Frame],
     modules: List[Frame],
-    imports: Map[String, List[ImportBinding]]
+    imports: Map[String, List[ImportBinding]],
+    listed: (String, Frame, Option[(String, Int)]) => Option[String]
 ) {
   private val lexical = types.groupBy(entry => entry.owner.id -> entry.name)
   private val names = types.groupMapReduce(_.owner.id)(entry => Set(entry.name))(_ ++ _)
@@ -188,16 +195,19 @@ final private[cardinality] class SourceLookup(
         definition: Option[(List[TypeEntry], Int)],
         depth: Int
     ): Found = {
-      val hits = targets.distinct.map(target => hit(target.segments, target.scope, target.at))
-      hits.collectFirst { case Left(reason) => reason } match {
+      val read = targets.distinct.map(target => reach(target.segments, target.scope, target.at))
+      read.collectFirst { case Left(reason) => reason } match {
         case Some(reason) => Found.Blocked(reason)
         case None         =>
-          hits.collect { case Right(found) => found }.flatten.distinct match {
+          val hits = read.collect { case Right(found) => found }
+          hits.flatMap(_._1).distinct match {
+            // The target's own head may be bound by an import (`import lib.scala` before
+            // `import scala.Option`): the path it denotes is then read through that binding.
             case Nil =>
-              val origins = targets.map(_.segments.filterNot(_ == SourceIndex.Root).mkString("."))
-              Found.Foreign(
-                s"unresolved type: $name (imported from ${origins.distinct.mkString(", ")})"
-              )
+              val origin = hits
+                .collectFirst { case (_, Some(bound)) => bound }
+                .getOrElse(Origin.named(targets.head.segments, name))
+              Found.Foreign(origin.path, origin.binding)
             case List(entry) =>
               definition match {
                 // Clause and declaration in one block: the program's own name, or nothing
@@ -223,9 +233,8 @@ final private[cardinality] class SourceLookup(
           (paths.iterator.map(declared(_, frame)).find(_.nonEmpty), origin) match {
             case (Some(List(entry)), _) => Found.Entry(entry)
             case (Some(_), _)           => Found.Blocked(s"ambiguous type: $name")
-            case (None, Some(path))     =>
-              Found.Foreign(s"unresolved type: $name (imported from $path)")
-            case (None, None) => Found.Absent
+            case (None, Some(origin))   => Found.Foreign(origin.path, origin.binding)
+            case (None, None)           => Found.Absent
           }
       }
     }
@@ -250,14 +259,15 @@ final private[cardinality] class SourceLookup(
           .find { case (_, targets) => targets.nonEmpty }
       }
 
-    // The declarations a path's candidates name, first by nearness: one bucket or none.
-    private def hit(
+    // The declarations a path's candidates name, first by nearness — one bucket or none — with the
+    // import that bound the path's first segment, if one did.
+    private def reach(
         segments: List[String],
         scope: Frame,
         at: Option[(String, Int)]
-    ): Either[String, List[TypeEntry]] =
-      absolute(segments, scope, at).map((paths, _) =>
-        paths.iterator.map(declared(_, scope)).find(_.nonEmpty).getOrElse(Nil)
+    ): Either[String, (List[TypeEntry], Option[Origin])] =
+      absolute(segments, scope, at).map((paths, origin) =>
+        (paths.iterator.map(declared(_, scope)).find(_.nonEmpty).getOrElse(Nil), origin)
       )
 
     private def lexicalHit(name: String, frame: Frame): Option[(List[TypeEntry], Int)] =
@@ -296,7 +306,7 @@ final private[cardinality] class SourceLookup(
         segments: List[String],
         frame: Frame,
         at: Option[(String, Int)]
-    ): Either[String, (List[List[String]], Option[String])] =
+    ): Either[String, (List[List[String]], Option[Origin])] =
       segments match {
         case SourceIndex.Root :: rest => Right((List(rest), None))
         case head :: rest             =>
@@ -304,9 +314,7 @@ final private[cardinality] class SourceLookup(
             bound(InheritedObjects.Head(head, frame, file, position), frame.chain, None)
           ) match {
             case Some(found) =>
-              found.map((paths, origin) =>
-                (paths.map(_ ++ rest), origin.map(path => (path :: rest).mkString(".")))
-              )
+              found.map((paths, origin) => (paths.map(_ ++ rest), origin.map(_.selecting(rest))))
             case None => Right((anchored(frame, head, path = true).map(_ ++ segments), None))
           }
         case Nil => Right((Nil, None))
@@ -322,7 +330,7 @@ final private[cardinality] class SourceLookup(
         head: InheritedObjects.Head,
         chain: List[Frame],
         unread: Option[String]
-    ): Option[Either[String, (List[List[String]], Option[String])]] =
+    ): Option[Either[String, (List[List[String]], Option[Origin])]] =
       chain match {
         case Nil            => unread.map(Left(_))
         case scope :: outer =>
@@ -350,7 +358,7 @@ final private[cardinality] class SourceLookup(
     // at its own clause, or a wildcard whose namespace holds the segment — with the path written.
     private def importedPrefix(
         head: InheritedObjects.Head
-    ): Option[Either[String, (List[List[String]], String)]] = {
+    ): Option[Either[String, (List[List[String]], Origin)]] = {
       val InheritedObjects.Head(name, scope, file, position) = head
       val clauses = visible(scope, file, position)
       val named = clauses.flatMap { clause =>
@@ -362,9 +370,7 @@ final private[cardinality] class SourceLookup(
         Some(
           MethodAnalysis
             .sequence(named.map((segments, at) => absolute(segments, scope, at).map(_._1)))
-            .map(paths =>
-              paths.flatten.distinct -> named.head._1.filterNot(_ == SourceIndex.Root).mkString(".")
-            )
+            .map(paths => paths.flatten.distinct -> Origin.named(named.head._1, name))
         )
       else {
         val opened = MethodAnalysis
@@ -377,11 +383,14 @@ final private[cardinality] class SourceLookup(
           .map(_.flatten.filter(path => namespaces((path :+ name).mkString("."))).map(_ :+ name))
         opened match {
           case Right(Nil) => None
-          case found      => Some(found.map(paths => paths -> paths.head.mkString(".")))
+          case found      =>
+            Some(found.map(paths => paths -> Origin(paths.head.mkString("."), "wildcard import")))
         }
       }
     }
 
+    // The nearest scope whose wildcards bind the name: a supplied member, or a declaration of a
+    // listed stdlib namespace — both in one scope are an ambiguity.
     private def wildcards(name: String, frame: Frame, at: Option[(String, Int)]): Found =
       at match {
         case None                   => Found.Absent
@@ -389,19 +398,42 @@ final private[cardinality] class SourceLookup(
           frame.chain.iterator
             .map { scope =>
               inspect("import bucket")
-              MethodAnalysis
+              val supplied = MethodAnalysis
                 .sequence(visible(scope, file, position).flatMap { clause =>
-                  clause.wildcards.map(prefix => hit(prefix :+ name, scope, before(file, clause)))
+                  clause.wildcards
+                    .map(prefix => reach(prefix :+ name, scope, before(file, clause)).map(_._1))
                 })
                 .map(_.flatten.distinct)
+              supplied -> listed(name, scope, at)
             }
-            .find(_ != Right(Nil)) match {
-            case Some(Right(List(entry))) => Found.Entry(entry)
-            case Some(Right(_))           => Found.Blocked(s"ambiguous wildcard import: $name")
-            case Some(Left(reason))       => Found.Blocked(reason)
-            case None                     => Found.Absent
+            .find((supplied, outside) => supplied != Right(Nil) || outside.nonEmpty) match {
+            case Some((Right(Nil), Some(fqn)))    => Found.Foreign(fqn, "wildcard import")
+            case Some((Right(List(entry)), None)) => Found.Entry(entry)
+            case Some((Right(_), _))     => Found.Blocked(s"ambiguous wildcard import: $name")
+            case Some((Left(reason), _)) => Found.Blocked(reason)
+            case None                    => Found.Absent
           }
       }
+
+  }
+
+  /** The import that bound a name or a path's first segment: the path it binds and how. */
+  private case class Origin(path: String, binding: String) {
+
+    def selecting(rest: List[String]): Origin =
+      if (rest.isEmpty) this else Origin((path :: rest).mkString("."), s"selected through $binding")
+
+  }
+
+  private object Origin {
+
+    def named(segments: List[String], name: String): Origin = {
+      val target = segments.filterNot(_ == SourceIndex.Root)
+      Origin(
+        target.mkString("."),
+        s"${if (target.lastOption.contains(name)) "named" else "renamed"} import $name"
+      )
+    }
 
   }
 
@@ -418,12 +450,11 @@ final private[cardinality] class SourceLookup(
       case _           => Found.Blocked(s"ambiguous type: $name")
     }
 
-  /** The prefixes the wildcard clauses of one scope open at a reference; with no reference
-    * position, every clause of the scope.
+  /** The import clauses of one scope visible at a reference; with no reference position, every
+    * clause of the scope.
     */
-  def wildcardPrefixes(scope: Frame, at: Option[(String, Int)]): List[List[String]] =
+  def clauses(scope: Frame, at: Option[(String, Int)]): List[ImportBinding] =
     at.fold(imports.getOrElse(scope.id, Nil))((file, position) => visible(scope, file, position))
-      .flatMap(_.wildcards)
 
   // The paths a scope opens, nearest first — each frame of its chain contributes its own — then the
   // root. The empty package's members are invisible from a named package, even in the same file;

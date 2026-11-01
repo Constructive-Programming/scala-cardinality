@@ -363,10 +363,11 @@ expansion is `new Sub(true)` — **compiler fixture**); so does a top-typed para
 method, which an `inline match` may dispatch on. A clause that may rebind a builtin name keeps its
 reason, and so does a channel name lookup does not walk that reaches declarations the sources do
 not supply (a self type, the parent of a wildcard-imported or package object, a wildcard namespace,
-the outer clause of a chained package no supplied unit declares into): there the top names are
-refused and the one-value rule does not fire. `Any*` is not terminal (its length is observable),
-and neither is a top inside a constructor that merges equal elements: `Set[Any]` has a value per
-size, so a constructor position reading one is refused rather than read as `Set[Unit]`. See
+the outer clause of a chained package no supplied unit declares into): there every builtin and
+model name is refused (D16) and the one-value rule does not fire. `Any*` is not terminal (its
+length is observable), and neither is a top inside a constructor that merges equal elements:
+`Set[Any]` has a value per size, so a constructor position reading one is refused rather than read
+as `Set[Unit]`. See
 [top-types-unions.md](top-types-unions.md).
 
 ## D13. A union of disjoint, discriminable classes is a coproduct
@@ -519,6 +520,85 @@ Mutual recursion between generic families, a match type over another match type'
 absorption by an exact 0, an instantiation's recursion through `&` that settles late, negative
 recursion, recursion through an unread constructor or a value's type member, and a match case only
 subtyping would match stay `?`, as the page's limits state.
+
+## D16. Library declarations are read from a versioned model; absent ones are reported
+
+**Decision.** Declarations the sources do not supply are read only through a small table keyed by
+fully qualified name (`stdlib-model/1`, Scala 3.9.0 on 2.13 collections): tuples, `Some`, `Left`,
+`Right`, `EmptyTuple`, `NamedTuple` as products; `Option`, `Either` as sums; `FunctionN` as
+arrows; `List`, `Vector`, `IndexedSeq`, `Seq`, `ArraySeq` and `Array` of a class as finite
+sequences `Σₙ Eⁿ`; single-pass, equality-built and reflective types excluded; classes and Java
+interfaces whose members it does not hold (open ones, and the final `Integer`) refused. The table
+answers after every binding of the sources, under the root imports' spellings only; a wildcard of an
+unsupplied namespace refuses every builtin and model name, and a wildcard of a listed namespace
+binds the names it lists ahead of another file's package member. A name nobody declares is
+`declaration not supplied: <fqn> (<binding>)`. An open owner's foreign parent is reported, not
+ignored.
+
+**Evidence.**
+
+- Scala 3 draft specification, ch. 2, `docs/_spec/02-identifiers-names-and-scopes.md` (main) —
+  **inspected (full text)** by the literature verifier (a draft, not versioned for 3.9.0): the
+  root imports "are taken as lowest precedence, so that they are always shadowed by user code"; a
+  wildcard import outranks them.
+- Odersky 2024, SIP-58, and the reference page *Named Tuples* — **inspected (full text)** by the
+  verifier: "`NamedTuple` is an opaque type alias of its second, value parameter", with
+  `toTuple`.
+- Knvl 2018 (D3, D4) — **executable**: sums, products and the list fixed point; Smyth & Plotkin
+  1982 (D4) — **bibliography-verified**: least fixed points.
+- Scala 3.9.0 compiler fixtures — **compiler fixture**: the 93 root spellings the analyzer reads
+  mean the library's under `scala.quoted.*`, `quotes.reflect.*`, `scala.jdk.CollectionConverters.*`
+  and inside an `IterableOnce` subclass; `NoSuchElementException` is `java.util`'s;
+  `new Array[A](0)`, `Array.empty[x.type]` and `Array(x)` for `x: A` (or a member type `h.T`) need a
+  `ClassTag` nobody supplies (E172), while an array of every non-rigid element builds — `new
+  Array[E](0)` for `Nothing`, `Null`, `Box[A]`, `List[A]`, an opaque type, an object's singleton and
+  `x.type` for `x: String` or `x: Box[A]`, `Array.empty[F[A]]` and `Array(x)` for `x: F[A]` (`new
+  Array[F[A]](0)` itself crashes the 3.9.0 back end, so it is not the fixture); a listed namespace
+  reached through a rebound head (`import lib.quotes; import quotes.reflect.*`) is `lib`'s; under
+  `import scala.quoted.*` a package member `Expr` of another file is not what `Expr` names (E008 on
+  its field). The scala-library 2.13 class file of
+  `IterableOnce` (**inspected**, `javap`): `iterator` abstract, `knownSize` and `stepper` default.
+- **Executable**: `StdlibModelSpec`.
+
+**Boundary.** The table describes one library version and must be refused for others. Readings hold
+under the contract's exclusions (identity, mutation, runtime equality): an `Array` is its contents,
+a `Map` or `Set` is not counted at all. An unapplied entry is an operator of the higher-kinded
+reading (D14) and is read only where applied; every entry the model reads is a nominal key there,
+one per declaration whatever its spelling. An `Array` of a type parameter, or of a singleton of one,
+is refused even as an input (the reading has no polarity). The table is consulted only where the
+root imports bind the name — a model parent or a listed namespace under a rebound head or an
+unsupplied wildcard is not the model's — and under one **assumption**: no package outside the
+sources is named `scala` or `java` inside a source package (a supplied one refuses). Dependency
+declarations are not read; absence stays `?`. See [stdlib-model.md](stdlib-model.md).
+
+## D17. A supplied sequence is eliminated by length
+
+**Decision.** With `c(n̄)` the count when each of at most three opaque-element sequences is
+replaced by `nᵢ` fresh elements: `c(0̄) = 0` gives 0; a one-valued goal 1; `c(0̄) ≥ 1` and
+`c(k̄) ≥ 2` for some nonzero `k̄` with every `kᵢ ≤ 2` gives ω; anything else is `?`. A sequence the
+rule cannot reach (in a supplied sum, a callable's result, a built function's parameter) is `?`.
+
+**Evidence.**
+
+- [type-arithmetic.md](../type-arithmetic.md) §4, §7 — `List[A] ≅ Σₙ Aⁿ`, and a function out of a
+  sum is a product of functions (shapes are lengths): an implementation is a family indexed by
+  length, chosen by a total length test.
+- D2 (**classical**): at most ℵ₀ finite programs, so infinitely many distinct families are ω.
+- Weakening (an inhabitant ignores a new element) carries existence to every length; distinctness
+  needs a nonzero witness `kᵢ ≥ 1`, whose valuation extends by repeating an element; an absurd
+  element merging the answers is the analyzer's own derivation (`varAbsurd`).
+- Related work, **metadata-verified**: Scherer & Rémy 2015 (ICFP) report that the simply typed
+  λ-calculus with sums has 0, 1 or ≥ 2 inhabitants under βη, decided by saturating focused search;
+  Scherer 2017 (POPL) reports that βη-equivalence with sums and the empty type is decidable and
+  coincides with contextual equivalence.
+- **Executable**: `SequenceEliminationSpec` (`varAbsurd` is never ω;
+  `varBranch` is ω), `RepeatedParameterFragmentSpec`.
+
+**Boundary.** Lengths up to 2 decide only ω or 0; a count that stays finite and above 1 (the true 2
+of `varAbsurd`) is `?`. Premise (1) needs the empty sequence to be an admissible input: the fields
+of a receiver whose class has a non-public constructor are refused, since its factories may never
+build one (`NonEmpty.head`, true ω). Infinite `Seq` inputs are covered by continuity (a total
+program reads a finite prefix), not by a separate rule. See [stdlib-model.md](stdlib-model.md).
 
 ## How to extend this register
 

@@ -25,7 +25,7 @@ import MethodAnalysis.{sequence, Resolved, TypeEntry}
   */
 final private[cardinality] class NominalKeys(
     resolver: Resolver,
-    shadowing: (String, ResolutionContext) => Option[String]
+    builtins: ShadowedBuiltins
 ) {
   private given Dialect = dialects.Scala3
 
@@ -77,10 +77,12 @@ final private[cardinality] class NominalKeys(
       tpe match {
         case n: Type.Name if context.variables.contains(n.value) =>
           variable(n.value, context.variables(n.value))
-        case Type.Tuple(args) => builtin(s"Tuple${args.size}", written(tpe, args, context))
+        // Tuple and arrow syntax spell `scala.TupleN` / `scala.FunctionN` themselves: no name to
+        // shadow.
+        case Type.Tuple(args) => builtin(s"scala.Tuple${args.size}", written(tpe, args, context))
         case f: Type.Function =>
           val arity = f.paramClause.values.size
-          builtin(s"Function$arity", written(tpe, f.paramClause.values :+ f.res, context))
+          builtin(s"scala.Function$arity", written(tpe, f.paramClause.values :+ f.res, context))
         case union if TypeSubstitution.unionAlternatives(union).size > 1 =>
           alternatives(union, context)
         case a: Type.Apply => applied(written(a.tpe, a.argClause.values, context))
@@ -148,8 +150,11 @@ final private[cardinality] class NominalKeys(
           // carry: `P[Int]#T` and `P[Long]#T` are different types.
           case Found.Entry(_) if resolver.inheritsName(callee, spelled, scope) =>
             Left(s"nominal identity of inherited type member not established: $spelled")
-          case Found.Entry(entry)   => declared(entry, application)
-          case Found.Absent         => builtin(spelled, application)
+          case Found.Entry(entry) => declared(entry, application)
+          case Found.Absent => builtins.denoted(spelled, scope).flatMap(builtin(_, application))
+          // An import binds the name to its target: a builtin or model entry is keyed as one.
+          case Found.Foreign(path, binding) =>
+            builtins.importedKey(path, binding, scope).flatMap(builtin(_, application))
           case failed: Found.Failed => Left(failed.reason)
         }
     }
@@ -198,22 +203,14 @@ final private[cardinality] class NominalKeys(
       arguments(application.args, parameters.map(Kinds.of), application.context)
         .map(nominal(TypeIdentities.key(entry), _))
 
-  private def builtin(name: String, application: Application): Keyed = {
-    val plain = name.stripPrefix("_root_.")
-    BuiltinTypes.canonical(name) match {
-      case None            => Left(s"unresolved type: $plain")
-      case Some(canonical) =>
-        val written = application.callee.is[Type.Name] || application.callee.is[Type.Select]
-        Option.when(written)(plain).flatMap(shadowing(_, application.scope)) match {
-          case Some(reason) => Left(reason)
-          case None         =>
-            val args = application.args
-            if (args.size != BuiltinTypes.nominalArity(canonical))
-              Left(s"type argument arity: $plain")
-            else
-              arguments(args, args.map(_ => Kind.Proper), application.context)
-                .map(nominal(s"scala.$canonical", _))
-        }
+  // A builtin or model declaration, by its canonical key, applied to its arguments' keys.
+  private def builtin(canonical: String, application: Application): Keyed = {
+    val args = application.args
+    BuiltinTypes.arity(canonical).flatMap { arity =>
+      if (args.size != arity)
+        Left(s"type argument arity: ${application.spelled.stripPrefix("_root_.")}")
+      else
+        arguments(args, args.map(_ => Kind.Proper), application.context).map(nominal(canonical, _))
     }
   }
 

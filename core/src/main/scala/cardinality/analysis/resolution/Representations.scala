@@ -51,34 +51,15 @@ final private[cardinality] class Representations(
     if (seen.contains(entry.name)) Left(s"recursive sealed family: ${entry.name}")
     else if (indexer.typesInFile(file, entry.name).size != 1)
       Left(s"ambiguous sealed family: ${entry.name}")
-    else if (indexer.givenTargets.contains((file, entry.name)))
-      Left(s"sealed family has a given instance outside the fragment: ${entry.name}")
-    else if (indexer.anonymousTargets.contains((file, entry.name)))
-      Left(s"sealed family has anonymous instances in its file: ${entry.name}")
-    else if (throughAlias(file, entry.name))
-      Left(s"sealed family is extended through an alias: ${entry.name}")
-    else if (indexer.innerChildren.contains((file, entry.name)))
-      Left(
-        s"sealed subtype is an inner or local class: ${indexer.innerChildren((file, entry.name)).head}"
-      )
     // A sealed family with no subtypes in its file has none anywhere: the compiler's own
     // promise makes the empty enumeration an empty sum, and the empty sum says 0.
     else
-      sequence(children.map(sealedCase(_, family.copy(seen = seen :+ entry.name)))).map(_.flatten)
-  }
-
-  // Children are registered by the parent name their clause spells, so a child or an anonymous
-  // instance written against an alias of the family (`type SA = S; new SA {}`) is not among them.
-  // Any alias whose body mentions the family, or such an alias, used as a parent in the family's
-  // file makes the enumeration incomplete.
-  private def throughAlias(file: String, family: String): Boolean = {
-    val aliases = indexer.aliasesOf(family)
-    aliases.exists(alias =>
-      indexer.subtypes.contains((file, alias)) ||
-        indexer.innerChildren.contains((file, alias)) ||
-        indexer.anonymousTargets((file, alias)) ||
-        indexer.givenTargets((file, alias))
-    )
+      indexer
+        .unnamedInstances(file, entry.name)
+        .fold(
+          sequence(children.map(sealedCase(_, family.copy(seen = seen :+ entry.name))))
+            .map(_.flatten)
+        )(Left(_))
   }
 
   private def sealedCase(child: TypeEntry, family: Family): Either[String, List[List[Type]]] = {

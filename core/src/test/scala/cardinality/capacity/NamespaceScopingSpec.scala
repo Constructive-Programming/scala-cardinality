@@ -307,7 +307,7 @@ class NamespaceScopingSpec extends Specification {
       .and(constructor("b.V.<init>", imported*) === Count.Finite(2))
       .and(
         constructor("c.U.<init>", imported*) ===
-          Count.Unresolved(List("unresolved type: W (imported from zz.W)"))
+          Count.Unresolved(List("declaration not supplied: zz.W (named import W)"))
       )
       .and(constructor("f.U.<init>", family) === Count.Finite(2))
       .and(
@@ -332,9 +332,9 @@ class NamespaceScopingSpec extends Specification {
         )
     }
 
-  // The estimate's refusal of an imported `Int` says where the name comes from, in place of the
-  // shape model's bare `unresolved type: Int`; a stuck match type slot is named once, by the shape
-  // model's inert reason.
+  // The refusal of an imported `Int` names the path the import binds (the method side's reason; the
+  // estimate's refusal of the same name is not repeated); a stuck match type slot is named once, by
+  // the shape model's inert reason.
   def refusalReasons = {
     val g = "G.scala" ->
       "package g\ntype Fst[T] = T match { case (a, b) => a }\nfinal case class G(x: Fst[Int])"
@@ -342,7 +342,7 @@ class NamespaceScopingSpec extends Specification {
       "i.N.<init>",
       "N.scala" -> "package i\nimport zz.Int\nfinal case class N(n: Int)"
     ) ===
-      Count.Unresolved(List("unresolved type: Int (imported from zz.Int)")))
+      Count.Unresolved(List("declaration not supplied: zz.Int (named import Int)")))
       .and(
         constructor("g.G.<init>", g) === Count.Unresolved(
           List("inert match type: scrutinee is not a proven tuple; concrete substitution required")

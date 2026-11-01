@@ -408,7 +408,7 @@ class HigherKindedBindingSpec extends Specification {
       "T.f"
     ) must beLike {
       case Count.Unresolved(reasons) =>
-        (reasons.exists(_.contains("unresolved type: Functor")) must beTrue)
+        (reasons.exists(_.contains("declaration not supplied: cats.Functor")) must beTrue)
           .and(reasons.exists(_.contains("PR")) must beFalse)
     }
 
@@ -519,7 +519,7 @@ class HigherKindedBindingSpec extends Specification {
     unresolved(
       "import cats.Monoid\nobject T { def f[M: Monoid](m: M): M = m }",
       "T.f",
-      "unresolved type: Monoid"
+      "declaration not supplied: cats.Monoid (named import Monoid)"
     )
 
   // `summon[Default[A]]` is ambiguous (3.9.0: E172); exact count 1.

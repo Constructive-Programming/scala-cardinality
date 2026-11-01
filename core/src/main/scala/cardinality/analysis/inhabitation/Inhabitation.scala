@@ -16,8 +16,8 @@ import dev.constructive.eo.schemes.Schemes
   * eta-expanded; Unit has one implementation. Sum contexts are exhaustively split, with independent
   * implementations in each branch. Provenance distinguishes opaque values.
   *
-  * Repeated arguments use finite sequence introduction (Nil/Cons). Arbitrary sequence elimination
-  * is unresolved except for structurally empty elements or singleton results.
+  * Sequences use finite sequence introduction (Nil/Cons); a supplied one is eliminated by length
+  * (`SequenceElimination`) where it is a value of the environment, and refused elsewhere.
   *
   * Opaque callable sums are supported only by the isolated-observation certificate in
   * OpaqueSumForwarding. TerminalHigherOrder certifies terminal atomic higher-order outputs and
@@ -304,9 +304,16 @@ object Inhabitation {
     try
       inspect("solver preparation")
       RepeatedArguments.prepare(bindings, result) match {
-        case Left(count)                 => count
-        case Right((normalized, target)) =>
+        case Left(count)                                                  => count
+        case Right(RepeatedArguments.Prepared.Direct(normalized, target)) =>
           new Solver(maxStates, inspect, maxDepth).run(normalized, target)
+        case Right(RepeatedArguments.Prepared.Eliminate(rest, sequences, target)) =>
+          SequenceElimination.count(
+            rest,
+            sequences,
+            target,
+            count(_, _, maxStates, inspect, maxDepth)
+          )
       }
     catch {
       case error: Limit            => Unresolved(List(error.getMessage))
@@ -539,13 +546,19 @@ object Inhabitation {
             Some("Elimination of an opaque sum-producing callable is unsupported")
           case Ground(_, _) =>
             Some("Elimination of an opaque callable's transparent ground result is unsupported")
+          case Repeated(_) =>
+            Some("Elimination of an opaque callable's sequence result is unsupported")
           case Existential(_, _) => Some(ExistentialInputs.callableBoundary)
           case _                 => None
         }
-        // Case analysis of a ground result has every literal's branch in the same environment, so
-        // it cannot prove the context absurd: no rule toward the empty goal.
-        val groundAbsurd = target == Sum(Nil) && value.output.isInstanceOf[Ground]
-        if (groundAbsurd || (value.output != target && opaque.isEmpty)) Nil
+        // Case analysis of a ground result has every literal's branch in the same environment, and
+        // a sequence result may be empty, so neither proves the context absurd: no rule toward the
+        // empty goal.
+        val noAbsurdRule = target == Sum(Nil) && (value.output match {
+          case Ground(_, _) | Repeated(_) => true
+          case _                          => false
+        })
+        if (noAbsurdRule || (value.output != target && opaque.isEmpty)) Nil
         else {
           val certified = TerminalHigherOrder.certified(data(env))
           val dependencies =

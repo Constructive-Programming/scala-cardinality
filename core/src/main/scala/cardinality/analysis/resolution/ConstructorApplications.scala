@@ -25,6 +25,7 @@ import cardinality.types.{Kind, Kinds, TypeApplications}
 final private[cardinality] class ConstructorApplications(
     resolver: Resolver,
     keys: NominalKeys,
+    builtins: ShadowedBuiltins,
     named: (String, List[Shape], ResolutionContext) => Resolved,
     sourceNames: Set[String]
 ) {
@@ -100,9 +101,9 @@ final private[cardinality] class ConstructorApplications(
     }
   }
 
-  // The kinds a named callee takes: a declaration's own, a builtin's proper parameters (the same
-  // arity its key reads), and none for a name no supplied declaration answers — the callee's reason
-  // is then the only true one.
+  // The kinds a named callee takes: a declaration's own, a builtin's or model entry's proper
+  // parameters (the same arity its key reads), and none for a name no supplied declaration answers
+  // — the callee's reason is then the only true one.
   private def kinds(
       callee: Type,
       name: String,
@@ -110,13 +111,14 @@ final private[cardinality] class ConstructorApplications(
   ): Either[String, List[Kind]] =
     resolver.declaration(callee, name, context) match {
       case Found.Entry(entry) => Right(ConstructorKinds.parameters(entry.tree).map(Kinds.of))
-      case Found.Absent       =>
-        BuiltinTypes
-          .canonical(name)
-          .map(canonical => List.fill(BuiltinTypes.nominalArity(canonical))(Kind.Proper))
-          .toRight(s"unresolved type: ${name.stripPrefix("_root_.")}")
+      case Found.Absent       => builtins.denoted(name, context).flatMap(proper)
+      case Found.Foreign(path, binding) =>
+        builtins.importedKey(path, binding, context).flatMap(proper)
       case failed: Found.Failed => Left(failed.reason)
     }
+
+  private def proper(canonical: String): Either[String, List[Kind]] =
+    BuiltinTypes.arity(canonical).map(List.fill(_)(Kind.Proper))
 
   private def read(
       callee: Type,
@@ -162,7 +164,7 @@ final private[cardinality] class ConstructorKinds(resolver: Resolver) {
       case Found.Absent       =>
         BuiltinTypes
           .canonical(name)
-          .map(canonical => Declared.Builtin(BuiltinTypes.nominalArity(canonical)))
+          .flatMap(canonical => BuiltinTypes.arity(canonical).toOption.map(Declared.Builtin(_)))
       case _ => None
     }
   }

@@ -41,6 +41,14 @@ private[cardinality] trait Resolver {
   /** Whether a parent clause names a type whose members this reading does not have. */
   def unsuppliedParent(init: Init, from: Frame): Boolean
 
+  /** A parent clause outside the source set: its path, how its name was bound, and whether the
+    * stdlib model's declaration of that path is the one it names.
+    */
+  def outsideParent(init: Init, from: Frame): Option[InheritedTypeMembers.Outside]
+
+  /** Whether every instance of a template is of a supplied declaration no subclass extends. */
+  def fixedTemplate(frame: Frame): Boolean
+
   /** The declaration a type name means at `tpe`'s position, an inherited member first. */
   def declaration(tpe: Type, name: String, context: ResolutionContext): Found
 
@@ -48,6 +56,11 @@ private[cardinality] trait Resolver {
     * builtin name, if one is open there.
     */
   def unreadChannel(context: ResolutionContext): Option[String]
+
+  /** The channel through which another declaration may bind a name the stdlib model reads, where
+    * the name is read, if one is open there.
+    */
+  def rootShadow(name: String, context: ResolutionContext): Option[String]
 
   /** Why the call site of a `transparent inline` method may observe more than its declared result
     * `tpe`, if it may.
@@ -160,11 +173,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   // A declaration inherited from a parent the source set defines is a slot as well: the caller
   // fills it through the subclass. Only declarations travel — a parent's concrete members hold
-  // values built from the environment it already shares — and an external parent is left alone
-  // rather than guessed at. Each level is read under the arguments the whole `extends` chain gives
-  // it, so a grandparent's `seed: X` is this scope's type, not an intermediate level's binder.
-  // Each owner is its own receiver: a parent two of them inherit gives each its own members, and
-  // each owner then judges the closed declarations bound as its members (`InheritedClosedSlots`).
+  // values built from the environment it already shares — and an external parent of an open owner
+  // is reported, not guessed at (`ForeignParents`). Each level is read under the arguments the
+  // whole `extends` chain gives it, so a grandparent's `seed: X` is this scope's type, not an
+  // intermediate level's binder. Each owner is its own receiver: a parent two of them inherit gives
+  // each its own members, and each owner then judges the closed declarations bound as its members
+  // (`InheritedClosedSlots`).
   private def scanParents(): List[InheritedScopes.Step] = {
     val steps = InheritedScopes
       .walk(owners.map(owner => owner -> resolver.typeParameters(owner)), resolver, target.frame)
@@ -176,7 +190,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
           inherited(step)
           Some(step)
       }
-    owners.foreach(root => judge(root, steps.filter(_.root.id == root.id).map(_.declared)))
+    owners.foreach { root =>
+      val ancestors = steps.filter(_.root.id == root.id).map(_.declared)
+      judge(root, ancestors)
+      // A constructor chooses only its parameters: no owner's parents add a choice to it.
+      if (!target.constructor) errors ++= ForeignParents.reasons(root :: ancestors, resolver)
+    }
     steps
   }
 
@@ -264,6 +283,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   // One owner's bindings: its own parameters, then every scope that shares its path.
   private def scan(owner: Frame): Unit = {
+    if (owner.id != target.frame.id) errors ++= ConstrainedReceivers.reason(owner)
     bindParams(owner)
     frames(owner).foreach(scanFrame)
   }
@@ -284,17 +304,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
           else p.name.value,
           p.decltpe,
           Slot(owner, resolver.typeParameters(owner), owner),
-          constructorScope(owner)
+          ParameterScope.of(owner)
         )
     }
-
-  // A template's parameters are typed outside its body and its parents: in the constructor's frame,
-  // which holds neither (Scala 3.9.0 reads `class C(val a: Any) extends X` with `scala.Any` beside
-  // X's `type Any`), also where a member reads them as captures.
-  private def constructorScope(owner: Frame): Frame =
-    if (owner.tree.exists(TypeApplications.template(_).nonEmpty))
-      owner.copy(stats = Nil, parents = Nil)
-    else owner
 
   // A self type adds another type's members to `this` without inheriting them. This reading does
   // not enumerate them, so the environment is incomplete rather than smaller. A constructor's own
@@ -513,9 +525,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def names(tree: Tree): Set[String] =
     TypeName.words(tree).toSet
 
-  // Every name the model reads as a builtin type: the shape vocabulary, the nominal keys of a
-  // rigid constructor's arguments and the top types' spellings.
-  private def shadowable: Set[String] = BuiltinTypes.nominalNames ++ TopTypes.names
+  // Every name the root imports bind to a builtin or a model entry: the shape vocabulary, the
+  // nominal keys of a rigid constructor's arguments and the top types' spellings.
+  private def shadowable: Set[String] = BuiltinTypes.rootNames
 
   private def flagReachableModules(): Unit = {
     val reachable = resolver.modules.filter { module =>

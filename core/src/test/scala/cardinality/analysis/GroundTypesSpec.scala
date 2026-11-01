@@ -52,7 +52,7 @@ class GroundTypesSpec extends Specification {
       a source alias still shadows the builtin                     $sourceShadow
       a literal type is not a ground type                          $literalType
       higher-order use of a ground domain stays unresolved         $higherOrder
-      repeated atoms stay unresolved                               $repeatedAtoms
+      repeated atoms are eliminated by length                      $repeatedAtoms
   """
 
   private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
@@ -171,10 +171,18 @@ class GroundTypesSpec extends Specification {
       .and(count("def f(s: String): Boolean = true") === Count.Countable)
       .and(count("def f[A](s: String, g: String => A): A = g(s)") === Count.Countable)
 
+  // `Predef.String` is relative to the root import of `scala.Predef`: a top-level package `Predef`
+  // outside the sources outranks it (Scala 3.9.0 fixture), and could declare a `String` that yields
+  // an A. Only the fully qualified spellings are the builtin.
   def qualified =
     (count("def f(x: scala.Int): Int = x") === count("def f(x: Int): Int = x"))
       .and(count("def f[A](x: java.lang.String, a: A, b: A): A = a") === Count.Countable)
-      .and(count("def f[A](x: Predef.String, a: A): A = a") === Count.Finite(1))
+      .and(
+        unresolvedOn(
+          count("def f[A](x: Predef.String, a: A): A = a"),
+          "builtin name Predef.String may be shadowed by a top-level package Predef outside the sources"
+        )
+      )
       .and(count("def f[A](x: scala.Predef.String, a: A): A = a") === Count.Finite(1))
 
   def closedBooleans =
@@ -303,13 +311,10 @@ class GroundTypesSpec extends Specification {
       "Higher-order application is unsupported"
     )
 
+  // `fs` empty: only x (1); one f: x, f(x), f(f(x)), … — ω. Every length has 2^32 Int constants,
+  // so c(0) ≥ 2 and c(1) ≥ 2: ω (finite programs bound it by ℵ₀).
   def repeatedAtoms =
-    unresolvedOn(
-      count("def f[A](x: A)(fs: (A => A)*): A = x"),
-      "Repeated-argument sequence elimination"
-    )
-      .and(
-        unresolvedOn(count("def f[A](xs: A*): Int = 0"), "Repeated-argument sequence elimination")
-      )
+    (count("def f[A](x: A)(fs: (A => A)*): A = x") === Count.Countable)
+      .and(count("def f[A](xs: A*): Int = 0") === Count.Countable)
 
 }

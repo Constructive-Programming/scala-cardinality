@@ -32,12 +32,11 @@ private[cardinality] object TypeIdentities {
     case a: Type.Apply      => applied(a.tpe, a.argClause.values, context, resolver)
     case a: Type.ApplyInfix =>
       applied(a.op, List(a.lhs, a.rhs), context, resolver)
-    // Sugar is the type it spells: `(A, B)` is `Tuple2[A, B]`, `A => B` is `Function1[A, B]`.
-    case Type.Tuple(args) =>
-      all(args, context, resolver).map(_.mkString(s"scala.Tuple${args.size}[", ", ", "]"))
+    // Tuple and arrow syntax are `scala.TupleN` and `scala.FunctionN` applied: one spelling each.
+    case Type.Tuple(args) => arguments(s"scala.Tuple${args.size}", args, context, resolver)
     case f: Type.Function =>
-      all(f.paramClause.values :+ f.res, context, resolver)
-        .map(_.mkString(s"scala.Function${f.paramClause.values.size}[", ", ", "]"))
+      val parameters = f.paramClause.values
+      arguments(s"scala.Function${parameters.size}", parameters :+ f.res, context, resolver)
     case _ => None
   }
 
@@ -68,10 +67,15 @@ private[cardinality] object TypeIdentities {
       context: ResolutionContext,
       resolver: Resolver
   ): Option[String] =
-    for {
-      head <- of(callee, context, resolver)
-      parts <- all(args, context, resolver)
-    } yield parts.mkString(s"$head[", ", ", "]")
+    of(callee, context, resolver).flatMap(arguments(_, args, context, resolver))
+
+  private def arguments(
+      head: String,
+      args: List[Type],
+      context: ResolutionContext,
+      resolver: Resolver
+  ): Option[String] =
+    all(args, context, resolver).map(_.mkString(s"$head[", ", ", "]"))
 
   private def all(
       types: List[Type],
@@ -88,8 +92,9 @@ private[cardinality] object TypeIdentities {
   ): Option[String] =
     resolver.declaration(tpe, name, context) match {
       case Found.Entry(entry) => declared(entry, context, resolver)
-      case Found.Absent       => BuiltinTypes.canonical(name).map(plain => s"scala.$plain")
-      case _                  => None
+      // One key per declaration: `Either` and `scala.util.Either` are the model's one entry.
+      case Found.Absent => BuiltinTypes.canonical(name)
+      case _            => None
     }
 
   // A class, trait, enum or opaque type is its own identity; a plain alias is the type it names,

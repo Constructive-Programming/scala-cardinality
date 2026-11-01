@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.{AliasReading, ResolutionContext}
-import cardinality.analysis.{MethodAnalysis, Resolver}
+import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.capacity.Counter
 import cardinality.types.{TypeApplications, TypeSubstitution}
 
@@ -128,11 +128,10 @@ final private[cardinality] class RuntimeClasses(
         Left(s"$name has no runtime class (path-dependent member)")
       case _ =>
         Found.named(resolver, head, name, context) match {
-          case Some(Found.Entry(entry)) => declaration(entry, name, context)
-          case Some(Found.Foreign(why)) => Left(why)
-          case Some(Found.Absent)       => builtin(name, whole, context)
-          case Some(Found.Blocked(why)) => Left(why)
-          case None                     => Left(s"${spell(head)} has no runtime class")
+          case Some(Found.Entry(entry))   => declaration(entry, name, context)
+          case Some(Found.Absent)         => builtin(name, whole, context)
+          case Some(failed: Found.Failed) => Left(failed.reason)
+          case None                       => Left(s"${spell(head)} has no runtime class")
         }
     }
   }
@@ -148,7 +147,11 @@ final private[cardinality] class RuntimeClasses(
       .named(name)
       .map(Top(_))
       .orElse(builtins.get(name.stripPrefix("scala.")).map(Builtin(_)))
-      .toRight(s"$name has no runtime class (declaration not supplied)")
+      .toRight(
+        if (StdlibModel.entry(name).isEmpty)
+          s"$name has no runtime class (declaration not supplied)"
+        else s"$name has no runtime class this reading tells apart (stdlib model)"
+      )
       .flatMap(found =>
         resolver.resolve(whole, context).flatMap { shape =>
           val reached = found match {
@@ -348,9 +351,9 @@ final private[cardinality] class RuntimeClasses(
   private def foreign(tpe: Type, context: ResolutionContext): Boolean = {
     val name = TypeApplications.name(head(tpe))
     resolver.declaration(head(tpe), name, context) match {
-      case Found.Foreign(_) => true
-      case Found.Absent     => !supplied(name.split('.').last)
-      case _                => false
+      case Found.Foreign(_, _) => true
+      case Found.Absent        => !supplied(name.split('.').last)
+      case _                   => false
     }
   }
 

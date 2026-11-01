@@ -111,22 +111,27 @@ final private[cardinality] class ConstructorPositions(
       val slot = unread.fold(TopTypes.implementationSlot(tpe, context, resolver))(_ => None)
       val written = ContextBounds.written(param, tpe, owner.typeParams)
       val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), written)
-      declined(tpe, reading).getOrElse(
-        readPosition(param.name.value, tpe, owner, unread, slot.flatMap(_ => reading.toOption))
+      val shaped = resolveIn(tpe, owner)
+      declined(tpe, reading, shaped.isLeft).getOrElse(
+        readPosition(param.name.value, shaped, unread, slot.flatMap(_ => reading.toOption))
       )
   }
 
   // The reasons the estimate declined a position for, rendered as the row names them, when no number
-  // the shape model gives can stand for it.
+  // the shape model gives can stand for it. Where the method side cannot read the position either,
+  // its own reason stands in the row, and a name the estimate found no declaration of is left to it.
   private def declined(
       tpe: Type,
-      reading: Either[List[Definition.Unbound], Size]
+      reading: Either[List[Definition.Unbound], Size],
+      unreadByShape: Boolean
   ): Option[Position] =
     reading.left.toOption.flatMap { reasons =>
       val ground = TypeSubstitution.typeNames(tpe).forall(n => !variables.contains(n))
+      val kept =
+        if (unreadByShape) reasons.filterNot(ConstructorPositions.namesDeclaration) else reasons
       Option
         .when(ground || reasons.exists(ConstructorPositions.declarationRefusal))(
-          reasons.flatMap(ConstructorPositions.render(tpe, _))
+          kept.flatMap(ConstructorPositions.render(tpe, _))
         )
         .filter(_.nonEmpty)
         .map(Declined(_))
@@ -134,8 +139,7 @@ final private[cardinality] class ConstructorPositions(
 
   private def readPosition(
       name: String,
-      tpe: Type,
-      owner: Frame,
+      shaped: Resolved,
       unread: Option[String],
       estimate: Option[Size]
   ): Position = {
@@ -145,7 +149,7 @@ final private[cardinality] class ConstructorPositions(
         s"constructor position reads $why: $name"
       )
     )
-    resolveIn(tpe, owner) match {
+    shaped match {
       case Right(shape) if ClosedSpaces.closed(shape) =>
         Natural
           .attempt(ClosedSpaces.space(shape))
@@ -214,6 +218,12 @@ private object ConstructorPositions {
   // The estimate's reasons that name a declaration of the sources it could not read whole.
   def declarationRefusal(reason: Definition.Unbound): Boolean = reason match {
     case _: (Definition.Unbound.Imported | Definition.Unbound.Refusal) => true
+    case _                                                             => false
+  }
+
+  /** Whether the estimate declined for a name it found no declaration of. */
+  def namesDeclaration(reason: Definition.Unbound): Boolean = reason match {
+    case _: (Definition.Unbound.Unknown | Definition.Unbound.Imported) => true
     case _                                                             => false
   }
 

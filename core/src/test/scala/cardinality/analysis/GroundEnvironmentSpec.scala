@@ -44,7 +44,7 @@ class GroundEnvironmentSpec extends Specification {
       aliases, enum bodies, explicit exports and unread steps        $moreChannels
       a constructor position never falls back to the estimate        $shadowedPosition
       constructor parameters do not see the template's members       $constructorScope
-      a foreign wildcard is the stdlib cluster's (A3)                $foreignWildcard
+      a foreign wildcard refuses a builtin beside a supplied one     $foreignWildcard
     Name precedence
       chained package clauses read the innermost package first       $chainedPackages
       an explicit import wins over another file's package member     $explicitImport
@@ -61,7 +61,7 @@ class GroundEnvironmentSpec extends Specification {
     Pinned limits
       ground evidence endpoints keep the evidence reason             $evidence
       an empty-domain function position has two conventions          $emptyDomain
-      an unsupplied wildcard import still leaves the builtin (A3)    $wildcard
+      an unsupplied wildcard import refuses the builtin              $wildcard
   """
 
   private def all(sources: (String, String)*) =
@@ -462,13 +462,16 @@ class GroundEnvironmentSpec extends Specification {
       )
   }
 
-  // A namespace no supplied term heads is foreign: whether `org.foo` declares `Int` is the stdlib
-  // and foreign-names cluster's rule, even beside a supplied `type Int`.
+  // A namespace no supplied term heads is foreign: `org.foo` may declare `Int` (a wildcard import
+  // outranks the root import), so the builtin is refused, even beside a supplied `type Int`.
   def foreignWildcard =
-    count(
-      s"package fw\n${base}import org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
-      "fw.C.f"
-    ) === intPredicate
+    unresolvedOn(
+      count(
+        s"package fw\n${base}import org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
+        "fw.C.f"
+      ),
+      "builtin name Int may be shadowed through org.foo, which is not supplied (wildcard import of org.foo)"
+    )
 
   // C has one `g`: two abstract members with the same signature merge (f = g ∘ h, h: Bool => Int,
   // so |Int|^|Bool| = 2^64, not (2·2^32)^2). Overloads stay two members. A restatement two levels
@@ -620,7 +623,10 @@ class GroundEnvironmentSpec extends Specification {
     (rows("kg.W.<init>") === Count.Bounded(ByteSize))
       .and(rows("kb.W.<init>") === Count.Finite(2))
       .and(rows("kg.V.<init>") === Count.Finite(256))
-      .and(rows("kg.M.<init>") === Count.Unresolved(List("unresolved type: Missing")))
+      .and(
+        rows("kg.M.<init>") ===
+          Count.Unresolved(List(s"declaration not supplied: Missing (${StdlibModel.undeclared})"))
+      )
   }
 
   // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
@@ -679,12 +685,15 @@ class GroundEnvironmentSpec extends Specification {
       "constructor position readings disagree: f (value space 1, estimate 0)"
     ).and(count("def f(g: Nothing => String): Int = 0", "f") === Count.Finite(BigInt(2).pow(32)))
 
-  // Pinned as it stands: if org.foo declared `type Int = Unit` the true count would be 1. The
-  // stdlib model's wildcard refusal (A3) is expected to turn this into a reason.
+  // If org.foo declared `type Int = Unit` the count would be 1, not 2^(2^32): the builtin is refused
+  // (the stdlib model lists no `org.foo`).
   def wildcard =
-    count(
-      "package imp\nimport org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
-      "imp.C.f"
-    ) === intPredicate
+    unresolvedOn(
+      count(
+        "package imp\nimport org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
+        "imp.C.f"
+      ),
+      "builtin name Int may be shadowed through org.foo, which is not supplied"
+    )
 
 }

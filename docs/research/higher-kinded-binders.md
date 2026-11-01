@@ -29,21 +29,23 @@ applications are distinct types (`F = [x] =>> x` with disjoint arguments separat
 
 **R2 — nominal keys.** The arguments of a rigid head are keys, never shapes: `Option[A]` and
 `Either[Unit, A]` share the shape `1 + A`, yet no program converts `F[Option[A]]` to
-`F[Either[Unit, A]]`. A key is the declaration each name resolves to (`TypeIdentities.key`, or
-`scala.<name>` from the builtin vocabulary `BuiltinTypes.nominalArity`, which override and
-evidence identity share) applied to its arguments' keys, each binder its own atom. Keys respect
-Scala's equalities: a transparent alias expands in its own scope, an opaque type only where it is
-visible, `(A, B)` is `Tuple2[A, B]` and `A => B` is `Function1[A, B]`, `A | A` is `A`, and an
-operator argument is its η-long lambda with parameters numbered by position, so α-equivalent
-operators share a key. Outside its scope an opaque type is no key at all: its API may relate it
-to other types (`inside: F[W[A]] => F[A]`), which a key cannot record, and concrete code is only
-irrelevant to the count when every input is readable. `=:=` evidence rewrites atoms inside keys
-(Leibniz: `substituteCo` exists for every `F`); `<:<` evidence never lifts through an invariant
-head. Rewriting replaces an occurrence by its equality class's representative, which depends on
-the class alone, so a rewriting that ends unfolds each class at most once along any chain: one
-still changing after as many steps as there are classes has met a class again and never ends
-(`A =:= F[A]`, an equation no finite type solves for every `F`) — refused, never cut off by a
-fixed budget. The builtin vocabulary is also what an import or an export must not shadow: an
+`F[Either[Unit, A]]`. A key is the declaration each name resolves to (`TypeIdentities.key`, or the
+canonical key `BuiltinTypes.canonical` gives a builtin or a [stdlib-model](stdlib-model.md) entry —
+`scala.Unit`, `scala.util.Either`, `scala.collection.immutable.List`, one per declaration whatever
+its spelling — which override and evidence identity share; an excluded or unmodelled entry, whose
+parameters the model does not hold, is no key) applied to its arguments' keys, each binder its own
+atom. Keys respect Scala's equalities: a transparent alias expands in its own scope, an opaque type
+only where it is visible, `(A, B)` is `Tuple2[A, B]` and `A => B` is `Function1[A, B]`, `A | A` is
+`A`, and an operator argument is its η-long lambda with parameters numbered by position, so
+α-equivalent operators share a key. Outside its scope an opaque type is no key at all: its API may
+relate it to other types (`inside: F[W[A]] => F[A]`), which a key cannot record, and concrete code
+is only irrelevant to the count when every input is readable. `=:=` evidence rewrites atoms inside
+keys (Leibniz: `substituteCo` exists for every `F`); `<:<` evidence never lifts through an invariant
+head. Rewriting replaces an occurrence by its equality class's representative, which depends on the
+class alone, so a rewriting that ends unfolds each class at most once along any chain: one still
+changing after as many steps as there are classes has met a class again and never ends
+(`A =:= F[A]`, an equation no finite type solves for every `F`) — refused, never cut off by a fixed
+budget. The builtin vocabulary is also what an import or an export must not shadow: an
 `export foo.Function1` leaves every reading of `Function1` unknown.
 
 **R3 — operator closures.** A callee is resolved first and its declaration's kinds direct its
@@ -133,7 +135,7 @@ either, so the meeting is refused.
 | `AnyRef` / `AnyVal` / `Matchable` above a structural lower bound whose class is not fixed or differs (`A >: Flag <: AnyVal`: every call E057) | `structural lower bound under a class bound requires class analysis` |
 | a view bound `A <% T` (invalid: removed in Scala 3), used or not, a `Unit` result too | `view bound is not Scala 3 (an invalid program)` |
 | `<: Any` / `AnyRef` / `Object` / `AnyVal` / `Matchable` or `>: Nothing` where a channel may rebind the name (`import foreign.*`) | `builtin name … may be shadowed through …` (the channel's reason) |
-| `Boolean`, `Byte`, `Short`, `Long`, `Float`, `Double` under `import java.lang.*` (the boxed classes) | `builtin name … may be shadowed by java.lang.… (wildcard import of java.lang)` |
+| any builtin or model name under `import java.lang.*` (`Boolean`, `Byte`, `Short`, `Long`, `Float`, `Double` are the boxed classes there; the model does not list `java.lang`'s other members, so `Int` is refused too — D16) | `builtin name … may be shadowed through java.lang, which is not supplied (wildcard import of java.lang)` |
 | a subtype proof beside a callable or a sum value | `unsupported subtype evidence interaction` (contravariant uses are not read) |
 | a callable producing a structurally bounded value | `… a callable produces a value its bound views as a structural type` |
 | two values a structural bound views producing their own type | `… values a bound views as a structural type may be the same case` |

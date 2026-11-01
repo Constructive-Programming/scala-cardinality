@@ -201,13 +201,14 @@ private[cardinality] object BinderBounds {
   }
 
   // The class a builtin's values are instances of.
-  private def builtinClass(canonical: String): Option[String] = canonical match {
-    case "Unit" | "Boolean" | "Byte" | "Short" | "Char" | "Int" | "Long" | "Float" | "Double" =>
-      Some("AnyVal")
-    case "String" | "Option" | "Either" | "AnyRef"                          => Some("AnyRef")
-    case other if other.startsWith("Tuple") || other.startsWith("Function") => Some("AnyRef")
-    case _                                                                  => None
-  }
+  private def builtinClass(canonical: String): Option[String] =
+    canonical.stripPrefix("scala.") match {
+      case "Unit" | "Boolean" | "Byte" | "Short" | "Char" | "Int" | "Long" | "Float" | "Double" =>
+        Some("AnyVal")
+      case "String" | "Option" | "util.Either" | "AnyRef"                     => Some("AnyRef")
+      case other if other.startsWith("Tuple") || other.startsWith("Function") => Some("AnyRef")
+      case _                                                                  => None
+    }
 
   // An applied bound's constructor.
   private def head(bound: Type): Type = bound match {

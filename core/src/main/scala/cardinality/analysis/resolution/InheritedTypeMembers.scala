@@ -5,7 +5,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.model.ResolutionContext
-import cardinality.analysis.{MethodAnalysis, Resolver}
+import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.types.TypeApplications
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
@@ -31,7 +31,7 @@ import MethodAnalysis.{Frame, Resolved, TypeEntry}
   */
 final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, resolver: Resolver)
     extends InheritedObjects {
-  import InheritedTypeMembers.{Ancestry, Located, Member}
+  import InheritedTypeMembers.{Ancestry, Located, Member, Outside}
 
   private val ancestries = mutable.Map.empty[String, Ancestry]
   private val members = mutable.Map.empty[(String, String, String), Option[Member]]
@@ -121,9 +121,17 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
     * lookup cannot pin down.
     */
   def unsupplied(init: Init, from: Frame): Boolean = located(init, from) match {
-    case Right(Located.Supplied(_)) => false
-    case Right(Located.Absent)      => !InheritedTypeMembers.marker(init)
-    case _                          => true
+    case Right(Located.Supplied(_))          => false
+    case Right(Located.Unsupplied(external)) => !InheritedTypeMembers.memberless(external)
+    case _                                   => true
+  }
+
+  /** A parent clause outside the source set, or None for a supplied parent or one the lookup cannot
+    * pin down.
+    */
+  def outside(init: Init, from: Frame): Option[Outside] = located(init, from) match {
+    case Right(Located.Unsupplied(external)) => Some(external)
+    case _                                   => None
   }
 
   private def located(init: Init, from: Frame): Either[String, Located] = {
@@ -144,11 +152,21 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
         ) match {
           case Found.Entry(entry) =>
             Right(Located.Supplied(entry -> resolver.typeParameters(entry.owner)))
-          case Found.Blocked(reason) => Left(reason)
-          case Found.Foreign(_)      => Right(Located.Foreign)
-          case Found.Absent          => Right(Located.Absent)
+          case Found.Blocked(reason)        => Left(reason)
+          case Found.Foreign(path, binding) => Right(unsupplied(path, binding, context))
+          case Found.Absent => Right(unsupplied(name, StdlibModel.undeclared, context))
         }
     }
+  }
+
+  // A parent the stdlib model reads under its path is the root imports' declaration only where no
+  // channel binds the name otherwise — an unsupplied wildcard beside the clause may declare its own
+  // `Serializable` or `IterableOnce`.
+  private def unsupplied(path: String, binding: String, context: ResolutionContext): Located = {
+    val modelled = InheritedTypeMembers.markerName(path) || StdlibModel.entry(path).nonEmpty
+    Located.Unsupplied(
+      Outside(path, binding, Option.when(modelled)(resolver.rootShadow(path, context)).flatten)
+    )
   }
 
   // The names and objects every supplied ancestor declares, and the ancestors outside the source
@@ -176,7 +194,9 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
                     // An alias or abstract type as a parent: what it declares is not read.
                     case None => (List(Left(init.tpe.syntax)), Nil, seen)
                   }
-                case Right(Located.Absent) if InheritedTypeMembers.marker(init) => (Nil, Nil, seen)
+                case Right(Located.Unsupplied(external))
+                    if InheritedTypeMembers.memberless(external) =>
+                  (Nil, Nil, seen)
                 case _ => (List(Left(init.tpe.syntax)), Nil, seen)
               }
           }
@@ -232,40 +252,28 @@ private[cardinality] object InheritedTypeMembers {
     */
   final case class Ancestry(names: Set[String], objects: Set[String], unsupplied: List[String])
 
-  /** Where a parent clause's name leads: a supplied declaration, a path an import binds outside the
-    * source set, or nothing the source set or an import names.
+  /** A parent clause outside the source set: the path it names (as an import binds it, or as
+    * written when nothing does), how the name was bound, and the channel through which a
+    * declaration other than the root imports' may bind it, for a path the stdlib model reads.
     */
+  final case class Outside(path: String, binding: String, shadow: Option[String])
+
+  /** Where a parent clause's name leads: a supplied declaration, or outside the source set. */
   enum Located {
     case Supplied(member: Member)
-    case Foreign
-    case Absent
+    case Unsupplied(outside: Outside)
   }
 
-  // The root types and markers Scala and Java give every class, or that carry no type member
-  // (`Dynamic` only enables a rewrite): extending them cannot shadow a name. Only a name that
-  // resolves to nothing is one of them — an import may bind `Serializable` to anything.
-  private val Markers = Set(
-    "Any",
-    "AnyRef",
-    "AnyVal",
-    "Object",
-    "Matchable",
-    "Serializable",
-    "Product",
-    "Equals",
-    "Dynamic"
-  )
+  /** Whether a parent outside the source set declares no type member: a root or marker type, or a
+    * parent the stdlib model summarizes, that no channel binds to another declaration.
+    */
+  def memberless(outside: Outside): Boolean = outside.shadow.isEmpty && markerName(outside.path)
 
-  def marker(parent: Init): Boolean = markerName(InheritedScopes.typeName(parent.tpe))
-
-  /** Whether a parent spelled this way is one of the root or marker types. */
-  def markerName(name: String): Boolean =
-    Markers(
-      name
-        .stripPrefix("_root_.")
-        .stripPrefix("scala.")
-        .stripPrefix("java.lang.")
-        .stripPrefix("java.io.")
-    )
+  /** Whether a parent spelled this way, through the root imports, is a stdlib parent the model
+    * knows to declare no type member: a root or marker type (`Dynamic` only enables a rewrite),
+    * `Product`, `Equals` or `IterableOnce`. Only a name that resolves to nothing is one of them —
+    * an import may bind `Serializable` to anything.
+    */
+  def markerName(name: String): Boolean = StdlibModel.parent(name).nonEmpty
 
 }

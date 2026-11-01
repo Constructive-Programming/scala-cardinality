@@ -179,10 +179,11 @@ that tier.
   through o, which is not resolved`). The walk runs only for a name a supplied type, enum case or
   export spells, so it never runs on eo 1.0.0. A primary constructor's parameters are read outside
   the template's members (`class Sub(x: Int) extends Base` reads `scala.Int`).
-- Ground names under a wildcard import of a foreign namespace (`import org.foo.*`) still resolve to
-  the builtin, as `Boolean` and `Option` always have: if `org.foo` declared `type Int = Unit` the
-  count would be wrong. The stdlib model's wildcard refusal (feature A3) decides it; on eo 1.0.0,
-  `AvroWalk.normalisedName` (ω) rests on this through `import scala.jdk.CollectionConverters.*`.
+- Ground names under a wildcard import of a foreign namespace (`import org.foo.*`) are refused
+  (`builtin name Int may be shadowed through org.foo, which is not supplied …`): `org.foo` may
+  declare `type Int = Unit`. The stdlib namespaces the model lists declare no root name
+  ([stdlib-model.md](stdlib-model.md)), so on eo 1.0.0 `AvroWalk.normalisedName` (ω) keeps its
+  count under `import scala.jdk.CollectionConverters.*`.
 - Two anonymous `using` parameters of one ground type are ambiguous for `summon`, so neither is
   usable: `def f(using Int, Int): Int` is truly `2^32`, and the anonymous-evidence guard refuses it
   (`ambiguous anonymous evidence: Int`, `GroundEnvironmentSpec.anonymousGround`).

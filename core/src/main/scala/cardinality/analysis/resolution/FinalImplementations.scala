@@ -3,6 +3,8 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Frame
+import cardinality.analysis.SourceIndex
+import cardinality.capacity.Counter
 import cardinality.types.TypeApplications
 
 /** Inherited declarations a final template implements in its own body.
@@ -39,6 +41,32 @@ private[cardinality] object FinalImplementations {
       case g: Decl.Given =>
         Option.when(g.name.value.nonEmpty)(g.name.value -> g.paramClauseGroups).toList
       case _ => Nil
+    }
+
+  /** Whether every instance of a template is of a supplied declaration no subclass extends: a final
+    * class, an object, a given, or a sealed template whose instances are all named subtypes in its
+    * file, each such in turn. Its members are then the supplied ones, or what it inherits.
+    */
+  def fixed(frame: Frame, index: SourceIndex): Boolean =
+    frame.tree.exists(
+      fixed(_, frame.chain.last.id, frame.path.lastOption.getOrElse(""), Set.empty, index)
+    )
+
+  private def fixed(
+      tree: Tree,
+      file: String,
+      name: String,
+      seen: Set[String],
+      index: SourceIndex
+  ): Boolean =
+    tree match {
+      case t if isFinal(t)                                                    => true
+      case d: (Defn.Class | Defn.Trait) if !seen(name) && Counter.isSealed(d) =>
+        index.typesInFile(file, name).size == 1 && index.unnamedInstances(file, name).isEmpty &&
+        index.subtypes
+          .getOrElse((file, name), Nil)
+          .forall(child => fixed(child.tree, file, child.name, seen + name, index))
+      case _ => false
     }
 
   /** A final concrete class, an object or a given instance: no subclass overrides its members. */

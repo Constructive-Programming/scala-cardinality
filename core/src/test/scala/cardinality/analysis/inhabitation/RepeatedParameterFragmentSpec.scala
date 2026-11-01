@@ -20,10 +20,11 @@ class RepeatedParameterFragmentSpec extends Specification {
       preserve normal lists with an always-empty repeated list    $normalLists
       preserve choices when an empty sequence is captured         $emptyCapture
       count an empty repeated constructor                         $emptyConstructor
-      reject nonempty repeated constructor elimination            $ordinaryConstructor
-      reject treating repeated functions as a supplied callable   $repeatedFunctions
-      reject total length-dependent selection despite a fallback  $fallback
-      reject elimination introduced under a result arrow          $negativeArrow
+      eliminate a constructor slot's sequence by length           $ordinaryConstructor
+      eliminate repeated functions by length                      $repeatedFunctions
+      count length-dependent selection beside a fallback          $fallback
+      eliminate a sequence introduced under a result arrow        $negativeArrow
+      reject a sequence under a deeper arrow                      $nestedArrow
       retain unsupported element-type diagnostics                 $unknownElement
   """
 
@@ -42,7 +43,8 @@ class RepeatedParameterFragmentSpec extends Specification {
   private def unsupported(count: Count) =
     count must beLike {
       case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("Repeated-argument sequence elimination")) must beTrue
+        reasons.exists(_.contains("Repeated-argument sequence elimination is unsupported")) must
+          beTrue
     }
 
   def functionAst = {
@@ -82,23 +84,31 @@ class RepeatedParameterFragmentSpec extends Specification {
   def emptyConstructor =
     entry("case class Empty(xs: Nothing*)", "Empty.<init>").count === Count.Finite(1)
 
+  // The slot `xs: A*` is filled from `xs` itself: Nil alone at length 0, every list of e₁ at length
+  // 1 — ω implementations (identity, tail, reverse, …).
   def ordinaryConstructor =
-    unsupported(entry("case class Many[A](xs: A*)", "Many.<init>").count)
+    entry("case class Many[A](xs: A*)", "Many.<init>").count === Count.Countable
 
+  // No f: only x. One f: x, f(x), f(f(x)), … — two answers at length 1 already, so ω.
   def repeatedFunctions =
-    unsupported(
-      entry("def use[A](x: A)(fs: (A => A)*): A = x", "use").count
-    ).and(
+    (entry("def use[A](x: A)(fs: (A => A)*): A = x", "use").count === Count.Countable).and(
       entry("def ignore[A](fs: (A => Unit)*): Unit = ()", "ignore").count === Count.Finite(1)
     )
 
+  // x or y at every length, so infinitely many length tests tell implementations apart: ω.
   def fallback =
-    unsupported(
-      entry("def pick[A](x: A, y: A)(xs: A*): A = if xs.isEmpty then x else y", "pick").count
-    )
+    entry("def pick[A](x: A, y: A)(xs: A*): A = if xs.isEmpty then x else y", "pick").count ===
+      Count.Countable
 
+  // `(xs: A*, y: A) => A` is its body under xs and y: y at length 0, y or e₁ at length 1 — ω.
   def negativeArrow =
-    unsupported(Inhabitation.count(Nil, Function(List(Repeated(a), a), a)))
+    Inhabitation.count(Nil, Function(List(Repeated(a), a), a)) === Count.Countable
+
+  // A sequence parameter of a function the goal returns is not an input of the outer environment.
+  def nestedArrow =
+    unsupported(
+      Inhabitation.count(List(Binding("x", a)), Product(List(a, Function(List(Repeated(a)), a))))
+    )
 
   def unknownElement =
     entry("def ignore(xs: Missing*): Boolean = true", "ignore").count must beLike {

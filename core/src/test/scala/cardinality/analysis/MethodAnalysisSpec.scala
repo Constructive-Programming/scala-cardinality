@@ -494,7 +494,7 @@ class MethodAnalysisSpec extends Specification {
       imported must beLike {
         case Count.Unresolved(reasons) =>
           reasons.exists(
-            _.contains("unresolved type: Option (imported from io.circe.Option)")
+            _.contains("declaration not supplied: io.circe.Option (named import Option)")
           ) must beTrue
       }
     }

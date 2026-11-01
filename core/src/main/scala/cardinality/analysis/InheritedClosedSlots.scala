@@ -146,8 +146,8 @@ private[cardinality] object InheritedClosedSlots {
     case _ => Set.empty
   }
 
-  // The term members a frame defines rather than declares, fields included.
-  private def concrete(frame: Frame): Set[String] =
+  /** The term members a frame defines rather than declares, fields included. */
+  def concrete(frame: Frame): Set[String] =
     fields(frame) ++ frame.stats.flatMap {
       case d: Defn.Def    => List(d.name.value)
       case d: Defn.Object => List(d.name.value)

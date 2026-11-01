@@ -2,6 +2,7 @@ package cardinality.capacity
 
 import scala.meta.*
 
+import cardinality.analysis.StdlibModel
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.Specification
 
@@ -343,7 +344,9 @@ class NamespaceSpec extends Specification {
       "K.scala" -> "package dev.k\nimport org.apache.avro.Schema\nfinal case class DirectKind(schemaType: Schema.Type)",
       "U.scala" -> "package somewhere.unrelated\nfinal case class Type()",
     ) === Count.Unresolved(
-      List("unresolved type: Schema.Type (imported from org.apache.avro.Schema.Type)")
+      List(
+        "declaration not supplied: org.apache.avro.Schema.Type (selected through named import Schema)"
+      )
     )
 
   // `Widget` is `zz.Widget`, whose declaration nobody supplied, not the source's Widget (2 values).
@@ -352,7 +355,7 @@ class NamespaceSpec extends Specification {
       "dev.k.UsesImported.<init>",
       "K.scala" -> "package dev.k\nimport zz.Widget\nfinal case class UsesImported(w: Widget)",
       "U.scala" -> "package somewhere.unrelated\nfinal case class Widget(x: Boolean)",
-    ) === Count.Unresolved(List("unresolved type: Widget (imported from zz.Widget)"))
+    ) === Count.Unresolved(List("declaration not supplied: zz.Widget (named import Widget)"))
 
   // `Kind` is `Holder.Kind` = 1 + 1 = 2, not another package's `Kind(a: Int)` (2^32).
   def slotNested =
@@ -368,7 +371,7 @@ class NamespaceSpec extends Specification {
     constructor(
       "Out.<init>",
       "R.scala" -> "final case class In(s: Schema)\nfinal case class Out(i: In)",
-    ) === Count.Unresolved(List("unresolved type: Schema"))
+    ) === Count.Unresolved(List(s"declaration not supplied: Schema (${StdlibModel.undeclared})"))
 
   // `PathStep` is defined in two packages; read in `a`, its own, it is the enum: Field(Boolean) +
   // Index(Unit) = 2 + 1 = 3, so Option[PathStep] = 1 + 3 = 4 — never `b`'s 2^32.
@@ -413,7 +416,7 @@ class NamespaceSpec extends Specification {
     constructor(
       "f.FailureException.<init>",
       "F.scala" -> "package f\nenum Failure { case Missing(at: Int); case Failed(cause: Throwable) }\nfinal class FailureException(val failure: Failure)",
-    ) === Count.Unresolved(List("unresolved type: Throwable"))
+    ) === Count.Unresolved(List("open stdlib type with unmodelled members: java.lang.Throwable"))
 
   // `Red` is both a case object extending `Light` and an alias (`p1`) or a class (`p1b`, the
   // object's companion); the sum takes the module: |Light| = |Red.type| + |Green.type| = 2.
@@ -459,7 +462,7 @@ class NamespaceSpec extends Specification {
       .and(found(("p.HoldsUse", Class)) === widget)
       .and(
         constructor("p.HoldsUse.<init>", files*) ===
-          Count.Unresolved(List("unresolved type: Widget (imported from zz.Widget)"))
+          Count.Unresolved(List("declaration not supplied: zz.Widget (named import Widget)"))
       )
   }
 

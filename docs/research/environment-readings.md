@@ -125,10 +125,10 @@ q.Y` there). The root and marker types (`Any`, `AnyRef`, `AnyVal`, `Object`, `Ma
 `Serializable`, `Product`, `Equals`, `Dynamic`) declare no type member and are exempt — but only
 where the name resolves to nothing in the source set or is spelled `scala.`, `java.lang.` or
 `java.io.`: `import lib.Serializable` binds the parent to an unsupplied type, which is refused like
-any other. (A wildcard import of an unsupplied namespace may bind `Product` too; refusing names under
-such wildcards is the stdlib model's rule, not this reading's.) Override keying does not follow
-inherited names: such an override in an open template stays `inherited override identity not
-resolved`.
+any other. (A wildcard import of an unsupplied namespace may bind `Product` too; a marker parent
+under such a wildcard is refused by the stdlib model's rule, [stdlib-model.md](stdlib-model.md).)
+Override keying does not follow inherited names: such an override in an open template stays
+`inherited override identity not resolved`.
 
 ## 4. Templates and families
 

@@ -6,30 +6,31 @@ import cardinality.analysis.resolution.TopTypes
 import Inhabitation.Shape
 
 /** The names the shape model spells itself when no source declares them, by application arity.
-  * `Unit` is one construction, `Nothing` none, `Boolean` one bit; `Option` and `Either` count
-  * cases, a `TupleN` is the tuple it spells and a `FunctionN` the function. Ground scalars are
-  * transparent — literals with a total equality — sized as the JVM stores them, `Float` / `Double`
-  * under `equals` (one NaN, two zeros: raw NaN bits are platform-dependent), `String` the free
-  * monoid over `Char`: ω. The top types are the terminal type, `Unit`'s shape (`TopTypes`).
+  * `Unit` is one construction, `Nothing` none, `Boolean` one bit; every other library declaration
+  * the model reads (`Option`, `Either`, tuples, functions, sequences) is `StdlibModel`'s. Ground
+  * scalars are transparent — literals with a total equality — sized as the JVM stores them, `Float`
+  * / `Double` under `equals` (one NaN, two zeros: raw NaN bits are platform-dependent), `String`
+  * the free monoid over `Char`: ω. The top types are the terminal type, `Unit`'s shape
+  * (`TopTypes`).
   */
 private[cardinality] object BuiltinTypes {
 
-  /** The builtin a name denotes at this arity, or the reason no builtin answers it. */
-  def resolve(name: String, args: List[Shape]): Either[String, Shape] =
+  /** The builtin or model entry a name denotes at this arity (or why it is not counted); None when
+    * the name is neither.
+    */
+  def known(name: String, args: List[Shape]): Option[Either[String, Shape]] =
+    scalar(name, args).orElse(StdlibModel.entry(name).map(StdlibModel.read(_, args)))
+
+  private def scalar(name: String, args: List[Shape]): Option[Either[String, Shape]] =
     (name.stripPrefix("scala."), args) match {
-      case ("Unit", Nil)                              => Right(Shape.Product(Nil))
-      case (top, Nil) if TopTypes.named(top).nonEmpty => Right(TopTypes.terminal)
-      case ("Nothing" | "Null", Nil)                  => Right(Shape.Sum(Nil))
+      case ("Unit", Nil)                              => Some(Right(Shape.Product(Nil)))
+      case (top, Nil) if TopTypes.named(top).nonEmpty => Some(Right(TopTypes.terminal))
+      case ("Nothing" | "Null", Nil)                  => Some(Right(Shape.Sum(Nil)))
       case ("Boolean", Nil)                           =>
-        Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil))))
-      case (ground, Nil) if spellings.contains(ground) => Right(spellings(ground))
-      case ("Option", List(a))                    => Right(Shape.Sum(List(Shape.Product(Nil), a)))
-      case ("Either" | "util.Either", List(l, r)) => Right(Shape.Sum(List(l, r)))
-      case ("=:=" | "<:<", List(l, r))            => EvidenceAnalysis.resolve(name, l, r)
-      case (Tuple(arity), fields) if fields.size == arity      => Right(Shape.Product(fields))
-      case (Function(arity), types) if types.size == arity + 1 =>
-        Right(Shape.Function(types.init, types.last))
-      case _ => Left(s"unresolved type: $name")
+        Some(Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil)))))
+      case (ground, Nil) if spellings.contains(ground) => Some(Right(spellings(ground)))
+      case ("=:=" | "<:<", List(l, r))                 => Some(EvidenceAnalysis.resolve(name, l, r))
+      case _                                           => None
     }
 
   private def words(bits: Int): BigInt = BigInt(2).pow(bits)
@@ -54,55 +55,46 @@ private[cardinality] object BuiltinTypes {
     grounds.map((name, size) => name -> (Shape.Ground(name, size): Shape)) ++
       List("java.lang.String", "Predef.String").map(_ -> Shape.Ground("String", Card.Omega))
 
-  private object Tuple {
-    def unapply(name: String): Option[Int] = numbered(name, "Tuple", 1)
-  }
+  // The scalar declarations the model reads, by the `scala` member each simple name spells, with
+  // the number of type arguments each takes; `String` is `Predef`'s and `java.lang`'s, and `Object`
+  // is `AnyRef`.
+  private val scalars: Map[String, Int] =
+    (List("Unit", "Nothing", "Null", "Boolean", "Any", "AnyRef", "AnyVal", "Matchable") ++
+      groundNames).map(_ -> 0).toMap ++ Map("=:=" -> 2, "<:<" -> 2)
 
-  private object Function {
-    def unapply(name: String): Option[Int] = numbered(name, "Function", 0)
-  }
+  private val scalarSpellings: Map[String, String] =
+    scalars.keySet.flatMap(name => List(name -> name, s"scala.$name" -> name)).toMap ++
+      List("scala.Predef.String", "java.lang.String").map(_ -> "String") ++
+      List("Object", "java.lang.Object").map(_ -> "AnyRef")
 
-  private def numbered(name: String, prefix: String, from: Int): Option[Int] =
-    name
-      .stripPrefix(prefix)
-      .toIntOption
-      .filter(n => name.startsWith(prefix) && n >= from && n <= 22)
-
-  /** The `scala` types a key may name without a supplied declaration — each a nominal type of its
-    * own, keyed by its canonical spelling, with the number of type arguments it takes. Shared by
-    * every reading of type identity (override identity, overload and evidence identity, the
-    * arguments of a rigid constructor), so the readings agree on what a builtin name is.
-    */
-  val nominalArity: Map[String, Int] =
-    (List(
-      "Unit",
-      "Nothing",
-      "Null",
-      "Boolean",
-      "Any",
-      "AnyRef",
-      "AnyVal",
-      "Matchable",
-      "EmptyTuple"
-    )
-      .map(_ -> 0) ++ groundNames.map(_ -> 0) ++
-      List("Option" -> 1, "Either" -> 2, "=:=" -> 2, "<:<" -> 2) ++
-      (1 to 22).map(n => s"Tuple$n" -> n) ++ (0 to 22).map(n => s"Function$n" -> (n + 1))).toMap
-
-  /** Every name the model reads as a builtin type when no source declares it: what an import or an
+  /** The simple names the root imports bind to builtins or model entries: what an import or an
     * export must not put a different meaning behind.
     */
-  val nominalNames: Set[String] = nominalArity.keySet
+  val rootNames: Set[String] = scalars.keySet ++ StdlibModel.rootNames ++ TopTypes.names
 
-  /** The canonical name a builtin spelling denotes: one name per type, so `scala.util.Either` and
-    * `Either`, `java.lang.String` and `String`, `Object` and `AnyRef` are one key.
+  /** The canonical key a builtin or model spelling denotes: one key per declaration, so
+    * `scala.util.Either` and `Either`, `java.lang.String` and `String`, `Object` and `AnyRef` are
+    * one key — the model entry's fully qualified name, or the `scala` member a scalar is. Shared by
+    * every reading of type identity (override identity, overload and evidence identity, the
+    * arguments of a rigid constructor), so the readings agree on what a builtin name is. A path
+    * relative to a root import or an anchored simple name denotes none (`StdlibModel.Spelling`).
     */
   def canonical(name: String): Option[String] =
-    name.stripPrefix("_root_.").stripPrefix("scala.") match {
-      case "util.Either"                        => Some("Either")
-      case "java.lang.String" | "Predef.String" => Some("String")
-      case "Object" | "java.lang.Object"        => Some("AnyRef")
-      case other                                => Option.when(nominalArity.contains(other))(other)
-    }
+    StdlibModel
+      .canonical(name)
+      .orElse(StdlibModel.Spelling.of(name) match {
+        case StdlibModel.Spelling.Rooted(path, _) => scalarSpellings.get(path).map(key)
+        case _                                    => None
+      })
+
+  /** The number of type arguments the declaration a canonical key names takes, or why the model
+    * does not know it.
+    */
+  def arity(canonical: String): Either[String, Int] =
+    StdlibModel
+      .entry(canonical)
+      .fold(Right(scalars(canonical.stripPrefix("scala."))))(StdlibModel.arity)
+
+  private def key(scalar: String): String = s"scala.$scalar"
 
 }

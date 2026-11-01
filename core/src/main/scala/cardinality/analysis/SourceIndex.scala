@@ -122,6 +122,34 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     if (next == found) found else closeAliases(next)
   }
 
+  /** Why a sealed family's named subtypes in its file are not all of its instances, if they are
+    * not: a `given` instance, an anonymous class, a parent clause through an alias, or a class
+    * nested in an instance or a block is a value of the family no named subtype enumerates.
+    */
+  private[cardinality] def unnamedInstances(file: String, family: String): Option[String] =
+    if (givenTargets.contains((file, family)))
+      Some(s"sealed family has a given instance outside the fragment: $family")
+    else if (anonymousTargets.contains((file, family)))
+      Some(s"sealed family has anonymous instances in its file: $family")
+    else if (throughAlias(file, family))
+      Some(s"sealed family is extended through an alias: $family")
+    else
+      innerChildren
+        .get((file, family))
+        .map(children => s"sealed subtype is an inner or local class: ${children.head}")
+
+  // Children are registered by the parent name their clause spells, so a child or an anonymous
+  // instance written against an alias of the family (`type SA = S; new SA {}`) is not among them.
+  // Any alias whose body mentions the family, or such an alias, used as a parent in the family's
+  // file makes the enumeration incomplete.
+  private def throughAlias(file: String, family: String): Boolean =
+    aliasesOf(family).exists(alias =>
+      subtypes.contains((file, alias)) ||
+        innerChildren.contains((file, alias)) ||
+        anonymousTargets((file, alias)) ||
+        givenTargets((file, alias))
+    )
+
   // The declarations of a name in one file: uniqueness here is what makes a `sealed` parent's
   // simple name in a child's `extends` clause denote exactly the family being enumerated.
   private[cardinality] def typesInFile(file: String, name: String): List[TypeEntry] =

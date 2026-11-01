@@ -73,18 +73,20 @@ final private[cardinality] class ContextualScope(
   private def seen(scope: Frame, stat: Stat): Boolean =
     reader.visible(scope, stat) || (scope.local && ContextualEvidence.offered(stat).nonEmpty)
 
-  // A parameter whose binding failed has already said why; its unread type is not an overlap.
+  // A parameter whose binding failed has already said why; its unread type is not an overlap. A
+  // template's parameters are typed where its constructor reads them, outside its body and parents.
   private def parameters(place: ContextualScope.Place): List[Candidate] =
     place.owner.params.filter(ContextualEvidence.contextual).map { p =>
       val tpe = p.decltpe.fold("<untyped>")(_.syntax)
+      val scope = ParameterScope.of(place.owner)
       Candidate(
         place.level,
         place.site,
         if (ContextualEvidence.anonymous(p)) tpe else s"${p.name.value}: $tpe",
-        p.decltpe.flatMap(reader.read(_, place.owner, Map.empty)),
+        p.decltpe.flatMap(reader.read(_, scope, Map.empty)),
         ContextualEvidence.anonymous(p),
         reported = reader.bound(p, place.owner),
-        nominal = p.decltpe.fold(Nominal(None, None))(reader.identify(_, place.owner, Map.empty))
+        nominal = p.decltpe.fold(Nominal(None, None))(reader.identify(_, scope, Map.empty))
       )
     }
 
