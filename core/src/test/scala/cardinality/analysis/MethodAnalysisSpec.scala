@@ -33,7 +33,7 @@ class MethodAnalysisSpec extends Specification {
       do not project a second constructor parameter list          $hiddenField
       do not construct through a private constructor              $privateConstructor
       do not project an abstract case class as a product          $abstractCase
-      report a package's concrete producers as unresolved         $concreteProducers
+      count a module's concrete producers as no implementation    $concreteProducers
       count a declared slot as a supplied value                   $declaredSlot
       let a declared callable be applied repeatedly               $declaredCallable
       count an inherited declared slot                            $inheritedSlot
@@ -232,7 +232,7 @@ class MethodAnalysisSpec extends Specification {
     ).count === Count.Finite(1)
 
   def concreteProducers = {
-    val flagged = MethodAnalysis
+    val boolean = MethodAnalysis
       .analyze(
         inputs(
           "Example.scala" ->
@@ -250,10 +250,8 @@ class MethodAnalysisSpec extends Specification {
       )
       .find(_.name == "pick")
       .get
-    (flagged.count must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("Defaults")) must beTrue
-    }).and(generic.count === Count.Finite(2))
+    // `Defaults.flag` is one fixed Boolean, already among the four functions of `b`.
+    (boolean.count === Count.Finite(4)).and(generic.count === Count.Finite(2))
   }
 
   def unproductive =

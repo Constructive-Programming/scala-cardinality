@@ -132,9 +132,9 @@ Override keying does not follow inherited names: such an override in an open tem
 
 ## 4. Templates and families
 
-- *(Interim, superseded by D-var in A4.)* A `var` constructor parameter of an enclosing template is
-  a `mutable capture`, like a `var` member; under the model a `var` reads as the value it holds,
-  and A4 removes the diagnostic.
+- A `var` constructor parameter, like a `var` member, reads as the value it holds (the model
+  excludes mutation); the interim `mutable capture` diagnostic is gone
+  ([environment completeness](environment-completeness.md) §2).
 - A typed self type (`self: Cap[A] =>`) adds members this reading does not enumerate:
   `self type not resolved: Cap[A]` until capability records read them.
 - An enum case with an `extends` clause is a subtype like a sealed family's: its own parameters (the

@@ -7,11 +7,46 @@ import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
 import cardinality.analysis.model.{ContextBounds, SourceBindings}
 import cardinality.types.{Kinds, Spelling, TypeApplications, TypeName}
 
+/** One importer of an import or export clause: where it stands, the names its explicit selectors
+  * bind with the path each reaches, the prefixes its wildcard opens, and the names that wildcard
+  * leaves out — an unimport (`N as _`) and the original of a rename, which Scala binds only under
+  * its new name.
+  */
 final private[cardinality] case class ImportBinding(
     start: Int,
     named: List[(String, List[String])],
-    wildcards: List[List[String]]
-)
+    wildcards: List[List[String]],
+    hidden: Set[String] = Set.empty
+) {
+
+  /** The prefixes this importer's wildcard opens for `name`: none when the name is left out. */
+  def opening(name: String): List[List[String]] = if (hidden(name)) Nil else wildcards
+
+}
+
+/** One importer of an export clause, with what it binds when its prefix is a pure path. */
+final private[cardinality] case class ExportClause(
+    importer: Importer,
+    binding: Option[ImportBinding]
+) {
+
+  /** The prefix as written. */
+  def prefix: String = Spelling.of(importer.ref)
+
+}
+
+private[cardinality] object ExportClause {
+
+  /** Whether an exporter may define a member under the name whatever its prefix holds: a selector
+    * spelling it, or a wildcard that does not leave it out.
+    */
+  def mayDefine(importer: Importer, name: String): Boolean =
+    importer.importees.exists {
+      case _: Importee.Wildcard => !SourceIndex.hiddenNames(importer)(name)
+      case selector             => SourceIndex.boundName(selector).contains(name)
+    }
+
+}
 
 final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[AnalysisWork]) {
   private given scala3: Dialect = dialects.Scala3
@@ -25,6 +60,10 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // onward. The binding records what each introduces: explicit names with the qualified key
   // they reach, and the prefixes a wildcard opens.
   private[cardinality] val imports = mutable.ListBuffer.empty[(String, ImportBinding)]
+  // Export clauses define members of the template that holds them, so they bind across the whole
+  // body, not from a position on: indexed apart from imports, with the importers whose prefix is
+  // no pure path (`export f().x.*`) kept as written, since any name may stand behind them.
+  private[cardinality] val exports = mutable.ListBuffer.empty[(String, ExportClause)]
   // Every proper binder that carries a subtype bound, by its atom, with the frame declaring it: the
   // bound is read wherever the measurement meets the atom (`BinderBounds`).
   private[cardinality] val boundedBinders = mutable.LinkedHashMap.empty[String, (Frame, Type.Param)]
@@ -210,6 +249,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       case p: Pkg         => indexPackage(input, frame, p)
       case p: Pkg.Object  => indexPackageObject(input, frame, p)
       case i: Import      => indexImport(frame, i)
+      case e: Export      => indexExport(frame, e)
       case d: Defn.Type   => named(d.name.value, d, frame)
       case d: Decl.Type   => named(d.name.value, d, frame)
       case d: Defn.Class  => indexClass(input, frame, d)
@@ -245,16 +285,16 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private def indexImport(frame: Frame, clause: Import): Unit =
     clause.importers.foreach { importer =>
       importPath(importer.ref).foreach { path =>
-        val named = importer.importees.collect {
-          case e: Importee.Name   => e.name.value -> (path :+ e.name.value)
-          case e: Importee.Rename => e.rename.value -> (path :+ e.name.value)
-        }
-        val wildcards = importer.importees.collect {
-          case _: Importee.Wildcard => path
-        }
-        if (named.nonEmpty || wildcards.nonEmpty)
-          imports += ((frame.id, ImportBinding(importer.pos.start, named, wildcards)))
+        val binding = SourceIndex.binding(importer, path)
+        if (binding.named.nonEmpty || binding.wildcards.nonEmpty)
+          imports += ((frame.id, binding))
       }
+    }
+
+  private def indexExport(frame: Frame, clause: Export): Unit =
+    clause.importers.foreach { importer =>
+      val binding = importPath(importer.ref).map(SourceIndex.binding(importer, _))
+      exports += ((frame.id, ExportClause(importer, binding)))
     }
 
   // A pure dotted term path, a leading `_root_` kept as the anchor; anything deeper (a `this`, a
@@ -424,6 +464,34 @@ object SourceIndex {
 
   /** The anchor segment of an absolute path. */
   val Root = "_root_"
+
+  /** What one importer binds: `given` selectors bring contextual values and no name (`import
+    * p.{given T}` selects by type), so only named, renamed and wildcard selectors appear.
+    */
+  def binding(importer: Importer, path: List[String]): ImportBinding = {
+    val named = importer.importees.collect {
+      case e: Importee.Name   => e.name.value -> (path :+ e.name.value)
+      case e: Importee.Rename => e.rename.value -> (path :+ e.name.value)
+    }
+    val wildcards = importer.importees.collect { case _: Importee.Wildcard => path }
+    ImportBinding(importer.pos.start, named, wildcards, hiddenNames(importer))
+  }
+
+  /** The name an explicit selector binds: its own, or a rename's new one. */
+  def boundName(importee: Importee): Option[String] = importee match {
+    case e: Importee.Name   => Some(e.name.value)
+    case e: Importee.Rename => Some(e.rename.value)
+    case _                  => None
+  }
+
+  /** The names an importer's wildcard leaves out: an unimport (`N as _`) and the original of a
+    * rename, which Scala binds only under its new name.
+    */
+  def hiddenNames(importer: Importer): Set[String] =
+    importer.importees.collect {
+      case e: Importee.Unimport => e.name.value
+      case e: Importee.Rename   => e.name.value
+    }.toSet
 
   private def segments(ref: Term): Option[List[String]] = ref match {
     case n: Term.Name   => Some(List(n.value))

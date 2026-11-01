@@ -733,7 +733,8 @@ class StdlibModelSpec extends Specification {
           "A.scala" -> "package r\nimport lib.*\ntrait T extends IterableOnce[String]",
           "B.scala" -> "package r\nobject O extends T { def g(): Int = ??? }"
         )("r.O.g"),
-        "inherited type member not resolved: Int (unsupplied parent IterableOnce[String])"
+        "inherited type member not resolved: Int (parent IterableOnce[String], which may be bound " +
+          "through lib, which is not supplied"
       )
     )
   }
@@ -754,9 +755,11 @@ class StdlibModelSpec extends Specification {
   // Whether `Serializable` in `T`'s parents is the marker depends on what `import O.*` brings, and
   // `O` inherits `T`'s parents: the search for that channel meets itself. It is doubted, not taken
   // as answered (Scala 3.9.0 compiles this fixture with `scala.Serializable`; true counts 4, 2^(2^33)
-  // and 4) — the doubt is sound and says why. Each lookup recomputes it, so the later ones in the
-  // same scope (`T.h`'s parent first, then `U.f` and `U.g` reaching it) are refused the same way: a
-  // result computed while that search was under way is never cached as the scope's own reading.
+  // and 4) — the doubt is sound and says why. `import O.*` brings what `O` inherits, so the doubt
+  // reaches `Boolean` and `Int` through `O`'s ancestry. Each lookup recomputes it, so the later ones
+  // in the same scope (`T.h`'s parent first, then `U.f` and `U.g` reaching it) are refused the same
+  // way: a result computed while that search was under way is never cached as the scope's own
+  // reading.
   def selfReachingParent = {
     val code = """import O.*
       |trait T extends Serializable { def h(b: Boolean): Boolean = b }
@@ -771,18 +774,16 @@ class StdlibModelSpec extends Specification {
     val route =
       "through Serializable, which is not resolved (wildcard import of O, in a search that reaches " +
         "itself)"
-    val doubted = "through a reference not resolved: Serializable (wildcard import of O, in a " +
-      "search that reaches itself)"
     (counts.map(_._1).filter(Set("T.h", "U.f", "U.g")) === List("T.h", "U.f", "U.g"))
       .and(
         refused(
           found("T.h"),
-          s"inherited parent declaration not supplied: Serializable (may be bound $route)"
+          "inherited type member not resolved: Boolean (parent Serializable, whose declaration"
         )
       )
-      .and(refused(found("U.f"), s"builtin name Boolean may be shadowed $doubted"))
-      .and(refused(found("U.g"), s"builtin name Boolean may be shadowed $doubted"))
-      .and(refused(found("U.g"), s"builtin name Int may be shadowed $doubted"))
+      .and(refused(found("U.f"), s"Boolean (parent Serializable, which may be bound $route)"))
+      .and(refused(found("U.g"), s"Boolean (parent Serializable, which may be bound $route)"))
+      .and(refused(found("U.g"), s"Int (parent Serializable, which may be bound $route)"))
   }
 
 }

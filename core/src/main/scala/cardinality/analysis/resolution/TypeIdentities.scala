@@ -3,6 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
+import cardinality.analysis.model.Operator.Closure
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.types.Traversals
@@ -19,25 +20,58 @@ private[cardinality] object TypeIdentities {
     * identity. None when a name is an abstract member, a parameterized alias or unresolved, or a
     * binder stands for an instantiation — an identity this reading does not know.
     */
-  def of(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] = tpe match {
-    case n: Type.Name =>
-      context.variables.get(n.value) match {
-        case Some(Right(Shape.Atom(id)))                         => Some(s"binder $id")
-        case Some(Right(constructor @ Shape.Constructor(token))) =>
-          Option.when(resolver.operators.isRigid(constructor))(token)
-        case Some(_) => None
-        case None    => named(tpe, n.value, context, resolver)
-      }
-    case s: Type.Select     => named(tpe, s.syntax, context, resolver)
-    case a: Type.Apply      => applied(a.tpe, a.argClause.values, context, resolver)
-    case a: Type.ApplyInfix =>
-      applied(a.op, List(a.lhs, a.rhs), context, resolver)
-    // Tuple and arrow syntax are `scala.TupleN` and `scala.FunctionN` applied: one spelling each.
-    case Type.Tuple(args) => arguments(s"scala.Tuple${args.size}", args, context, resolver)
-    case f: Type.Function =>
-      val parameters = f.paramClause.values
-      arguments(s"scala.Function${parameters.size}", parameters :+ f.res, context, resolver)
-    case _ => None
+  def of(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
+    Reader(resolver, closures = false).of(tpe, context)
+
+  /** A parameter type's identity where an overriding member is matched against the one it may
+    * override: as `of`, and also through a higher-kinded binder an `extends` clause binds to a
+    * written constructor (`F` given `Either` is `Either`), with a by-name or repeated marker kept.
+    */
+  def parameter(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] = {
+    val reader = Reader(resolver, closures = true)
+    tpe match {
+      case Type.ByName(inner)   => reader.of(inner, context).map(id => s"=> $id")
+      case Type.Repeated(inner) => reader.of(inner, context).map(id => s"$id*")
+      case _                    => reader.of(tpe, context)
+    }
+  }
+
+  private case class Reader(resolver: Resolver, closures: Boolean) {
+
+    def of(tpe: Type, context: ResolutionContext): Option[String] = tpe match {
+      case n: Type.Name =>
+        context.variables.get(n.value) match {
+          case Some(Right(Shape.Atom(id)))                         => Some(s"binder $id")
+          case Some(Right(constructor @ Shape.Constructor(token))) =>
+            if (resolver.operators.isRigid(constructor)) Some(token) else closure(n, context)
+          case Some(_) => None
+          case None    => named(tpe, n.value, context, resolver)
+        }
+      case s: Type.Select     => named(tpe, s.syntax, context, resolver)
+      case a: Type.Apply      => applied(a.tpe, a.argClause.values, context)
+      case a: Type.ApplyInfix => applied(a.op, List(a.lhs, a.rhs), context)
+      // Tuple and arrow syntax are `scala.TupleN` and `scala.FunctionN` applied: one spelling each.
+      case Type.Tuple(args) => arguments(s"scala.Tuple${args.size}", args, context)
+      case f: Type.Function =>
+        val parameters = f.paramClause.values
+        arguments(s"scala.Function${parameters.size}", parameters :+ f.res, context)
+      case _ => None
+    }
+
+    // A constructor written where the binder was instantiated, read where it was written.
+    private def closure(name: Type.Name, context: ResolutionContext): Option[String] =
+      Option
+        .when(closures)(resolver.operators.applicable(name, context).toOption)
+        .flatten
+        .collect { case Closure(written, scope) => (written, scope) }
+        .flatMap((written, scope) => of(written, scope))
+
+    private def applied(callee: Type, args: List[Type], context: ResolutionContext) =
+      of(callee, context).flatMap(arguments(_, args, context))
+
+    private def arguments(head: String, args: List[Type], context: ResolutionContext) =
+      Traversals.defined(args.map(of(_, context))).map(_.mkString(s"$head[", ", ", "]"))
+
   }
 
   /** The declaration of a final concrete class a type applies, when it is one: no other type is a
@@ -60,29 +94,6 @@ private[cardinality] object TypeIdentities {
       case _ => None
     }
   }
-
-  private def applied(
-      callee: Type,
-      args: List[Type],
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Option[String] =
-    of(callee, context, resolver).flatMap(arguments(_, args, context, resolver))
-
-  private def arguments(
-      head: String,
-      args: List[Type],
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Option[String] =
-    all(args, context, resolver).map(_.mkString(s"$head[", ", ", "]"))
-
-  private def all(
-      types: List[Type],
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Option[List[String]] =
-    Traversals.defined(types.map(of(_, context, resolver)))
 
   private def named(
       tpe: Type,

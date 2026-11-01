@@ -150,8 +150,8 @@ private[cardinality] object InheritedClosedSlots {
     fields(frame) ++ frame.stats.flatMap {
       case d: Defn.Def    => List(d.name.value)
       case d: Defn.Object => List(d.name.value)
-      case d: Defn.Val    => d.pats.flatMap(TypeApplications.patVarName.getOption)
-      case d: Defn.Var    => d.pats.flatMap(TypeApplications.patVarName.getOption)
+      case d: Defn.Val    => TypeApplications.boundNames(d.pats)
+      case d: Defn.Var    => TypeApplications.boundNames(d.pats)
       case _              => Nil
     }
 

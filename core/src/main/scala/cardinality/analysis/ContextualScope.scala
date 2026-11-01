@@ -47,7 +47,7 @@ final private[cardinality] class ContextualScope(
 
   private def at(place: ContextualScope.Place): List[Candidate] = {
     val owner = place.owner
-    val inherited = steps.filter(_.root.id == owner.id)
+    val inherited = InheritedScopes.of(steps, owner)
     parameters(place) ++
       reader
         .frames(owner)

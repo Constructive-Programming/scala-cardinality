@@ -92,11 +92,7 @@ private[cardinality] trait Resolver {
 
   def accessible(tree: Tree, owner: Frame, from: Frame): Boolean
 
-  def packages: List[Frame]
-
   def modules: List[Frame]
-
-  def mentionedConcrete(target: Target): Set[String]
 
   def kindOf(target: Target): String
 
@@ -106,5 +102,14 @@ private[cardinality] trait Resolver {
   def expanding[A](operation: String)(read: => A): A
   def solverDepth: Int
   def peers(path: List[String]): List[Frame]
+
+  /** The frames one scope's declarations live in: every file's frame of a package (package members
+    * are indexed across files), any other frame alone.
+    */
+  def scopes(frame: Frame): List[Frame] = {
+    val shared = peers(frame.path)
+    if (shared.exists(_.id == frame.id)) shared else List(frame)
+  }
+
   def isPackage(frame: Frame): Boolean
 }

@@ -64,14 +64,6 @@ object MethodAnalysis {
   def analyze(inputs: List[Input], limits: Limits = Limits()): List[Entry] =
     new Index(inputs, limits).analyze()
 
-  // The names whose count depends on who can produce them: the shape model spells `Boolean` as a
-  // case split, so the values behind it could come from anywhere — a producer outside the lexical
-  // chain included. The fixed-width numeric family is not one of these: the estimate reads a byte
-  // as 2^8 and an `Int` as 2^32 wherever it needs their size, so nothing outside the chain can move
-  // the number. `Unit`, `Option` and `Either` are structural too — a count of cases — and stay
-  // countable wherever they appear.
-  private val ConcreteAtoms = Set("Boolean")
-
   private[cardinality] type Resolved = Either[String, Shape]
 
   // Traverse a list of resolutions: the first failure wins, and the successful ones keep their
@@ -155,7 +147,8 @@ object MethodAnalysis {
       indexer.packageFrames.toList,
       indexer.moduleFrames.toList,
       indexer.imports.toList.groupMap(_._1)(_._2),
-      (name, scope, at) => shadowedBuiltins.listedMember(name, scope, at)
+      (name, scope, at) => shadowedBuiltins.listedMember(name, scope, at),
+      indexer.exports.toList.groupMap(_._1)(_._2)
     )
 
     private val inheritedMembers = new InheritedTypeMembers(lookupIndex, this)
@@ -231,10 +224,6 @@ object MethodAnalysis {
     def peers(path: List[String]): List[Frame] = lookupIndex.peers(path)
     def isPackage(frame: Frame): Boolean = lookupIndex.isPackage(frame)
 
-    // The package and module lists the measurement reads as frames an outside member could live
-    // in, and the limits its count runs under.
-    def packages: List[Frame] = indexer.packageFrames.toList
-
     def modules: List[Frame] = indexer.moduleFrames.toList
 
     // Measuring one signature must not lose the report: scalameta's printers can throw on syntax
@@ -303,7 +292,10 @@ object MethodAnalysis {
           sequence(args.map(context.read(_, this))).map(Shape.Product(_))
         case Type.Repeated(element) =>
           context.read(element, this).map(Shape.Repeated(_))
-        case f: Type.Function =>
+        // Call-by-name differs from call-by-value only in when and how often the argument is
+        // evaluated, which the model's exclusions (effects, divergence) make unobservable.
+        case Type.ByName(argument) => context.read(argument, this)
+        case f: Type.Function      =>
           for {
             args <- sequence(f.paramClause.values.map(context.read(_, this)))
             result <- context.read(f.res, this)
@@ -549,14 +541,6 @@ object MethodAnalysis {
         case _: Defn.Type => cases.head.head
         case _            => Shape.Product(cases.head)
       }
-
-    // The concrete atoms a signature or a tree mentions, written either bare or qualified: a
-    // producer of one of these could change the count of a signature that mentions it.
-    private def mentionedNames(tree: Tree): Set[String] =
-      TypeName.words(tree).iterator.filter(ConcreteAtoms.contains).toSet
-
-    def mentionedConcrete(target: Target): Set[String] =
-      (target.frame.params.flatMap(_.decltpe) ++ target.result).flatMap(mentionedNames).toSet
 
     def kindOf(target: Target): String =
       if (target.constructor) "constructor" else if (target.declaration) "declaration" else "method"

@@ -138,11 +138,8 @@ class NamespaceScopingSpec extends Specification {
       .and(found(("p.O.Y", Alias)) === "2")
       .and(found(("p.O3.Y", Alias)) === "unresolved[Obj (exported from zz.Obj, not supplied)]")
       .and(found(("p.O2.U", Class)) === "2")
-      .and(
-        constructor("p.O2.U.<init>", files*) === Count.Unresolved(
-          List("constructor position readings disagree: o (value space 1, estimate 2)")
-        )
-      )
+      // The method side reads `O2`'s exported `Src.Obj` too, so the two readings agree.
+      .and(constructor("p.O2.U.<init>", files*) === Count.Finite(2))
   }
 
   // A bare `Option` or `List` the sources bind is that binding's: an explicit import of a namespace
@@ -168,8 +165,9 @@ class NamespaceScopingSpec extends Specification {
   // `x` under `package a; package b` is the inner package's `val x: Foo` (Foo's `T = Boolean`, 2),
   // not package `a`'s object (Unit). `val (p, n) = …` binds `p` with no type read here: `p.X` is
   // its own reason, never the object `p`'s Unit. `self: Prism =>` binds `self` to a `Prism`, whose
-  // `X = Boolean` (2), not the object `self`'s Unit. scalac accepts `true` for each. The method side
-  // reads `UsesT`'s `x.T` through package `a`'s object (1): the readings disagree.
+  // `X = Boolean` (2), not the object `self`'s Unit. scalac accepts `true` for each. The method side's
+  // lookup refuses a path through the value `x` rather than read package `a`'s object (1), and the
+  // constructor counts the estimate's 2.
   def termBindings = {
     val pkg = List(
       "A.scala" -> "package a\nobject x { type T = Unit }",
@@ -181,11 +179,7 @@ class NamespaceScopingSpec extends Specification {
     )
     (rowsOf(pkg*)(("a.b.Y", Alias)) === "2")
       .and(rowsOf(pkg*)(("a.b.UsesT", Class)) === "2")
-      .and(
-        constructor("a.b.UsesT.<init>", pkg*) === Count.Unresolved(
-          List("constructor position readings disagree: t (value space 1, estimate 2)")
-        )
-      )
+      .and(constructor("a.b.UsesT.<init>", pkg*) === Count.Finite(2))
       .and(local(("H#Y", Alias)) === "unresolved[p.X]")
       .and(local(("T#Y", Alias)) === "2")
   }

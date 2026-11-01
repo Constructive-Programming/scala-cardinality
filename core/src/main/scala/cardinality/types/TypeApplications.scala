@@ -41,6 +41,16 @@ private[cardinality] object TypeApplications {
   def binds(name: String, patterns: List[Pat]): Boolean =
     patterns.exists(patVarName.getOption(_).contains(name))
 
+  /** Every variable a definition's patterns bind. `val (f, z) = …`, `val seed @ _ = …` and `val
+    * Some(x) = …` define their variables as members as `val f = …` does, though none of them has a
+    * declared type of its own.
+    */
+  def boundNames(patterns: List[Pat]): List[String] =
+    patterns.flatMap(_.collect {
+      case Pat.Var(name)      => name.value
+      case Pat.Repeated(name) => name.value
+    })
+
   /** A value class: its first parent is `AnyVal`. */
   def valueClass(c: Defn.Class): Boolean =
     c.templ.inits.headOption.exists(

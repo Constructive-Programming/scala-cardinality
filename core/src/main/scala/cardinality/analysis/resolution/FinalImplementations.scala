@@ -4,42 +4,62 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.SourceIndex
+import cardinality.analysis.model.ScopeTerms
 import cardinality.capacity.Counter
 import cardinality.types.TypeApplications
 
 /** Inherited declarations a final template implements in its own body.
   *
-  * No subclass can override a member of a final concrete class, an object or a given instance, so
-  * where such a template implements an inherited declaration itself, the member *is* that concrete
-  * body, not a free capability a caller fills. The match is by name and clause shape; a
-  * parameterless declaration is also implemented by a `val` or a constructor `val`. A same-shaped
-  * overload leaves the declaration implemented by other concrete code: a concrete final template
-  * implements every inherited declaration somewhere. An `abstract final` class implements nothing
-  * by being final, and an implementation inherited from an intermediate parent is not followed here
-  * (members gate G1).
+  * No subclass can override a member of a final concrete class, an object or a given instance, nor
+  * a mutable variable of any template (E164), so where such a member implements an inherited
+  * declaration, the member *is* that concrete body, not a free capability a caller fills. The match
+  * is by name and clause shape; a parameterless declaration is also implemented by a `val` or a
+  * constructor `val`. A same-shaped overload leaves the declaration implemented by other concrete
+  * code: a concrete final template implements every inherited declaration somewhere. An
+  * `abstract final` class implements nothing by being final, and an implementation inherited from
+  * an intermediate parent is not followed here (members gate G1).
   */
 private[cardinality] object FinalImplementations {
 
-  /** The member of a final template's own body that implements an inherited declaration. */
-  def implementation(template: Frame, declaration: Stat): List[(String, Tree)] =
-    if (!template.tree.exists(isFinal)) Nil
-    else
-      declared(declaration).flatMap { (name, groups) =>
-        template.stats
-          .find(implements(_, name, groups))
-          .orElse(
-            Option.when(groups.isEmpty)(template.params.find(field(_, name, template))).flatten
-          )
-          .map(name -> _)
-      }
+  /** The member of a template's own body that implements an inherited declaration for every
+    * instance: any member of a final template, and a `var` of any template.
+    */
+  def implementation(template: Frame, declaration: Stat): List[(String, Tree)] = {
+    val closed = template.tree.exists(isFinal)
+    declared(declaration).flatMap { (name, groups) =>
+      implementing(template, name, groups).filter(closed || variable(_)).map(name -> _)
+    }
+  }
+
+  private def implementing(
+      template: Frame,
+      name: String,
+      groups: List[Member.ParamClauseGroup]
+  ): Option[Tree] =
+    template.stats
+      .find(implements(_, name, groups))
+      .orElse(Option.when(groups.isEmpty)(template.params.find(field(_, name, template))).flatten)
+
+  // The model reads a `var` as the value it was initialized with, and no member overrides it.
+  private def variable(member: Tree): Boolean = member match {
+    case _: Defn.Var   => true
+    case p: Term.Param => p.mods.exists(_.is[Mod.VarParam])
+    case _             => false
+  }
 
   /** The level of a final root's linearization that implements an inherited declaration, if one
     * does: a concrete member of its name and clause shape, or for a parameterless one a field or a
-    * `var` (members gate G1). An open root implements nothing for good: a subclass may override.
+    * `var` (members gate G1). An open root implements a declaration for good only by a `var`: any
+    * other member a subclass may override.
     */
-  def implementer(root: Frame, linearization: List[Frame], declaration: Stat): Option[Frame] =
-    if (!root.tree.exists(isFinal)) None
-    else linearization.find(implementedIn(_, declaration))
+  def implementer(root: Frame, linearization: List[Frame], declaration: Stat): Option[Frame] = {
+    val nearest = linearization.find(implementedIn(_, declaration))
+    if (root.tree.exists(isFinal)) nearest
+    else
+      nearest.filter(level =>
+        declared(declaration).exists(implementing(level, _, _).exists(variable))
+      )
+  }
 
   private def implementedIn(template: Frame, declaration: Stat): Boolean =
     declared(declaration).exists { (name, groups) =>
@@ -64,6 +84,7 @@ private[cardinality] object FinalImplementations {
     declaration match {
       case d: Decl.Def   => List(d.name.value -> d.paramClauseGroups)
       case v: Decl.Val   => v.pats.flatMap(TypeApplications.patVarName.getOption).map(_ -> Nil)
+      case v: Decl.Var   => v.pats.flatMap(TypeApplications.patVarName.getOption).map(_ -> Nil)
       case g: Decl.Given =>
         Option.when(g.name.value.nonEmpty)(g.name.value -> g.paramClauseGroups).toList
       case _ => Nil
@@ -108,41 +129,37 @@ private[cardinality] object FinalImplementations {
       case g: Defn.GivenAlias => g.name.value == name && shape(g.paramClauseGroups) == shape(groups)
       case g: Defn.Given      => g.name.value == name && shape(g.paramClauseGroups) == shape(groups)
       // Mutation is excluded, so a `var` holds its initializer: a parameterless member's value.
-      case v: Defn.Val => groups.isEmpty && TypeApplications.binds(name, v.pats)
-      case v: Defn.Var => groups.isEmpty && TypeApplications.binds(name, v.pats)
+      case v: Defn.Val => groups.isEmpty && TypeApplications.boundNames(v.pats).contains(name)
+      case v: Defn.Var => groups.isEmpty && TypeApplications.boundNames(v.pats).contains(name)
       case _           => false
     }
 
-  private def field(param: Term.Param, name: String, template: Frame): Boolean =
+  /** Whether a class parameter of the name is a field: a `val` or `var` one, or any of a case
+    * class.
+    */
+  def field(param: Term.Param, name: String, template: Frame): Boolean =
     param.name.value == name &&
-      (param.mods.exists(_.is[Mod.ValParam]) || template.tree.exists {
+      (param.mods.exists(m => m.is[Mod.ValParam] || m.is[Mod.VarParam]) || template.tree.exists {
         case c: Defn.Class => c.mods.exists(_.is[Mod.Case])
         case _             => false
       })
 
   // Type parameter count, then each term clause's size: what tells an override from an overload
   // without reading a type.
-  private def shape(groups: List[Member.ParamClauseGroup]): List[Int] =
+  def shape(groups: List[Member.ParamClauseGroup]): List[Int] =
     groups.flatMap(group => group.tparamClause.values.size :: group.paramClauses.map(_.values.size))
 
   /** The term names templates declare or take as parameters: inside an implementation they mean the
     * template's own members, which every receiver path reaches.
     */
   def memberNames(templates: List[Frame]): Set[String] =
-    templates.flatMap { frame =>
-      frame.params.map(_.name.value) ++ frame.stats.flatMap {
-        case d: Defn.Def        => List(d.name.value)
-        case d: Decl.Def        => List(d.name.value)
-        case v: Defn.Val        => v.pats.flatMap(TypeApplications.patVarName.getOption)
-        case v: Decl.Val        => v.pats.flatMap(TypeApplications.patVarName.getOption)
-        case v: Defn.Var        => v.pats.flatMap(TypeApplications.patVarName.getOption)
-        case o: Defn.Object     => List(o.name.value)
-        case g: Defn.GivenAlias => List(g.name.value)
-        case g: Defn.Given      => List(g.name.value)
-        case g: Decl.Given      => List(g.name.value)
-        case _                  => Nil
-      }
-    }.toSet
+    templates
+      .flatMap(frame => frame.params.map(_.name.value) ++ ScopeTerms.defined(frame.stats))
+      .toSet
+
+  /** The term parameters' names of a definition's clauses. */
+  def parameterNames(groups: List[Member.ParamClauseGroup]): Set[String] =
+    groups.flatMap(_.paramClauses.flatMap(_.values.map(_.name.value))).toSet
 
   /** The names an implementation's body reads that its own parameters do not bind, and whether the
     * body is that one name (`def seed: A = a1`): a member that is an alias of a capture.
@@ -152,10 +169,11 @@ private[cardinality] object FinalImplementations {
       case d: Defn.Def        => (d.paramClauseGroups, Some(d.body))
       case g: Defn.GivenAlias => (g.paramClauseGroups, Some(g.body))
       case v: Defn.Val        => (Nil, Some(v.rhs))
+      case v: Defn.Var        => (Nil, Some(v.body))
       case g: Defn.Given      => (g.paramClauseGroups, Some(g.templ))
       case _                  => (Nil, None)
     }
-    val own = params.flatMap(_.paramClauses.flatMap(_.values.map(_.name.value))).toSet
+    val own = parameterNames(params)
     val names = body.toList.flatMap(_.collect { case n: Term.Name => n.value }).toSet -- own
     val alias = body.collect { case Term.Name(n) if params.isEmpty && !own(n) => n }
     (names, alias)

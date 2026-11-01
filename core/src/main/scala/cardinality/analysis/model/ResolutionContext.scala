@@ -121,6 +121,5 @@ private[cardinality] object ResolutionOptics {
   val entryTreeLens = lens[TypeEntry](_.tree)
   val entryTypeDefinition = entryTreeLens.andThen(TypeApplications.typeDefinition)
   val typeArguments = TypeApplications.arguments
-  val patVarName = TypeApplications.patVarName
 
 }

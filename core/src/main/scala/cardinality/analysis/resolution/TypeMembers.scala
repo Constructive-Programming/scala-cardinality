@@ -686,7 +686,7 @@ private[cardinality] object TypeMembers {
       case Some(p) => p.mods.exists(_.is[Mod.ValParam]) && open(p.mods)
       case None    =>
         owner.stats.exists {
-          case d: Defn.Val => TypeApplications.binds(name, d.pats) && open(d.mods)
+          case d: Defn.Val => TypeApplications.boundNames(d.pats).contains(name) && open(d.mods)
           case d: Decl.Val => TypeApplications.binds(name, d.pats) && open(d.mods)
           case _           => false
         }

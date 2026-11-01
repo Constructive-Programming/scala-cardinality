@@ -34,7 +34,10 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   import InheritedTypeMembers.{Ancestry, Located, Location, Member, Outside}
 
   private val ancestries = mutable.Map.empty[String, Ancestry]
-  private val members = mutable.Map.empty[(String, String, String), Option[Member]]
+  // The export clauses being read for a name: met again through inheritance, the body is taken to
+  // declare it, and lexical lookup, which follows exports itself, answers.
+  private val exporting = mutable.Set.empty[(String, String)]
+  private val members = mutable.Map.empty[(String, String, String), List[Member]]
 
   // A name's meaning at one reference: a member reading and a type reading both ask for it.
   private val located =
@@ -65,8 +68,8 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
       @tailrec
       def walk(chain: List[Frame], unread: Option[String]): Option[Location] =
         chain match {
-          case Nil                                                   => unread.map(Left(_))
-          case frame :: _ if lookup.declaredIn(frame, name).nonEmpty =>
+          case Nil                                 => unread.map(Left(_))
+          case frame :: _ if declares(frame, name) =>
             unread.filter(_ => lookup.isPackage(frame)).map(Left(_))
           case frame :: outer if inBody(frame, file, position) =>
             val ancestry = ancestryOf(frame)
@@ -75,7 +78,8 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
             (inherited, unread) match {
               case (Some(found), None)     => Some(Right(frame -> found))
               case (Some(_), Some(reason)) => Some(Left(reason))
-              case (None, _) => walk(outer, unread.orElse(unreadReason(name, ancestry)))
+              case (None, _)               =>
+                walk(outer, unread.orElse(unreadReason(name, ancestry, exportsName(_, name))))
             }
           case _ :: outer => walk(outer, unread)
         }
@@ -85,12 +89,54 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   /** The parents of a template's supplied ancestry that are outside the source set, as spelled. */
   def unsuppliedAncestors(frame: Frame): List[String] = ancestryOf(frame).unsupplied
 
+  // A body declares a name by a declaration or by an export clause, which defines an alias member
+  // — one an exported object inherits included.
+  private def declares(frame: Frame, name: String): Boolean =
+    lookup.declaredIn(frame, name).nonEmpty || exportsName(frame, name)
+
+  private def exportsName(frame: Frame, name: String): Boolean =
+    lookup.exporting(frame) && {
+      val key = frame.id -> name
+      exporting(key) || {
+        exporting += key
+        try lookup.exportsName(frame, name, resolver.accessible, this)
+        finally exporting -= key
+      }
+    }
+
+  // What `import O.*`, `import O.T` and `O.T` read when the object `O` only inherits `T`: the member
+  // under its declaring parent, followed only where that parent takes no type arguments (a path
+  // carries none), and refused where an ancestor outside the sources may declare it. A protected
+  // member is selected only from inside `O` or its declaring parent.
+  override def inheritedBy(module: Frame, name: String, from: Frame): InheritedObjects.Selected = {
+    val ancestry = ancestryOf(module)
+    val declared = Option
+      .when(ancestry.names(name))(
+        pick(
+          declarations(module, name, module).filter((entry, _) => selectable(entry, module, from))
+        )
+      )
+      .flatten
+      .map { (entry, _) =>
+        if (resolver.typeParameters(entry.owner).isEmpty) Right(entry)
+        else
+          Left(
+            s"inherited member path not resolved: $name (type arguments of ${entry.owner.path.last})"
+          )
+      }
+    declared.orElse(unreadReason(name, ancestry, exportsName(_, name)).map(Left(_)))
+  }
+
   def at(head: InheritedObjects.Head): InheritedObjects.Path =
     if (!inBody(head.frame, head.file, head.position)) None
     else {
       val ancestry = ancestryOf(head.frame)
       if (ancestry.objects(head.name)) objectPath(head.frame, head.name)
-      else unreadReason(head.name, ancestry).map(Left(_))
+      // An inherited value: a path through it selects a member of its type.
+      else if (ancestry.values(head.name))
+        Some(Left(s"path through a value not followed: ${head.name}"))
+      else
+        unreadReason(head.name, ancestry, lookup.mayExport(_, head.name)).map(Left(_))
     }
 
   // An inherited member object as a path: its declaring parent read with its own binders, since a
@@ -115,10 +161,20 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
           )
       }
 
-  private def unreadReason(name: String, ancestry: Ancestry): Option[String] =
-    ancestry.unsupplied.headOption.map(parent =>
-      s"inherited type member not resolved: $name (unsupplied parent $parent)"
-    )
+  // Why a name a template may inherit is not read: an ancestor this reading does not read may
+  // declare any name; one whose export clauses define the name defines an alias member this
+  // reading does not follow (`exported`: for a type name, one its selectors or the supplied
+  // namespaces its wildcards open define; for a path's head, a term name any selector may spell).
+  private def unreadReason(
+      name: String,
+      ancestry: Ancestry,
+      exported: Frame => Boolean
+  ): Option[String] =
+    ancestry.unread.headOption
+      .orElse(
+        ancestry.exporters.find(exported).map(frame => s"exports of ${frame.path.last}")
+      )
+      .map(channel => s"inherited type member not resolved: $name ($channel)")
 
   private def inBody(frame: Frame, file: String, position: Int): Boolean =
     frame.input == file && frame.tree.flatMap(TypeApplications.template).exists { templ =>
@@ -188,19 +244,19 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
     )
   }
 
-  // The names and objects every supplied ancestor declares, and the ancestors outside the source
-  // set, by template: parent resolution alone, so asking costs no argument reading until a name is
-  // really inherited. A template met again while its own ancestry is read (an invalid cycle) adds
-  // nothing.
+  // What a template inherits (`Ancestry`), by template: parent resolution alone, so asking costs no
+  // argument reading until a name is really inherited. A template met again while its own ancestry
+  // is read (an invalid cycle) adds nothing.
   private def ancestryOf(frame: Frame): Ancestry =
     ancestries.get(frame.id) match {
       case Some(known) => known
       case None        =>
-        ancestries.update(frame.id, Ancestry(Set.empty, Set.empty, Nil))
+        ancestries.update(frame.id, Ancestry(Set.empty, Set.empty, Set.empty, Nil, Nil, Nil))
         val found = InheritedScopes
           .breadthFirst(frame.parents.map(frame -> _), Set.empty[String]) {
             case ((from, init), seen) =>
-              located(init, from) match {
+              val location = located(init, from)
+              location match {
                 case Right(Located.Supplied((entry, _))) =>
                   entry.self match {
                     case Some(declared) if seen(declared.id) => (Nil, Nil, seen)
@@ -211,41 +267,72 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
                         seen + declared.id
                       )
                     // An alias or abstract type as a parent: what it declares is not read.
-                    case None => (List(Left(init.tpe.syntax)), Nil, seen)
+                    case None => (List(Left(unread(init, location))), Nil, seen)
                   }
                 case Right(Located.Unsupplied(external))
                     if InheritedTypeMembers.memberless(external) =>
                   (Nil, Nil, seen)
-                case _ => (List(Left(init.tpe.syntax)), Nil, seen)
+                case _ => (List(Left(unread(init, location))), Nil, seen)
               }
           }
         val declared = found.collect { case Right(frame) => frame }
+        val (spelled, channels) = found.collect { case Left(parent) => parent }.unzip
+        // An ancestor's export clauses define members it passes on like its declarations: the
+        // names they define are not read through it.
         val ancestry = Ancestry(
           declared.flatMap(lookup.declaredNames).toSet,
           declared.flatMap(lookup.declaredModules).toSet,
-          found.collect { case Left(parent) => parent }
+          declared.flatMap(InheritedTerms.values).toSet,
+          spelled,
+          channels,
+          declared.filter(lookup.exporting)
         )
         ancestries.update(frame.id, ancestry)
         ancestry
     }
 
+  // A parent this reading does not read, as spelled and as the channel a reason names.
+  private def unread(init: Init, location: Either[String, Located]): (String, String) = {
+    val parent = init.tpe.syntax
+    parent -> (location match {
+      // A marker or model parent another declaration may stand behind.
+      case Right(Located.Unsupplied(Outside(_, _, Some(route)))) =>
+        s"parent $parent, which may be bound $route"
+      case Left(_) => s"parent $parent, whose declaration is not resolved"
+      case _       => s"unsupplied parent $parent"
+    })
+  }
+
+  private def member(frame: Frame, name: String, useSite: Frame): Option[Member] =
+    pick(declarations(frame, name, useSite))
+
+  // Every inherited declaration of the name, nearest level first.
+  private def declarations(frame: Frame, name: String, useSite: Frame): List[Member] =
+    members.getOrElseUpdate(
+      (frame.id, name, useSite.id),
+      InheritedScopes
+        .walk(List(frame -> resolver.typeParameters(frame)), resolver, useSite)
+        .collect { case Right(step) => step }
+        .flatMap(step =>
+          lookup
+            .declaredIn(step.declared, name)
+            .filter(entry => visible(entry.tree, entry.owner, useSite))
+            .map(_ -> step.env)
+        )
+    )
+
   // An alias is the member's meaning wherever it is declared (Scala lets an alias be overridden
   // only by an equal one); an abstract declaration or a class member is read as itself.
-  private def member(frame: Frame, name: String, useSite: Frame): Option[Member] =
-    members.getOrElseUpdate(
-      (frame.id, name, useSite.id), {
-        val found = InheritedScopes
-          .walk(List(frame -> resolver.typeParameters(frame)), resolver, useSite)
-          .collect { case Right(step) => step }
-          .flatMap(step =>
-            lookup
-              .declaredIn(step.declared, name)
-              .filter(entry => visible(entry.tree, entry.owner, useSite))
-              .map(_ -> step.env)
-          )
-        found.find((entry, _) => alias(entry)).orElse(found.headOption)
-      }
-    )
+  private def pick(found: List[Member]): Option[Member] =
+    found.find((entry, _) => alias(entry)).orElse(found.headOption)
+
+  // A protected member is selected through an object only inside that object or the template that
+  // declares it.
+  private def selectable(entry: TypeEntry, module: Frame, from: Frame): Boolean = entry.tree match {
+    case d: Stat.WithMods if d.mods.exists(_.is[Mod.Protected]) =>
+      from.chain.exists(scope => scope.id == module.id || scope.id == entry.owner.id)
+    case _ => true
+  }
 
   /** Whether a member is inherited: a private one is not, a qualified `private[p]` one is where `p`
     * reaches.
@@ -271,10 +358,20 @@ private[cardinality] object InheritedTypeMembers {
   /** An inherited member with the template whose body inherits it, or why it is not known. */
   type Location = Either[String, (Frame, Member)]
 
-  /** What a template inherits: the type names and objects its supplied ancestors declare, and its
-    * ancestors outside the source set (as spelled), whose declarations are unknown.
+  /** What a template inherits: the type names, objects and values its supplied ancestors declare,
+    * its ancestors outside the source set (as spelled), whose declarations are unknown, every
+    * channel through which it may inherit any name this reading does not know — such an ancestor,
+    * or a marker parent another declaration may stand behind — and the supplied ancestors whose
+    * export clauses define members, which this reading does not follow for the names they define.
     */
-  final case class Ancestry(names: Set[String], objects: Set[String], unsupplied: List[String])
+  final case class Ancestry(
+      names: Set[String],
+      objects: Set[String],
+      values: Set[String],
+      unsupplied: List[String],
+      unread: List[String],
+      exporters: List[Frame]
+  )
 
   /** A parent clause outside the source set: the path it names (as an import binds it, or as
     * written when nothing does), how the name was bound, and the channel through which a

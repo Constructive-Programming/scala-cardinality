@@ -36,6 +36,12 @@ private[cardinality] object InheritedScopes {
       root: Frame
   )
 
+  /** The levels a walk reached from one root, nearest first. */
+  def of(steps: List[Step], root: Frame): List[Step] = steps.filter(_.root.id == root.id)
+
+  /** The frames of those levels. */
+  def levels(steps: List[Step], root: Frame): List[Frame] = of(steps, root).map(_.declared)
+
   /** Every supplied parent of each root, breadth first, each root with the environment its own
     * clauses are read under. A parent outside the source set is skipped (nothing is guessed about
     * it); one the lookup cannot pin down is a diagnostic.

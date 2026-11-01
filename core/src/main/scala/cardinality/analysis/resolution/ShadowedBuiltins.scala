@@ -69,7 +69,7 @@ final private[cardinality] class ShadowedBuiltins(
     types.filter(_.self.nonEmpty).groupBy(entry => entry.owner.path :+ entry.name)
 
   private val channels =
-    scala.collection.mutable.Map.empty[(Frame, Option[(String, Int)]), Option[Stop]]
+    scala.collection.mutable.Map.empty[(Frame, Option[(String, Int)], Option[String]), Option[Stop]]
 
   // The searches under way, and how many met themselves again: a parent whose standing is asked
   // while its own scope's channel is being searched (`import O.*` beside `trait T extends
@@ -191,7 +191,9 @@ final private[cardinality] class ShadowedBuiltins(
   private def standing(name: String, anchored: Boolean, context: ResolutionContext): Option[Stop] =
     Option
       .unless(anchored)(
-        walked(name, context).orElse(channel(context)).orElse(subpackage(name, context))
+        walked(name, context)
+          .orElse(channel(context, Some(name.takeWhile(_ != '.'))))
+          .orElse(subpackage(name, context))
       )
       .flatten
 
@@ -309,7 +311,7 @@ final private[cardinality] class ShadowedBuiltins(
         s", may be a member of ${namespace.path} (${namespace.what}), whose members the model " +
           "does not list"
       }
-      val through = channel(context).map(stop => s", may be bound ${route(stop)}")
+      val through = channel(context, Some(head)).map(stop => s", may be bound ${route(stop)}")
       s"declaration not supplied: $name (${StdlibModel.undeclared}" +
         s"${unlisted.orElse(through).getOrElse("")})"
     }
@@ -324,17 +326,18 @@ final private[cardinality] class ShadowedBuiltins(
     * one this reading cannot follow, may bind a name: what is not read, and through what.
     */
   def unread(context: ResolutionContext): Option[String] =
-    channel(context).map(refusal("builtin names", _))
+    channel(context, None).map(refusal("builtin names", _))
 
   // The same for every name no supplied declaration spells, so it is read once per reference — and
   // per frame, not per frame id: a constructor's frame shares its class's id but not its members
   // (Scala 3.9.0 reads `class C(a: Any) extends X` with `scala.Any` beside `X`'s `type Any`).
-  private def channel(context: ResolutionContext): Option[Stop] = {
-    val key = context.frame -> context.at
+  // A builtin's own search skips the clauses that leave its name out (`import p.{Boolean as _, *}`).
+  private def channel(context: ResolutionContext, subject: Option[String]): Option[Stop] = {
+    val key = (context.frame, context.at, subject)
     channels.getOrElse(
       key, {
         val before = cycles
-        val found = guarded(Search(None, context.frame, context.at))
+        val found = guarded(Search(None, context.frame, context.at, subject))
         if (cycles == before) channels.update(key, found)
         found
       }
@@ -347,13 +350,14 @@ final private[cardinality] class ShadowedBuiltins(
       Some(Step.Doubt(search.name.getOrElse("a channel"), SelfReached, selfReached = true))
     } else {
       searching += search
-      try new Walk(search.name).from(search.frame, search.at)
+      try new Walk(search.name, search.name.orElse(search.subject)).from(search.frame, search.at)
       finally searching -= search
     }
 
   // One name's search — or, with no name, the search for a step that leaves the sources: each frame
-  // whose members it may reach, once, with the step from the reference that first reached it.
-  final private class Walk(name: Option[String]) {
+  // whose members it may reach, once, with the step from the reference that first reached it. The
+  // subject is the name whose binding is at stake: a wildcard that leaves it out is no channel.
+  final private class Walk(name: Option[String], subject: Option[String]) {
 
     def from(frame: Frame, at: Option[(String, Int)]): Option[Stop] =
       search(frame.chain.flatMap(entrances(_, at)), Set.empty, None)
@@ -402,7 +406,7 @@ final private[cardinality] class ShadowedBuiltins(
           List(Step.Unread(qualified(scope), s"package clause ${qualified(scope)}"))
         else resolver.peers(scope.path).flatMap(members(_, None))
       val imported = clauses(scope, at).flatMap(clause =>
-        clause.wildcards.flatMap { prefix =>
+        subject.fold(clause.wildcards)(clause.opening).flatMap { prefix =>
           val via = s"wildcard import of ${prefix.mkString(".")}"
           targets(prefix, scope, via, ShadowedBuiltins.at(at, clause))
         }
@@ -456,11 +460,12 @@ final private[cardinality] class ShadowedBuiltins(
         .flatMap { importer =>
           val prefix = SourceIndex.importPath(importer.ref)
           importer.importees.flatMap {
-            case _: Importee.Wildcard =>
+            case _: Importee.Wildcard if subject.exists(SourceIndex.hiddenNames(importer)) => Nil
+            case _: Importee.Wildcard                                                      =>
               prefix.fold(List(Step.Doubt(s"export ${spell(importer)}", via)))(
                 targets(_, frame, via, None)
               )
-            case selector if bound(selector).exists(isSearched) =>
+            case selector if SourceIndex.boundName(selector).exists(isSearched) =>
               List(Step.Found(s"export ${spell(importer)}", via))
             case _ => Nil
           }
@@ -548,7 +553,12 @@ private[cardinality] object ShadowedBuiltins {
     reference.map((file, _) => file -> (clause.start - 1))
 
   // One search: a name's, or the nameless search for a channel, from a frame at a position.
-  private case class Search(name: Option[String], frame: Frame, at: Option[(String, Int)])
+  private case class Search(
+      name: Option[String],
+      frame: Frame,
+      at: Option[(String, Int)],
+      subject: Option[String] = None
+  )
 
   private enum Step {
     case Reach(frame: Frame, via: String)
@@ -654,19 +664,12 @@ private[cardinality] object ShadowedBuiltins {
     case _                          => qualified(frame)
   }
 
-  // The name an explicit selector binds.
-  private def bound(selector: Importee): Option[String] = selector match {
-    case Importee.Name(name)      => Some(name.value)
-    case Importee.Rename(_, name) => Some(name.value)
-    case _                        => None
-  }
-
   // The names export selectors bind: what a forwarder may put behind a builtin's spelling.
   private def exportedNames(source: Source): List[String] =
     source
       .collect { case clause: Export => clause.importers.flatMap(_.importees) }
       .flatten
-      .flatMap(bound)
+      .flatMap(SourceIndex.boundName)
 
   // The term names the sources declare (pattern variables of any kind included): a wildcard prefix
   // headed by one of them may open supplied members; any other head names a foreign namespace.

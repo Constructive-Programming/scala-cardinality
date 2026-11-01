@@ -54,8 +54,8 @@ class TopTypesUnionSpec extends Specification {
       a module singleton and a one-valued closed type                $terminalValues
       a result with more values keeps the environment's reason       $nonTerminal
       a transparent function result keeps it too                     $transparentFunction
-      a clause that may rebind Unit keeps it too                     $rebinding
-      a clause that may rebind Any or Null keeps it too              $rebindingTops
+      a given selector binds no type name                            $rebinding
+      a given selector spelling Any or Null binds neither            $rebindingTops
       an inline parameter of a top type may be matched on            $inlineTop
       a constructor's positions are value spaces, not goals          $constructorGoal
     Lattice identities apply before resolution
@@ -278,23 +278,20 @@ class TopTypesUnionSpec extends Specification {
       Count.Finite(1)
 
   // With `trait X { type Any = Boolean }`, k is Boolean => Boolean: 4, not 2.
+  // `import Defs.*` brings what `Defs` inherits from `ext.X`, which may declare `Any` or `Unit`: the
+  // lookup refuses the name before any builtin reading.
   def importedObject = {
     val code =
       "object Defs extends ext.X\nobject W { import Defs.*; def k(x: Any): Boolean = true\n" +
         "  def f(s: ext.Schema): Unit = () }"
-    reasonContains(
-      code,
-      "W.k",
-      "builtin name Any may be shadowed through a reference not supplied: ext.X " +
-        "(wildcard import of Defs)"
-    ).and(
-      reasonContains(
-        code,
-        "W.f",
-        "builtin name Unit may be shadowed through a reference not supplied: ext.X " +
-          "(wildcard import of Defs)"
+    reasonContains(code, "W.k", "inherited type member not resolved: Any (unsupplied parent ext.X)")
+      .and(
+        reasonContains(
+          code,
+          "W.f",
+          "inherited type member not resolved: Unit (unsupplied parent ext.X)"
+        )
       )
-    )
   }
 
   def packageObject = {
@@ -316,7 +313,14 @@ class TopTypesUnionSpec extends Specification {
           "builtin name Unit may be shadowed through a reference not supplied: ext"
         )
       )
-      .and(reasonContains(exported, "E.f", "reference not supplied: ext.defs (export of E)"))
+      .and(
+        reasonContains(
+          exported,
+          "E.f",
+          "through ext.defs, which is not supplied (export of E)",
+          "wildcard export not supplied: Unit (wildcard export of ext.defs)"
+        )
+      )
   }
 
   // Scala 3.9.0 reads `final class E(val a: Any) extends ext.X` with `scala.Any` even when X
@@ -425,19 +429,15 @@ class TopTypesUnionSpec extends Specification {
         Count.Finite(1)
     )
 
+  // A `given` selector imports given instances, which are terms: `import x.y.{given Unit}` binds no
+  // type name, so `Unit` is the root one and the goal has one value (Scala 3.9.0 compiles `def y():
+  // Unit = ()` after `import Defs.{given Unit}` with `Defs.Unit = Boolean`).
   def rebinding =
-    reasonContains(
-      "import ext.Schema\nimport x.y.{given Unit}\ndef y(): Unit = ()",
-      "y",
-      "imported environment not resolved"
-    )
+    count("import ext.Schema\nimport x.y.{given Unit}\ndef y(): Unit = ()", "y") === Count.Finite(1)
 
-  // An unbound selector spelling a top or Null may rebind it, so the one-value rule does not fire.
   def rebindingTops =
-    reasonContains("import x.y.{given Any}\ndef r(): Any = ()", "r", "imported environment")
-      .and(
-        reasonContains("import x.y.{given Null}\ndef r(): Unit = ()", "r", "imported environment")
-      )
+    (count("import x.y.{given Any}\ndef r(): Any = ()", "r") === Count.Finite(1))
+      .and(count("import x.y.{given Null}\ndef r(): Unit = ()", "r") === Count.Finite(1))
 
   // `inline x match { case _: Int => true; case _ => false }` tells f(1) from f("s") (Scala 3.9.0):
   // a top-typed parameter of an inline method may carry its argument's static type.
@@ -768,7 +768,7 @@ class TopTypesUnionSpec extends Specification {
       MethodAnalysis.Limits()
     )
     val classes = index.runtimeClasses
-    val root = ResolutionContext(index.packages.head, Map.empty, Set.empty)
+    val root = ResolutionContext(index.peers(Nil).head, Map.empty, Set.empty)
     def runtime(name: String) = classes.alternative(Type.Name(name), root).toOption.get.runtime
     val option = RuntimeClasses.Builtin("scala.Option")
     (classes.disjoint(runtime("C"), runtime("T")) ===

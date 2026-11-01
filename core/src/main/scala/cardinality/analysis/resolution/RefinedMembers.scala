@@ -68,9 +68,12 @@ private[cardinality] object RefinedMembers {
     case d: Decl.Val if TypeApplications.binds(name, d.pats) => Some(Some(d.decltpe))
     case d: Defn.Var if TypeApplications.binds(name, d.pats) => Some(None)
     case d: Decl.Var if TypeApplications.binds(name, d.pats) => Some(None)
-    case d: Defn.Def if d.name.value == name                 => Some(None)
-    case d: Decl.Def if d.name.value == name                 => Some(None)
-    case _                                                   => None
+    // A destructured variable has no declared type of its own.
+    case d: (Defn.Val | Defn.Var) if TypeApplications.boundNames(d.pats).contains(name) =>
+      Some(None)
+    case d: Defn.Def if d.name.value == name => Some(None)
+    case d: Decl.Def if d.name.value == name => Some(None)
+    case _                                   => None
   }
 
   private case class Definition(

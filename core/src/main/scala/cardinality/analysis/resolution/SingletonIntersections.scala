@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
-import cardinality.types.{Spelling, TypeName, TypeSubstitution}
+import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{Frame, Resolved}
@@ -99,7 +99,7 @@ private[cardinality] object SingletonIntersections {
       .map(binding.parameter(_, resolver))
       .orElse {
         owner.stats.iterator
-          .filter(stat => bindingPatterns(stat).exists(namesBinding(_, name)))
+          .filter(stat => TypeApplications.boundNames(bindingPatterns(stat)).contains(name))
           .nextOption()
           .map(binding.stat(_, resolver))
       }
@@ -111,9 +111,6 @@ private[cardinality] object SingletonIntersections {
     case v: Defn.Var => v.pats
     case _           => Nil
   }
-
-  private def namesBinding(pattern: Pat, name: String): Boolean =
-    ResolutionOptics.patVarName.getOption(pattern).contains(name)
 
   /** Lookup checks use the caller; binding types and initializers use the declaration scope. */
   private case class BindingScope(name: String, owner: Frame, caller: ResolutionContext) {
@@ -130,8 +127,11 @@ private[cardinality] object SingletonIntersections {
       if (p.mods.exists(_.is[Mod.VarParam])) Left(s"mutable singleton path: $name")
       else p.decltpe.toRight(s"missing singleton path type: $name").flatMap(value(_, resolver))
 
+    // A destructured variable is a part of its initializer's value, which no path names.
     def stat(stat: Stat, resolver: Resolver): Resolved = stat match {
       case v: Decl.Val => accessible(v, resolver).flatMap(_ => value(v.decltpe, resolver))
+      case v: Defn.Val if !TypeApplications.binds(name, v.pats) =>
+        Left(s"stable singleton binding identity not resolved: $name")
       case v: Defn.Val => accessible(v, resolver).flatMap(_ => capturedValue(v, resolver))
       case _           => Left(s"mutable singleton path: $name")
     }

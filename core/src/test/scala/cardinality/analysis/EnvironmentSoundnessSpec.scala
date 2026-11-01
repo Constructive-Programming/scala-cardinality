@@ -53,7 +53,7 @@ class EnvironmentSoundnessSpec extends Specification {
       refuse a name an unsupplied parent may declare               $unsuppliedParentName
       key an override through an inherited name as the member $inheritedOverride
     Templates and families
-      refuse a `var` constructor parameter as a mutable capture    $varParameter
+      read a `var` as the value it holds                           $varParameter
       refuse a self type this reading does not enumerate           $selfType
       refuse an enum case pinned to one instantiation              $enumPin
       read enum cases that bind or bottom-pin the parameters       $enumBinds
@@ -604,13 +604,15 @@ class EnvironmentSoundnessSpec extends Specification {
     (found("w.G.get") === Count.Finite(2)).and(found("w.E.get") === Count.Finite(2))
   }
 
-  // A `var` parameter is a field the instance reassigns: like the `var` member twin, a mutable
-  // capture. The constructor still chooses its two fields from a and b: 4.
+  // The model excludes mutation, so a `var` holds the value it was given: the parameter `a` is the
+  // caller's value beside `b` (2), and the field `a` is `b` (1). No subclass overrides a `var`
+  // (E164), so the open class does not leave it a capability. The constructor still chooses its
+  // two fields from a and b: 4.
   def varParameter = {
     val found = counts("Var.scala" -> """class VarParam[A](var a: A, b: A) { def get: A = ??? }
       |class VarField[A](b: A) { var a: A = b; def get: A = ??? }""".stripMargin)
-    refused(found("VarParam.get"), "mutable capture")
-      .and(refused(found("VarField.get"), "mutable capture"))
+    (found("VarParam.get") === Count.Finite(2))
+      .and(found("VarField.get") === Count.Finite(1))
       .and(found("VarParam.<init>") === Count.Finite(4))
   }
 

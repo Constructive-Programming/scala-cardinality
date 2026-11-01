@@ -47,8 +47,8 @@ class GroundTypesSpec extends Specification {
     Boundary
       a ground-result callable on an atom stays unresolved         $groundCallable
       a closed Int callable is never ω                             $closedCallable
-      mutation is not erased                                       $mutable
-      an exported or given-imported ground name is flagged         $exported
+      a var reads as the value it was initialized with             $mutable
+      an export binds a ground name; a given import binds none     $exported
       a source alias still shadows the builtin                     $sourceShadow
       a literal type is not a ground type                          $literalType
       higher-order use of a ground domain stays unresolved         $higherOrder
@@ -279,21 +279,26 @@ class GroundTypesSpec extends Specification {
     count("def f(g: Int => Int, x: Int): Int = g(x)") ===
       Count.Symbolic(pow(2, pow(2, N(two37 + 37))))
 
+  // The model excludes mutation, so `n` is the 0 it holds: `get` has no Int input and may return
+  // any of the 2^32 values, as `def get: Int` alone may.
   def mutable =
-    unresolvedOn(count("class C { var n: Int = 0; def get: Int = n }", "C.get"), "mutable capture")
+    count("class C { var n: Int = 0; def get: Int = n }", "C.get") === Count.Finite(
+      BigInt(2).pow(32)
+    )
 
+  // `export foo.Int` defines `Int` as an alias of a declaration the sources do not supply; a given
+  // selector brings the given instance `""` (a fixed value, no input) and no type name.
   def exported =
     unresolvedOn(
       count("export foo.Int\ndef f(x: Int): Int = x"),
-      "imported environment not resolved"
+      "declaration not supplied: foo.Int"
     )
       .and(
-        unresolvedOn(
-          count(
-            "object foo { given String = \"\" }\nimport foo.given String\ndef f(x: String): String = x"
-          ),
-          "imported environment not resolved"
-        )
+        // A given selector binds no type name: String => String over transparent countable data,
+        // ω as for the plain signature.
+        count(
+          "object foo { given String = \"\" }\nimport foo.given String\ndef f(x: String): String = x"
+        ) === Count.Countable
       )
 
   def sourceShadow =

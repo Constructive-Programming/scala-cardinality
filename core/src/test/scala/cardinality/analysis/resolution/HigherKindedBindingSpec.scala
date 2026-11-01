@@ -327,12 +327,13 @@ class HigherKindedBindingSpec extends Specification {
   }
 
   // `Function1`, `Tuple2` and `=:=` are read as builtins wherever no source declares them, so an
-  // export that may put another type behind them leaves the reading unknown (before: counted).
+  // export that puts another type behind them — an alias of `foo.Function1`, which the sources do
+  // not supply — leaves the reading unknown (before: counted).
   def exportedVocabulary =
     unresolved(
       "export foo.Function1\nobject T { def f[A](g: Function1[A, A], a: A): A = a }",
       "T.f",
-      "imported environment not resolved: export foo.Function1"
+      "declaration not supplied: foo.Function1 (named export Function1)"
     )
 
   def unfold =

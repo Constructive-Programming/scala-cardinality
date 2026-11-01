@@ -34,10 +34,10 @@ class GroundEnvironmentSpec extends Specification {
     Shadowed builtin names
       a member type named like a builtin is not the builtin          $inheritedBuiltin
       a self type's members shadow the builtin                       $selfTypes
-      a wildcard-imported object's inherited members shadow it       $importedInherited
+      a wildcard-imported object's inherited members bind it         $importedInherited
       a package object's parents shadow it in its package            $packageObject
       a parent named through an import declares the member           $importedParents
-      exports shadow it where they forward                           $exports
+      exports bind it where they forward                             $exports
       an enum's cases shadow it after a wildcard import              $enumCases
       a wildcard import of a supplied value is refused               $valueImport
       a name no builtin spells keeps lookup's own reason             $notBuiltin
@@ -315,6 +315,8 @@ class GroundEnvironmentSpec extends Specification {
       .and(shadowed(rows, "st.Sub.f", "st.Base.Int (self type of st.Sub)"))
   }
 
+  // `import O.*` brings the members `O` inherits: `Int` is `Base.Int = Boolean`, so each `f` is a
+  // Boolean endomorphism (4), and `w8b`'s `Boolean` is `Unit` (1).
   def importedInherited = {
     val rows = counts(
       "a.scala" -> s"package w8\n${base}object O extends Base\nimport O.*\ndef f(x: Int): Int = x",
@@ -326,15 +328,10 @@ class GroundEnvironmentSpec extends Specification {
           "def f(x: Boolean): Boolean = x"),
       "d.scala" -> "package zz\nimport _root_.w8.O.*\ndef f(x: Int): Int = x"
     )
-    shadowed(rows, "w8.f", "w8.Base.Int (wildcard import of O)")
-      .and(shadowed(rows, "a2.f", "a2.Base.Int (wildcard import of O)"))
-      .and(shadowed(rows, "zz.f", "w8.Base.Int (wildcard import of _root_.w8.O)"))
-      .and(
-        unresolvedOn(
-          rows("w8b.f"),
-          "builtin name Boolean may be shadowed by a declaration: w8b.Base.Boolean"
-        )
-      )
+    (rows("w8.f") === Count.Finite(4))
+      .and(rows("a2.f") === Count.Finite(4))
+      .and(rows("zz.f") === Count.Finite(4))
+      .and(rows("w8b.f") === Count.Finite(1))
   }
 
   def packageObject = {
@@ -368,10 +365,12 @@ class GroundEnvironmentSpec extends Specification {
         ("package er\nobject O { type B = Boolean }\nobject P { export O.{B => Int} }\n" +
           "import P.*\ndef f(x: Int): Int = x")
     )
-    shadowed(rows, "w17.f", "w17.O.Int (wildcard import of P)")
+    // An export defines an alias of `O.Int = Boolean` where it stands (4); a package-level export
+    // of another file is a member the lookup does not follow, so the builtin is refused there.
+    (rows("w17.f") === Count.Finite(4))
       .and(shadowed(rows, "w18.f", "w18.O.Int (export of package w18)"))
-      .and(shadowed(rows, "w19.Q.f", "w19.O.Int (export of w19.Q)"))
-      .and(shadowed(rows, "er.f", "export O.{B => Int} (wildcard import of P)"))
+      .and(rows("w19.Q.f") === Count.Finite(4))
+      .and(rows("er.f") === Count.Finite(4))
   }
 
   // Scala 3.9.0 puts a class case of an enum behind `import E.*` (and inside the enum's body).
@@ -391,13 +390,14 @@ class GroundEnvironmentSpec extends Specification {
         s"package vi\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Int): Int = x }",
         "vi.Z.f"
       ),
-      "builtin name Int may be shadowed through a reference not resolved: o (wildcard import of o)"
+      "path through a value not followed: o"
     )
 
-  // An enum's class case is in scope in its body; an explicit export forwards the member; a refined
-  // self type is a step the walk cannot follow. A parent the inherited-member reading does not have
-  // — an alias of the parent, or an import outside the sources (`bp` assumes an unsupplied
-  // `nowhere`) — may declare `Int`, and is refused there before any builtin reading (true counts 4).
+  // An enum's class case is in scope in its body; an explicit export forwards the member (`ex.f`
+  // reads `O.Int = Boolean`: 4); a refined self type is a step the walk cannot follow. A parent the
+  // inherited-member reading does not have — an alias of the parent, or an import outside the
+  // sources (`bp` assumes an unsupplied `nowhere`) — may declare `Int`, and is refused there before
+  // any builtin reading (true counts 4).
   def moreChannels = {
     val rows = counts(
       "ap.scala" -> s"package ap\n${base}type B = Base\nfinal class Sub extends B { def f(x: Int): Int = x }",
@@ -411,7 +411,7 @@ class GroundEnvironmentSpec extends Specification {
     )
     unresolvedOn(rows("ap.Sub.f"), "inherited type member not resolved: Int (unsupplied parent B)")
       .and(shadowed(rows, "eb.E.f", "eb.E.Int (case of eb.E)"))
-      .and(shadowed(rows, "ex.f", "export O.Int (wildcard import of P)"))
+      .and(rows("ex.f") === Count.Finite(4))
       .and(
         unresolvedOn(
           rows("rs.Sub.f"),
@@ -426,23 +426,24 @@ class GroundEnvironmentSpec extends Specification {
       )
   }
 
-  // `Frame` is no builtin: a supplied `Frame` elsewhere and an unread wildcard leave lookup's reason.
+  // `Frame` is no builtin: a wildcard import through the value `o` may bind it, and lookup, which
+  // reads no value's members, refuses there with its own reason.
   def notBuiltin =
     counts(
       "a.scala" -> "package fr\nclass Frame(b: Boolean)",
       "b.scala" ->
         s"package q\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Frame): Frame = x }"
-    )("q.Z.f") === Count.Unresolved(List("unresolved type: Frame"))
+    )("q.Z.f") === Count.Unresolved(List("path through a value not followed: o"))
 
-  // `Int` is `Long` here, so P's value space is 2^64; the estimate's 2^32 rests on the same name.
+  // `Int` is `Long` here, so P's value space is 2^64; the estimate's 2^32 rests on the same name
+  // read as the builtin, and the disagreement is refused.
   def shadowedPosition =
-    shadowed(
+    unresolvedOn(
       counts(
         "a.scala" ->
           "package w12\ntrait Base { type Int = Long }\nobject O extends Base\nimport O.*\nfinal case class P(x: Int)"
-      ),
-      "w12.P.<init>",
-      "w12.Base.Int (wildcard import of O)"
+      )("w12.P.<init>"),
+      "constructor position readings disagree: x (value space 2^64, estimate a capacity of width 32 bits)"
     )
 
   // `new Sub(3)` compiles: a primary constructor's parameters are read outside the template's
@@ -544,10 +545,10 @@ class GroundEnvironmentSpec extends Specification {
 
   // Both readings take `O.Inner` as the object's member (ω), not the top-level Inner (2^8): they
   // agree. Both read `q.X` through the parameter `q: Other` (`X = String`, ω), not the object `q`
-  // (members M1: a path is the nearest stable binding): they agree too. The method side still
-  // reads a `val` path of another file's package through the lookup (`NamespaceScopingSpec
-  // .termBindings`): `x.S` as package `a`'s object (`S = String`, ω) where the estimate reads
-  // `a.b`'s `val x: Foo` (`S = Byte`, 2^8) — the readings disagree, and the position is refused.
+  // (members M1: a path is the nearest stable binding): they agree too. Under `package a; package
+  // b`, `x` is `a.b`'s `val x: Foo`, nearer than package `a`'s object: the method side's lookup
+  // refuses a path through a value, and the estimate reads Foo's `S = Byte` (2^8, as scalac does),
+  // which the row prints as the estimate's bound, `≤2^8`.
   def disagreement = {
     val rows = counts(
       "Example.scala" ->
@@ -560,14 +561,7 @@ class GroundEnvironmentSpec extends Specification {
     (rows("Outer.<init>").render === "ω")
       .and(rows("Outer4.<init>").render === "ω")
       .and(rows("d1.Dep.<init>").render === "ω")
-      .and(
-        counts(valPath*)("a.b.UsesS.<init>") === Count.Unresolved(
-          List(
-            "constructor position readings disagree: s (value space ω, estimate a capacity of " +
-              "width 8 bits)"
-          )
-        )
-      )
+      .and(counts(valPath*)("a.b.UsesS.<init>").render === "≤2^8")
   }
 
   // Package `a`'s object `x` and package `a.b`'s `val x: Foo`: inside `package a; package b` the
@@ -649,8 +643,10 @@ class GroundEnvironmentSpec extends Specification {
   // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
   // at an infinite tier: they agree. Both read `q.X` through the parameter `q: Other` (`X = Byte`,
   // 2^8), not the object `q` (a symbolic space): they agree, at the estimate's 2^8. Where the method
-  // side reads `x.T` through package `a`'s object (a symbolic space) and the estimate through `a.b`'s
-  // `val x: Foo` (2^8), the symbolic space is wider than any literal: they cannot be one type.
+  // side reads `Int` as the member `O` inherits (`Char => Boolean`, 2^(2^16)) and the estimate as the
+  // builtin (2^32), the symbolic space is wider than any literal: they cannot be one type. A path
+  // through `a.b`'s `val x: Foo` is no longer read through package `a`'s object: 2^8, as scalac
+  // (printed as the estimate's bound, `≤2^8`).
   def symbolicDisagreement =
     (count(
       "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
@@ -670,13 +666,16 @@ class GroundEnvironmentSpec extends Specification {
         )
       )
       .and(
-        counts(valPath*)("a.b.UsesT.<init>") === Count.Unresolved(
-          List(
-            "constructor position readings disagree: t (value space 2^(2^137438953477), " +
-              "estimate a capacity of width 8 bits)"
-          )
+        unresolvedOn(
+          count(
+            "package w12s\ntrait Base { type Int = Char => Boolean }\nobject O extends Base\n" +
+              "import O.*\nfinal case class P(x: Int)",
+            "w12s.P.<init>"
+          ),
+          "constructor position readings disagree: x (value space 2^(2^16), estimate a capacity of width 32 bits)"
         )
       )
+      .and(counts(valPath*)("a.b.UsesT.<init>").render === "≤2^8")
 
   // `summon[Int]` is ambiguous between two anonymous `Int`s (3.9.0: E172), so a body reaches
   // neither: the true count of `f` is 2^32 (a literal), not 2^(2^37) (one Int read) or 2^(2^64). One

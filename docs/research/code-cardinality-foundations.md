@@ -251,8 +251,9 @@ constructor positions resting on it included. `String`'s ω is an idealization (
 Scala binds it: by name, as an inherited member under the substitution its `extends` chain gives,
 or — for an anonymous contextual parameter — through an implicit search that provably selects it.
 A name means the declaration Scala binds it to — an explicit import before a wildcard, a wildcard
-before a package member of another file, an inherited member before both, for a path's first
-segment as for a simple name. A family is a sum only when its named summands are all its values.
+before a package member of another file, an inherited member or an export (which defines one,
+D19) before both, for a path's first segment as for a simple name — and a first segment bound to a
+value is no object (D19). A family is a sum only when its named summands are all its values.
 Anything the reading cannot settle (an overlapping candidate, a parent instantiated twice, a self
 type, an anonymous, inner or local summand, a name an unsupplied parent may declare) is `?` with
 that reason. Details: [environment readings](environment-readings.md).
@@ -284,22 +285,22 @@ refused where an inherited member would shadow its outer meaning), and same-leve
 
 ## D11. A name denotes the declaration Scala binds it to
 
-**Decision.** The stored-value estimate, and the constructor-slot reading it lends the method
-side, resolve a type name as Scala binds it: types and terms are separate (an object never stands
-in for a type), `O.T` is the member of the object or package `O` and nothing else (no
-last-segment fallback), a qualifier's first name is the innermost term binding (pattern
-variables and self aliases included), bare names follow the precedence local definition >
-explicit import or export > wildcard import > another file's package member > root import, an
-import binds only the statements after it and an export its whole template, a wildcard over a
-namespace no source supplies may bind any name the reading file does not define, package clauses
-open exactly the packages they name, each file reads with its own clauses, a binder (an abstract
-type member too) is innermost, a match type's case body reads where the match type is written,
-and a slot is read where its constructor is written — a ground slot it refuses leaves no number
-on the method side either. A name whose binding is outside the sources, or a clause the
+**Decision.** The stored-value estimate, and the constructor-slot reading it lends the method side,
+resolve a type name as Scala binds it: types and terms are separate (an object never stands in for a
+type), `O.T` is the member of the object or package `O` and nothing else (no last-segment fallback),
+a qualifier's first name is the innermost term binding (pattern variables and self aliases
+included), bare names follow the precedence local, inherited or exported definition > explicit
+import > wildcard import > another file's package member > root import (an export defines members of
+its template, D19), an import binds only the statements after it and an export its whole template, a
+wildcard over a namespace no source supplies may bind any name the reading file does not define,
+package clauses open exactly the packages they name, each file reads with its own clauses, a binder
+(an abstract type member too) is innermost, a match type's case body reads where the match type is
+written, and a slot is read where its constructor is written — a ground slot it refuses leaves no
+number on the method side either. A name whose binding is outside the sources, or a clause the
 calculator does not follow, is a reason naming that clause, never a same-named declaration found
-elsewhere. Rows that would rest on an uncomputed value say why: `sealed family not summed`,
-`sealed child parameter not pinned`, `lazy cycle not completed`, `cross-package cycle not
-solved`, `type constructor`. See [stored-value names](stored-value-names.md).
+elsewhere. Rows that would rest on an uncomputed value say why: `sealed family not summed`, `sealed
+child parameter not pinned`, `lazy cycle not completed`, `cross-package cycle not solved`, `type
+constructor`. See [stored-value names](stored-value-names.md).
 
 **Evidence.**
 
@@ -665,6 +666,73 @@ scrutinee type evidence mentions stay `?`. Opaque types outside their scope are 
 empty record covers only templates with no parent, parameter, constructor modifier or self type (a
 constructor argument must exist for an instance to exist), that are not `final abstract` and whose
 members have at most one bound each (Nothing meets an upper bound, Any a lower one).
+
+## D19. Concrete code nothing can override adds no implementation
+
+**Decision.** Over readable inputs and goal, a closed helper the target can call — a module or
+package member, a local definition, a given, an export forwarder, a member of a final template, a
+concrete `var` — denotes one of the parametric inhabitants the solver already counts, so it is
+neither bound nor reported; the `qualified member environment not resolved` diagnostic is gone.
+This rests on the contract's assumption that helper bodies obey the model (no effects, casts,
+runtime type tests, `null`). Overridable concrete members of open classes are capabilities, not
+fixed code (cross-check X5; the environment memo's "closed-world dispatch" is superseded; until
+the capability records land they are still skipped, so `ow.Box.target` reads 2, true 3). The
+model excludes mutation, so a `var` reads as the value it was given. An export defines members of
+its template (they rank with its own declarations, an object's inherited members included), a
+path whose first segment is a value is no object, a protected inherited member is not selected
+from outside, a `given` selector binds no type name, an unimport leaves its name out (under a
+foreign wildcard too), `=> A` reads as `A`. A local capture another binding of an inner scope
+makes ambiguous (a definition — every variable of a pattern definition included —, extension
+method, export, import or inherited member) is out of reach. An inferred result is typed only where
+syntax fixes it: the overridden declaration (a method, an abstract `var`'s getter or setter, a
+given), matched by name, clause shape and parameter types and read with the subclass as `this`,
+when no base class outside the sources (`Any`, `Object`, `Product`, `Equals`, an enum's, a stdlib
+or unsupplied parent) may declare the name, since Scala intersects every one; a literal; an
+ascription to no singleton (written or aliased); explicit construction; a call of the one declared
+method the nearest binding of the name reaches, in Scala's precedence, with explicit type
+arguments, its declared result widened as Scala widens an inferred one (a literal type to its
+class, an object's singleton kept, any other singleton refused). Details:
+[environment completeness](environment-completeness.md).
+
+**Evidence.**
+
+- Reynolds 1983 ([9], **bibliography-verified**) and Mitchell & Plotkin 1988 (C-10,
+  **classical**): a closed term's denotation is parametric and its internals are unobservable
+  through readable types. Pitts & Stark 1998 (**metadata-verified**: the abstract reports that
+  local state must be handled for representation independence) is why mutation must be excluded,
+  not the `var`-as-value reading itself, which is the contract's.
+- Scala 3 reference, *Export clauses* (**inspected**, extraction — cross-check): export clauses
+  define aliases for selected members; Scala 3 draft specification ch. 2 ([28], **inspected**):
+  the precedence list, read with exports among the definitions.
+- **Compiler fixtures** (Scala 3.9.0, this session): no member overrides a `var` (E164); an
+  overriding member without a declared result is typed by the overridden one (`Some(1)` overriding
+  `Option[Int]` is no `Some[Int]`), but not across differing parameter types or a private parent
+  member, and by `Any`'s, `Object`'s, `Product`'s or `Equals`' member where those declare it
+  (`clone()` is an `Object`, a case class's `productPrefix` a `String`), and by an abstract `var`'s
+  getter or setter or an abstract given it implements (`Any`, `Unit`); a singleton ascription is
+  widened through an alias, and so is a call's singleton result (`1` and `1 | 2` to `Int`,
+  `this.type` to the class, `E.A.type` to `E`; `Int | String` is kept); a pattern definition's
+  variables are members that hide an enclosing parameter, and a pattern-bound function value is
+  what a call of its name applies; a call resolves to an inherited overload or to an explicit import over
+  another file's package member; `import p.{given T}` and `import p.given` bind no type; an
+  unimport and a rename leave the standard `Option`; an export beats an outer definition and an
+  import of its body, a rename exports only the new name, an export of an inherited member is
+  read; a protected inherited member is not importable; an inherited export beats another file's
+  package member and is ambiguous against an enclosing definition (E049), as an inner import or an
+  inherited member is against a local capture; a declaration and an export of one name is E161.
+- **Executable**: `EnvironmentCompletenessSpec`, `InferredResultsSpec`;
+  `MethodAnalysisSpec.concreteProducers`,
+  `EnvironmentSoundnessSpec.varParameter`, `GroundEnvironmentSpec` (exports and inherited members
+  through imports).
+
+**Boundary.** The premise is readability: opaque types outside their scope, classes with
+non-public constructors, opaque callables with transparent results and names outside the sources
+keep their own reasons, which is where a concrete producer could matter. Exported or imported
+terms that may hide a local capture, the names an ancestor's exports define, a foreign wildcard
+export, a
+package-level export of another file, a path through a value, an override a base class outside
+the sources may intersect, a call an import, export or inherited member may bind, and inference
+that matches argument types stay `?` with their reasons.
 
 ## How to extend this register
 
