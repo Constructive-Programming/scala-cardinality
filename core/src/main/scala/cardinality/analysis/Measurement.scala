@@ -44,6 +44,16 @@ private[cardinality] trait Resolver {
   /** The declaration a type name means at `tpe`'s position, an inherited member first. */
   def declaration(tpe: Type, name: String, context: ResolutionContext): Found
 
+  /** A channel around the reference through which declarations the sources do not supply may bind a
+    * builtin name, if one is open there.
+    */
+  def unreadChannel(context: ResolutionContext): Option[String]
+
+  /** Why the call site of a `transparent inline` method may observe more than its declared result
+    * `tpe`, if it may.
+    */
+  def narrowedResult(tpe: Type, context: ResolutionContext): Option[String]
+
   def resolve(
       tpe: Type,
       frame: Frame,
@@ -80,6 +90,8 @@ private[cardinality] trait Resolver {
 final private[cardinality] class Measurement(target: Target, resolver: Resolver) {
 
   private val errors = mutable.ListBuffer.empty[String]
+  // Whether an import or export clause may rebind a builtin name.
+  private var rebound = false
   private val values = mutable.LinkedHashMap.empty[String, Binding]
   private val qualifiedValues = mutable.LinkedHashMap.empty[String, Binding]
   private val captures = mutable.ListBuffer.empty[String]
@@ -120,6 +132,11 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     // Parameters of the target hide outer names, but their type binders keep their identities.
     bindParams(target.frame)
     errors ++= positions.refusals
+    errors ++= TopTypes.inlineDispatch(
+      target,
+      ResolutionContext(target.frame, variables, Set.empty),
+      resolver
+    )
     hiddenReads(steps)
     val result = resultShape()
     result.left.foreach(errors += _)
@@ -256,9 +273,18 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
           if (ContextualEvidence.anonymous(p)) ContextualEvidence.key(owner.path, index)
           else p.name.value,
           p.decltpe,
-          owner
+          Slot(owner, resolver.typeParameters(owner), owner),
+          constructorScope(owner)
         )
     }
+
+  // A template's parameters are typed outside its body and its parents: in the constructor's frame,
+  // which holds neither (Scala 3.9.0 reads `class C(val a: Any) extends X` with `scala.Any` beside
+  // X's `type Any`), also where a member reads them as captures.
+  private def constructorScope(owner: Frame): Frame =
+    if (owner.tree.exists(TypeApplications.template(_).nonEmpty))
+      owner.copy(stats = Nil, parents = Nil)
+    else owner
 
   // A self type adds another type's members to `this` without inheriting them. This reading does
   // not enumerate them, so the environment is incomplete rather than smaller. A constructor's own
@@ -337,13 +363,11 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       declaredIn.update(binding.id, Declared(slot, member, key))
   }
 
-  private def add(name: String, tpe: Option[Type], owner: Frame): Unit =
-    add(name, tpe, Slot(owner, resolver.typeParameters(owner), owner))
-
-  private def add(name: String, tpe: Option[Type], slot: Slot): Unit =
+  // A declaration is read where its slot declares it; a parameter, where its owner types it.
+  private def add(name: String, tpe: Option[Type], slot: Slot, reading: Frame): Unit =
     tpe
       .toRight(s"missing type of accessible value: $name")
-      .flatMap(resolveIn(_, slot.scope, slot.env)) match {
+      .flatMap(resolveIn(_, reading, slot.env)) match {
       case Left(reason) => errors += reason
       case Right(shape) => bindSlot(slot, name, name, shape)
     }
@@ -381,8 +405,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     declaration.pats.foreach { pat =>
       TypeApplications.patVarName.getOption(pat) match {
         case Some(name) if implemented(name) => ()
-        case Some(name)                      => add(name, Some(declaration.decltpe), slot)
-        case None                            => errors += "destructured capture not resolved"
+        case Some(name) => add(name, Some(declaration.decltpe), slot, slot.scope)
+        case None       => errors += "destructured capture not resolved"
       }
     }
 
@@ -428,7 +452,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private def addDeclaredGiven(slot: Slot, declaration: Decl.GivenLike): Unit =
     declaration.name match {
-      case name: Term.Name => add(name.value, Some(declaration.decltpe), slot)
+      case name: Term.Name => add(name.value, Some(declaration.decltpe), slot, slot.scope)
       case _               => errors += "anonymous given not resolved"
     }
 
@@ -457,8 +481,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       case i: Import => unboundImportNames(i)
       case _         => names(tree)
     }
-    if (shadowable.exists(unbound.contains))
+    if (shadowable.exists(unbound.contains)) {
+      rebound = true
       errors += s"imported environment not resolved: ${tree.syntax.replaceAll("\\s+", " ")}"
+    }
   }
 
   private def unboundImportNames(clause: Import): Set[String] =
@@ -478,7 +504,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     TypeName.words(tree).toSet
 
   private def shadowable: Set[String] =
-    Set("Unit", "Nothing", "Boolean", "Option", "Either", "EmptyTuple") ++ BuiltinTypes.groundNames
+    Set("Unit", "Nothing", "Null", "Boolean", "Option", "Either", "EmptyTuple") ++
+      BuiltinTypes.groundNames ++ TopTypes.names
 
   private def flagReachableModules(): Unit = {
     val reachable = resolver.modules.filter { module =>
@@ -530,11 +557,39 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def declaredShape(): Resolved =
     target.result
       .toRight("inferred result type not resolved")
-      .flatMap(resolver.resolve(_, target.frame, variables))
+      .flatMap(tpe =>
+        resolver
+          .resolve(tpe, target.frame, variables)
+          .flatMap(shape => observed(tpe).toLeft(shape))
+      )
 
-  private def count(result: Resolved): Count =
+  // A transparent result is what the call site observes only when no subclass can narrow it.
+  private def observed(tpe: Type): Option[String] =
+    Option
+      .when(TransparentResults.transparent(target))(
+        resolver.narrowedResult(tpe, resultContext(tpe))
+      )
+      .flatten
+
+  private def resultContext(tpe: Type): ResolutionContext =
+    ResolutionContext(target.frame, variables, Set.empty).referencing(tpe)
+
+  // A goal with one value has one implementation whatever the environment holds, so nothing left
+  // unresolved around it can change the count — unless an import or export clause may rebind a
+  // builtin name, or a channel around the result reaches declarations the sources do not supply,
+  // which may give any name the result spells another meaning.
+  private def count(result: Resolved): Count = result match {
+    case Right(shape) if !target.constructor && !rebound && TopTypes.terminalGoal(shape) =>
+      target.result.flatMap(tpe => resolver.unreadChannel(resultContext(tpe))) match {
+        case None         => Count.Finite(1)
+        case Some(reason) => measured(result, List(reason))
+      }
+    case _ => measured(result, Nil)
+  }
+
+  private def measured(result: Resolved, doubts: List[String]): Count =
     positions.declining(
-      if (errors.nonEmpty) Count.Unresolved(errors.toList.distinct.sorted)
+      if (errors.nonEmpty) Count.Unresolved((errors.toList ++ doubts).distinct.sorted)
       else
         result.fold(
           unresolved,

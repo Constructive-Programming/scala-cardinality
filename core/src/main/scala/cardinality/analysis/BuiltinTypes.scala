@@ -1,6 +1,7 @@
 package cardinality.analysis
 
 import cardinality.analysis.inhabitation.{Card, EvidenceAnalysis, Inhabitation}
+import cardinality.analysis.resolution.TopTypes
 
 import Inhabitation.Shape
 
@@ -8,16 +9,18 @@ import Inhabitation.Shape
   * `Unit` is one construction, `Nothing` none, `Boolean` one bit; `Option` and `Either` count
   * cases. Ground scalars are transparent — literals with a total equality — sized as the JVM stores
   * them, `Float` / `Double` under `equals` (one NaN, two zeros: raw NaN bits are
-  * platform-dependent), `String` the free monoid over `Char`: ω.
+  * platform-dependent), `String` the free monoid over `Char`: ω. The top types are the terminal
+  * type, `Unit`'s shape (`TopTypes`).
   */
 private[cardinality] object BuiltinTypes {
 
   /** The builtin a name denotes at this arity, or the reason no builtin answers it. */
   def resolve(name: String, args: List[Shape]): Either[String, Shape] =
     (name.stripPrefix("scala."), args) match {
-      case ("Unit", Nil)             => Right(Shape.Product(Nil))
-      case ("Nothing" | "Null", Nil) => Right(Shape.Sum(Nil))
-      case ("Boolean", Nil)          =>
+      case ("Unit", Nil)                              => Right(Shape.Product(Nil))
+      case (top, Nil) if TopTypes.named(top).nonEmpty => Right(TopTypes.terminal)
+      case ("Nothing" | "Null", Nil)                  => Right(Shape.Sum(Nil))
+      case ("Boolean", Nil)                           =>
         Right(Shape.Sum(List(Shape.Product(Nil), Shape.Product(Nil))))
       case (ground, Nil) if spellings.contains(ground) => Right(spellings(ground))
       case ("Option", List(a))                    => Right(Shape.Sum(List(Shape.Product(Nil), a)))

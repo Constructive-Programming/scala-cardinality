@@ -94,7 +94,7 @@ class SingletonIntersectionMethodSpec extends Specification {
       .and(unknown("def pick(): String & Singleton = ???"))
 
   def members =
-    unknown("object Token { def produce[A](): A = ??? }; def pick(x: Token.type): Unit = ()")
+    unknown("object Token { def produce[A](): A = ??? }; def pick(x: Token.type): Boolean = true")
       .and(unknown("trait Base\nobject Token extends Base\ndef pick(): Token.type = Token"))
 
   def access =

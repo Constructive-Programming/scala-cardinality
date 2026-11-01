@@ -109,8 +109,8 @@ class ExistentialInputSpec extends Specification {
     unresolved(count("def run(p: Option[?]): Option[?] = p"), "result construction and repackaging")
 
   def boundsBoundary =
-    unresolved(count("def run[A](p: Option[? <: A]): Unit = ()"), "? <: A").and(
-      unresolved(count("def run[A](p: Option[? >: A]): Unit = ()"), "? >: A")
+    unresolved(count("def run[A](p: Option[? <: A]): Boolean = true"), "? <: A").and(
+      unresolved(count("def run[A](p: Option[? >: A]): Boolean = true"), "? >: A")
     )
 
   def callableBoundary =

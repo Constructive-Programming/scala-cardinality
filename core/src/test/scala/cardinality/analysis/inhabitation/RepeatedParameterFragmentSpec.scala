@@ -101,7 +101,7 @@ class RepeatedParameterFragmentSpec extends Specification {
     unsupported(Inhabitation.count(Nil, Function(List(Repeated(a), a), a)))
 
   def unknownElement =
-    entry("def ignore(xs: Missing*): Unit = ()", "ignore").count must beLike {
+    entry("def ignore(xs: Missing*): Boolean = true", "ignore").count must beLike {
       case Count.Unresolved(reasons) => reasons.exists(_.contains("Missing")) must beTrue
     }
 

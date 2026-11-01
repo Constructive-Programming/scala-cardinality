@@ -29,7 +29,7 @@ class PolyLambdaCardinalitySpec extends Specification {
       leaves other rank-polymorphic functions unresolved           $rankN
       retains nested context evidence diagnostics                 $evidence
       retains unknown external dependencies                       $dependency
-      refuses incomplete environments even for identity results   $environment
+      refuses incomplete environments beside an identity result    $environment
   """
 
   private def count(code: String, name: String = "use"): Count =
@@ -105,7 +105,10 @@ class PolyLambdaCardinalitySpec extends Specification {
   def dependency =
     unresolved("def use: [a] => a => External[a] = ???", "External")
 
+  // The identity alone has one implementation in every environment, the unresolved one included;
+  // beside a Boolean the environment decides again.
   def environment =
-    unresolved("def use(x: External): [a] => a => a = ???", "External")
+    (count("def use(x: External): [a] => a => a = ???") === Count.Finite(1))
+      .and(unresolved("def use(x: External): ([a] => a => a, Boolean) = ???", "External"))
 
 }

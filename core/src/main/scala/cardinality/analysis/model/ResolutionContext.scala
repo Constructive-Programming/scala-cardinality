@@ -1,6 +1,6 @@
 package cardinality.analysis.model
 
-import scala.meta.Type
+import scala.meta.{Defn, Type}
 
 import cardinality.analysis.*
 import cardinality.types.TypeApplications
@@ -56,6 +56,35 @@ final private[cardinality] case class ResolutionContext(
   def inScope(owner: Frame, bindings: Map[String, Resolved]): ResolutionContext =
     copy(frame = owner, variables = bindings, observer = Some(useSite))
 
+  /** An alias body's own scope: its declaring frame's binders, and its parameters as the given
+    * readings (an argument it is applied to, or why none is known). A reading of an alias has no
+    * scope while the same reading is already inside that alias: the alias is recursive.
+    */
+  def enterAlias(
+      entry: TypeEntry,
+      binders: Map[String, Resolved],
+      reading: AliasReading,
+      arguments: List[Resolved] = Nil
+  ): Option[ResolutionContext] = {
+    val key = s"$reading:${entry.owner.id}:${entry.name}"
+    val parameters = entry.tree match {
+      case alias: Defn.Type => alias.tparamClause.values
+      case _                => Nil
+    }
+    Option.unless(visiting(key))(
+      inScope(entry.owner, binders)
+        .bind(parameters.zipWithIndex.map { (param, index) =>
+          param.name.value -> arguments.lift(index).getOrElse(Left("alias parameter"))
+        })
+        .enter(key)
+    )
+  }
+
+}
+
+/** The readings that enter alias bodies, each tracking its own recursion. */
+private[cardinality] enum AliasReading {
+  case Slot, Union, UnionBody, Runtime, Transparent
 }
 
 private[cardinality] object ResolutionOptics {

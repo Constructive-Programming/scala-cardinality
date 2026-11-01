@@ -152,6 +152,23 @@ object MethodAnalysis {
       lookupIndex.wildcardPrefixes
     )
 
+    private[cardinality] lazy val runtimeClasses = new RuntimeClasses(
+      this,
+      indexer.types.toList,
+      inputs.map(input => input.path -> input.tree).toMap,
+      shadowedBuiltins.mayBeSupplied
+    )
+
+    private lazy val unions = new UnionSums(this, runtimeClasses)
+
+    private lazy val transparentResults = new TransparentResults(this, runtimeClasses)
+
+    def unreadChannel(context: ResolutionContext): Option[String] =
+      shadowedBuiltins.unread(context)
+
+    def narrowedResult(tpe: Type, context: ResolutionContext): Option[String] =
+      transparentResults.narrowed(tpe, context)
+
     def selected(paths: Set[String], names: Set[String]): List[Target] =
       indexer.targets.toList
         .filter(t => paths(t.input) && (names.isEmpty || names(t.name)))
@@ -225,10 +242,8 @@ object MethodAnalysis {
       tpe match {
         case SingletonIntersections(syntax) =>
           SingletonIntersections.resolve(syntax, context, this)
-        case n: Type.Name if variables.contains(n.value)     => variables(n.value)
-        case union: Type.ApplyInfix if union.op.value == "|" =>
-          resolveUnion(union, context)
-        case Type.Or(_, _) => resolveUnion(tpe, context)
+        case n: Type.Name if variables.contains(n.value) => variables(n.value)
+        case TypeSubstitution.Union(_, _)                => unions.resolve(tpe, context)
         case MethodProjections(projected) if MethodProjections.accepts(projected, context, this) =>
           MethodProjections.resolve(projected, context, this, sourceNames)
         case Type.Tuple(args) =>
@@ -250,7 +265,8 @@ object MethodAnalysis {
         case f: Type.PolyFunction => MethodTypeLambdas.resolve(f, context, this)
         case _: Type.Lambda       =>
           Left("unapplied type lambda requires higher-kinded analysis")
-        case t: Type.Apply =>
+        case t: Type.Apply if unions.aliased(t, context) => unions.resolve(t, context)
+        case t: Type.Apply                               =>
           resolveApplication(t.tpe, t.argClause.values, context)
         case t: Type.ApplyInfix =>
           resolveApplication(t.op, List(t.lhs, t.rhs), context)
@@ -271,32 +287,6 @@ object MethodAnalysis {
         case s: Type.Select => namedType(s.syntax, Nil, context)
         case _              => Left(s"unsupported type: ${tpe.syntax.replaceAll("\\s+", " ")}")
       }
-    }
-
-    // Scala unions carry no constructor tag. Only idempotence and empty alternatives are
-    // justified here; equal structural shapes alone do not prove equal nominal types.
-    // Null is empty in the null-free implementation model, not an extra Option-like case.
-    private def resolveUnion(
-        union: Type,
-        context: ResolutionContext
-    ): Resolved = {
-      val unique = TypeSubstitution.unionAlternatives(union).distinctBy(_.syntax)
-      sequence(unique.map(context.read(_, this))).left
-        .map(reason => s"union ${union.syntax}: $reason")
-        .flatMap { shapes =>
-          val inhabited = shapes.filterNot(_ == Shape.Sum(Nil))
-          inhabited match {
-            case Nil          => Right(Shape.Sum(Nil))
-            case List(single) => Right(single)
-            // Aliases of the same free binder also denote the very same type. Do not extend
-            // this equality test to products or sums: unrelated nominal types can share them.
-            case (atom: Shape.Atom) :: rest if rest.forall(_ == atom) => Right(atom)
-            case _                                                    =>
-              Left(
-                s"union alternatives require an overlap and discrimination proof: ${union.syntax}"
-              )
-          }
-        }
     }
 
     // Infix types are binary constructor applications, not term-method calls: even a colon-ending

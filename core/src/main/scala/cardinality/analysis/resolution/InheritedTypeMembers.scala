@@ -256,10 +256,12 @@ private[cardinality] object InheritedTypeMembers {
     "Dynamic"
   )
 
-  def marker(parent: Init): Boolean =
+  def marker(parent: Init): Boolean = markerName(InheritedScopes.typeName(parent.tpe))
+
+  /** Whether a parent spelled this way is one of the root or marker types. */
+  def markerName(name: String): Boolean =
     Markers(
-      InheritedScopes
-        .typeName(parent.tpe)
+      name
         .stripPrefix("_root_.")
         .stripPrefix("scala.")
         .stripPrefix("java.lang.")

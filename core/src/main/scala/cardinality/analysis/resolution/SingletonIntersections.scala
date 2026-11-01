@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
-import cardinality.types.TypeName
+import cardinality.types.{TypeName, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{Frame, Resolved}
@@ -23,12 +23,17 @@ private[cardinality] object SingletonIntersections {
 
   /** Normalize all source spellings of this feature family before resolving their semantics. */
   def unapply(tpe: Type): Option[Syntax] = tpe match {
-    case s: Type.Singleton                            => Some(Syntax.Reference(s.ref))
-    case Type.ApplyInfix(left, Type.Name("&"), right) => Some(Syntax.Meet(left, right))
-    case Type.And(left, right)                        => Some(Syntax.Meet(left, right))
-    case Type.With(left, right)                       => Some(Syntax.Meet(left, right))
-    case _                                            => None
+    case s: Type.Singleton                  => Some(Syntax.Reference(s.ref))
+    case TypeSubstitution.Meet(left, right) => Some(Syntax.Meet(left, right))
+    case _                                  => None
   }
+
+  /** The singleton identity of a module: its frame, as a value. */
+  def moduleId(owner: Frame): String = s"module:${owner.id}"
+
+  /** The module a singleton identity names. */
+  def moduleFrame(id: String, resolver: Resolver): Option[Frame] =
+    resolver.modules.find(owner => moduleId(owner) == id)
 
   def resolve(
       syntax: Syntax,
@@ -46,8 +51,7 @@ private[cardinality] object SingletonIntersections {
 
   private def validateShape(shape: Shape, from: Frame, resolver: Resolver): Resolved = shape match {
     case s @ Shape.Singleton(id, None) =>
-      resolver.modules
-        .find(owner => s"module:${owner.id}" == id)
+      moduleFrame(id, resolver)
         .toRight("singleton module identity not found")
         .flatMap(owner => module(owner.path.mkString("."), from, resolver).map(_ => s))
     case Shape.Singleton(id, Some(_))
@@ -170,7 +174,7 @@ private[cardinality] object SingletonIntersections {
   private def moduleEnvironment(owner: Frame, name: String): Resolved =
     if (owner.parents.nonEmpty || owner.stats.exists(stat => !stat.is[Defn.Type]))
       Left(s"singleton module member environment not resolved: $name")
-    else Right(Shape.Singleton(s"module:${owner.id}", None))
+    else Right(Shape.Singleton(moduleId(owner), None))
 
   private def module(name: String, from: Frame, resolver: Resolver): Resolved = {
     val paths = from.chain.map(f => (f.path :+ name).mkString(".")) :+ name
@@ -192,7 +196,10 @@ private[cardinality] object SingletonIntersections {
       context: ResolutionContext,
       resolver: Resolver
   ): Resolved = {
-    if (left.structure == right.structure) context.read(left, resolver)
+    // `Any` is the unit of intersection: `T & Any` is `T`, whatever `T` is.
+    if (TopTypes.isAny(left, context, resolver)) context.read(right, resolver)
+    else if (TopTypes.isAny(right, context, resolver)) context.read(left, resolver)
+    else if (left.structure == right.structure) context.read(left, resolver)
     else if (marker(left, context, resolver)) context.read(right, resolver).flatMap(singletonOnly)
     else if (marker(right, context, resolver)) context.read(left, resolver).flatMap(singletonOnly)
     else

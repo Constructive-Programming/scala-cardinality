@@ -19,8 +19,13 @@ final class Reading private (private val top: Scope) {
     * — every name it reads, transitively, bounded — and otherwise the reasons the estimate could
     * not bound it for, which the shape model must not count past.
     */
-  def read(tpe: Type): Either[List[Definition.Unbound], Size] = {
-    val probe = Scope.taintLens.replace(Some(new Taint))(at(tpe).measured)
+  def read(tpe: Type): Either[List[Definition.Unbound], Size] = read(tpe, tpe)
+
+  /** `tpe` read where `written` sits: a type rebuilt from a parsed one has no position of its own,
+    * so it reads in the scope of the tree it was rebuilt from.
+    */
+  def read(tpe: Type, written: Tree): Either[List[Definition.Unbound], Size] = {
+    val probe = Scope.taintLens.replace(Some(new Taint))(at(written).measured)
     val size = Counter.typeIn(probe)(tpe)
     if (probe.unbound.isEmpty) Right(size) else Left(probe.unbound)
   }
@@ -28,7 +33,7 @@ final class Reading private (private val top: Scope) {
   // The scope a type reads in at its position: the bodies around its owner, outermost first, each
   // with the clauses written before the statement the type sits in, then the owner's binders and
   // parameters. A type with no position (built rather than parsed) reads at the top.
-  private def at(tpe: Type): Scope = {
+  private def at(tpe: Tree): Scope = {
     val ancestors = List.unfold(tpe.parent)(_.map(t => t -> t.parent))
     val inside =
       java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Tree, java.lang.Boolean])

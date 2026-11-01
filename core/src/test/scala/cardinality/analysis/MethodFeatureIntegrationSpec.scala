@@ -86,7 +86,7 @@ class MethodFeatureIntegrationSpec extends Specification {
     val source = dialects
       .Scala3(
         """object Owner { private object Hidden; type Leak = Hidden.type }
-        |def consume[A](xs: Owner.Leak*): Unit = ()
+        |def consume[A](xs: Owner.Leak*): Boolean = true
         |""".stripMargin
       )
       .parse[Source]

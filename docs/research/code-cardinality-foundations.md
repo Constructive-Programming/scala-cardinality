@@ -327,6 +327,78 @@ not read enums as namespaces, does not read a namespace no source supplies (the 
 library's included), and does not sum generic sealed families or families with a subtype outside
 the body — each stays `?` with its reason.
 
+## D12. Top types are terminal; a goal with one value has one implementation
+
+**Decision.** On the method side `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` are the
+terminal type `1`: results of them have one implementation, inputs of them carry no information,
+`Any => R ≅ R`. Every universal member — `==`, `!=`, `equals`, `hashCode`, `##`, `eq`, `ne`,
+`isInstanceOf`, type patterns, `asInstanceOf`, `getClass`, the default `toString`, `synchronized` —
+is outside the model on a value of an abstract, top or top-like type. A declared result with exactly
+one value (`Unit`, a top type, a singleton type, products of those, a function into one, a closed
+type of value space 1) counts 1 whatever the environment leaves unresolved. The stored-value side
+keeps `Any` as everything (ε₀); constructor positions are read through the method-side model.
+
+**Evidence.**
+
+- Mitchell and Plotkin 1988, *Abstract types have existential type* (TOPLAS 10(3)) —
+  **classical**: a type with no operations is `∃X. X`.
+- Reynolds 1983 / Wadler 1989 (D3) — the free theorem `k[U] ∘ g = k[T]` gives
+  `∀X. X → R ≅ R`, hence `∃X. X ≅ ∀R. R → R ≅ 1`; `ReferenceInhabitantsSpec` encodes
+  `∀a. a → a ~ 1` (**executable**).
+- Observational equivalence, the counting rule of the
+  [reference](../counting-type-inhabitants.md) — the contract's own rule, **executable** through
+  `ReferenceInhabitantsSpec`: a goal with one value admits one implementation up to observation,
+  and an empty context the unique absurd one.
+- Scala 3.9.0 compiler fixtures (**compiler fixture**): `-language:strictEquality` rejects `==` on
+  `Any` and on an unbounded `A`; under `-source:future` a type pattern on either warns that it is
+  not `Matchable`; `(Red | Any) =:= Any` and `(Red & Any) =:= Red` hold; four `Set[Any]` values
+  have sizes 0–3; an `inline match` on an `Any` parameter separates `isInt(1)` from `isInt("s")`;
+  constructor parameters are typed outside the template's body, parents and companion.
+- **Executable**: `TopTypesUnionSpec`.
+
+**Boundary.** Only inside the stated model: an idealized terminal top type is not unrestricted
+Scala `Any`, and the exclusions above are what make it terminal. A `transparent inline` result that
+names a top type, a function type or a class a subclass may extend stays `?`: the call site
+observes the expansion's type (Scala 3.9.0 compiles `mk(true).n` against a declared `Foo` whose
+expansion is `new Sub(true)` — **compiler fixture**); so does a top-typed parameter of an `inline`
+method, which an `inline match` may dispatch on. A clause that may rebind a builtin name keeps its
+reason, and so does a channel name lookup does not walk that reaches declarations the sources do
+not supply (a self type, the parent of a wildcard-imported or package object, a wildcard namespace,
+the outer clause of a chained package no supplied unit declares into): there the top names are
+refused and the one-value rule does not fire. `Any*` is not terminal (its length is observable),
+and neither is a top inside a constructor that merges equal elements: `Set[Any]` has a value per
+size, so a constructor position reading one is refused rather than read as `Set[Unit]`. See
+[top-types-unions.md](top-types-unions.md).
+
+## D13. A union of disjoint, discriminable classes is a coproduct
+
+**Decision.** `A₁ | … | Aₙ` is the tagged sum `A₁ + … + Aₙ` when each alternative has a runtime
+class, no class carries two alternatives, and the classes are pairwise provably disjoint (neither
+derives from the other, and one is final, both are classes, or one is sealed and its enumerated
+subclasses are each disjoint from the other). Exact type equalities (`T | Any = Any`, absorption of
+a known subclass, idempotence, `Nothing` / `Null` empty) apply first.
+
+**Evidence.**
+
+- The universal property of the coproduct — **classical**: the class-test `match` is a total,
+  well-defined, well-typed copairing, unique for every map out of the union.
+- Scala 3's `TypeComparer.provablyDisjoint` (SIP-56) — **classical**, not re-read this session;
+  the fixtures pin the behaviour used (**compiler fixture**): final class vs unrelated trait,
+  unrelated classes, sealed trait with final leaves vs open trait, object vs `Tuple2` are disjoint;
+  non-final class vs open trait, two open traits and type parameters are not; `case _: Box[Unit]`
+  after `case _: Box[Boolean]` is unreachable (erased type arguments).
+- **Executable**: `TopTypesUnionSpec`, `MethodUnionNullabilitySpec`.
+
+**Boundary.** Type arguments never separate alternatives (runtime tests are by erased class).
+Ancestry rests on supplied declarations: a parent that does not resolve refuses the pair unless no
+supplied declaration carries its name (a dependency cannot extend the sources depending on it).
+A sealed family whose file holds a subclass this reading cannot enumerate — or a parent clause that
+names it only in an argument (`extends Id[S]`), which a parameterised alias may dealias to it —
+refuses the union even when the other side proves the pair apart, since the sum adds the family's
+shape. Union aliases
+are read as their alternatives at the use. Builtins are a fixed list of final or
+standard-library-sealed classes. A callable that returns a union is still not eliminated.
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

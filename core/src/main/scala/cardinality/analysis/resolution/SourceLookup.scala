@@ -4,6 +4,7 @@ import scala.annotation.tailrec
 import scala.meta.Tree
 
 import cardinality.analysis.*
+import cardinality.types.TypeApplications
 
 import MethodAnalysis.{Frame, TypeEntry}
 
@@ -72,6 +73,14 @@ final private[cardinality] class SourceLookup(
       modules.map(_.path.mkString(".")) ++ qualified.keySet
 
   def peers(path: List[String]): List[Frame] = packagePaths.getOrElse(path, Nil)
+
+  // A constructor's frame shares its class's id and path but holds none of its body: its parameters
+  // are typed outside the template (Scala 3.9.0 reads `class C(x: Any) { type Any = Boolean }` with
+  // `scala.Any`), so neither the body's declarations nor the template's path are read from it.
+  private def constructorView(frame: Frame): Boolean =
+    frame.stats.isEmpty && frame.tree
+      .flatMap(TypeApplications.template)
+      .exists(_.body.stats.nonEmpty)
 
   /** The type declarations one frame's own body makes under a name, and every name it declares. */
   def declaredIn(frame: Frame, name: String): List[TypeEntry] =
@@ -230,7 +239,7 @@ final private[cardinality] class SourceLookup(
       frame.chain.iterator.zipWithIndex
         .map { (scope, index) =>
           inspect("lookup bucket")
-          (lexical.getOrElse(scope.id -> name, Nil), index)
+          (if (constructorView(scope)) Nil else lexical.getOrElse(scope.id -> name, Nil), index)
         }
         .find { case (entries, _) => entries.nonEmpty }
 
@@ -396,7 +405,7 @@ final private[cardinality] class SourceLookup(
   // the top-level packages are not, so a path whose first segment is one is read from the root.
   private def anchored(frame: Frame, head: String, path: Boolean): List[List[String]] = {
     val named = frame.chain.exists(scope => packageIds(scope.id) && scope.path.nonEmpty)
-    (frame.chain.map(_.path) :+ Nil).distinct.filter(anchor =>
+    (frame.chain.filterNot(constructorView).map(_.path) :+ Nil).distinct.filter(anchor =>
       anchor.nonEmpty || !named || (path && packageRoots(head))
     )
   }

@@ -4,7 +4,8 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
-import cardinality.analysis.resolution.ShadowedBuiltins
+import cardinality.analysis.model.ResolutionContext
+import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes}
 import cardinality.capacity.{Definition, FinitePart, Size}
 import cardinality.types.TypeSubstitution
 
@@ -98,8 +99,18 @@ final private[cardinality] class ConstructorPositions(
     case None                                                      => Shaped
     case Some(named: Type.Name) if variables.contains(named.value) => Shaped
     case Some(tpe)                                                 =>
-      val reading = resolver.reading(target.input).read(tpe)
-      declined(tpe, reading).getOrElse(valued(param.name.value, tpe, owner, reading.toOption))
+      // The estimate stores `Any` as everything and `null` as a value; asked about the position as
+      // the implementation model reads it, the two readings meet on the same type. Where the
+      // rewrite cannot reach a top, or a container may merge what it identifies, only the method
+      // side answers — but a name the estimate cannot bind still declines the position, read as
+      // written.
+      val context = ResolutionContext(owner, variables, Set.empty)
+      val unread = TopTypes.unestimable(tpe, context, resolver)
+      val slot = unread.fold(TopTypes.implementationSlot(tpe, context, resolver))(_ => None)
+      val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), tpe)
+      declined(tpe, reading).getOrElse(
+        readPosition(param.name.value, tpe, owner, unread, slot.flatMap(_ => reading.toOption))
+      )
   }
 
   // The reasons the estimate declined a position for, rendered as the row names them, when no number
@@ -118,28 +129,36 @@ final private[cardinality] class ConstructorPositions(
         .map(Declined(_))
     }
 
-  private def valued(name: String, tpe: Type, owner: Frame, estimate: Option[Size]): Position =
+  private def readPosition(
+      name: String,
+      tpe: Type,
+      owner: Frame,
+      unread: Option[String],
+      estimate: Option[Size]
+  ): Position = {
+    // A value space the estimate is not asked about, or cannot read.
+    def unestimated = Refused(
+      unread.fold(s"constructor position has no value-space reading: $name")(why =>
+        s"constructor position reads $why: $name"
+      )
+    )
     resolveIn(tpe, owner) match {
       case Right(shape) if ClosedSpaces.closed(shape) =>
         Natural
           .attempt(ClosedSpaces.space(shape))
           .fold(Refused(_), closedPosition(name, shape, _, estimate))
       case Right(shape) if ClosedSpaces.mixed(shape) =>
-        Refused(
-          s"constructor position mixes type parameters with transparent ground values: $name"
-        )
+        Refused(s"constructor position mixes type parameters with transparent ground values: $name")
       // No type parameter, so a value space: the shape model would count the functions of the
       // position's own value instead.
-      case Right(shape) if ClosedSpaces.valued(shape) =>
-        estimate
-          .map(Estimated(_))
-          .getOrElse(
-            Refused(s"constructor position has no value-space reading: $name")
-          )
+      case Right(shape) if ClosedSpaces.valued(shape) => estimate.fold(unestimated)(Estimated(_))
       // The estimate reads the builtin the method side refused: it would rest on the same name.
       case Left(reason) if ShadowedBuiltins.shadows(reason) => Refused(reason)
-      case _                                                => estimate.fold(Shaped)(Estimated(_))
+      case Left(_) if unread.nonEmpty                       => unestimated
+      // A type parameter's slot: the shape model reads an alias's top as `()` itself.
+      case _ => estimate.fold(Shaped)(Estimated(_))
     }
+  }
 
   private def closedPosition(
       name: String,
