@@ -50,7 +50,8 @@ private[cardinality] object SingletonIntersections {
     resolver.expanding("shape validation")(validateShape(shape, from, resolver))
 
   private def validateShape(shape: Shape, from: Frame, resolver: Resolver): Resolved = shape match {
-    case s @ Shape.Singleton(id, None) =>
+    case s @ Shape.Singleton(id, None) if LiteralTypes.literal(id) => Right(s)
+    case s @ Shape.Singleton(id, None)                             =>
       moduleFrame(id, resolver)
         .toRight("singleton module identity not found")
         .flatMap(owner => module(owner.path.mkString("."), from, resolver).map(_ => s))

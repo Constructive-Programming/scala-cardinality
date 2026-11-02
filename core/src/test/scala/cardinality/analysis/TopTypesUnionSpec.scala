@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.ResolutionContext
-import cardinality.analysis.resolution.RuntimeClasses
+import cardinality.analysis.resolution.{RuntimeClasses, TransparentResults}
 import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 
@@ -36,7 +36,7 @@ class TopTypesUnionSpec extends Specification {
       a wildcard function is still uncallable                        $existential
       a transparent inline result typed Any stays open               $transparent
       a transparent result of an open class may be a subclass        $transparentSubclass
-      a transparent result of closed classes is what callers see     $transparentClosed
+      an inline transparent result refuses unless it has one value   $transparentClosed
     A channel to declarations the sources do not supply keeps Any open
       a self type outside the sources                                $foreignSelf
       a supplied self type with a parent outside the sources         $selfUnsuppliedParent
@@ -237,15 +237,17 @@ class TopTypesUnionSpec extends Specification {
       .and(reasonContains(code, "M.fn", "not the declared Boolean => Boolean"))
   }
 
-  // S: S1(true), S1(false), S2 over 2 inputs → 3^2; Option[Fin]: 2 values → 2^2.
+  // A closed result is what callers see, but the method is inline: `inline b match` tells `s(true)`
+  // from `s(x)` with x == true (fixture il), so the 3^2 and 2^2 of a function are not its counts.
+  // One value (Fin) keeps its one implementation.
   def transparentClosed = {
     val code =
       "final case class Fin()\nsealed trait S\nfinal case class S1(b: Boolean) extends S\n" +
         "case object S2 extends S\nobject T { transparent inline def s(b: Boolean): S = S2\n" +
         "  transparent inline def o(b: Boolean): Option[Fin] = None\n" +
         "  transparent inline def f(s: ext.Schema): Fin = Fin() }"
-    (count(code, "T.s") === Count.Finite(9))
-      .and(count(code, "T.o") === Count.Finite(4))
+    reasonContains(code, "T.s", TransparentResults.InlineReason)
+      .and(reasonContains(code, "T.o", TransparentResults.InlineReason))
       .and(count(code, "T.f") === Count.Finite(1))
   }
 
@@ -440,12 +442,13 @@ class TopTypesUnionSpec extends Specification {
       .and(count("import x.y.{given Null}\ndef r(): Unit = ()", "r") === Count.Finite(1))
 
   // `inline x match { case _: Int => true; case _ => false }` tells f(1) from f("s") (Scala 3.9.0):
-  // a top-typed parameter of an inline method may carry its argument's static type.
+  // a top-typed parameter of an inline method may carry its argument's static type, as any
+  // parameter of one may (`TransparentResults.inlineRefusal`). A one-valued goal keeps its one implementation.
   def inlineTop = {
     val code = "type Top = Any\nobject Use {\n  inline def isInt(x: Any): Boolean = true\n" +
       "  inline def opt(x: Option[Any]): Boolean = true\n  inline def al(x: Top): Boolean = true\n" +
       "  inline def unit(x: Any): Unit = ()\n  def plain(x: Any): Boolean = true }"
-    val dispatch = "inline parameter reads a top type, which the expansion may match on: x"
+    val dispatch = TransparentResults.InlineReason
     reasonContains(code, "Use.isInt", dispatch)
       .and(reasonContains(code, "Use.opt", dispatch))
       .and(reasonContains(code, "Use.al", dispatch))

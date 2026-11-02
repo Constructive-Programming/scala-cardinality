@@ -44,9 +44,10 @@ General rank-n counting requires quantified introduction, instantiation, and
 observational normalization rules beyond the current inhabitation solver.
 
 The polymorphic body is still resolved before rejecting unsupported shapes. A nested
-context function retains its evidence-analysis diagnostic, and an unknown external
-dependency retains its resolution diagnostic. In particular,
-`[b] => b => Type[b] ?=> Expr[Any]` is not counted and no macro/evidence code is run.
+context function reads as a function ([syntax-features.md](syntax-features.md)), and an unknown
+external dependency retains its resolution diagnostic. In particular,
+`[b] => b => Type[b] ?=> Expr[Any]` is not counted (`Type` and `Expr` are compile-time
+reflection) and no macro/evidence code is run.
 Incomplete accessible environments continue to block numeric answers even when the
 result itself is the closed identity type.
 

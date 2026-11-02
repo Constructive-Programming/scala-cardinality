@@ -203,6 +203,9 @@ object MethodAnalysis {
     def rootShadow(name: String, context: ResolutionContext): Option[String] =
       shadowedBuiltins.rootShadow(name, context)
 
+    def builtin(written: String, context: ResolutionContext): Either[String, String] =
+      shadowedBuiltins.denoted(written, context)
+
     def narrowedResult(tpe: Type, context: ResolutionContext): Option[String] =
       transparentResults.narrowed(tpe, context)
 
@@ -292,20 +295,24 @@ object MethodAnalysis {
         case TypeSubstitution.Union(_, _)                => unions.resolve(tpe, context)
         case MethodProjections(projected) if MethodProjections.accepts(projected, context, this) =>
           MethodProjections.resolve(projected, context, this, sourceNames)
+        // A named tuple is its fields' product; it is still no tuple to a match type.
+        case NamedTuples(fields) =>
+          sequence(fields.map((_, field) => context.read(field, this))).map(Shape.Product(_))
         case Type.Tuple(args) =>
           sequence(args.map(context.read(_, this))).map(Shape.Product(_))
+        case lit: Lit               => LiteralTypes.shape(lit)
         case Type.Repeated(element) =>
           context.read(element, this).map(Shape.Repeated(_))
         // Call-by-name differs from call-by-value only in when and how often the argument is
         // evaluated, which the model's exclusions (effects, divergence) make unobservable.
         case Type.ByName(argument) => context.read(argument, this)
-        case f: Type.Function      =>
+        // A context function is a function whose arguments implicit search may supply
+        // (`ContextFunctions`); the binders it puts around a whole body are read with the scope.
+        case f: Type.FunctionType =>
           for {
             args <- sequence(f.paramClause.values.map(context.read(_, this)))
             result <- context.read(f.res, this)
           } yield Shape.Function(args, result)
-        case f: Type.ContextFunction =>
-          Left(s"context function requires evidence analysis: ${Spelling.of(f)}")
         case wildcard: Type.Wildcard => Left(TypePlaceholders.existential(wildcard))
         case _: Type.AnonymousParam  =>
           Left("constructor placeholder has no enclosing constructor application")

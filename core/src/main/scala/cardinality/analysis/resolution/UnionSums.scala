@@ -49,7 +49,16 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
             case List((_, single)) => Right(single)
             // Aliases of the same free binder denote the very same type.
             case (_, atom: Shape.Atom) :: rest if rest.forall(_._2 == atom) => Right(atom)
-            case inhabited                                                  =>
+            // Literal types are one constant each: the union holds the distinct ones. Literal
+            // patterns tell constants of one class apart, and a class test those of different
+            // classes, which cooperative equality would conflate (`case 1` matches `1L`; fixture
+            // a5-gate-review eq).
+            case literals if literals.forall((_, shape) => LiteralTypes.literal(shape)) =>
+              literals.map(_._2).distinct match {
+                case List(one) => Right(one)
+                case distinct  => Right(Shape.Sum(distinct))
+              }
+            case inhabited =>
               tagged(inhabited.map(_._1)).left
                 .map(detail =>
                   "union alternatives require an overlap and discrimination proof: " +
@@ -105,9 +114,7 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
       tpe: Type,
       context: ResolutionContext
   ): Option[(TypeEntry, Defn.Type, List[Type])] = {
-    val (head, args) = TypeApplications.applied
-      .getOption(tpe)
-      .fold(tpe -> List.empty[Type])(app => app.tpe -> TypeApplications.applyArguments.get(app))
+    val (head, args) = TypeApplications.headAndArguments(tpe)
     val name = TypeApplications.name(head)
     Option
       .when(named(head))(name)

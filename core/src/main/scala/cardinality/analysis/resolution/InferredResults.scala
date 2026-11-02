@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
-import cardinality.types.{Spelling, TypeName, TypeSubstitution}
+import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
 
 import MethodAnalysis.{Frame, Resolved, Target}
 
@@ -47,7 +47,7 @@ private[cardinality] object InferredResults {
       case _ if TransparentResults.transparent(target) =>
         Left(s"$Unresolved: transparent inline method")
       case (None, d: Defn.Def) =>
-        new OverriddenResults(target, d, variables, resolver)
+        new OverriddenResults(target.frame, d, variables, resolver)
           .result(steps)
           .getOrElse(new Reading(target, d.name.value, variables, resolver, steps).body(d.body))
       case _ => Left(Unresolved)
@@ -60,16 +60,20 @@ private[cardinality] object InferredResults {
     */
   def literalClass(literal: Lit): Option[Type] =
     (literal match {
-      case _: Lit.Boolean => Some(List("scala", "Boolean"))
-      case _: Lit.Int     => Some(List("scala", "Int"))
-      case _: Lit.Long    => Some(List("scala", "Long"))
-      case _: Lit.Double  => Some(List("scala", "Double"))
-      case _: Lit.Float   => Some(List("scala", "Float"))
-      case _: Lit.Char    => Some(List("scala", "Char"))
-      case _: Lit.String  => Some(List("java", "lang", "String"))
-      case _: Lit.Unit    => Some(List("scala", "Unit"))
+      case _: Lit.Boolean => Some("Boolean")
+      case _: Lit.Int     => Some("Int")
+      case _: Lit.Long    => Some("Long")
+      case _: Lit.Double  => Some("Double")
+      case _: Lit.Float   => Some("Float")
+      case _: Lit.Char    => Some("Char")
+      case _: Lit.String  => Some("String")
+      case _: Lit.Unit    => Some("Unit")
       case _              => None
-    }).map(rooted)
+    }).map(rootedClass)
+
+  // A literal's class by its simple name: `String` is `java.lang`'s, the others `scala`'s.
+  private def rootedClass(name: String): Type =
+    rooted(if (name == "String") List("java", "lang", name) else List("scala", name))
 
   /** A stdlib class by its root-anchored path, which no declaration in scope can rebind. */
   def rooted(path: List[String]): Type = {
@@ -144,9 +148,25 @@ private[cardinality] object InferredResults {
         .toRight(s"$Unresolved: literal ${Spelling.of(literal)}")
 
     private def ascribed(tpe: Type): Either[String, Inferred] =
-      widened(tpe, here(tpe), Set.empty)
-        .map(kind => s"$Unresolved: $kind ascription")
-        .toLeft(Inferred(tpe, here(tpe)))
+      unapplied(tpe, here(tpe), "ascription").flatMap(_ =>
+        widened(tpe, here(tpe), Set.empty)
+          .map(kind => s"$Unresolved: $kind ascription")
+          .toLeft(Inferred(tpe, here(tpe)))
+      )
+
+    // With no expected type, Scala applies a context function an expression yields to givens it
+    // finds (fixture i3: `def asc = (k: Boolean ?=> Boolean)` is a `Boolean`): the definition's
+    // type is the chain's final result, which this reading does not take.
+    private def unapplied(
+        tpe: Type,
+        context: ResolutionContext,
+        form: => String,
+        written: List[(String, Type, ResolutionContext)] = Nil
+    ): Either[String, Unit] =
+      ContextFunctions.binders(tpe, context, resolver, written).flatMap {
+        case Nil => Right(())
+        case _   => Left(s"$Unresolved: $form, whose context function result is applied")
+      }
 
     // What the compiler widens in a result it infers: a singleton or literal type, alone, in a union
     // (`1 | 2` becomes `Int`) or behind source aliases; a union of other types it keeps, and this
@@ -313,12 +333,79 @@ private[cardinality] object InferredResults {
           Set.empty,
           Some(target.frame)
         )
-        widened(result, context, Set.empty) match {
-          case Some(Singleton) => singleton(result, context, call)
-          case _               => Right(Inferred(result, context))
-        }
+        val written = names.zip(call.targs).map((b, t) => (b, t, here(t)))
+        unapplied(result, context, s"call of ${call.callee}", written).flatMap(_ =>
+          typed(result, context, call, written.map((b, t, at) => b -> (t, at)).toMap)
+        )
       }
     }
+
+    // A call's declared result as the definition's: widened as Scala widens an inferred one.
+    private def typed(
+        result: Type,
+        context: ResolutionContext,
+        call: Call,
+        written: Map[String, (Type, ResolutionContext)]
+    ): Either[String, Inferred] =
+      widened(result, context, Set.empty) match {
+        case Some(Singleton) => singleton(result, context, call)
+        case kind            =>
+          instantiated(result, context, call, kind.nonEmpty || union(result, context, written))
+      }
+
+    // A result the declaration spells as no singleton may still be one once the call's type
+    // arguments are in: `idc[1](1)` of `def idc[T](t: T): T` is a `1`, and the definition's type
+    // is its widened `Int` (3.9.0 fixture review-A5 r2 inf3: `def t: 1 = call2(true)` finds an
+    // `Int`). Only the instantiated shape shows it: a literal's one value standing alone is
+    // widened to its class, a value's singleton — or, where the result may be a union, one held
+    // by a sum — to a type this reading does not compute. A class's sum is no union (`opt[1](1)`
+    // keeps its `Option[1]`).
+    private def instantiated(
+        result: Type,
+        context: ResolutionContext,
+        call: Call,
+        union: Boolean
+    ): Either[String, Inferred] =
+      resolver.resolve(result, context) match {
+        case Right(Inhabitation.Shape.Singleton(id, None)) if LiteralTypes.literal(id) =>
+          Right(Inferred(rootedClass(LiteralTypes.className(id)), context))
+        case Right(Inhabitation.Shape.Sum(alternatives)) if union && alternatives.exists(widens) =>
+          Left(singletonResult(call))
+        case Right(single) if widens(single) => Left(singletonResult(call))
+        case _                               => Right(Inferred(result, context))
+      }
+
+    // A literal's or a value's singleton, which Scala widens in an inferred type; an object's is
+    // its one value either way.
+    private def widens(shape: Inhabitation.Shape): Boolean = shape match {
+      case Inhabitation.Shape.Singleton(id, underlying) =>
+        underlying.nonEmpty || LiteralTypes.literal(id)
+      case _ => false
+    }
+
+    // Whether a result may stand for a union at the call: a type parameter's written argument may
+    // spell one, and an application of anything but a class may reduce to one.
+    private def union(
+        result: Type,
+        context: ResolutionContext,
+        written: Map[String, (Type, ResolutionContext)]
+    ): Boolean = result match {
+      case Type.Name(name) if written.contains(name) =>
+        val (argument, scope) = written(name)
+        widened(argument, scope, Set.empty).nonEmpty || union(argument, scope, Map.empty)
+      case _ => !classHead(TypeApplications.headAndArguments(result)._1, context)
+    }
+
+    // A head naming a class — a source class, trait or enum, or a builtin or library one.
+    private def classHead(head: Type, context: ResolutionContext): Boolean =
+      !context.variables.contains(TypeApplications.name(head)) &&
+        (Found.named(resolver, head, head.syntax, context) match {
+          case Some(Found.Entry(entry)) =>
+            entry.tree.is[Defn.Class] || entry.tree.is[Defn.Trait] || entry.tree.is[Defn.Enum]
+          case Some(Found.Absent)           => true
+          case Some(Found.Foreign(path, _)) => StdlibModel.entry(path).nonEmpty
+          case _                            => false
+        })
 
     // A call's singleton result as the compiler widens it: a literal type to its class, an object's
     // singleton to itself (its one value); any other — a value's, `this.type`, an alias of one, a

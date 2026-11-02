@@ -18,9 +18,10 @@ import Inhabitation.Shape
   * element, with which the finite sequences already give ω. An array is built only with its
   * element's `ClassTag`, so one over a type parameter is refused. An excluded entry is outside the
   * counting model for good: reading an `Iterator` or a `ByteBuffer` changes it, a `Map` or `Set` is
-  * built and read by testing keys for equality, `scala.quoted` is compile-time reflection. An
-  * unmodelled entry is a class or interface whose members the model does not hold (`Throwable`,
-  * `Product`, `java.util.List`, the final `Integer`).
+  * built and read by testing keys for equality, `scala.quoted` is compile-time reflection, and a
+  * `ClassTag`, `TypeTest` or `Mirror` reveals the type it is evidence for. An unmodelled entry is a
+  * class or interface whose members the model does not hold (`Throwable`, `Product`,
+  * `java.util.List`, the final `Integer`).
   *
   * The table answers where Scala's root imports would — after every declaration, import and
   * wildcard of the sources — so a name the sources bind is never the model's. It also lists the
@@ -106,11 +107,31 @@ private[cardinality] object StdlibModel {
   private val SinglePass = "single-pass: reading it changes it"
   private val Equality = "built and read by testing keys for equality"
   private val Reflection = "compile-time reflection"
+  private val Revealing = "type-revealing evidence: it tells instantiations apart at run time"
   private val Collected = "garbage-collector state"
 
   // The type declarations of `scala.quoted` the model names, with their type parameter counts.
   private val Quoted =
     List("Expr" -> 1, "ExprMap" -> 0, "FromExpr" -> 1, "Quotes" -> 0, "ToExpr" -> 1, "Type" -> 1)
+
+  // Evidence whose methods test a value's class or enumerate a type's cases and fields: a body
+  // holding `ClassTag[A]` (or a `Manifest`) can match `case a: A` and so tell `A = Int` from
+  // `A = String`, which no parametric body can (Scala 3 reference, "TypeTest"); every
+  // `scala.deriving.Mirror` names its type's cases or fields, and `Mirror.Sum.ordinal` tells them
+  // apart.
+  private val Revealed = List(
+    "scala.reflect.ClassTag" -> 1,
+    "scala.reflect.TypeTest" -> 2,
+    "scala.reflect.Typeable" -> 1,
+    "scala.reflect.Manifest" -> 1,
+    "scala.deriving.Mirror" -> 0,
+    "scala.deriving.Mirror.Product" -> 0,
+    "scala.deriving.Mirror.Sum" -> 0,
+    "scala.deriving.Mirror.Singleton" -> 0,
+    "scala.deriving.Mirror.Of" -> 1,
+    "scala.deriving.Mirror.ProductOf" -> 1,
+    "scala.deriving.Mirror.SumOf" -> 1
+  )
 
   // The root imports, weakest first: `java.lang.*`, `scala.*` (with the `scala` package's aliases)
   // and `Predef.*`. Each binds a simple name and may be spelled through its own fully qualified
@@ -179,6 +200,7 @@ private[cardinality] object StdlibModel {
       excluded(Collected)("java.lang.ref.WeakReference", 1),
       excluded(Collected)("java.lang.ref.ReferenceQueue", 1)
     ) ++ Quoted.map((name, arity) => excluded(Reflection)(s"scala.quoted.$name", arity)) ++
+      Revealed.map((fqn, arity) => excluded(Revealing)(fqn, arity)) ++
       (Exceptions.map(_._1) ++ List(
         "scala.Product",
         "scala.Equals",

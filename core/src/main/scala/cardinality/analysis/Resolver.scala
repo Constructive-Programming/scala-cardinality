@@ -39,6 +39,9 @@ private[cardinality] trait Resolver {
   /** Whether every instance of a template is of a supplied declaration no subclass extends. */
   def fixedTemplate(frame: Frame): Boolean
 
+  /** The builtin or stdlib-model key of a name no supplied declaration binds, or why it is none. */
+  def builtin(written: String, context: ResolutionContext): Either[String, String]
+
   /** What a type name or a path selection means when it denotes a type member (members M1). */
   def typeMember(tpe: Type, context: ResolutionContext): Option[Either[String, TypeMembers.Meaning]]
 

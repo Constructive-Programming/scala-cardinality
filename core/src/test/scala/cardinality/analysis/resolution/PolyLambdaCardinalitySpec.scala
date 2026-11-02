@@ -27,7 +27,7 @@ class PolyLambdaCardinalitySpec extends Specification {
       does not supply an arbitrary missing result                  $missing
       keeps poly binder shadowing separate from outer binders      $polyShadowing
       leaves other rank-polymorphic functions unresolved           $rankN
-      retains nested context evidence diagnostics                 $evidence
+      reads a nested context function as a function               $evidence
       retains unknown external dependencies                       $dependency
       refuses incomplete environments beside an identity result    $environment
   """
@@ -96,11 +96,25 @@ class PolyLambdaCardinalitySpec extends Specification {
       "outside the closed identity fragment"
     )
 
-  def evidence =
-    unresolved(
-      "def use: [b] => b => Type[b] ?=> Expr[Any] = ???",
-      "context function requires evidence analysis"
-    )
+  // The context function reads as a function: no reason is about it, and the names no source
+  // declares still refuse. With nothing undeclared, `[b] => b => b ?=> b` is outside the closed
+  // identity fragment (a rank-n function), not a context function the reading stops at.
+  def evidence = {
+    val undeclared = count("def use: [b] => b => Type[b] ?=> Expr[Any] = ???")
+    val declared = count("def use: [b] => b => b ?=> b = ???")
+    unresolved("def use: [b] => b => Type[b] ?=> Expr[Any] = ???", "declaration not supplied: Type")
+      .and(
+        List(undeclared, declared)
+          .flatMap(reasons)
+          .exists(_.contains("context function")) must beFalse
+      )
+      .and(reasons(declared).exists(_.contains("outside the closed identity fragment")) must beTrue)
+  }
+
+  private def reasons(count: Count): List[String] = count match {
+    case Count.Unresolved(found) => found
+    case _                       => Nil
+  }
 
   def dependency =
     unresolved("def use: [a] => a => External[a] = ???", "External")

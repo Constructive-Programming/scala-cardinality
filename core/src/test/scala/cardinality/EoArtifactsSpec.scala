@@ -96,15 +96,16 @@ class EoArtifactsSpec extends Specification with AfterAll {
   // its own target name) keep two identities through the TSV.
   def literalFields = {
     val code = "package l\nimport scala.annotation.targetName\nobject O {\n" +
-      "  def f(x: \"a  b\"): Int = 1\n  @targetName(\"f2\") def f(x: \"a b\"): Int = 2\n}\n"
+      "  def f(x: \"a  b\" & Int): Int = 1\n" +
+      "  @targetName(\"f2\") def f(x: \"a b\" & Int): Int = 2\n}\n"
     val written = MethodAnalysis
       .analyze(List(MethodAnalysis.Input("l/O.scala", parse(code))))
       .map(entry => EoCheckout.row(entry, ""))
     Tsv
       .rows(Tsv.table(EoCheckout.MethodColumns, written))
       .map(row => (row("signature"), row("unresolved_reasons"))) === List(
-      ("f(x: \"a  b\"): Int", "unsupported type: \"a  b\""),
-      ("f(x: \"a b\"): Int", "unsupported type: \"a b\"")
+      ("f(x: \"a  b\" & Int): Int", "unsupported intersection relationship: \"a  b\" & Int"),
+      ("f(x: \"a b\" & Int): Int", "unsupported intersection relationship: \"a b\" & Int")
     )
   }
 

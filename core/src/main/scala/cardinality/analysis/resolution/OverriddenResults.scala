@@ -7,7 +7,7 @@ import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.{Traversals, TypeApplications}
 
 import InferredResults.{Inferred, Signature, Unresolved}
-import MethodAnalysis.{Frame, Resolved, Target}
+import MethodAnalysis.{Frame, Resolved}
 
 /** The result Scala gives a member written without one where it overrides another.
   *
@@ -24,14 +24,14 @@ import MethodAnalysis.{Frame, Resolved, Target}
   * `given f: Any` is an `Any`).
   */
 final private[cardinality] class OverriddenResults(
-    target: Target,
+    frame: Frame,
     definition: Defn.Def,
     variables: Map[String, Resolved],
     resolver: Resolver
 ) {
   private val name = definition.name.value
 
-  private val ownContext = ResolutionContext(target.frame, variables, Set.empty)
+  private val ownContext = ResolutionContext(frame, variables, Set.empty)
 
   private val ownBounded = bounded(definition.paramClauseGroups)
 
@@ -39,7 +39,7 @@ final private[cardinality] class OverriddenResults(
     * nothing it inherits declares under its name and parameter types, which its body types.
     */
   def result(steps: List[InheritedScopes.Step]): Option[Either[String, Inferred]] =
-    target.frame.parent.flatMap { owner =>
+    frame.parent.flatMap { owner =>
       owner.tree match {
         // An extension method of a template may override one its parents declare: not matched here.
         case Some(_: Defn.ExtensionGroup) =>
@@ -181,7 +181,7 @@ final private[cardinality] class OverriddenResults(
       candidate.step.declared,
       candidate.step.env ++ renamed,
       Set.empty,
-      Some(target.frame)
+      Some(frame)
     ).as(MemberPath.self(template, resolver.typeParameters(template)))
   }
 

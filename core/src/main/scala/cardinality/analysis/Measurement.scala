@@ -46,27 +46,27 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   private val bounded = new BinderBounds(resolver, target.frame)
 
+  private lazy val inferred = InferredResults.declared(target, steps, variables, resolver)
+
+  private val contexts =
+    new ContextBinders(target, inferred, steps, readingContext(_, Map.empty), resolver)
+
   def entry(): Entry = {
     owners.foreach { owner =>
       scan(owner)
       visibleAt.update(owner.id, values.toMap)
     }
     owners.foreach(selfType)
-    val steps = scanParents()
-    errors ++= ContextualEvidence.unreachable(
-      new ContextualScope(owners, steps, scopeReader).candidates,
-      resolver.boundedBinders.contains
-    )
+    scanParents()
+    val candidates = new ContextualScope(owners, steps, scopeReader).candidates
+    errors ++= ContextualEvidence.unreachable(candidates, resolver.boundedBinders.contains)
+    // The target's own binders matter only where they may hide anonymous evidence.
+    if (candidates.nonEmpty) contexts.of(target.frame).left.foreach(errors += _)
     // Parameters of the target hide outer names, but their type binders keep their identities.
     bindParams(target.frame)
     errors ++= positions.refusals
-    errors ++= TopTypes.inlineDispatch(
-      target,
-      ResolutionContext(target.frame, variables, Set.empty),
-      resolver
-    )
+    errors ++= TransparentResults.inlineRefusal(target)
     hiddenReads(steps)
-    val inferred = InferredResults.declared(target, steps, variables, resolver)
     val result = if (target.constructor) constructorShape() else declaredShape(inferred)
     result.left.foreach(errors += _)
     val shapes = environment.map(_.shape) ++ result.toOption
@@ -101,14 +101,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // scope's type, not an intermediate level's binder. Each owner is its own receiver: a parent two
   // of them inherit gives each its own members, and each owner then judges the closed declarations
   // bound as its members (`InheritedClosedSlots`).
-  private def scanParents(): List[InheritedScopes.Step] = {
-    val steps = walked
-      .flatMap {
-        case Left(reason) =>
-          errors += reason
-          None
-        case Right(step) => Some(step)
-      }
+  private lazy val steps: List[InheritedScopes.Step] = walked.flatMap(_.toOption)
+
+  private def scanParents(): Unit = {
+    walked.foreach(_.left.foreach(errors += _))
     val ancestors = steps.groupMap(_.root.id)(_.declared).withDefaultValue(Nil)
     val capabilities = new ReceiverCapabilities(target, resolver, overrideIdentity, steps)
     steps.foreach(step =>
@@ -129,7 +125,6 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       if (!target.constructor)
         errors ++= ForeignParents.reasons(root :: ancestors(root.id), resolver)
     }
-    steps
   }
 
   // One template's members in the order they were bound, its own declarations first. A closed one
@@ -257,6 +252,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     if (owner.id != target.frame.id) errors ++= ConstrainedReceivers.reason(owner)
     val outer = values.keySet.toSet -- owner.params.map(_.name.value)
     bindParams(owner)
+    if (owner.id != target.frame.id) bindContext(owner)
     frames(owner).foreach(scope => hide(scope.stats))
     hideInherited(owner, outer)
     hideImported(owner, outer)
@@ -289,7 +285,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // declare is unknown.
   private def hideInherited(owner: Frame, outer: Set[String]): Unit =
     if (owner.isTemplate) {
-      val levels = InheritedScopes.levels(walked.flatMap(_.toOption), owner)
+      val levels = InheritedScopes.levels(steps, owner)
       local(outer).foreach { name =>
         InheritedTerms.inherits(owner, levels, name, resolver).foreach { parent =>
           if (parent.certain) values -= name
@@ -324,6 +320,22 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         )
     }
 
+  // The binders an enclosing definition's context-function result puts around its body are values
+  // of everything nested in it, read where its result is; implicit search alone reaches them, so
+  // the contextual scope refuses one a deeper candidate may shadow.
+  private def bindContext(owner: Frame): Unit =
+    contexts.of(owner) match {
+      case Left(reason)   => errors += reason
+      case Right(binders) =>
+        binders.foreach { binder =>
+          binder.shape match {
+            case Left(reason) => errors += reason
+            case Right(shape) =>
+              bindSlot(MemberSlot(owner, resolver.typeParameters(owner), owner), binder.key, shape)
+          }
+        }
+    }
+
   // A self type adds another type's members to `this` without inheriting them. This reading does
   // not enumerate them, so the environment is incomplete rather than smaller. A constructor's own
   // template is exempt: the instance whose `this` it would read does not exist yet.
@@ -352,9 +364,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     frames,
     visibleIn,
     resolveIn(_, _, _).toOption,
+    (tpe, owner, env, shape) =>
+      ContextFunctions.results(tpe, shape, readingContext(owner, env), resolver),
     identify,
     positions.leftToShape,
-    resolver.unsuppliedParent
+    resolver.unsuppliedParent,
+    contexts.of(_).toOption.toList.flatten
   )
 
   private def identify(tpe: Type, owner: Frame, env: Map[String, Resolved]): Nominal = {
@@ -379,6 +394,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     */
   private case class Declared(slot: MemberSlot, member: String, key: String)
 
+  // A member bound under its own name.
+  private def bindSlot(slot: MemberSlot, member: String, shape: Shape): Unit =
+    bindSlot(slot, member, member, shape)
+
   private def bindSlot(slot: MemberSlot, member: String, key: String, shape: Shape): Unit = {
     val binding = Binding(slot.id(key), shape)
     bind(key, binding, slot.scope)
@@ -396,7 +415,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
       .flatMap(resolveIn(_, reading, slot.env, slot.receiver)) match {
       case Left(reason) => errors += reason
-      case Right(shape) => bindSlot(slot, name, name, shape)
+      case Right(shape) => bindSlot(slot, name, shape)
     }
 
   // A scope's declarations by kind: a declaration binds a slot, a concrete value or variable is

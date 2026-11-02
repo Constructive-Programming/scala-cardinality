@@ -1,12 +1,22 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{dialects, Decl, Defn, Dialect, Tree, Type, XtensionClassifiable, XtensionSyntax}
+import scala.meta.{
+  dialects,
+  Decl,
+  Defn,
+  Dialect,
+  Lit,
+  Tree,
+  Type,
+  XtensionClassifiable,
+  XtensionSyntax
+}
 
 import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.analysis.model.{Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.{Kind, Kinds, Spelling, TypeApplications, TypeSubstitution}
+import cardinality.types.{Kind, Kinds, NamedTuples, Spelling, TypeApplications, TypeSubstitution}
 
 import MethodAnalysis.{sequence, Resolved, TypeEntry}
 
@@ -78,9 +88,11 @@ final private[cardinality] class NominalKeys(
         case n: Type.Name if context.variables.contains(n.value) =>
           variable(n.value, context.variables(n.value))
         // Tuple and arrow syntax spell `scala.TupleN` / `scala.FunctionN` themselves: no name to
-        // shadow.
-        case Type.Tuple(args) => builtin(s"scala.Tuple${args.size}", written(tpe, args, context))
-        case f: Type.Function =>
+        // shadow. Named tuple syntax spells `NamedTuple[(names), (types)]`, its names literal types.
+        case NamedTuples(fields) => namedTuple(fields, context)
+        case Type.Tuple(args)    => builtin(s"scala.Tuple${args.size}", written(tpe, args, context))
+        case lit: Lit            => LiteralTypes.key(lit)
+        case f: Type.Function    =>
           val arity = f.paramClause.values.size
           builtin(s"scala.Function$arity", written(tpe, f.paramClause.values :+ f.res, context))
         case union if TypeSubstitution.unionAlternatives(union).size > 1 =>
@@ -100,6 +112,7 @@ final private[cardinality] class NominalKeys(
     bound.flatMap {
       case key @ (_: Shape.Atom | _: Shape.Applied) => Right(key)
       case Shape.Ground(ground, _)                  => Right(nominal(s"scala.$ground", Nil))
+      case LiteralTypes.Keyed(key)                  => Right(key)
       case _: Shape.Constructor => Left(s"higher-kinded parameter used as a proper type: $name")
       case _ => Left(s"nominal identity of substituted argument not tracked: $name")
     }
@@ -234,6 +247,13 @@ final private[cardinality] class NominalKeys(
       }
       applied(Application(tpe, context, names.map(Type.Name(_)), context.bind(parameters)))
         .map(body => Shape.Applied(Head.Lambda(id, kind.arity), List(body)))
+    }
+
+  private def namedTuple(fields: List[(String, Type)], context: ResolutionContext): Keyed =
+    sequence(fields.map((_, field) => read(field, context))).map { values =>
+      val tuple = s"scala.Tuple${values.size}"
+      val names = fields.map((name, _) => LiteralTypes.name(name))
+      nominal("scala.NamedTuple.NamedTuple", List(nominal(tuple, names), nominal(tuple, values)))
     }
 
   private def nominal(declaration: String, args: List[Shape]): Shape =

@@ -43,10 +43,11 @@ Results of a top type have one implementation, inputs carry no information, `Any
 that merges equal arguments (a `Set`, a `Map`'s keys): see rule K. Nor for a parameter of an
 `inline` method: its body is expanded at each call site, where `inline x match { case _: Int => …
 }` reads the argument's *static* type, so `isInt(1)` and `isInt("s")` differ though no value of
-`Any` tells them apart (Scala 3.9.0, **compiler fixture**). Such a parameter is refused with
-`inline parameter reads a top type, which the expansion may match on: <param>`; a one-valued goal
-keeps its 1 (rule O). The same dispatch on a type parameter or on a constant is the compile-time
-evidence work's.
+`Any` tells them apart (Scala 3.9.0, **compiler fixture**). The same dispatch reaches every
+parameter, constant and type argument of an `inline` method, so the whole method is refused with
+`inline method: each expansion may inspect its call site's argument types, constants and givens
+(compile-time dispatch)` ([syntax-features.md](syntax-features.md)); a one-valued goal keeps its 1
+(rule O).
 
 **Derivation.** A type with no operations is the existential `∃X. X` (Mitchell and Plotkin's
 "abstract types have existential type", **classical**). Encoded, `∃X. X ≅ ∀R. (∀X. X → R) → R`.
@@ -265,12 +266,13 @@ family, any other may.
 | sealed family with a subclass it does not hold (an enum case of another enum, an anonymous class, a given) | `… — sealed family P has a subclass this reading does not enumerate: …` (an anonymous instance in its file is usually refused first by the family reading: `sealed family has anonymous instances in its file`) |
 | sealed family a parent clause may reach through a parameterised alias | `… — sealed family S may be extended through Id[S], which this reading does not dealias` |
 | opaque alternative outside its scope, unresolved alternative | the alternative's own reason, `union <u>: …` |
-| literal and stable-value singleton alternatives | the alternative's own reason (no runtime class without ground equality analysis) |
+| stable-value singleton alternatives | the alternative's own reason (no runtime class without ground equality analysis) |
+| literal alternatives beside a class (`1 \| Int`) | `two alternatives share runtime class …` (a union of literals alone is the set of its constants: [syntax-features.md](syntax-features.md)) |
 | callable returning an open union | `Elimination of an opaque sum-producing callable is unsupported` |
 | transparent result naming a top type, a function type or a class a subclass may extend | `transparent inline result: …` |
 | self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
 | a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |
-| a top-typed parameter of an `inline` method | `inline parameter reads a top type, which the expansion may match on: <param>` |
+| an `inline` method (any parameter) | `inline method: each expansion may inspect its call site's argument types, constants and givens (compile-time dispatch)` |
 | `Any` shadowed (alias, binder, import, inherited member) | the shadowing declaration's reading or refusal, unchanged |
 | evidence with a top endpoint (`A <:< Any`) | `unsupported evidence relationship: <:< requires free-atom endpoints` |
 

@@ -90,6 +90,8 @@ private[cardinality] object MethodProjections {
     private type Prepared = Either[String, (Type, Map[String, Resolved])]
     private var tokenNumber = 0
     private var spellings = Map.empty[String, String]
+    // The placeholders standing for named tuples, which no match type reduces on.
+    private var namedTuples = Set.empty[String]
 
     private def freshToken(variables: Map[String, Resolved]): String = {
       val (token, next) =
@@ -114,7 +116,7 @@ private[cardinality] object MethodProjections {
         Left("match type resolution budget exhausted")
       else
         tpe match {
-          case Type.Tuple(parts)                        => prepareTuple(parts, context)
+          case PositionalTuple(parts)                   => prepareTuple(parts, context)
           case Type.Match.After_4_9_9(scrutinee, block) =>
             prepareMatch(MatchType(tpe, scrutinee, block, bounded = false), context)
           case other => prepareReference(other, context)
@@ -180,15 +182,42 @@ private[cardinality] object MethodProjections {
         case _ => None
       }
 
-    // Every case must be eligible, including cases that precede the selected projection.
+    // Every case must be eligible, including cases that precede the selected projection. A named
+    // tuple is concrete, yet Scala 3.9.0 reduces no case on one (fixtures a5 m1, m4).
     private def projectionFailure(known: Type, cases: List[TypeCase]): Option[String] =
-      if (!known.is[Type.Tuple])
+      if (named(known))
+        Some(stuckOnNamed(known))
+      else if (PositionalTuple.unapply(known).isEmpty)
         Some("inert match type: scrutinee is not a proven tuple (concrete substitution required)")
       else if (!cases.forall(c => MatchTypes.projectionPattern(c.pat)))
         Some("match type requires type-identity/disjointness proof for fixed or nominal patterns")
-      else if (!cases.forall(c => MatchTypes.determinateHylo((c.pat, known))))
-        Some("inert match type: nested scrutinee is not a proven tuple")
-      else None
+      else
+        cases.iterator
+          .flatMap(c => namedPart(c.pat, known))
+          .nextOption()
+          .map(stuckOnNamed)
+          .orElse(
+            Option.unless(cases.forall(c => MatchTypes.determinateHylo((c.pat, known))))(
+              "inert match type: nested scrutinee is not a proven tuple"
+            )
+          )
+
+    private def named(known: Type): Boolean = known match {
+      case Type.Name(token) => namedTuples(token)
+      case _                => false
+    }
+
+    // The named tuple a tuple pattern meets inside a positional scrutinee.
+    private def namedPart(pattern: Type, known: Type): Option[Type] = (pattern, known) match {
+      case (_: Type.Tuple, _) if named(known) => Some(known)
+      case (PositionalTuple(patterns), PositionalTuple(parts)) if patterns.size == parts.size =>
+        patterns.lazyZip(parts).flatMap(namedPart).headOption
+      case _ => None
+    }
+
+    // The placeholder is spelled back as the named tuple it stands for.
+    private def stuckOnNamed(known: Type): String =
+      s"match type stuck on a named tuple: ${known.syntax} (Scala reduces no case on it)"
 
     private def reduceMatch(matched: Type.Match, context: ResolutionContext): Prepared =
       MatchTypes.reduced(matched, Map.empty) match {
@@ -281,8 +310,15 @@ private[cardinality] object MethodProjections {
     // A leaf an alias body passes on may itself be a placeholder of an outer alias's argument
     // (`PGrate[S, …]` expands to `Aux[$1, …]`): it is recorded already spelled, so one pass
     // restores a reason however deep the aliases nest.
+    // A placeholder frozen again (an alias argument read in the alias's body) keeps standing for
+    // its named tuple.
     private def freeze(tpe: Type, context: ResolutionContext): Prepared =
-      frozen(context.read(tpe, resolver), context.variables, Spelling.of(tpe))
+      frozen(context.read(tpe, resolver), context.variables, Spelling.of(tpe)).map {
+        case frozen @ (Type.Name(token), _) if NamedTuples.unapply(tpe).nonEmpty || named(tpe) =>
+          namedTuples += token
+          frozen
+        case other => other
+      }
 
     private def frozen(
         shape: Resolved,

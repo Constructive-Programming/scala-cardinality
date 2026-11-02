@@ -50,7 +50,7 @@ class GroundTypesSpec extends Specification {
       a var reads as the value it was initialized with             $mutable
       an export binds a ground name; a given import binds none     $exported
       a source alias still shadows the builtin                     $sourceShadow
-      a literal type is not a ground type                          $literalType
+      a literal type is one constant of its ground type            $literalType
       higher-order use of a ground domain stays unresolved         $higherOrder
       repeated atoms are eliminated by length                      $repeatedAtoms
   """
@@ -308,7 +308,8 @@ class GroundTypesSpec extends Specification {
           .Finite(4)
       )
 
-  def literalType = unresolvedOn(count("def f(x: 3): Int = x"), "unsupported type: 3")
+  // `x: 3` is the constant 3, which a body writes anyway: every Int on a one-point domain (2^32).
+  def literalType = count("def f(x: 3): Int = x") === Count.Finite(two32)
 
   def higherOrder =
     unresolvedOn(

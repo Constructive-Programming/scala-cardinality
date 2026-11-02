@@ -9,7 +9,7 @@ import cardinality.types.{TypeApplications, TypeSubstitution}
 import dev.constructive.eo.optics.Plated
 
 import Inhabitation.Shape
-import MethodAnalysis.{Target, TypeEntry}
+import MethodAnalysis.TypeEntry
 import TypeSubstitution.{platedType, Meet, Union}
 
 /** `Any`, `AnyRef` (`Object`), `Matchable` and `AnyVal` on the method side: the terminal type.
@@ -19,10 +19,10 @@ import TypeSubstitution.{platedType, Meet, Union}
   * tells two such values apart: the type is `∃X. X`, which parametricity makes `1`
   * (docs/research/top-types-unions.md). It is always inhabited, by `()`. Four places read it
   * differently on purpose: a `transparent inline` result, whose call site sees the expansion's type
-  * (`TransparentResults`); an `inline` method's parameter, whose expansion may match on the
-  * argument's static type; a constructor position, whose stored-value estimate keeps `Any` as
-  * everything (ε₀), so the position is read through this model before the estimate is asked; and a
-  * goal with exactly one value, which has one implementation in every environment.
+  * (`TransparentResults`); an `inline` method, whose expansion may match on an argument's static
+  * type (`TransparentResults.inlineRefusal`); a constructor position, whose stored-value estimate
+  * keeps `Any` as everything (ε₀), so the position is read through this model before the estimate
+  * is asked; and a goal with exactly one value, which has one implementation in every environment.
   */
 private[cardinality] object TopTypes {
 
@@ -116,19 +116,6 @@ private[cardinality] object TopTypes {
     case other                                             =>
       ClosedSpaces.closed(other) && Natural.attempt(ClosedSpaces.space(other)).exists(_.isOne)
   }
-
-  /** An `inline` target's parameters that read a top type: the body is expanded at each call site,
-    * where `inline x match { case _: Int => … }` tests the argument's static type, so `f(1)` and
-    * `f("s")` may differ though no value of the top type tells them apart. A one-valued goal keeps
-    * its one implementation.
-    */
-  def inlineDispatch(target: Target, context: ResolutionContext, resolver: Resolver): List[String] =
-    if (!TransparentResults.inlined(target)) Nil
-    else
-      target.frame.params.collect {
-        case p if p.decltpe.exists(reaches(_, context, resolver, top(resolver))) =>
-          s"inline parameter reads a top type, which the expansion may match on: ${p.name.value}"
-      }
 
   /** Why a constructor position is the method side's alone to read, if it is: a top type or `Null`
     * behind a source alias, which the rewrite below does not reach, or a top type inside a

@@ -57,11 +57,19 @@ final private[cardinality] class RuntimeClasses(
   /** The runtime class of one alternative where it is written, or why it has none. */
   def alternative(tpe: Type, context: ResolutionContext): Either[String, Alternative] =
     tpe match {
-      case a: Type.Apply                 => headed(a.tpe, tpe, context).map(applied)
-      case Union(_, _) | Meet(_, _)      => Left(s"${spell(tpe)} has no runtime class")
-      case i: Type.ApplyInfix            => headed(i.op, tpe, context).map(applied)
-      case Type.Tuple(args)              => Right(Alternative(Builtin(tuple(args.size)), true))
-      case s: Type.Singleton             => module(s, context)
+      case a: Type.Apply            => headed(a.tpe, tpe, context).map(applied)
+      case Union(_, _) | Meet(_, _) => Left(s"${spell(tpe)} has no runtime class")
+      case i: Type.ApplyInfix       => headed(i.op, tpe, context).map(applied)
+      case Type.Tuple(args)         => Right(Alternative(Builtin(tuple(args.size)), true))
+      case s: Type.Singleton        => module(s, context)
+      // A literal is a value of its class, and never the class itself: it takes no part in the
+      // absorption that identifies two spellings of one class.
+      case lit: Lit =>
+        LiteralTypes
+          .className(lit)
+          .flatMap(builtins.get)
+          .map(cls => Alternative(Builtin(cls), applied = true))
+          .toRight(s"${spell(lit)} has no runtime class")
       case _: Type.Name | _: Type.Select => headed(tpe, tpe, context)
       case other                         => Left(s"${spell(other)} has no runtime class")
     }
@@ -124,7 +132,7 @@ final private[cardinality] class RuntimeClasses(
     head match {
       case _ if context.variables.contains(name) =>
         Left(s"$name has no runtime class (type parameter or alias argument)")
-      case s: Type.Select if RefinedMembers.pathType(s.qual, context.frame).nonEmpty =>
+      case _ if RefinedMembers.throughValue(head, context.frame) =>
         Left(s"$name has no runtime class (path-dependent member)")
       case _ =>
         Found.named(resolver, head, name, context) match {

@@ -35,6 +35,12 @@ private[cardinality] object RefinedMembers {
     case _ => None
   }
 
+  /** Whether a type selects a member of a value's path (`p.T`, `p` a parameter or value). */
+  def throughValue(tpe: Type, frame: Frame): Boolean = tpe match {
+    case s: Type.Select => pathType(s.qual, frame).nonEmpty
+    case _              => false
+  }
+
   /** The innermost scope of a frame's chain that binds a term name as a parameter or value. */
   def declaring(name: String, frame: Frame): Option[Frame] =
     frame.chain.find(declaresValue(name, _))

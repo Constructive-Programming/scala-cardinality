@@ -4,8 +4,8 @@ import scala.meta.*
 
 import cardinality.analysis.model.*
 import cardinality.analysis.{MethodAnalysis, Resolver}
-import cardinality.types.TypeApplications
 import cardinality.types.TypeSubstitution.{Meet, Union}
+import cardinality.types.{NamedTuples, TypeApplications}
 
 import MethodAnalysis.Target
 
@@ -38,6 +38,7 @@ final private[cardinality] class TransparentResults(resolver: Resolver, classes:
     case Union(left, right)                      => first(List(left, right), context)
     case Meet(left, right)                       => first(List(left, right), context)
     case i: Type.ApplyInfix                      => first(List(i.op, i.lhs, i.rhs), context)
+    case NamedTuples(fields)                     => first(fields.map(_._2), context)
     case Type.Tuple(args)                        => first(args, context)
     case a: Type.Annotate                        => open(a.tpe, context)
     case _: Type.Singleton | _: Lit              => None
@@ -75,13 +76,40 @@ private[cardinality] object TransparentResults {
   /** Whether the target is a `transparent inline` method, whose call site types the expansion. */
   def transparent(target: Target): Boolean = modifiers(target).exists(_.is[Mod.Transparent])
 
-  /** Whether the target is an `inline` method, expanded at each call site. */
-  def inlined(target: Target): Boolean = modifiers(target).exists(_.is[Mod.Inline])
+  val InlineReason: String =
+    "inline method: each expansion may inspect its call site's argument types, constants and " +
+      "givens (compile-time dispatch)"
 
-  private def modifiers(target: Target): List[Mod] = target.tree match {
-    case d: Defn.Def => d.mods
-    case d: Decl.Def => d.mods
-    case _           => Nil
+  val InsideInline: String =
+    "definition inside an inline method: it is expanded with the method at each call site, whose " +
+      "argument types, constants and givens it may inspect"
+
+  /** Why an `inline` target's implementations are not counted, or those of a definition inside an
+    * inline method, which every expansion copies with it: an expansion is typed at its call site,
+    * where `inline x match`, `erasedValue` and `summonFrom` read an argument's static type or
+    * constant, a type argument or a given (fixtures il, review-A5 il/loc), so the parametric count
+    * does not bound the implementations. A goal with one value keeps its one implementation: the
+    * one-valued rule answers before this reason is read. A constructor's value space is the same in
+    * every copy.
+    */
+  def inlineRefusal(target: Target): Option[String] =
+    if (inlined(target.tree)) Some(InlineReason)
+    else
+      Option.when(!target.constructor && target.frame.chain.drop(1).exists(_.tree.exists(inlined)))(
+        InsideInline
+      )
+
+  private def inlined(tree: Tree): Boolean = modifiers(tree).exists(_.is[Mod.Inline])
+
+  private def modifiers(target: Target): List[Mod] = modifiers(target.tree)
+
+  // No frame is an `inline given`'s yet: lane B5 adds the rows of definitions inside one, and with
+  // them the regression for its arm.
+  private def modifiers(tree: Tree): List[Mod] = tree match {
+    case d: Defn.Def        => d.mods
+    case d: Decl.Def        => d.mods
+    case g: Defn.GivenAlias => g.mods
+    case _                  => Nil
   }
 
   // Builtins no class extends: the classes this reading models (final scalar and string classes,

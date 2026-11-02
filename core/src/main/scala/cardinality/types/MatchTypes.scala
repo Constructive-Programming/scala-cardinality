@@ -14,9 +14,10 @@ private[cardinality] object MatchTypes {
 
   type Pair = (Type, Type)
 
+  // A named tuple is no tuple here: a match on one is stuck (`NamedTuples`).
   private def expandPair(pair: Pair): List[Pair] = pair match {
-    case (Type.Tuple(xs), Type.Tuple(ys)) if xs.size == ys.size => xs.zip(ys)
-    case _                                                      => Nil
+    case (PositionalTuple(xs), PositionalTuple(ys)) if xs.size == ys.size => xs.zip(ys)
+    case _                                                                => Nil
   }
 
   // The bindings a case pattern makes against a scrutinee, or None when it does not match. A
@@ -33,7 +34,7 @@ private[cardinality] object MatchTypes {
           case (_: (Type.Wildcard | Type.PatWildcard), _)                        => Some(Map.empty)
           case (Type.Name(name), scrutinee) if name.headOption.exists(_.isLower) =>
             Some(Map(TypeName.of(name) -> scrutinee))
-          case (Type.Tuple(elements), Type.Tuple(parts)) if elements.size == parts.size =>
+          case (PositionalTuple(elements), PositionalTuple(parts)) if elements.size == parts.size =>
             Traversals.defined(kids).map(_.flatten.toMap)
           case (_: Type.Tuple, _) => None
           case (other, scrutinee)
@@ -48,7 +49,7 @@ private[cardinality] object MatchTypes {
       expandPair,
       (pair, kids) =>
         pair match {
-          case (Type.Tuple(xs), Type.Tuple(ys)) =>
+          case (PositionalTuple(xs), PositionalTuple(ys)) =>
             xs.size != ys.size || kids.forall(identity)
           case (_: Type.Tuple, _) => false
           case _                  => true
@@ -58,15 +59,15 @@ private[cardinality] object MatchTypes {
   val projectionPattern: Type => Boolean =
     TypeSubstitution.hylo[Type, Boolean](
       {
-        case Type.Tuple(parts) => parts
-        case _                 => Nil
+        case PositionalTuple(parts) => parts
+        case _                      => Nil
       },
       (tpe, kids) =>
         tpe match {
-          case _: Type.Wildcard => true
-          case Type.Name(name)  => name.headOption.exists(_.isLower)
-          case _: Type.Tuple    => kids.forall(identity)
-          case _                => false
+          case _: Type.Wildcard   => true
+          case Type.Name(name)    => name.headOption.exists(_.isLower)
+          case PositionalTuple(_) => kids.forall(identity)
+          case _                  => false
         }
     )
 
@@ -124,7 +125,7 @@ private[cardinality] object MatchTypes {
   // trait it extends (none of them extends a function type).
   private def disjoint(pattern: Type, scrutinee: Type, standard: String => Boolean): Boolean = {
     def kind(tpe: Type): Option[(String, Boolean)] = tpe match {
-      case Type.Tuple(args)                         => Some(s"Tuple${args.size}" -> true)
+      case PositionalTuple(args)                    => Some(s"Tuple${args.size}" -> true)
       case Type.Name(n) if finals(n) && standard(n) => Some(n -> true)
       case _: Type.FunctionType                     => Some("Function" -> false)
       case _: Lit.Int                               => Some("Int" -> true)
@@ -138,7 +139,7 @@ private[cardinality] object MatchTypes {
       case _                                        => None
     }
     (pattern, scrutinee) match {
-      case (Type.Tuple(ps), Type.Tuple(ss)) =>
+      case (PositionalTuple(ps), PositionalTuple(ss)) =>
         ps.size != ss.size || ps.zip(ss).exists((p, s) => disjoint(p, s, standard))
       case (l: Lit, r: Lit) => l.structure != r.structure
       case _                =>

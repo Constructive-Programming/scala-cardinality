@@ -269,22 +269,23 @@ class ReportHygieneSpec extends Specification with AfterAll {
   }
 
   // Two overloads that differ only in a literal's spaces (a target name keeps their erasures apart)
-  // are two rows, each naming its own type.
+  // are two rows, each naming its own type. A literal type is read, so the reason that quotes it is
+  // an intersection's, which stays refused.
   def literalRows = {
     val found = entries(
       """|package l
          |import scala.annotation.targetName
          |object O {
-         |  def f(x: "a  b"): Int = 1
-         |  @targetName("f2") def f(x: "a b"): Int = 2
+         |  def f(x: "a  b" & Int): Int = 1
+         |  @targetName("f2") def f(x: "a b" & Int): Int = 2
          |}
          |""".stripMargin
     )
-    (found.map(_.signature) === List("f(x: \"a  b\"): Int", "f(x: \"a b\"): Int"))
+    (found.map(_.signature) === List("f(x: \"a  b\" & Int): Int", "f(x: \"a b\" & Int): Int"))
       .and(
         found.map(reasons) === List(
-          List("unsupported type: \"a  b\""),
-          List("unsupported type: \"a b\"")
+          List("unsupported intersection relationship: \"a  b\" & Int"),
+          List("unsupported intersection relationship: \"a b\" & Int")
         )
       )
   }
@@ -551,7 +552,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |object L {
          |  def f(x: json | Missing): Boolean = true
          |  def g(x: Data | Missing): Boolean = true
-         |  def h(x: "get" | "post" | Missing): Boolean = true
+         |  def h(x: ((y: Int) => Int) | Missing): Boolean = true
          |}
          |""".stripMargin
     val rendered = Report(List(Report.Source("Example.scala", Nil, entries(code))), Nil).render

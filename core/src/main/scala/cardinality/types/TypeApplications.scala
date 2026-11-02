@@ -27,6 +27,10 @@ private[cardinality] object TypeApplications {
 
   val arguments = applied.andThen(applyArguments)
 
+  /** A type's head and the arguments it is applied to, none for an unapplied one. */
+  def headAndArguments(tpe: Type): (Type, List[Type]) =
+    applied.getOption(tpe).fold(tpe -> List.empty[Type])(app => app.tpe -> applyArguments.get(app))
+
   val typeDefinition = subPrism[Tree, Defn.Type]
 
   val patVarName = Prism.optional[Pat, String](

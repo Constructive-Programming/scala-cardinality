@@ -528,7 +528,8 @@ subtyping would match stay `?`, as the page's limits state.
 fully qualified name (`stdlib-model/1`, Scala 3.9.0 on 2.13 collections): tuples, `Some`, `Left`,
 `Right`, `EmptyTuple`, `NamedTuple` as products; `Option`, `Either` as sums; `FunctionN` as
 arrows; `List`, `Vector`, `IndexedSeq`, `Seq`, `ArraySeq` and `Array` of a class as finite
-sequences `Σₙ Eⁿ`; single-pass, equality-built and reflective types excluded; classes and Java
+sequences `Σₙ Eⁿ`; single-pass, equality-built, reflective and type-revealing (`ClassTag`,
+`TypeTest`, `Mirror`) types excluded; classes and Java
 interfaces whose members it does not hold (open ones, and the final `Integer`) refused. The table
 answers after every binding of the sources, under the root imports' spellings only; a wildcard of an
 unsupplied namespace refuses every builtin and model name, and a wildcard of a listed namespace
@@ -812,6 +813,103 @@ export of the selected name, a block's import) refuses. Open: a by-name conversi
 the companion of a type outside the sources is not seen (a definite view read where none exists:
 fixture `fc`, 4 for true 16). Only a member that builds Unit is dropped regardless of unreadable
 parameters; any other unreadable member type fails the environment eagerly.
+
+## D21. Named tuples are products; a literal type has one value
+
+**Decision.** `(x: A, y: B)` reads as `A × B` (a match type is stuck on it; names are part of a
+rigid argument's key). A literal type is a singleton without a widened binding: one value as a
+goal, nothing as an input; a union of literal types is the set of its distinct constants; both
+are closed spaces (one point, n points), so callables over them are counted as over `Unit` or a
+sum; a key is the literal's class and constant. A call's result that its type argument makes a
+literal type is widened to the literal's class. A floating zero is refused (the parser drops its
+sign).
+
+**Evidence.**
+
+- Odersky 2024, SIP-58, and the reference page *Named Tuples* — **inspected (full text)** by the
+  verifier: "`NamedTuple` is an opaque type alias of its second, value parameter"; "The order of
+  names in a named tuple matters."
+- Scala 3 draft specification, ch. 3 ([29]) — **inspected (full text)**: "A literal type `lit`
+  denotes the single literal value `lit`." SIP-23 ([3]) — **inspected (full text)**: literals
+  designate "the corresponding singleton type".
+- **Compiler fixtures** (Scala 3.9.0): a match on `(x: Int, y: String)` reduces neither `case (a,
+  b)` nor `case Int` and proves neither disjoint (`m1`, `m4`); `def nul: "a" = null` is rejected
+  (`m3`); `case 1` matches `1L` and `case 97` matches `'a'` (cooperative equality, `eq`), so
+  constants of different classes are told apart by a class test; `idc[1](1)` of `def idc[T](t:
+  T): T` types an inferred result as `Int` and `opt[1](1)` as `Option[1]` (`review-A5 r2 inf3`).
+- **Executable**: `SyntaxFeaturesSpec`.
+
+**Boundary.** Dependent function types and named-tuple patterns are not read; `1 | Int` is
+refused; a call instantiated with a value's singleton or a union of literals is refused. See
+[syntax-features.md](syntax-features.md).
+
+## D22. A context function is a function whose binders are givens around the body
+
+**Decision.** `T ?=> R` reads as `T => R`. The binders of the context-function chain a
+definition's result starts with — followed through aliases and their arguments, applied lambdas,
+members as seen from the receiver and an overridden declaration's result — are contextual
+candidates nested inside it, each `?=>` one level deeper, which the anonymous-evidence rule (D10)
+checks: for the target they are its result's arguments; for an enclosing definition they are
+anonymous evidence of everything nested in its body, refused where a deeper candidate may shadow
+them and ambiguous within one clause. A candidate of type `A ?=> R` also answers searches for
+`R` (and a search for `A ?=> R` finds a plain `R`), so the rule compares every type a search may
+select a candidate for. A call or ascription yielding a context function is not an inferred
+result (Scala applies it).
+
+**Evidence.**
+
+- Scala 3 reference, *Context Functions* and *More Details* ([16]) — **inspected (full text)**:
+  context function types "erase to normal function types"; the literal's parameters "are available
+  as givens in E". No source states `?=>` ≅ `=>` as a theorem; the reading rests on these.
+- **Compiler fixtures** (Scala 3.9.0, cross-check `cf`, `cf2`; design `cf3`): `g(using 1)(using 2)`
+  prints 2 for a block body, a helper call, a local definition, an alias and an override's
+  inferred result; a value read before a nested wrapper (`hoisted`) prints the outer 1. Review
+  fixtures (a5-fix1 `r1`–`r8`, `w1`–`w4`; review-A5 `o1`–`o3`, `i3`): a deeper binder, a nested
+  `using`, a body's given and a nested context-function result each win over an enclosing binder;
+  `(A, A) ?=> A` is ambiguous inside; unions, intersections and singletons are not wrapped,
+  projections, match types and refinements declaring `apply` are; an ascription to a context
+  function is applied. Review fixtures `review-A5 r2` (`cf4`, `cf6`, `amb2`–`amb5`): `using A ?=>
+  B` and `using B` make `summon[B]` and `summon[A ?=> B]` ambiguous; a binder `k: A ?=> B` wins
+  `summon[B]` over an outer `B`.
+- Related work: Odersky et al. 2018, *Simplicitly* (PACMPL 2, POPL) — **metadata-verified**.
+- **Executable**: `SyntaxFeaturesSpec`, `ContextBindersSpec`.
+
+**Boundary.** `def g[A](using A): A ?=> A` reads `?` (true 1): the overlapping outer evidence is
+refused, not dropped, and so is a shadowed enclosing binder; likewise `a4[A, B](using A ?=>
+B)(using B)(a: A): B` (true 1) and `b1[A, B](using A)(using B): (A ?=> B) ?=> B` (true 1). A chain the reading cannot follow —
+match type, projection, path, refinement of a context function, applied inherited alias, a
+parameter an `extends` clause substituted with a function, an unsupplied or undeclared name —
+refuses nested definitions with its reason. See [syntax-features.md](syntax-features.md).
+
+## D23. Compile-time and type-revealing evidence is not parametric
+
+**Decision.** An `inline` method, and every method defined inside one, is refused unless its goal
+has one value (D12): an expansion may inspect its call site's argument types, constants, type
+arguments and givens. `ClassTag`, `Manifest`, `TypeTest`, `Typeable` and every `Mirror` are
+excluded from the stdlib model as type-revealing evidence, as `scala.quoted` is as compile-time
+reflection.
+
+**Evidence.**
+
+- Scala 3 reference, *Inline*, *Compile-time operations*, *Macros* ([17]) — **inspected (full
+  text)**: "The scrutinee `x` is examined statically and the inline match is reduced
+  accordingly"; `erasedValue`, `summonFrom`, quoted type patterns.
+- Scala 2.13 library, `ClassTag` ([11]) — **inspected (full text)**: "can serve as an extractor
+  that matches only objects of type `T`"; *TypeTest* ([25]) and `scala.deriving.Mirror` ([14]) —
+  **inspected**.
+- **Compiler fixture** (Scala 3.9.0, `il`): `byVal(1)` is 10 and `byVal(a)` 20 with `a == 1`;
+  `pick[Int]` and `pick[String]` choose different arguments; `summonInline` applies a call-site
+  given. Fixture a5-fix1 `r3`: a local definition's `summonFrom` prints 1, and 7 under a call-site
+  given.
+- Related work, **metadata-verified**: Washburn & Weirich 2005 (LICS; the abstract reports that
+  run-time type analysis breaks standard parametricity); Neis, Dreyer & Rossberg 2009 (ICFP; the
+  abstract states that "type abstraction and intensional type analysis are features seemingly at
+  odds"); Stucki, Brachthäuser & Odersky 2021 (GPCE), background.
+- **Executable**: `SyntaxFeaturesSpec`, `TopTypesUnionSpec.inlineTop`.
+
+**Boundary.** The refusal does not read the body, so it also covers inline methods that inspect
+nothing. `ValueOf` is not excluded (it supplies a value). See
+[syntax-features.md](syntax-features.md).
 
 ## How to extend this register
 

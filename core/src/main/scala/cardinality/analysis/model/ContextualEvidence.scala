@@ -11,14 +11,15 @@ import Inhabitation.Shape
   * An anonymous `using T` is reached only through implicit search, where a more deeply nested
   * candidate wins outright and one level is ranked by rules Scala has changed between versions. Two
   * candidates of one type declared by the same template or method make every search for it an
-  * error. The model counts the parameter only when every other candidate at its level or deeper has
-  * a type provably unrelated to its own; anything else is refused with the parameter named.
+  * error. A candidate of type `A ?=> R` also answers searches for `R`, and one for `A ?=> R` finds
+  * a plain `R`. The model counts the parameter only when every type a search may select it for is
+  * provably unrelated to every type another candidate at its level or deeper answers.
   */
 private[cardinality] object ContextualEvidence {
 
   /** One contextual value in scope: nesting level (outermost 0), the template, method or block that
-    * declares it, label, type when read (its shape and the declarations it names), whether only
-    * implicit search reaches it, and whether an unread type is already reported.
+    * declares it, label, type when read (shape, context-function results, declarations named),
+    * whether only implicit search reaches it, and whether an unread type is already reported.
     */
   final case class Candidate(
       level: Int,
@@ -27,7 +28,8 @@ private[cardinality] object ContextualEvidence {
       shape: Option[Shape],
       anonymous: Boolean,
       reported: Boolean = false,
-      nominal: Nominal = Nominal(None, None)
+      nominal: Nominal = Nominal(None, None),
+      results: List[Shape] = Nil
   )
 
   /** A type's identity (`TypeIdentities`) and the final concrete class it applies, if any. */
@@ -100,11 +102,15 @@ private[cardinality] object ContextualEvidence {
     other.site == evidence.site && evidence.nominal.identity.nonEmpty &&
       other.nominal.identity == evidence.nominal.identity
 
+  // A search selects the evidence for its type or a result of it, and finds the other for its own.
   private def overlaps(evidence: Candidate, other: Candidate, bounded: String => Boolean): Boolean =
     (evidence.shape, other.shape) match {
       case (Some(_), Some(_)) if distinctFinal(evidence.nominal, other.nominal) => false
-      case (Some(mine), Some(theirs)) => !provablyApart(mine, theirs, bounded)
-      case _                          => true
+      case (Some(mine), Some(theirs))                                           =>
+        (mine :: evidence.results).exists(wanted =>
+          (theirs :: other.results).exists(found => !provablyApart(wanted, found, bounded))
+        )
+      case _ => true
     }
 
   // A binder with a subtype bound may relate to anything its bound reaches: no type mentioning one
