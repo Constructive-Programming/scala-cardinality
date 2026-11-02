@@ -42,6 +42,33 @@ Key references motivating this work:
 - [The Hidden Powers of Total Program Cardinality](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-9351ba774d4d)
 - [The Hidden Powers of Total Program Cardinality (2 of 2)](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-2-of-2-ceb0a3af13dd)
 
+## Assumption: the code has no side effects
+
+Every number the calculator reports rests on one assumption: **the code it measures has no
+side effects**. That covers both kinds of number, the values a data type holds and the
+implementations a method admits. Two consequences come up constantly in real code:
+
+- **A `var` is read as a `val`.** Reassignment is not modelled, so a `var` holds the value it
+  was given: its initializer, or the argument passed for a `var` constructor parameter.
+  - A `var` field adds exactly the values a `val` field of the same type would.
+  - A `var` that a method can read is an ordinary value in its environment.
+  - Scala's own typing rules still apply. A `var` is not a stable path, for example, so no
+    path-dependent type can be selected through one.
+- **Throwing is ignored.** A `throw`, or a call that may throw, is neither a value nor a way to
+  implement a signature, so it never adds to a count.
+  - `def make[A]: A` has `0` implementations, even though `throw new Exception` would compile.
+  - No count is withheld because some code might throw.
+  - Exceptions used as data are ordinary values: a `Throwable` passed in, stored in a field or
+    returned in an `Either`.
+
+Other effects are excluded the same way: I/O, logging, divergence, a `null` that the type does
+not declare, unsafe casts and reflection. None of them is counted.
+
+The calculator does not check that a body actually obeys this assumption. A result describes
+the pure, total implementations of a signature and the values of a type. The full statement is
+the counting contract in [docs/plans/v1.md §2](docs/plans/v1.md). [AGENTS.md](AGENTS.md)
+repeats it for coding agents working on this repository.
+
 ## Status
 
 The [v1 implementation plan](docs/plans/v1.md) tracks the agreed counting contract,
