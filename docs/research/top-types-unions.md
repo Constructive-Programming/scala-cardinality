@@ -268,7 +268,7 @@ family, any other may.
 | opaque alternative outside its scope, unresolved alternative | the alternative's own reason, `union <u>: …` |
 | stable-value singleton alternatives | the alternative's own reason (no runtime class without ground equality analysis) |
 | literal alternatives beside a class (`1 \| Int`) | `two alternatives share runtime class …` (a union of literals alone is the set of its constants: [syntax-features.md](syntax-features.md)) |
-| callable returning an open union | `Elimination of an opaque sum-producing callable is unsupported` |
+| callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md): `TopTypesUnionSpec.callableSum` 27); an open one keeps the union's own reason |
 | transparent result naming a top type, a function type or a class a subclass may extend | `transparent inline result: …` |
 | self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
 | a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |

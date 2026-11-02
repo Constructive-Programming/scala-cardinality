@@ -78,6 +78,9 @@ private[cardinality] object ExistentialInputs {
           val renamings =
             witnesses.map(id => id -> (if (env.inserted(id)) env.freshName() else id))
           Existential(renamings.map(_._2), kids.head(env, bound ++ renamings))
+        // A member's binders are unique to it, so they are bound without renaming.
+        case Poly(binders, _) =>
+          Poly(binders, kids.head(env, bound ++ binders.map(b => b.id -> b.id)))
         case _ =>
           Shape.rebuild(node, kids)(_(env, bound))
       }
@@ -88,13 +91,24 @@ private[cardinality] object ExistentialInputs {
       node match {
         case Atom(id) =>
           if (!includeBound && bound(id)) Set.empty else Set(id)
-        case Existential(witnesses, _) =>
-          (if (includeBound) witnesses.toSet else Set.empty[String]) ++
-            kids.head(includeBound, bound ++ witnesses)
+        case Binders(ids) =>
+          (if (includeBound) ids.toSet else Set.empty[String]) ++
+            kids.head(includeBound, bound ++ ids)
         case _ =>
           kids.foldLeft(Set.empty[String])((acc, kid) => acc ++ kid(includeBound, bound))
       }
     }
+
+  // The atoms a node binds over its body: an existential's witnesses, a member's own binders.
+  private object Binders {
+
+    def unapply(node: Shape): Option[List[String]] = node match {
+      case Existential(witnesses, _) => Some(witnesses)
+      case Poly(binders, _)          => Some(binders.map(_.id))
+      case _                         => None
+    }
+
+  }
 
   /** Capture-avoiding rewriting of free atoms. Renaming is deterministic and scoped. */
   def mapAtoms(shape: Shape)(rewrite: Atom => Shape): Shape = {

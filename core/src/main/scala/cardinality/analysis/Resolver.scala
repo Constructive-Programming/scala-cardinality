@@ -42,11 +42,13 @@ private[cardinality] trait Resolver {
   /** The builtin or stdlib-model key of a name no supplied declaration binds, or why it is none. */
   def builtin(written: String, context: ResolutionContext): Either[String, String]
 
+  /** A template's supplied base classes by frame, itself included, and whether they are all. */
+  def baseClasses(frame: Frame): (Set[String], Boolean)
+
   /** What a type name or a path selection means when it denotes a type member (members M1). */
   def typeMember(tpe: Type, context: ResolutionContext): Option[Either[String, TypeMembers.Meaning]]
 
-  /** A callee's member meaning where it is applied to no arguments (an applied one is no member).
-    */
+  /** A callee's member meaning where it is applied to no arguments (an applied one has none). */
   def unappliedMember(
       callee: Type,
       args: List[Type],

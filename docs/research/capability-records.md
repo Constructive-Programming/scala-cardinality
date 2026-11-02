@@ -211,7 +211,7 @@ number of binders or parameters per clause is always another slot.
 | `var`, extension or pattern-defined member | `capability record with a mutable member not read: C`, `… extension member …`, `destructured member of an open receiver not read: C` |
 | Trait parameters | `capability record with trait parameters not read: C` |
 | Recursive record (a member's type mentions the record) | `recursive type requires a structural proof: C` (the type reading's own guard) |
-| Polymorphic open member | `polymorphic capability binder: M` (B4 adds PB0–PB4) |
+| Polymorphic open member not reduced | `polymorphic capability binder: M (…)` ([PB0–PB4](polymorphic-members-and-saturation.md)) |
 | Possible view | `overridable member may re-enter the measured declaration: C.m` |
 | Record member that may be the declaration on its receiver | `capability record member may be the measured declaration on its receiver: C.m` |
 | Inherited identity unknown | `inherited declaration identity not resolved: m` / `inherited override identity not resolved: m` |

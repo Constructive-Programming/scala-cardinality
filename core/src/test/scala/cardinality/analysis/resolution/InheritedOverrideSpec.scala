@@ -100,15 +100,16 @@ class InheritedOverrideSpec extends Specification {
         |""".stripMargin
     ) === Count.Finite(1)
 
+  // `create[C](): C` is a supplied member of type `∀C. C`, the empty type (capabilities PB1): no
+  // instance has one, so the environment is vacuous and every expression is the one absurd
+  // elimination — 1 (SYNTHESIS D-capabilities).
   def otherGeneric =
     count(
       "Child.pick",
       """trait Base[A] { def pick[B](value: B): B; def create[C](): C }
         |abstract class Child[A] extends Base[A] { def pick[B](value: B): B = value }
         |""".stripMargin
-    ) must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains("C")) must beTrue
-    }
+    ) === Count.Finite(1)
 
   def unknownConstructor =
     count(

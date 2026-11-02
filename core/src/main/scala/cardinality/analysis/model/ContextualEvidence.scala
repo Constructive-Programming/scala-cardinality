@@ -32,8 +32,17 @@ private[cardinality] object ContextualEvidence {
       results: List[Shape] = Nil
   )
 
-  /** A type's identity (`TypeIdentities`) and the final concrete class it applies, if any. */
-  final case class Nominal(identity: Option[String], finalClass: Option[String])
+  /** A type's identity (`TypeIdentities`), and the final class or the template it applies (with its
+    * base classes, all supplied), if any.
+    */
+  final case class Nominal(
+      identity: Option[String],
+      finalClass: Option[String],
+      lineage: Option[Lineage] = None
+  )
+
+  /** The template a class type applies, its supplied base classes, and whether they are all. */
+  final case class Lineage(head: String, bases: Set[String], complete: Boolean)
 
   def contextual(param: Term.Param): Boolean =
     param.mods.exists(m => m.is[Mod.Using] || m.is[Mod.Implicit])
@@ -105,10 +114,11 @@ private[cardinality] object ContextualEvidence {
   // A search selects the evidence for its type or a result of it, and finds the other for its own.
   private def overlaps(evidence: Candidate, other: Candidate, bounded: String => Boolean): Boolean =
     (evidence.shape, other.shape) match {
-      case (Some(_), Some(_)) if distinctFinal(evidence.nominal, other.nominal) => false
-      case (Some(mine), Some(theirs))                                           =>
-        (mine :: evidence.results).exists(wanted =>
-          (theirs :: other.results).exists(found => !provablyApart(wanted, found, bounded))
+      case (Some(mine), Some(theirs)) =>
+        classes(evidence.nominal, other.nominal).getOrElse(
+          (mine :: evidence.results).exists(wanted =>
+            (theirs :: other.results).exists(found => !provablyApart(wanted, found, bounded))
+          )
         )
       case _ => true
     }
@@ -125,11 +135,15 @@ private[cardinality] object ContextualEvidence {
     if (mentionsBounded) false else unrelated(mine, theirs)
   }
 
-  // Two distinct final concrete classes: neither is a subtype of the other.
-  private def distinctFinal(left: Nominal, right: Nominal): Boolean =
-    (left.finalClass, right.finalClass) match {
-      case (Some(l), Some(r)) => l != r
-      case _                  => false
+  // Whether two class types of distinct templates may relate: only through a base class, whatever
+  // the arguments and the shapes (a subtrait's record is the wider product). Else the shapes decide.
+  private def classes(left: Nominal, right: Nominal): Option[Boolean] =
+    (left.finalClass, right.finalClass, left.lineage, right.lineage) match {
+      case (Some(l), Some(r), _, _) if l != r           => Some(false)
+      case (_, _, Some(l), Some(r)) if l.head != r.head =>
+        val related = l.bases(r.head) || r.bases(l.head)
+        Option.when(related || (l.complete && r.complete))(related)
+      case _ => None
     }
 
   /** Neither type can be a subtype of the other in the body. Distinct unbounded binders, and a

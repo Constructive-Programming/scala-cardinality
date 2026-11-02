@@ -219,6 +219,7 @@ private[cardinality] object BinderBounds {
   private def closed(shape: Shape): Boolean =
     !Shape.exists(shape) {
       case _: Shape.Singleton | _: Shape.Evidence | _: Shape.Existential => true
+      case _: Shape.Poly                                                 => true
       case _: Shape.Constructor | _: Shape.Repeated                      => true
       case _                                                             => false
     }

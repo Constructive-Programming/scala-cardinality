@@ -107,22 +107,30 @@ class InhabitationSpec extends Specification {
       count(List(fn("never", List(int), empty)), a) mustEqual Finite(1)
     }
 
-    "keep a ground result of an opaque callable unresolved" in {
+    // A sum result is cased once per argument (capabilities C10), and a ground result is a closed
+    // sum of literals, eliminated the same way: the goal is a function of g's values.
+    "eliminate a sum or ground result of a supplied callable by its cases" in {
       def refused(value: Count, reason: String) = value must beLike {
         case Unresolved(reasons) => reasons.exists(_.contains(reason)) must beTrue
       }
-      def eliminated(value: Count) = refused(value, "callable's transparent ground result")
-      eliminated(count(List(fn("g", List(a), int), x), int))
-      eliminated(count(List(fn("g", List(a), int), x, y), a))
+      // An Int function of g(x): (2^32)^(2^32). A choice of x or y per pair (g(x), g(y)): 2^(2^64).
+      // `opaque()`'s `B` case has no `A`: 0.
+      count(List(fn("opaque", Nil, Sum(List(a, b)))), a) mustEqual Finite(0)
+      count(List(fn("g", List(a), int), x), int) mustEqual
+        Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37)))
+      count(List(fn("g", List(a), int), x, y), a) mustEqual
+        Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 64)))
       // Case analysis of g's result cannot prove the context absurd, so the absurdity check of a
       // goal that never applies g carries no reason.
       count(List(fn("g", List(a), int), x), Singleton("s", None)) mustEqual Finite(1)
       count(List(fn("g", List(int), a)), a) mustEqual Finite(BigInt(2).pow(32))
-      // OpaqueSumForwarding certifies no ground observation, so the producer's own reason stands;
-      // a functional argument over a ground domain is not certified either.
-      eliminated(
-        count(List(Binding("s", a), fn("p", List(a), int)), Function(List(a), Sum(List(unit, a))))
-      )
+      // p(s) and, under the binder, p(a): None, Some(s), Some(a) per pair of values — 3^(2^64);
+      // a functional argument over a ground domain is not certified.
+      count(
+        List(Binding("s", a), fn("p", List(a), int)),
+        Function(List(a), Sum(List(unit, a)))
+      ) mustEqual
+        Symbolic(NaturalSyntax.pow(3, NaturalSyntax.pow(2, 64)))
       refused(
         count(List(fn("h", List(Function(List(int), a)), a)), a),
         "Higher-order application is unsupported"
@@ -132,7 +140,9 @@ class InhabitationSpec extends Specification {
     "expose unsupported operations and resource limits" in {
       count(List(fn("higher", List(Function(List(a), b)), b)), b) must
         beAnInstanceOf[Unresolved]
-      count(List(fn("opaque", Nil, Sum(List(a, b)))), a) must beAnInstanceOf[Unresolved]
+      // A sum-producing callable of a higher-order argument is not eliminated.
+      count(List(fn("opaque", List(Function(List(a), a)), Sum(List(a, b)))), a) must
+        beAnInstanceOf[Unresolved]
       count(Nil, a, maxStates = 0) must beAnInstanceOf[Unresolved]
       count(Nil, Product(List(a, b)), maxStates = 1) must beAnInstanceOf[Unresolved]
       Finite(BigInt(123)).render mustEqual "123"

@@ -273,7 +273,8 @@ that reason. Details: [environment readings](environment-readings.md).
   prefix; a wildcard import beats a package member of another file (an outer wildcard against an
   inner package member is E049); an inherited member beats an import inside the body; two
   same-shaped classes of two scopes are two overloads (E231 when only one is implemented); evidence
-  of two distinct final classes is selected by type (run).
+  of two distinct final classes is selected by type (run), and so is evidence of two unrelated
+  traits (`probes/b4fix2/overlap/o3`, compiled).
 - The Scala Language Specification's binding precedence (ch. 2) and base-type / matching-member
   rules (§5.1) (**classical**, not re-read this session; the fixtures pin the behaviour used).
 
@@ -803,8 +804,10 @@ records](capability-records.md).
 or pattern-defined members, members hidden at the use site, hidden state of an open class or of a
 parameterized parent no class passes arguments to (no instance may exist: X6), unexposed or
 non-injectively exposed final fields, non-public or scoped constructors, recursive records (the
-type reading's structural-proof guard) and polymorphic open members are refused with their reasons; case
-classes, sealed families and enums keep their own readings. A possible view, a record member that
+type reading's structural-proof guard) are refused with their reasons, and polymorphic open
+members are read by D24; a member's type is read at the record's arguments, its template's aliases
+included (`type T = A` is the record's argument, never the template's binder or a member binder
+that shadows it); case classes, sealed families and enums keep their own readings. A possible view, a record member that
 may be the declaration on its receiver, a view through code the compiler inserts, and an
 override identity resting on foreign or opaque declarations stay `?`. The view rule assumes no
 unsupplied *named* import brings a by-name implicit conversion and no unsupplied class overloads
@@ -910,6 +913,127 @@ reflection.
 **Boundary.** The refusal does not read the body, so it also covers inline methods that inspect
 nothing. `ValueOf` is not excluded (it supplies a value). See
 [syntax-features.md](syntax-features.md).
+
+## D24. A polymorphic capability member is read up to its free theorems
+
+**Decision.** A supplied member's own type parameters are not free choices of type: supplied
+members are parametric (D3), and free theorems identify terms that instantiate them differently. A
+binder the member's type never mentions is irrelevant (PB0) when some type meets its bounds: a
+one-sided bound always is met (`Nothing` below an upper bound, `Any` above a lower one), a two-sided
+one need not be (`M >: Int <: String` admits no type, so no call typechecks) and is refused as
+`polymorphic capability binder: M (bounded)`. A binder met only in generators `P → M`
+and at positive positions of the rest is the sum of the generators' domains — `∀M. (P₁ → M) → … →
+(Pₖ → M) → G(M) ≅ G(P₁ + … + Pₖ)` for covariant `G` — for an input and a goal alike (PB1): a fold is
+its focus, a known identity is `1`, `∀M. M → M → M` a tag, and `∀C. C` the empty type, which makes
+an environment holding it vacuous (count 1). Any other member stays polymorphic: a goal of it gets
+fresh rigid binders; as an input, a path that mentions none of its binders is an ordinary producer,
+and any other is instantiated only where matching its result against a goal fixes every binder it
+mentions (PB2), and then only a count of 0 or 1 is reported; a result no goal meets builds nothing
+(PB3); a binder no goal fixes, or a result eliminated by cases, keeps `polymorphic capability
+binder: M (not determined by the result of C.m)` (PB4). A member with a path whose result is a bare
+binder leaves only ω and absurd contexts reported (`… (instantiations at compound types not
+searched for C.m)`): a normal form may instantiate it at a compound type and eliminate the value. Bounded,
+context-bounded and higher-kinded binders keep their own reasons. A deferred (abstract) `inline`
+member is no term of a body that is not inline — the compiler rejects the call — so it is dropped
+when its type is built from nothing (it then constrains no instance), and refused otherwise (`deferred
+inline member whose type may be empty: C.m`); in an inline body each expansion calls the override
+of its receiver's static type (`deferred inline member resolved at each expansion: C.m`). Details:
+[polymorphic members and saturation](polymorphic-members-and-saturation.md).
+
+**Evidence.**
+
+- Reynolds 1983 [9] (**bibliography-verified**), Wadler 1989 [37] (**metadata-verified**): D3. The
+  Yoneda lemma (**classical**); its parametric-model form and PB1's admissibility condition
+  (generators plus a syntactically covariant rest) are this register's derivation. Pistone &
+  Tranchini 2021, CSL, DOI 10.4230/LIPIcs.CSL.2021.35 (**metadata-verified**: the abstract reports
+  that the Yoneda isomorphisms induce a quantifier-eliminating rewriting of types); Plotkin & Abadi
+  1993 (**metadata-verified**: the abstract reports data-type encodings under parametricity);
+  Hasegawa 1994, Bainbridge, Freyd, Scedrov & Scott 1990 (**metadata-verified**, background only);
+  Wadler 1990, unpublished draft (**metadata-verified**), cited for excluding algebra premises.
+- Urzyczyn 1997 (**metadata-verified**: the abstract reports System F inhabitation undecidable;
+  C-7 **classical**): no instantiation bound computable from the goal is complete, so counts above
+  1 need an exact reduction. Scala 3 reference *Polymorphic Function Types* [23] (**inspected**).
+- PB2's upper bound (crosscheck X7) rests on coverage, which holds for members with no bare-binder
+  result: every application of a path ending in a rigid constructor `F[M]` stands at a goal whose
+  match fixes it, so every long normal form has a representative; quotienting only merges. Round 1
+  claimed coverage for every member, which is false (review round 2, `probes/review-B4/r2/i1`:
+  `c.run[(B, B)](swap, (b1, b2))._1` has no representative instantiating `run` at `B`); a bare-binder
+  result now leaves only ω and absurd contexts reported. A record member's type is read at the
+  record's arguments, template aliases included (`probes/review-B4/r2/a1check`: scalac types
+  `b.get[String](1)` on a `Box[Int]` whose `type T = A`).
+- **Compiler fixtures** (Scala 3.9.0, `probes/b4/spec` poly1–poly4, `probes/b4fix/spec` inl and
+  bounds): every `PolymorphicMemberSpec` fixture compiles. `probes/review-B4/pb0c`: scalac rejects
+  every call of `f[M >: Int <: String]` and of `f[M >: X <: String]` (E057). `probes/review-B4/inlc`,
+  `inlc2`, `inl2c`: a call of a deferred inline member from a body that is not inline is rejected
+  ("Deferred inline method … cannot be invoked"); `probes/b4fix/inl`: an inline body may call one,
+  and its expansion at a receiver whose static type has an inline override compiles.
+- **Executable**: `PolymorphicMemberSpec` (phantom, fold 1 where naive is ω, chooser 4 and its goal
+  2, constant Boolean 4, `Option[M]` 2, known identity 1, `∀C. C` 1 and its goal 0, a two-sided
+  phantom refused and a one-sided one ω, a tuple generator `(2^33 + 1)^(2^33 + 1)` and a spread
+  tuple parameter 4; PB2 1 and 0, a naive 2 refused, PB3 irrelevance, PB4, the `Monoid`-like
+  algebra, Church goal ω, bounded, context-bounded and higher-kinded; deferred inline members 2, 4,
+  2, 2, 2 and their refusals; template aliases at the record's arguments 4 and 1, a monomorphic
+  path ω and its refused Boolean twin, a bare-binder result refused at 0, records of unrelated
+  traits as evidence), `InheritedOverrideSpec.otherGeneric` and
+  `OverrideIdentityImplementationSpec.foreignBinder` (`∀C. C`: 1),
+  `OverrideIdentityImplementationSpec.nominal` (`∀X A. X → A → A ≅ 1`).
+
+**Boundary.** PB1 does not read through rigid constructors, sequences, proofs, packages or another
+member's binders; a reduction for higher-kinded binders needs type-lambda shapes; algebra premises
+(`Monoid`, `Functor`, `Applicative` evidence, foreign or source) are never reduced by laws. PB2
+never reports a count above 1, and never instantiates at a type a goal does not fix; beside a
+member with a bare-binder result it reports no finite count at all (`zero[A](c: Church): A`, true
+0). A member whose result is a bare binder matches every goal, so beside a constructor it can grow
+(`unwrap[A](fa: F[A]): A` at `A := F[B]` needs `F[F[B]]`, …) the goals never repeat and the state
+budget answers (`Inhabitation state budget exceeded`). A deferred inline member whose type is not
+built from nothing is refused even where the count is known to be 0 (whether an instance implements
+it together with the rest is not decided).
+
+## D25. A supplied sum is eliminated once per argument and path
+
+**Decision.** A supplied callable whose result is a nonempty sum or a ground value is cased on once
+for each tuple of arguments the context can build, as soon as they exist, and never again on that
+path; its cases are counted independently by the solver's split, and answering with the call itself
+is the η-case of that split. Arguments range over the neutral terms of first-order argument types —
+variables and applications of producers that are not themselves eliminated. A callable whose cases
+lead back to its own argument types, or whose argument types a producer cycle builds, is `sum
+elimination over an unbounded argument space: p`; ground, sum, sequence or lower-bounded argument
+types, and types a polymorphic input may build, are `sum elimination over an argument space not
+enumerated: p`; higher-order arguments keep the elimination reason. A root whose rules carry
+reasons is ω when it reaches, along rules with no reason and no polymorphic instantiation whose
+every child is built without reasons, a cycle, and the empty goal is not built even optimistically
+at any goal on the way (C11 as restricted by crosscheck X3). Details: [polymorphic members and
+saturation](polymorphic-members-and-saturation.md).
+
+**Evidence.**
+
+- Scherer 2017, POPL (**metadata-verified**: the abstract reports βη-equivalence with sums and the
+  empty type decidable and coinciding with contextual equivalence); Scherer & Rémy 2015, ICFP
+  (**metadata-verified**: the summary reports 0, 1 or ≥ 2 inhabitants decided by saturating focused
+  search; background for "cut only new sums"); Scherer 2016, thesis (**metadata-verified**). The
+  once-per-path elimination with argument enumeration and the restricted ω conjunction are this
+  register's derivations; the empty-type part rests on the solver's per-node absurd rule, never on
+  an at-most-two cutoff (crosscheck X8).
+- Espírito Santo, Matthes & Pinto 2021, TYPES 2020, DOI 10.4230/LIPIcs.TYPES.2020.4
+  (**metadata-verified**: the summary reports finiteness of focused inhabitants decidable with
+  disjunction); David & Zaionc 2009 (**metadata-verified**, background). D2 (finite texts) bounds ω
+  from above; D4 (productivity) supplies the cycle.
+- **Compiler fixtures** (Scala 3.9.0, `probes/b4/spec` sums1 and c11, `probes/b4fix/spec` sat,
+  low and keys; `research/xprobe/c11`): every `NeutralSaturationSpec` fixture compiles.
+- **Executable**: `NeutralSaturationSpec` (composed getters 2, `FromFunctions` 2, prism modify 1 and
+  replace 2, built arguments 16, Boolean results 16 and 4, an absurd case 1; unbounded, payload
+  cycle, literal, sum, lower-bounded, polymorphically built and higher-order refusals, a record's
+  callable named by its field; neutrals identified by structure, not by spelled names: 2^(2^16)
+  however the values are named; `branchCycle` ω, `branchAbsurd` and `reasonedAbsurd` never ω,
+  `branchAbsurdPlain` 1, `siblingZero` never ω, `siblingEmpty` 0, `reasonedCycle` ω, a cycle
+  through a polymorphic instantiation never ω),
+  `OpaqueSumForwardingSpec` (saturation agrees with the certificate where it applies: 2, 1, 1, 2;
+  12, 12, 4, 1, ω, 6, 6, 2, 2, 2 beyond it), `InhabitationSpec`, `GroundTypesSpec.groundCallable`,
+  `TopTypesUnionSpec.callableSum` (27), `EnvironmentCompletenessSpec.opaqueCallable` (4).
+
+**Boundary.** Arguments over ground (literal) spaces, sums, sequences, lower-bounded types or
+polymorphic producers are not enumerated, and unbounded families are not counted; ω for them is
+claimed only under C11's conditions, which a cycle behind a reason-carrying rule never meets.
 
 ## How to extend this register
 

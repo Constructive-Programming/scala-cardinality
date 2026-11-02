@@ -251,6 +251,11 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       if (table.universal(stat, level)) Right(None)
       else
         MemberSyntax.names(stat).headOption match {
+          case Some(name) if MemberSyntax.deferredInline(stat) =>
+            observe(stat, level, name, steps).flatMap(
+              _.flatMap(DeferredInline.refusal(_, s"$key.$name", useSite.tree, resolver))
+                .toLeft(None)
+            )
           case Some(name) => observe(stat, level, name, steps)
           case None       => Right(None)
         }
@@ -266,12 +271,12 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       if (!visible(member, level))
         Left(s"capability record with members hidden at the use site: $key")
       else
-        MemberSyntax.observation(member, s"$key.$name").flatMap {
+        MemberSyntax.observation(member, s"$key.$name", s"$key.$name").flatMap {
           case MemberSyntax.Observation.Value(tpe) =>
             read(tpe, level, envAt(level, steps)).map(Some(_))
           case MemberSyntax.Observation.Applied(callable, result) =>
             val at = envAt(level, steps) ++ callable.binders
-            read(callable.tpe, level, at) match {
+            read(callable.tpe, level, at).flatMap(callable.close) match {
               case Left(_) if MemberSyntax.buildsUnit(result, read(_, level, at)) => Right(None)
               case other => other.map(Some(_))
             }

@@ -3,6 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
+import cardinality.analysis.model.ContextualEvidence.{Lineage, Nominal}
 import cardinality.analysis.model.Operator.Closure
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
@@ -74,10 +75,37 @@ private[cardinality] object TypeIdentities {
 
   }
 
+  /** What implicit search can tell of a type beyond its shape (`ContextualEvidence`). */
+  def nominal(tpe: Type, context: ResolutionContext, resolver: Resolver): Nominal =
+    Nominal(
+      of(tpe, context, resolver),
+      finalClass(tpe, context, resolver),
+      lineage(tpe, context, resolver)
+    )
+
   /** The declaration of a final concrete class a type applies, when it is one: no other type is a
     * subtype of it, so two distinct ones are unrelated whatever their arguments.
     */
-  def finalClass(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] = {
+  def finalClass(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
+    head(tpe, context, resolver).collect {
+      case entry if entry.tree.is[Defn.Class] && FinalImplementations.isFinal(entry.tree) =>
+        key(entry)
+    }
+
+  /** The class or trait a type applies, by frame, with its supplied base classes: a class type
+    * conforms to another only through a base class, whatever the arguments.
+    */
+  def lineage(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[Lineage] =
+    head(tpe, context, resolver)
+      .filter(entry => entry.tree.is[Defn.Class] || entry.tree.is[Defn.Trait])
+      .flatMap(_.self)
+      .map { frame =>
+        val (bases, complete) = resolver.baseClasses(frame)
+        Lineage(frame.id, bases, complete)
+      }
+
+  // The source declaration a type's head names, where the head is a name or a path, not a binder.
+  private def head(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[TypeEntry] = {
     val callee = tpe match {
       case a: Type.Apply => a.tpe
       case other         => other
@@ -86,10 +114,8 @@ private[cardinality] object TypeIdentities {
       case n: Type.Name if context.variables.contains(n.value) => None
       case _: (Type.Name | Type.Select)                        =>
         resolver.declaration(callee, callee.syntax, context) match {
-          case Found.Entry(entry)
-              if entry.tree.is[Defn.Class] && FinalImplementations.isFinal(entry.tree) =>
-            Some(key(entry))
-          case _ => None
+          case Found.Entry(entry) => Some(entry)
+          case _                  => None
         }
       case _ => None
     }

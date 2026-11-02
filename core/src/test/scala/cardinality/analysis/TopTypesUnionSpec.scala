@@ -692,12 +692,12 @@ class TopTypesUnionSpec extends Specification {
       "union (Json | Red): declaration not supplied: ext.Json (named import Json)"
     )
 
+  // `f(a)` is eliminated once (capabilities C10): `Red(level)` splits `level` (2) and `Blue` is one
+  // case, and each of the three cases answers any of the three values `Red(true)`, `Red(false)`,
+  // `Blue` — 3^3 = 27.
   def callableSum =
-    reasonContains(
-      colours + "def c[A](a: A)(f: A => Red | Blue): Red | Blue = f(a)",
-      "c",
-      "Elimination of an opaque sum-producing callable is unsupported"
-    )
+    count(colours + "def c[A](a: A)(f: A => Red | Blue): Red | Blue = f(a)", "c") ===
+      Count.Finite(27)
 
   def sharedCase =
     reasonContains(

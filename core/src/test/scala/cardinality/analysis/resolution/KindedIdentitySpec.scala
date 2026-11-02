@@ -80,10 +80,10 @@ class KindedIdentitySpec extends Specification {
     def inherits(name: String, kept: String, overridden: String) =
       counts(name) must beLike {
         case Count.Unresolved(reasons) =>
-          (reasons must contain(s"polymorphic capability binder: $kept"))
-            .and(reasons.contains(s"polymorphic capability binder: $overridden") must beFalse)
+          (reasons must contain(s"polymorphic capability binder: $kept (higher-kinded)"))
+            .and(reasons.exists(_.contains(s"binder: $overridden")) must beFalse)
       }
-    inherits("C3.m", "K", "H").and(inherits("C4.m", "H", "K"))
+    inherits("C3.m", "K[_, _]", "H").and(inherits("C4.m", "H[_]", "K"))
   }
 
   private def refused(found: Count, fragment: String) =

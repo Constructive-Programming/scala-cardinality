@@ -33,6 +33,10 @@ with any selector but an unimport (unseen candidates, like a parent outside the 
 extension group shares its method's level. Then the search for its own type selects it whatever
 the ranking. Two distinct final concrete classes are unrelated whatever their arguments: a shape is
 no identity (`P1[A]` and `P2[A]`, both `final case class _(a: A)`, are selected separately — run).
+Likewise two class types neither of whose templates is a base class of the other, every base class
+of both supplied (a class type conforms to another only through a base class: `Acc[F]` and
+`RevAcc[F]` are selected separately — compiled), while a base-class relation is an overlap whatever
+the shapes (a subtrait's capability record is the wider product).
 Otherwise `?`: `ambiguous anonymous evidence: T` (the same type — the same declarations, binders
 and arguments — declared by the same template or method) or `anonymous evidence selection not
 resolved: T (overlaps U)`. Outer candidates never matter: the parameter is nested deeper and wins.

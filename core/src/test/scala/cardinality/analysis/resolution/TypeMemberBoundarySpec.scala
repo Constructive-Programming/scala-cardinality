@@ -353,8 +353,9 @@ class TypeMemberBoundarySpec extends Specification {
     )
 
   // `extends Optic[S, A, Affine, Unit]` with `import q.Affine`: the closure for F is applied with
-  // Opt.scala's imports, as the qualified `q.Affine` is — the solver's own limit alone, never
-  // `unresolved type: Affine`.
+  // Opt.scala's imports, as the qualified `q.Affine` is — never `unresolved type: Affine`. `to(s)`
+  // is the one-case sum `Miss(())`, eliminated once (capabilities C10): it binds no `A`, so `get`
+  // has only `None` — 1.
   def closureImports = {
     val affine = "q.scala" -> ("package q\nsealed trait Affine[A, +B]\n" +
       "final case class Miss[A](a: Unit) extends Affine[A, Nothing]")
@@ -368,9 +369,7 @@ class TypeMemberBoundarySpec extends Specification {
         |  def get(s: S): Option[A] = ???
         |""".stripMargin
     )("p.Opt.get")
-    val unsupported = "Elimination of an opaque sum-producing callable is unsupported"
-    (get("Affine") === Count.Unresolved(List(unsupported)))
-      .and(get("q.Affine") === Count.Unresolved(List(unsupported)))
+    (get("Affine") === Count.Finite(1)).and(get("q.Affine") === Count.Finite(1))
   }
 
 }

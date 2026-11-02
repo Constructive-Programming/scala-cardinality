@@ -37,7 +37,8 @@ final private[cardinality] class TypeMembers(
 ) {
   import TypeMembers.*
 
-  private val linearizations = mutable.Map.empty[(String, String), Levels]
+  private val linearizations =
+    mutable.Map.empty[(String, String, Map[String, Resolved]), Levels]
 
   /** What a type name or a path selection means when it denotes a type member; None when it denotes
     * none this reading follows (a binder, a class, a package-level alias, an unknown path).
@@ -109,8 +110,14 @@ final private[cardinality] class TypeMembers(
       MemberPath.self(template, resolver.typeParameters(template))
     )
 
+  // `this` is another receiver, or the template's own at arguments of a capability record: an alias
+  // body then reads the record's arguments, never the template's own binders nor the binders of
+  // the member being read.
   private def redirected(template: Frame, context: ResolutionContext): Boolean =
-    receiverPath(template, context).exists(_.key != MemberPath.selfKey(template))
+    receiverPath(template, context).exists(path =>
+      path.key != MemberPath.selfKey(template) ||
+        path.template.exists(_._2 != resolver.typeParameters(template))
+    )
 
   private def innermost(context: ResolutionContext): Option[Frame] =
     context.frame.chain.find(isTemplate)
@@ -253,11 +260,12 @@ final private[cardinality] class TypeMembers(
   private def overridable(template: Frame): Boolean = closures(template).isEmpty
 
   // The template and its supplied parents, each with the arguments the path gives it, memoized per
-  // path.
+  // path and arguments: `this` of a capability record is the template's own path at the record's
+  // arguments, one key read at many instantiations.
   private def levels(path: MemberPath): Levels =
     path.template.fold[Levels](Right(Nil)) { (own, env) =>
       linearizations.getOrElseUpdate(
-        (path.key, own.id), {
+        (path.key, own.id, env), {
           val steps = InheritedScopes.walk(List(own -> env), resolver, own)
           steps.collectFirst { case Left(reason) => reason }.toLeft {
             (own -> env) :: steps.collect { case Right(step) => step.declared -> step.env }

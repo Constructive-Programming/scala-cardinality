@@ -18,4 +18,7 @@ final private[cardinality] case class MemberSlot(
 
   def receiver: Option[Frame] = Option.when(template.id != scope.id)(template)
 
+  /** A member's identity as its template's path spells it: `Owner.name`. */
+  def member(name: String): String = s"${template.path.mkString(".")}.$name"
+
 }

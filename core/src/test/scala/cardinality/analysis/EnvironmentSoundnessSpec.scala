@@ -493,17 +493,17 @@ class EnvironmentSoundnessSpec extends Specification {
   }
 
   // A covariant result refinement with equal parameters is an override (3.9.0 compiles it): the
-  // template's own `get(a: A): Option[Nothing]` is the member, not an overload identity question;
-  // what remains is the solver's limit on eliminating it (true count 1: None). Met only between
-  // two inherited levels, which is more derived is not read: refused.
+  // template's own `get(a: A): Option[Nothing]` is the member, not an overload identity question.
+  // Eliminating `get(a)` (capabilities C10): `None` leaves `None` and `Some(a)`, `Some(_: Nothing)`
+  // is absurd (1) — 2. Met only between two inherited levels, which is more derived is not read:
+  // refused.
   def refinedResult = {
     val found = counts("Refined.scala" -> """trait P3[A] { def get(a: A): Option[A] }
       |trait Q3[A] extends P3[A] { def get(a: A): Option[Nothing]; def other(a: A): Option[A] = ??? }
       |trait R3[A] extends Q3[A] { def again(a: A): Option[A] = ??? }
       |""".stripMargin)
-    (found("Q3.other") === Count.Unresolved(
-      List("Elimination of an opaque sum-producing callable is unsupported")
-    )).and(refused(found("R3.again"), "refined inherited declaration not resolved: get"))
+    (found("Q3.other") === Count.Finite(2))
+      .and(refused(found("R3.again"), "refined inherited declaration not resolved: get"))
   }
 
   // `Outer.this.value` and `Inner.this.value` are two receivers' members: 2.

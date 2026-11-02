@@ -22,7 +22,7 @@ class EnvironmentCompletenessSpec extends Specification {
       a constructor's value spaces ignore outside modules            $constructorPositions
       an opaque type outside its scope stays unread                  $opaqueOutside
       a class with a private constructor stays unread                $privateConstructor
-      an opaque callable's Boolean result stays unread               $opaqueCallable
+      a supplied callable's Boolean result is eliminated             $opaqueCallable
       a final template's member is its own concrete code             $finalMembers
       an open class's member is a capability (X5)                    $overridableMembers
     Exports define members
@@ -126,14 +126,13 @@ class EnvironmentCompletenessSpec extends Specification {
       .and(refused(found("f"), "abstract type or method-valued representation: Secret"))
   }
 
+  // `g(a)` is eliminated once (capabilities C10) and the helper `M.not` adds no new function of it:
+  // true, false, g(a), !g(a) — 4.
   def opaqueCallable =
-    refused(
-      count(
-        "object M { def not(b: Boolean): Boolean = !b }\ndef f[A](g: A => Boolean, a: A): Boolean = g(a)",
-        "f"
-      ),
-      "Elimination of an opaque sum-producing callable is unsupported"
-    )
+    count(
+      "object M { def not(b: Boolean): Boolean = !b }\ndef f[A](g: A => Boolean, a: A): Boolean = g(a)",
+      "f"
+    ) === Count.Finite(4)
 
   // Cross-check X5 (fixture xprobe/ow): `FBox` is final, so `other` is its own concrete code, which
   // computes `b` from what `target` already has: a or b (2).

@@ -75,7 +75,9 @@ class OverrideIdentityImplementationSpec extends Specification {
     """) === Count.Finite(1)
 
   // An open template: in a final one (an object) a same-shaped member implements or overloads the
-  // declaration, which is then never a capability, and the identity is not asked.
+  // declaration, which is then never a capability, and the identity is not asked. Whether or not
+  // the tuple member overrides `Base.get`, an inherited `get[X, A](fa: Pair[X, A]): A` is
+  // `∀X A. X → A → A ≅ 1` (capabilities PB1: the known projection), so it adds nothing: `fa._2` — 1.
   def nominal =
     count("""
       case class Pair[X,A](x:X,a:A)
@@ -83,7 +85,7 @@ class OverrideIdentityImplementationSpec extends Specification {
       abstract class Instance extends Base[Pair] {
         def get[X,A](fa:(X,A)):A = fa._2
       }
-    """) must beLike { case Count.Unresolved(_) => ok }
+    """) === Count.Finite(1)
 
   // In an object (a final template) the member implemented with `Pair[X,A]` is that body, not a
   // capability: `fa.a` is the only `A` — 1. (`(X,A)` there would leave `Base.get` unimplemented,
@@ -109,14 +111,13 @@ class OverrideIdentityImplementationSpec extends Specification {
         reasons === List("declaration not supplied: external.Foreign (named import Foreign)")
     }
 
+  // The method binder `A` of `other` is its own, not the class's: `other: ∀A. A` is the empty type
+  // (capabilities PB1), so the environment is vacuous — 1.
   def foreignBinder =
     count("""
       trait Base[A] { def other[A]():A }
       abstract class Instance[A] extends Base[A] { def get(a:A):A = a }
-    """) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("polymorphic capability binder")) must beTrue
-    }
+    """) === Count.Finite(1)
 
   def overload =
     count("""

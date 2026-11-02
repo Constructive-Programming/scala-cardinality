@@ -64,8 +64,10 @@ class SequenceEliminationSpec extends Specification {
 
   // eo's `MultiFocusFromList`: with `F` rigid (hkt R1) nothing builds an `F[A]` from the empty list,
   // so no total implementation exists: 0. The concrete sibling delegates to the target and is not
-  // read as a second producer of it (the owner-reviewed reading of `CanPlace.place`); an abstract
-  // polymorphic sibling is a capability not read yet, so its twin stays `?`.
+  // read as a second producer of it (the owner-reviewed reading of `CanPlace.place`). In the twin,
+  // the polymorphic sibling `seed[A]: F[A]` is instantiated at the goal (capabilities PB2): every
+  // length has the one implementation `seed`, which sequence elimination does not prove for all
+  // lengths (`F[A]` is no structural singleton), so it stays `?`.
   def rigidGoal = {
     val code = """trait FromList[F[_]]:
       |  def fromList[A](xs: List[A]): F[A]
@@ -76,7 +78,9 @@ class SequenceEliminationSpec extends Specification {
       |  def seed[A]: F[A]
       |""".stripMargin
     (entry(code, "FromList.fromList") === Count.Finite(0))
-      .and(refused(entry(code, "Seeded.fromList"), "polymorphic capability binder: A"))
+      .and(
+        refused(entry(code, "Seeded.fromList"), "sequence elimination: goal unique up to length")
+      )
   }
 
   // No A at length 0, so no total implementation: from a List, from varargs, from a Seq that may

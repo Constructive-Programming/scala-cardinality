@@ -360,6 +360,8 @@ object MethodAnalysis {
 
     def fixedTemplate(frame: Frame): Boolean = FinalImplementations.fixed(frame, indexer)
 
+    def baseClasses(frame: Frame): (Set[String], Boolean) = inheritedMembers.baseClasses(frame)
+
     def outsideParent(init: Init, from: Frame): Option[InheritedTypeMembers.Outside] =
       inheritedMembers.outside(init, from)
 

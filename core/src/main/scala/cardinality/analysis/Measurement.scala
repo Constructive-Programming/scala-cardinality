@@ -3,13 +3,12 @@ package cardinality.analysis
 import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.capability.ReceiverCapabilities
-import cardinality.analysis.inhabitation.*
+import cardinality.analysis.capability.{DeferredInline, ReceiverCapabilities}
+import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
 import cardinality.types.{Spelling, TypeApplications, TypeName}
 
-import ContextualEvidence.Nominal
 import MemberSyntax.Observation
 import Inhabitation.{Binding, Count, Shape}
 import MethodAnalysis.{sequence, Entry, Frame, Resolved, Target}
@@ -372,13 +371,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     contexts.of(_).toOption.toList.flatten
   )
 
-  private def identify(tpe: Type, owner: Frame, env: Map[String, Resolved]): Nominal = {
-    val context = readingContext(owner, env)
-    Nominal(
-      TypeIdentities.of(tpe, context, resolver),
-      TypeIdentities.finalClass(tpe, context, resolver)
-    )
-  }
+  private def identify(tpe: Type, owner: Frame, env: Map[String, Resolved]) =
+    TypeIdentities.nominal(tpe, readingContext(owner, env), resolver)
 
   private def bind(name: String, binding: Binding, owner: Frame): Unit = {
     values.update(name, binding)
@@ -399,7 +393,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     bindSlot(slot, member, member, shape)
 
   private def bindSlot(slot: MemberSlot, member: String, key: String, shape: Shape): Unit = {
-    val binding = Binding(slot.id(key), shape)
+    val binding = Binding(slot.id(key), shape, Some(member))
     bind(key, binding, slot.scope)
     if (slot.concrete) concreteMembers += binding.id
     if (qualifiedValues.contains(binding.id))
@@ -410,13 +404,21 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // stable value's type-only refinement pins members of its path, which its path's reading follows:
   // the value itself is a value of the refined type.
   private def add(name: String, tpe: Option[Type], slot: MemberSlot, reading: Frame): Unit =
-    tpe
-      .toRight(s"missing type of accessible value: $name")
-      .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
-      .flatMap(resolveIn(_, reading, slot.env, slot.receiver)) match {
+    readValue(name, tpe, slot, reading) match {
       case Left(reason) => errors += reason
       case Right(shape) => bindSlot(slot, name, shape)
     }
+
+  private def readValue(
+      name: String,
+      tpe: Option[Type],
+      slot: MemberSlot,
+      reading: Frame
+  ): Resolved =
+    tpe
+      .toRight(s"missing type of accessible value: $name")
+      .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
+      .flatMap(resolveIn(_, reading, slot.env, slot.receiver))
 
   // A scope's declarations by kind: a declaration binds a slot, a concrete value or variable is
   // read through `Aliases`, and an import only matters where it may rebind a builtin name. The
@@ -440,7 +442,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   ): Unit =
     declaration.pats.foreach { pat =>
       TypeApplications.patVarName.getOption(pat) match {
-        case Some(name) if implemented(name) => ()
+        case Some(name) if implemented(name)                        => ()
+        case Some(name) if MemberSyntax.deferredInline(declaration) =>
+          val shape = readValue(name, Some(declaration.decltpe), slot, slot.scope)
+          errors ++= DeferredInline.read(shape, slot.member(name), target.tree, resolver)
         case Some(name) => add(name, Some(declaration.decltpe), slot, slot.scope)
         case None       => errors += "destructured capture not resolved"
       }
@@ -448,19 +453,21 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
 
   // A declaration (or an open member) is not an implementation: someone else supplies it, so its
   // result is a value this scope has, and a callable one is a callable it can apply. Its *type* is
-  // what the count works with: `def modify(f: A => B): S => T` applies like any other callable,
-  // while `def get[M](): M` reads as unresolved, since its own binder M is not a shape this scope
-  // has. A member that only ever builds Unit is irrelevant (capabilities C7, the exact case).
+  // what the count works with: `def modify(f: A => B): S => T` applies like any other callable, and
+  // `def get[M](): M` is read through its own binder (`PolymorphicMembers`, capabilities C8). A
+  // member that only ever builds Unit is irrelevant (capabilities C7, the exact case).
   private def addMember(slot: MemberSlot, member: Stat, name: String): Unit =
-    MemberSyntax.observation(member, name) match {
+    MemberSyntax.observation(member, name, slot.member(name)) match {
       case Left(reason)                                 => errors += reason
       case Right(Observation.Value(tpe))                => add(name, Some(tpe), slot, slot.scope)
       case Right(Observation.Applied(callable, result)) =>
         val env = slot.env ++ callable.binders
         val read = resolveIn(_, slot.scope, env, slot.receiver)
-        read(callable.tpe) match {
-          case Left(_) if MemberSyntax.buildsUnit(result, read) => ()
-          case Left(reason)                                     => errors += reason
+        read(callable.tpe).flatMap(callable.close) match {
+          case Left(_) if MemberSyntax.buildsUnit(result, read)    => ()
+          case Left(reason)                                        => errors += reason
+          case Right(shape) if MemberSyntax.deferredInline(member) =>
+            errors ++= DeferredInline.refusal(shape, slot.member(name), Some(target.tree), resolver)
           case Right(shape) => bindMember(slot, name, member, shape)
         }
     }

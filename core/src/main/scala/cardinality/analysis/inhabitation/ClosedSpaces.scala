@@ -18,9 +18,9 @@ private[cardinality] object ClosedSpaces {
 
   def closed(shape: Shape): Boolean =
     !Shape.exists(shape) {
-      case Singleton(id, None) if LiteralTypes.literal(id) => false
-      case _: Singleton | _: Evidence | _: Existential     => true
-      case other                                           => atomic(other)
+      case Singleton(id, None) if LiteralTypes.literal(id)       => false
+      case _: Singleton | _: Evidence | _: Existential | _: Poly => true
+      case other                                                 => atomic(other)
     }
 
   /** The method-side value space of a closed shape. Callers test `closed` first: an open shape has

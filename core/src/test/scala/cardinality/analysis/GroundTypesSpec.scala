@@ -45,7 +45,7 @@ class GroundTypesSpec extends Specification {
       a mixed position names its own reason                        $mixed
       an exact symbolic space beside an estimate bound is no number $estimateBeside
     Boundary
-      a ground-result callable on an atom stays unresolved         $groundCallable
+      a ground-result callable on an atom is split by its literals $groundCallable
       a closed Int callable is never ω                             $closedCallable
       a var reads as the value it was initialized with             $mutable
       an export binds a ground name; a given import binds none     $exported
@@ -265,14 +265,19 @@ class GroundTypesSpec extends Specification {
       .and(count(nat + "case class K(f: (Int => Int) => Int, n: Nat)", "K.<init>").render === "ω")
   }
 
-  def groundCallable = {
-    val c = count("def f[A](g: A => Int, a: A): Int = g(a)")
-    unresolvedOn(c, "transparent ground result")
+  // `g(a)` is eliminated once by its literals (capabilities C10): an Int-valued function of one Int,
+  // (2^32)^(2^32) = 2^(2^37). With `h: Int => A` the arguments of `g` include `h(n)` for every
+  // literal `n`, an argument space this does not enumerate. A String result splits into countably
+  // many literals, and the definable functions of one String are countably many (register D2): ω.
+  def groundCallable =
+    (count("def f[A](g: A => Int, a: A): Int = g(a)") === Count.Symbolic(pow(2, pow(2, 37))))
       .and(
-        unresolvedOn(count("def f[A](g: A => Int, h: Int => A, a: A): Int = g(a)"), "ground result")
+        unresolvedOn(
+          count("def f[A](g: A => Int, h: Int => A, a: A): Int = g(a)"),
+          "sum elimination over an argument space not enumerated: g"
+        )
       )
-      .and(unresolvedOn(count("def f[A](a: A, h: A => String): String = h(a)"), "ground result"))
-  }
+      .and(count("def f[A](a: A, h: A => String): String = h(a)") === Count.Countable)
 
   def closedCallable =
     // Finite — the functionals of (g, x) — never the ω a producer cycle would claim.

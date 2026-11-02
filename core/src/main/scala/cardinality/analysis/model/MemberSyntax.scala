@@ -3,7 +3,7 @@ package cardinality.analysis.model
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Resolved
-import cardinality.analysis.inhabitation.Inhabitation
+import cardinality.analysis.inhabitation.{Inhabitation, PolymorphicMembers}
 import cardinality.types.TypeApplications
 
 /** What a member's syntax spells — its clauses, the names it defines, the callable it is — read one
@@ -11,10 +11,18 @@ import cardinality.types.TypeApplications
   */
 private[cardinality] object MemberSyntax {
 
-  /** A member's callable type, its parameter types and its own binders, each a capability's
-    * polymorphic binder (no shape this scope has).
+  /** A member's callable type, its identity and its own type parameters, each read as the member's
+    * own atom (`binders`): `close` reads them once the type is (capabilities C8).
     */
-  final case class Callable(tpe: Type, parameters: List[Type], binders: Map[String, Resolved])
+  final case class Callable(tpe: Type, member: String, typeParameters: List[Type.Param]) {
+
+    lazy val binders: Map[String, Resolved] =
+      typeParameters.map(p => p.name.value -> PolymorphicMembers.binder(member, p)).toMap
+
+    def close(shape: Inhabitation.Shape): Resolved =
+      PolymorphicMembers.close(member, typeParameters, shape)
+
+  }
 
   def groups(stat: Tree): List[Member.ParamClauseGroup] = stat match {
     case d: Decl.Def        => d.paramClauseGroups
@@ -118,9 +126,10 @@ private[cardinality] object MemberSyntax {
   }
 
   /** How a member is observed, or why its type is unknown: a method or a given with parameters is a
-    * callable, a parameterless given or a value its declared type.
+    * callable, a parameterless given or a value its declared type. `name` is how a reason spells
+    * the member; `member` is its identity, which names its binders (`Owner.name`).
     */
-  def observation(stat: Tree, name: String): Either[String, Observation] = {
+  def observation(stat: Tree, name: String, member: String): Either[String, Observation] = {
     val (applied, value) = stat match {
       case d: Decl.Def                                        => (Some(d.decltpe), None)
       case d: Defn.Def                                        => (d.decltpe, None)
@@ -133,7 +142,7 @@ private[cardinality] object MemberSyntax {
       case _                                                  => (None, None)
     }
     applied
-      .map(res => callable(name, groups(stat), res).map(Observation.Applied(_, res)))
+      .map(res => callable(name, member, groups(stat), res).map(Observation.Applied(_, res)))
       .orElse(value.map(tpe => Right(Observation.Value(tpe))))
       .getOrElse(Left(s"overridable member's result type is inferred: $name"))
   }
@@ -152,25 +161,38 @@ private[cardinality] object MemberSyntax {
     case _                                              => false
   }
 
+  /** An abstract `inline` (or `transparent inline`) member: a deferred inline method or value. */
+  def deferredInline(stat: Tree): Boolean =
+    (stat.is[Decl.Def] || stat.is[Decl.Val]) && inlined(stat)
+
+  /** Whether a definition is `inline`: its body is expanded at each call site. */
+  def inlined(tree: Tree): Boolean = modifiers(tree).exists(_.is[Mod.Inline])
+
+  private def modifiers(tree: Tree): List[Mod] = tree match {
+    case d: Stat.WithMods => d.mods
+    case _                => Nil
+  }
+
   /** A modifier that hides a declaration from some scope. */
   def restricted(mod: Mod): Boolean = mod.is[Mod.Private] || mod.is[Mod.Protected]
 
-  /** A member's callable: its uncurried parameter types to its result, or why it has none. */
-  def callable(
+  // A member's callable: its uncurried parameter types to its result, or why it has none.
+  private def callable(
       name: String,
+      member: String,
       groups: List[Member.ParamClauseGroup],
       result: Type
   ): Either[String, Callable] = {
     val params = parameters(groups)
     if (!params.forall(_.decltpe.isDefined)) Left(s"missing callable parameter type: $name")
-    else {
-      val tpes = params.flatMap(_.decltpe)
-      val binders = groups
-        .flatMap(_.tparamClause.values)
-        .map(p => p.name.value -> Left(s"polymorphic capability binder: ${p.name.value}"))
-        .toMap
-      Right(Callable(Type.Function(Type.FuncParamClause(tpes), result), tpes, binders))
-    }
+    else
+      Right(
+        Callable(
+          Type.Function(Type.FuncParamClause(params.flatMap(_.decltpe)), result),
+          member,
+          groups.flatMap(_.tparamClause.values)
+        )
+      )
   }
 
 }

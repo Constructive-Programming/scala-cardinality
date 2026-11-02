@@ -89,6 +89,14 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   /** The parents of a template's supplied ancestry that are outside the source set, as spelled. */
   def unsuppliedAncestors(frame: Frame): List[String] = ancestryOf(frame).unsupplied
 
+  /** A template's supplied base classes (itself and its supplied ancestors), and whether they are
+    * all of them: no parent is left unread.
+    */
+  def baseClasses(frame: Frame): (Set[String], Boolean) = {
+    val ancestry = ancestryOf(frame)
+    (ancestry.classes + frame.id, ancestry.unread.isEmpty)
+  }
+
   // A body declares a name by a declaration or by an export clause, which defines an alias member
   // — one an exported object inherits included.
   private def declares(frame: Frame, name: String): Boolean =
@@ -251,7 +259,10 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
     ancestries.get(frame.id) match {
       case Some(known) => known
       case None        =>
-        ancestries.update(frame.id, Ancestry(Set.empty, Set.empty, Set.empty, Nil, Nil, Nil))
+        ancestries.update(
+          frame.id,
+          Ancestry(Set.empty, Set.empty, Set.empty, Nil, Nil, Nil, Set.empty)
+        )
         val found = InheritedScopes
           .breadthFirst(frame.parents.map(frame -> _), Set.empty[String]) {
             case ((from, init), seen) =>
@@ -285,7 +296,8 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
           declared.flatMap(InheritedTerms.values).toSet,
           spelled,
           channels,
-          declared.filter(lookup.exporting)
+          declared.filter(lookup.exporting),
+          declared.map(_.id).toSet
         )
         ancestries.update(frame.id, ancestry)
         ancestry
@@ -361,8 +373,9 @@ private[cardinality] object InheritedTypeMembers {
   /** What a template inherits: the type names, objects and values its supplied ancestors declare,
     * its ancestors outside the source set (as spelled), whose declarations are unknown, every
     * channel through which it may inherit any name this reading does not know — such an ancestor,
-    * or a marker parent another declaration may stand behind — and the supplied ancestors whose
-    * export clauses define members, which this reading does not follow for the names they define.
+    * or a marker parent another declaration may stand behind — the supplied ancestors whose export
+    * clauses define members, which this reading does not follow for the names they define, and the
+    * frames of the supplied ancestors.
     */
   final case class Ancestry(
       names: Set[String],
@@ -370,7 +383,8 @@ private[cardinality] object InheritedTypeMembers {
       values: Set[String],
       unsupplied: List[String],
       unread: List[String],
-      exporters: List[Frame]
+      exporters: List[Frame],
+      classes: Set[String]
   )
 
   /** A parent clause outside the source set: the path it names (as an import binds it, or as
