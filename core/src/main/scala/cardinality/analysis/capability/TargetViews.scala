@@ -3,7 +3,7 @@ package cardinality.analysis.capability
 import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
+import cardinality.analysis.model.{MemberSyntax, ScopeTerms, UniversalMembers}
 
 /** Which concrete members of a receiver are views of the measured declaration (capabilities C6).
   *
@@ -432,17 +432,7 @@ private[cardinality] object TargetViews {
   private val universal: Set[String] = Set("==", "!=", "eq", "ne")
 
   /** `Any`'s members: every value has them, so selecting one evaluates its receiver. */
-  val anyMembers: Set[String] = Set(
-    "==",
-    "!=",
-    "equals",
-    "hashCode",
-    "toString",
-    "##",
-    "getClass",
-    "isInstanceOf",
-    "asInstanceOf"
-  )
+  val anyMembers: Set[String] = UniversalMembers.any
 
   /** The type a lambda's body has when the lambda is returned at `expected`: `Some(None)` for an
     * inferred type, `None` when the lambda is converted to a type that is no function — a SAM or

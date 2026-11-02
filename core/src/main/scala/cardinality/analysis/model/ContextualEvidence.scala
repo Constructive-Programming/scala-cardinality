@@ -63,14 +63,14 @@ private[cardinality] object ContextualEvidence {
         case List(single) if g.paramClauseGroups.isEmpty => Some(single.tpe)
         case _                                           => None
       })
-    case v: Defn.Val if implicitly(v.mods) => Some(v.decltpe)
-    case v: Decl.Val if implicitly(v.mods) => Some(Some(v.decltpe))
-    case d: Defn.Def if implicitly(d.mods) =>
+    case v: Defn.Val if MemberSyntax.implicitModifier(v.mods) => Some(v.decltpe)
+    case v: Decl.Val if MemberSyntax.implicitModifier(v.mods) => Some(Some(v.decltpe))
+    case d: Defn.Def if MemberSyntax.implicitModifier(d.mods) =>
       Some(d.decltpe.filter(_ => d.paramClauseGroups.isEmpty))
-    case d: Decl.Def if implicitly(d.mods) =>
+    case d: Decl.Def if MemberSyntax.implicitModifier(d.mods) =>
       Some(Option.when(d.paramClauseGroups.isEmpty)(d.decltpe))
-    case o: Defn.Object if implicitly(o.mods) => Some(None)
-    case _                                    => None
+    case o: Defn.Object if MemberSyntax.implicitModifier(o.mods) => Some(None)
+    case _                                                       => None
   }
 
   /** An import or export that may bring a contextual value: every selector but an unimport — a
@@ -85,8 +85,6 @@ private[cardinality] object ContextualEvidence {
 
   private def bringsAny(importer: Importer): Boolean =
     importer.importees.exists(!_.is[Importee.Unimport])
-
-  private def implicitly(mods: List[Mod]): Boolean = mods.exists(_.is[Mod.Implicit])
 
   /** A diagnostic per anonymous candidate a search may not select. An unread type that is already a
     * diagnostic blocks the count by its own reason, so it is not repeated as an overlap.

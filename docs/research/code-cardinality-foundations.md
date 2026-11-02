@@ -358,11 +358,11 @@ keeps `Any` as everything (ε₀); constructor positions are read through the me
 - **Executable**: `TopTypesUnionSpec`.
 
 **Boundary.** Only inside the stated model: an idealized terminal top type is not unrestricted
-Scala `Any`, and the exclusions above are what make it terminal. A `transparent inline` result that
-names a top type, a function type or a class a subclass may extend stays `?`: the call site
-observes the expansion's type (Scala 3.9.0 compiles `mk(true).n` against a declared `Foo` whose
-expansion is `new Sub(true)` — **compiler fixture**); so does a top-typed parameter of an `inline`
-method, which an `inline match` may dispatch on. A clause that may rebind a builtin name keeps its
+Scala `Any`, and the exclusions above are what make it terminal. A `transparent inline` result
+whose declared type is not a singleton stays `?`, even a one-valued one: the call site observes the
+expansion's type (Scala 3.9.0 compiles `mk(true).n` against a declared `Foo` whose expansion is
+`new Sub(true)`, and gives a returned stable path its singleton type — **compiler fixtures**, D27);
+so does a top-typed parameter of an `inline` method, which an `inline match` may dispatch on. A clause that may rebind a builtin name keeps its
 reason, and so does a channel name lookup does not walk that reaches declarations the sources do
 not supply (a self type, the parent of a wildcard-imported or package object, a wildcard namespace,
 the outer clause of a chained package no supplied unit declares into): there every builtin and
@@ -886,32 +886,23 @@ refuses nested definitions with its reason. See [syntax-features.md](syntax-feat
 
 ## D23. Compile-time and type-revealing evidence is not parametric
 
-**Decision.** An `inline` method, and every method defined inside one, is refused unless its goal
-has one value (D12): an expansion may inspect its call site's argument types, constants, type
-arguments and givens. `ClassTag`, `Manifest`, `TypeTest`, `Typeable` and every `Mirror` are
-excluded from the stdlib model as type-revealing evidence, as `scala.quoted` is as compile-time
-reflection.
+**Decision.** `ClassTag`, `Manifest`, `TypeTest`, `Typeable` and every `Mirror` are excluded from
+the stdlib model as type-revealing evidence, as `scala.quoted` is as compile-time reflection. An
+`inline` method is refused only when its body uses a compile-time operation (D27, which revises
+the refusal of every inline method this entry first recorded).
 
 **Evidence.**
 
-- Scala 3 reference, *Inline*, *Compile-time operations*, *Macros* ([17]) — **inspected (full
-  text)**: "The scrutinee `x` is examined statically and the inline match is reduced
-  accordingly"; `erasedValue`, `summonFrom`, quoted type patterns.
 - Scala 2.13 library, `ClassTag` ([11]) — **inspected (full text)**: "can serve as an extractor
   that matches only objects of type `T`"; *TypeTest* ([25]) and `scala.deriving.Mirror` ([14]) —
   **inspected**.
-- **Compiler fixture** (Scala 3.9.0, `il`): `byVal(1)` is 10 and `byVal(a)` 20 with `a == 1`;
-  `pick[Int]` and `pick[String]` choose different arguments; `summonInline` applies a call-site
-  given. Fixture a5-fix1 `r3`: a local definition's `summonFrom` prints 1, and 7 under a call-site
-  given.
 - Related work, **metadata-verified**: Washburn & Weirich 2005 (LICS; the abstract reports that
   run-time type analysis breaks standard parametricity); Neis, Dreyer & Rossberg 2009 (ICFP; the
   abstract states that "type abstraction and intensional type analysis are features seemingly at
-  odds"); Stucki, Brachthäuser & Odersky 2021 (GPCE), background.
-- **Executable**: `SyntaxFeaturesSpec`, `TopTypesUnionSpec.inlineTop`.
+  odds").
+- **Executable**: `SyntaxFeaturesSpec`.
 
-**Boundary.** The refusal does not read the body, so it also covers inline methods that inspect
-nothing. `ValueOf` is not excluded (it supplies a value). See
+**Boundary.** `ValueOf` is not excluded (it supplies a value). See
 [syntax-features.md](syntax-features.md).
 
 ## D24. A polymorphic capability member is read up to its free theorems
@@ -1150,6 +1141,115 @@ both readings predate D26 and belong to D15. Open (owner): a member nothing over
 implements a declaration of an empty type (`object OQ extends P { def k(x: Int): Nothing = ??? }`,
 eo's `PSVec.Empty.apply`) is code no pure program contains; its template is read as built (`OQ.f`
 4) while its parent's record has no instance (1).
+
+## D27. An inline method free of compile-time operations is a method
+
+**Decision** (owner decision D-inline). An `inline def` counts exactly as a `def` when its body —
+its parameter defaults, its nested definitions, and, transitively, every inline method it calls —
+uses no `inline if`, no `inline match`, no `scala.compiletime` member (however its name is bound),
+no quote or splice. `transparent` and `inline` parameters do not disqualify it. An `inline`
+parameter is its argument substituted by name, which with no side effects (D26) has its value.
+A2's rule X still refuses a `transparent` result callers may see narrowed, which is every declared
+result but a singleton type. Every name the body calls must resolve, as Scala binds it, to:
+
+- a supplied method that is not inline,
+- a supplied inline method that passes, or
+- a member of the library table (methods the compiler reads as regular).
+
+Refused besides, because each reaches the call site without a compile-time operation in the
+source:
+
+- a member an expansion may select on a narrower class: one a subclass may override, selected on
+  a parameter of the expanded method, on `this` or `C.this` of a template a class may extend, on
+  a lambda's parameter, or on a field or result selected on one of those (every function type's
+  `apply` included); an argument clause a callee does not take selects `apply` on its result, which
+  is checked the same way (an unread result refuses);
+- a runtime class an expansion reifies from a type variable: a type test or `classOf` whose
+  erased class depends on one, `Array[A]` included;
+- a contextual clause left to implicit search — a callee's, its extension group's, a context
+  bound, an eta-expanded method's, a local method's or given's — a value of a context function
+  type read without an explicit `using`, `summon` and `implicitly`;
+- an applied selection whose name an inline or contextual extension the body may find also
+  declares, or any applied selection when a conversion the body may find exists;
+- a body when an inline conversion the body may find exists, or when a channel outside the sources
+  is open where the method is written, unless it returns a parameter of the result's own type.
+
+Definitions written in the body are read as supplied ones, under their own frames: a local
+method's or given's clauses, defaults and declared types; a local object's members; `this` and the
+inherited names of an anonymous class, a local class or a local given instance (their template,
+not the enclosing one). A local type whose name the reading resolves outside the body refuses.
+Abstract inline declarations and their implementations are refused (no body to check). A
+definition nested in a refused inline method stays refused. With those refused, the body is at
+every call site the same function of its signature's values as the method's own body, up to the
+universal members and reflection the model excludes (D12): boxing lets an expansion read
+`getClass` and `==` on a type variable's values differently from the `def`.
+
+**Evidence.**
+
+- Scala 3 reference, *Inline*, *Compile-time operations*, *Macros* ([17]) — **inspected (full
+  text)**: the inline match "is examined statically and … reduced accordingly"; `erasedValue`,
+  `constValue`, `summonFrom`, `summonInline` and quoted patterns read the call site; inline methods
+  are effectively final. The decision rests on this enumeration plus the channels the fixtures
+  below found (an inline override of a non-inline member among them): nothing else in a body is
+  resolved at the call site.
+- Scala 3 draft specification, ch. 2 ([28]) — **inspected (full text)**: name binding and
+  precedence, which the resolution follows (D11).
+- **Compiler fixtures** (Scala 3.9.0):
+  - a6 `b1`: an overload picked in the body is the same at every call site, and a plain `if` is a
+    function of the value; `isInstanceOf[A]` is reified in an expansion; an inline given the
+    body's search chose is expanded at the call site.
+  - a6 `r`: a by-value parameter's constant reaches a callee's `inline match`; a passing-looking
+    `wrapper` dispatches through its `summonFrom` leaf; renamed, qualified, rooted, aliased and
+    relative spellings of `constValue` compile.
+  - a6 `fb`: an inline extension answers `r.m(5)` beside an inapplicable member `m(String)`.
+  - a6 `inventory`: the compiler, reading scala-library's TASTy, finds no inline member in the
+    table's classes and objects, and `Predef`'s and `Tuple`'s inline members, which are left out.
+  - review-A6 `h3`, `h7`, `h8`, `h9`: an inline override is expanded when the body selects the
+    member on a parameter or `this` (5, then 9 under a call-site `given Int = 9`; the `def` twins
+    stay 5), eo's `BijectionIso.modify`, `SimpleLens.transfer` and `JsoniterPrism.scanRange` shapes
+    included; a6-fix1 `d1` maps the receivers re-selected (parameters, `this`, members and results
+    selected on them, a lambda applied in place) and those not (a local `val`, an ascription).
+  - review-A6 `h4`, `h7`: an extension group's `using` clause, a context function read as its
+    result and an eta-expanded method's `using` clause each expand an inline given at the call
+    site. `h5`: `isInstanceOf[Array[A]]` reads `A`. `h10`, a6-fix1b `ex2`: an inline conversion
+    reached through a `given … with`, an alias of `Conversion`, an export or a given local to the
+    body is expanded. `h1`: boxing (`getClass`, `NaN == NaN`) differs between expansion and `def`.
+  - review-A6 r2 (`l4`–`l6`, `m1`–`m3`, `o1`, `a1`, `c2`; a6-fix2 `locals`, `clauses`,
+    `templates`, `reified`, `aliases`): a local method's `using` clause, context bound or default,
+    the inline `apply` a further clause selects on a callee's result, `Outer.this.f` re-selected on
+    a subclass, `this.h` in an anonymous or local class or a local given, `classOf[Array[A]]`, and
+    a conversion nine aliases deep each make an expansion read the call site (5, then 9 under a
+    call-site `given Int = 9`; `intArr[Int]` true, `intArr[String]` false); the `def` twins do not.
+  - a6-land `dip`: an expansion of `t.f` calls the static type's implementation of a deferred
+    inline `f` (`g(new A)` true, `g(new B)` false; `g` at a `T` does not compile).
+  - review-A6 `h11`–`h14`, a6-fix1 `t1`, a6-fix1b `dv`: a transparent expansion is typed by what
+    it returns — a sealed case, `None`, a literal, an opaque representation, a returned stable
+    path's singleton type — and an overload tells it from an equal-valued body ascribed to the
+    declared result.
+- Scala 3 reference, *Implicit Conversions* — **classical** (not re-verified here): a conversion is
+  inserted only where an expression's type does not conform, a member is missing, or no member
+  applies.
+- Related work: Stucki, Biboudis & Odersky 2018; Stucki, Brachthäuser & Odersky 2021 (GPCE) —
+  **metadata-verified**, background.
+- **Executable**: `InlineMethodsSpec`, `InlineScopesSpec`, `TransparentInlineSpec`,
+  `SyntaxFeaturesSpec`.
+
+**Boundary.** An extension or conversion in the companion of a type outside the sources, or brought
+by a named import of a declaration outside them, selected because a member does not apply, is not
+seen (the view rule's assumption, D20); likewise a given of the sources whose class is declared
+outside them is not read as a conversion (its parents are not supplied). Which conversions and
+extensions the body may find is over-approximated, never narrowed: every scope Scala may search,
+an import matched by its last segment; aliases and export chains are followed to their end. The
+library table is what the check needs, not the library:
+any member outside it refuses. Untyped lambda parameters, pattern variables and most library
+results are not typed, so a selection on them refuses. A member selected on a parameter of a
+sealed type is refused though every subclass is supplied, and an implementation of an abstract
+inline declaration is refused: both conservative. A local class, trait or enum is read through its
+companion and its own body only, so a value of its type has no members the reading resolves. A
+passing body is then read by the solver exactly as its `def` twin, polymorphic members (D24) and
+sum elimination (D25) included; but a receiver or record holding a deferred inline member keeps
+D24's refusal in an inline target even when the body never calls the member (conservative). See
+[syntax-features.md](syntax-features.md).
 
 ## How to extend this register
 

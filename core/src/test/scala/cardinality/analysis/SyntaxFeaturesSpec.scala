@@ -43,10 +43,10 @@ class SyntaxFeaturesSpec extends Specification {
       a call returning a context function is applied                 $contextCalls
       an ascription to a context function is applied                 $contextAscription
     Compile-time and type-revealing evidence is refused
-      an inline method's expansion reads its call site               $inlineMethods
+      an inline method counts unless its expansion reads its call    $inlineMethods
       a definition inside an inline method is expanded with it       $inlineNested
       a one-valued inline goal keeps its one implementation          $inlineTerminal
-      a transparent named tuple names each field's class             $inlineNamedTuple
+      a transparent named tuple is refused unless it is a singleton  $inlineNamedTuple
       runtime type evidence reveals its type argument                $revealingEvidence
       quoted code is compile-time reflection                         $quoted
   """
@@ -475,19 +475,27 @@ class SyntaxFeaturesSpec extends Specification {
       .and(found("I.plain.h") === Count.Finite(4))
   }
 
-  // Fixture il: `byVal(1)` is 10 and `byVal(a)` 20 with a == 1; `pick[Int]` and `pick[String]`
-  // choose different arguments. The parametric 2^(2^37) and 2 are not their counts.
+  // Fixture il: `byVal(1)` is 10 and `byVal(a)` 20 with a == 1 under `inline x match`; `pick[Int]`
+  // and `pick[String]` choose different arguments under `inline erasedValue[A] match`: refused.
+  // The same signatures with bodies free of compile-time operations count as methods (register
+  // D27): every Int => Int, 2^(2^37); x or y, 2. A transparent `None` is typed `None.type` where it
+  // is called (fixture review-A6 h11): rule X refuses it.
   def inlineMethods = {
-    val inline = "inline method: each expansion may inspect its call site"
-    val found = rows("""object T {
-      |  inline def byVal(x: Int): Int = x
-      |  inline def pick[A](x: A, y: A): A = x
+    val inline = "inline method: uses inline match"
+    val found = rows("""import scala.compiletime.erasedValue
+      |object T {
+      |  inline def byVal(x: Int): Int = inline x match { case 1 => 10; case _ => 20 }
+      |  inline def pick[A](x: A, y: A): A = inline erasedValue[A] match { case _: Int => y; case _ => x }
+      |  inline def plainVal(x: Int): Int = x
+      |  inline def plainPick[A](x: A, y: A): A = x
       |  transparent inline def closed(b: Boolean): Option[Boolean] = None
       |  def plain(x: Int): Int = x
       |}""".stripMargin)
     refused(found("T.byVal"), inline)
       .and(refused(found("T.pick"), inline))
-      .and(refused(found("T.closed"), inline))
+      .and(found("T.plainVal") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))))
+      .and(found("T.plainPick") === Count.Finite(2))
+      .and(refused(found("T.closed"), "not the declared Option[Boolean]"))
       .and(found("T.plain") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))))
   }
 
@@ -501,18 +509,16 @@ class SyntaxFeaturesSpec extends Specification {
   }
 
   // A transparent result's call site sees the expansion's type: an `Any` field may be narrowed to
-  // `Int` (refused); a final class with no fields and `Unit` are one value each, so nf is 1.
+  // `Int`, and a one-valued named tuple to the singleton type of a stable path holding one (fixture
+  // a6-fix1 t1) — rule X counts only a declared singleton type.
   def inlineNamedTuple = {
     val found = rows("""final case class Fin()
       |object T {
       |  transparent inline def nt(x: Int): (a: Any, b: Unit) = (a = 1, b = ())
       |  transparent inline def nf(x: Int): (a: Fin, b: Unit) = (a = Fin(), b = ())
       |}""".stripMargin)
-    refused(
-      found("T.nt"),
-      "transparent inline result: the call site observes the expansion's type, not the declared Any"
-    )
-      .and(found("T.nf") === Count.Finite(1))
+    val narrowed = "transparent inline result: the call site observes the expansion's type"
+    refused(found("T.nt"), narrowed).and(refused(found("T.nf"), narrowed))
   }
 
   // A ClassTag[A] matches `case a: A`, telling A = Int from A = String: x or y by A, not 2. Every

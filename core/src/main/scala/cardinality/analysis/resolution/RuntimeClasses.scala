@@ -110,21 +110,6 @@ final private[cardinality] class RuntimeClasses(
       case _ => Right(())
     }
 
-  /** Why a value of this declared class may belong to a subclass the call site observes, if it may:
-    * only a final class, a module, an enum, or a sealed family whose every subclass is one of
-    * these, admits none.
-    */
-  def closed(entry: TypeEntry): Either[String, Unit] = sealedOff(declared(entry), Set.empty)
-
-  private def sealedOff(d: Declared, seen: Set[String]): Either[String, Unit] = d.tree match {
-    case tree if FinalImplementations.isFinal(tree)          => Right(())
-    case _: Defn.Enum                                        => Right(())
-    case _ if seen(d.id)                                     => Right(())
-    case t: (Defn.Trait | Defn.Class) if Counter.isSealed(t) =>
-      children(d).flatMap(kids => all(kids.map(sealedOff(_, seen + d.id))))
-    case _ => Left(s"${d.label} may be extended")
-  }
-
   private def applied(found: Alternative): Alternative = found.copy(applied = true)
 
   private def headed(head: Type, whole: Type, context: ResolutionContext) = {

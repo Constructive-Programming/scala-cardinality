@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.ResolutionContext
-import cardinality.analysis.resolution.{RuntimeClasses, TransparentResults}
+import cardinality.analysis.resolution.RuntimeClasses
 import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 
@@ -34,9 +34,6 @@ class TopTypesUnionSpec extends Specification {
       an import of Any refuses the builtin                           $shadowImport
       an inherited member named Any is that member                   $shadowInherited
       a wildcard function is still uncallable                        $existential
-      a transparent inline result typed Any stays open               $transparent
-      a transparent result of an open class may be a subclass        $transparentSubclass
-      an inline transparent result refuses unless it has one value   $transparentClosed
     A channel to declarations the sources do not supply keeps Any open
       a self type outside the sources                                $foreignSelf
       a supplied self type with a parent outside the sources         $selfUnsuppliedParent
@@ -53,10 +50,8 @@ class TopTypesUnionSpec extends Specification {
       Unit, Any and their products beside an unresolved name         $terminalResults
       a module singleton and a one-valued closed type                $terminalValues
       a result with more values keeps the environment's reason       $nonTerminal
-      a transparent function result keeps it too                     $transparentFunction
       a given selector binds no type name                            $rebinding
       a given selector spelling Any or Null binds neither            $rebindingTops
-      an inline parameter of a top type may be matched on            $inlineTop
       a constructor's positions are value spaces, not goals          $constructorGoal
     Lattice identities apply before resolution
       Any absorbs a union, even an unresolvable alternative          $absorbAny
@@ -208,48 +203,6 @@ class TopTypesUnionSpec extends Specification {
   def existential =
     (count("def m[R](consume: Function1[?, R]): R = ???", "m") === Count.Finite(0))
       .and(count("def m[R](consume: Function1[Any, R]): R = ???", "m") === Count.Finite(1))
-
-  // The call site sees the expansion's type, so a declared top hides what callers observe.
-  def transparent =
-    reasonContains("transparent inline def sel(b: Boolean): Any = b", "sel", "transparent inline")
-      .and(
-        reasonContains(
-          "transparent inline def sel(b: Boolean): Option[Any] = None",
-          "sel",
-          "not the declared Any"
-        )
-      )
-      .and(count("inline def plain(b: Boolean): Any = b", "plain") === Count.Finite(1))
-      .and(count("transparent inline def u(b: Boolean): Unit = ()", "u") === Count.Finite(1))
-      .and(
-        reasonContains("transparent inline def m[A](a: A): A & Any = a", "m", "transparent inline")
-      )
-
-  // Scala 3.9.0 reads `mk(true).n` at the call site: `new Sub(true)` and `new Sub(false)` are
-  // distinct implementations the declared Foo cannot tell apart.
-  def transparentSubclass = {
-    val code = "import ext.Schema\ncase class Foo()\nclass Sub(val n: Boolean) extends Foo()\n" +
-      "object M { transparent inline def mk(b: Boolean): Foo = new Sub(b)\n" +
-      "  transparent inline def mk2(s: Schema): Foo = Foo()\n" +
-      "  transparent inline def fn(b: Boolean): Boolean => Boolean = x => x }"
-    reasonContains(code, "M.mk", "not the declared Foo")
-      .and(reasonContains(code, "M.mk2", "not the declared Foo"))
-      .and(reasonContains(code, "M.fn", "not the declared Boolean => Boolean"))
-  }
-
-  // A closed result is what callers see, but the method is inline: `inline b match` tells `s(true)`
-  // from `s(x)` with x == true (fixture il), so the 3^2 and 2^2 of a function are not its counts.
-  // One value (Fin) keeps its one implementation.
-  def transparentClosed = {
-    val code =
-      "final case class Fin()\nsealed trait S\nfinal case class S1(b: Boolean) extends S\n" +
-        "case object S2 extends S\nobject T { transparent inline def s(b: Boolean): S = S2\n" +
-        "  transparent inline def o(b: Boolean): Option[Fin] = None\n" +
-        "  transparent inline def f(s: ext.Schema): Fin = Fin() }"
-    reasonContains(code, "T.s", TransparentResults.InlineReason)
-      .and(reasonContains(code, "T.o", TransparentResults.InlineReason))
-      .and(count(code, "T.f") === Count.Finite(1))
-  }
 
   // Ext may declare `type Unit = Boolean` and `type Any = Boolean`: g and h could have 2.
   def foreignSelf = {
@@ -420,17 +373,6 @@ class TopTypesUnionSpec extends Specification {
         reasonContains("import ext.Schema\ndef b(s: Schema): Boolean = true", "b", "Schema")
       )
 
-  // An expansion may be a function class with members of its own.
-  def transparentFunction =
-    reasonContains(
-      "import ext.Schema\ntransparent inline def tf(s: Schema): Int => Unit = _ => ()",
-      "tf",
-      "declaration not supplied: ext.Schema (named import Schema)"
-    ).and(
-      count("import ext.Schema\ntransparent inline def t(s: Schema): Unit = ()", "t") ===
-        Count.Finite(1)
-    )
-
   // A `given` selector imports given instances, which are terms: `import x.y.{given Unit}` binds no
   // type name, so `Unit` is the root one and the goal has one value (Scala 3.9.0 compiles `def y():
   // Unit = ()` after `import Defs.{given Unit}` with `Defs.Unit = Boolean`).
@@ -440,21 +382,6 @@ class TopTypesUnionSpec extends Specification {
   def rebindingTops =
     (count("import x.y.{given Any}\ndef r(): Any = ()", "r") === Count.Finite(1))
       .and(count("import x.y.{given Null}\ndef r(): Unit = ()", "r") === Count.Finite(1))
-
-  // `inline x match { case _: Int => true; case _ => false }` tells f(1) from f("s") (Scala 3.9.0):
-  // a top-typed parameter of an inline method may carry its argument's static type, as any
-  // parameter of one may (`TransparentResults.inlineRefusal`). A one-valued goal keeps its one implementation.
-  def inlineTop = {
-    val code = "type Top = Any\nobject Use {\n  inline def isInt(x: Any): Boolean = true\n" +
-      "  inline def opt(x: Option[Any]): Boolean = true\n  inline def al(x: Top): Boolean = true\n" +
-      "  inline def unit(x: Any): Unit = ()\n  def plain(x: Any): Boolean = true }"
-    val dispatch = TransparentResults.InlineReason
-    reasonContains(code, "Use.isInt", dispatch)
-      .and(reasonContains(code, "Use.opt", dispatch))
-      .and(reasonContains(code, "Use.al", dispatch))
-      .and(count(code, "Use.unit") === Count.Finite(1))
-      .and(count(code, "Use.plain") === Count.Finite(2))
-  }
 
   def constructorGoal =
     reasonContains("import ext.Schema\ncase class C(s: Schema, u: Unit)", "C.<init>", "Schema")

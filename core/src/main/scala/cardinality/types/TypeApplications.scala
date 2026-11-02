@@ -61,9 +61,10 @@ private[cardinality] object TypeApplications {
       _.tpe.syntax.stripPrefix("_root_.").stripPrefix("scala.") == "AnyVal"
     )
 
-  /** The template a class, trait, object, enum or given instance declares. */
+  /** The template a class, trait, object, enum, given instance or anonymous class declares. */
   def template(tree: Tree): Option[Template] = tree match {
     case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum | Defn.Given) => Some(d.templ)
+    case n: Term.NewAnonymous                                                => Some(n.templ)
     case _                                                                   => None
   }
 

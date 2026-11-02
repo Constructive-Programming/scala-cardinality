@@ -32,6 +32,30 @@ in code, tests and docs:
 The analyzer does not certify that a body obeys the assumption. A `0` means "no pure, total,
 parametric implementation", not "no Scala body compiles".
 
+## Inline methods count as methods
+
+Count an `inline def` exactly like a `def` unless its body uses a compile-time operation.
+
+- Compile-time operations are `inline if`, `inline match`, anything from `scala.compiletime`
+  (`summonFrom`, `summonInline`, `erasedValue`, `constValue`, `codeOf`, `compiletime.ops`, …),
+  quotes and splices. They count wherever they appear: in the body, in a definition nested in it,
+  or in an inline method it calls.
+- `transparent` and `inline` parameters do not disqualify a method by themselves. An `inline`
+  parameter has its argument's value, since nothing has side effects (boxing aside: only the
+  excluded universal members see it).
+- Rule X still applies: a `transparent` result is `?` unless its declared type is a singleton,
+  because callers see the type of what the expansion returns.
+- Channels to the call site without a compile-time operation refuse too: a member a subclass may
+  override inline, selected on a parameter or on `this` / `C.this` (a function parameter's `apply`
+  included, and the `apply` an extra argument clause selects on a call's result); a runtime class
+  that depends on a type parameter — type reification in any form: a type test, `Array[A]`,
+  `classOf[Array[A]]`; a given left to implicit search, a local method's clauses included; an
+  extension or conversion the body may meet. Local definitions are read like supplied ones, and
+  `this` inside a nested template is that template.
+- Example: `inline def pick[A](x: A, y: A): A = x` counts `2`. With `inline erasedValue[A] match`
+  in its body it is `?`, and the reason says so.
+- A name the check cannot resolve refuses: never assume an unknown callee is harmless.
+
 ## Where the model is defined
 
 The analyzer's code does not define what a number means; these documents do.

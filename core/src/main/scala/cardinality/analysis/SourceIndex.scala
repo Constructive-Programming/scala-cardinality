@@ -55,6 +55,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private[cardinality] val targets = mutable.ListBuffer.empty[Target]
   private[cardinality] val packageFrames = mutable.ListBuffer.empty[Frame]
   private[cardinality] val moduleFrames = mutable.ListBuffer.empty[Frame]
+  private[cardinality] val givenFrames = mutable.ListBuffer.empty[Frame]
   private val givens = mutable.Set.empty[(String, String)]
   // Import clauses bind simple names in the block that holds them, from their own position
   // onward. The binding records what each introduces: explicit names with the qualified key
@@ -208,29 +209,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def inspect(operation: String): Unit = work.foreach(_.step(operation))
 
-  private def child(
-      input: String,
-      node: Tree,
-      name: String,
-      owner: Frame,
-      stats: List[Stat],
-      tparams: List[Type.Param],
-      params: List[Term.Param],
-      local: Boolean = false,
-      parents: List[Init] = Nil
-  ): Frame = {
-    val frame = Frame(
-      s"$input:${node.pos.start}",
-      owner.path :+ name,
-      Some(owner),
-      stats,
-      tparams,
-      params ++ ContextBounds.evidence(tparams),
-      local,
-      parents,
-      Some(node)
-    )
-    tparams
+  // A frame the index opens records its subtype-bounded binders.
+  private def opened(frame: Frame): Frame = {
+    frame.typeParams
       .filter(p => p.tparamClause.values.isEmpty && Kinds.subtypeBounded(p))
       .foreach(p => boundedBinders.update(SourceBindings.atom(frame, p), frame -> p))
     frame
@@ -314,7 +295,8 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   }
 
   private def indexPackageObject(input: String, frame: Frame, pkg: Pkg.Object): Unit = {
-    val nested = child(input, pkg, pkg.name.value, frame, pkg.templ.body.stats, Nil, Nil)
+    val nested =
+      opened(SourceIndex.frame(input, pkg, pkg.name.value, frame, pkg.templ.body.stats, Nil, Nil))
     packageFrames += nested
     index(input, nested)
   }
@@ -340,16 +322,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       frame: Frame,
       d: Defn.Class | Defn.Trait | Defn.Enum
   ): Frame = {
-    val nested = child(
-      input,
-      d,
-      d.name.value,
-      frame,
-      d.templ.body.stats,
-      d.tparamClause.values,
-      d.ctor.paramClauses.toList.flatMap(_.values),
-      parents = d.templ.inits
-    )
+    val nested = opened(SourceIndex.templateFrame(frame, d))
     // Named in the enclosing frame, so a sibling reference resolves as before; its own frame
     // travels with it, because a member of it — a declared field a subclass inherits — reads in
     // the scope that declares it.
@@ -359,49 +332,19 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   }
 
   private def indexObject(input: String, frame: Frame, d: Defn.Object): Unit = {
-    val module =
-      child(input, d, d.name.value, frame, d.templ.body.stats, Nil, Nil, parents = d.templ.inits)
+    val module = opened(SourceIndex.templateFrame(frame, d))
     moduleFrames += module
     index(input, module)
   }
 
   private def indexGiven(input: String, frame: Frame, d: Defn.Given): Unit = {
-    val name = if (d.name.value.isEmpty) s"<given@${d.pos.startLine + 1}>" else d.name.value
-    index(
-      input,
-      child(
-        input,
-        d,
-        name,
-        frame,
-        d.templ.body.stats,
-        d.paramClauseGroups.flatMap(_.tparamClause.values),
-        d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values),
-        parents = d.templ.inits
-      )
-    )
+    val instance = opened(SourceIndex.givenFrame(frame, d))
+    givenFrames += instance
+    index(input, instance)
   }
 
-  private def indexExtension(input: String, frame: Frame, d: Defn.ExtensionGroup): Unit = {
-    val groups = d.paramClauseGroup.toList
-    val stats = d.body match {
-      case b: Term.Block => b.stats
-      case s             => List(s)
-    }
-    index(
-      input,
-      child(
-        input,
-        d,
-        s"<extension@${d.pos.startLine + 1}>",
-        frame,
-        stats,
-        groups.flatMap(_.tparamClause.values),
-        groups.flatMap(_.paramClauses).flatMap(_.values),
-        local = true
-      )
-    )
-  }
+  private def indexExtension(input: String, frame: Frame, d: Defn.ExtensionGroup): Unit =
+    index(input, opened(SourceIndex.extensionFrame(d, frame)))
 
   private def method(
       input: String,
@@ -413,9 +356,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       owner: Frame,
       declaration: Boolean = false
   ): Unit = {
-    val params = groups.flatMap(_.paramClauses).flatMap(_.values)
-    val tparams = groups.flatMap(_.tparamClause.values)
-    val frame = child(input, node, name.value, owner, Nil, tparams, params, local = true)
+    val frame = opened(SourceIndex.methodFrame(node, name.value, groups, owner))
     // Each clause is spelled on its own, so curried clauses read `(x: A)(y: A)` however they were
     // laid out; `<inferred>` is no Scala the tokenizer can read back.
     val clauses = groups.flatMap(group => group.tparamClause :: group.paramClauses)
@@ -454,6 +395,128 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 }
 
 object SourceIndex {
+
+  /** The frame a declaration opens: its id is its position in its source, the key every reading of
+    * it shares (an inline body's callees are judged under the frame the index gave them).
+    */
+  private[cardinality] def frame(
+      input: String,
+      node: Tree,
+      name: String,
+      owner: Frame,
+      stats: List[Stat],
+      tparams: List[Type.Param],
+      params: List[Term.Param],
+      local: Boolean = false,
+      parents: List[Init] = Nil
+  ): Frame =
+    Frame(
+      s"$input:${node.pos.start}",
+      owner.path :+ name,
+      Some(owner),
+      stats,
+      tparams,
+      params ++ ContextBounds.evidence(tparams),
+      local,
+      parents,
+      Some(node)
+    )
+
+  /** The frame of a definition's clauses: their type and term parameters, read in `owner`. */
+  private[cardinality] def clausesFrame(
+      node: Tree,
+      name: String,
+      owner: Frame,
+      stats: List[Stat],
+      groups: List[Member.ParamClauseGroup],
+      local: Boolean = true
+  ): Frame =
+    frame(
+      owner.input,
+      node,
+      name,
+      owner,
+      stats,
+      groups.flatMap(_.tparamClause.values),
+      groups.flatMap(_.paramClauses).flatMap(_.values),
+      local
+    )
+
+  /** The frame of a method's own parameters, as the index opens it. */
+  private[cardinality] def methodFrame(
+      node: Tree,
+      name: String,
+      groups: List[Member.ParamClauseGroup],
+      owner: Frame
+  ): Frame = clausesFrame(node, name, owner, Nil, groups)
+
+  /** A named template's frame: its body, its binders and constructor parameters, its parents. */
+  private[cardinality] def templateFrame(
+      owner: Frame,
+      d: Defn.Class | Defn.Trait | Defn.Enum | Defn.Object
+  ): Frame = d match {
+    case o: Defn.Object =>
+      frame(
+        owner.input,
+        o,
+        o.name.value,
+        owner,
+        o.templ.body.stats,
+        Nil,
+        Nil,
+        parents = o.templ.inits
+      )
+    case c: (Defn.Class | Defn.Trait | Defn.Enum) =>
+      frame(
+        owner.input,
+        c,
+        c.name.value,
+        owner,
+        c.templ.body.stats,
+        c.tparamClause.values,
+        c.ctor.paramClauses.toList.flatMap(_.values),
+        parents = c.templ.inits
+      )
+  }
+
+  /** A given instance's frame: its clauses, its body, its parents. */
+  private[cardinality] def givenFrame(owner: Frame, d: Defn.Given): Frame = {
+    val name = if (d.name.value.isEmpty) s"<given@${d.pos.startLine + 1}>" else d.name.value
+    clausesFrame(d, name, owner, d.templ.body.stats, d.paramClauseGroups, local = false)
+      .copy(parents = d.templ.inits)
+  }
+
+  /** An anonymous class's frame: its body and its parents. */
+  private[cardinality] def anonymousFrame(owner: Frame, n: Term.NewAnonymous): Frame =
+    frame(
+      owner.input,
+      n,
+      s"<anonymous@${n.pos.startLine + 1}>",
+      owner,
+      n.templ.body.stats,
+      Nil,
+      Nil,
+      parents = n.templ.inits
+    )
+
+  /** The frame of an extension group, whose receiver clauses its methods share. */
+  private[cardinality] def extensionFrame(group: Defn.ExtensionGroup, owner: Frame): Frame =
+    clausesFrame(
+      group,
+      extensionName(group),
+      owner,
+      extensionStats(group),
+      group.paramClauseGroup.toList
+    )
+
+  /** An extension group has no name of its own; its path segment is its line. */
+  private def extensionName(group: Defn.ExtensionGroup): String =
+    s"<extension@${group.pos.startLine + 1}>"
+
+  private def extensionStats(group: Defn.ExtensionGroup): List[Stat] = group.body match {
+    case b: Term.Block => b.stats
+    case s             => List(s)
+  }
 
   /** A pure dotted term path; anything deeper (a `this`, a term prefix) names no package the model
     * can reach and binds nothing. A leading `_root_` stays as the path's first segment: it anchors

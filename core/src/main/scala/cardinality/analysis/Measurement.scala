@@ -64,7 +64,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     // Parameters of the target hide outer names, but their type binders keep their identities.
     bindParams(target.frame)
     errors ++= positions.refusals
-    errors ++= TransparentResults.inlineRefusal(target)
+    errors ++= resolver.inlineBodies.refusal(target)
     hiddenReads(steps)
     errors ++= capabilities.construction.built.left.toOption
     val result = if (target.constructor) constructorShape() else declaredShape(inferred)
@@ -544,13 +544,11 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       resolver.resolve(result.tpe, result.context).flatMap(shape => observed(result).toLeft(shape))
     }
 
-  // A transparent result is what the call site observes only when no subclass can narrow it.
+  // A transparent result is what the call site observes only when nothing can narrow it (rule X).
   private def observed(result: InferredResults.Inferred): Option[String] =
     Option
-      .when(TransparentResults.transparent(target))(
-        resolver.narrowedResult(result.tpe, result.context.referencing(result.tpe))
-      )
-      .flatten
+      .when(TransparentResults.transparent(target))(result.tpe)
+      .flatMap(TransparentResults.narrowed)
 
   // A goal with one value has one implementation whatever the environment holds, so nothing left
   // unresolved around it can change the count — unless an import clause may rebind a builtin

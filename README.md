@@ -69,6 +69,30 @@ the pure, total implementations of a signature and the values of a type. The ful
 the counting contract in [docs/plans/v1.md §2](docs/plans/v1.md). [AGENTS.md](AGENTS.md)
 repeats it for coding agents working on this repository.
 
+### Inline methods
+
+An `inline def` is counted like a `def` when its body uses no compile-time operation: no
+`inline if` or `inline match`, nothing from `scala.compiletime` (`summonFrom`, `summonInline`,
+`erasedValue`, `constValue`, …), no quotes or splices. The same holds for every inline method the
+body calls.
+
+- `inline def pick[A](x: A, y: A): A = x` has `2` implementations, like the `def`. With
+  `inline erasedValue[A] match` in its body it is `?`.
+- `transparent` and `inline` parameters do not disqualify a method by themselves. Without side
+  effects, an `inline` parameter has its argument's value (boxing aside, which only the universal
+  members the model excludes can see).
+- A `transparent` result is `?` unless its declared type is a singleton: callers see the type of
+  what the expansion returns, which may be narrower than the declared one.
+- An expansion can also differ from the method's body without a compile-time operation, and those
+  bodies are `?` too: a member selected on a parameter or on `this` (`C.this` included) that a
+  subclass may override with an inline method (a function parameter's `apply` included, and the
+  `apply` a further argument clause selects on a call's result), a runtime class that depends on a
+  type parameter (a type test, or `classOf[Array[A]]`: each expansion reifies its type argument), a
+  given left to implicit search (a local method's `using` clause or context bound included), an
+  extension or conversion the body may meet. Definitions written in the body are read like
+  supplied ones, with `this` in a nested class or instance being that template.
+- Any other inline method is `?`, and the reason names what disqualified it.
+
 ## Status
 
 The [v1 implementation plan](docs/plans/v1.md) tracks the agreed counting contract,

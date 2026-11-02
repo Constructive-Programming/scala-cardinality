@@ -6,7 +6,7 @@ import scala.meta.*
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.StdlibModel.Spelling
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.analysis.model.ResolutionContext
+import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
 import cardinality.analysis.{BuiltinTypes, ImportBinding, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.{Spelling as TreeSpelling, TypeSubstitution}
 
@@ -48,7 +48,7 @@ final private[cardinality] class ShadowedBuiltins(
 
   private val cases: Set[(String, String)] = types.flatMap { entry =>
     (entry.tree, entry.self) match {
-      case (d: Defn.Enum, Some(frame)) => caseNames(d).map(frame.id -> _)
+      case (d: Defn.Enum, Some(frame)) => ScopeTerms.enumCases(d).map(frame.id -> _)
       case _                           => Nil
     }
   }.toSet
@@ -644,12 +644,6 @@ private[cardinality] object ShadowedBuiltins {
     case selected: Type.Select => Some(selected.syntax)
     case applied: Type.Apply   => parentName(applied.tpe)
     case _                     => None
-  }
-
-  private def caseNames(d: Defn.Enum): List[String] = d.templ.body.stats.flatMap {
-    case c: Defn.EnumCase         => List(c.name.value)
-    case r: Defn.RepeatedEnumCase => r.cases.map(_.value)
-    case _                        => Nil
   }
 
   private def qualified(frame: Frame): String = frame.path.mkString(".")

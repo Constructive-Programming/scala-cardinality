@@ -158,10 +158,24 @@ private[cardinality] object MemberSyntax {
   def buildsUnit(result: Type, read: Type => Resolved): Boolean =
     read(lastResult(result)) == Right(Inhabitation.Shape.Product(Nil))
 
+  /** The modifiers of a method or a given alias, the definitions that may be `inline`. */
+  def methodModifiers(tree: Tree): List[Mod] = tree match {
+    case d: Defn.Def        => d.mods
+    case d: Decl.Def        => d.mods
+    case g: Defn.GivenAlias => g.mods
+    case _                  => Nil
+  }
+
+  /** Whether a method or a given alias is `inline`. */
+  def inline(tree: Tree): Boolean = methodModifiers(tree).exists(_.is[Mod.Inline])
+
+  /** Whether modifiers include `implicit`. */
+  def implicitModifier(mods: List[Mod]): Boolean = mods.exists(_.is[Mod.Implicit])
+
   /** A member implicit search may select: a given, or an `implicit` definition, object or class. */
   def implicitMember(stat: Tree): Boolean = stat match {
     case _: (Defn.GivenAlias | Defn.Given | Decl.Given) => true
-    case d: Stat.WithMods                               => d.mods.exists(_.is[Mod.Implicit])
+    case d: Stat.WithMods                               => implicitModifier(d.mods)
     case _                                              => false
   }
 

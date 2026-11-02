@@ -91,12 +91,24 @@ private[cardinality] object ScopeTerms {
 
   private def spelled(importers: List[Importer]): Option[Set[String]] = {
     val open = importers.exists(importer =>
-      SourceIndex.importPath(importer.ref).isEmpty ||
-        importer.importees.exists(e =>
-          e.is[Importee.Wildcard] || e.is[Importee.Given] || e.is[Importee.GivenAll]
-        )
+      SourceIndex.importPath(importer.ref).isEmpty || opensAll(importer)
     )
     Option.unless(open)(importers.flatMap(_.importees).flatMap(SourceIndex.boundName).toSet)
+  }
+
+  /** Whether an importer's selectors may bind names it does not spell: a wildcard or a `given`
+    * selector.
+    */
+  def opensAll(importer: Importer): Boolean =
+    importer.importees.exists(e =>
+      e.is[Importee.Wildcard] || e.is[Importee.Given] || e.is[Importee.GivenAll]
+    )
+
+  /** The cases an enum's body declares, by name. */
+  def enumCases(d: Defn.Enum): List[String] = d.templ.body.stats.flatMap {
+    case c: Defn.EnumCase         => List(c.name.value)
+    case r: Defn.RepeatedEnumCase => r.cases.map(_.value)
+    case _                        => Nil
   }
 
   private def names(pats: List[Pat]): List[String] = TypeApplications.boundNames(pats)

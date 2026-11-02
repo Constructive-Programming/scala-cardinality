@@ -138,6 +138,11 @@ final private[cardinality] class SourceLookup(
 
   def isPackage(frame: Frame): Boolean = packageIds(frame.id)
 
+  private val packageInits = packages.flatMap(_.path.inits).toSet
+
+  /** Whether a path is a package of the sources or a prefix of one. */
+  def packageNamespace(path: List[String]): Boolean = path.nonEmpty && packageInits(path)
+
   /** Whether the frame's own body holds an export clause. */
   def exporting(frame: Frame): Boolean = exports.contains(frame.id)
 

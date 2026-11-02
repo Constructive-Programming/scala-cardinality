@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.capability.Insertions
+import cardinality.analysis.expansion.InlineBodies
 import cardinality.analysis.model.{ResolutionContext, TypeOperators}
 import cardinality.analysis.resolution.{Found, InheritedTypeMembers, TypeMembers}
 import cardinality.capacity.Reading
@@ -79,9 +80,6 @@ private[cardinality] trait Resolver {
     */
   def rootShadow(name: String, context: ResolutionContext): Option[String]
 
-  /** Why a `transparent inline` call site may observe more than the declared result `tpe`. */
-  def narrowedResult(tpe: Type, context: ResolutionContext): Option[String]
-
   def resolve(
       tpe: Type,
       frame: Frame,
@@ -103,6 +101,9 @@ private[cardinality] trait Resolver {
 
   def modules: List[Frame]
 
+  /** Packages, objects, classes, traits, enums and given instances not inside a method's body. */
+  def memberScopes: List[Frame]
+
   def kindOf(target: Target): String
 
   def limits: Limits
@@ -121,4 +122,8 @@ private[cardinality] trait Resolver {
   }
 
   def isPackage(frame: Frame): Boolean
+
+  def namespace(path: List[String]): Boolean
+
+  def inlineBodies: InlineBodies
 }

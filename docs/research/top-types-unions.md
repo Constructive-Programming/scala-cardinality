@@ -103,26 +103,28 @@ Constructor rows are value spaces, not goals, and are untouched.
 ## Rule X: `transparent inline` results callers may see narrowed
 
 **Statement.** A `transparent inline` def is `?` with `transparent inline result: the call site
-observes the expansion's type, not the declared <T>` when its declared result names, anywhere
-(inside an application, a tuple, a union, through an alias), a type a subclass may extend: a top
-type, a function type, an open or non-final class, a sealed family with such a subclass, a builtin
-outside the closed list, or a name this reading cannot see. Only final classes, modules, enums,
-sealed families of those, the closed builtins (ground scalars, `String`, `Unit`, `Nothing`, `Null`,
-`Option`, `Either`, tuples), singleton and literal types and the caller's own binders pass.
+observes the expansion's type, not the declared <T>` unless its declared result is a singleton or
+literal type.
 
-**Why.** The declared type is only an upper bound; callers see the expansion's type. In
-`transparent inline def sel(b: Boolean): Any = b` the expansion is a `Boolean`, so the terminal
-collapse would count one implementation where callers observe two. The same holds for any class
-with a subclass: beside `class Sub(val n: Boolean) extends Foo()`, Scala 3.9.0 compiles
+**Why.** The declared type is only an upper bound; callers see the expansion's type, and two
+expansions with the same values are told apart by it (overload resolution, member selection,
+implicit search). In `transparent inline def sel(b: Boolean): Any = b` the expansion is a
+`Boolean`, so the terminal collapse would count one implementation where callers observe two.
+Beside `class Sub(val n: Boolean) extends Foo()`, Scala 3.9.0 compiles
 `transparent inline def mk(b: Boolean): Foo = new Sub(b)` and a caller's `mk(true).n`, and
 `Some(new Sub(b))` under a declared `Option[Foo]` gives `mo(true).get.n` (**compiler fixture**), so
 `Foo()`, `new Sub(true)` and `new Sub(false)` are three implementations the declared `Foo` counts
-as one. An anonymous class adds nothing: `new AnyRef { val n = true }` under a declared `AnyRef` is
-typed `Object` at the call site, and an anonymous `Function1` subclass with an extra member under
-a declared `Boolean => Boolean` is typed as the function type (both member selections rejected,
-**compiler fixture**). Results that already expose everything keep their counts (the reviewed
-transparent `Direct.apply` / `Direct.value` = 1; a sealed `S` of a final case class and an object
-counts its 3 values).
+as one. Closed results are narrowed too (review of A6, **compiler fixtures** review-A6 h11–h14,
+a6-fix1 t1, a6-fix1b dv): a case of a sealed family (`S2.type` beside a declared `S`: an overload
+`h(S2.type)` / `h(S)` picks 1 for the body `S2` and 2 for `(S2: S)`), `None.type` beside
+`Option[Boolean]`, a literal type beside `Boolean`, an opaque alias's representation outside its
+scope (`Direct.apply`'s `a` is typed `A`, not `Direct[X, A]`: 1 against 2), and the singleton type
+of a stable path the body returns (`id(v)` is `v.type`; eo's `dv.value` is `dv.type`). Since a
+stable path of any type may be returned, only a declared singleton type leaves nothing narrower.
+An anonymous class adds nothing: `new AnyRef { val n = true }` under a declared `AnyRef` is typed
+`Object` at the call site (**compiler fixture**). This revises A2's reading, which counted results
+naming only closed classes (`Direct.apply` / `Direct.value` = 1, a sealed `S` its 3 values): the
+values bound the expansion, the types callers observe do not.
 
 ## Rule K: constructor positions are read in the implementation model
 
@@ -248,7 +250,8 @@ family, any other may.
 | `def pick(): One \| Two` (two case classes) | 2 | single inheritance |
 | `def a(f: Fail): Fail \| Missing` | 4 | `Missing` absorbed: `2^2` |
 | `def a(r: Red): RB \| Green.type` (`type RB = Red \| Blue`) | 16 | the alias's alternatives: `4^2` |
-| `transparent inline def s(b: Boolean): S` (`S1(b: Boolean)` final, `S2` object) | 9 | closed family: `3^2` |
+| `transparent inline def s(b: Boolean): S` (`S1(b: Boolean)` final, `S2` object) | ? | rule X: `S2` is typed `S2.type` at the call site |
+| `transparent inline def one(b: Boolean): 1` | 1 | singleton result: nothing narrower |
 | `transparent inline def mk(b: Boolean): Foo` (`Foo` has a subclass) | ? | rule X |
 | `def oe(x: Option[Boolean]): Option[Boolean] \| Either[Unit, Unit]` | 125 | `5^3` |
 | `case class AnyBox(x: Any)` | 1 | rule K |
@@ -269,10 +272,10 @@ family, any other may.
 | stable-value singleton alternatives | the alternative's own reason (no runtime class without ground equality analysis) |
 | literal alternatives beside a class (`1 \| Int`) | `two alternatives share runtime class …` (a union of literals alone is the set of its constants: [syntax-features.md](syntax-features.md)) |
 | callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md): `TopTypesUnionSpec.callableSum` 27); an open one keeps the union's own reason |
-| transparent result naming a top type, a function type or a class a subclass may extend | `transparent inline result: …` |
+| transparent result whose declared type is not a singleton | `transparent inline result: …` |
 | self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
 | a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |
-| an `inline` method (any parameter) | `inline method: each expansion may inspect its call site's argument types, constants and givens (compile-time dispatch)` |
+| an `inline` method whose body uses a compile-time operation or another channel to the call site | `inline method: <what failed>` ([syntax-features.md](syntax-features.md)) |
 | `Any` shadowed (alias, binder, import, inherited member) | the shadowing declaration's reading or refusal, unchanged |
 | evidence with a top endpoint (`A <:< Any`) | `unsupported evidence relationship: <:< requires free-atom endpoints` |
 
@@ -294,11 +297,14 @@ as written, which is the same sum).
   `(Red & Any) =:= Red`, `(Fail | Missing) =:= Fail` hold; a missing union case fails
   exhaustiveness; `case l: List[Int]` against `List[Int] | Vector[String]` is unchecked-warning
   free; the match-type disjointness table above; a `transparent inline` result narrowed to a
-  subclass exposes the subclass's members at the call site, an anonymous class's do not; a self
+  subclass exposes the subclass's members at the call site, an anonymous class's do not; a sealed
+  case, `None`, an opaque representation and a returned stable path each pick a different overload
+  than an equal-valued body ascribed to the declared result (review-A6 h11–h14, a6-fix1 t1, dv); a self
   type, a wildcard-imported object's parent, a package object's parent, a wildcard import or
   export and an outer chained package clause each rebind `Unit` and `Any` when the outside
   declaration says `type Unit = Boolean`; `Set[Any]` values of sizes 0–3; an `inline match` on an
   `Any` parameter separating `isInt(1)` from `isInt("s")`; constructor parameters typed outside
   the template's body, parents and companion; `extends Id[S]` with `type Id[X] = X` makes a child
   of the sealed `S`.
-- **Executable**: `TopTypesUnionSpec`, `MethodUnionNullabilitySpec`, `ReferenceInhabitantsSpec`.
+- **Executable**: `TopTypesUnionSpec`, `MethodUnionNullabilitySpec`, `ReferenceInhabitantsSpec`;
+  rule X in `TransparentInlineSpec`.

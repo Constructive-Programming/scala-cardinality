@@ -19,10 +19,10 @@ import TypeSubstitution.{platedType, Meet, Union}
   * tells two such values apart: the type is `∃X. X`, which parametricity makes `1`
   * (docs/research/top-types-unions.md). It is always inhabited, by `()`. Four places read it
   * differently on purpose: a `transparent inline` result, whose call site sees the expansion's type
-  * (`TransparentResults`); an `inline` method, whose expansion may match on an argument's static
-  * type (`TransparentResults.inlineRefusal`); a constructor position, whose stored-value estimate
-  * keeps `Any` as everything (ε₀), so the position is read through this model before the estimate
-  * is asked; and a goal with exactly one value, which has one implementation in every environment.
+  * (`TransparentResults`); an `inline` method whose body may match on an argument's static type
+  * (`InlineBodies`); a constructor position, whose stored-value estimate keeps `Any` as everything
+  * (ε₀), so the position is read through this model before the estimate is asked; and a goal with
+  * exactly one value, which has one implementation in every environment.
   */
 private[cardinality] object TopTypes {
 

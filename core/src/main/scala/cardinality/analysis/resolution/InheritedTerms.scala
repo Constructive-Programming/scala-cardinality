@@ -2,7 +2,7 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.model.ScopeTerms
+import cardinality.analysis.model.{ScopeTerms, UniversalMembers}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.types.Spelling
 
@@ -28,25 +28,8 @@ private[cardinality] object InheritedTerms {
   final case class Declaring(parent: String, certain: Boolean)
 
   /** The members of `Any` and `java.lang.Object`. */
-  private val universal: Set[String] = Set(
-    "equals",
-    "hashCode",
-    "toString",
-    "getClass",
-    "clone",
-    "finalize",
-    "notify",
-    "notifyAll",
-    "wait",
-    "==",
-    "!=",
-    "##",
-    "eq",
-    "ne",
-    "synchronized",
-    "asInstanceOf",
-    "isInstanceOf"
-  )
+  private val universal: Set[String] =
+    UniversalMembers.any ++ UniversalMembers.anyRef ++ UniversalMembers.objectMethods
 
   private val products: Map[String, String] =
     List(

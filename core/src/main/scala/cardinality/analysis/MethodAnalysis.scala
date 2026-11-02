@@ -4,6 +4,7 @@ import scala.meta.*
 import scala.util.control.NonFatal
 
 import cardinality.analysis.capability.{CapabilityRecords, Insertions}
+import cardinality.analysis.expansion.InlineBodies
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
@@ -193,8 +194,6 @@ object MethodAnalysis {
 
     private lazy val unions = new UnionSums(this, runtimeClasses)
 
-    private lazy val transparentResults = new TransparentResults(this, runtimeClasses)
-
     def unreadChannel(context: ResolutionContext): Option[String] =
       shadowedBuiltins.unread(context)
 
@@ -205,9 +204,6 @@ object MethodAnalysis {
 
     def builtin(written: String, context: ResolutionContext): Either[String, String] =
       shadowedBuiltins.denoted(written, context)
-
-    def narrowedResult(tpe: Type, context: ResolutionContext): Option[String] =
-      transparentResults.narrowed(tpe, context)
 
     private lazy val applications = new ConstructorApplications(
       this,
@@ -231,7 +227,15 @@ object MethodAnalysis {
     def peers(path: List[String]): List[Frame] = lookupIndex.peers(path)
     def isPackage(frame: Frame): Boolean = lookupIndex.isPackage(frame)
 
+    def namespace(path: List[String]): Boolean = lookupIndex.packageNamespace(path)
+
+    lazy val inlineBodies: InlineBodies = new InlineBodies(this)
+
     def modules: List[Frame] = indexer.moduleFrames.toList
+
+    lazy val memberScopes: List[Frame] =
+      (indexer.packageFrames ++ indexer.moduleFrames ++ indexer.types.flatMap(_.self) ++
+        indexer.givenFrames).toList.filterNot(_.chain.exists(_.local))
 
     // Measuring one signature must not lose the report: scalameta's printers can throw on syntax
     // they cannot spell, and a signature the analysis cannot read is a diagnostic, not a crash.
