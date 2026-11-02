@@ -154,7 +154,7 @@ object MethodAnalysis {
       indexer.packageFrames.toList,
       indexer.moduleFrames.toList,
       indexer.imports.toList.groupMap(_._1)(_._2),
-      (name, scope, at) => shadowedBuiltins.listedMember(name, scope, at),
+      (prefix, scope, at) => shadowedBuiltins.listed(prefix, scope, at),
       indexer.exports.toList.groupMap(_._1)(_._2)
     )
 
@@ -186,7 +186,8 @@ object MethodAnalysis {
       this,
       indexer.types.toList,
       inputs.map(_.tree),
-      lookupIndex.clauses
+      lookupIndex.clauses,
+      lookupIndex.doubtedHeads(accessible, inspect, inheritedMembers)
     )
 
     private[cardinality] lazy val runtimeClasses = new RuntimeClasses(

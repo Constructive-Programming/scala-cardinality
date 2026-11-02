@@ -8,7 +8,12 @@ import cardinality.analysis.StdlibModel.Spelling
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
 import cardinality.analysis.{BuiltinTypes, ImportBinding, Resolver, SourceIndex, StdlibModel}
-import cardinality.types.{Spelling as TreeSpelling, TypeApplications, TypeSubstitution}
+import cardinality.types.{
+  ListedNamespaces,
+  Spelling as TreeSpelling,
+  TypeApplications,
+  TypeSubstitution
+}
 
 /** A builtin name (`Int`, `Boolean`, `Option`) a reference may bind through a channel simple-name
   * lookup does not walk.
@@ -31,18 +36,21 @@ import cardinality.types.{Spelling as TreeSpelling, TypeApplications, TypeSubsti
   * through the member it reaches is the environment lane's.
   *
   * A channel may also reach declarations the sources do not supply — a parent or self type outside
-  * them, a wildcard namespace no supplied declaration provides — which may bind any name at all.
-  * Every builtin and stdlib-model name is refused there whether or not the sources spell it (with
-  * `object Defs extends ext.X`, `Any` after `import Defs.*` is `Boolean` when `X` declares `type
-  * Any = Boolean`; `import lib.*` may bring a `lib.Option`), and so is the one-value shortcut on a
-  * declared result — except through the stdlib namespaces `StdlibModel` lists, none of which spells
-  * a builtin.
+  * them, a wildcard namespace no supplied declaration provides or that is open to dependencies (a
+  * package the sources spell only as a prefix), a wildcard whose prefix's first name such a
+  * wildcard may bind (`doubted`: `compose.*` after `import zzz.*` may be `zzz.compose.*`) — which
+  * may bind any name at all. Every builtin and stdlib-model name is refused there whether or not
+  * the sources spell it (with `object Defs extends ext.X`, `Any` after `import Defs.*` is `Boolean`
+  * when `X` declares `type Any = Boolean`; `import lib.*` may bring a `lib.Option`), and so is the
+  * one-value shortcut on a declared result — except through the stdlib namespaces `StdlibModel`
+  * lists, which bind only the root spellings they declare (`quotes.reflect`'s `Singleton`).
   */
 final private[cardinality] class ShadowedBuiltins(
     resolver: Resolver,
     types: List[TypeEntry],
     sources: List[Source],
-    clauses: (Frame, Option[(String, Int)]) => List[ImportBinding]
+    clauses: (Frame, Option[(String, Int)]) => List[ImportBinding],
+    doubted: (List[String], Frame, Option[(String, Int)]) => Option[String]
 ) {
   import ShadowedBuiltins.*
 
@@ -218,42 +226,43 @@ final private[cardinality] class ShadowedBuiltins(
   private def opened(name: String, context: ResolutionContext): Option[String] =
     context.frame.chain.iterator.flatMap(listedMember(name, _, context.at)).nextOption()
 
-  /** The declaration a wildcard import of a stdlib namespace the model lists binds a simple name to
-    * in one scope, before a position: the namespace's member, when the model lists it there.
-    */
-  def listedMember(name: String, scope: Frame, at: Option[(String, Int)]): Option[String] =
+  // The declaration a wildcard import of a stdlib namespace the model lists binds a simple name to
+  // in one scope, before a position: the namespace's member, when the model lists it there.
+  private def listedMember(name: String, scope: Frame, at: Option[(String, Int)]): Option[String] =
     Option
       .unless(name.contains('.'))(
-        listedIn(scope, at)
-          .find(_.types.exists(_(name)))
-          .map(namespace => s"${namespace.path}.$name")
+        listedIn(scope, at).iterator
+          .flatMap(_.typeBinding(name, root = true))
+          .collectFirst { case ListedNamespaces.Binding.Member(fqn) => fqn }
       )
       .flatten
 
   // The stdlib namespaces wildcard imports open around the reference, nearest first.
-  private def namespaces(context: ResolutionContext): List[StdlibModel.Namespace] =
+  private def namespaces(context: ResolutionContext): List[ListedNamespaces.Namespace] =
     context.frame.chain.flatMap(listedIn(_, context.at))
 
   // The stdlib namespaces one scope's wildcard imports open before `at`.
-  private def listedIn(scope: Frame, at: Option[(String, Int)]): List[StdlibModel.Namespace] =
+  private def listedIn(scope: Frame, at: Option[(String, Int)]): List[ListedNamespaces.Namespace] =
     clauses(scope, at).flatMap(clause =>
-      clause.wildcards.flatMap(listed(_, scope, ShadowedBuiltins.at(at, clause)))
+      clause.wildcards.flatMap(listed(_, scope, ShadowedBuiltins.at(scope, clause)))
     )
 
-  // The stdlib namespace a wildcard prefix opens, when its first name denotes the library's.
-  private def listed(
+  /** The listed stdlib namespace a wildcard prefix written in a scope opens before a position, when
+    * its first name denotes the library's.
+    */
+  def listed(
       prefix: List[String],
       scope: Frame,
       at: Option[(String, Int)]
-  ): Option[StdlibModel.Namespace] =
-    StdlibModel.namespace(prefix).filter(library(_, prefix, scope, at))
+  ): Option[ListedNamespaces.Namespace] =
+    ListedNamespaces.of(prefix).filter(library(_, prefix, scope, at))
 
   // Whether a prefix spelling a listed namespace is the library's: anchored at the root, or headed
   // by the root package it names, which no named import or source term rebinds — or, for a
   // namespace reached through a term (`quotes.reflect`), by that term: imported by name from its
   // own path, or opened by a wildcard of the listed namespace declaring it, before the clause.
   private def library(
-      namespace: StdlibModel.Namespace,
+      namespace: ListedNamespaces.Namespace,
       prefix: List[String],
       scope: Frame,
       at: Option[(String, Int)]
@@ -281,8 +290,11 @@ final private[cardinality] class ShadowedBuiltins(
     scope.chain.exists(outer =>
       clauses(outer, at).exists(clause =>
         clause.wildcards.exists(prefix =>
-          listed(prefix, outer, ShadowedBuiltins.at(at, clause))
-            .exists(_.path == term.init.mkString("."))
+          listed(prefix, outer, ShadowedBuiltins.at(outer, clause))
+            .exists(_.termBinding(term.last).exists {
+              case ListedNamespaces.Binding.Member(fqn) => fqn == term.mkString(".")
+              case _                                    => false
+            })
         )
       )
     )
@@ -408,7 +420,7 @@ final private[cardinality] class ShadowedBuiltins(
       val imported = clauses(scope, at).flatMap(clause =>
         subject.fold(clause.wildcards)(clause.opening).flatMap { prefix =>
           val via = s"wildcard import of ${prefix.mkString(".")}"
-          targets(prefix, scope, via, ShadowedBuiltins.at(at, clause))
+          targets(prefix, scope, via, ShadowedBuiltins.at(scope, clause))
         }
       )
       own ++ packaged ++ imported ++ unbound(scope)
@@ -418,7 +430,7 @@ final private[cardinality] class ShadowedBuiltins(
     // of — the outer clause of `package a; package b`, with `a` written elsewhere — opens
     // declarations the sources do not hold (Scala 3.9.0 reads `Any` there as `a`'s `type Any`).
     private def unsupplied(scope: Frame): Boolean =
-      scope.path.nonEmpty && !resolver.peers(scope.path).exists(declaresMembers)
+      scope.path.nonEmpty && !resolver.peers(scope.path).exists(SuppliedNamespaces.declaresMembers)
 
     // A wildcard clause whose prefix lookup does not bind (`import Outer.this.o.*`) opens a
     // supplied value's members; a root-anchored one, a package's.
@@ -473,7 +485,8 @@ final private[cardinality] class ShadowedBuiltins(
 
     // The frames a dotted prefix may denote, anchored at every package around `from` (a `_root_`
     // prefix at the root alone): objects, packages, and the companions of enums (their cases) and
-    // classes (nothing this reads).
+    // classes (nothing this reads). A prefix whose first name a wildcard over a namespace no source
+    // supplies may bind may lead outside the sources too, whatever it denotes there.
     private def targets(
         prefix: List[String],
         from: Frame,
@@ -486,14 +499,36 @@ final private[cardinality] class ShadowedBuiltins(
       }
       val frames = paths.flatMap(path => modules.getOrElse(path, Nil) ++ resolver.peers(path))
       val companions = paths.flatMap(classes.getOrElse(_, Nil)).flatMap(_.self)
+      val outside =
+        doubted(prefix, from, at).map(why => Step.Unread(relative.mkString("."), s"$via: $why"))
       if (frames.nonEmpty || companions.nonEmpty)
-        (frames ++ companions.filter(frame => enums(frame.id))).map(Step.Reach(_, via))
+        (frames ++ companions.filter(frame => enums(frame.id))).map(Step.Reach(_, via)) ++
+          outside.orElse(open(paths, frames, relative, via))
       else if (relative.headOption.exists(terms)) List(Step.Doubt(relative.mkString("."), via))
-      // A stdlib namespace the model lists spells no builtin: it binds none of the names this walk
-      // is about.
-      else if (listed(prefix, from, at).nonEmpty) Nil
-      else List(Step.Unread(prefix.mkString("."), via))
+      else
+        listed(prefix, from, at).fold(List(Step.Unread(prefix.mkString("."), via)))(namespace =>
+          outside.orElse(declares(namespace, via)).toList
+        )
     }
+
+    // A package the sources spell only as a prefix holds whatever a dependency declares there.
+    private def open(
+        paths: List[List[String]],
+        frames: List[Frame],
+        relative: List[String],
+        via: String
+    ): Option[Step] =
+      Option.when(
+        frames.forall(resolver.isPackage) &&
+          !paths.flatMap(resolver.peers).exists(SuppliedNamespaces.declaresMembers)
+      )(Step.Unread(relative.mkString("."), via))
+
+    // A stdlib namespace the model lists binds the root spelling a search is about only where the
+    // table says it declares it (`quotes.reflect.Singleton`).
+    private def declares(namespace: ListedNamespaces.Namespace, via: String): Option[Step] =
+      subject
+        .flatMap(namespace.typeBinding(_, root = true))
+        .collect { case ListedNamespaces.Binding.Member(fqn) => Step.Unread(fqn, via) }
 
     // A parent, self type or alias body naming a supplied template reaches it; one that resolves to
     // an alias is followed; a name lookup refuses, or one a supplied type spells but lookup does not
@@ -512,7 +547,7 @@ final private[cardinality] class ShadowedBuiltins(
                 case (None, alias: Defn.Type) => named(alias.body, entry.owner, via, depth + 1)
                 case _                        => List(Step.Doubt(parent, via))
               }
-            case Found.Blocked(_) => List(Step.Doubt(parent, via))
+            case _: Found.Blocked => List(Step.Doubt(parent, via))
             // An import binds it outside the sources, where only the stdlib model's summaries are
             // known to declare no type — and only where they are the root imports' declarations.
             case Found.Foreign(path, _) if InheritedTypeMembers.markerName(path) =>
@@ -548,9 +583,11 @@ private[cardinality] object ShadowedBuiltins {
   // Why a search doubts a parent whose standing it is itself establishing.
   private val SelfReached = "a search that reaches itself"
 
-  // A clause's own position: where the names in its prefix are read.
-  private def at(reference: Option[(String, Int)], clause: ImportBinding): Option[(String, Int)] =
-    reference.map((file, _) => file -> (clause.start - 1))
+  // A clause's own position, where the names in its prefix are read — with the reference's or
+  // without one: a clause never reads itself or a later clause (with every clause of the scope in
+  // view, `import quotes.reflect.*` would ask after its own prefix forever).
+  private def at(scope: Frame, clause: ImportBinding): Option[(String, Int)] =
+    Some(scope.input -> (clause.start - 1))
 
   // One search: a name's, or the nameless search for a channel, from a frame at a position.
   private case class Search(
@@ -601,12 +638,6 @@ private[cardinality] object ShadowedBuiltins {
     */
   def shadows(reason: String): Boolean =
     reason.startsWith("builtin name ") && reason.contains(" may be shadowed ")
-
-  // A package object, or a clause with a statement other than a nested clause or an import.
-  private def declaresMembers(frame: Frame): Boolean =
-    frame.tree.exists(_.is[Pkg.Object]) || frame.stats.exists(stat =>
-      !stat.is[Pkg] && !stat.is[Import]
-    )
 
   private def template(frame: Frame): Boolean = templateOf(frame).nonEmpty
 

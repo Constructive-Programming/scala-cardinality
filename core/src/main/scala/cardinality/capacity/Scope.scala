@@ -104,12 +104,12 @@ private[cardinality] object Itself {
 }
 
 /** What a term name denotes where it is read: an object, by the key prefix its members are solved
-  * under (and whether it inherits or exports members, which the estimate does not follow), or a
-  * value (a `val`, a parameter, a `def`) with the type it is known to have, if any. Scala resolves
-  * a path's first name innermost first over all of them.
+  * under (and what a clause over it imports, `Exposure`), or a value (a `val`, a parameter, a
+  * `def`) with the type it is known to have, if any. Scala resolves a path's first name innermost
+  * first over all of them.
   */
 private[cardinality] enum Bound {
-  case Module(prefix: TypeName, inherits: Boolean = false, exports: Boolean = false)
+  case Module(prefix: TypeName, exposure: Exposure = Exposure.none)
   case Value(declared: Option[Type])
 }
 
@@ -300,24 +300,29 @@ final private[cardinality] class Scope(
 
   // The first wildcard, latest first, that binds the name: a supplied namespace that defines it, or
   // one the sources do not supply, which may. Each reads its path with the wildcards before it. Two
-  // wildcards of one body that both define it are an ambiguity Scala rejects: no binding to read.
+  // wildcards of one body that both bind the name are an ambiguity Scala rejects (E049), so one
+  // that may is no binding where another of its body defines the name, and two that define it
+  // leave no binding to read.
   private def wildcard(name: TypeName): Option[Binding] = {
     val found = wildcards.indices.iterator.flatMap(i => wildcardAt(i, name).map(i -> _))
-    found.nextOption().map {
-      case (i, defined: Binding.Elsewhere) =>
-        val rivals = wildcards.indices.drop(i + 1).filter(j => wildcards(j).beside(wildcards(i)))
-        if (rivals.exists(j => wildcardAt(j, name).exists(_.isInstanceOf[Binding.Elsewhere])))
+    found.nextOption().map { (i, binding) =>
+      val beside = wildcards.indices.drop(i + 1).filter(j => wildcards(j).beside(wildcards(i)))
+      (binding +: beside.flatMap(wildcardAt(_, name))).collect {
+        case defined: Binding.Elsewhere => defined
+      } match {
+        case Seq()        => binding
+        case Seq(defined) => defined
+        case _            =>
           Binding.Clause(
             Definition.Unbound.Imported(name.value, "ambiguous: several wildcard imports bind it")
           )
-        else defined
-      case (_, other) => other
+      }
     }
   }
 
   private def wildcardAt(i: Int, name: TypeName): Option[Binding] = {
     val w = wildcards(i)
-    if (w.excluded(name)) None
+    if (w.excluded(name) || w.givens) None
     else
       Namespaces.target(earlier(i), w.path).member(name, w) match {
         case Some(Namespaces.Found.Defined(in, key)) => Some(Binding.Elsewhere(in, key))
@@ -366,7 +371,7 @@ final private[cardinality] class Scope(
     world.terms.get(name).filterNot { _ =>
       world.imports.foreign(name) && wildcards.indices.exists { i =>
         val w = wildcards(i)
-        !w.excluded(name) && Namespaces.target(earlier(i), w.path).bindsTerm(name)
+        !w.excluded(name) && Namespaces.target(earlier(i), w.path).bindsTerm(name, w)
       }
     }
 

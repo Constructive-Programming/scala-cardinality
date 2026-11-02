@@ -1,81 +1,14 @@
 package cardinality.analysis.resolution
 
 import scala.annotation.tailrec
-import scala.meta.{Tree, Type}
+import scala.meta.Tree
 
 import cardinality.analysis.*
-import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
-import cardinality.types.TypeApplications
+import cardinality.analysis.model.ScopeTerms
+import cardinality.types.{ListedNamespaces, Traversals, TypeApplications}
 
 import MethodAnalysis.{Frame, TypeEntry}
-
-/** What a simple-name resolution reached: one declaration, a refusal to read past the name with the
-  * reason, a declaration outside the source set, or nothing — which is where the model's own
-  * vocabulary may still answer.
-  */
-sealed private[cardinality] trait Found
-
-private[cardinality] object Found {
-  final case class Entry(entry: TypeEntry) extends Found
-
-  /** A lookup that reached neither a supplied declaration nor the builtins, with its reason. */
-  sealed trait Failed extends Found {
-    def reason: String
-  }
-
-  final case class Blocked(reason: String) extends Failed
-
-  // An import binds the name to a path outside the source set: a declaration that exists, but was
-  // not supplied — or one the stdlib model reads (`import java.util.List`).
-  final case class Foreign(path: String, binding: String) extends Failed {
-
-    /** Why a name bound outside the sources is not read: the information is absent. */
-    def reason: String = s"declaration not supplied: $path ($binding)"
-  }
-
-  case object Absent extends Found
-
-  /** What a type written as a name (`T`, `p.T`) denotes where it is read; None for any other type.
-    */
-  def named(
-      resolver: Resolver,
-      tpe: Type,
-      name: String,
-      context: ResolutionContext
-  ): Option[Found] =
-    tpe match {
-      case _: Type.Name | _: Type.Select => Some(resolver.declaration(tpe, name, context))
-      case _                             => None
-    }
-
-}
-
-/** The member objects a template body inherits, which the first segment of a path may name: at a
-  * position inside `frame`'s body, the inherited object's path, or the reason a parent outside the
-  * source set leaves the name unread; None where the frame inherits nothing under the name.
-  */
-private[cardinality] trait InheritedObjects {
-  def at(head: InheritedObjects.Head): InheritedObjects.Path
-
-  /** The type member a supplied object inherits under `name`, as a path read in `from` selects it,
-    * or why it is not read; None when no ancestor declares one `from` may select.
-    */
-  def inheritedBy(module: Frame, name: String, from: Frame): InheritedObjects.Selected = None
-
-}
-
-private[cardinality] object InheritedObjects {
-
-  /** A path's first segment, read inside `frame` at a position of `file`. */
-  final case class Head(name: String, frame: Frame, file: String, position: Int)
-
-  type Path = Option[Either[String, List[String]]]
-
-  /** An inherited type member a path selects, or why it is not read. */
-  type Selected = Option[Either[String, TypeEntry]]
-
-  val none: InheritedObjects = _ => None
-}
+import LookupBindings.*
 
 /** Declaration buckets preserve insertion order and ambiguity; lookup never scans unrelated types.
   *
@@ -84,38 +17,41 @@ private[cardinality] object InheritedObjects {
   * there: the enclosing packages and the model's builtin vocabulary are out of reach of that name,
   * exactly as the compiler denies them when the import brings an unavailable target. Scala's
   * precedence decides the rest: a declaration of the same file or a named import before a wildcard,
-  * and a wildcard before a package member of another file — a wildcard of a stdlib namespace the
-  * model lists included, for the names it lists (`listed`: the declaration such a wildcard in one
-  * scope binds a name to, before a position).
+  * and a wildcard before a package member of another file or a root package. A wildcard over a
+  * namespace no source supplies may bind any name, so a name — or a path's first name — that would
+  * otherwise come from those is not read; a stdlib namespace `ListedNamespaces` lists binds only
+  * what it declares (`listed`: the namespace a wildcard prefix written in a scope opens before a
+  * position, when its first name is the library's).
   */
 final private[cardinality] class SourceLookup(
     types: List[TypeEntry],
     packages: List[Frame],
     modules: List[Frame],
     imports: Map[String, List[ImportBinding]],
-    listed: (String, Frame, Option[(String, Int)]) => Option[String],
+    listed: (List[String], Frame, Option[(String, Int)]) => Option[ListedNamespaces.Namespace],
     exports: Map[String, List[ExportClause]] = Map.empty
 ) {
   private val lexical = types.groupBy(entry => entry.owner.id -> entry.name)
   private val names = types.groupMapReduce(_.owner.id)(entry => Set(entry.name))(_ ++ _)
 
-  private val qualified = types
-    .filterNot(_.owner.chain.exists(_.local))
-    .groupBy(_.key)
+  // The paths a wildcard or `given` import can open, and what they hold.
+  private val supplied = new SuppliedNamespaces(types, packages, modules)
+  private val qualified = supplied.qualified
+  private val packagePaths = supplied.packagePaths
 
-  private val packagePaths = packages.groupBy(_.path)
   private val packageIds = packages.map(_.id).toSet
   private val packageRoots = packages.flatMap(_.path.headOption).toSet
   private val moduleIndex = modules.flatMap(m => m.parent.map(p => (p.id, m.path.last) -> m)).toMap
   private val moduleNames = moduleIndex.keys.groupMapReduce(_._1)(key => Set(key._2))(_ ++ _)
-  private val modulePaths = modules.groupBy(_.path)
-
-  // The paths a wildcard can open: packages (with every prefix), objects and type declarations.
-  private val namespaces: Set[String] =
-    packages.flatMap(_.path.inits).map(_.mkString(".")).toSet ++
-      modules.map(_.path.mkString(".")) ++ qualified.keySet
 
   def peers(path: List[String]): List[Frame] = packagePaths.getOrElse(path, Nil)
+
+  // The blocks of one package in the scope's own file — the scope alone for any other body. Scala
+  // gives a definition of the reference's compilation unit, made available by a package clause, the
+  // highest precedence wherever in the file its block stands (spec ch. 2; Scala 3.9.0 reads a
+  // sibling `package p { type Two = Boolean }` over `import zzz.*`: probes/review-A7/r9).
+  private def blocks(scope: Frame): List[Frame] =
+    if (isPackage(scope)) peers(scope.path).filter(_.input == scope.input) else List(scope)
 
   // A constructor's frame shares its class's id and path but holds none of its body: its parameters
   // are typed outside the template (Scala 3.9.0 reads `class C(x: Any) { type Any = Boolean }` with
@@ -187,12 +123,36 @@ final private[cardinality] class SourceLookup(
     }
   }
 
+  /** Why the first name of a path written in a scope before a position is in doubt — a wildcard or
+    * `given` import over a namespace no source supplies may bind it — when it is: the path may then
+    * denote a namespace outside the sources, whatever it would otherwise be.
+    */
+  def doubtedHeads(
+      accessible: (Tree, Frame, Frame) => Boolean,
+      inspect: String => Unit,
+      objects: InheritedObjects
+  ): (List[String], Frame, Option[(String, Int)]) => Option[String] = {
+    val reader = Reader(accessible, inspect, objects)
+    (prefix, scope, at) =>
+      reader.absolute(prefix, scope, at).left.toOption.collect {
+        case Unread.Doubted(head, why, _) => s"$head $why"
+      }
+  }
+
   /** One resolution's access rule, budget and view of inherited member objects. */
   private case class Reader(
       accessible: (Tree, Frame, Frame) => Boolean,
       inspect: String => Unit,
       objects: InheritedObjects
   ) {
+
+    private lazy val terms = new TermMembers(
+      supplied,
+      exports,
+      objects,
+      accessible,
+      (segments, scope, at) => absolute(segments, scope, at).map(_._1)
+    )
 
     def definitions(name: String, frame: Frame): List[TypeEntry] =
       lexicalHit(name, frame).map(_._1).getOrElse(candidates(name, frame))
@@ -208,24 +168,40 @@ final private[cardinality] class SourceLookup(
             case Some(Member(found, d, exported)) if d < depth || (exported && d == depth) => found
             case _ => imported(name, targets, definition, depth)
           }
+        // A wildcard import outranks a package member of another file (one of the same file is a
+        // definition, found above; Scala reports E049 when both bind the name).
         case None =>
-          member match {
-            case Some(Member(found, _, _)) => found
-            // A wildcard import outranks a package member of another file (one of the same file is
-            // a definition, found above; Scala reports E049 when both bind the name).
-            case None =>
-              wildcards(name, frame, at) match {
-                case Found.Absent =>
-                  candidates(name, frame) match {
-                    case Nil     => Found.Absent
-                    case List(e) => Found.Entry(e)
-                    case _       => Found.Blocked(s"ambiguous type: $name")
-                  }
-                case found => found
-              }
-          }
+          member.fold(
+            wildcards(name, frame, at).fold(doubted(name, frame, _), packaged(name, frame, _))
+          )(
+            _.found
+          )
       }
     }
+
+    // A name a wildcard over a namespace no source supplies may bind, which nothing nearer binds:
+    // another file's package member of the name is not read — the conversion search still sees
+    // the declaration it would be (`Found.Blocked.hidden`) —, and a name no source declares is
+    // left to the root imports' reading, which refuses it through the same wildcard
+    // (`ShadowedBuiltins`, which asks `doubtedHeads` about a wildcard whose prefix is in doubt).
+    private def doubted(name: String, frame: Frame, doubt: Opening.Doubt): Found =
+      packaged(name, frame, Found.Absent) match {
+        case Found.Absent => Found.Absent
+        case found        => hiding(name, doubt, Some(found))
+      }
+
+    private def hiding(name: String, doubt: Opening.Doubt, found: Option[Found]): Found =
+      Found.Blocked.hiding(s"unresolved type: $name (${doubt.why})", found)
+
+    // What another file's package member makes of the name, where no wildcard binds it otherwise.
+    private def packaged(name: String, frame: Frame, wildcard: Found): Found =
+      if (wildcard != Found.Absent) wildcard
+      else
+        candidates(name, frame) match {
+          case Nil     => Found.Absent
+          case List(e) => Found.Entry(e)
+          case _       => Found.Blocked(s"ambiguous type: $name")
+        }
 
     // The nearest member of an enclosing body under the name: a declaration, or an alias an export
     // clause defines (Scala 3 reference, export clauses: exported type members are aliased by type
@@ -308,7 +284,11 @@ final private[cardinality] class SourceLookup(
         missing: Option[Origin] => Found
     ): Found =
       absolute(target.segments, target.scope, target.at) match {
-        case Left(reason)           => Found.Blocked(reason)
+        case Left(doubted @ Unread.Doubted(_, _, fallback)) =>
+          first(fallback, target.scope, seen).fold(missing(None)) { found =>
+            Found.Blocked.hiding(doubted.reason(target.segments.mkString(".")), Some(found))
+          }
+        case Left(unread)           => Found.Blocked(unread.reason(target.segments.mkString(".")))
         case Right((paths, origin)) => first(paths, target.scope, seen).getOrElse(missing(origin))
       }
 
@@ -316,9 +296,9 @@ final private[cardinality] class SourceLookup(
     // answers, a declaration or nothing; a prefix no supplied namespace answers may define anything.
     private def opened(prefix: Target, name: String, seen: Set[String]): Option[Found] =
       absolute(prefix.segments, prefix.scope, prefix.at) match {
-        case Left(reason)      => Some(Found.Blocked(reason))
+        case Left(unread)      => Some(Found.Blocked(unread.reason(prefix.segments.mkString("."))))
         case Right((paths, _)) =>
-          paths.find(path => namespaces(path.mkString("."))) match {
+          paths.find(supplied.closed) match {
             case Some(path) =>
               Some(member(path :+ name, prefix.scope, seen)).filter(_ != Found.Absent)
             case None =>
@@ -336,47 +316,50 @@ final private[cardinality] class SourceLookup(
       paths.iterator.map(member(_, from, seen)).find(_ != Found.Absent)
 
     /** The type a qualified path denotes among the sources: a declaration, else a member an object
-      * or package at its prefix exports or an object inherits; Absent where none of them has it.
+      * or package at its prefix exports or an object or package object inherits; Absent where none
+      * of them has it. An enum's class case is a type this reading does not hold (`import E.*`
+      * binds the case class `E.A` over another file's `A`: Scala 3.9.0, probes/review-A7/r16).
       */
     def member(path: List[String], from: Frame, seen: Set[String]): Found =
       declared(path, from) match {
         case Nil =>
-          val owners =
-            modulePaths.getOrElse(path.init, Nil) ++ packagePaths.getOrElse(path.init, Nil)
-          owners.iterator
+          supplied
+            .bodies(path.init)
+            .iterator
             .flatMap(exported(path.last, _, seen))
             .nextOption()
-            .orElse {
-              modulePaths.getOrElse(path.init, Nil) match {
-                case List(module) =>
-                  objects
-                    .inheritedBy(module, path.last, from)
-                    .map(_.fold(Found.Blocked(_), Found.Entry(_)))
-                case _ => None
-              }
-            }
+            .orElse(
+              supplied
+                .template(path.init)
+                .flatMap(objects.inheritedBy(_, path.last, from))
+                .map(_.fold(Found.Blocked(_), Found.Entry(_)))
+            )
+            .orElse(
+              Option.when(supplied.enumCase(path))(
+                Found.Blocked(s"enum case type not read: ${path.mkString(".")}")
+              )
+            )
             .getOrElse(Found.Absent)
         case found => entryOrAmbiguous(found, path.mkString("."))
       }
 
     private def imported(
         name: String,
-        targets: List[Target],
+        targets: List[Either[String, Target]],
         definition: Option[(List[TypeEntry], Int)],
         depth: Int
     ): Found = {
-      val read = targets.distinct.map(reach)
-      read.collectFirst { case Left(reason) => reason } match {
-        case Some(reason) => Found.Blocked(reason)
-        case None         =>
-          val hits = read.collect { case Right(found) => found }
+      val read = targets.distinct.map(_.flatMap(reach(_, name)))
+      Traversals.sequence(read) match {
+        case Left(reason) => Found.Blocked(reason)
+        case Right(hits)  =>
           hits.flatMap(_._1).distinct match {
             // The target's own head may be bound by an import (`import lib.scala` before
             // `import scala.Option`): the path it denotes is then read through that binding.
             case Nil =>
               val origin = hits
                 .collectFirst { case (_, Some(bound)) => bound }
-                .getOrElse(Origin.named(targets.head.segments, name))
+                .getOrElse(Origin.named(written(targets), name))
               Found.Foreign(origin.path, origin.binding)
             case List(entry) =>
               definition match {
@@ -404,38 +387,46 @@ final private[cardinality] class SourceLookup(
         name: String,
         frame: Frame,
         at: Option[(String, Int)]
-    ): Option[(Int, List[Target])] =
+    ): Option[(Int, List[Either[String, Target]])] =
       at.flatMap { (file, position) =>
         frame.chain.iterator.zipWithIndex
           .map { (scope, index) =>
             inspect("import bucket")
-            val targets = visible(scope, file, position).flatMap { clause =>
-              clause.named.collect {
-                case (bound, segments) if bound == name =>
-                  Target(segments, scope, before(file, clause))
-              }
-            }
-            (index, targets)
+            (index, visible(scope, file, position).flatMap(selected(_, name, scope, file)))
           }
           .find { case (_, targets) => targets.nonEmpty }
       }
 
-    // The declarations a path's candidates name, first by nearness — one bucket or none — with the
-    // import that bound the path's first segment, if one did.
-    private def reach(target: Target): Either[String, (List[TypeEntry], Option[Origin])] =
-      absolute(target.segments, target.scope, target.at).flatMap { (paths, origin) =>
-        first(paths, target.scope, Set.empty) match {
-          case Some(Found.Entry(entry))   => Right((List(entry), origin))
-          case Some(failed: Found.Failed) => Left(failed.reason)
-          case _                          => Right((Nil, origin))
-        }
+    // The declarations a named import's target names, first by nearness — one bucket or none —
+    // with the import that bound the path's first segment, if one did.
+    private def reach(
+        target: Target,
+        name: String
+    ): Either[String, (List[TypeEntry], Option[Origin])] =
+      absolute(target.segments, target.scope, target.at) match {
+        // A wildcard that may bind the import's first name hides only a member of the sources:
+        // elsewhere the import names a declaration outside them, read as such.
+        case Left(Unread.Doubted(_, _, fallback))
+            if first(fallback, target.scope, Set.empty).isEmpty =>
+          Right((Nil, None))
+        case Left(unread) =>
+          Left(unread.reason(name, s"imported from ${target.segments.mkString(".")}, "))
+        case Right((paths, origin)) =>
+          first(paths, target.scope, Set.empty) match {
+            case Some(Found.Entry(entry))   => Right((List(entry), origin))
+            case Some(failed: Found.Failed) => Left(failed.reason)
+            case _                          => Right((Nil, origin))
+          }
       }
 
     private def lexicalHit(name: String, frame: Frame): Option[(List[TypeEntry], Int)] =
       frame.chain.iterator.zipWithIndex
         .map { (scope, index) =>
           inspect("lookup bucket")
-          (if (constructorView(scope)) Nil else lexical.getOrElse(scope.id -> name, Nil), index)
+          val declared =
+            if (constructorView(scope)) Nil
+            else blocks(scope).flatMap(block => lexical.getOrElse(block.id -> name, Nil))
+          (declared, index)
         }
         .find { case (entries, _) => entries.nonEmpty }
 
@@ -461,61 +452,120 @@ final private[cardinality] class SourceLookup(
       * first segment. A `_root_` path is itself. A relative one whose first segment is bound — by a
       * same-file object, an inherited member object or an import before the position — is read
       * through that binding; otherwise it is anchored at each path the scope opens, then at the
-      * root. Left when the first segment is bound to something unread.
+      * root. Left when the first segment is bound to something unread, or a wildcard over a
+      * namespace no source supplies may bind it.
       */
     def absolute(
         segments: List[String],
         frame: Frame,
         at: Option[(String, Int)]
-    ): Either[String, (List[List[String]], Option[Origin])] =
+    ): Either[Unread, Reading] =
       segments match {
         case SourceIndex.Root :: rest => Right((List(rest), None))
         case head :: rest             =>
           at.flatMap((file, position) =>
-            bound(InheritedObjects.Head(head, frame, file, position), frame.chain, None)
+            bound(InheritedObjects.Head(head, frame, file, position), frame.chain, Pending.none)
           ) match {
             case Some(found) =>
-              found.map((paths, origin) => (paths.map(_ ++ rest), origin.map(_.selecting(rest))))
-            case None => Right((anchored(frame, head, path = true).map(_ ++ segments), None))
+              found.left
+                .map(_.selecting(rest))
+                .map((paths, origin) => (paths.map(_ ++ rest), origin.map(_.selecting(rest))))
+            case None =>
+              Right((nearest(anchored(frame, head, path = true), head).map(_ ++ rest), None))
           }
         case Nil => Right((Nil, None))
       }
 
-    // The binding of a path's first segment, innermost scope first: an object the scope declares in
-    // this file — or a value, which is refused — a member object its template inherits, then its
-    // imports. Past a body with an unread parent only an enclosing class, object, method or block
-    // declaration keeps its meaning (an inherited one there would be E049); a package's, an
-    // import's or the default reading is refused with the parent named.
+    // The binding of a path's first segment, innermost scope first (`declaredHead`). Past a body
+    // with an unread parent only an enclosing class, object, method or block declaration keeps its
+    // meaning (an inherited one there would be E049); a package's, an import's or the default
+    // reading is refused with the parent named. A wildcard over a namespace no source supplies
+    // (`pending.doubt`) outranks only an outer scope's wildcards, the packages the scope opens and
+    // the root: an enclosing declaration or a named import keeps the name, since Scala rejects both
+    // binding it (E049), and one of its own scope's supplied wildcards does too.
     @tailrec
     private def bound(
         head: InheritedObjects.Head,
         chain: List[Frame],
-        unread: Option[String]
-    ): Option[Either[String, (List[List[String]], Option[Origin])]] =
+        pending: Pending
+    ): Option[Either[Unread, Reading]] =
       chain match {
-        case Nil            => unread.map(Left(_))
+        case Nil =>
+          pending.unread
+            .map(Unread.Refused(_))
+            .orElse(
+              pending.doubt
+                .map(d => Unread.Doubted(head.name, d.passed, d.fallback ++ defaultPaths(head)))
+            )
+            .map(Left(_))
         case scope :: outer =>
-          val here = head.copy(frame = scope)
-          moduleIn(scope, head.name) match {
-            case Some(module) =>
-              Some(unread.filter(_ => isPackage(scope)).toLeft((List(module.path), None)))
-            case None if value(scope, head.name) =>
-              Some(Left(unread.getOrElse(s"path through a value not followed: ${head.name}")))
-            case None =>
-              objects.at(here) match {
-                case Some(Right(path)) => Some(unread.toLeft((List(path), None)))
-                case inherited         =>
-                  val pending = unread.orElse(inherited.flatMap(_.left.toOption))
-                  importedPrefix(here) match {
-                    case Some(found) =>
-                      Some(
-                        pending.toLeft(()).flatMap(_ => found.map((paths, o) => (paths, Some(o))))
-                      )
-                    case None => bound(head, outer, pending)
-                  }
-              }
+          declaredHead(head.copy(frame = scope), pending) match {
+            case Right(found) => found
+            case Left(next)   => bound(head, outer, next)
           }
       }
+
+    // What one scope binds a path's first name to: an object it declares in this file, a value —
+    // refused —, a member object its template inherits, then its imports; Left with what the outer
+    // scopes read the name under where none of them binds it.
+    private def declaredHead(
+        here: InheritedObjects.Head,
+        pending: Pending
+    ): Pending.Step = {
+      val scope = here.frame
+      def refused = pending.unread.map(Unread.Refused(_))
+      blocks(scope).iterator.flatMap(moduleIn(_, here.name)).nextOption() match {
+        case Some(module) =>
+          Right(Some(refused.filter(_ => isPackage(scope)).toLeft((List(module.path), None))))
+        case None if value(scope, here.name) =>
+          Right(Some(Left(refused.getOrElse(TermMembers.value(here.name)))))
+        case None =>
+          objects.at(here) match {
+            case Some(Right(path)) => Right(Some(refused.toLeft((List(path), None))))
+            case inherited         =>
+              importedHead(here, pending.parent(inherited.flatMap(_.left.toOption)))
+          }
+      }
+    }
+
+    // What a scope's imports bind a path's first name to. An inner wildcard that may bind the name
+    // shadows this scope's: the namespace this one opens is what the name would otherwise denote.
+    private def importedHead(
+        here: InheritedObjects.Head,
+        pending: Pending
+    ): Pending.Step = {
+      def bind(found: Either[Unread, (List[List[String]], Origin)]) =
+        Right(
+          Some(
+            pending.unread
+              .map(Unread.Refused(_))
+              .toLeft(())
+              .flatMap(_ => found.map((paths, o) => (paths, Some(o))))
+          )
+        )
+      (importedPrefix(here), pending.doubt) match {
+        case (Some(Prefix.Named(found)), _) => bind(found)
+        case (Some(Prefix.Opened(Right((paths, _)))), Some(inner)) if pending.unread.isEmpty =>
+          Right(Some(Left(Unread.Doubted(here.name, inner.passed, paths))))
+        case (Some(Prefix.Opened(found)), _) => bind(found)
+        case (Some(d: Prefix.Doubt), _)      => Left(pending.doubting(d))
+        case (None, _)                       => Left(pending)
+      }
+    }
+
+    // The paths a first segment denotes when nothing around the reference binds it.
+    private def defaultPaths(head: InheritedObjects.Head): List[List[String]] =
+      nearest(anchored(head.frame, head.name, path = true), head.name)
+
+    // A first name nothing around the reference binds is the nearest member of that name of the
+    // packages the scope opens, then the root: the one namespace the sources have there (`c` in
+    // package `a.b` is `a.b.c` when the sources declare it, whatever the root `c` holds — Scala
+    // 3.9.0, probes/review-A7/round2/anchors); with none, each anchor in turn.
+    private def nearest(anchors: List[List[String]], head: String): List[List[String]] =
+      anchors
+        .map(_ :+ head)
+        .find(supplied.denotes)
+        .fold(anchors.map(_ :+ head))(List(_))
 
     // A parameter, value, method or given of the scope under the name: a path through it selects a
     // member of the value's type, which no object or package of the name answers.
@@ -525,115 +575,189 @@ final private[cardinality] class SourceLookup(
           .exists(frame => ScopeTerms.values(frame.stats)(name))
 
     // A scope's imports binding a path's first segment before the position: a named import, read
-    // at its own clause, or a wildcard whose namespace holds the segment — with the path written.
-    private def importedPrefix(
-        head: InheritedObjects.Head
-    ): Option[Either[String, (List[List[String]], Origin)]] = {
-      val InheritedObjects.Head(name, scope, file, position) = head
-      val clauses = visible(scope, file, position)
-      val named = clauses.flatMap { clause =>
-        clause.named.collect {
-          case (bound, segments) if bound == name => segments -> before(file, clause)
-        }
-      }
-      if (named.nonEmpty)
+    // at its own clause; a wildcard whose namespace holds the segment — with the path written — or
+    // a member of a listed stdlib namespace; else a wildcard or `given` import that may bind it.
+    private def importedPrefix(head: InheritedObjects.Head): Option[Prefix] = {
+      val named = visible(head.frame, head.file, head.position).flatMap(
+        selected(_, head.name, head.frame, head.file)
+      )
+      if (named.isEmpty) openedPrefix(head)
+      else
         Some(
-          MethodAnalysis
-            .sequence(named.map((segments, at) => absolute(segments, scope, at).map(_._1)))
-            .map(paths => paths.flatten.distinct -> Origin.named(named.head._1, name))
+          Prefix.Named(
+            Traversals
+              .sequence(named.map(_.left.map(Unread.Refused(_)).flatMap(read)))
+              .map(paths => paths.flatten.distinct -> Origin.named(written(named), head.name))
+          )
         )
-      else {
-        val opened = MethodAnalysis
-          .sequence(
-            clauses.flatMap(clause =>
-              clause
-                .opening(name)
-                .map(prefix => absolute(prefix, scope, before(file, clause)).map(_._1))
+    }
+
+    private def read(target: Target): Either[Unread, List[List[String]]] =
+      absolute(target.segments, target.scope, target.at).map(_._1)
+
+    private def openedPrefix(head: InheritedObjects.Head): Option[Prefix] = {
+      val openings = this.openings(head, Space.Terms)
+      val opened = Traversals
+        .sequence(openings.collect {
+          case Opening.Refused(reason) => Left(Unread.Refused(reason))
+          case Opening.Supplied(paths) => terms.wildcard(paths, head.name, head.frame)
+          case Opening.Entered(paths)  => Right(paths)
+          case Opening.Listed(fqn)     => Right(List(fqn.split('.').toList))
+        })
+        .map(_.flatten)
+      opened match {
+        case Right(Nil) =>
+          Opening
+            .doubt(openings)
+            .map(doubt =>
+              Prefix.Doubt(
+                doubt.passed,
+                Opening.fallbacks(openings, head.name).filter(supplied.denotes)
+              )
+            )
+        case found =>
+          Some(
+            Prefix.Opened(
+              found.map(paths => paths -> Origin(paths.head.mkString("."), "wildcard import"))
             )
           )
-          .map(_.flatten.filter(path => namespaces((path :+ name).mkString("."))).map(_ :+ name))
-        opened match {
-          case Right(Nil) => None
-          case found      =>
-            Some(found.map(paths => paths -> Origin(paths.head.mkString("."), "wildcard import")))
-        }
       }
     }
 
     // The nearest scope whose wildcards bind the name: a supplied member, or a declaration of a
-    // listed stdlib namespace — both in one scope are an ambiguity.
-    private def wildcards(name: String, frame: Frame, at: Option[(String, Int)]): Found =
-      at match {
-        case None                   => Found.Absent
-        case Some((file, position)) =>
-          frame.chain.iterator
-            .map { scope =>
-              inspect("import bucket")
-              val supplied = MethodAnalysis
-                .sequence(visible(scope, file, position).flatMap { clause =>
-                  clause
-                    .opening(name)
-                    .map(prefix =>
-                      reach(Target(prefix :+ name, scope, before(file, clause))).map(_._1)
-                    )
-                })
-                .map(_.flatten.distinct)
-              supplied -> listed(name, scope, at)
-            }
-            .find((supplied, outside) => supplied != Right(Nil) || outside.nonEmpty) match {
-            case Some((Right(Nil), Some(fqn)))    => Found.Foreign(fqn, "wildcard import")
-            case Some((Right(List(entry)), None)) => Found.Entry(entry)
-            case Some((Right(_), _))     => Found.Blocked(s"ambiguous wildcard import: $name")
-            case Some((Left(reason), _)) => Found.Blocked(reason)
-            case None                    => Found.Absent
+    // listed stdlib namespace — both in one scope are an ambiguity. A wildcard that may bind it
+    // (Left) shadows every outer scope's; in its own scope a supplied member keeps the name, since
+    // Scala rejects two wildcards of one scope that both bind it (E049).
+    private def wildcards(
+        name: String,
+        frame: Frame,
+        at: Option[(String, Int)]
+    ): Either[Opening.Doubt, Found] =
+      at.fold(Right(Found.Absent))((file, position) =>
+        scan(InheritedObjects.Head(name, frame, file, position), frame.chain, None)
+      )
+
+    @tailrec
+    private def scan(
+        head: InheritedObjects.Head,
+        chain: List[Frame],
+        doubt: Option[Opening.Doubt]
+    ): Either[Opening.Doubt, Found] =
+      chain match {
+        case Nil            => doubt.toLeft(Found.Absent)
+        case scope :: outer =>
+          inspect("import bucket")
+          val openings = this.openings(head.copy(frame = scope), Space.Types)
+          wildcardMember(head.name, scope, openings) match {
+            case Some(found) => Right(doubt.fold(found)(hiding(head.name, _, Some(found))))
+            case None        =>
+              // A wildcard whose prefix is in doubt hides the member it would otherwise open.
+              val held = first(Opening.fallbacks(openings, head.name), scope, Set.empty)
+              (doubt.orElse(Opening.doubt(openings)), held) match {
+                case (Some(passed), Some(_)) => Right(hiding(head.name, passed, held))
+                case (passed, _)             => scan(head, outer, passed)
+              }
           }
       }
 
-  }
-
-  /** The import that bound a name or a path's first segment: the path it binds and how. */
-  private case class Origin(path: String, binding: String) {
-
-    def selecting(rest: List[String]): Origin =
-      if (rest.isEmpty) this else Origin((path :: rest).mkString("."), s"selected through $binding")
-
-    def exportedBy(scope: Frame): Origin =
-      copy(binding =
-        s"$binding, exported by ${scope.path.lastOption.getOrElse("the empty package")}"
-      )
-
-  }
-
-  private object Origin {
-
-    /** A clause (`import` or `export`) whose selector spells the bound name, or renames it. */
-    def named(segments: List[String], name: String, clause: String = "import"): Origin = {
-      val target = segments.filterNot(_ == SourceIndex.Root)
-      Origin(
-        target.mkString("."),
-        s"${if (target.lastOption.contains(name)) "named" else "renamed"} $clause $name"
-      )
+    // What one scope's wildcards bind a type name to, if one binds it.
+    private def wildcardMember(
+        name: String,
+        scope: Frame,
+        openings: List[Opening]
+    ): Option[Found] = {
+      val read = Traversals.sequence(openings.collect {
+        case Opening.Refused(reason) => Left(reason)
+        case Opening.Supplied(paths) =>
+          first(paths.map(_ :+ name), scope, Set.empty) match {
+            case Some(Found.Entry(entry))   => Right(List(entry))
+            case Some(failed: Found.Failed) => Left(failed.reason)
+            case _                          => Right(Nil)
+          }
+      })
+      val listedMember = openings.collectFirst { case Opening.Listed(fqn) => fqn }
+      (read.map(_.flatten.distinct), listedMember) match {
+        case (Right(Nil), None)         => None
+        case (Right(Nil), Some(fqn))    => Some(Found.Foreign(fqn, "wildcard import"))
+        case (Right(List(entry)), None) => Some(Found.Entry(entry))
+        case (Right(_), _)              => Some(Found.Blocked(s"ambiguous wildcard import: $name"))
+        case (Left(reason), _)          => Some(Found.Blocked(reason))
+      }
     }
 
-  }
+    // What each import clause of a scope written before a position binds a name to, in `space`:
+    // its wildcard, its `given` selectors (terms alone), and — for an importer whose prefix is no
+    // path — the members of a value, which may bind any name and are not followed.
+    private def openings(at: InheritedObjects.Head, space: Space): List[Opening] =
+      visible(at.frame, at.file, at.position).flatMap { clause =>
+        val from = before(at.file, clause)
+        clause
+          .opening(at.name)
+          .map(prefix => opening(Target(prefix, at.frame, from), at.name, space)) ++
+          space
+            .givens(clause)
+            .map(prefix => givenOpening(Target(prefix, at.frame, from), at.name)) ++
+          clause.unfollowed
+            .flatMap(space.unfollowed(_, at.name, clause.hidden))
+            .map(Opening.Doubt(_, None, Nil))
+      }
 
-  /** The nearest member of an enclosing body under a name: what it denotes, the depth of the body
-    * in the reference's chain, and whether an export clause defines it.
-    */
-  private case class Member(found: Found, depth: Int, exported: Boolean)
-
-  /** A named import's target, with the scope and position its own prefix is read at. */
-  private case class Target(segments: List[String], scope: Frame, at: Option[(String, Int)])
-
-  // A clause's prefix is read where the clause stands: only earlier clauses have bound names.
-  private def before(file: String, clause: ImportBinding): Option[(String, Int)] =
-    Some(file -> (clause.start - 1))
-
-  private def entryOrAmbiguous(found: List[TypeEntry], name: String): Found =
-    found match {
-      case List(entry) => Found.Entry(entry)
-      case _           => Found.Blocked(s"ambiguous type: $name")
+    // What one wildcard clause binds a name to, in Scala's type or term namespace: the namespaces
+    // its prefix denotes, when one is closed; a subpackage of a package the sources spell only as a
+    // prefix; a member of a listed stdlib namespace; a refusal where the prefix rests on something
+    // unread; or a doubt — a namespace no source supplies or one open to dependencies, one the
+    // model lists without its members, or one whose own first name such a wildcard may bind.
+    private def opening(prefix: Target, name: String, space: Space): Opening = {
+      val written = s"${prefix.segments.mkString(".")}.*"
+      over(prefix, written) {
+        case paths if paths.exists(supplied.closed)  => Opening.Supplied(paths)
+        case paths if paths.exists(supplied.denotes) =>
+          if (paths.exists(path => supplied.denotes(path :+ name))) Opening.Supplied(paths)
+          else Opening.Doubt(written, None, Nil)
+        case _ =>
+          listed(prefix.segments, prefix.scope, prefix.at)
+            .fold(Some(ListedNamespaces.Binding.Unlisted))(space.binding(_, name)) match {
+            case Some(ListedNamespaces.Binding.Member(fqn)) => Opening.Listed(fqn)
+            case Some(ListedNamespaces.Binding.Unlisted)    => Opening.Doubt(written, None, Nil)
+            case None                                       => Opening.Unbound
+          }
+      }
     }
+
+    // What a `given` selector binds a term name to: a given or implicit member of a closed
+    // namespace (`TermMembers`), nothing else there; any name a given of a namespace no source
+    // supplies may have (Scala 3.9.0 binds `compose` through `import zzz.given`:
+    // probes/review-A7/r11). It opens no namespace a doubt falls back to.
+    private def givenOpening(prefix: Target, name: String): Opening = {
+      val written = s"${prefix.segments.mkString(".")}.given"
+      over(prefix, written) {
+        case paths if paths.exists(supplied.closed) =>
+          terms
+            .givens(paths, name, prefix.scope)
+            .fold(Opening.Unbound)(
+              _.fold(unread => Opening.Refused(unread.reason(name)), Opening.Entered(_))
+            )
+        case _ => Opening.Doubt(written, None, Nil)
+      } match {
+        case doubt: Opening.Doubt => doubt.copy(fallback = Nil)
+        case other                => other
+      }
+    }
+
+    // A clause's prefix read where the clause stands: refused where it rests on something unread,
+    // in doubt where its first name is — with the supplied namespaces it would otherwise denote —,
+    // and otherwise what `paths` makes of the absolute paths it denotes.
+    private def over(prefix: Target, written: String)(
+        paths: List[List[String]] => Opening
+    ): Opening =
+      absolute(prefix.segments, prefix.scope, prefix.at) match {
+        case Left(Unread.Doubted(head, why, fallback)) =>
+          Opening.Doubt(written, Some(Through(head, why)), fallback.filter(supplied.denotes))
+        case Left(Unread.Refused(reason)) => Opening.Refused(reason)
+        case Right((denoted, _))          => paths(denoted)
+      }
+
+  }
 
   /** The import clauses of one scope visible at a reference; with no reference position, every
     * clause of the scope.

@@ -123,6 +123,17 @@ private[cardinality] object InheritedTerms {
   private def field(param: Term.Param, name: String, level: Frame): Boolean =
     FinalImplementations.field(param, name, level) && !ScopeTerms.unqualifiedPrivate(param.mods)
 
+  /** The values a supplied ancestor passes on that a wildcard (or, `givens`, a `given` selector)
+    * over a subclass's object imports: its definitions and its fields, but private ones.
+    */
+  def imported(level: Frame, givens: Boolean): Set[String] =
+    ScopeTerms.importable(level.stats, givens) ++ level.params.collect {
+      case param
+          if field(param, param.name.value, level) &&
+            (!givens || param.mods.exists(mod => mod.is[Mod.Implicit] || mod.is[Mod.Using])) =>
+        param.name.value
+    }
+
   /** The values a supplied ancestor declares, which a path's first segment may name: its
     * definitions but objects, classes and enums, and its parameters.
     */

@@ -2,6 +2,7 @@ package cardinality.analysis
 
 import cardinality.analysis.inhabitation.{Card, Inhabitation}
 import cardinality.capacity.BaseTypes
+import cardinality.types.ListedNamespaces
 
 import Inhabitation.Shape
 
@@ -24,12 +25,8 @@ import Inhabitation.Shape
   * (register D26): its pure members read strings and throwables, and its constructors build
   * infinitely many values they tell apart, so it is an ω transparent value, as `String` is. An
   * unmodelled entry is a class or interface whose members the model does not hold (`Product`,
-  * `java.util.List`, the final `Integer`).
-  *
-  * The table answers where Scala's root imports would — after every declaration, import and
-  * wildcard of the sources — so a name the sources bind is never the model's. It also lists the
-  * stdlib namespaces whose wildcard imports it knows, and the parents whose members it knows, each
-  * checked against the Scala 3.9.0 compiler (none declares a type the root imports spell).
+  * `java.util.List`, the final `Integer`). The table answers where Scala's root imports would,
+  * after every binding of the sources, and lists the parents whose members it knows (Scala 3.9.0).
   */
 private[cardinality] object StdlibModel {
 
@@ -118,10 +115,6 @@ private[cardinality] object StdlibModel {
   private val Revealing = "type-revealing evidence: it tells instantiations apart at run time"
   private val Collected = "garbage-collector state"
 
-  // The type declarations of `scala.quoted` the model names, with their type parameter counts.
-  private val Quoted =
-    List("Expr" -> 1, "ExprMap" -> 0, "FromExpr" -> 1, "Quotes" -> 0, "ToExpr" -> 1, "Type" -> 1)
-
   // Evidence whose methods test a value's class or enumerate a type's cases and fields: a body
   // holding `ClassTag[A]` (or a `Manifest`) can match `case a: A` and so tell `A = Int` from
   // `A = String`, which no parametric body can (Scala 3 reference, "TypeTest"); every
@@ -195,7 +188,9 @@ private[cardinality] object StdlibModel {
       excluded(Equality)("scala.collection.immutable.Set", 1),
       excluded(Collected)("java.lang.ref.WeakReference", 1),
       excluded(Collected)("java.lang.ref.ReferenceQueue", 1)
-    ) ++ Quoted.map((name, arity) => excluded(Reflection)(s"scala.quoted.$name", arity)) ++
+    ) ++ ListedNamespaces.quoted.map((name, arity) =>
+      excluded(Reflection)(s"scala.quoted.$name", arity)
+    ) ++
       Revealed.map((fqn, arity) => excluded(Revealing)(fqn, arity)) ++
       Exceptions.map((fqn, _) => transparent(fqn)) ++
       List(
@@ -246,10 +241,9 @@ private[cardinality] object StdlibModel {
   /** The simple names the root imports bind to entries: what an import or export could rebind. */
   val rootNames: Set[String] = spellings.map(_._1).toSet
 
-  /** The root packages: a path from one of them names a library declaration, wherever it is read,
-    * unless the sources declare a package of that name inside one of theirs.
+  /** The root packages, whose paths name library declarations unless a source package rebinds them.
     */
-  val roots: Set[String] = Set("scala", "java")
+  val roots: Set[String] = ListedNamespaces.roots
 
   /** How a spelling may name a declaration of the root imports: through them (a simple name, or a
     * path from a root package, `_root_`-anchored or not), relative to a root import
@@ -345,65 +339,6 @@ private[cardinality] object StdlibModel {
     case Shape.Existential(_, opened)      => rigid(opened)
     case Shape.Singleton(_, Some(widened)) => rigid(widened)
     case _                                 => false
-  }
-
-  /** A stdlib namespace a wildcard import may open: its path; the term path its first name must
-    * denote for the prefix to be the library's (none for a root package's member); the type names
-    * it declares, when the model lists them; and what it is. None of them spells a name the root
-    * imports bind (Scala 3.9.0 fixtures), so a wildcard over one never shadows the model's own
-    * spellings.
-    */
-  final case class Namespace(
-      path: String,
-      anchor: Option[List[String]],
-      types: Option[Set[String]],
-      what: String
-  )
-
-  // `scala.jdk.CollectionConverters`' members (scala-library 2.13): the conversion classes only.
-  private val converters: List[String] =
-    List(
-      "Iterator",
-      "Iterable",
-      "Collection",
-      "List",
-      "Set",
-      "Map",
-      "ConcurrentMap",
-      "Enumeration",
-      "Dictionary",
-      "Properties"
-    ).map(_ + "HasAsScala") ++ List(
-      "Iterator",
-      "Iterable",
-      "Buffer",
-      "MutableSeq",
-      "Seq",
-      "MutableSet",
-      "Set",
-      "MutableMap",
-      "Map",
-      "ConcurrentMap"
-    ).map(_ + "HasAsJava")
-
-  private val namespaces: List[Namespace] = List(
-    Namespace("scala.quoted", None, Some(Quoted.map(_._1).toSet), Reflection),
-    Namespace(
-      "scala.jdk.CollectionConverters",
-      None,
-      Some(converters.toSet),
-      "implicit conversions between Scala and Java collections"
-    ),
-    // `Quotes#reflectModule`'s members, reached through the term `scala.quoted.quotes`.
-    Namespace("quotes.reflect", Some(List("scala", "quoted", "quotes")), None, Reflection)
-  )
-
-  /** The stdlib namespace a wildcard prefix spells (a `_root_` anchor dropped); whether its first
-    * name denotes the library's is the caller's to check, against the namespace's anchor.
-    */
-  def namespace(prefix: List[String]): Option[Namespace] = {
-    val path = prefix.dropWhile(_ == SourceIndex.Root).mkString(".")
-    namespaces.find(_.path == path)
   }
 
   /** Why a stdlib parent the model does not summarize, or summarizes without its term members,

@@ -120,19 +120,120 @@ qualified ones, and named imports of a model path (`import java.util.List` reads
 name — `import java.util.*` brings `java.util.List` over `scala.List`. Every builtin and model
 name is refused there (`builtin name List may be shadowed through a reference not
 supplied: java.util (wildcard import of java.util)`), as is any other channel to undeclared names (an unsupplied
-parent, self type or package clause). A `_root_.`-anchored path is exempt. The table lists the
-stdlib namespaces whose wildcards it knows — `scala.quoted.*`, `quotes.reflect.*` and
-`scala.jdk.CollectionConverters.*` — and none of them declares a name the root imports bind
-(Scala 3.9.0 fixtures: under each, `summon[N[…] =:= _root_.<fqn>[…]]` compiles for all 93 root
-spellings the analyzer reads, while `Symbol` under `quotes.reflect.*` is reflect's own).
+parent, self type or package clause). A `_root_`-anchored path is exempt. One table,
+`ListedNamespaces`, which the stored-value estimate reads too, lists the stdlib namespaces whose
+wildcards both readings know, with what each declares: `scala.quoted.*` (the types `Expr`,
+`ExprMap`, `FromExpr`, `Quotes`, `ToExpr`, `Type`; the terms `Expr`, `Exprs`, `FromExpr`,
+`ToExpr`, `Type`, `Varargs`, `quotes`, `runtime`), `scala.jdk.CollectionConverters.*` (its twenty
+conversion classes, each with the implicit conversion of its name) and `quotes.reflect.*` (members
+not listed) — scala-library 3.9.0 class files, read with `javap` and the jar's entries, and for
+`quotes.reflect` the TASTy of `scala.quoted.Quotes` (its type members are abstract, which `javap`
+cannot show). None of them declares one of the 93 root spellings the analyzer reads through the
+model (Scala 3.9.0 fixtures: under each, `summon[N[…] =:= _root_.<fqn>[…]]` compiles for all 93).
+`quotes.reflect` does declare two names the root imports bind: of its 323 type members, `Singleton`
+and `Symbol` are the only ones a `scala.*`, `scala.Predef` or `java.lang.*` type also spells (scalac
+compiles `summon[Symbol =:= quotes.reflect.Symbol]` there), so the table records both as reflect's,
+and the `Singleton` marker of a singleton intersection is not read under it (below). None declares
+a term `scala` or `java`.
 
-**Listed namespaces outrank another file's package member.** A wildcard import has a higher
-precedence than a package member declared in another file (register D11). So under `import
-scala.quoted.*`, `Expr` is the library's excluded `scala.quoted.Expr` even where another file of the
-package declares an `Expr` (Scala 3.9.0 fixture: that `Expr`'s field is not a member there), and a
-name the listed namespace does not declare is still the package's. A wildcard of a namespace the
-table does not list is the environment reading's (lane A4): until then such a package member is read
-as written.
+**Listed and unsupplied wildcards against the sources' names.** Scala 3 ranks the bindings of a
+name (Scala 3 draft specification ch. 2, **Inspected (full text)**; register D11): a definition of
+the reading file (or an inherited or exported member) > an explicit import > a wildcard import > a
+package member of another file > the root imports and root packages, an inner binding shadowing
+outer ones of the same or lower rank. So a wildcard outranks a package member of another file and
+a root package, and an inner wildcard outranks an outer one. A wildcard of a listed namespace binds
+exactly what the table lists: under `import scala.quoted.*`, `Expr` is the library's excluded
+`scala.quoted.Expr` even where another file of the package declares an `Expr` (Scala 3.9.0
+fixture: that `Expr`'s field is not a member there), and a name it does not declare is still the
+package's. A wildcard over a namespace the sources do not supply — or one whose members the table
+does not list, `quotes.reflect` — may bind any name, so the method side reads none it may bind
+(the stored side already did, [stored-value names](stored-value-names.md)):
+
+- a type name the reading would otherwise take from another file's package member or from an
+  outer scope's wildcard: `unresolved type: Fst (may be imported by cats.syntax.functor.*)`;
+- a path's first name — `compose` in a later `import compose.*`, `q` in `import q.Two` or in the
+  type `q.Two` — which would otherwise be a package or object of another file or a root package:
+  `unresolved type: Fst (may be imported by compose.*: compose may be imported by
+  cats.instances.function.*)`, `unresolved type: Two (imported from q.Two, q may be imported by
+  zzz.*)`, `unresolved type: q.Two (q may be imported by zzz.*)`. A wildcard whose own prefix is in
+  doubt passes that doubt on, as the stored side words it.
+
+What keeps its reading: a definition of the reading file (in its scope or an outer one, or in
+another block of the same package in that file — a definition of the compilation unit, Scala 3.9.0
+fixture `probes/review-A7/r9`), an inherited member, an explicit import, a wildcard of the same
+scope over a supplied namespace that binds the name, and a `_root_` path. Scala rejects (E049) a
+reference that one of them and an inner or same-scope wildcard both bind, so where the program
+compiles the
+wildcard does not bind it — a fact about the reference, not the whole-program argument that a
+rebinding would not typecheck elsewhere, which no rule adopts. A name the sources do not declare is
+left to the root imports' reading, which refuses it through the same wildcard — a wildcard whose
+prefix's first name is itself in doubt included: that reading asks the lookup about the prefix
+(`import zzz.{Boolean as _, *}; import compose.*` refuses `Boolean`, which `zzz.compose.*` may bind:
+`builtin name Boolean may be shadowed through a reference not supplied: compose (wildcard import of
+compose: compose may be imported by zzz.*)`, fixtures r8 and r5). So does the `Singleton` marker of
+`O.type & Singleton`: it is `scala.Singleton` only where the lookup finds no declaration of the name
+and no channel may rebind it (under `import zzz.*` a `zzz.Singleton = Nothing` empties the type;
+under `quotes.reflect.*` it is reflect's own).
+
+The same reading covers every clause that may bind a name besides a wildcard over a path:
+
+- a `given` selector (`import zzz.given`, `import zzz.{given T}`) binds the given instances of its
+  prefix — terms of any name, no type: over a namespace no source supplies it may bind a path's
+  first name (`unresolved type: C (may be imported by compose.*: compose may be imported by
+  zzz.given)`, fixture r11); over a supplied one it binds that namespace's given or implicit
+  members by name, values a path through which is not followed;
+- an importer whose prefix is no path (`import Outer.this.o.*`, `import Outer.this.o.Two`) binds
+  members of a value: its wildcard may bind any name (`unresolved type: Two (may be imported by
+  Outer.this.o.*)`) and its selectors bind theirs to members not followed (`path through a value not
+  followed: Outer.this.o`), fixture r12;
+- a supplied wildcard binds what its namespace holds, a value (`import Lib.*` binds `val
+  Lib.compose`: `path through a value not followed: compose`, fixture r15) and an enum
+  companion's class cases (`import E.*` binds `E.A`: `enum case type not read: p.E.A`, fixture
+  r16) included; a singleton case (`case B`, `case D extends E`) is a value, no type.
+
+A path's first name is a term, so a clause over a supplied namespace binds it to a term member
+the clause imports (`TermMembers`; Scala 3 reference, given imports, and the fixtures
+`probes/review-A7/round2/*`, `probes/a7fix2/spec`): a wildcard binds every accessible member but a
+given, a `given` selector the given and implicit ones, and neither binds a private member outside
+where it is accessible. The members are the namespace's own definitions — a package's
+subpackages among them, never a type or a class of the name (`import Lib.*` with `class two`
+leaves `two.C` the package `p.two`'s) —, the aliases its export clauses define (followed into
+the supplied namespace a named or wildcard export forwards), and what an object's or a package
+object's parents pass on (`object Lib extends Base`: Base's object `two` is read, its value
+`compose` is not followed; a parent outside the sources may declare any name, so the head is
+refused: `inherited type member not resolved: compose (unsupplied parent zzz.Base)`). A
+package object's parents pass type members on to its package's wildcard the same way. A first
+name nothing around the reference binds is the nearest package the scope opens that has that
+member among the sources (`c` in package `a.b` is `a.b.c` when the sources declare it, whatever
+the root `c` holds), not every package that holds the selected name.
+
+**The closed-package assumption.** A package some supplied file declares a member in (a definition,
+not only a nested package clause or an import) is read as complete: a wildcard over it binds its
+supplied members and nothing a dependency might add (`import zzz.*` with `package zzz; object Mine`
+supplied binds no `Two`). A package the sources spell only as the prefix of a deeper one (`zzz` for
+`package zzz.inner`, `dev` for `dev.constructive.eo`) is not: Scala binds a member another
+compilation unit declares there (fixture r14 binds a `zzz.Two` of a separate unit), so its wildcard
+binds its supplied subpackages and may bind any other name, like a namespace no source supplies. A
+package object counts as a member of its package (both sides share `Trees.declaresPackageMember`).
+
+Every reading goes through this lookup: a signature's goal and inputs, a capability record's
+fields (read where the field is written), a constructor's slots, a projection's prefix (`H#M`), a
+path through a parameter whose declared type it refuses (that refusal is the path's reason), and
+the conversions an inline body may meet
+— there the supplied declaration a wildcard may hide is what is read, the alternative being a
+declaration outside the sources, which is not read as a conversion (register D27's boundary).
+Scala 3.9.0 fixtures (`probes/a7/prec`, `probes/a7/plain`): `import zzz.w.*` binds `zzz.w.Fst` over
+another file's `p.Fst`; `import zzz.v.*; import compose.*` binds `zzz.v.compose.Fst`; `import
+zzz.v.*; import dev.other.Y` binds `zzz.v.dev.other.Y`, and the type `dev.r.optics.BijectionIso`
+under `import zzz.syntax.functor.*` is `zzz.syntax.functor.dev.r.optics.BijectionIso` while the
+`_root_` spelling is not; an inner `import zzz.w.*` shadows an outer `import a.*`; a same-file
+definition, a named import and a supplied wildcard of the same scope win; and an outer definition,
+an outer named import, a same-scope supplied wildcard or an inner package's member of another file
+against a wildcard that binds the name are each E049.
+
+*Future work, not adopted:* a per-version index of the NAMES a dependency exports (no sources)
+would let a wildcard over a known library bind only those names, as the table does for the three
+namespaces above.
 
 **Absence.** A name no source declaration and no table entry answers is `declaration not
 supplied: <fqn> (<how it was bound>)` — `(named import Schema)`, `(renamed import JList)`,
@@ -215,7 +316,11 @@ unapplied constructor read as a proper type; an `Array` of a type parameter or o
 one, even as an input (the reading has no polarity); the members of a class only its own scope
 builds (a non-public constructor or class, a non-public enclosing template, a block) until its
 factories are read; `Map`/`Set` though the stored-value side keeps its mathematical estimate; names
-under an unsupplied wildcard; a foreign parent of an open owner; SE beyond its three sequences and
+under an unsupplied wildcard (a `given` selector, a package spelled only as a prefix and an
+importer whose prefix is no path included), and the source names and paths' first names it may
+bind; a definition in another block of the reading file's package on the stored side and in the
+constructor slots it reads (the method side reads it); a foreign
+parent of an open owner; SE beyond its three sequences and
 lengths ≤ 2, and the places listed under Rule SE; every name the sources and the table do not
 declare. Not modelled: `PartialFunction`, `LazyList`, `collection.Seq`, `Iterable`, `scala.Symbol`;
 dependency declarations are not read (no dependency-sources mode).

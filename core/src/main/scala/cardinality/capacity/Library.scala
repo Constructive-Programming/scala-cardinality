@@ -21,10 +21,22 @@ final class Library private[cardinality] (
     private val declared: Map[List[TypeName], Set[TypeName]],
     private val unsolved: Set[List[TypeName]],
     private[cardinality] val synonyms: SealedFamilies.Synonyms = SealedFamilies.Synonyms.none,
+    private val filled: Set[List[TypeName]] = Set.empty,
+    private val exposures: Map[List[TypeName], Exposure] = Map.empty,
 ) {
 
   // Every package path the source set opens or nests inside: `a.b.c` makes `a` and `a.b` packages.
   private val paths: Set[List[TypeName]] = declared.keySet.flatMap(_.inits)
+
+  /** Whether a supplied file declares a member of the package: it is then read as complete (the
+    * closed-package assumption). One the sources spell only as the prefix of a deeper package holds
+    * whatever a dependency declares there.
+    */
+  private[cardinality] def complete(path: List[TypeName]): Boolean = filled(path)
+
+  /** What a clause over the package imports of the top-level members its files define. */
+  private[cardinality] def exposure(path: List[TypeName]): Exposure =
+    exposures.getOrElse(path, Exposure.none)
 
   /** The package scope a bare name the read's package clauses open resolves to. */
   private[cardinality] def frame(name: TypeName, world: World): Option[Scope] =
@@ -68,6 +80,20 @@ object Library {
       .flatMap((source, unit) => Walk.parts(source.stats, unit))
       .groupBy(_.path)
     val declared = parts.view.mapValues(_.flatMap(p => Walk.typeNames(p.stats)).toSet).toMap
+    val filled = parts.collect {
+      case (path, found)
+          if found.exists(p => Trees.declaresPackageMember(p.stats, p.packageObject.nonEmpty)) =>
+        path
+    }.toSet
+    // A package object's parents and export clauses add members to its package.
+    val exposures = parts.view.mapValues { found =>
+      val stats = found.flatMap(_.stats)
+      Exposure(
+        stats,
+        found.exists(_.packageObject.exists(_.templ.inits.nonEmpty)),
+        stats.exists(_.is[Export])
+      )
+    }.toMap
     val reads = parts.map((path, found) => path -> Reads.of(path, found, parts.keySet))
     // Every alias and renaming the sources write: one may name a sealed family a subtype extends
     // through it.
@@ -75,7 +101,7 @@ object Library {
     Reads
       .components(parts.keySet.toList.sortBy(_.mkString(".")), reads)
       .foldLeft(
-        new Library(Map.empty, declared, Set.empty, synonyms)
+        new Library(Map.empty, declared, Set.empty, synonyms, filled, exposures)
       ) { (library, component) =>
         val cyclic = component.size > 1 || component.exists(p => reads(p)(p))
         solve(parts, component, if (cyclic) component.size + 3 else 1, library)
@@ -91,7 +117,15 @@ object Library {
       rounds: Int,
       done: Library
   ): Library = {
-    val start = new Library(done.packages, done.declared, component.toSet, done.synonyms)
+    val start =
+      new Library(
+        done.packages,
+        done.declared,
+        component.toSet,
+        done.synonyms,
+        done.filled,
+        done.exposures
+      )
     Iterator
       .iterate(start) { behind =>
         new Library(
@@ -102,7 +136,9 @@ object Library {
           },
           done.declared,
           Set.empty,
-          done.synonyms
+          done.synonyms,
+          done.filled,
+          done.exposures
         )
       }
       .drop(rounds)

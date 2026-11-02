@@ -24,6 +24,14 @@ private[cardinality] object Trees {
       }
   }
 
+  /** Whether one package clause or package object declares a member of its package: a package
+    * object does, a clause by a statement other than a nested clause, a nested package object (a
+    * member of the nested package) or an import. Both sides read a package a supplied file declares
+    * a member in as complete (the closed-package assumption, docs/research/stdlib-model.md).
+    */
+  def declaresPackageMember(stats: List[Stat], packageObject: Boolean): Boolean =
+    packageObject || stats.exists(stat => !stat.is[Pkg] && !stat.is[Pkg.Object] && !stat.is[Import])
+
   /** The types a constructor's parameters declare. */
   def fields(ctor: Ctor.Primary): List[Type] =
     ctor.paramClauses.flatMap(_.values).flatMap(_.decltpe).toList

@@ -21,10 +21,27 @@ private[cardinality] object ScopeTerms {
     */
   def values(stats: List[Stat]): Set[String] = definedBy(stats, !namespace(_))
 
-  private def namespace(stat: Stat): Boolean = stat match {
+  /** An object, or the companion Scala gives a case class or an enum: a path selects through it. */
+  def namespace(stat: Stat): Boolean = stat match {
     case _: (Defn.Object | Defn.Class | Defn.Enum) => true
     case _                                         => false
   }
+
+  def defining(stats: List[Stat], name: String): List[Stat] =
+    definitions(stats).collect { case (`name`, stat) => stat }
+
+  /** Whether a clause importing from a definition's scope binds it: a wildcard every definition but
+    * a given, a `given` selector a given or an implicit one (Scala 3 reference, given imports).
+    */
+  def imports(stat: Stat, givens: Boolean): Boolean = stat match {
+    case _: (Defn.Given | Defn.GivenAlias | Decl.Given) => givens
+    case member: Stat.WithMods if givens                => member.mods.exists(_.is[Mod.Implicit])
+    case _                                              => !givens
+  }
+
+  /** The values the statements pass on that such a clause over a subclass's object binds. */
+  def importable(stats: List[Stat], givens: Boolean): Set[String] =
+    definedBy(stats, stat => !namespace(stat) && !privateMember(stat) && imports(stat, givens))
 
   /** The names a template's statements pass on to its subclasses: every definition but a `private`
     * or `private[this]` one (a qualified `private[p]` member is inherited).
@@ -68,6 +85,11 @@ private[cardinality] object ScopeTerms {
     case _                     => false
   }
 
+  def protectedMember(tree: Tree): Boolean = tree match {
+    case member: Stat.WithMods => member.mods.exists(_.is[Mod.Protected])
+    case _                     => false
+  }
+
   /** Whether modifiers make a member `private` or `private[this]`. */
   def unqualifiedPrivate(mods: List[Mod]): Boolean = mods.exists {
     case Mod.Private(within) => within.is[Name.Anonymous] || within.is[Term.This]
@@ -101,6 +123,16 @@ private[cardinality] object ScopeTerms {
     importer.importees.exists(e =>
       e.is[Importee.Wildcard] || e.is[Importee.Given] || e.is[Importee.GivenAll]
     )
+
+  def opensGivens(importer: Importer): Boolean =
+    importer.importees.exists(e => e.is[Importee.Given] || e.is[Importee.GivenAll])
+
+  // The class cases of an enum, each a type `import E.*` binds: a case with neither a parameter
+  // list nor type parameters is a value (Scala 3 reference, enums).
+  def classCases(d: Defn.Enum): List[String] = d.templ.body.stats.collect {
+    case c: Defn.EnumCase if c.ctor.paramClauses.nonEmpty || c.tparamClause.values.nonEmpty =>
+      c.name.value
+  }
 
   /** The cases an enum's body declares, by name. */
   def enumCases(d: Defn.Enum): List[String] = d.templ.body.stats.flatMap {

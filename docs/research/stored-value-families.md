@@ -147,8 +147,10 @@ dependency graph links the member's key. Any other path is a reason that names t
 - `not supplied` when no source declares the path;
 - `not followed` for a member reached through a value;
 - `<first> may be imported by w.*` when an earlier wildcard over an unsupplied namespace may bind
-  the path's first name (as `scala.jdk.CollectionConverters.*` may bind `org`). In that case the
-  clause may still name a supplied declaration, so the reason does not say it is not supplied.
+  the path's first name (as `cats.syntax.all.*` may bind `org`; a listed stdlib namespace binds
+  only the terms `ListedNamespaces` lists, so `scala.jdk.CollectionConverters.*` binds no `org`).
+  In that case the clause may still name a supplied declaration, so the reason does not say it is
+  not supplied.
 
 Exports follow the same rule, and an export defines a member of its template, which outranks an
 import of the same name there and an outer definition of it (`import X.T; export Y.T` binds `Y.T`).

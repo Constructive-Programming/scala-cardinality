@@ -515,9 +515,12 @@ final private[cardinality] class TypeMembers(
     }
     callee match {
       case _: Type.Name | _: Type.Select =>
+        // A declared type the lookup refuses leaves the path refused for that reason: no other
+        // reading of the path is more specific.
         resolver.declaration(callee, TypeApplications.spelled(callee), scope) match {
-          case Found.Entry(entry) => template(at, entry, args, scope)
-          case _                  => None
+          case Found.Entry(entry)       => template(at, entry, args, scope)
+          case Found.Blocked(reason, _) => Some(Left(reason))
+          case _                        => None
         }
       case _ => None
     }

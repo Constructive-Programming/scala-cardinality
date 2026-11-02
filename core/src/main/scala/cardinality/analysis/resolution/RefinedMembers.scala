@@ -137,12 +137,10 @@ private[cardinality] object RefinedMembers {
 
     private def readQualifier(qualifier: Type, name: String, context: ResolutionContext): Resolved =
       qualifier match {
-        case refined: Type.Refine => refinement(refined, name, context)
-        case applied: Type.Apply  =>
-          source(applied.tpe.syntax.stripPrefix("_root_."), applied.argClause.values, name, context)
-        case n: Type.Name          => source(n.value, Nil, name, context)
-        case selected: Type.Select =>
-          source(selected.syntax.stripPrefix("_root_."), Nil, name, context)
+        case refined: Type.Refine  => refinement(refined, name, context)
+        case applied: Type.Apply   => source(applied.tpe, applied.argClause.values, name, context)
+        case n: Type.Name          => source(n, Nil, name, context)
+        case selected: Type.Select => source(selected, Nil, name, context)
         case _ => Left(s"unavailable refined member: ${Spelling.of(qualifier)}#$name")
       }
 
@@ -238,21 +236,25 @@ private[cardinality] object RefinedMembers {
       if (declared.contains(bound.syntax)) false
       else context.read(bound, resolver) == Right(Inhabitation.Shape.Sum(Nil))
 
+    // The projected type's declaration, bound where the projection is written: an import or a
+    // wildcard over a namespace no source supplies binds it as it binds any type name.
     private def source(
-        name: String,
+        qualifier: Type,
         arguments: List[Type],
         memberName: String,
         context: ResolutionContext
-    ): Resolved =
+    ): Resolved = {
+      val name = qualifier.syntax.stripPrefix("_root_.")
       if (context.variables.contains(name))
         Left(s"unavailable member on type parameter: $name#$memberName")
       else
-        resolver.lookup(name, context.frame) match {
-          case List(entry) =>
+        resolver.declaration(qualifier, name, context) match {
+          case Found.Entry(entry) =>
             applyDefinition(definition(entry), Request(name, arguments, memberName), context)
-          case Nil => Left(s"unavailable refined member: $name#$memberName")
-          case _   => Left(s"ambiguous type: $name")
+          case failed: Found.Failed => Left(failed.reason)
+          case Found.Absent         => Left(s"unavailable refined member: $name#$memberName")
         }
+    }
 
     private def applyDefinition(
         defined: Definition,

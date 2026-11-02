@@ -47,7 +47,8 @@ private[cardinality] object Walk {
       path: List[TypeName],
       stats: List[Stat],
       layer: Layer,
-      unit: Int
+      unit: Int,
+      packageObject: Option[Pkg.Object] = None
   )
 
   // Walks statements in source order, solving each body's equations once so a definition's size is
@@ -223,21 +224,30 @@ private[cardinality] object Walk {
     * each enclosing package, and the clauses written before a nested package body reach it.
     */
   private[cardinality] def parts(stats: List[Stat], unit: Int): List[Part] =
-    parts(stats, Nil, Nil, Imports.none, unit)
+    parts(stats, Nil, Nil, Imports.none, unit, None)
 
   private def parts(
       stats: List[Stat],
       prefix: List[String],
       opened: List[List[TypeName]],
       outer: Imports,
-      unit: Int
+      unit: Int,
+      packageObject: Option[Pkg.Object]
   ): List[Part] = {
     val clauses = Imports.before(stats)
     val here = Layer(imports = outer, opened = Some(opened))
-    Part(prefix.map(TypeName.of), stats.filter(packageBody(prefix, _).isEmpty), here, unit) ::
+    val own = stats.filter(packageBody(prefix, _).isEmpty)
+    Part(prefix.map(TypeName.of), own, here, unit, packageObject) ::
       stats.flatMap(st =>
         packageBody(prefix, st).toList.flatMap((path, inner) =>
-          parts(inner, path, path.map(TypeName.of) :: opened, outer ++ clauses(st), unit)
+          parts(
+            inner,
+            path,
+            path.map(TypeName.of) :: opened,
+            outer ++ clauses(st),
+            unit,
+            Some(st).collect { case o: Pkg.Object => o }
+          )
         )
       )
   }
@@ -331,7 +341,7 @@ private[cardinality] object Walk {
   // their keys: its rows report the values a qualified reference from outside reads.
   private def moduleView(scope: Scope, d: Defn.Object): Option[Scope] =
     scope.term(named(d)).collect {
-      case Bound.Module(prefix, _, _) => Namespaces.Module(named(d), prefix, d).view(scope)
+      case Bound.Module(prefix, _) => Namespaces.Module(named(d), prefix, d).view(scope)
     }
 
   // The type members a body declares: what a qualified reference can resolve to. A member with a
@@ -383,8 +393,9 @@ private[cardinality] object Walk {
   ): Map[TypeName, Bound] =
     stats.flatMap {
       case o: Defn.Object =>
-        val exports = o.templ.body.stats.exists(_.is[Export])
-        List(named(o) -> Bound.Module(key(named(o)), o.templ.inits.nonEmpty, exports))
+        List(
+          named(o) -> Bound.Module(key(named(o)), Exposure.of(o.templ.body.stats, o.templ.inits))
+        )
       case v: Defn.Val => values(v.pats, v.decltpe.orElse(constructed(v.rhs)))
       case v: Defn.Var => values(v.pats, v.decltpe)
       case v: Decl.Val => values(v.pats, Some(v.decltpe))

@@ -2,7 +2,7 @@ package cardinality.analysis.expansion
 
 import scala.meta.*
 
-import cardinality.analysis.MethodAnalysis.Frame
+import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.analysis.resolution.Found
 import cardinality.analysis.{Resolver, SourceIndex}
@@ -154,19 +154,24 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private def conversionType(tpe: Type, scope: Frame, seen: Set[String]): Boolean =
     named(tpe).exists { name =>
       terms.typeDeclaration(name, scope) match {
-        case (Found.Entry(entry), _) if seen(entry.key) => true
-        case (Found.Entry(entry), _)                    =>
-          entry.tree match {
-            case alias: Defn.Type => conversionType(alias.body, entry.owner, seen + entry.key)
-            case _                => entry.self.exists(extendsConversion(_, seen + entry.key))
-          }
-        case (Found.Absent, context) =>
+        case (Found.Entry(entry), _) => declaresConversion(entry, seen)
+        // A wildcard over a namespace no source supplies may bind the name: the supplied
+        // declaration it hides is read; the alternative, a declaration outside the sources, is not
+        // read as a conversion, as no class outside the sources is (above).
+        case (Found.Blocked(_, Some(entry)), _) => declaresConversion(entry, seen)
+        case (Found.Absent, context)            =>
           LibraryInlines.conversionClass(name.syntax) &&
           resolver.rootShadow(name.syntax, context).isEmpty
         case (Found.Foreign(path, _), _) => LibraryInlines.conversionClass(path)
         case (_: Found.Blocked, _)       => true
       }
     }
+
+  private def declaresConversion(entry: TypeEntry, seen: Set[String]): Boolean =
+    seen(entry.key) || (entry.tree match {
+      case alias: Defn.Type => conversionType(alias.body, entry.owner, seen + entry.key)
+      case _                => entry.self.exists(extendsConversion(_, seen + entry.key))
+    })
 
   // The head a type applies, when it is a name or a path.
   private def named(tpe: Type): Option[Type] =

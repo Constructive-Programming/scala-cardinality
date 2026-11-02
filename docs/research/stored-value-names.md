@@ -41,7 +41,20 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   A wildcard outranks another file's package member; a definition of the reading file itself
   outranks every wildcard (scalac rejects an outer definition and an inner wildcard that both
   bind a name as ambiguous, and in one scope the definition wins). Two wildcards of one body
-  that both define the name are an ambiguity Scala rejects: a reason, never either.
+  that both define the name are an ambiguity Scala rejects: a reason, never either. For the same
+  reason a wildcard that only *may* bind the name (its namespace not supplied) is no binding
+  where another wildcard of its body defines it, whichever is written last. A wildcard of a
+  stdlib namespace binds what `ListedNamespaces` — the table the method side reads too — lists:
+  `scala.jdk.CollectionConverters.*` its conversion classes, `scala.quoted.*` its six types and
+  eight terms, `quotes.reflect.*` (through `scala.quoted.quotes`) any name but a root spelling the
+  estimate reads — and of the root imports' names it binds `Singleton` and `Symbol`, its own. A
+  `given` selector (`import zz.given`, `import zz.{given T}`) binds the given instances of its
+  namespace, terms of any name: it binds no type, but may bind a path's first name (`compose` in a
+  later `import compose.*`) where its namespace is not supplied, and binds a supplied namespace's
+  given value only. A package some file declares a member in is read as complete (the
+  closed-package assumption); one the sources spell only as the prefix of a deeper package (`zz`
+  for `package zz.inner`) holds its subpackages and may hold anything else, so its wildcard may
+  bind any other name.
 - **Clauses bind where Scala says.** An import binds the statements after it in its block or
   template, never the ones before (`UseBare(o: Obj); import x.*; After(o: Obj)` reads two
   different `Obj`s). An export defines members of its template, so it binds the whole body: an
@@ -127,8 +140,14 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
 - **Clauses the sources do not supply.** An explicitly imported or exported name whose path names
   no supplied declaration stays a reason, with its clause: `Widget (imported from zz.Widget, not
   supplied)`; a name a wildcard over an unsupplied namespace may bind says so: `Int (may be
-  imported by scala.jdk.CollectionConverters.*)` — the standard library's own namespaces too, until
-  their declarations are supplied.
+  imported by cats.syntax.all.*)`; a listed stdlib namespace's own member is the library's
+  declaration, not supplied: `Expr (imported from scala.quoted.Expr, not supplied)`. A wildcard
+  over an object or a package object binds what its parents pass on and its export clauses define
+  too, and no private member outside where it is accessible (Scala 3 reference, given imports;
+  fixtures `probes/a7fix2/stored`): this reading follows none of them, so a name the body does not
+  define, under a namespace with parents or exports, and a private member are refused: `Two (may
+  be imported by Lib.*, an inherited member not followed)`, `compose.C (may be imported by Priv.*,
+  a private member not followed)`. A wildcard binds no given, a `given` selector no other member.
 
 ## Derivation
 
@@ -139,8 +158,8 @@ packages they open visible (and only those); and bindings follow the precedence 
 definition or inherited member (or a package member of the same compilation unit), explicit
 import, wildcard import, package member of another compilation unit, with a binding in an inner
 scope shadowing bindings of lower precedence in its scope and of the same or lower precedence
-outside it; a binder is innermost in its definition (Scala Language Specification, chapter 2,
-"Identifiers, Names and Scopes" — **classical**, not re-verified this session). The
+outside it; a binder is innermost in its definition (Scala 3 draft specification ch. 2 [28] and
+SLS 2.13 ch. 2 [32] in the verified bibliography, both **Inspected (full text)**). The
 least-fixed-point reading of an object member solved with its enclosing body agrees with solving
 the body first and the object after (Bekić's lemma — **classical**). A lazy knot is a value the
 least fixed point does not contain: it is the greatest-fixed-point part the ν completion counts
@@ -175,9 +194,18 @@ source-to-count regressions for every rule above), `ReportSpec.memberByName`,
 
 - **A wildcard over an unsupplied namespace** may bind any name the reading file does not define
   — a base type, a modelled constructor, another file's package member, another wildcard's first
-  name — so each such name is refused, naming the clause (`scala.jdk.CollectionConverters.*`,
-  `cats.syntax.all.*`, `quotes.reflect.*` alike), until those namespaces' declarations are
-  supplied.
+  name — so each such name is refused, naming the clause (`cats.syntax.all.*`, `zz.given` for a
+  path's first name, and `quotes.reflect.*` for any name but a root spelling the estimate reads),
+  until those namespaces' declarations are supplied; the stdlib namespaces `ListedNamespaces`
+  lists bind only what it lists. A package spelled only as a prefix counts as such a namespace.
+- **A definition in another block of the reading file's package** (`package p { type T = … }`
+  beside `package p { import zz.*; … T … }` in one file) outranks every wildcard (spec ch. 2;
+  Scala 3.9.0 fixture `probes/review-A7/r9`), but each block here reads with its own definitions
+  only: the estimate refuses `T` there through the wildcard, a refusal where the method side reads
+  the definition. No eo 1.0.0 source writes two blocks of one package.
+- **A `given` selector over a supplied namespace** binds a given instance the estimate holds as a
+  value (a `given x: T = …` alias); a `given x: T with { … }` instance is no term here, so a path
+  through it is not refused by that selector.
 - **Enums are not namespaces here.** `Shape.Circle` stays a reason.
 - **A blocked lazy cycle with no knot.** `X(b: => X, a: X)` admits no value (the strict `a`
   demands one first), so μ = 0 is exact, but the cycle is still read as blocked.
@@ -188,9 +216,12 @@ source-to-count regressions for every rule above), `ReportSpec.memberByName`,
 - **Cross-package cycles** deeper than their rounds (the cycle's size plus three) say `cross-package
   cycle not solved`; a definition-level recursion across packages (`p.A(b: Option[q.B])`,
   `q.B(a: Option[p.A])`) always does.
-- **The method side's own resolver** (`SourceLookup`) is unchanged: it scopes type parameters
-  and package members on its own, and does not yet bind export wildcards or paths through vals and
-  parameters as this reading does (constructor slots catch it as a disagreement). A slot the estimate declines makes the constructor row `?` when
-  the slot is ground or rests on a declaration the reading could not read whole; a slot over a
+- **The method side's own resolver** (`SourceLookup`) scopes type parameters and package members
+  on its own, and does not yet bind paths through vals and parameters as this reading does
+  (constructor slots catch it as a disagreement). It refuses the names and paths' first names a
+  wildcard over an unsupplied namespace may bind as this reading does, through the same table of
+  listed namespaces ([stdlib-model.md](stdlib-model.md), "Listed and unsupplied wildcards"). A
+  slot the estimate declines makes the constructor row `?` when the slot is ground or rests on a
+  declaration the reading could not read whole; a slot over a
   type parameter refused only for syntax the estimate does not model (`A =:= B`, a type lambda, a
   projection) stays the shape model's to count, as the convention for such slots says.

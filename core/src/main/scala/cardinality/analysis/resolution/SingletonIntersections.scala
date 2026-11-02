@@ -216,11 +216,17 @@ private[cardinality] object SingletonIntersections {
       } yield result
   }
 
+  // `scala.Singleton`, where no declaration nearer than the root imports binds the spelling: the
+  // name resolves to nothing the sources hold and no channel may rebind it — a wildcard over a
+  // namespace no source supplies may (Scala 3.9.0 reads `O.type & Singleton` as `Nothing` under a
+  // `zzz` declaring `type Singleton = Nothing`), and `quotes.reflect.*` does: reflect's own
+  // `Singleton` (probes/review-A7q).
   private def marker(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
     tpe.syntax match {
-      case "scala.Singleton" => resolver.lookup("scala.Singleton", context.frame).isEmpty
-      case "Singleton"       =>
-        resolver.lookup("Singleton", context.frame).isEmpty && unshadowedMarker(context)
+      case spelled @ ("scala.Singleton" | "Singleton") =>
+        Found.named(resolver, tpe, spelled, context).contains(Found.Absent) &&
+        resolver.rootShadow(spelled, context).isEmpty &&
+        (spelled.contains('.') || unshadowedMarker(context))
       case _ => false
     }
 

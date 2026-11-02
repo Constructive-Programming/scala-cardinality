@@ -12,21 +12,36 @@ import cardinality.types.*
 
 /** A wildcard clause `import a.b.*` or `export a.b.*`: the path it names (empty when it is not a
   * stable path), as written, the names its importer excludes (`import a.{W => _, *}`) — for an
-  * export, also every name its body or a body inside defines — and the body it is written in.
+  * export, also every name its body or a body inside defines — the body it is written in, and its
+  * kind. A `given` selector (`import a.given`, `import a.{given T}`) is one that binds only the
+  * given instances of its namespace: terms, under their own names.
   */
 final private[cardinality] case class Wildcard(
     path: List[TypeName],
     written: String,
     excluded: Set[TypeName],
     body: Option[Tree] = None,
-    exported: Boolean = false,
+    kind: Wildcard.Kind = Wildcard.Kind.Import,
 ) {
+
+  def exported: Boolean = kind == Wildcard.Kind.Export
+
+  def givens: Boolean = kind == Wildcard.Kind.Given
 
   /** Whether two wildcards are written in one body, where both binding a name is an ambiguity. */
   def beside(other: Wildcard): Boolean = body.exists(b => other.body.exists(_ eq b))
 
   /** Whether two wildcards are the same clause. */
   def same(other: Wildcard): Boolean = written == other.written && beside(other)
+
+}
+
+private[cardinality] object Wildcard {
+
+  /** An import's `*`, an import's `given` selector, or an export's `*`. */
+  enum Kind {
+    case Import, Given, Export
+  }
 
 }
 
@@ -154,17 +169,23 @@ private[cardinality] object Imports {
         case Importee.Unimport(n)     => TypeName.of(n.value)
         case Importee.Rename(from, _) => TypeName.of(from.value)
       }
-      val wildcard = importer.importees.collectFirst {
+      def wildcard(written: String, kind: Wildcard.Kind) = Wildcard(
+        Namespaces.path(importer.ref).getOrElse(Nil),
+        written,
+        hidden.toSet,
+        importer.parent.flatMap(_.parent),
+        kind
+      )
+      val wildcards = importer.importees.collectFirst {
         case _: Importee.Wildcard =>
-          Wildcard(
-            Namespaces.path(importer.ref).getOrElse(Nil),
+          wildcard(
             s"$ref.*",
-            hidden.toSet,
-            importer.parent.flatMap(_.parent),
-            exported = verb == "exported"
+            if (verb == "exported") Wildcard.Kind.Export else Wildcard.Kind.Import
           )
+      } ++ importer.importees.collectFirst {
+        case _: (Importee.Given | Importee.GivenAll) => wildcard(s"$ref.given", Wildcard.Kind.Given)
       }
-      acc ++ Imports(named.toMap, wildcard.toList)
+      acc ++ Imports(named.toMap, wildcards.toList)
     }
 
 }

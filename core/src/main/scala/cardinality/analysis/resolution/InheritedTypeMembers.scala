@@ -4,7 +4,7 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.model.ResolutionContext
+import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.types.{Spelling, TypeApplications}
 
@@ -121,7 +121,9 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
     val declared = Option
       .when(ancestry.names(name))(
         pick(
-          declarations(module, name, module).filter((entry, _) => selectable(entry, module, from))
+          declarations(module, name, module).filter((entry, _) =>
+            selectable(entry.tree, entry.owner, module, from)
+          )
         )
       )
       .flatten
@@ -133,6 +135,26 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
           )
       }
     declared.orElse(unreadReason(name, ancestry, exportsName(_, name)).map(Left(_)))
+  }
+
+  // A member object is no given, and a protected one is selected only from inside the template or
+  // its declaring parent.
+  override def inheritedTerm(
+      template: Frame,
+      name: String,
+      givens: Boolean,
+      from: Frame
+  ): InheritedObjects.Path = {
+    val ancestry = ancestryOf(template)
+    Option
+      .when(!givens && ancestry.objects(name))(objectPath(template, name, Some(from)))
+      .flatten
+      .orElse(
+        Option.when(ancestry.imported(givens)(name))(
+          Left(s"path through a value not followed: $name")
+        )
+      )
+      .orElse(unreadReason(name, ancestry, lookup.mayExport(_, name)).map(Left(_)))
   }
 
   def at(head: InheritedObjects.Head): InheritedObjects.Path =
@@ -150,14 +172,23 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   // An inherited member object as a path: its declaring parent read with its own binders, since a
   // path carries no type arguments. Under a parent the chain instantiates, the object is a member
   // of another type than the path reads, so the reading is refused.
-  private def objectPath(frame: Frame, head: String): InheritedObjects.Path =
+  private def objectPath(
+      frame: Frame,
+      head: String,
+      from: Option[Frame] = None
+  ): InheritedObjects.Path =
     InheritedScopes
       .walk(List(frame -> resolver.typeParameters(frame)), resolver, frame)
       .collect { case Right(step) => step }
       .flatMap(step =>
         lookup
           .moduleIn(step.declared, head)
-          .filter(module => module.tree.forall(visible(_, step.declared, frame)))
+          .filter(module =>
+            module.tree.forall(tree =>
+              visible(tree, step.declared, frame) &&
+                from.forall(selectable(tree, step.declared, frame, _))
+            )
+          )
           .map(step -> _)
       )
       .headOption
@@ -235,7 +266,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
         ) match {
           case Found.Entry(entry) =>
             Right(Located.Supplied(entry -> resolver.typeParameters(entry.owner)))
-          case Found.Blocked(reason)        => Left(reason)
+          case Found.Blocked(reason, _)     => Left(reason)
           case Found.Foreign(path, binding) => Right(unsupplied(path, binding, context))
           case Found.Absent => Right(unsupplied(name, StdlibModel.undeclared, context))
         }
@@ -259,10 +290,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
     ancestries.get(frame.id) match {
       case Some(known) => known
       case None        =>
-        ancestries.update(
-          frame.id,
-          Ancestry(Set.empty, Set.empty, Set.empty, Nil, Nil, Nil, Set.empty)
-        )
+        ancestries.update(frame.id, Ancestry.none)
         val found = InheritedScopes
           .breadthFirst(frame.parents.map(frame -> _), Set.empty[String]) {
             case ((from, init), seen) =>
@@ -294,6 +322,8 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
           declared.flatMap(lookup.declaredNames).toSet,
           declared.flatMap(lookup.declaredModules).toSet,
           declared.flatMap(InheritedTerms.values).toSet,
+          declared.flatMap(InheritedTerms.imported(_, givens = false)).toSet,
+          declared.flatMap(InheritedTerms.imported(_, givens = true)).toSet,
           spelled,
           channels,
           declared.filter(lookup.exporting),
@@ -340,11 +370,9 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
 
   // A protected member is selected through an object only inside that object or the template that
   // declares it.
-  private def selectable(entry: TypeEntry, module: Frame, from: Frame): Boolean = entry.tree match {
-    case d: Stat.WithMods if d.mods.exists(_.is[Mod.Protected]) =>
-      from.chain.exists(scope => scope.id == module.id || scope.id == entry.owner.id)
-    case _ => true
-  }
+  private def selectable(tree: Tree, owner: Frame, module: Frame, from: Frame): Boolean =
+    !ScopeTerms.protectedMember(tree) ||
+      from.chain.exists(scope => scope.id == module.id || scope.id == owner.id)
 
   /** Whether a member is inherited: a private one is not, a qualified `private[p]` one is where `p`
     * reaches.
@@ -370,10 +398,11 @@ private[cardinality] object InheritedTypeMembers {
   /** An inherited member with the template whose body inherits it, or why it is not known. */
   type Location = Either[String, (Frame, Member)]
 
-  /** What a template inherits: the type names, objects and values its supplied ancestors declare,
-    * its ancestors outside the source set (as spelled), whose declarations are unknown, every
-    * channel through which it may inherit any name this reading does not know — such an ancestor,
-    * or a marker parent another declaration may stand behind — the supplied ancestors whose export
+  /** What a template inherits: the type names, objects and values its supplied ancestors declare
+    * (and the values a wildcard, or a `given` selector, over the template's object imports), its
+    * ancestors outside the source set (as spelled), whose declarations are unknown, every channel
+    * through which it may inherit any name this reading does not know — such an ancestor, or a
+    * marker parent another declaration may stand behind — the supplied ancestors whose export
     * clauses define members, which this reading does not follow for the names they define, and the
     * frames of the supplied ancestors.
     */
@@ -381,11 +410,23 @@ private[cardinality] object InheritedTypeMembers {
       names: Set[String],
       objects: Set[String],
       values: Set[String],
+      wildcardTerms: Set[String],
+      givenTerms: Set[String],
       unsupplied: List[String],
       unread: List[String],
       exporters: List[Frame],
       classes: Set[String]
-  )
+  ) {
+
+    def imported(givens: Boolean): Set[String] = if (givens) givenTerms else wildcardTerms
+  }
+
+  object Ancestry {
+
+    val none: Ancestry =
+      Ancestry(Set.empty, Set.empty, Set.empty, Set.empty, Set.empty, Nil, Nil, Nil, Set.empty)
+
+  }
 
   /** A parent clause outside the source set: the path it names (as an import binds it, or as
     * written when nothing does), how the name was bound, and the channel through which a

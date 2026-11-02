@@ -5,8 +5,8 @@ import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
-import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
-import cardinality.types.{Spelling, TypeApplications}
+import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex}
+import cardinality.types.{ListedNamespaces, Spelling, TypeApplications}
 
 import MethodAnalysis.Frame
 
@@ -462,7 +462,7 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
   // A library namespace whose members the stdlib model lists binds no other name, when its first
   // segment is the library's root package.
   private def listedWithout(path: List[String], name: String, scope: Frame, at: Int): Boolean =
-    StdlibModel.namespace(path).exists(_.types.exists(!_(name))) &&
+    ListedNamespaces.of(path).exists(_.termBinding(name).isEmpty) &&
       path.headOption.exists(head =>
         named(head, scope, at) == Meaning.Package(List(head), supplied = false)
       )

@@ -152,9 +152,10 @@ is the method side's alone: `constructor position reads a top type inside Set, w
 elements apart: <param>` where that side cannot read it (`Box[Any]` with `Box[A](a: A)` it reads
 whole: 1). So `case class AnyBox(x: Any)` = 1, `final class Walk(val cur: Any, val n: Int)` = 2^32,
 `Map[Boolean, Any]` = 4 (its key sets), and a
-`WalkRes(cur: Any, parents: Array[Any], parentsLen: Int)` is ω (1 × lengths × 2^32), not ε₀ (eo's
-own `WalkRes` stays `?` for now: its file wildcard-imports `scala.jdk.CollectionConverters`, a
-namespace the analyzer does not hold, so `Any` there is refused).
+`WalkRes(cur: Any, parents: Array[Any], parentsLen: Int)` is ω (1 × lengths × 2^32), not ε₀ — eo's
+own `WalkRes` too, now that both sides read its file's `scala.jdk.CollectionConverters.*` through
+the shared table of listed namespaces: `CollectionConverters.*` binds no root name
+([stdlib-model.md](stdlib-model.md)).
 
 Constructor parameters are typed outside their template — neither the body's declarations nor the
 parents' members, nor the companion's, are in scope (Scala 3.9.0: `class C(x: T)` beside `object C

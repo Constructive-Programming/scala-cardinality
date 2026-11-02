@@ -29,6 +29,8 @@ class InlineScopesSpec extends Specification {
     Runtime classes, alias chains and verdicts
       classOf of an array of a type variable reifies the variable       $reifiedClasses
       a conversion behind any number of aliases is found                $aliasChains
+      a given whose type a wildcard may hide is read as its declaration  $doubtedConversions
+      a listed namespace's wildcard binds its own terms only            $listedTerms
       a reading cut short decides nothing                               $interrupted
       a deferred inline member keeps its refusal in an inline body      $deferredMembers
       a passing body is eliminated by the solver like its def twin      $solverTwins
@@ -281,6 +283,57 @@ class InlineScopesSpec extends Specification {
       |inline given A9[Int, String] = (x: Int) => summonFrom { case s: String => s; case _ => "none" }
       |object U { inline def f(x: Int): String = x }""".stripMargin)
     refused(found("U.f"), "may expand the inline conversion given A9[Int, String]")
+  }
+
+  private def files(sources: (String, String)*): Map[String, Count] =
+    MethodAnalysis
+      .analyze(sources.toList.map { (path, text) =>
+        MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
+      })
+      .map(e => e.name -> e.count)
+      .toMap
+
+  // `forgetful.*` is in doubt (its `forgetful` may be `zzz.forgetful`), so the given's type name is
+  // not read; the declaration it would otherwise be is: a plain trait leaves `U.f` its number (4),
+  // one extending `Conversion` makes the inline-apply given a conversion every body may meet
+  // (probes/a7fix1/conv, valid Scala 3.9.0). The alternative, a type outside the sources, is not
+  // read as a conversion (D27's boundary). U.scala itself imports nothing.
+  def doubtedConversions = {
+    val use =
+      "p/U.scala" -> "package p\nobject U {\n  enum B { case T, F }\n  def id(b: B): B = b\n  inline def f(x: B): B = id(x)\n}"
+    val plain = files(
+      "p/forgetful.scala" -> "package p\npackage forgetful\ntrait ForgetfulFunctor[F[_]]",
+      "p/given.scala" -> "package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[List] with {}",
+      use
+    )
+    val converting = files(
+      "p/forgetful.scala" ->
+        "package p\npackage forgetful\ntrait ForgetfulFunctor[A, C] extends Conversion[A, C]",
+      "p/given.scala" ->
+        "package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[Int, Long] with { inline def apply(i: Int): Long = i.toLong }",
+      use
+    )
+    (plain("p.U.f") === Count.Finite(4))
+      .and(refused(converting("p.U.f"), "may expand the inline conversion g"))
+  }
+
+  // `scala.quoted.*` declares the terms `Varargs` and `quotes` and no term `ExprMap` (a trait
+  // alone): it binds `Varargs` over another file's object of the name, and leaves `ExprMap` the
+  // package's (probes/a7fix1/listed, valid Scala 3.9.0).
+  def listedTerms = {
+    val found = files(
+      "p/defs.scala" ->
+        "package p\nobject Varargs { val tag: Boolean = true }\nobject ExprMap { val tag: Boolean = true }",
+      "p/u.scala" ->
+        """|package p
+           |import scala.quoted.*
+           |object U {
+           |  inline def viaVarargs(x: Boolean): Boolean = { val v = Varargs; x }
+           |  inline def viaExprMap(x: Boolean): Boolean = { val v = ExprMap; x }
+           |}""".stripMargin
+    )
+    refused(found("p.U.viaVarargs"), "reads Varargs, which the wildcard import scala.quoted.*")
+      .and(found("p.U.viaExprMap") === Count.Finite(4))
   }
 
   // A budget that stops reading `caller` anywhere inside `leaf` leaves `leaf` unjudged, not open:

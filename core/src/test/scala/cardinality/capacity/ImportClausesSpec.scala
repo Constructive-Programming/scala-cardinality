@@ -21,6 +21,11 @@ class ImportClausesSpec extends Specification {
       an export's path reads with the imports before it           $exportPaths
       a renamed member leaves its importer's wildcard             $renamedHidden
       a selector binds only the namespaces its member has         $namespaces
+    Wildcards read through the shared table of stdlib namespaces
+      a listed namespace binds only the names it declares          $listedWildcards
+      a supplied member keeps the name against a wildcard beside it $sameBodyWildcards
+      a `given` selector, and a package spelled only as a prefix      $openNamespaces
+      what parents, exports or privacy add to a namespace is not read $unreadMembers
     """
 
   private val widgets = List(
@@ -54,12 +59,15 @@ class ImportClausesSpec extends Specification {
 
   // A namespace no source supplies, a member a supplied package does not define, a path whose
   // first name an unsupplied wildcard may bind (it might still name `a.Widget`), and a type through
-  // a value: each a reason that says which — never a source type of the same name.
+  // a value: each a reason that says which — never a source type of the same name. A listed stdlib
+  // namespace binds only what it declares: `scala.jdk.CollectionConverters` has no term `a`, so
+  // there `a.Widget` is read (2).
   def importsRefused = {
     val found = rowsOf(
       (widgets ++ List(
         "c/Use.scala" -> "package c\nimport zz.Widget\ncase class Use(w: Widget)\nimport a.Missing\ncase class Use2(m: Missing)",
         "d/Use.scala" -> "package d\nimport scala.jdk.CollectionConverters.*\nimport a.Widget\ncase class Use(w: Widget)",
+        "d2/Use.scala" -> "package d2\nimport zz.*\nimport a.Widget\ncase class Use(w: Widget)",
         "e/H.scala" -> "package e\nfinal class C { type T = Boolean }\nfinal class H(val x: C) { import x.T; type Y = T }",
       ))*
     )
@@ -67,11 +75,124 @@ class ImportClausesSpec extends Specification {
       .and(
         found(("c.Use2", Class)) === "unresolved[Missing (imported from a.Missing, not supplied)]"
       )
+      .and(found(("d.Use", Class)) === "2")
       .and(
-        found(("d.Use", Class)) ===
-          "unresolved[Widget (imported from a.Widget, a may be imported by scala.jdk.CollectionConverters.*)]"
+        found(("d2.Use", Class)) ===
+          "unresolved[Widget (imported from a.Widget, a may be imported by zz.*)]"
       )
       .and(found(("e.H#Y", Alias)) === "unresolved[T (imported from x.T, not followed)]")
+  }
+
+  // `ListedNamespaces`, shared with the method side: `scala.jdk.CollectionConverters` declares its
+  // conversion classes and `scala.quoted` six types (scala-library 3.9.0), none a root spelling, so
+  // `Int` stays the base type (its capacity, ≤2^32) under both, while `Expr` is the library's
+  // declaration, not supplied. `zz.*`, which no source supplies, may bind `Int` too (Scala 3.9.0
+  // binds a wildcard's name over a root import).
+  def listedWildcards = {
+    val found = rowsOf(
+      "l/A.scala" -> "package l\nimport scala.jdk.CollectionConverters.*\nfinal case class Framed(id: Int)",
+      "l2/B.scala" -> "package l2\nimport scala.quoted.*\nfinal case class E(e: Expr[Int])\nfinal case class I(i: Int)",
+      "l3/C.scala" -> "package l3\nimport zz.*\nfinal case class Z(i: Int)"
+    )
+    (found(("l.Framed", Class)) === "≤2^32")
+      .and(found(("l2.I", Class)) === "≤2^32")
+      .and(
+        found(
+          ("l2.E", Class)
+        ) === "unresolved[Expr (imported from scala.quoted.Expr, not supplied)]"
+      )
+      .and(found(("l3.Z", Class)) === "unresolved[Int (may be imported by zz.*)]")
+  }
+
+  // Two wildcards of one body that both bind a name are E049 (scalac 3.9.0, probes/a7/prec/neg/n3),
+  // so a supplied member keeps the name whatever order the clauses are written in: `q.T` = Boolean,
+  // 2. A wildcard written before `import q.*` may bind `q` itself; `_root_.q.*` it cannot rebind.
+  def sameBodyWildcards = {
+    val q = "q/T.scala" -> "package q\ntype T = Boolean"
+    val found = rowsOf(
+      q,
+      "a/U.scala" -> "package a\nimport q.*\nimport zz.*\nfinal case class U(t: T)",
+      "b/U.scala" -> "package b\nimport zz.*\nimport q.*\nfinal case class U(t: T)",
+      "c/U.scala" -> "package c\nimport zz.*\nimport _root_.q.*\nfinal case class U(t: T)"
+    )
+    (found(("a.U", Class)) === "2")
+      .and(
+        found(
+          ("b.U", Class)
+        ) === "unresolved[T (may be imported by q.*: q may be imported by zz.*)]"
+      )
+      .and(found(("c.U", Class)) === "2")
+  }
+
+  // A `given` selector binds its prefix's given instances, terms of any name: `zz.given` may bind
+  // `compose` (scalac: probes/review-A7/r11), a supplied object's anonymous given binds none. A
+  // package no file declares a member in (`zz`, spelled by `package zz.inner` alone) holds what a
+  // dependency declares there (r14), so its wildcard may bind `T`; one a file declares a member in
+  // is read as complete (the closed-package assumption): `T` is `q`'s, 2.
+  def openNamespaces = {
+    val q = "q/T.scala" -> "package q\ntype T = Boolean\npackage compose:\n  type C = Boolean"
+    val found = rowsOf(
+      q,
+      "q/G.scala" -> "package q\nimport zz.given\nimport compose.*\nfinal case class G(c: C)",
+      "q/Q.scala" -> "package q\nobject Quiet { given Int = 1 }\nimport Quiet.given\nimport compose.*\nfinal case class N(c: C)",
+      "q/U.scala" -> "package q\nimport zz.*\nfinal case class U(t: T)",
+      "zz/inner/M.scala" -> "package zz.inner\nobject Mine"
+    )
+    val closed = rowsOf(
+      q,
+      "q/U.scala" -> "package q\nimport zz.*\nfinal case class U(t: T)",
+      "zz/M.scala" -> "package zz\nobject Mine"
+    )
+    // A package object is a member of its package's own files, as on the method side
+    // (`Trees.declaresPackageMember`): the package is read as complete.
+    val packageObject = rowsOf(
+      q,
+      "q/U.scala" -> "package q\nimport zz.*\nfinal case class U(t: T)",
+      "zz/package.scala" -> "package object zz {}",
+      "zz/inner/M.scala" -> "package zz.inner\nobject Mine"
+    )
+    (found(("q.G", Class)) ===
+      "unresolved[C (may be imported by compose.*: compose may be imported by zz.given)]")
+      .and(found(("q.N", Class)) === "2")
+      .and(found(("q.U", Class)) === "unresolved[T (may be imported by zz.*)]")
+      .and(closed(("q.U", Class)) === "2")
+      .and(packageObject(("q.U", Class)) === "2")
+  }
+
+  // A wildcard over an object or a package object binds what its parents pass on and its export
+  // clauses define too, and no private member outside where it is accessible (Scala 3.9.0:
+  // probes/a7fix2/stored compiles `val w: Two = 42` under `import Lib.*` and `= true` under
+  // `import Priv.*`). The estimate reads none of them, so a name the body does not define, or one
+  // it defines privately, is refused there.
+  def unreadMembers = {
+    val found = rowsOf(
+      "p/P.scala" ->
+        "package p\ntype Two = Boolean\npackage compose:\n  type C = Boolean\npackage two:\n  type C = Boolean",
+      "p/Lib.scala" ->
+        """|package p
+           |trait Base { type Two = Int; object two { type C = Int } }
+           |object Lib extends Base
+           |object Other { object compose { type C = Int } }
+           |object Ex { export Other.* }
+           |object Priv { private object compose { type C = Int }; private type Two = Int }""".stripMargin,
+      "p/U.scala" ->
+        """|package p
+           |object U { import Lib.*; final case class HT(x: Two); final case class HW(x: two.C) }
+           |object V { import Ex.*; final case class HC(x: compose.C) }
+           |object W { import Priv.*; final case class HC(x: compose.C); final case class HT(x: Two) }""".stripMargin,
+      "r/Base.scala" -> "package r\ntrait Base { type Two = Int }",
+      "q/lib.scala" -> "package q\npackage object lib extends r.Base",
+      "q/Thing.scala" -> "package q.lib\nfinal case class Thing(b: Boolean)",
+      "p/Q.scala" -> "package p\nimport q.lib.*\nfinal case class HQ(x: Two)"
+    )
+    def unread(name: String, by: String, member: String) =
+      s"unresolved[$name (may be imported by $by, $member not followed)]"
+    (found(("p.U.HT", Class)) === unread("Two", "Lib.*", "an inherited member"))
+      .and(found(("p.U.HW", Class)) === unread("two.C", "Lib.*", "an inherited member"))
+      .and(found(("p.V.HC", Class)) === unread("compose.C", "Ex.*", "an exported member"))
+      .and(found(("p.W.HC", Class)) === unread("compose.C", "Priv.*", "a private member"))
+      .and(found(("p.W.HT", Class)) === unread("Two", "Priv.*", "a private member"))
+      .and(found(("p.HQ", Class)) === unread("Two", "q.lib.*", "an inherited member"))
   }
 
   // An export defines a member of its template, which outranks an import of the name there and an

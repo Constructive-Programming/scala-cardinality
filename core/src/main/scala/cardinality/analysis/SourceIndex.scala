@@ -8,47 +8,6 @@ import cardinality.analysis.SourceIndex.{givenName, Scope, Written}
 import cardinality.analysis.model.{ContextBounds, SourceBindings}
 import cardinality.types.{Kinds, Spelling, TypeApplications, TypeName}
 
-/** One importer of an import or export clause: where it stands, the names its explicit selectors
-  * bind with the path each reaches, the prefixes its wildcard opens, and the names that wildcard
-  * leaves out — an unimport (`N as _`) and the original of a rename, which Scala binds only under
-  * its new name.
-  */
-final private[cardinality] case class ImportBinding(
-    start: Int,
-    named: List[(String, List[String])],
-    wildcards: List[List[String]],
-    hidden: Set[String] = Set.empty
-) {
-
-  /** The prefixes this importer's wildcard opens for `name`: none when the name is left out. */
-  def opening(name: String): List[List[String]] = if (hidden(name)) Nil else wildcards
-
-}
-
-/** One importer of an export clause, with what it binds when its prefix is a pure path. */
-final private[cardinality] case class ExportClause(
-    importer: Importer,
-    binding: Option[ImportBinding]
-) {
-
-  /** The prefix as written. */
-  def prefix: String = Spelling.of(importer.ref)
-
-}
-
-private[cardinality] object ExportClause {
-
-  /** Whether an exporter may define a member under the name whatever its prefix holds: a selector
-    * spelling it, or a wildcard that does not leave it out.
-    */
-  def mayDefine(importer: Importer, name: String): Boolean =
-    importer.importees.exists {
-      case _: Importee.Wildcard => !SourceIndex.hiddenNames(importer)(name)
-      case selector             => SourceIndex.boundName(selector).contains(name)
-    }
-
-}
-
 final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[AnalysisWork]) {
   private given scala3: Dialect = dialects.Scala3
 
@@ -306,16 +265,19 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def indexImport(frame: Frame, clause: Import): Unit =
     clause.importers.foreach { importer =>
-      importPath(importer.ref).foreach { path =>
-        val binding = SourceIndex.binding(importer, path)
-        if (binding.named.nonEmpty || binding.wildcards.nonEmpty)
-          imports += ((frame.id, binding))
-      }
+      val binding = importPath(importer.ref).fold(ImportBinding.unfollowed(importer))(
+        ImportBinding.of(importer, _)
+      )
+      if (
+        binding.named.nonEmpty || binding.wildcards.nonEmpty || binding.givens.nonEmpty ||
+        binding.unfollowed.nonEmpty
+      )
+        imports += ((frame.id, binding))
     }
 
   private def indexExport(frame: Frame, clause: Export): Unit =
     clause.importers.foreach { importer =>
-      val binding = importPath(importer.ref).map(SourceIndex.binding(importer, _))
+      val binding = importPath(importer.ref).map(ImportBinding.of(importer, _))
       exports += ((frame.id, ExportClause(importer, binding)))
     }
 
@@ -334,11 +296,13 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     index(input, nested)
   }
 
+  // A package object's parents pass their members on to its package.
   private def indexPackageObject(input: String, frame: Frame, pkg: Pkg.Object): Unit = {
-    val nested =
-      registered(
-        SourceIndex.frame(input, pkg, pkg.name.value, frame, pkg.templ.body.stats, Nil, Nil)
-      )
+    val nested = registered(
+      SourceIndex
+        .frame(input, pkg, pkg.name.value, frame, pkg.templ.body.stats, Nil, Nil)
+        .copy(parents = pkg.templ.inits)
+    )
     packageFrames += nested
     index(input, nested)
   }
@@ -737,18 +701,6 @@ object SourceIndex {
 
   /** The anchor segment of an absolute path. */
   val Root = "_root_"
-
-  /** What one importer binds: `given` selectors bring contextual values and no name (`import
-    * p.{given T}` selects by type), so only named, renamed and wildcard selectors appear.
-    */
-  def binding(importer: Importer, path: List[String]): ImportBinding = {
-    val named = importer.importees.collect {
-      case e: Importee.Name   => e.name.value -> (path :+ e.name.value)
-      case e: Importee.Rename => e.rename.value -> (path :+ e.name.value)
-    }
-    val wildcards = importer.importees.collect { case _: Importee.Wildcard => path }
-    ImportBinding(importer.pos.start, named, wildcards, hiddenNames(importer))
-  }
 
   /** The name an explicit selector binds: its own, or a rename's new one. */
   def boundName(importee: Importee): Option[String] = importee match {

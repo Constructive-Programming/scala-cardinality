@@ -380,15 +380,15 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("er.f") === Count.Finite(4))
   }
 
-  // Scala 3.9.0 puts a class case of an enum behind `import E.*` (and inside the enum's body).
+  // Scala 3.9.0 puts a class case of an enum behind `import E.*` (and inside the enum's body): the
+  // lookup finds the case there, a type it does not read, before the builtin is consulted.
   def enumCases =
-    shadowed(
-      counts(
-        "a.scala" ->
-          "package en2\nenum E { case Int(b: Boolean); case K }\nimport E.*\ndef g(x: Int): Int = x"
+    unresolvedOn(
+      count(
+        "package en2\nenum E { case Int(b: Boolean); case K }\nimport E.*\ndef g(x: Int): Int = x",
+        "en2.g"
       ),
-      "en2.g",
-      "en2.E.Int (wildcard import of E)"
+      "enum case type not read: en2.E.Int"
     )
 
   def valueImport =
@@ -442,16 +442,28 @@ class GroundEnvironmentSpec extends Specification {
         s"package q\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Frame): Frame = x }"
     )("q.Z.f") === Count.Unresolved(List("path through a value not followed: o"))
 
-  // `Int` is `Long` here, so P's value space is 2^64; the estimate's 2^32 rests on the same name
-  // read as the builtin, and the disagreement is refused.
-  def shadowedPosition =
+  // `Int` is `Long` inside `O`, so P's value space is 2^64; the estimate's 2^32 rests on the same
+  // name read as the builtin (it reads no inherited member of an enclosing template), and the
+  // disagreement is refused. Through `import O.*` the estimate refuses the name itself: a wildcard
+  // over an object with parents may bind a member it does not read.
+  def shadowedPosition = {
+    val base = "package w12\ntrait Base { type Int = Long }\n"
     unresolvedOn(
-      counts(
-        "a.scala" ->
-          "package w12\ntrait Base { type Int = Long }\nobject O extends Base\nimport O.*\nfinal case class P(x: Int)"
-      )("w12.P.<init>"),
+      counts("a.scala" -> s"${base}object O extends Base { final case class P(x: Int) }")(
+        "w12.O.P.<init>"
+      ),
       "constructor position readings disagree: x (value space 2^64, estimate a capacity of width 32 bits)"
+    ).and(
+      unresolvedOn(
+        counts(
+          "a.scala" -> s"${base}object O extends Base\nimport O.*\nfinal case class P(x: Int)"
+        )(
+          "w12.P.<init>"
+        ),
+        "unresolved type: Int (may be imported by O.*, an inherited member not followed)"
+      )
     )
+  }
 
   // `new Sub(3)` compiles: a primary constructor's parameters are read outside the template's
   // members. A case class nested in a template that inherits `Int` reads the member: the method side
@@ -675,9 +687,9 @@ class GroundEnvironmentSpec extends Specification {
       .and(
         unresolvedOn(
           count(
-            "package w12s\ntrait Base { type Int = Char => Boolean }\nobject O extends Base\n" +
-              "import O.*\nfinal case class P(x: Int)",
-            "w12s.P.<init>"
+            "package w12s\ntrait Base { type Int = Char => Boolean }\n" +
+              "object O extends Base { final case class P(x: Int) }",
+            "w12s.O.P.<init>"
           ),
           "constructor position readings disagree: x (value space 2^(2^16), estimate a capacity of width 32 bits)"
         )
