@@ -261,7 +261,8 @@ final private[cardinality] class Representations(
     (Nil, Left(s"abstract type or method-valued representation: $key"))
 
   // Only a case class whose single parameter list *is* the product can be projected: no second
-  // list, no constructor modifiers, no parents, no members and no hidden parameter.
+  // list, no constructor modifiers, no parents, no members and no hidden parameter. A secondary
+  // constructor is no member: it delegates to the primary one, so it builds no other value.
   private def caseClassRepresentation(c: Defn.Class, key: String): Representation =
     if (!isCaseClass(c) || !isPlainProduct(c)) abstractRepresentation(key)
     else
@@ -277,7 +278,7 @@ final private[cardinality] class Representations(
     c.ctor.paramClauses.size == 1 &&
       c.ctor.mods.isEmpty &&
       c.templ.inits.isEmpty &&
-      c.templ.body.stats.isEmpty &&
+      c.templ.body.stats.forall(_.is[Ctor.Secondary]) &&
       !c.ctor.paramClauses.flatMap(_.values).exists(hiddenParameter)
 
   private def hiddenParameter(p: Term.Param): Boolean = p.mods.exists(MemberSyntax.restricted)

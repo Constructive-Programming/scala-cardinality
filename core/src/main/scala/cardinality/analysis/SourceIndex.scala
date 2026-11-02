@@ -4,6 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
+import cardinality.analysis.SourceIndex.{givenName, Scope, Written}
 import cardinality.analysis.model.{ContextBounds, SourceBindings}
 import cardinality.types.{Kinds, Spelling, TypeApplications, TypeName}
 
@@ -68,6 +69,14 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // Every proper binder that carries a subtype bound, by its atom, with the frame declaring it: the
   // bound is read wherever the measurement meets the atom (`BinderBounds`).
   private[cardinality] val boundedBinders = mutable.LinkedHashMap.empty[String, (Frame, Type.Param)]
+  // How many scopes of each kind a frame path has opened in each file: the ordinal names the next.
+  private val ordinals = mutable.Map.empty[(String, List[String], String), Int]
+
+  private val scopes = new BodyScopes(
+    BodyScopes.holders(inputs.map(_.tree)),
+    (input, owner, opening) => opened(input, owner, opening),
+    (input, frame) => index(input, frame)
+  )
 
   inputs.sortBy(_.path).foreach { input =>
     val root = Frame(input.path, Nil, None, input.tree.stats)
@@ -209,12 +218,44 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def inspect(operation: String): Unit = work.foreach(_.step(operation))
 
+  // A frame `node` declares under `owner`. Its path is the owner's extended by its name except where
+  // the two differ: an enum case is a member of the enum's companion but typed where the enum is
+  // declared, a secondary constructor typed outside the class it is a member of.
+  private def child(input: String, node: Tree, path: List[String], owner: Frame, scope: Scope) =
+    registered(SourceIndex.declared(input, node, path, owner, scope))
+
   // A frame the index opens records its subtype-bounded binders.
-  private def opened(frame: Frame): Frame = {
+  private def registered(frame: Frame): Frame = {
     frame.typeParams
       .filter(p => p.tparamClause.values.isEmpty && Kinds.subtypeBounded(p))
       .foreach(p => boundedBinders.update(SourceBindings.atom(frame, p), frame -> p))
     frame
+  }
+
+  // A scope a body opens, named by its kind and ordinal under its owner's path in its file. Its id
+  // carries the name too: a braceless block starts where its first definition does.
+  private def opened(input: String, owner: Frame, opening: BodyScopes.Opening): Frame = {
+    val name = s"<${opening.kind}#${ordinal(input, owner.path, opening.kind)}>"
+    registered(
+      Frame(
+        s"$input:${opening.node.pos.start}:$name",
+        owner.path :+ name,
+        Some(owner),
+        opening.stats,
+        typeParams = opening.tparams,
+        params = opening.params,
+        local = opening.local,
+        parents = opening.parents,
+        tree = Some(opening.node),
+        refusals = opening.refusals
+      )
+    )
+  }
+
+  private def ordinal(input: String, path: List[String], kind: String): Int = {
+    val next = ordinals.getOrElse((input, path, kind), 0) + 1
+    ordinals.update((input, path, kind), next)
+    next
   }
 
   // One pass over a frame's statements, naming what each declaration introduces for the second
@@ -235,9 +276,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       case d: Defn.Type   => named(d.name.value, d, frame)
       case d: Decl.Type   => named(d.name.value, d, frame)
       case d: Defn.Class  => indexClass(input, frame, d)
-      case d: Defn.Trait  => indexTemplate(input, frame, d)
+      case d: Defn.Trait  => indexClass(input, frame, d)
       case d: Defn.Object => indexObject(input, frame, d)
-      case d: Defn.Enum   => indexTemplate(input, frame, d)
+      case d: Defn.Enum   => indexEnum(input, frame, d)
       // NOTE both kind methods above register the name: an enum's cases and a trait's members
       // are resolved through the declaration this puts in `types`.
       case d: Defn.Given =>
@@ -245,19 +286,18 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
         indexGiven(input, frame, d)
       case d: Defn.ExtensionGroup => indexExtension(input, frame, d)
       case d: Defn.Def            =>
-        method(input, d, d.name, d.paramClauseGroups, d.decltpe, Some(d.body), frame)
-      case d: Decl.Def =>
-        method(
-          input,
-          d,
-          d.name,
-          d.paramClauseGroups,
-          Some(d.decltpe),
-          None,
-          frame,
-          declaration = true
-        )
-      case _ => ()
+        method(input, d, Written.of(d.name, d.paramClauseGroups, d.decltpe), Some(d.body), frame)
+      // A nullary given alias is a lazy given value (3.9.0): in a block, a step like a local value.
+      case d: Defn.GivenAlias if frame.local && d.paramClauseGroups.isEmpty =>
+        scopes.walk(input, d.body, frame)
+      case d: Defn.GivenAlias         => method(input, d, givenWritten(d), Some(d.body), frame)
+      case d: (Decl.Def | Decl.Given) => abstractMethod(input, frame, d)
+      case d: (Defn.Val | Defn.Var | Decl.Val | Decl.Var) => values(input, frame, d)
+      case c: Ctor.Secondary                              => secondary(input, frame, c)
+      // A template's initializer statements and a block's expressions may open scopes holding
+      // definitions.
+      case t: Term => scopes.walk(input, t, frame)
+      case _       => ()
     }
   }
 
@@ -296,25 +336,113 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def indexPackageObject(input: String, frame: Frame, pkg: Pkg.Object): Unit = {
     val nested =
-      opened(SourceIndex.frame(input, pkg, pkg.name.value, frame, pkg.templ.body.stats, Nil, Nil))
+      registered(
+        SourceIndex.frame(input, pkg, pkg.name.value, frame, pkg.templ.body.stats, Nil, Nil)
+      )
     packageFrames += nested
     index(input, nested)
   }
 
-  private def indexClass(input: String, frame: Frame, d: Defn.Class): Unit = {
+  // Every class has a primary constructor — an abstract class's is the one its subclasses call —
+  // and a trait with a parameter clause one its first implementing class calls.
+  private def indexClass(input: String, frame: Frame, d: Defn.Class | Defn.Trait): Unit = {
     val nested = indexTemplate(input, frame, d)
-    if (!d.mods.exists(_.is[Mod.Abstract]))
-      // A constructor's inputs are available when choosing its output fields. The instance and
-      // its members do not exist yet, so they are not constructor captures.
-      targets += Target(
-        input,
-        d,
-        (nested.path :+ "<init>").mkString("."),
-        d.name.syntax + Spelling.of(d.tparamClause) + d.ctor.paramClauses.map(Spelling.of).mkString,
-        nested.copy(stats = Nil, parents = Nil),
-        None,
-        constructor = true
-      )
+    if (d.is[Defn.Class] || d.ctor.paramClauses.nonEmpty)
+      constructor(input, d, nested, d.name.syntax, d.tparamClause :: d.ctor.paramClauses.toList)
+  }
+
+  // An enum's parameterized cases are classes of its companion, each with its constructor. Their
+  // signatures are typed where the enum is declared, with the enum's type parameters when the case
+  // declares none, whether or not it has a parent of its own: 3.9.0 gives `case D(y: A) extends
+  // E[Int]` all of `E[A, B]`'s binders (`case class D[A, B](y: A)`, `-Vprint:typer`), and one whose
+  // parameters mention none of them no binder they could see. It finds neither the enum's members
+  // (E006) nor its companion's ("illegal reference … from enum case") there.
+  private def indexEnum(input: String, frame: Frame, d: Defn.Enum): Unit = {
+    val nested = indexTemplate(input, frame, d)
+    d.templ.body.stats.foreach {
+      case c: Defn.EnumCase if c.ctor.paramClauses.nonEmpty =>
+        val own = c.tparamClause.values
+        val tparams = if (own.nonEmpty) own else d.tparamClause.values
+        val params = c.ctor.paramClauses.toList.flatMap(_.values)
+        val scope = child(input, c, nested.path :+ c.name.value, frame, Scope(Nil, tparams, params))
+        constructor(input, c, scope, c.name.syntax, c.tparamClause :: c.ctor.paramClauses.toList)
+      case _ => ()
+    }
+  }
+
+  // A constructor's inputs are available when choosing its output fields. The instance and its
+  // members do not exist yet, so they are not constructor captures.
+  private def constructor(
+      input: String,
+      node: Tree,
+      template: Frame,
+      head: String,
+      clauses: List[Tree]
+  ): Unit =
+    targets += Target(
+      input,
+      node,
+      (template.path :+ "<init>").mkString("."),
+      head + clauses.map(Spelling.of).mkString,
+      template.copy(stats = Nil, parents = Nil),
+      None,
+      constructor = true
+    )
+
+  // A secondary constructor's signature and self-invocation are typed where its class is declared,
+  // with the class's binders and its bounds' evidence ([30] *Constructor Definitions*): its row
+  // measures the primary constructor's arguments over its parameters (`SecondaryConstructors`).
+  // The rest of the body is typed as a function body in the class: its definitions see the class's
+  // members and the secondary's parameters, under `<init#k>`, k its ordinal among the class's.
+  private def secondary(input: String, template: Frame, c: Ctor.Secondary): Unit =
+    template.tree match {
+      case Some(d: Defn.Class) =>
+        val params = c.paramClauses.toList.flatMap(_.values)
+        val frame = secondaryTarget(input, template, d, c, params)
+        c.body.init.argClauses.foreach(scopes.walk(input, _, frame))
+        secondaryBody(input, template, c, params)
+      case _ => ()
+    }
+
+  private def secondaryTarget(
+      input: String,
+      template: Frame,
+      d: Defn.Class,
+      c: Ctor.Secondary,
+      params: List[Term.Param]
+  ): Frame = {
+    val path = template.path :+ "<init>"
+    val scope = Scope(Nil, d.tparamClause.values, params, local = true)
+    val frame = child(input, c, path, template.parent.getOrElse(template), scope)
+    targets += Target(
+      input,
+      c,
+      path.mkString("."),
+      SecondaryConstructors.signature(d, c),
+      frame,
+      Some(SecondaryConstructors.primaryArguments(d)),
+      constructor = false
+    )
+    frame
+  }
+
+  private def secondaryBody(
+      input: String,
+      template: Frame,
+      c: Ctor.Secondary,
+      params: List[Term.Param]
+  ): Unit = {
+    val name = s"<init#${ordinal(input, template.path, "init")}>"
+    val body = Frame(
+      s"$input:${c.body.pos.start}:$name",
+      template.path :+ name,
+      Some(template),
+      c.body.stats,
+      params = params,
+      local = true,
+      tree = Some(c.body)
+    )
+    index(input, body)
   }
 
   private def indexTemplate(
@@ -322,7 +450,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       frame: Frame,
       d: Defn.Class | Defn.Trait | Defn.Enum
   ): Frame = {
-    val nested = opened(SourceIndex.templateFrame(frame, d))
+    val nested = registered(SourceIndex.templateFrame(frame, d))
     // Named in the enclosing frame, so a sibling reference resolves as before; its own frame
     // travels with it, because a member of it — a declared field a subclass inherits — reads in
     // the scope that declares it.
@@ -332,69 +460,138 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   }
 
   private def indexObject(input: String, frame: Frame, d: Defn.Object): Unit = {
-    val module = opened(SourceIndex.templateFrame(frame, d))
+    val module = registered(SourceIndex.templateFrame(frame, d))
     moduleFrames += module
     index(input, module)
   }
 
+  // A conditional given instance is a class whose constructor takes its clauses; an unconditional
+  // one is an object.
   private def indexGiven(input: String, frame: Frame, d: Defn.Given): Unit = {
-    val instance = opened(SourceIndex.givenFrame(frame, d))
-    givenFrames += instance
-    index(input, instance)
+    val nested = registered(SourceIndex.givenFrame(frame, d))
+    givenFrames += nested
+    index(input, nested)
+    if (d.paramClauseGroups.nonEmpty) {
+      val head = if (d.name.value.isEmpty) "given" else d.name.syntax
+      constructor(input, d, nested, head, d.paramClauseGroups.flatMap(clauses))
+    }
+  }
+
+  // A given alias is a method of its clauses, spelled as one: `given name[A](using B): T`.
+  private def givenWritten(d: Defn.GivenAlias | Decl.Given): Written = {
+    val (groups, result) = d match {
+      case g: Defn.GivenAlias => (g.paramClauseGroups, g.decltpe)
+      case g: Decl.Given      => (g.paramClauseGroups, g.decltpe)
+    }
+    val head =
+      if (d.name.value.isEmpty) "given"
+      else "given " + Spelling.declared(d.name, beforeColon = groups.isEmpty)
+    Written(givenName(d), head, groups, Some(result))
+  }
+
+  private def abstractMethod(input: String, frame: Frame, d: Decl.Def | Decl.Given): Unit = {
+    val written = d match {
+      case m: Decl.Def   => Written.of(m.name, m.paramClauseGroups, Some(m.decltpe))
+      case g: Decl.Given => givenWritten(g)
+    }
+    method(input, d, written, None, frame, declaration = true)
+  }
+
+  // A member value is a definition of its own, a nullary signature of its type; a block's local
+  // value is a step of the definition around it, which that definition's row counts, so only the
+  // scopes its right-hand side opens are indexed. A declared type types each name only of plain
+  // names: `val (a, b): (A, B)` types the pattern. A shared right-hand side is walked once.
+  private def values(
+      input: String,
+      frame: Frame,
+      d: Defn.Val | Defn.Var | Decl.Val | Decl.Var
+  ): Unit = {
+    val (keyword, pats, declared, rhs) = d match {
+      case v: Defn.Val => ("val", v.pats, v.decltpe, Some(v.rhs))
+      case v: Defn.Var => ("var", v.pats, v.decltpe, Some(v.body))
+      case v: Decl.Val => ("val", v.pats, Some(v.decltpe), None)
+      case v: Decl.Var => ("var", v.pats, Some(v.decltpe), None)
+    }
+    val names = pats.flatMap(_.collect { case Pat.Var(name) => name })
+    if (frame.local || names.isEmpty) rhs.foreach(scopes.walk(input, _, frame))
+    else {
+      val result = declared.filter(_ => pats.forall(_.is[Pat.Var]))
+      names.zipWithIndex.foreach { (name, at) =>
+        val head = s"$keyword ${Spelling.declared(name, beforeColon = true)}"
+        val body = rhs.filter(_ => at == 0)
+        val written = Written(name.value, head, Nil, result)
+        method(input, d, written, body, frame, declaration = rhs.isEmpty)
+      }
+    }
   }
 
   private def indexExtension(input: String, frame: Frame, d: Defn.ExtensionGroup): Unit =
-    index(input, opened(SourceIndex.extensionFrame(d, frame)))
+    index(input, registered(SourceIndex.extensionFrame(d, frame)))
 
   private def method(
       input: String,
       node: Tree,
-      name: Term.Name,
-      groups: List[Member.ParamClauseGroup],
-      result: Option[Type],
-      body: Option[Term],
+      written: Written,
+      body: Option[Tree],
       owner: Frame,
       declaration: Boolean = false
   ): Unit = {
-    val frame = opened(SourceIndex.methodFrame(node, name.value, groups, owner))
+    val groups = written.groups
+    val frame = registered(SourceIndex.methodFrame(node, written.name, groups, owner))
     // Each clause is spelled on its own, so curried clauses read `(x: A)(y: A)` however they were
     // laid out; `<inferred>` is no Scala the tokenizer can read back.
-    val clauses = groups.flatMap(group => group.tparamClause :: group.paramClauses)
     val signature =
-      Spelling.declared(name, beforeColon = groups.isEmpty) + clauses.map(Spelling.of).mkString +
-        result.fold(": <inferred>")(t => s": ${Spelling.of(t)}")
+      written.head + groups.flatMap(clauses).map(Spelling.of).mkString +
+        written.result.fold(": <inferred>")(t => s": ${Spelling.of(t)}")
     targets += Target(
       input,
       node,
       frame.path.mkString("."),
       signature,
       frame,
-      result,
+      written.result,
       constructor = false,
       declaration = declaration
     )
     // Local methods capture their enclosing parameters and preceding local values. We do not
     // count the analysed method's own implementation locals as inputs to its signature.
-    body.foreach {
-      case block: Term.Block =>
-        index(
-          input,
-          frame.copy(
-            id = frame.id + ":body",
-            parent = Some(frame),
-            stats = block.stats,
-            params = Nil,
-            typeParams = Nil,
-            tree = Some(block)
-          )
-        )
-      case _ => ()
-    }
+    body.foreach(scopes.body(input, frame, _))
   }
+
+  private def clauses(group: Member.ParamClauseGroup): List[Tree] =
+    group.tparamClause :: group.paramClauses
 
 }
 
 object SourceIndex {
+
+  /** What a frame binds: its statements, type and term parameters, a template's parents, and
+    * whether its statements are positional (a block's are; a template's are not).
+    */
+  final private case class Scope(
+      stats: List[Stat],
+      tparams: List[Type.Param] = Nil,
+      params: List[Term.Param] = Nil,
+      parents: List[Init] = Nil,
+      local: Boolean = false
+  )
+
+  /** How a target is written: its name, the head its signature is spelled from (a method's name,
+    * `given name`, `val name`), its clauses and its declared result.
+    */
+  final private[cardinality] case class Written(
+      name: String,
+      head: String,
+      groups: List[Member.ParamClauseGroup],
+      result: Option[Type]
+  )
+
+  private[cardinality] object Written {
+
+    def of(name: Term.Name, groups: List[Member.ParamClauseGroup], result: Option[Type]): Written =
+      Written(name.value, Spelling.declared(name, beforeColon = groups.isEmpty), groups, result)
+
+  }
 
   /** The frame a declaration opens: its id is its position in its source, the key every reading of
     * it shares (an inline body's callees are judged under the frame the index gave them).
@@ -410,16 +607,26 @@ object SourceIndex {
       local: Boolean = false,
       parents: List[Init] = Nil
   ): Frame =
+    declared(input, node, owner.path :+ name, owner, Scope(stats, tparams, params, parents, local))
+
+  /** A frame under `owner` at `path`, which need not extend the owner's (the index's `child`). */
+  private def declared(
+      input: String,
+      node: Tree,
+      path: List[String],
+      owner: Frame,
+      scope: Scope
+  ): Frame =
     Frame(
       s"$input:${node.pos.start}",
-      owner.path :+ name,
+      path,
       Some(owner),
-      stats,
-      tparams,
-      params ++ ContextBounds.evidence(tparams),
-      local,
-      parents,
-      Some(node)
+      scope.stats,
+      typeParams = scope.tparams,
+      params = scope.params ++ ContextBounds.evidence(scope.tparams),
+      local = scope.local,
+      parents = scope.parents,
+      tree = Some(node)
     )
 
   /** The frame of a definition's clauses: their type and term parameters, read in `owner`. */
@@ -480,11 +687,13 @@ object SourceIndex {
   }
 
   /** A given instance's frame: its clauses, its body, its parents. */
-  private[cardinality] def givenFrame(owner: Frame, d: Defn.Given): Frame = {
-    val name = if (d.name.value.isEmpty) s"<given@${d.pos.startLine + 1}>" else d.name.value
-    clausesFrame(d, name, owner, d.templ.body.stats, d.paramClauseGroups, local = false)
+  private[cardinality] def givenFrame(owner: Frame, d: Defn.Given): Frame =
+    clausesFrame(d, givenName(d), owner, d.templ.body.stats, d.paramClauseGroups, local = false)
       .copy(parents = d.templ.inits)
-  }
+
+  /** A given's path segment: its name, or its line when it has none. */
+  private[cardinality] def givenName(d: Defn.Given | Defn.GivenAlias | Decl.Given): String =
+    if (d.name.value.isEmpty) s"<given@${d.pos.startLine + 1}>" else d.name.value
 
   /** An anonymous class's frame: its body and its parents. */
   private[cardinality] def anonymousFrame(owner: Frame, n: Term.NewAnonymous): Frame =

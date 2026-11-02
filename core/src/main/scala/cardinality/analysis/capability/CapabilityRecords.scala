@@ -211,7 +211,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       sequence(open.zipWithIndex.map {
         case ((level, stat), index) =>
           for {
-            implemented <- table.implemented(stat, level, template.tree.getOrElse(stat))
+            implemented <- table.implemented(stat, level, None)
             again <- restated(level, stat, open.take(index), steps)
             shape <-
               if (implemented || again) Right(None) else declared(level, stat, table, steps)

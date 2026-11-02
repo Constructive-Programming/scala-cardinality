@@ -41,8 +41,14 @@ final private[cardinality] class ReceiverCapabilities(
     */
   def implemented(stat: Stat, step: InheritedScopes.Step): Either[String, Boolean] =
     tables.find(_._1.id == step.root.id).fold(Right(false)) { (_, table) =>
-      table.implemented(stat, step.declared, target.tree)
+      table.implemented(stat, step.declared, name.map(ReceiverMembers.Own(target.tree, _)))
     }
+
+  // The measured definition's own name among those its tree defines, if it defines one.
+  private val name: Option[String] = {
+    val names = MemberSyntax.names(target.tree)
+    names.find(target.frame.name.contains).orElse(names.headOption)
+  }
 
   /** Each open owner's effective open members and free fields, with the slot each is read in, or
     * why one leaves the environment unread.
@@ -94,12 +100,12 @@ final private[cardinality] class ReceiverCapabilities(
   private def measured(root: Frame): Option[Measured] =
     for {
       template <- target.frame.parent
-      name <- MemberSyntax.names(target.tree).headOption
+      own <- name
       between = template.chain.takeWhile(_.id != root.id)
       if between.size < template.chain.size
     } yield Measured(
       target.tree,
-      name,
+      own,
       template,
       Option.when(between.forall(_.tree.exists(_.is[Defn.Object])))(
         between.reverse.flatMap(_.path.lastOption)

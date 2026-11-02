@@ -137,7 +137,8 @@ object EoBaseline {
   ): (String, String, String, String, String) = {
     // Anonymous owners in the human-readable report contain line numbers. Replace those with
     // their signature context so moving a declaration does not change its review identity. The
-    // context is spelled on one line as the signature is, whatever the source's layout.
+    // context is spelled on one line as the signature is, whatever the source's layout. A given
+    // alias is such an owner too: of the rows of its body, and of its own row.
     val enclosing = tree
       .collect {
         case group: Defn.ExtensionGroup if contains(group, entry.line) =>
@@ -145,6 +146,8 @@ object EoBaseline {
         case givenDef: Defn.Given if contains(givenDef, entry.line) =>
           "given " + clauses(givenDef.paramClauseGroups) + ": " +
             givenDef.templ.inits.map(Spelling.of).mkString(" with ")
+        case alias: Defn.GivenAlias if contains(alias, entry.line) =>
+          "given " + clauses(alias.paramClauseGroups) + ": " + Spelling.of(alias.decltpe)
       }
       .mkString(" / ")
     (entry.path, anonymousOwners(entry.name), entry.kind, enclosing, entry.signature)

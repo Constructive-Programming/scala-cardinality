@@ -3,11 +3,11 @@ package cardinality.analysis
 import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.capability.{DeferredInline, ReceiverCapabilities}
+import cardinality.analysis.capability.{DeferredInline, PassedState, ReceiverCapabilities}
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.types.{Spelling, TypeApplications, TypeName}
+import cardinality.types.TypeApplications
 
 import MemberSyntax.Observation
 import Inhabitation.{Binding, Count, Shape}
@@ -124,8 +124,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     owners.foreach { root =>
       judge(root)
       // A constructor chooses only its parameters: no owner's parents add a choice to it.
-      if (!target.constructor)
+      if (!target.constructor) {
         errors ++= ForeignParents.reasons(root :: ancestors(root.id), resolver)
+        if (root.isTemplate) errors ++= PassedState.reasons(root, ancestors(root.id), resolver)
+      }
     }
   }
 
@@ -177,12 +179,23 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         else FinalImplementations.implementer(step.root, linearization, stat)
       (stat, implementer) match {
         case (_, Some(level))     => errors ++= FinalImplementations.localImplementer(level, stat)
-        case (value: Decl.Val, _) => addDeclaredValue(slot, value, implemented.map(_._1).toSet)
+        case (value: Decl.Val, _) =>
+          withOwn(step, value)(own =>
+            addDeclaredValue(slot, value, implemented.map(_._1).toSet ++ own)
+          )
         case _ if implemented.nonEmpty => ()
         case (method: Decl.Def, _)     => inheritedCallable(step, slot, method, steps)
-        case (other, _)                => declaration(slot, other)
+        case (other, _) => withOwn(step, other)(own => if (own.isEmpty) declaration(slot, other))
       }
     }
+  }
+
+  // The names of an inherited declaration the measured definition may be itself — binding one would
+  // let it delegate to itself — with the reasons naming those whose identity is not known.
+  private def withOwn(step: InheritedScopes.Step, stat: Stat)(use: Set[String] => Unit): Unit = {
+    val (own, unresolved) = OverrideIdentity.own(target, step, stat)
+    errors ++= unresolved
+    use(own)
   }
 
   private def inheritedCallable(
@@ -240,10 +253,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     receiver.fold(context)(r => context.as(MemberPath.self(r, resolver.typeParameters(r))))
   }
 
-  private def declaration(slot: MemberSlot, stat: Stat): Unit =
+  // The names in `own` are the measured definition's: of a declaration of several names (`val a,
+  // b: A`) the others are slots of its environment.
+  private def declaration(slot: MemberSlot, stat: Stat, own: Set[String] = Set.empty): Unit =
     stat match {
-      case v: Decl.Val       => addDeclaredValue(slot, v)
-      case v: Decl.Var       => addDeclaredValue(slot, Decl.Val(v.mods, v.pats, v.decltpe))
+      case v: Decl.Val       => addDeclaredValue(slot, v, own)
+      case v: Decl.Var       => addDeclaredValue(slot, Decl.Val(v.mods, v.pats, v.decltpe), own)
       case d: Decl.Def       => addMember(slot, d, d.name.value)
       case d: Decl.GivenLike => addDeclaredGiven(slot, d)
       case _                 => ()
@@ -252,6 +267,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // One owner's bindings: its own parameters, then every scope that shares its path.
   private def scan(owner: Frame): Unit = {
     if (owner.id != target.frame.id) errors ++= ConstrainedReceivers.reason(owner)
+    errors ++= owner.refusals
     val outer = values.keySet.toSet -- owner.params.map(_.name.value)
     bindParams(owner)
     if (owner.id != target.frame.id) bindContext(owner)
@@ -429,7 +445,10 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   // and an abstract `var` is an abstract getter (its setter returns `Unit`): a declared slot.
   private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
     case d: (Decl.Val | Decl.Var | Decl.Def | Decl.GivenLike) =>
-      if (!isTarget(d)) declaration(MemberSlot(scope, resolver.typeParameters(scope), scope), d)
+      val slot = MemberSlot(scope, resolver.typeParameters(scope), scope)
+      if (!isTarget(d)) declaration(slot, d)
+      else if (d.is[Decl.Val] || d.is[Decl.Var])
+        declaration(slot, d, target.frame.path.lastOption.toSet)
     case i: Import => flagShadowing(i)
     case _         => ()
   }
@@ -441,7 +460,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def addDeclaredValue(
       slot: MemberSlot,
       declaration: Decl.Val,
-      implemented: Set[String] = Set.empty
+      implemented: Set[String]
   ): Unit =
     declaration.pats.foreach { pat =>
       TypeApplications.patVarName.getOption(pat) match {
@@ -497,31 +516,11 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       case _               => errors += "anonymous given not resolved"
     }
 
-  // An import can put a *different* type behind a name this resolution reads as a builtin
-  // (`Option`, `Boolean`), so a builtin is only trustworthy while nothing shadows it. Lookup binds
-  // what a clause with a pure path brings — a named or renamed selector resolves its target or
-  // refuses, a wildcard opens its namespace less the names it leaves out, and a `given` selector
-  // brings contextual values and no name at all — and export clauses define members it binds the
-  // same way. What lookup cannot bind is a clause whose prefix is no path (`import this.x.N`):
-  // every name its selectors and prefix spell.
-  private def flagShadowing(clause: Import): Unit = {
-    val unbound = clause.importers
-      .filter(importer => SourceIndex.importPath(importer.ref).isEmpty)
-      .flatMap(importer => names(importer.ref) ++ importer.importees.flatMap(SourceIndex.boundName))
-      .toSet
-    if (shadowable.exists(unbound.contains)) {
+  private def flagShadowing(clause: Import): Unit =
+    ImportShadowing.reason(clause).foreach { reason =>
       rebound = true
-      errors += s"imported environment not resolved: ${Spelling.of(clause)}"
+      errors += reason
     }
-  }
-
-  // Every identifier a tree spells, which is what an import can put a new meaning behind.
-  private def names(tree: Tree): Set[String] =
-    TypeName.words(tree).toSet
-
-  // Every name the root imports bind to a builtin or a model entry: the shape vocabulary, the
-  // nominal keys of a rigid constructor's arguments and the top types' spellings.
-  private def shadowable: Set[String] = BuiltinTypes.rootNames
 
   // The positions left to the shape model: a type parameter's slot, whose count is the values the
   // caller supplies — the reading behind `Pair[A](x: A, y: A)` having four implementations — and

@@ -8,6 +8,7 @@ import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
 
 import MethodAnalysis.{Frame, Resolved, Target}
+import OverriddenResults.Overriding
 
 /** The result type Scala gives a method written without one, where the definition's syntax alone
   * fixes it; otherwise the form that would need the compiler's type inference.
@@ -41,18 +42,45 @@ private[cardinality] object InferredResults {
       steps: List[InheritedScopes.Step],
       variables: Map[String, Resolved],
       resolver: Resolver
-  ): Either[String, Inferred] =
+  ): Either[String, Inferred] = {
+    val own = ResolutionContext(target.frame, variables, Set.empty)
+    // Written without a result: read through the declaration it overrides, or else through the
+    // right-hand side's own type.
+    def overridden(
+        name: String,
+        mods: List[Mod],
+        groups: List[Member.ParamClauseGroup],
+        rhs: Term
+    ) =
+      new OverriddenResults(target.frame, Overriding(name, mods, groups), variables, resolver)
+        .result(steps)
+        .getOrElse(new Reading(target, name, variables, resolver, steps).body(rhs))
+    // A member value written without a type: a name of a pattern is typed by the pattern, which this
+    // reading does not do; a `final` or `inline` `val` of a literal keeps the literal's own type (a
+    // constant value definition, never a `var`: 3.9.0 types `final var x = 3` as `Int`); any other is
+    // read as a method's body is.
+    def value(v: Defn.Val | Defn.Var) = {
+      val (pats, rhs) = v match {
+        case d: Defn.Val => (d.pats, d.rhs)
+        case d: Defn.Var => (d.pats, d.body)
+      }
+      val constant = v.is[Defn.Val] && v.mods.exists(m => m.is[Mod.Final] || m.is[Mod.Inline])
+      rhs match {
+        case _ if !pats.forall(_.is[Pat.Var]) =>
+          Left(s"$Unresolved: a name of a pattern definition")
+        case literal: Lit if constant => Right(Inferred(literal, own))
+        case _ => target.frame.name.fold(Left(Unresolved))(overridden(_, v.mods, Nil, rhs))
+      }
+    }
     (target.result, target.tree) match {
-      case (Some(tpe), _) =>
-        Right(Inferred(tpe, ResolutionContext(target.frame, variables, Set.empty)))
+      case (Some(tpe), _)                              => Right(Inferred(tpe, own))
       case _ if TransparentResults.transparent(target) =>
         Left(s"$Unresolved: transparent inline method")
-      case (None, d: Defn.Def) =>
-        new OverriddenResults(target.frame, d, variables, resolver)
-          .result(steps)
-          .getOrElse(new Reading(target, d.name.value, variables, resolver, steps).body(d.body))
-      case _ => Left(Unresolved)
+      case (None, d: Defn.Def) => overridden(d.name.value, d.mods, d.paramClauseGroups, d.body)
+      case (None, v: (Defn.Val | Defn.Var)) => value(v)
+      case _                                => Left(Unresolved)
     }
+  }
 
   private val Singleton = "singleton"
 

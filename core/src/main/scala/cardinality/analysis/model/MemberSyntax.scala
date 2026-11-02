@@ -53,11 +53,21 @@ private[cardinality] object MemberSyntax {
     case v: Defn.Var              => v.pats.flatMap(TypeApplications.patVarName.getOption)
     case v: Decl.Var              => v.pats.flatMap(TypeApplications.patVarName.getOption)
     case o: Defn.Object           => List(o.name.value)
-    case g: Defn.GivenAlias       => List(g.name.value)
-    case g: Defn.Given            => List(g.name.value)
-    case g: Decl.Given            => List(g.name.value)
+    case g: Defn.GivenAlias       => List(givenName(g))
+    case g: Defn.Given            => List(givenName(g))
+    case g: Decl.Given            => List(givenName(g))
     case _                        => Nil
   }
+
+  /** The name Scala synthesizes for an anonymous given (`GivenNames`); none for any other tree. */
+  def anonymousGiven(tree: Tree): Option[String] = tree match {
+    case g: GivenNames.Given => GivenNames.of(g)
+    case _                   => None
+  }
+
+  // A given's name, synthesized when anonymous (`GivenNames.Unknown` when that name is not known).
+  private def givenName(g: GivenNames.Given): String =
+    if (g.name.value.nonEmpty) g.name.value else GivenNames.of(g).getOrElse(GivenNames.Unknown)
 
   /** The names a pattern binds, a sequence wildcard's (`xs*`) included. */
   def patternNames(pat: Pat): List[String] = TypeApplications.boundNames(List(pat))
@@ -84,6 +94,15 @@ private[cardinality] object MemberSyntax {
     case d: Defn.Def        => d.decltpe
     case g: Defn.GivenAlias => Some(g.decltpe)
     case g: Decl.Given      => Some(g.decltpe)
+    case _                  => None
+  }
+
+  /** A definition's right-hand side: a method's or a given alias's body, a value's initializer. */
+  def rightHandSide(tree: Tree): Option[Term] = tree match {
+    case d: Defn.Def        => Some(d.body)
+    case g: Defn.GivenAlias => Some(g.body)
+    case v: Defn.Val        => Some(v.rhs)
+    case v: Defn.Var        => Some(v.body)
     case _                  => None
   }
 

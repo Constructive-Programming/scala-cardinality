@@ -8,7 +8,7 @@ import cardinality.analysis.StdlibModel.Spelling
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
 import cardinality.analysis.{BuiltinTypes, ImportBinding, Resolver, SourceIndex, StdlibModel}
-import cardinality.types.{Spelling as TreeSpelling, TypeSubstitution}
+import cardinality.types.{Spelling as TreeSpelling, TypeApplications, TypeSubstitution}
 
 /** A builtin name (`Int`, `Boolean`, `Option`) a reference may bind through a channel simple-name
   * lookup does not walk.
@@ -608,20 +608,11 @@ private[cardinality] object ShadowedBuiltins {
       !stat.is[Pkg] && !stat.is[Import]
     )
 
-  private def template(frame: Frame): Boolean = frame.tree.exists {
-    case _: Defn.Class | _: Defn.Trait | _: Defn.Object | _: Defn.Enum | _: Defn.Given |
-        _: Pkg.Object =>
-      true
-    case _ => false
-  }
+  private def template(frame: Frame): Boolean = templateOf(frame).nonEmpty
 
-  private def templateOf(frame: Frame): Option[Template] = frame.tree.collect {
-    case d: Defn.Class  => d.templ
-    case d: Defn.Trait  => d.templ
-    case d: Defn.Object => d.templ
-    case d: Defn.Enum   => d.templ
-    case d: Defn.Given  => d.templ
-    case d: Pkg.Object  => d.templ
+  private def templateOf(frame: Frame): Option[Template] = frame.tree.flatMap {
+    case d: Pkg.Object => Some(d.templ)
+    case tree          => TypeApplications.template(tree)
   }
 
   // The constructor's own frame drops its parents: its parameters are read outside the template's

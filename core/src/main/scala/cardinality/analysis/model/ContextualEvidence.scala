@@ -44,10 +44,16 @@ private[cardinality] object ContextualEvidence {
   /** The template a class type applies, its supplied base classes, and whether they are all. */
   final case class Lineage(head: String, bases: Set[String], complete: Boolean)
 
+  /** A `using` or `implicit` parameter, or a context-function literal's: a given of its body. */
   def contextual(param: Term.Param): Boolean =
-    param.mods.exists(m => m.is[Mod.Using] || m.is[Mod.Implicit])
+    param.mods.exists(m => m.is[Mod.Using] || m.is[Mod.Implicit]) || literal(param)
 
-  def anonymous(param: Term.Param): Boolean = param.name.is[Name.Anonymous]
+  /** A parameter no name reaches: `using T`, or a context-function literal's `_: T`. */
+  def anonymous(param: Term.Param): Boolean =
+    param.name.is[Name.Anonymous] || param.name.is[Name.Placeholder]
+
+  private def literal(param: Term.Param): Boolean =
+    param.parent.flatMap(_.parent).exists(_.is[Term.ContextFunction])
 
   /** One key per owner and position: anonymous parameters all have the empty name. */
   def key(owner: List[String], index: Int): String = s"<using#$index@${owner.mkString(".")}>"

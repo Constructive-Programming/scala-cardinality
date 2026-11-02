@@ -108,7 +108,8 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
   }
 
   private def judged(definition: Definition): Option[String] =
-    InlineBodies.body(definition.tree) match {
+    // The body an inline method or given alias expands; an abstract declaration has none.
+    MemberSyntax.rightHandSide(definition.tree) match {
       case None       => Some("is an abstract inline declaration, with no body to check")
       case Some(body) =>
         implemented(definition)
@@ -189,12 +190,5 @@ private[cardinality] object InlineBodies {
   val Prefix = "inline method"
 
   val Inside = "definition inside an inline method"
-
-  // The body an inline method or given alias expands; an abstract declaration has none.
-  private def body(tree: Tree): Option[Term] = tree match {
-    case d: Defn.Def        => Some(d.body)
-    case g: Defn.GivenAlias => Some(g.body)
-    case _                  => None
-  }
 
 }

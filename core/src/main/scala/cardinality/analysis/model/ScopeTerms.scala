@@ -43,9 +43,7 @@ private[cardinality] object ScopeTerms {
       case v: Decl.Val                                    => names(v.pats)
       case v: Decl.Var                                    => names(v.pats)
       case o: Defn.Object                                 => List(o.name.value)
-      case g: Defn.Given                                  => named(g.name)
-      case g: Defn.GivenAlias                             => named(g.name)
-      case g: Decl.Given                                  => named(g.name)
+      case g: (Defn.Given | Defn.GivenAlias | Decl.Given) => MemberSyntax.names(g)
       case c: Defn.Class if c.mods.exists(_.is[Mod.Case]) => List(c.name.value)
       case e: Defn.Enum                                   => List(e.name.value)
       case e: Defn.ExtensionGroup                         => extensionMethods(e).map(_.name.value)
@@ -112,7 +110,5 @@ private[cardinality] object ScopeTerms {
   }
 
   private def names(pats: List[Pat]): List[String] = TypeApplications.boundNames(pats)
-
-  private def named(name: Name): List[String] = Option(name.value).filter(_.nonEmpty).toList
 
 }

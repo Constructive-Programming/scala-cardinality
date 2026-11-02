@@ -83,9 +83,13 @@ object MethodAnalysis {
       params: List[Term.Param] = Nil,
       local: Boolean = false,
       parents: List[Init] = Nil,
-      tree: Option[Tree] = None
+      tree: Option[Tree] = None,
+      refusals: List[String] = Nil
   ) {
     def chain: List[Frame] = this :: parent.toList.flatMap(_.chain)
+
+    /** The name the frame's definition or scope has in its owner's path (none for a file root). */
+    def name: Option[String] = path.lastOption
 
     /** Whether the frame is a class, trait, object, enum or given body. */
     def isTemplate: Boolean = tree.exists(TypeApplications.template(_).nonEmpty)

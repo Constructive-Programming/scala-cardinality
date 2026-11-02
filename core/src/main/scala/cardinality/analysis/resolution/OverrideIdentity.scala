@@ -40,6 +40,63 @@ private[cardinality] object OverrideIdentity {
   val depthLens = lens[Bindings](_.expansionDepth)
   val aliasFrame = lens[Bindings](_.locals, _.expansionDepth)
 
+  /** Whether an inherited declaration of a name is the measured value-like definition — a member
+    * value, or a given alias — seen from its template: a value implements a parameterless member of
+    * its name (SLS §5.1.4), so the two are one slot when neither takes a clause, and different
+    * clause shapes are another signature. Matching a given's parameter types is left unknown.
+    */
+  def value(
+      target: Target,
+      name: String,
+      groups: List[Member.ParamClauseGroup],
+      step: InheritedScopes.Step
+  ): Option[Boolean] =
+    valueClauses(target.tree) match {
+      case Some(_) if GivenNames.mayBe(target.tree, name) => None
+      case Some(_) if !memberName(target).contains(name)  => Some(false)
+      case Some(_) if !memberOf(target, step)             => None
+      case Some(own) if own.isEmpty && groups.isEmpty     => Some(true)
+      case Some(own) => Option.when(MemberSyntax.shape(own) != MemberSyntax.shape(groups))(false)
+      case None      => Some(false)
+    }
+
+  /** The names of an inherited value or given declaration the measured definition may be itself,
+    * and the reasons naming those whose identity is not known (kept among the names: neither
+    * reading is safe).
+    */
+  def own(
+      target: Target,
+      step: InheritedScopes.Step,
+      declaration: Stat
+  ): (Set[String], List[String]) = {
+    val answers = FinalImplementations
+      .names(declaration)
+      .map(name => name -> value(target, name, MemberSyntax.groups(declaration), step))
+    (
+      answers.collect { case (name, answer) if !answer.contains(false) => name }.toSet,
+      answers.collect { case (name, None) => s"inherited override identity not resolved: $name" }
+    )
+  }
+
+  /** The name the measured definition is a member under: an anonymous given's is the one Scala
+    * synthesizes from its type (`given A = a` is `given_A`), any other its frame's.
+    */
+  def memberName(target: Target): Option[String] =
+    MemberSyntax.anonymousGiven(target.tree).orElse(target.frame.name)
+
+  /** Whether the measured definition is a member of the step's receiver: one nested elsewhere is
+    * not known to be the receiver's member.
+    */
+  def memberOf(target: Target, step: InheritedScopes.Step): Boolean =
+    target.frame.parent.exists(_.id == step.root.id)
+
+  // A value-like definition's clauses: none for a value, a given's own.
+  private def valueClauses(tree: Tree): Option[List[Member.ParamClauseGroup]] = tree match {
+    case _: (Defn.Val | Defn.Var | Decl.Val | Decl.Var) => Some(Nil)
+    case g: (Defn.GivenAlias | Decl.Given)              => Some(g.paramClauseGroups)
+    case _                                              => None
+  }
+
   /** A frame's class binders, each its own identity unless replaced, beside the replacements other
     * levels' binders already carry: an alias read at another level keys its binders as composed.
     */
@@ -77,7 +134,7 @@ final private[cardinality] class OverrideIdentity(resolver: Resolver) {
   ): Option[Boolean] =
     target.tree match {
       case method: (Defn.Def | Decl.Def) if method.name.value == declaration.name.value =>
-        if (!target.frame.parent.exists(_.id == step.root.id)) None
+        if (!OverrideIdentity.memberOf(target, step)) None
         else {
           val current = Side(
             ResolutionContext(target.frame, resolver.typeParameters(target.frame), Set.empty),
@@ -86,7 +143,8 @@ final private[cardinality] class OverrideIdentity(resolver: Resolver) {
           side(declaration, step.declared, step.root, steps)
             .flatMap(inherited => compare(declaration, inherited, method, current))
         }
-      case _ => Some(false)
+      case _ =>
+        OverrideIdentity.value(target, declaration.name.value, declaration.paramClauseGroups, step)
     }
 
   /** Whether two members of one receiver's linearization are one slot — an implementation and the

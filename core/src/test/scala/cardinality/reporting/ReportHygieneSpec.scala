@@ -336,7 +336,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
       ":: : Boolean",
       "x_ : Boolean",
       "`type`: Boolean",
-      "++(b: Boolean): Boolean"
+      "++(b: Boolean): Boolean",
+      // An abstract class has a primary constructor too, its subclasses' call.
+      "P"
     )
   }
 

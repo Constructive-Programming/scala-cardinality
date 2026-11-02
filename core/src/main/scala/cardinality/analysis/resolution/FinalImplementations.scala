@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.SourceIndex
-import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
+import cardinality.analysis.model.{GivenNames, MemberSyntax, ScopeTerms}
 import cardinality.capacity.Counter
 import cardinality.types.TypeApplications
 
@@ -116,17 +116,21 @@ private[cardinality] object FinalImplementations {
       case _ => false
     }
 
-  /** A final concrete class, an object or a given instance: no subclass overrides its members. */
+  /** A final concrete class, an object, a given instance or an anonymous class (which no class can
+    * name, let alone extend): no subclass overrides its members.
+    */
   def isFinal(tree: Tree): Boolean = tree match {
     case c: Defn.Class => c.mods.exists(_.is[Mod.Final]) && !c.mods.exists(_.is[Mod.Abstract])
-    case _: Defn.Object | _: Defn.Given => true
-    case _                              => false
+    case _: Defn.Object | _: Defn.Given | _: Term.NewAnonymous => true
+    case _                                                     => false
   }
 
   private def implements(stat: Stat, name: String, groups: List[Member.ParamClauseGroup]): Boolean =
     stat match {
+      // A given whose synthesized name is not known may be the member: in a final template every
+      // inherited declaration is concrete code wherever it is implemented, so reading it so is safe.
       case d: (Defn.Def | Defn.GivenAlias | Defn.Given) =>
-        MemberSyntax.names(d).contains(name) &&
+        (MemberSyntax.names(d).contains(name) || GivenNames.mayBe(d, name)) &&
         MemberSyntax.shape(MemberSyntax.groups(d)) == MemberSyntax.shape(groups)
       // Mutation is excluded, so a `var` holds its initializer: a parameterless member's value.
       case v: Defn.Val => groups.isEmpty && TypeApplications.boundNames(v.pats).contains(name)

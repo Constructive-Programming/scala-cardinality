@@ -1251,6 +1251,89 @@ sum elimination (D25) included; but a receiver or record holding a deferred inli
 D24's refusal in an inline target even when the body never calls the member (conservative). See
 [syntax-features.md](syntax-features.md).
 
+## D28. Rows beyond defs, each measured by the rule its translation has
+
+**Decision.** The report has rows for the definitions beyond defs and concrete classes' primary
+constructors: given aliases (a method of their clauses, nullary without one) and abstract givens,
+member `val`s and `var`s (a nullary signature of their type; a `final` or `inline` `val` of a
+literal keeps its literal type, a `var` never does), members of anonymous classes (a final
+class's), definitions in a body's nested blocks, function literals, case clauses and
+comprehensions, parameterized enum cases (the case class constructor, typed where the enum is
+declared, with the enum's binders when the case has none of its own, `extends` clause or not), the
+primary constructors of abstract classes, traits with a parameter clause and conditional
+structural givens (a class's), secondary constructors (a choice of the primary constructor's
+arguments over their parameters: the tuple of the primary's parameter types, typed in the class's
+enclosing scope with its binders, never a value of the class) and the definitions of their bodies
+(local definitions of a method of the class, under `<init#k>`). A value or given that implements a
+declaration of its name is that declaration, never its own slot — an anonymous given under the
+name 3.9.0 synthesizes from its type (`given A = a` is `given_A`); of a definition of several
+names each is a row and the others are its slots. A nested definition's environment is its typing
+context, the parameters and captures of every enclosing owner (D19's Γ), each ranging over its
+type — the signature lambda lifting gives it. Control flow narrows nothing: a branch, a loop, a
+short-circuit operand, a case arm, a guard, a by-name argument or a dead branch leaves the
+admissible inputs those of the types, as a method's callers leave its parameters' (a reading by
+the inputs that reach a definition at run time would narrow a local def's own parameters by its
+call sites, and a function literal's or by-name argument's by code the reading does not have). A
+case clause's or comprehension's binders, given binders included, are refused, since one may alias
+a value the scope has; a pattern that may add a type equation (a constructor, typed or object
+pattern with a type parameter of an enclosing method or class in scope) refuses every count but a
+one-valued result's; a context-function literal's parameters are contextual parameters of its
+scope and bind its clause once (the definition's result does not wrap the literal again).
+Inherited concrete code reading a parent's constructor parameter no public field exposes is
+refused unless the template passes the argument itself and no member, field or import of its body
+rebinds a name the argument reads (`open class with hidden constructor state: P.h`). An `inline
+given` alias is read by D27 as an inline method, and a row in a scope of an inline method's body
+shares that method's verdict (counted when it passes, refused as `definition inside an inline
+method` when it does not). Local block values and local nullary given aliases, singleton enum
+cases and unconditional structural givens are no rows. Details:
+[definition inventory](definition-inventory.md).
+
+**Evidence.**
+
+- [24] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
+  bibliographer**, T5): rules 6 and 9, a class case expands "analogous to a final case class in
+  `E`'s companion object", with the enum's type parameters when it has none and no `extends`;
+  rule 7, with an explicit `extends` it takes them only if "at least one of the parameters `Ts` is
+  mentioned in a parameter type in `<value-params>` or in a type argument in `<parents>`".
+- Parreaux, Boruch-Gruszecki & Giarrusso 2019, *Towards improved GADT reasoning in Scala*, Scala
+  Symposium (**Metadata-verified**; the abstract reports both scalac and Dotty have GADT-related
+  type soundness holes): why a pattern that may refine a type is refused, not reasoned about.
+  Kennedy & Russo 2005, *Generalized algebraic data types and object-oriented programming*, OOPSLA
+  (**Metadata-verified**; the abstract reports GADTs are expressible through generics and
+  subclassing) is background: reading a subclass that fixes its parent's type argument as a GADT
+  case is this register's inference, not the abstract's claim.
+- [30] Scala 3 draft specification, ch. 5 (**Inspected (full text) — bibliographer**, T5):
+  *Constructor Definitions* — a secondary constructor's "signature and the self constructor
+  invocation … are type-checked and evaluated in the scope which is in effect at the point of the
+  enclosing class definition, augmented by any type parameters of the enclosing class", and the
+  invocation "must construct a generic instance of the class"; *Overriding* — "a stable member can
+  only be overridden by a stable member"; *`final`* — "constant value definitions … require an
+  explicit `final` modifier".
+- **Compiler fixtures** (Scala 3.9.0, this session; `$S/probes/b5`): a given alias is a `given def`
+  (a `lazy given val` when nullary), a conditional structural given a `given class` with a `given
+  def` building it, an unconditional one a module (`-Xprint:typer`); an enum case finds neither the
+  enum's members (E006) nor its companion's ("illegal reference … from enum case") and needs a
+  parameter list (E004); a `val` implements a parameterless `def`; an untyped `val` overriding a
+  context-function `val` sees its binder; `final var x = 3` is an `Int` (E007 against `def useX:
+  3 = x`) while `final val` and `final lazy val` keep `3`; `case D(y: A) extends E[Int]` of `enum
+  E[A, B]` prints `final case class D[A, B](y: A)` (`$S/probes/b5-fix1`, `-Vprint:typer`); a
+  secondary constructor's body reads the class's members and parameters; a context-function
+  literal under a context-function result is one closure (no second wrapper); an anonymous given's
+  name is `given_` and its type's names (`given_A`, `given_Ord_List`, `given_Int_String`,
+  `given_String_to_Int`, `given_&_Ord_Show`, …, `$S/probes/b5-fix2/gname`), and `new C[A](x,
+  y).given_A` selects one; matching `case TInt()` makes a method's or a class's type parameter `A`
+  Int in the arm (`def h: A = 42` compiles), while abstract type members, path-dependent types,
+  literal, binder and wildcard patterns refine nothing (`$S/probes/b5-fix2/refine`).
+- **Executable**: `DefinitionInventorySpec`; `MethodAnalysisSpec.abstractCase`,
+  `ReportHygieneSpec.operatorNames` (abstract-class constructor rows).
+
+**Boundary.** Not a counting rule: each row is measured by the existing rules, and its `?` keeps
+their reasons. Control flow is not part of the reading by decision (the typing context is); a
+binder of a pattern is refused rather than read, and so is any count under a pattern that may
+refine a type (whether the pattern's class pins an argument is not read); an intermediate level
+passing a parent's hidden argument is not followed; definitions in default arguments and in a
+named template's parent arguments are not indexed.
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

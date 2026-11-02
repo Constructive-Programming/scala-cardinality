@@ -87,10 +87,10 @@ object Counter {
 
   // The parameters as binders: a parameter that takes parameters of its own (`F[_]`) is the
   // higher-kinded kind, and every applied `F[A]` then depends on the instantiation too.
-  private[cardinality] def binders(d: Defn): List[Binder] =
-    parameters(d).map(param =>
-      Binder(TypeName.of(param.name.value), param.tparamClause.values.size)
-    )
+  private[cardinality] def binders(d: Defn): List[Binder] = binders(parameters(d))
+
+  private[cardinality] def binders(params: List[Type.Param]): List[Binder] =
+    params.map(param => Binder(TypeName.of(param.name.value), param.tparamClause.values.size))
 
   private[cardinality] def parameterNames(d: Defn): List[TypeName] =
     parameters(d).map(p => TypeName.of(p.name.value))

@@ -42,7 +42,7 @@ final class Reading private (private val top: Scope) {
     ancestors.foreach(inside.add)
     val owners = ancestors.takeWhile(!Reading.container(_)) ++
       ancestors.dropWhile(!Reading.container(_)).take(1)
-    val binders = owners.collect { case d: Defn => Counter.binders(d) }.flatten
+    val binders = owners.collect { case d: Defn => Reading.binders(d) }.flatten
     val parameters = owners.collect { case d: Defn => Walk.parameters(d) }.flatten
     val around = ancestors.drop(owners.size).filter(Reading.container).reverse
     val source = ancestors.lastOption.filter(_.is[Source])
@@ -100,6 +100,14 @@ final class Reading private (private val top: Scope) {
 }
 
 object Reading {
+
+  // A definition's binders around a position: an enum case's own and a given instance's clauses'
+  // too, whose constructors the method side reads positions of.
+  private def binders(d: Defn): List[Binder] = d match {
+    case c: Defn.EnumCase => Counter.binders(c.tparamClause.values)
+    case g: Defn.Given    => Counter.binders(g.paramClauseGroups.flatMap(_.tparamClause.values))
+    case other            => Counter.binders(other)
+  }
 
   def of(s: Source, library: Library = Library.empty): Reading =
     new Reading(Walk.solved(s.stats, Scope.libraryLens.replace(library)(Scope.empty)))

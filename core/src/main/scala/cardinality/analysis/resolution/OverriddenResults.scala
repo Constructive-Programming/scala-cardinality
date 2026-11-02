@@ -25,15 +25,15 @@ import MethodAnalysis.{Frame, Resolved}
   */
 final private[cardinality] class OverriddenResults(
     frame: Frame,
-    definition: Defn.Def,
+    written: OverriddenResults.Overriding,
     variables: Map[String, Resolved],
     resolver: Resolver
 ) {
-  private val name = definition.name.value
+  import written.{groups, mods, name}
 
   private val ownContext = ResolutionContext(frame, variables, Set.empty)
 
-  private val ownBounded = bounded(definition.paramClauseGroups)
+  private val ownBounded = bounded(groups)
 
   /** The overridden declaration's result where the target may override one; None for a member
     * nothing it inherits declares under its name and parameter types, which its body types.
@@ -74,7 +74,7 @@ final private[cardinality] class OverriddenResults(
 
   // An `override` with no declaration found overrides one this reading does not see.
   private def overriding: Option[Either[String, Inferred]] =
-    Option.when(definition.mods.exists(_.is[Mod.Override]))(
+    Option.when(mods.exists(_.is[Mod.Override]))(
       Left(s"$Unresolved: an override of a declaration not found")
     )
 
@@ -100,8 +100,10 @@ final private[cardinality] class OverriddenResults(
       .map(candidate => matching(template, candidate).map(Option.when(_)(candidate)))
 
   // The methods a declaration gives a subclass to implement: its own signature, an abstract `var`'s
-  // getter and setter, a given's.
+  // getter and setter, a given's, a value's parameterless getter (which only a value overrides).
   private def overridable(stat: Stat): List[Signature] = stat match {
+    case v: Decl.Val => getters(v.pats, Some(v.decltpe))
+    case v: Defn.Val => getters(v.pats, v.decltpe)
     case v: Decl.Var =>
       v.pats.flatMap(TypeApplications.patVarName.getOption).flatMap { getter =>
         List(
@@ -113,6 +115,9 @@ final private[cardinality] class OverriddenResults(
     case g: Defn.GivenAlias => givenMethod(g.name, g.paramClauseGroups, g.decltpe)
     case other              => InferredResults.signature(other).toList
   }
+
+  private def getters(pats: List[Pat], tpe: Option[Type]): List[Signature] =
+    pats.flatMap(TypeApplications.patVarName.getOption).map(Signature(_, Nil, tpe))
 
   private val Unit = List("scala", "Unit")
 
@@ -136,8 +141,7 @@ final private[cardinality] class OverriddenResults(
   // matches by name alone, and its parameters are not compared.
   private def sameShape(method: Signature): Boolean =
     ownBounded || bounded(method.groups) ||
-      MemberSyntax.shape(method.groups) ==
-      MemberSyntax.shape(definition.paramClauseGroups)
+      MemberSyntax.shape(method.groups) == MemberSyntax.shape(groups)
 
   private def bounded(groups: List[Member.ParamClauseGroup]): Boolean =
     groups.exists(_.tparamClause.values.exists(p => (p.bounds.context ++ p.bounds.view).nonEmpty))
@@ -146,7 +150,7 @@ final private[cardinality] class OverriddenResults(
   // overload), refused when an identity is not known.
   private def matching(template: Frame, candidate: Candidate): Either[String, Boolean] = {
     val theirs = context(template, candidate)
-    val pairs = parameters(definition.paramClauseGroups)
+    val pairs = parameters(groups)
       .zip(parameters(candidate.groups))
       .map((own, other) =>
         (
@@ -175,7 +179,7 @@ final private[cardinality] class OverriddenResults(
   private def context(template: Frame, candidate: Candidate): ResolutionContext = {
     val renamed = InferredResults
       .binders(candidate.groups)
-      .zip(InferredResults.binders(definition.paramClauseGroups))
+      .zip(InferredResults.binders(groups))
       .map((own, other) => own -> variables.getOrElse(other, Left(other)))
     ResolutionContext(
       candidate.step.declared,
@@ -194,5 +198,12 @@ final private[cardinality] class OverriddenResults(
     if (InferredResults.dependent(declared, groups))
       Left(s"$Unresolved: dependent result of an overridden $name")
     else Right(Inferred(declared, context(template, Candidate(step, groups, Some(declared)))))
+
+}
+
+private[cardinality] object OverriddenResults {
+
+  /** The member written without a result: its name, modifiers and clauses (none for a value). */
+  final case class Overriding(name: String, mods: List[Mod], groups: List[Member.ParamClauseGroup])
 
 }

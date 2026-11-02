@@ -1,10 +1,10 @@
 package cardinality.analysis
 
 import scala.collection.mutable
-import scala.meta.{Defn, Type}
+import scala.meta.{Defn, Member, Mod, Term, Tree, Type}
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.analysis.model.{ContextualEvidence, ResolutionContext}
+import cardinality.analysis.model.{ContextualEvidence, MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.*
 import cardinality.types.Spelling
 
@@ -52,28 +52,51 @@ final private[cardinality] class ContextBinders(
         result => ContextFunctions.binders(result.tpe, result.context, resolver)
       )
 
-  // A value or given alias wraps its body as a method does; one whose type is inferred may take an
-  // overridden declaration's. No frame is a value's yet: lane B5 adds those rows, and with them
-  // the regressions for these arms.
+  // A member value or given alias wraps its right-hand side as a method does its body (an
+  // anonymous class or a local definition there is nested in it); one written without a type takes
+  // an overridden declaration's result as its expected type, binders and all. A right-hand side that
+  // already is a context-function literal is not wrapped (Scala 3 reference, context functions: an
+  // expression is converted only when it is no such literal): the literal binds its clause through
+  // its own parameters, which its `<lambda#k>` frame reads, and a literal directly in its body the
+  // next. Only the clauses past those wrap the innermost body.
   private def enclosing(owner: Frame): Either[String, List[Binder]] =
-    owner.tree match {
+    (owner.tree match {
       case Some(method: Defn.Def) =>
-        method.decltpe.fold(overridden(owner, method))(enclosed(_, reading(owner)))
+        method.decltpe.fold(overridden(owner, method.mods, method.paramClauseGroups))(
+          enclosed(_, reading(owner))
+        )
       case Some(alias: Defn.GivenAlias) => enclosed(alias.decltpe, reading(owner))
-      case Some(value: Defn.Val)        => typed(value.decltpe, owner)
-      case Some(variable: Defn.Var)     => typed(variable.decltpe, owner)
+      case Some(value: Defn.Val)        => typed(value.mods, value.decltpe, owner)
+      case Some(variable: Defn.Var)     => typed(variable.mods, variable.decltpe, owner)
       case _                            => Right(Nil)
+    }).map { binders =>
+      val literals =
+        owner.tree.flatMap(MemberSyntax.rightHandSide).fold(0)(ContextBinders.literals)
+      binders.filter(_.clause >= literals)
     }
 
-  private def typed(declared: Option[Type], owner: Frame): Either[String, List[Binder]] =
-    declared
-      .toRight("context function binders of a value with an inferred type not read")
-      .flatMap(enclosed(_, reading(owner)))
+  private def typed(
+      mods: List[Mod],
+      declared: Option[Type],
+      owner: Frame
+  ): Either[String, List[Binder]] =
+    declared.fold(overridden(owner, mods, Nil))(enclosed(_, reading(owner)))
 
-  private def overridden(owner: Frame, method: Defn.Def): Either[String, List[Binder]] =
-    new OverriddenResults(owner, method, resolver.typeParameters(owner), resolver)
-      .result(steps)
-      .fold(Right(Nil))(_.flatMap(result => enclosed(result.tpe, result.context)))
+  private def overridden(
+      owner: Frame,
+      mods: List[Mod],
+      groups: List[Member.ParamClauseGroup]
+  ): Either[String, List[Binder]] =
+    owner.name.fold(Right(Nil)) { name =>
+      new OverriddenResults(
+        owner,
+        OverriddenResults.Overriding(name, mods, groups),
+        resolver.typeParameters(owner),
+        resolver
+      )
+        .result(steps)
+        .fold(Right(Nil))(_.flatMap(result => enclosed(result.tpe, result.context)))
+    }
 
   // Nothing else reads an enclosing method's result: a name it cannot see behind refuses.
   private def enclosed(tpe: Type, context: ResolutionContext) =
@@ -99,6 +122,15 @@ final private[cardinality] class ContextBinders(
 }
 
 private[cardinality] object ContextBinders {
+
+  /** How many context-function literals a term starts with, each the body of the one before, a
+    * block holding only one counting as the literal (Scala checks the closure inside such a block).
+    */
+  def literals(term: Term): Int = term match {
+    case f: Term.ContextFunction      => 1 + literals(f.body)
+    case Term.Block(List(only: Term)) => literals(only)
+    case _                            => 0
+  }
 
   /** A binder as the scope reads it: its clause, label, type read, the results a search may apply
     * it for (`ContextFunctions.results`), identity, and the key it is bound under.

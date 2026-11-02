@@ -169,16 +169,22 @@ class MethodAnalysisSpec extends Specification {
       .get
       .count must beLike { case Count.Unresolved(_) => ok }
 
-  def abstractCase =
-    MethodAnalysis
+  // The class's own rows count as any abstract class's: its constructor builds nothing from no
+  // parameters (1), and its declared `value` has no `A` to delegate to (0).
+  def abstractCase = {
+    val found = MethodAnalysis
       .analyze(
         inputs(
           "Example.scala" ->
             "abstract case class Holder[A]() { val value: A }\ndef extract[A](h: Holder[A]): A = h.value"
         )
       )
-      .map(_.count)
-      .forall(_.isInstanceOf[Count.Unresolved]) must beTrue
+      .map(entry => entry.name -> entry.count)
+      .toMap
+    (found("extract") must beLike { case Count.Unresolved(_) => ok })
+      .and(found("Holder.<init>") === Count.Finite(1))
+      .and(found("Holder.value") === Count.Finite(0))
+  }
 
   def declaredSlot =
     // `seed` is not implemented here: the caller supplies it, so it is a value this scope has.

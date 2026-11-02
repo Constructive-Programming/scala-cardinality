@@ -4,7 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
-import cardinality.analysis.model.{ContextBounds, ResolutionContext}
+import cardinality.analysis.model.{ContextBounds, ContextualEvidence, ResolutionContext}
 import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes}
 import cardinality.capacity.{Definition, FinitePart, Size}
 import cardinality.types.{Spelling, TypeSubstitution}
@@ -113,9 +113,16 @@ final private[cardinality] class ConstructorPositions(
       val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), written)
       val shaped = resolveIn(tpe, owner)
       declined(tpe, reading, shaped.isLeft).getOrElse(
-        readPosition(param.name.value, shaped, unread, slot.flatMap(_ => reading.toOption))
+        readPosition(label(param, tpe), shaped, unread, slot.flatMap(_ => reading.toOption))
       )
   }
+
+  // A position as a reason names it: its own name, or an anonymous one's evidence (a bound's, an
+  // anonymous `using`), which has none.
+  private def label(param: Term.Param, tpe: Type): String =
+    if (ContextualEvidence.anonymous(param) || param.name.value.isEmpty)
+      s"evidence ${Spelling.of(tpe)}"
+    else param.name.value
 
   // The reasons the estimate declined a position for, rendered as the row names them, when no number
   // the shape model gives can stand for it. Where the method side cannot read the position either,

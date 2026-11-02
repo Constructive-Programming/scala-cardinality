@@ -52,12 +52,18 @@ final private[cardinality] class ReceiverMembers(
     * Whether the measured declaration implements it is the target's own identity question
     * (`OverrideIdentity.matches`).
     */
-  def implemented(declaration: Stat, level: Frame, target: Tree): Either[String, Boolean] = {
+  def implemented(
+      declaration: Stat,
+      level: Frame,
+      target: Option[Own]
+  ): Either[String, Boolean] = {
     val names = MemberSyntax.names(declaration)
     val field = MemberSyntax.groups(declaration).isEmpty &&
       levels.exists(l => l.id != level.id && names.exists(fields(l)))
     val candidates =
-      concretes.filter(c => c.level.id != level.id && names.contains(c.name) && !(c.tree eq target))
+      concretes.filter(c =>
+        c.level.id != level.id && names.contains(c.name) && !target.exists(_.is(c))
+      )
     if (field) Right(true)
     else
       declaration match {
@@ -93,7 +99,7 @@ final private[cardinality] class ReceiverMembers(
       views: Map[Concrete, View],
       measured: Option[Measured]
   ): Option[Either[String, Concrete]] =
-    if (measured.exists(_.tree eq c.tree) || universal(c.tree, c.level)) None
+    if (measured.exists(_.is(c)) || universal(c.tree, c.level)) None
     else
       classification(c, closures) match {
         case Some(refused) => refused.left.toOption.map(Left(_))
@@ -209,7 +215,7 @@ final private[cardinality] class ReceiverMembers(
   // re-enter the declaration makes the body a possible view.
   private def viewsOf(measured: Measured): Map[Concrete, View] = {
     val slots = new Slots(measured)
-    val trees = concretes.map(c => c.level -> c.tree) ++ slots.templates ++ slots.anonymous
+    val trees = concretes.map(c => c.level -> c.tree) ++ slots.templates
     val nodes = trees.map((level, tree) => (slots.of(level, tree), tree, slots.reads(level, tree)))
     val implicits =
       nodes.collect { case (slot, tree, _) if MemberSyntax.implicitMember(tree) => slot }.toSet
@@ -231,13 +237,6 @@ final private[cardinality] class ReceiverMembers(
 
     val templates: List[(Frame, Tree)] = levels.flatMap { level =>
       level.stats.collect { case t @ (_: Defn.Class | _: Defn.Trait | _: Defn.Enum) => level -> t }
-    }
-
-    /** The anonymous givens: no name reaches them, implicit search does. */
-    val anonymous: List[(Frame, Tree)] = levels.flatMap { level =>
-      level.stats.collect {
-        case g: (Defn.GivenAlias | Defn.Given) if g.name.value.isEmpty => level -> g
-      }
     }
 
     // Each name's slots, and whether some identity among its members is unknown.
@@ -415,10 +414,21 @@ final private[cardinality] class ReceiverMembers(
 
 private[cardinality] object ReceiverMembers {
 
+  /** The measured definition among a level's members: its tree and its name, since a definition of
+    * several names (`val a, b = …`) is one tree whose other names are members beside it.
+    */
+  final case class Own(tree: Tree, name: String) {
+
+    def is(member: Concrete): Boolean = (member.tree eq tree) && member.name == name
+
+  }
+
   /** The measured declaration as a receiver sees it: its own member, or a member of a template it
     * encloses, reached through `path` when every template between is an object.
     */
   final case class Measured(tree: Tree, name: String, template: Frame, path: Option[List[String]]) {
+
+    def is(member: Concrete): Boolean = Own(tree, name).is(member)
 
     /** Whether a call through the path certainly runs the declaration: the arity selects it among
       * the members its template defines, and the template inherits nothing that could compete.
@@ -528,7 +538,7 @@ private[cardinality] object ReceiverMembers {
 
     def of(level: Frame, stat: Stat): List[Concrete] = stat match {
       case _: (Defn.Def | Defn.GivenAlias | Defn.Given | Defn.Object | Defn.Val | Defn.Var) =>
-        MemberSyntax.names(stat).filter(_.nonEmpty).map(Concrete(level, stat, _))
+        MemberSyntax.names(stat).map(Concrete(level, stat, _))
       case _ => Nil
     }
 
