@@ -95,7 +95,7 @@ class KindedIdentitySpec extends Specification {
   // model entry one key: `List` and `scala.collection.immutable.List` (also through a named
   // import) are one type, `Option[Int]` and `Either[Unit, Int]` two, though both are `1 + Int`. An
   // excluded or unmodelled entry's parameters are not held (`scala.quoted.Type` takes any kind), so
-  // its key is refused with the entry's reason.
+  // its key is refused with the entry's reason; a throwable is a read entry, its own key (x).
   def modelKeys = {
     val code = """object K {
       |  def list[F[_]](x: F[List[Int]]): F[scala.collection.immutable.List[Int]] = x
@@ -114,12 +114,7 @@ class KindedIdentitySpec extends Specification {
       .and(
         refused(counts("K.map"), "outside the counting model: scala.collection.immutable.Map")
       )
-      .and(
-        refused(
-          counts("K.throwable"),
-          "open stdlib type with unmodelled members: java.lang.Throwable"
-        )
-      )
+      .and(counts("K.throwable") === Count.Finite(1))
       .and(imported === Count.Finite(1))
   }
 

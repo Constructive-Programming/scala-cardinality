@@ -163,7 +163,8 @@ collects the non-parameter reasons of every definition it reads, transitively, o
 definition (`Taint`). The parameters a reference supplies are not collected. A reason holds even
 when the arithmetic would absorb it (`Zero(n: Nothing, q: Q)` with `Q(s: Schema)` reads `?`, not
 0). The method side's constructor-slot reading inherits this rule, so `AvroFailureException.<init>`
-is `?` because one case of `AvroFailure` holds a `Throwable`.
+is `?` because one case of `AvroFailure` holds a `Throwable`, an open class the estimate leaves to
+its implementations (register D26).
 
 ## Context bounds are stored evidence
 

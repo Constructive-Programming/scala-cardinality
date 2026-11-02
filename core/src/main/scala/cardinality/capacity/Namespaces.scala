@@ -473,6 +473,15 @@ private[cardinality] object Namespaces {
 
   def standardQualifier(qualifier: Term): Boolean = standard(qualifier.syntax)
 
+  /** A root-import throwable spelled through its own package or the `scala` alias of it. */
+  def standardThrowable(select: Type.Select): Boolean = {
+    val name = select.name.value
+    BaseTypes.throwables.get(name).exists { throwable =>
+      select.syntax.stripPrefix("_root_.") == throwable.fqn ||
+      (throwable.scalaAlias && select.qual.syntax.stripPrefix("_root_.") == "scala")
+    }
+  }
+
   /** `java.lang.String`, the one base type `java.lang` spells the way the algebra models it. */
   def javaString(select: Type.Select): Boolean =
     Set("java.lang.String", "_root_.java.lang.String")(select.syntax)

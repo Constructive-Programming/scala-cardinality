@@ -408,13 +408,16 @@ class NamespaceSpec extends Specification {
       .and(rowsOf("S.scala" -> code)(("u.Dep", Class)) === "≤2^32")
   }
 
-  // `Failure`'s `Failed` case holds a `Throwable` nobody supplied: the estimate refuses the slot,
-  // and the row says so, once, beside whatever the shape model stopped at (`Int` is a ground type).
+  // `Failure`'s `Failed` case holds a `Widget` nobody supplied: the estimate refuses the slot, and
+  // the row says so, once, beside whatever the shape model stopped at (`Int` is a ground type). A
+  // throwable slot is an open class instead (`ThrowableSlotsSpec.constructorSlot`).
   def slotRefusal =
     constructor(
       "f.FailureException.<init>",
-      "F.scala" -> "package f\nenum Failure { case Missing(at: Int); case Failed(cause: Throwable) }\nfinal class FailureException(val failure: Failure)",
-    ) === Count.Unresolved(List("open stdlib type with unmodelled members: java.lang.Throwable"))
+      "F.scala" -> "package f\nenum Failure { case Missing(at: Int); case Failed(cause: Widget) }\nfinal class FailureException(val failure: Failure)",
+    ) === Count.Unresolved(
+      List("declaration not supplied: Widget (not declared in the sources or stdlib-model/1)")
+    )
 
   // `Red` is both a case object extending `Light` and an alias (`p1`) or a class (`p1b`, the
   // object's companion); the sum takes the module: |Light| = |Red.type| + |Green.type| = 2.

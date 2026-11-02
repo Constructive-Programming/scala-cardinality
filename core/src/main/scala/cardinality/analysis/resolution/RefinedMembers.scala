@@ -57,30 +57,34 @@ private[cardinality] object RefinedMembers {
   private def declaredPath(name: String, owner: Frame): Option[Either[String, (Type, Frame)]] = {
     val parameter = owner.params.find(_.name.value == name).map(parameterType)
     val binding = owner.stats.collectFirst(Function.unlift(bindingType(name, _)))
-    parameter.orElse(binding).map {
-      case Some(tpe) => Right(tpe -> owner)
-      case None      => Left(s"unavailable stable path type: $name")
-    }
+    parameter.orElse(binding).map(_.map(_ -> owner))
   }
 
-  // A `var` or by-name parameter is no stable path: each read may denote another value.
-  private def parameterType(parameter: Term.Param): Option[Type] =
-    if (parameter.mods.exists(_.is[Mod.VarParam]) || parameter.decltpe.exists(_.is[Type.ByName]))
-      None
-    else parameter.decltpe
+  // A by-name parameter is no stable path: each read evaluates its argument anew. Neither is a
+  // `var`, by Scala's typing rule (E083, "not an immutable path"), though the model reads it as the
+  // value it holds.
+  private def parameterType(parameter: Term.Param): Either[String, Type] =
+    if (parameter.mods.exists(_.is[Mod.VarParam])) Left(variable(parameter.name.value))
+    else
+      parameter.decltpe.filterNot(_.is[Type.ByName]).toRight(unavailable(parameter.name.value))
 
-  private def bindingType(name: String, stat: Stat): Option[Option[Type]] = stat match {
-    case d: Defn.Val if TypeApplications.binds(name, d.pats) => Some(d.decltpe)
-    case d: Decl.Val if TypeApplications.binds(name, d.pats) => Some(Some(d.decltpe))
-    case d: Defn.Var if TypeApplications.binds(name, d.pats) => Some(None)
-    case d: Decl.Var if TypeApplications.binds(name, d.pats) => Some(None)
+  private def bindingType(name: String, stat: Stat): Option[Either[String, Type]] = stat match {
+    case d: Defn.Val if TypeApplications.binds(name, d.pats) =>
+      Some(d.decltpe.toRight(unavailable(name)))
+    case d: Decl.Val if TypeApplications.binds(name, d.pats) => Some(Right(d.decltpe))
+    case d: (Defn.Var | Decl.Var) if MemberSyntax.defined(d).contains(name) =>
+      Some(Left(variable(name)))
     // A destructured variable has no declared type of its own.
-    case d: (Defn.Val | Defn.Var) if TypeApplications.boundNames(d.pats).contains(name) =>
-      Some(None)
-    case d: Defn.Def if d.name.value == name => Some(None)
-    case d: Decl.Def if d.name.value == name => Some(None)
-    case _                                   => None
+    case d: Defn.Val if TypeApplications.boundNames(d.pats).contains(name) =>
+      Some(Left(unavailable(name)))
+    case d: (Defn.Def | Decl.Def) if d.name.value == name => Some(Left(unavailable(name)))
+    case _                                                => None
   }
+
+  private def unavailable(name: String): String = s"unavailable stable path type: $name"
+
+  /** Why a `var` is no stable path: a Scala typing rule, not its mutation. */
+  def variable(name: String): String = s"not a stable path: $name is a var"
 
   private case class Definition(
       owner: Frame,

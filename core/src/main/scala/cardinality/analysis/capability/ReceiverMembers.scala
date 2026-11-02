@@ -23,9 +23,10 @@ import TargetViews.{Applied, Resolution, View}
   * override returns a stored function realizes any tuple of member behaviors — so it is a free
   * capability like an abstract one, its default body only one of those behaviors. An open member
   * whose default re-enters the measured declaration is a view (`TargetViews`): excluded when
-  * definite, a reason when possible. A parameterized parent no class of the linearization passes
-  * arguments to leaves them to the class that finally extends the receiver: its fields are free
-  * state, and state no public field observes is a reason.
+  * definite, a reason when possible. A default that only throws is no behavior at all (register
+  * D26): the member reads exactly as its abstract twin. A parameterized parent no class of the
+  * linearization passes arguments to leaves them to the class that finally extends the receiver:
+  * its fields are free state, and state no public field observes is a reason.
   */
 final private[cardinality] class ReceiverMembers(
     root: Frame,
@@ -62,8 +63,8 @@ final private[cardinality] class ReceiverMembers(
       declaration match {
         case d: Decl.Def =>
           settle(candidates.map(c => sameSlot((d, level), (c.tree, c.level))), d.name.value)
-        case _: (Decl.Val | Decl.Given) => Right(candidates.exists(_.parameterless))
-        case _                          => Right(false)
+        case _: (Decl.Val | Decl.Var | Decl.Given) => Right(candidates.exists(_.parameterless))
+        case _                                     => Right(false)
       }
   }
 
@@ -510,7 +511,7 @@ private[cardinality] object ReceiverMembers {
   object Concrete {
 
     /** No instance replaces a final, private or inline member, a given, a member object or a `var`
-      * (Scala 3 makes givens and objects final; a mutable variable cannot be overridden).
+      * (Scala 3 makes givens and objects final, and lets nothing override a `var`: E164).
       */
     def unoverridable(member: Tree): Boolean = member match {
       case _: (Defn.GivenAlias | Defn.Given | Defn.Object | Defn.Var) => true

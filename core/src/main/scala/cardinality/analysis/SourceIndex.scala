@@ -202,7 +202,8 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     case _                                                      => Nil
   }
 
-  private def initParentName(init: Init): String =
+  /** The simple name a parent of an `extends` clause spells. */
+  private[cardinality] def initParentName(init: Init): String =
     TypeApplications.name(init.tpe).takeWhile(_ != '[').split('.').last
 
   private def inspect(operation: String): Unit = work.foreach(_.step(operation))

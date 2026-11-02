@@ -97,4 +97,7 @@ private[cardinality] object BuiltinTypes {
 
   private def key(scalar: String): String = s"scala.$scalar"
 
+  /** A ground shape's key: a scalar's `scala` member, or a throwable's own entry. */
+  def groundKey(ground: String): String = StdlibModel.canonical(ground).getOrElse(key(ground))
+
 }

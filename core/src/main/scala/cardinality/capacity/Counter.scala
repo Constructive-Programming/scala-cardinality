@@ -304,6 +304,12 @@ object Counter {
     // is the outermost binding, so even another file's `Int` in the same package wins over it.
     case name @ BaseTypes(size) if !scope.binds(TypeName.of(name.syntax)) => size
 
+    // A throwable of the root imports is an open class: any subclass's values are its own.
+    case name: Type.Name
+        if BaseTypes.throwables.contains(name.value) && !scope.binds(TypeName.of(name.value)) =>
+      scope.noteOpen(name.value)
+      EffectiveOmega
+
     case select: Type.Select => qualified(scope, select)
 
     // Literal types (`true`, `42`, `'a'`) and singleton types (`None.type`) have exactly
@@ -376,8 +382,11 @@ object Counter {
       case Some(Namespaces.Located.Instance(tpe, in))    => classMember(scope, select, tpe, in)
       case Some(Namespaces.Located.Unread(Some(clause))) =>
         unbound(scope, Definition.Unbound.Imported(TypeSubstitution.described(select), clause))
-      case Some(Namespaces.Located.Unread(None))    => unbound(scope, select)
-      case Some(Namespaces.Located.Pending(reason)) => unbound(scope, reason)
+      case Some(Namespaces.Located.Unread(None))        => unbound(scope, select)
+      case Some(Namespaces.Located.Pending(reason))     => unbound(scope, reason)
+      case None if Namespaces.standardThrowable(select) =>
+        scope.noteOpen(select.syntax)
+        EffectiveOmega
       case None => standard(select).getOrElse(unbound(scope, select))
     }
 

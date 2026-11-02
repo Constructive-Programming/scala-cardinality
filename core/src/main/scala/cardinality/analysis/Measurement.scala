@@ -66,6 +66,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     errors ++= positions.refusals
     errors ++= TransparentResults.inlineRefusal(target)
     hiddenReads(steps)
+    errors ++= capabilities.construction.built.left.toOption
     val result = if (target.constructor) constructorShape() else declaredShape(inferred)
     result.left.foreach(errors += _)
     val shapes = environment.map(_.shape) ++ result.toOption
@@ -90,6 +91,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       target.frame
     )
 
+  private lazy val capabilities =
+    new ReceiverCapabilities(target, resolver, overrideIdentity, walked.flatMap(_.toOption))
+
   // A declaration inherited from a parent the source set defines is a slot as well: the caller
   // fills it through the subclass. Declarations travel, and so do the open concrete members the
   // receiver tables classify — a parent's overridable fields and an unpassed parent's fields among
@@ -105,7 +109,6 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def scanParents(): Unit = {
     walked.foreach(_.left.foreach(errors += _))
     val ancestors = steps.groupMap(_.root.id)(_.declared).withDefaultValue(Nil)
-    val capabilities = new ReceiverCapabilities(target, resolver, overrideIdentity, steps)
     steps.foreach(step =>
       inherited(step, step.root :: ancestors(step.root.id), steps, capabilities)
     )
@@ -559,6 +562,8 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       inferred: Either[String, InferredResults.Inferred],
       bounds: List[Binding]
   ): Count = result match {
+    // No receiver the declaration runs in is ever built (register D26): it is never called.
+    case _ if capabilities.construction.built == Right(false) => Count.Finite(1)
     case Right(shape)
         if !target.constructor && !rebound && bounded.invalid.isEmpty &&
           TopTypes.terminalGoal(shape) =>

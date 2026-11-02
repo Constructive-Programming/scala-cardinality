@@ -13,8 +13,8 @@ private[cardinality] enum TermBinding {
   /** The nearest defining scope: one frame, or the frames of the package's other files. */
   case Defined(scopes: List[Frame])
 
-  /** An inherited member, export or import that may bind the name, which is not enumerated. */
-  case Bound(why: String)
+  /** An inherited member, export or import that may bind the name (`certain` where it names it). */
+  case Bound(why: String, certain: Boolean = false)
 
   case Unbound
 }
@@ -24,19 +24,21 @@ private[cardinality] enum TermBinding {
   */
 final private[cardinality] class TermBindings(levels: Frame => List[Frame], resolver: Resolver) {
 
-  /** The nearest binding of a term `name` from the reference's chain. */
-  def nearest(name: String, chain: List[Frame]): TermBinding =
-    chain.iterator.flatMap(scope(name, _)).nextOption().getOrElse(TermBinding.Unbound)
+  /** The nearest binding of a term `name` from the reference's chain (at offset `at`, an import
+    * binds from its position on).
+    */
+  def nearest(name: String, chain: List[Frame], at: Option[Int] = None): TermBinding =
+    chain.iterator.flatMap(scope(name, _, at)).nextOption().getOrElse(TermBinding.Unbound)
 
   /** How one scope binds a term `name`, if it does. */
-  def scope(name: String, frame: Frame): Option[TermBinding] =
+  def scope(name: String, frame: Frame, at: Option[Int] = None): Option[TermBinding] =
     if (frame.params.exists(_.name.value == name)) Some(TermBinding.Parameter)
     else
       inherited(name, frame)
         .orElse(
           Option.when(ScopeTerms.defined(frame.stats)(name))(TermBinding.Defined(List(frame)))
         )
-        .orElse(clauses(name, frame))
+        .orElse(clauses(name, frame, at))
         .orElse(packaged(name, frame))
 
   /** Whether the scope that declares a class binds a term of the class's name to anything but the
@@ -62,19 +64,20 @@ final private[cardinality] class TermBindings(levels: Frame => List[Frame], reso
         InheritedTerms.inherits(frame, levels(frame), name, resolver)
       )
       .flatten
-      .map(parent => TermBinding.Bound(s"which a template may inherit from ${parent.parent}"))
+      .map(parent =>
+        TermBinding.Bound(s"which a template may inherit from ${parent.parent}", parent.certain)
+      )
 
-  // An export defines a member as a definition does; an import binds below it.
-  private def clauses(name: String, frame: Frame): Option[TermBinding] =
-    Option
-      .when(ScopeTerms.exported(frame.stats).forall(_(name)))(
-        TermBinding.Bound("which an export may define")
-      )
-      .orElse(
-        Option.when(ScopeTerms.imported(frame.stats).forall(_(name)))(
-          TermBinding.Bound("which an import may bind")
-        )
-      )
+  // An export defines a member throughout its template; an import binds below it.
+  private def clauses(name: String, frame: Frame, at: Option[Int] = None): Option[TermBinding] = {
+    val imports = frame.stats.filter(stat => at.forall(stat.pos.end <= _))
+    bound(ScopeTerms.exported(frame.stats), name, "which an export may define")
+      .orElse(bound(ScopeTerms.imported(imports), name, "which an import may bind"))
+  }
+
+  // Clauses whose explicit selectors spell the name bind it; one that may bind any name may too.
+  private def bound(spelled: Option[Set[String]], name: String, why: String) =
+    Option.when(spelled.forall(_(name)))(TermBinding.Bound(why, certain = spelled.nonEmpty))
 
   // A member of the package another file defines, which every binding of the reference's own file
   // outranks.

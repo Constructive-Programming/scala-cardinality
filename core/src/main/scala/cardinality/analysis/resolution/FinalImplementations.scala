@@ -11,13 +11,13 @@ import cardinality.types.TypeApplications
 /** Inherited declarations a final template implements in its own body.
   *
   * No subclass can override a member of a final concrete class, an object or a given instance, nor
-  * a mutable variable of any template (E164), so where such a member implements an inherited
-  * declaration, the member *is* that concrete body, not a free capability a caller fills. The match
-  * is by name and clause shape; a parameterless declaration is also implemented by a `val` or a
-  * constructor `val`. A same-shaped overload leaves the declaration implemented by other concrete
-  * code: a concrete final template implements every inherited declaration somewhere. An
-  * `abstract final` class implements nothing by being final, and an implementation inherited from
-  * an intermediate parent is not followed here (members gate G1).
+  * a `var` of any template (E164), so where such a member implements an inherited declaration, the
+  * member *is* that concrete body, not a free capability a caller fills. The match is by name and
+  * clause shape; a parameterless declaration is also implemented by a `val` or a constructor `val`.
+  * A same-shaped overload leaves the declaration implemented by other concrete code: a concrete
+  * final template implements every inherited declaration somewhere. An `abstract final` class
+  * implements nothing by being final, and an implementation inherited from an intermediate parent
+  * is not followed here (members gate G1).
   */
 private[cardinality] object FinalImplementations {
 
@@ -134,6 +134,12 @@ private[cardinality] object FinalImplementations {
       case _           => false
     }
 
+  private def readNames(tree: Tree): List[String] = tree match {
+    case _: Term.Throw   => Nil
+    case Term.Name(name) => List(name)
+    case other           => other.children.flatMap(readNames)
+  }
+
   /** Whether a class parameter of the name is a field: a `val` or `var` one, or any of a case
     * class.
     */
@@ -153,7 +159,8 @@ private[cardinality] object FinalImplementations {
       .toSet
 
   /** The names an implementation's body reads that its own parameters do not bind, and whether the
-    * body is that one name (`def seed: A = a1`): a member that is an alias of a capture.
+    * body is that one name (`def seed: A = a1`): a member that is an alias of a capture. A
+    * `throw`'s operand reads nothing a result is built from: that path never returns.
     */
   def reads(implementation: Tree): (Set[String], Option[String]) = {
     val (params, body) = implementation match {
@@ -165,7 +172,7 @@ private[cardinality] object FinalImplementations {
       case _                  => (Nil, None)
     }
     val own = MemberSyntax.parameterNames(params)
-    val names = body.toList.flatMap(_.collect { case n: Term.Name => n.value }).toSet -- own
+    val names = body.toList.flatMap(readNames).toSet -- own
     val alias = body.collect { case Term.Name(n) if params.isEmpty && !own(n) => n }
     (names, alias)
   }

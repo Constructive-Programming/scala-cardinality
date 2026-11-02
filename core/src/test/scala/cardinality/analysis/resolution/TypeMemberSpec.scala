@@ -178,12 +178,17 @@ class TypeMemberSpec extends Specification {
       .and(refused(found("onSealed"), "is fixed by the cases of sealed S"))
   }
 
-  // An object's `val p: R` is fixed by its definition: no one can supply its X — refused (true
-  // count 1, vacuous). An open template's abstract or `val` field may be narrowed by a subclass
-  // (`override val p: R { type X = Int }`): x, y — 2. A final class's field cannot.
+  // An object's `lazy val p: R` is fixed by its definition: no one can supply its X — refused
+  // (true count 1, vacuous). A strict `val p: R = ???` throws while the object is built, so Strict
+  // is never built and v never called: 1 (register D26). An open template's abstract or `val`
+  // field may be narrowed by a subclass (`override val p: R { type X = Int }`): x, y — 2. A final
+  // class's field cannot.
   def valuePaths = {
     val found = entries(member + """
       object Vals:
+        lazy val p: R = ???
+        def v(x: p.X, y: p.X): p.X = ???
+      object Strict:
         val p: R = ???
         def v(x: p.X, y: p.X): p.X = ???
       trait Open:
@@ -195,6 +200,7 @@ class TypeMemberSpec extends Specification {
         def v(x: p.X, y: p.X): p.X = ???
       """)
     refused(found("Vals.v"), "p is not overridable in Vals")
+      .and(found("Strict.v") === Count.Finite(1))
       .and(found("Open.v") === Count.Finite(2))
       .and(found("C.v") === Count.Finite(2))
       .and(refused(found("F.v"), "p is not overridable in F"))

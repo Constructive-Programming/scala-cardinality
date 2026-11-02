@@ -208,7 +208,7 @@ number of binders or parameters per clause is always another slot.
 | Final-class parameter no member observes injectively | `final class field not observable injectively: C.p` |
 | Non-public constructor or class, local or private template | `receiver fields constrained by …: C` / `capability record of a template only its scope instantiates: C` |
 | Member hidden at the use site | `capability record with members hidden at the use site: C` |
-| `var`, extension or pattern-defined member | `capability record with a mutable member not read: C`, `… extension member …`, `destructured member of an open receiver not read: C` |
+| Extension or pattern-defined member (a `var` is its value, register D26: an abstract one its getter, a concrete one derived) | `capability record with an extension member not read: C`, `destructured member of an open receiver not read: C` |
 | Trait parameters | `capability record with trait parameters not read: C` |
 | Recursive record (a member's type mentions the record) | `recursive type requires a structural proof: C` (the type reading's own guard) |
 | Polymorphic open member not reduced | `polymorphic capability binder: M (…)` ([PB0–PB4](polymorphic-members-and-saturation.md)) |

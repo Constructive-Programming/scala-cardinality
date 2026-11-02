@@ -26,12 +26,12 @@ import MethodAnalysis.{sequence, Frame, Resolved, TypeEntry}
   * an input and a goal, so a record is read only where the two readings coincide:
   *
   *   - an *open* template (a trait without parameters, or a class whose constructor parameters are
-  *     all public `val`s and whose constructor every subclass reaches): the product of its open
+  *     all public fields and whose constructor every subclass reaches): the product of its open
   *     members — abstract or overridable — and `val` fields. An input observes exactly those (a
   *     derived member is concrete code over them); a goal may pick any tuple of them, since an
   *     anonymous subclass overriding each with the chosen term realizes it.
   *   - a *final* class (or value class) whose constructor is public and whose every constructor
-  *     parameter is observable — a public `val`, or exposed by a public member that is its η-alias:
+  *     parameter is observable — a public field, or exposed by a public member that is its η-alias:
   *     the product of those parameters. An instance is its constructor arguments, every member a
   *     fixed function of them, and the aliases observe each argument injectively.
   *
@@ -70,12 +70,16 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         .selfType(template)
         .toLeft(())
         .flatMap(_ => walk)
-        .flatMap(steps =>
-          if (template.tree.exists(fixedClass)) finalRecord
-          // A `final abstract` class is neither instantiated nor extended: it has no value.
-          else if (template.tree.exists(neverInstantiated)) Right(Shape.Sum(Nil))
-          else openRecord(steps)
-        )
+        .flatMap { steps =>
+          val table = new ReceiverMembers(template, steps, identity, resolver)
+          // A `final abstract` class is neither instantiated nor extended, and a template whose
+          // construction only throws is never built (register D26): neither has a value.
+          new Construction(resolver, steps).of(table.levels, useSite.tree).built.flatMap { built =>
+            if (!built || template.tree.exists(neverInstantiated)) Right(Shape.Sum(Nil))
+            else if (template.tree.exists(fixedClass)) finalRecord
+            else openRecord(steps, table)
+          }
+        }
 
     private def walk: Either[String, List[InheritedScopes.Step]] =
       sequence(InheritedScopes.walk(List(template -> env), resolver, useSite))
@@ -116,14 +120,12 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     // and the fields of the parameterized levels no class of it passes arguments to among them —
     // each a free choice of its type. Levels are read in linearization order, so the declaration
     // a member's slot keeps is the nearest one, whose type the member has.
-    private def openRecord(steps: List[InheritedScopes.Step]): Resolved = {
-      val table = new ReceiverMembers(template, steps, identity, resolver)
+    private def openRecord(steps: List[InheritedScopes.Step], table: ReceiverMembers): Resolved = {
       val all = table.levels
       val closures = TemplateClosures.of(template, all)
       refusal(all, closures).toLeft(()).flatMap { _ =>
         val open = table.open(None)
-        val members = open.collect { case Right(c) => c.tree } ++
-          all.flatMap(_.stats.collect { case d: (Decl.Def | Decl.Val | Decl.Given) => d })
+        val members = open.collect { case Right(c) => c.tree } ++ all.flatMap(abstracts)
         for {
           _ <- selfView(members, all).toLeft(())
           fields <- sequence(template.params.map(valField))
@@ -170,8 +172,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       }
       val foreign = ForeignParents.reasons(all, resolver).headOption
       val unreadMember = all.flatMap(_.stats).collectFirst {
-        case _: Decl.Var | _: Defn.Var => s"capability record with a mutable member not read: $key"
-        case _: Defn.ExtensionGroup => s"capability record with an extension member not read: $key"
+        case _: Defn.ExtensionGroup =>
+          s"capability record with an extension member not read: $key"
       }
       val types = abstractTypes(all).map(t =>
         s"capability record with abstract type member not read: $key.$t"
@@ -191,7 +193,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       stats.collect { case d: Decl.Type if !defined(d.name.value) => d.name.value }.distinct
     }
 
-    // A constructor parameter of an open class: a public `val` is a field any instance may give any
+    // A constructor parameter of an open class: a public field is one any instance may give any
     // value of its type; hidden state is observed by no field, but a goal still needs it built.
     private def valField(parameter: Term.Param): Resolved =
       if (!publicField(parameter))
@@ -205,9 +207,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         table: ReceiverMembers,
         steps: List[InheritedScopes.Step]
     ): Either[String, List[Option[Shape]]] = {
-      val open = all.flatMap(level =>
-        level.stats.collect { case d: (Decl.Def | Decl.Val | Decl.Given) => level -> d }
-      )
+      val open = all.flatMap(level => abstracts(level).map(level -> _))
       sequence(open.zipWithIndex.map {
         case ((level, stat), index) =>
           for {
@@ -332,13 +332,19 @@ private[cardinality] object CapabilityRecords {
 
   private def arityOf(member: Tree): Int = MemberSyntax.parameters(MemberSyntax.groups(member)).size
 
+  // A level's abstract term members; an abstract `var` is its getter (the setter is an effect).
+  private def abstracts(level: Frame): List[Stat] =
+    level.stats.collect { case d: (Decl.Def | Decl.Val | Decl.Var | Decl.Given) => d }
+
   private def neverInstantiated(tree: Tree): Boolean = tree match {
     case c: Defn.Class => Representations.finalAbstract(c)
     case _             => false
   }
 
+  // A `var` parameter is a field holding the argument it was given, as a `val` one is: the model has
+  // no mutation.
   private def publicField(parameter: Term.Param): Boolean =
-    parameter.mods.exists(_.is[Mod.ValParam]) && !parameter.mods.exists(MemberSyntax.restricted)
+    MemberSyntax.keptParameter(parameter) && !parameter.mods.exists(MemberSyntax.restricted)
 
   // `def m = p`, or `def m(x1, …, xn) = p(x1, …, xn)` with one clause of its own parameters.
   private def alias(member: Defn.Def, parameter: String): Boolean =

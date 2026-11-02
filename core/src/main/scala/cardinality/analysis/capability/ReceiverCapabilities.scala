@@ -3,7 +3,7 @@ package cardinality.analysis.capability
 import scala.meta.*
 
 import cardinality.analysis.model.{MemberSlot, MemberSyntax}
-import cardinality.analysis.resolution.{InheritedScopes, OverrideIdentity}
+import cardinality.analysis.resolution.{InheritedScopes, Linearization, OverrideIdentity}
 import cardinality.analysis.{MethodAnalysis, Resolver}
 
 import MethodAnalysis.{Frame, Target}
@@ -51,6 +51,36 @@ final private[cardinality] class ReceiverCapabilities(
     tables.flatMap { (root, table) =>
       table.open(measured(root)).map(_.map(c => Member(slot(root, c.level), c.tree, c.name)))
     }
+
+  /** Whether every template the declaration runs in is built (register D26): its own, and each one
+    * that template's instances carry — an inner template its outer instance, a local one the
+    * receiver of the code declaring it, a member object the instance it belongs to — and, for a
+    * top-level definition, the object holding its package's top-level definitions. A template a
+    * static object (one nested only in objects and packages) encloses is built without the object.
+    * Where one is never built, no call of the declaration returns, so every implementation is the
+    * same one. A constructor builds its instance: its row reads its parameters only.
+    */
+  lazy val construction: Construction.Verdict =
+    if (target.constructor) Construction.Verdict.Built
+    else {
+      val built = new Construction(resolver, steps)
+      Construction.Verdict.all(needed(target.frame).map { owner =>
+        if (resolver.isPackage(owner) && !owner.isTemplate) built.topLevel(owner, Some(target.tree))
+        else {
+          val levels = new Linearization(owner :: InheritedScopes.levels(steps, owner), resolver)
+          built.of(levels.order, Some(target.tree))
+        }
+      })
+    }
+
+  private def needed(frame: Frame): List[Frame] = frame.parent.toList.flatMap { owner =>
+    if (owner.isTemplate) if (frame.isTemplate && static(owner)) Nil else owner :: needed(owner)
+    else if (resolver.isPackage(owner)) if (frame.isTemplate) Nil else List(owner)
+    else needed(owner)
+  }
+
+  private def static(frame: Frame): Boolean =
+    frame.chain.forall(f => resolver.isPackage(f) || f.tree.exists(_.is[Defn.Object]))
 
   private def slot(root: Frame, level: Frame): MemberSlot =
     InheritedScopes

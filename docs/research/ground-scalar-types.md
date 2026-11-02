@@ -150,8 +150,8 @@ that tier.
 - `def f[A](g: A => Int, a: A): Int` stays `?` — "Elimination of an opaque callable's transparent
   ground result is unsupported". Its true count is `(2^32)^(2^32)` (functions of `g(a)`); a
   producer reading would say `2^32 + 1` and a cycle reading ω, both wrong.
-- A `var` reads as the value it holds (D-var); a literal type (`x: 3`) is one constant
-  ([syntax-features.md](syntax-features.md)); a union with a
+- A `var` reads as the value it holds (register D26; the interim `mutable capture` is gone); a
+  literal type (`x: 3`) is one constant ([syntax-features.md](syntax-features.md)); a union with a
   ground alternative needs a discrimination proof; an exported or `given`-imported ground name is
   flagged like the other builtins.
 - `Integer` and the other boxes, `BigInt` and `BigDecimal` are not modelled here.

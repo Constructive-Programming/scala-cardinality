@@ -623,19 +623,21 @@ class StoredValueSoundnessSpec extends Specification {
       )
 
   // Every reader of a definition resting on an unknown name rests on it too — through a generic
-  // instantiation, a field, an `Either`, two hops, and a product with an empty factor (0·? is
-  // not claimed as 0). A reference that supplies a definition's parameters owes none of them:
-  // |Gen[Boolean]| = 2; `Gen[B]` waits for B; an open member keeps the reader open.
+  // instantiation, a field, an `Either`, two hops, and a product with an empty factor (0·? is not
+  // claimed as 0); a `Throwable` is an open class, left to its implementations. A reference that
+  // supplies a definition's parameters owes none of them: |Gen[Boolean]| = 2; `Gen[B]` waits for
+  // B; an open member keeps the reader open.
   def taint = {
     val files = List(
       "a/A.scala" -> "package a\nfinal case class Foo[A](s: Schema, a: A)\nenum Failure { case Boom(cause: Throwable); case Code(n: Int) }\nfinal case class Gen[A](a: A)\ntrait Open\nfinal case class HasOpen(o: Open)",
-      "b/B.scala" -> "package b\nimport a.*\nfinal case class Bar(f: Foo[Boolean])\nfinal case class Q(s: Schema)\nfinal case class Local(q: Q)\ntype Res = Either[Failure, Boolean]\nfinal case class G1(g: Gen[Boolean])\nfinal case class G2[B](g: Gen[B])\nfinal case class UsesOpen(h: HasOpen)\nfinal case class Zero(n: Nothing, q: Q)\nfinal case class Nested(l: Local)",
+      "b/B.scala" -> "package b\nimport a.*\nfinal case class Bar(f: Foo[Boolean])\nfinal case class Q(s: Schema)\nfinal case class Local(q: Q)\ntype Res = Either[Failure, Boolean]\ntype Res2 = Either[Q, Boolean]\nfinal case class G1(g: Gen[Boolean])\nfinal case class G2[B](g: Gen[B])\nfinal case class UsesOpen(h: HasOpen)\nfinal case class Zero(n: Nothing, q: Q)\nfinal case class Nested(l: Local)",
     )
     val found = rowsOf(files*)
     (found(("b.Bar", Class)) === "unresolved[Schema]")
       .and(found(("b.Local", Class)) === "unresolved[Schema]")
       .and(found(("b.Nested", Class)) === "unresolved[Schema]")
-      .and(found(("b.Res", Alias)) === "unresolved[Throwable]")
+      .and(found(("b.Res", Alias)) === "open[Throwable]")
+      .and(found(("b.Res2", Alias)) === "unresolved[Schema]")
       .and(found(("b.Zero", Class)) === "unresolved[Schema]")
       .and(found(("b.G1", Class)) === "2")
       .and(found(("b.G2", Class)) === "instantiation[B]")

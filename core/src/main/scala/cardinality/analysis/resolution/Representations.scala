@@ -2,7 +2,8 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.*
+import cardinality.analysis.model.{MemberSyntax, Throws}
+import cardinality.analysis.{MethodAnalysis, SourceIndex}
 import cardinality.capacity.Counter
 import cardinality.types.*
 
@@ -30,7 +31,7 @@ final private[cardinality] class Representations(
       case d: (Defn.Trait | Defn.Class) if Representations.typesOnly(d) =>
         (d.tparamClause.values, Right(List(Nil)))
       case c: Defn.Class => caseClassRepresentation(c, key)
-      case e: Defn.Enum  => enumRepresentation(e, key)
+      case e: Defn.Enum  => enumRepresentation(e, key, entry.owner)
       case _             => abstractRepresentation(key)
     }
 
@@ -47,10 +48,11 @@ final private[cardinality] class Representations(
   // slots, anything into contravariant ones); a slot pinned to a fixed type would make membership
   // depend on the caller's instantiation, which this model does not track.
   private def sealedCases(family: Family): Either[String, List[List[Type]]] = {
-    val Family(entry, _, seen, _) = family
+    val Family(entry, level, seen, _) = family
     val file = entry.owner.chain.last.id
     val children = indexer.subtypes.getOrElse((file, entry.name), Nil)
     if (seen.contains(entry.name)) Left(s"recursive sealed family: ${entry.name}")
+    else if (mayThrow(level)) Left(s"sealed family construction not resolved: ${entry.name}")
     else if (indexer.typesInFile(file, entry.name).size != 1)
       Left(s"ambiguous sealed family: ${entry.name}")
     // A sealed family with no subtypes in its file has none anywhere: the compiler's own
@@ -90,6 +92,8 @@ final private[cardinality] class Representations(
       Left(s"sealed subtype not visible at use site: ${child.name}")
     else
       child.tree match {
+        case t: (Defn.Object | Defn.Class) if mayThrow(t) =>
+          Left(s"sealed family construction not resolved: ${child.name}")
         case d: Defn.Object =>
           SealedSlots
             .instantiation(slots(parent.name, level), SealedSlots.subtype(d, inFile(d)))
@@ -149,9 +153,12 @@ final private[cardinality] class Representations(
   // Constructing a value and projecting its fields are different rights: a `private[p]`
   // constructor hides who may build the summand, not what the space holds, while a field's
   // qualifier decides whether this reading may project it at all. An unqualified `private`,
-  // `protected`, `var` or `implicit` reads neither and refuses the family. A case class body may
-  // hold methods — members add no values to the space — but a plain class must carry `final`, or
-  // outside subtypes would extend the family past its file.
+  // `protected` or `implicit` reads neither and refuses the family, and so does a plain class's
+  // parameter written without `val` or `var`: it is no member (E173), so values that differ only
+  // there may be one value. A `var` field holds the argument it was given, as a `val` does (the
+  // model has no mutation). A case class body may hold methods — members add no
+  // values to the space — but a plain class must carry `final`, or outside subtypes would extend
+  // the family past its file.
   private def sealedLeaf(
       c: Defn.Class,
       childOwner: Frame,
@@ -163,11 +170,8 @@ final private[cardinality] class Representations(
       Left(s"sealed subtype constructor not visible at use site: ${c.name.value}")
     else {
       val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
-      if (
-        parameters.exists(p =>
-          p.mods.exists(_.is[Mod.VarParam]) || !usableWhere(p.mods, childOwner, useSite)
-        )
-      )
+      val fields = isCaseClass(c) || parameters.forall(MemberSyntax.keptParameter)
+      if (!fields || parameters.exists(p => !usableWhere(p.mods, childOwner, useSite)))
         Left(s"sealed subtype hides a parameter: ${c.name.value}")
       else declaredFields(parameters, c.name.value).map(List(_))
     }
@@ -176,8 +180,8 @@ final private[cardinality] class Representations(
   // reaches; anything else that restricts access is a refusal here.
   private def usableWhere(mods: List[Mod], childOwner: Frame, useSite: Frame): Boolean =
     mods.forall {
-      case _: Mod.ValParam => true
-      case m: Mod.Private  =>
+      case _: (Mod.ValParam | Mod.VarParam) => true
+      case m: Mod.Private                   =>
         packageGrant(List(m), childOwner.path)
           .exists(prefix => useSite.chain.exists(_.path.startsWith(prefix)))
       case _ => false
@@ -194,9 +198,47 @@ final private[cardinality] class Representations(
   // clause is a subtype like any sealed family's: it must instantiate the enum's parameters with
   // its own or bottom-pin them, since `case I extends G[Unit]` is a value of `G[Unit]` only, not of
   // every `G[A]` (its own parameters: `SealedSlots.caseParams`).
-  private def enumRepresentation(e: Defn.Enum, key: String): Representation =
+  private def enumRepresentation(e: Defn.Enum, key: String, owner: Frame): Representation =
     if (e.mods.exists(_.is[Mod.Abstract])) abstractRepresentation(key)
+    else if (
+      (e :: e.templ.body.stats.collect { case c: Defn.EnumCase => c }).exists(mayThrow(_)) ||
+      singletons(e) && companion(e, owner).exists(mayThrow(_))
+    ) (e.tparamClause.values, Left(s"enum construction not resolved: $key"))
     else (e.tparamClause.values, enumCases(e, key))
+
+  // A summand whose construction only throws has no value (register D26). Building one evaluates its
+  // parents' arguments, its own body and the body of every source template it extends: any of the
+  // simple name its `extends` clause spells (an alias of that name may stand for any), so none is
+  // missed. This reading resolves no term names, so it cannot tell whether a body's `???` is the
+  // root imports' one: such a body is refused for that gap, never read as built or as empty.
+  private def mayThrow(tree: Tree, seen: Set[String] = Set.empty): Boolean = tree match {
+    case c: Defn.EnumCase => extendsThrowing(c.inits, seen)
+    case _                =>
+      TypeApplications.template(tree).exists { template =>
+        Throws.evaluated(template.body.stats, None).exists(Throws.only(_, _ => true)) ||
+        extendsThrowing(template.inits, seen)
+      }
+  }
+
+  private def extendsThrowing(parents: List[Init], seen: Set[String]): Boolean =
+    Throws.arguments(parents).exists(Throws.only(_, _ => true)) ||
+      parents.map(indexer.initParentName).filterNot(seen).exists { parent =>
+        indexer.types.exists(e =>
+          e.name == parent && (e.tree.is[Defn.Type] || mayThrow(e.tree, seen + parent))
+        )
+      }
+
+  // A singleton case is a `val` of the enum's companion, built with it (a class case is not: a
+  // 3.9.0 run builds `F.C(true)` while the companion's initializer throws).
+  private def singletons(e: Defn.Enum): Boolean = e.templ.body.stats.exists(singleton)
+
+  private def singleton(stat: Stat): Boolean = stat match {
+    case c: Defn.EnumCase => c.ctor.paramClauses.isEmpty && c.tparamClause.values.isEmpty
+    case other            => other.is[Defn.RepeatedEnumCase]
+  }
+
+  private def companion(e: Defn.Enum, owner: Frame): Option[Defn.Object] =
+    owner.stats.collectFirst { case o: Defn.Object if o.name.value == e.name.value => o }
 
   private def enumCases(e: Defn.Enum, key: String): Either[String, List[List[Type]]] =
     sequence(
@@ -238,8 +280,7 @@ final private[cardinality] class Representations(
       c.templ.body.stats.isEmpty &&
       !c.ctor.paramClauses.flatMap(_.values).exists(hiddenParameter)
 
-  private def hiddenParameter(p: Term.Param): Boolean =
-    p.mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected] || m.is[Mod.VarParam])
+  private def hiddenParameter(p: Term.Param): Boolean = p.mods.exists(MemberSyntax.restricted)
 
   // A field without a declared type leaves the product unreadable.
   private def declaredFields(fields: List[Term.Param], key: String): Either[String, List[Type]] =

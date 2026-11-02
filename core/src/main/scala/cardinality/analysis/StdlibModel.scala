@@ -1,6 +1,7 @@
 package cardinality.analysis
 
-import cardinality.analysis.inhabitation.Inhabitation
+import cardinality.analysis.inhabitation.{Card, Inhabitation}
+import cardinality.capacity.BaseTypes
 
 import Inhabitation.Shape
 
@@ -19,8 +20,10 @@ import Inhabitation.Shape
   * element's `ClassTag`, so one over a type parameter is refused. An excluded entry is outside the
   * counting model for good: reading an `Iterator` or a `ByteBuffer` changes it, a `Map` or `Set` is
   * built and read by testing keys for equality, `scala.quoted` is compile-time reflection, and a
-  * `ClassTag`, `TypeTest` or `Mirror` reveals the type it is evidence for. An unmodelled entry is a
-  * class or interface whose members the model does not hold (`Throwable`, `Product`,
+  * `ClassTag`, `TypeTest` or `Mirror` reveals the type it is evidence for. A throwable is data
+  * (register D26): its pure members read strings and throwables, and its constructors build
+  * infinitely many values they tell apart, so it is an ω transparent value, as `String` is. An
+  * unmodelled entry is a class or interface whose members the model does not hold (`Product`,
   * `java.util.List`, the final `Integer`).
   *
   * The table answers where Scala's root imports would — after every declaration, import and
@@ -54,6 +57,9 @@ private[cardinality] object StdlibModel {
       * library may extend it.
       */
     case Unmodelled(open: Boolean)
+
+    /** A throwable: an ω transparent value (register D26). */
+    case Transparent
   }
 
   import Reading.*
@@ -104,6 +110,8 @@ private[cardinality] object StdlibModel {
 
   private def unmodelled(open: Boolean)(fqn: String): Entry = Entry(fqn, Nil, Unmodelled(open), "")
 
+  private def transparent(fqn: String): Entry = Entry(fqn, Nil, Transparent, "ω")
+
   private val SinglePass = "single-pass: reading it changes it"
   private val Equality = "built and read by testing keys for equality"
   private val Reflection = "compile-time reflection"
@@ -145,23 +153,11 @@ private[cardinality] object StdlibModel {
 
   // The throwables the root imports bind, with the import that binds each: the `scala` package
   // aliases all but `IllegalStateException`, and `NoSuchElementException` to `java.util`'s (Scala
-  // 3.9.0 fixtures).
+  // 3.9.0 fixtures). Their API and why it reads as data: docs/research/pure-code.md §3.
   private val Exceptions: List[(String, Root)] =
-    List(
-      "Throwable",
-      "Exception",
-      "Error",
-      "RuntimeException",
-      "NullPointerException",
-      "ClassCastException",
-      "IndexOutOfBoundsException",
-      "UnsupportedOperationException",
-      "IllegalArgumentException",
-      "NumberFormatException"
-    ).map(name => s"java.lang.$name" -> Root.ScalaPackage) ++ List(
-      "java.lang.IllegalStateException" -> Root.JavaLang,
-      "java.util.NoSuchElementException" -> Root.ScalaPackage
-    )
+    BaseTypes.throwables.values.toList
+      .sortBy(_.fqn)
+      .map(t => t.fqn -> (if (t.scalaAlias) Root.ScalaPackage else Root.JavaLang))
 
   private val entries: List[Entry] =
     (1 to 22).map(tuple).toList ++ (0 to 22).map(function) ++ List(
@@ -201,7 +197,8 @@ private[cardinality] object StdlibModel {
       excluded(Collected)("java.lang.ref.ReferenceQueue", 1)
     ) ++ Quoted.map((name, arity) => excluded(Reflection)(s"scala.quoted.$name", arity)) ++
       Revealed.map((fqn, arity) => excluded(Revealing)(fqn, arity)) ++
-      (Exceptions.map(_._1) ++ List(
+      Exceptions.map((fqn, _) => transparent(fqn)) ++
+      List(
         "scala.Product",
         "scala.Equals",
         "java.lang.CharSequence",
@@ -212,7 +209,7 @@ private[cardinality] object StdlibModel {
         "java.util.ArrayList",
         "java.util.HashMap",
         "java.util.concurrent.ConcurrentHashMap"
-      )).map(unmodelled(open = true)) :+ unmodelled(open = false)("java.lang.Integer")
+      ).map(unmodelled(open = true)) :+ unmodelled(open = false)("java.lang.Integer")
 
   private val byName: Map[String, Entry] = entries.map(entry => entry.fqn -> entry).toMap
 
@@ -305,7 +302,7 @@ private[cardinality] object StdlibModel {
     * (`scala.quoted.Type[T <: AnyKind]` takes a constructor as well).
     */
   def arity(entry: Entry): Either[String, Int] = entry.reading match {
-    case _: (Structural | Sequence) => Right(entry.parameters.size)
+    case _: (Structural | Sequence) | Transparent => Right(entry.parameters.size)
     // The reason the reading refuses an entry it does not read, whatever the arguments.
     case _ => read(entry, Nil).map(_ => entry.parameters.size)
   }
@@ -328,6 +325,7 @@ private[cardinality] object StdlibModel {
     case _ if args.size != entry.parameters.size =>
       Left(s"type argument arity: ${entry.fqn} takes ${entry.parameters.size}, given ${args.size}")
     case Structural(shape) => Right(shape(args))
+    case Transparent       => Right(Shape.Ground(entry.fqn, Card.Omega))
     // `new Array[E](0)` needs a `ClassTag[E]`, which Scala 3.9.0 synthesizes for every element type
     // but a type parameter, an abstract type member or a singleton of one — `Nothing`, `Null`, an
     // object, a singleton of a class type, an opaque type and `F[A]` included (fixtures) — so only
@@ -440,12 +438,16 @@ private[cardinality] object StdlibModel {
 
   private val markerSpelled: Map[String, String] = spelledBy(markers)
 
+  private val observations: Set[String] = Set("getMessage", "getLocalizedMessage", "getCause")
+
   private val parents: Map[String, Summary] = {
     val memberless = Summary(Set.empty, Set.empty, listed = true)
     ("java.io.Serializable" :: markers.map(_._2)).map(_ -> memberless).toMap ++
       List("scala.Product", "scala.Equals").map(
         _ -> Summary(Set.empty, Set.empty, listed = false)
-      ) +
+      ) ++
+      // A throwable's members a subclass may override and the model reads (the rest are outside it).
+      Exceptions.map(_._1 -> Summary(Set.empty, observations, listed = true)) +
       // `IterableOnce` (scala-library 2.13, read with javap): abstract `iterator`, default
       // `knownSize` and `stepper`.
       ("scala.collection.IterableOnce" -> Summary(

@@ -111,9 +111,9 @@ final private[cardinality] class NominalKeys(
   private def variable(name: String, bound: Resolved): Keyed =
     bound.flatMap {
       case key @ (_: Shape.Atom | _: Shape.Applied) => Right(key)
-      case Shape.Ground(ground, _)                  => Right(nominal(s"scala.$ground", Nil))
-      case LiteralTypes.Keyed(key)                  => Right(key)
-      case _: Shape.Constructor => Left(s"higher-kinded parameter used as a proper type: $name")
+      case Shape.Ground(ground, _) => Right(nominal(BuiltinTypes.groundKey(ground), Nil))
+      case LiteralTypes.Keyed(key) => Right(key)
+      case _: Shape.Constructor    => Left(s"higher-kinded parameter used as a proper type: $name")
       case _ => Left(s"nominal identity of substituted argument not tracked: $name")
     }
 

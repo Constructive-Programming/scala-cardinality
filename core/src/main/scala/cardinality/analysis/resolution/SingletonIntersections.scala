@@ -110,6 +110,7 @@ private[cardinality] object SingletonIntersections {
     case v: Decl.Val => v.pats
     case v: Defn.Val => v.pats
     case v: Defn.Var => v.pats
+    case v: Decl.Var => v.pats
     case _           => Nil
   }
 
@@ -124,8 +125,9 @@ private[cardinality] object SingletonIntersections {
         .read(tpe, resolver)
         .map(shape => Shape.Singleton(s"${owner.id}:$name", Some(shape)))
 
+    // Scala's typing rule, not mutation, refuses a `var`'s singleton (E083, "not an immutable path").
     def parameter(p: Term.Param, resolver: Resolver): Resolved =
-      if (p.mods.exists(_.is[Mod.VarParam])) Left(s"mutable singleton path: $name")
+      if (p.mods.exists(_.is[Mod.VarParam])) Left(RefinedMembers.variable(name))
       else p.decltpe.toRight(s"missing singleton path type: $name").flatMap(value(_, resolver))
 
     // A destructured variable is a part of its initializer's value, which no path names.
@@ -134,7 +136,7 @@ private[cardinality] object SingletonIntersections {
       case v: Defn.Val if !TypeApplications.binds(name, v.pats) =>
         Left(s"stable singleton binding identity not resolved: $name")
       case v: Defn.Val => accessible(v, resolver).flatMap(_ => capturedValue(v, resolver))
-      case _           => Left(s"mutable singleton path: $name")
+      case _           => Left(RefinedMembers.variable(name))
     }
 
     private def accessible(stat: Stat, resolver: Resolver): Either[String, Unit] =

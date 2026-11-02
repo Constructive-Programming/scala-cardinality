@@ -61,7 +61,7 @@ class CapabilitySpec extends Specification {
       a `final abstract` class has no value                         $noInstance
       abstract type members and self types                          $existentials
       a member that may be the measured declaration on its receiver $selfView
-      trait parameters, mutable, extension and pattern members      $unreadMembers
+      trait parameters, extension and pattern members; a var's value $unreadMembers
       an inferred overridable result and a recursive record         $inferredAndRecursive
       hidden state of a trait's parameterized parent                $parentHidden
   """
@@ -570,8 +570,10 @@ class CapabilitySpec extends Specification {
       object Use { def g(t: T): Boolean = t.p }
     """)("Use.g") === Count.Finite(4)
 
-  // Trait parameters, a `var`, an extension member and a pattern-defined member of an open
-  // receiver are observations this reading does not take apart: each refused with its reason.
+  // Trait parameters, an extension member and a pattern-defined member of an open receiver are
+  // observations this reading does not take apart: each refused with its reason. An abstract `var`
+  // is its getter (D-pure: the model has no mutation, the setter is an effect): Mut is (v, x), and
+  // an A is t.v or t.x — 2.
   def unreadMembers = {
     val found = one("""
       trait TP[A](val seed: A) { def x: A }
@@ -585,7 +587,7 @@ class CapabilitySpec extends Specification {
       }
     """)
     refused(found("U.tp"), "capability record with trait parameters not read: TP")
-      .and(refused(found("U.mut"), "capability record with a mutable member not read: Mut"))
+      .and(found("U.mut") === Count.Finite(2))
       .and(refused(found("U.ext"), "capability record with an extension member not read: Ext"))
       .and(refused(found("Destr.pick"), "destructured member of an open receiver not read: Destr"))
   }

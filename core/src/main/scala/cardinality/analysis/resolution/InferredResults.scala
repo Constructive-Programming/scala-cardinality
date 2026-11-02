@@ -3,7 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation
-import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
+import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms, Throws}
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
 
@@ -19,9 +19,10 @@ import MethodAnalysis.{Frame, Resolved, Target}
   * `(1: One)` with `type One = 1` is an `Int`), `new C[T]` or `new C` of a class with no type
   * parameters, an explicitly applied constructor `C[T](…)` of a source class no other term of its
   * name answers, and a call `f[T](…)` or `f(…)` of the one source method the name means, with a
-  * declared result (`TermBindings`), widened as Scala widens an inferred one. Matching argument
-  * types against parameters is inference and is not done: such a definition stays unresolved, its
-  * reason naming the form.
+  * declared result (`TermBindings`), widened as Scala widens an inferred one. A right-hand side
+  * that only throws is a `Nothing` (`Throws`), and a conditional one branch of which throws has the
+  * other branch's type: `Nothing` joins nothing to it. Matching argument types against parameters
+  * is inference and is not done: such a definition stays unresolved, its reason naming the form.
   */
 private[cardinality] object InferredResults {
 
@@ -83,6 +84,9 @@ private[cardinality] object InferredResults {
     Type.Select(prefix, Type.Name(path.last))
   }
 
+  /** `Nothing`, which no declaration in scope can rebind: the type of a term that only throws. */
+  val NothingType: Type = rooted(List("scala", "Nothing"))
+
   /** The type binders of a definition's clauses, in order. */
   def binders(groups: List[Member.ParamClauseGroup]): List[String] =
     groups.flatMap(_.tparamClause.values.map(_.name.value))
@@ -130,13 +134,21 @@ private[cardinality] object InferredResults {
     private val terms =
       new TermBindings(InheritedScopes.levels(steps, _), resolver)
 
+    // A simple name is the root imports' where no scope around the definition binds it.
+    private def root(name: String): Boolean =
+      terms.nearest(name, target.frame.chain) == TermBinding.Unbound
+
     /** The right-hand side's type, where syntax fixes it. */
     def body(rhs: Term): Either[String, Inferred] = rhs match {
-      case Term.Block(List(only: Term))                     => body(only)
-      case literal: Lit                                     => this.literal(literal)
-      case Term.Ascribe(_, tpe)                             => ascribed(tpe)
-      case Term.New(init)                                   => created(init)
-      case _: Term.Apply | _: Term.Name | _: Term.ApplyType =>
+      case _ if Throws.only(rhs, root) =>
+        Right(Inferred(NothingType, here(rhs)))
+      case Term.If.After_4_4_0(_, yes, no, _) if Throws.only(no, root)  => body(yes)
+      case Term.If.After_4_4_0(_, yes, no, _) if Throws.only(yes, root) => body(no)
+      case Term.Block(List(only: Term))                                 => body(only)
+      case literal: Lit                                                 => this.literal(literal)
+      case Term.Ascribe(_, tpe)                                         => ascribed(tpe)
+      case Term.New(init)                                               => created(init)
+      case _: Term.Apply | _: Term.Name | _: Term.ApplyType             =>
         val (callee, clauses) = ExplicitClauses.of(rhs)
         applied(callee, clauses)
       case other => Left(s"$Unresolved: ${form(other)}")
@@ -277,7 +289,7 @@ private[cardinality] object InferredResults {
       else
         terms.nearest(call.callee, target.frame.chain) match {
           case TermBinding.Parameter       => Left(s"$Unresolved: application of a parameter")
-          case TermBinding.Bound(why)      => Left(s"$Unresolved: call of ${call.callee}, $why")
+          case TermBinding.Bound(why, _)   => Left(s"$Unresolved: call of ${call.callee}, $why")
           case TermBinding.Defined(scopes) => declaredIn(scopes, call)
           case TermBinding.Unbound         =>
             Left(s"$Unresolved: call of ${call.callee}, not a method an enclosing scope declares")

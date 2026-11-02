@@ -51,6 +51,7 @@ private[cardinality] object MemberSyntax {
     case v: Defn.Val              => v.pats.flatMap(TypeApplications.patVarName.getOption)
     case v: Decl.Val              => v.pats.flatMap(TypeApplications.patVarName.getOption)
     case v: Defn.Var              => v.pats.flatMap(TypeApplications.patVarName.getOption)
+    case v: Decl.Var              => v.pats.flatMap(TypeApplications.patVarName.getOption)
     case o: Defn.Object           => List(o.name.value)
     case g: Defn.GivenAlias       => List(g.name.value)
     case g: Defn.Given            => List(g.name.value)
@@ -126,8 +127,9 @@ private[cardinality] object MemberSyntax {
   }
 
   /** How a member is observed, or why its type is unknown: a method or a given with parameters is a
-    * callable, a parameterless given or a value its declared type. `name` is how a reason spells
-    * the member; `member` is its identity, which names its binders (`Owner.name`).
+    * callable, a parameterless given or a value its declared type. A `var` is observed as the value
+    * it holds (the model has no mutation): its getter, its setter an effect. `name` is how a reason
+    * spells the member; `member` is its identity, which names its binders (`Owner.name`).
     */
   def observation(stat: Tree, name: String, member: String): Either[String, Observation] = {
     val (applied, value) = stat match {
@@ -138,6 +140,8 @@ private[cardinality] object MemberSyntax {
       case g: Decl.Given                                      => (None, Some(g.decltpe))
       case v: Decl.Val                                        => (None, Some(v.decltpe))
       case v: Defn.Val                                        => (None, v.decltpe)
+      case v: Decl.Var                                        => (None, Some(v.decltpe))
+      case v: Defn.Var                                        => (None, v.decltpe)
       case p: Term.Param                                      => (None, p.decltpe)
       case _                                                  => (None, None)
     }

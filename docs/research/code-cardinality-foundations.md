@@ -741,22 +741,22 @@ that matches argument types stay `?` with their reasons.
 **Decision.** A value is observed only through its accessible members, the universal ones (runtime
 equality and reflection: `Any`'s `toString`, `hashCode`, `equals(Any)`) excluded. A member an
 instance may replace — abstract, or concrete and not effectively final, a parent's constructor `val`
-included — is a free capability of its type; a member none may replace (`final`, `private`,
-concrete `inline`, a given or member object, any member of a final class, object or given) is
-concrete code over the receiver's observable state and adds no choice. So an open trait, or an open class whose constructor
-parameters are all public `val`s, is the product of its open members and fields, as input and as
-goal; a final class with a public constructor whose every parameter is a public `val` or exposed by
-an η-alias member is the product of its parameters; a `final abstract` class is the empty sum. On
-the measured declaration's own receiver (and on enclosing ones) the same classification holds for
-its own and inherited concrete members (a member is overridden by the levels before it in the
-receiver's linearization). A member whose default evaluates the declaration whenever it is
-evaluated (the one member its arguments select, every value clause applied, at a position the
-compiler wraps in nothing that defers it: no extension, conversion or `==` overload taking it by
-name, no context-function parameter, no implicit search) is a view: dropped when definite, a reason
-when it depends on arguments, on a by-name operand, on a nested template's body, on `super`, on an
-η-expansion or on such an insertion. An inherited member is the
-measured declaration when parameters match as seen from the receiver, through every level, keyed by
-the declarations the scope-correct lookup binds; results are not compared. Details: [capability
+included — is a free capability of its type; a member none may replace (`final`, `private`, concrete
+`inline`, a given or member object, any member of a final class, object or given) is concrete code
+over the receiver's observable state and adds no choice. So an open trait, or an open class whose
+constructor parameters are all public `val`s, is the product of its open members and fields, as
+input and as goal; a final class with a public constructor whose every parameter is a public `val`
+or exposed by an η-alias member is the product of its parameters; a `final abstract` class is the
+empty sum. On the measured declaration's own receiver (and on enclosing ones) the same
+classification holds for its own and inherited concrete members (a member is overridden by the
+levels before it in the receiver's linearization). A member whose default evaluates the declaration
+whenever it is evaluated (the one member its arguments select, every value clause applied, at a
+position the compiler wraps in nothing that defers it: no extension, conversion or `==` overload
+taking it by name, no context-function parameter, no implicit search) is a view: dropped when
+definite, a reason when it depends on arguments, on a by-name operand, on a nested template's body,
+on `super`, on an η-expansion or on such an insertion. An inherited member is the measured
+declaration when parameters match as seen from the receiver, through every level, keyed by the
+declarations the scope-correct lookup binds; results are not compared. Details: [capability
 records](capability-records.md).
 
 **Evidence.**
@@ -800,22 +800,22 @@ records](capability-records.md).
   `OverrideIdentityImplementationSpec`,
   `ContextualOverrideIdentitySpec`, `GroundEnvironmentSpec.openImplemented`.
 
-**Boundary.** Records with abstract type members, self types, trait parameters, `var`, extension
-or pattern-defined members, members hidden at the use site, hidden state of an open class or of a
-parameterized parent no class passes arguments to (no instance may exist: X6), unexposed or
-non-injectively exposed final fields, non-public or scoped constructors, recursive records (the
-type reading's structural-proof guard) are refused with their reasons, and polymorphic open
-members are read by D24; a member's type is read at the record's arguments, its template's aliases
-included (`type T = A` is the record's argument, never the template's binder or a member binder
-that shadows it); case classes, sealed families and enums keep their own readings. A possible view, a record member that
-may be the declaration on its receiver, a view through code the compiler inserts, and an
-override identity resting on foreign or opaque declarations stay `?`. The view rule assumes no
-unsupplied *named* import brings a by-name implicit conversion and no unsupplied class overloads
-`==` by name; every other unsupplied channel (wildcard import, parent, self type, an import or
-export of the selected name, a block's import) refuses. Open: a by-name conversion or extension in
-the companion of a type outside the sources is not seen (a definite view read where none exists:
-fixture `fc`, 4 for true 16). Only a member that builds Unit is dropped regardless of unreadable
-parameters; any other unreadable member type fails the environment eagerly.
+**Boundary.** Records with abstract type members, self types, trait parameters, extension or
+pattern-defined members (a `var` reads as its value: D26), members hidden at the use site, hidden
+state of an open class or of a parameterized parent no class passes arguments to (no instance may
+exist: X6), unexposed or non-injectively exposed final fields, non-public or scoped constructors,
+recursive records (the type reading's structural-proof guard) are refused with their reasons, and
+polymorphic open members are read by D24; a member's type is read at the record's arguments, its
+template's aliases included (`type T = A` is the record's argument, never the template's binder or a
+member binder that shadows it); case classes, sealed families and enums keep their own readings. A
+possible view, a record member that may be the declaration on its receiver, a view through code the
+compiler inserts, and an override identity resting on foreign or opaque declarations stay `?`. The
+view rule assumes no unsupplied *named* import brings a by-name implicit conversion and no
+unsupplied class overloads `==` by name; every other unsupplied channel (wildcard import, parent,
+self type, an import or export of the selected name, a block's import) refuses. Open: a by-name
+conversion or extension in the companion of a type outside the sources is not seen (a definite view
+read where none exists: fixture `fc`, 4 for true 16). Only a member that builds Unit is dropped
+regardless of unreadable parameters; any other unreadable member type fails the environment eagerly.
 
 ## D21. Named tuples are products; a literal type has one value
 
@@ -1034,6 +1034,122 @@ saturation](polymorphic-members-and-saturation.md).
 **Boundary.** Arguments over ground (literal) spaces, sums, sequences, lower-bounded types or
 polymorphic producers are not enumerated, and unbounded families are not counted; ω for them is
 claimed only under C11's conditions, which a cycle behind a reason-carrying rule never meets.
+
+## D26. Code has no side effects: a `var` is its value, a throw supplies nothing, a throwable is data
+
+**Decision.** The analysis assumes the code it measures has no side effects (the owner's model
+decision, v1 §2), and every reading obeys it.
+
+1. **A `var` reads as a `val`.** A `var` holds the value it was given:
+   - a public `var` constructor parameter is a field (an open record's, a final record's, a case
+     class's or a sealed leaf's); a plain class's parameter with neither `val` nor `var` is no field
+     (E173), so a sealed leaf with one is refused;
+   - an abstract `var` is its getter (its setter is an effect);
+   - a concrete `var` is derived code (no override exists, E164).
+
+   No reason cites mutation. Only Scala's typing rules still refuse: a `var` is no stable path
+   (`not a stable path: x is a var`).
+2. **A throw supplies nothing.** A term that only throws is typed `Nothing`, as Scala types it:
+   `throw e`; the root imports' `???` or `sys.error(…)`; a block whose result throws; a conditional
+   or match whose every branch throws. In particular:
+   - an inferred result from such a body is `Nothing`, and a conditional's throwing branch joins
+     nothing to the other branch;
+   - concrete code nothing can override is never a producer (D19); its throw supplies nothing, so
+     the template around it is built;
+   - an overridable member whose default only throws reads exactly as its abstract twin: a free
+     capability of its declared type, the default being none of its behaviors (`class C { def get:
+     Boolean = ??? }` keeps every Boolean an override gives it). Where that type is empty, no
+     override implements it either, so the record or receiver has no instance and is vacuous, as
+     D20 reads the abstract twin. The default instance is no value: were it one, every member
+     calling a throwing `get` would throw on it and the open reading would undercount. The reading
+     is taken at the record's or receiver's type arguments (`K2[Int]`, `K4 extends K2[Int]`), and
+     a subclass whose member only throws counts as its parent with the abstract one;
+   - a template whose primary constructor evaluates a parent argument, a strict `val` or `var`
+     initializer or a statement that only throws is never built, by any subclass either: its record
+     is empty (an input vacuous, a goal 0), and a declaration that runs in it — or in a template
+     its instances carry (an outer instance, a local template's receiver, a member object's owning
+     instance, and for a top-level definition its file's synthetic object; not a static object
+     around a template) — is never called: 1. A name there is read in its own level's scope (its
+     parameters, members and inherited members, never a subclass's; the imports before it; the
+     exports of its template); one an unread scope may bind leaves the construction unresolved
+     (`construction not resolved: C`). The measured declaration's own body is excluded, and
+     constructor rows keep their convention. A sealed case, family or enum whose construction
+     (every template it extends, and for singleton enum cases the companion) would only throw is
+     refused, since that reading resolves no term names (`sealed family construction not
+     resolved`, `enum construction not resolved`);
+   - a throw's operand reads nothing that a result is built from (a final implementation's hidden
+     capture). A re-entry inside it still counts as a view, because the operand is evaluated.
+3. **A throwable is data.** Every root-import throwable is an ω transparent value on the method
+   side:
+   - as a goal, `new T(s)` gives a value per string, and `getMessage` tells them apart;
+   - as an input, it is observed only through strings and throwables, which are closed data built
+     from nothing, so it is eliminated by the uniform split;
+   - subtyping adds only producers of types that are already inhabited;
+   - a `null` message is read by the `T | Null` rule.
+
+   On the stored side a throwable is an open class: `open to implementations (Throwable)`, never a
+   size. Its stack trace (reflection), `initCause`, `addSuppressed`, `printStackTrace` (effects)
+   and `getSuppressed` are outside the model. Details: [code without side
+   effects](pure-code.md).
+
+**Evidence.**
+
+- [29] Scala 3 draft specification, ch. 3 (**Inspected (full text) — bibliographer**): "´p.x´ is
+  a stable type if an only if `t` is a `val` or `object` definition". [30] Scala 3 draft
+  specification, ch. 5 (**Inspected (full text) — bibliographer**): a `var` class parameter adds a
+  getter and a setter `x_=`; "A stable member can only be overridden by a stable member".
+- **Compiler fixtures** (Scala 3.9.0, `$S/probes/c4/fixtures`): `throw`, `???`, `sys.error` and a
+  block ending in a throw are `Nothing` (each conforms to `Int`, `String`, `Boolean`, `Unit`);
+  `if (c) 1 else throw …` is an `Int`; a source `???` is the member called; neither a `def` nor a
+  `val` overrides a `var` (E164); a `var` has no singleton type (E083).
+- **Tool output**: `javap -public` (OpenJDK 21) on the twelve root-import throwables gives the API
+  the model reads: constructors from `()`, a message, a message and a cause, or a cause; the
+  overridable `getMessage`, `getLocalizedMessage` and `getCause`; and the excluded members.
+- **Compiler runs** (Scala 3.9.0, `$S/probes/c4-fix1/run`, `$S/probes/review-C4/run*`,
+  `$S/probes/review-C4/r2`, `$S/probes/c4-fix2`): `def get = ???` overriding `get: Boolean` is
+  overridden with `true` and with `false`; a strict `val` initializer (a trait's included), a body
+  statement, a parent's argument and a `var` initializer throw in every constructor, an overriding
+  subclass's included, and a `lazy val` does not; an object's nested class and object run while
+  the object's initializer throws, a member object's class needs its owning instance, and calling
+  a top-level `def` runs its own file's top-level `val`s; a parent's body and arguments bind `???`
+  lexically, never to a subclass's member, and an import only after its position; a singleton
+  enum case needs its companion, a class case does not.
+- The tier argument for throwables (ω as goal; uniform split as input; subtyping and `null`
+  change no tier), the throw rule's case split and the emptiness and construction readings are
+  this register's derivations. The no-side-effects assumption is a model decision, not a cited
+  theorem; reading a `var` as its value remains a model decision. Related work: Pitts & Stark 1998
+  (**metadata-verified**: the abstract reports that local state must be handled for
+  representation independence and for memoising functions) and Ahmed, Dreyer & Rossberg 2009
+  (**metadata-verified**: the abstract reports that representation independence holds even when
+  representations depend on state) show why the exclusion is load-bearing; Banerjee & Naumann 2005
+  (**metadata-verified**, background).
+- **Executable**: `PureCodeSpec`, `ThrowableSlotsSpec`, `StdlibModelSpec.open`,
+  `KindedIdentitySpec.modelKeys`, `CapabilitySpec.unreadMembers`,
+  `MethodRefinementSpec.mutablePath`, `StoredValueSoundnessSpec.taint`,
+  `TypeMemberSpec.valuePaths`.
+
+**Boundary.** These stay `?`, each with a named reason:
+- a union with a throwable (no runtime class the class test tells apart yet);
+- an open subclass of a throwable (its parent's overridable reads named);
+- a wildcard import that may bind a throwable's name;
+- a `try`;
+- a match mixing throwing and returning cases;
+- `Try`, `NonFatal` and `MonadThrow` (not modelled or not supplied);
+- an open member without a result type (`overridable member's result type is inferred`);
+- a polymorphic open member, abstract or with a throwing default, where D24 leaves it so (its
+  bounded, higher-kinded or undetermined binder named); a throwing default is read by D24 exactly
+  as its abstract twin;
+- a sealed case, family or enum whose construction would only throw (its names unresolved).
+
+`Throws` recognizes its forms by syntax and never follows a body into a callee. An object whose
+initializer throws is still one value as a singleton type, and a class a static object encloses
+is built without it. The sealed-family reading reads no leaf member: an abstract empty member of a
+family's root does not empty it, and a non-final case-class leaf is read as its fields though a
+subclass in another file may override what it inherits (a throwable's `getMessage` included) —
+both readings predate D26 and belong to D15. Open (owner): a member nothing overrides that
+implements a declaration of an empty type (`object OQ extends P { def k(x: Int): Nothing = ??? }`,
+eo's `PSVec.Empty.apply`) is code no pure program contains; its template is read as built (`OQ.f`
+4) while its parent's record has no instance (1).
 
 ## How to extend this register
 
