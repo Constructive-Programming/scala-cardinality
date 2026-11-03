@@ -5,6 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
+import cardinality.analysis.inhabitation.NaturalSyntax.pow
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -200,19 +201,22 @@ class TypeMemberBoundarySpec extends Specification {
       def selfy(c: Selfy): Boolean = ???
     """)
     // Each keeps the capability record's own reason (CNothing has no instance — X6 — and its
-    // hidden parameter is what the record cannot witness).
+    // hidden parameter is what the record cannot witness). Sub's unbounded X opens as the witness
+    // of the package each value carries: the record's observable content is `b`'s Int, and sub's
+    // implementations are the functions from it to Boolean — 2^(2^32); the witness is unobservable
+    // and adds nothing.
     val reasons = List(
       "open class with hidden constructor state: CNothing.n",
       "open class with hidden constructor state: Abs.n",
       "capability record of a template only its scope instantiates: Priv",
-      "capability record with abstract type member not read: Sub.X",
       "self type not resolved: Base"
     )
-    val open = List("nothing", "abs", "priv", "sub", "selfy")
+    val open = List("nothing", "abs", "priv", "selfy")
       .zip(reasons)
       .map((name, reason) => found(name) === Count.Unresolved(List(reason)))
     (found("h") === Count.Finite(1))
       .and(found("k") === Count.Finite(4))
+      .and(found("sub") === Count.Symbolic(pow(2, BigInt("4294967296"))))
       .and(found("CNothing.<init>") === Count.Finite(0))
       .and(open.reduce(_ and _))
   }

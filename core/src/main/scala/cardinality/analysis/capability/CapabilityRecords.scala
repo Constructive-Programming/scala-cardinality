@@ -35,8 +35,11 @@ import MethodAnalysis.{sequence, Frame, Resolved, TypeEntry}
   *     the product of those parameters. An instance is its constructor arguments, every member a
   *     fixed function of them, and the aliases observe each argument injectively.
   *
-  * Anything else — abstract type members, a self type, parents outside the sources, hidden state, a
-  * constructor only some scope reaches — keeps a reason.
+  * An unbounded abstract type member no level defines opens instead: the record is the package ∃X.
+  * members-over-X each value carries (`Shape.Existential`, opened per value by the solver).
+  * Anything else — a bounded or higher-kinded abstract member, one the measured signature names
+  * through a path, a self type, parents outside the sources, hidden state, a constructor only some
+  * scope reaches — keeps a reason.
   */
 final private[cardinality] class CapabilityRecords(resolver: Resolver, identity: OverrideIdentity) {
   import CapabilityRecords.*
@@ -101,8 +104,10 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         sequence(template.params.map(observable)).map(Shape.Product(_))
       }
 
-    private def fieldType(parameter: Term.Param): Resolved =
-      parameter.decltpe.toRight(s"missing field type: $key").flatMap(read(_, template, env))
+    private def fieldType(parameter: Term.Param, scope: Scope = Scope.empty): Resolved =
+      parameter.decltpe
+        .toRight(s"missing field type: $key")
+        .flatMap(read(_, template, scope))
 
     private def observable(parameter: Term.Param): Resolved =
       fieldType(parameter).flatMap { field =>
@@ -117,8 +122,9 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
 
     // What an alias observes: a parameterless one its result, an η-expansion its callable.
     private def observed(alias: Defn.Def): Option[Shape] =
-      if (alias.paramClauseGroups.isEmpty) alias.decltpe.flatMap(read(_, template, env).toOption)
-      else observe(alias, template, alias.name.value, Nil).toOption.flatten
+      if (alias.paramClauseGroups.isEmpty)
+        alias.decltpe.flatMap(read(_, template, Scope.empty).toOption)
+      else observe(alias, template, alias.name.value, Scope.empty).toOption.flatten
 
     // The public members whose body is the parameter itself or its η-expansion.
     private def exposures(parameter: String): List[Defn.Def] =
@@ -129,19 +135,29 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     // An open template: its own `val` fields and its open members — a parent's overridable fields
     // and the fields of the parameterized levels no class of it passes arguments to among them —
     // each a free choice of its type. Levels are read in linearization order, so the declaration
-    // a member's slot keeps is the nearest one, whose type the member has.
+    // a member's slot keeps is the nearest one, whose type the member has. An unbounded abstract
+    // type member no level defines is the witness of the package each value carries: the members
+    // read over the witness, and the record is that package ∃X. members-over-X — an input opens it
+    // with the value's own witness, a goal of it is a result construction the model does not pick.
     private def openRecord(steps: List[InheritedScopes.Step], table: ReceiverMembers): Resolved = {
       val all = table.levels
       val closures = TemplateClosures.of(template, all)
-      refusal(all, closures).toLeft(()).flatMap { _ =>
+      val (unread, names) = abstractSplit(all)
+      refusal(all, closures, unread).toLeft(()).flatMap { _ =>
+        val scope = Scope(steps, witnessEnv(names))
         val open = table.open(None, TargetViews.ViewMode.Refuse).map(_.left.map(_.reason))
         val members = open.collect { case Right(c) => c.tree } ++ all.flatMap(abstracts)
         for {
           _ <- selfView(members, all).toLeft(())
-          fields <- sequence(template.params.map(valField))
-          concrete <- sequence(open.map(_.flatMap(c => observe(c.tree, c.level, c.name, steps))))
-          declared <- declarations(all, table, steps)
-        } yield Shape.Product(fields ++ (concrete ++ declared).flatten)
+          fields <- sequence(template.params.map(valField(_, scope)))
+          concrete <- sequence(
+            open.map(_.flatMap(c => observe(c.tree, c.level, c.name, scope)))
+          )
+          declared <- declarations(all, table, scope)
+        } yield {
+          val product = Shape.Product(fields ++ (concrete ++ declared).flatten)
+          if (names.isEmpty) product else Shape.Existential(names, product)
+        }
       }
     }
 
@@ -174,7 +190,11 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       related || !(classLike && apart)
     }
 
-    private def refusal(all: List[Frame], closures: List[TemplateClosures.Closure]) = {
+    private def refusal(
+        all: List[Frame],
+        closures: List[TemplateClosures.Closure],
+        unread: List[String]
+    ) = {
       import TemplateClosures.Closure
       val restricted = closures.collectFirst {
         case _: Closure.PrivateConstructor | _: Closure.Hidden =>
@@ -185,9 +205,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         case _: Defn.ExtensionGroup =>
           s"capability record with an extension member not read: $key"
       }
-      val types = abstractTypes(all).map(t =>
-        s"capability record with abstract type member not read: $key.$t"
-      )
+      val types = unread.map(t => s"capability record with abstract type member not read: $key.$t")
       val parameters = template.tree.collect {
         case t: Defn.Trait if t.ctor.paramClauses.exists(_.values.nonEmpty) =>
           s"capability record with trait parameters not read: $key"
@@ -195,36 +213,88 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       restricted.orElse(foreign).orElse(parameters).orElse(unreadMember).orElse(types.headOption)
     }
 
-    // A type member no level defines: a value's own choice, an existential this reading does not
-    // open in a record.
-    private def abstractTypes(all: List[Frame]): List[String] = {
+    // A type member no level defines, split by what this reading does: bounded or higher-kinded
+    // ones keep a reason, and so do any the measured signature names through a path, where the
+    // witness and the path atom would have to be one; the rest open as the witnesses of the
+    // package each value carries (∃X. members-over-X).
+    private def abstractSplit(all: List[Frame]): (List[String], List[String]) = {
       val stats = all.flatMap(_.stats)
       val defined = stats.collect { case d: Defn.Type => d.name.value }.toSet
-      stats.collect { case d: Decl.Type if !defined(d.name.value) => d.name.value }.distinct
+      val members = stats
+        .collect { case d: Decl.Type if !defined(d.name.value) => d }
+        .groupBy(_.name.value)
+        .toList
+        .map { (name, declared) =>
+          // The strictest declaration decides: bounds or a binder on any level keep it unread.
+          name -> declared.maxBy(d => if (openable(d)) 0 else 1)
+        }
+      val (unread, open) = members.partition { case (name, d) => !openable(d) || mentions(name) }
+      (unread.map(_._1), open.map(_._1))
+    }
+
+    private def openable(d: Decl.Type): Boolean =
+      d.tparamClause.values.isEmpty && d.bounds.lo.isEmpty && d.bounds.hi.isEmpty
+
+    // The atoms the opened witnesses read as inside the record: one per abstract member, named by
+    // it, so the package's members share their witness and the solver opens it per value.
+    private def witnessEnv(names: List[String]): Map[String, Resolved] =
+      names.map(name => name -> Right(Shape.Atom(name))).toMap
+
+    // Whether the use site's signature names the member through a path (`p.X`, `T#X`): such a
+    // spelling must denote the same witness the opened package binds, which this reading cannot
+    // yet agree on with the path atom the projection reads as.
+    private def mentions(name: String): Boolean =
+      signatureTypes.exists(mentions(name, _))
+
+    private def mentions(name: String, tpe: Type): Boolean = tpe match {
+      case Type.Select(_, Type.Name(`name`))  => true
+      case Type.Project(_, Type.Name(`name`)) => true
+      case other                              =>
+        other.children.collect { case t: Type => t }.exists(mentions(name, _))
+    }
+
+    private def signatureTypes: List[Type] = useSite.tree.toList.flatMap { tree =>
+      val parameters =
+        MemberSyntax.groups(tree).flatMap(_.paramClauses).flatMap(_.values.flatMap(_.decltpe))
+      val result = tree match {
+        case d: Defn.Def        => d.decltpe.toList
+        case d: Decl.Def        => List(d.decltpe)
+        case v: Defn.Val        => v.decltpe.toList
+        case v: Decl.Val        => List(v.decltpe)
+        case v: Defn.Var        => v.decltpe.toList
+        case v: Decl.Var        => List(v.decltpe)
+        case g: Defn.GivenAlias => List(g.decltpe)
+        case g: Defn.Given      => g.templ.inits.collect { case i: Init => i.tpe }
+        case c: Defn.Class      => c.ctor.paramClauses.flatMap(_.values.flatMap(_.decltpe))
+        case e: Defn.Enum       => e.ctor.paramClauses.flatMap(_.values.flatMap(_.decltpe))
+        case t: Defn.Trait      => t.ctor.paramClauses.flatMap(_.values.flatMap(_.decltpe))
+        case _                  => Nil
+      }
+      parameters ++ result
     }
 
     // A constructor parameter of an open class: a public field is one any instance may give any
     // value of its type; hidden state is observed by no field, but a goal still needs it built.
-    private def valField(parameter: Term.Param): Resolved =
+    private def valField(parameter: Term.Param, scope: Scope): Resolved =
       if (!publicField(parameter, template))
         Left(s"open class with hidden constructor state: $key.${parameter.name.value}")
-      else fieldType(parameter)
+      else fieldType(parameter, scope)
 
     // The abstract declarations no concrete member implements, one per member: a declaration an
     // earlier level (the template first) restates is that member again.
     private def declarations(
         all: List[Frame],
         table: ReceiverMembers,
-        steps: List[InheritedScopes.Step]
+        scope: Scope
     ): Either[String, List[Option[Shape]]] = {
       val open = all.flatMap(level => abstracts(level).map(level -> _))
       sequence(open.zipWithIndex.map {
         case ((level, stat), index) =>
           for {
             implemented <- table.implemented(stat, level, None)
-            again <- restated(level, stat, open.take(index), steps)
+            again <- restated(level, stat, open.take(index), scope.steps)
             shape <-
-              if (implemented || again) Right(None) else declared(level, stat, table, steps)
+              if (implemented || again) Right(None) else declared(level, stat, table, scope)
           } yield shape
       })
     }
@@ -256,17 +326,17 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         level: Frame,
         stat: Stat,
         table: ReceiverMembers,
-        steps: List[InheritedScopes.Step]
+        scope: Scope
     ): Either[String, Option[Shape]] =
       if (table.universal(stat, level)) Right(None)
       else
         MemberSyntax.names(stat).headOption match {
           case Some(name) if MemberSyntax.deferredInline(stat) =>
-            observe(stat, level, name, steps).flatMap(
+            observe(stat, level, name, scope).flatMap(
               _.flatMap(DeferredInline.refusal(_, s"$key.$name", useSite.tree, resolver))
                 .toLeft(None)
             )
-          case Some(name) => observe(stat, level, name, steps)
+          case Some(name) => observe(stat, level, name, scope)
           case None       => Right(None)
         }
 
@@ -276,34 +346,32 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         member: Tree,
         level: Frame,
         name: String,
-        steps: List[InheritedScopes.Step]
+        scope: Scope
     ): Either[String, Option[Shape]] =
       if (!visible(member, level))
         Left(s"capability record with members hidden at the use site: $key")
       else
         MemberSyntax.observation(member, s"$key.$name", s"$key.$name").flatMap {
           case MemberSyntax.Observation.Value(tpe) =>
-            read(tpe, level, envAt(level, steps)).map(Some(_))
+            read(tpe, level, scope).map(Some(_))
           case MemberSyntax.Observation.Applied(callable, result) =>
             MemberSyntax.applied(
               callable,
               result,
-              read(_, level, envAt(level, steps), callable.binders)
+              read(_, level, scope, callable.binders)
             )
         }
 
-    private def envAt(level: Frame, steps: List[InheritedScopes.Step]): Map[String, Resolved] =
-      steps.find(_.declared.id == level.id).fold(env)(_.env)
-
-    // A member's type, read where its level declares it with `this` the record's template. The
-    // member's own binders bind last, so an argument written for a class parameter they shadow is
-    // not reread for them.
+    // A member's type, read where its level declares it with `this` the record's template, over
+    // the scope's opened witnesses. The member's own binders bind last, so an argument written
+    // for a class parameter they shadow is not reread for them.
     private def read(
         tpe: Type,
         level: Frame,
-        at: Map[String, Resolved],
+        scope: Scope,
         binders: Map[String, Resolved] = Map.empty
     ): Resolved = {
+      val at = scope.opened ++ scope.steps.find(_.declared.id == level.id).fold(env)(_.env)
       val scoped = context.inScope(level, at)
       resolver.resolve(
         tpe,
@@ -321,6 +389,12 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     }
 
   }
+
+  /** Where the record's members are read: the levels' walked environments, and the witnesses of the
+    * opened abstract members, which every level's members share.
+    */
+  private case class Scope(steps: List[InheritedScopes.Step], opened: Map[String, Resolved])
+  private object Scope { val empty: Scope = Scope(Nil, Map.empty) }
 
 }
 

@@ -83,6 +83,19 @@ The tests cover positive uniform consumers, witness sharing/independence, aliase
 singleton provenance, captures, productive/unseeded cycles, bounds/result
 diagnostics, and real compiled Scala opening examples.
 
+## Type-member packages
+
+Scala's other existential encoding — an abstract `type X` member of a class or trait —
+opens the same way when the type is read as a capability record
+([capability records](capability-records.md), register D32): the record's members are read
+over a witness named by the member, and the whole record is one package `∃X. members-over-X`,
+opened per value exactly as a wildcard input is. `trait Pair { type X; def value: X;
+def consume(x: X): Boolean }` as an input behaves like a wildcard-carrying case class: `p`'s
+and `q`'s witnesses never mix, and the witness itself is unobservable. Two boundaries carry
+over unchanged: a goal of the record is result construction (refused at the result
+boundary), and a signature that names the member through a path (`p.X`) keeps its refusal
+until the path atom and the opened witness can be agreed on.
+
 ## Resolver structure
 
 `TypeSubstitution` owns binder-aware syntax replacement. `MethodProjections`

@@ -19,6 +19,17 @@ written — on records and receivers alike; `canEqual` belongs to `scala.Equals`
 `canEqual(that: Any): Boolean` is an ordinary member (a free `Any => Boolean`, one Boolean since
 `Any` is terminal).
 
+**Abstract members of a record** ([D32](code-cardinality-foundations.md#d32-an-open-records-unbounded-abstract-member-opens-as-the-witness-of-each-values-package)).
+An unbounded abstract type member no level defines does not refuse the record: the members are read
+over a witness named by the member, and the record is the package ∃X. members-over-X each value
+carries — an input opens it with a witness fresh per value (`Shape.Existential`, the same opening
+the wildcard inputs get), so `p`'s and `q`'s never mix, and the witness itself is unobservable. A
+goal of the record is a result construction — the implementation would pick the witness — and stays
+at the existential result boundary. Bounded or higher-kinded members refuse, and so does any member
+the measured signature names through a path (`p.X`): the projection is an atom keyed by the path
+([TypeMembers](#c1c2--the-member-table)), and the opened witness and that atom would have to be
+one — a sharing this reading does not yet agree on.
+
 **C1/C2 — the member table.** A receiver's members are read over its supplied linearization, each
 level under the arguments its `extends` chain gives it. A concrete definition overrides an abstract
 one, and a definition overrides a matching one of every level after it in the receiver's
@@ -257,7 +268,7 @@ number of binders or parameters per clause is always another slot.
 
 | Situation | Reason |
 |---|---|
-| Abstract type member in a record (inputs would open an existential that `p.X` in the signature must share) | `capability record with abstract type member not read: C.X` |
+| Abstract type member in a record that does not open: bounded or higher-kinded ones, and any the measured signature names through a path (`p.X`, `T#X`) — the opened witness and the path atom would have to be one ([D32](code-cardinality-foundations.md#d32-an-open-records-unbounded-abstract-member-opens-as-the-witness-of-each-values-package)) | `capability record with abstract type member not read: C.X` |
 | Self type | `self type not resolved: T` |
 | Hidden constructor state of an open class (X6: `class CNothing(n: Nothing)` has no instance), of a parameterized parent no class passes arguments to, or a free field a nearer `val` overrides | `open class with hidden constructor state: C.p` |
 | Final-class parameter no member observes injectively | `final class field not observable injectively: C.p` |
