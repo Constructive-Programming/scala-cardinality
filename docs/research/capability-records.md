@@ -136,6 +136,20 @@ upper reading of 0 is the count, and so is 1 when the lower reading is 1 too. Ag
 reasons stay there. A member of P whose binding is refused in the upper reading refuses the row. eo's `ComposedGetOptionLaws.getOptionInner` is 1: the record
 `CanGetOption[A, B]` has the None-returning implementation alone, with or without the law member.
 
+A precision regression the bounds record rather than repair (FOLLOWUPS 14b): eo's `Optic.to` and
+`Optic.from` printed 0 at `b5045b8`, derived independently — `andThen` can return only `rc.Out`,
+and every `ReadCompose` instance in eo (`compose/ReadCompose.scala`) fixes `Out` to `Getter`,
+`PickFold` or `ForgetFold`, none of which reaches the rigid carrier `F[X, A]` or `T` — but the
+possible-view reading refuses both rows (`overridable member may re-enter the measured
+declaration: Optic.andThen`). The type-reachability filter that would ignore such views — judged
+over the instances the sources declare — is refuted: an implementation may build its own instance
+whose `Out` is the goal itself (review fixture `probes/precision/a/closedworld.scala`: every
+declared `RC` fixes `Out` to `Unit`, yet `to` reaches `T` through an `RC` it constructs).
+Recovering the 0 needs a dependency name index, higher-kinded capability binders and an
+existential record reading; until they land the rows stay `?` and the lost 0 is recorded here
+instead of reprinted. `Optic.id` and `ModifyF.map.map` never had a number: they wait on the
+dependency name index, an owner decision (FOLLOWUPS 16).
+
 Each of those positions is evaluated only if the compiler inserts no code that defers it
 (`Insertions`, `ReceiverCalls`):
 
