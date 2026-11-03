@@ -2,13 +2,11 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.*
-import cardinality.analysis.inhabitation.*
+import cardinality.analysis.MethodAnalysis.Resolved
+import cardinality.analysis.Resolver
+import cardinality.analysis.inhabitation.Inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.types.*
-
-import Inhabitation.Shape
-import MethodAnalysis.Resolved
 
 /** Hygienic first-order beta application and the closed total polymorphic identity fragment. */
 private[cardinality] object MethodTypeLambdas {

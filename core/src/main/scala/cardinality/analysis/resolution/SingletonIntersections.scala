@@ -2,13 +2,11 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.*
-import cardinality.analysis.inhabitation.*
+import cardinality.analysis.MethodAnalysis.{Frame, Resolved}
+import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
+import cardinality.analysis.{Resolver, StdlibModel}
 import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
-
-import Inhabitation.Shape
-import MethodAnalysis.{Frame, Resolved}
 
 /** Stable reference identity is term identity, never the spelling or cardinality of its type.
   * Deliberately does not erase a module's callable environment into a Unit-shaped value.

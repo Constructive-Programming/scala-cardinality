@@ -1,8 +1,8 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
+import scala.meta.{Defn, Mod, Name, Pkg, Stat, Term, Tree, XtensionClassifiable}
 
-import cardinality.analysis.MethodAnalysis.Frame
+import cardinality.analysis.MethodAnalysis.*
 import cardinality.analysis.SealedReceivers
 import cardinality.types.TypeApplications
 

@@ -2,12 +2,11 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.*
-import cardinality.analysis.inhabitation.*
+import cardinality.analysis.MethodAnalysis.*
+import cardinality.analysis.Resolver
+import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
 import cardinality.types.*
-
-import MethodAnalysis.{Frame, Resolved, TypeEntry}
 
 /** Member equations are resolved in their declaration scope; use-site accessibility is checked by
   * the caller. Bounds are not erased into guessed representations.
@@ -234,7 +233,7 @@ private[cardinality] object RefinedMembers {
         context: ResolutionContext
     ): Boolean =
       if (declared.contains(bound.syntax)) false
-      else context.read(bound, resolver) == Right(Inhabitation.Shape.Sum(Nil))
+      else context.read(bound, resolver) == Right(Shape.Sum(Nil))
 
     // The projected type's declaration, bound where the projection is written: an import or a
     // wildcard over a namespace no source supplies binds it as it binds any type name.
