@@ -1,5 +1,6 @@
 # The standard-library model, sequences and absent declarations
 
+
 The method side reads library declarations the sources do not supply through one small table,
 `StdlibModel` (`stdlib-model/1`: Scala 3.9.0's library API on 2.13 collections, so `Seq` is
 `immutable.Seq`). Each entry is keyed by its fully qualified name and read one way. A name the
@@ -7,6 +8,27 @@ table does not hold, and no source declares, is reported as absent information �
 This page states the readings, the sequence-elimination rule they need, where the table answers,
 and what stays `?`. Executable: `StdlibModelSpec`, `SequenceEliminationSpec`,
 `RepeatedParameterFragmentSpec`.
+
+## Singleton terms
+
+The table also holds the library's two parameterless root-imported **terms**, `scala.None` and
+`scala.Nil`, keyed by both spellings (`None`, `scala.None`, `Nil`, `scala.Nil`). The rule is
+Scala's own singleton-type rule, not a model choice: a stable identifier's type `p.type` has the
+one value `p` (draft specification ch. 3), so a goal of it has exactly one implementation — the
+one returning `p` — and a `p.type` input carries exactly one value. The table's entries give the
+two objects a canonical identity, so `None.type` and `scala.None.type` are the same value.
+
+The same terminal reading answers a `p.type` whose path resolves to nothing this reading knows
+(`SingletonIntersections.module`): the sources typecheck, so the written `p.type` is a stable path
+of some term — of an unsupplied dependency, a top-level value, an enum case — and that term is the
+type's one value whatever it is. The two cases differ only in identity: a table term is the same
+value everywhere, an opaque path is its own spelling's. What stays refused is everything the
+singleton rule itself refuses, unchanged: a `var`'s path (E083), a forward reference, a path not
+an enclosing capture, and a source module the use site may not reach — the reading there needs the
+module's member environment, not just its existence. A call's singleton *result* keeps its own
+rule: an object's singleton widens to itself, anything else to a type this reading does not
+compute (`InferredResults`), so a method's result of `E.A.type` stays refused while a *declared*
+goal of `E.A.type` is 1.
 
 ## Readings
 
@@ -322,8 +344,10 @@ bind; a definition in another block of the reading file's package on the stored 
 constructor slots it reads (the method side reads it); a foreign
 parent of an open owner; SE beyond its three sequences and
 lengths ≤ 2, and the places listed under Rule SE; every name the sources and the table do not
-declare. Not modelled: `PartialFunction`, `LazyList`, `collection.Seq`, `Iterable`, `scala.Symbol`;
-dependency declarations are not read (no dependency-sources mode).
+declare — a written `p.type`'s path excepted, which its own spelling decides
+([Singleton terms](#singleton-terms)). Not modelled: `PartialFunction`, `LazyList`,
+`collection.Seq`, `Iterable`, `scala.Symbol`; dependency declarations are not read (no
+dependency-sources mode).
 
 ## Evidence
 

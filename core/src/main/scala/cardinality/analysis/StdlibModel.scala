@@ -208,6 +208,23 @@ private[cardinality] object StdlibModel {
 
   private val byName: Map[String, Entry] = entries.map(entry => entry.fqn -> entry).toMap
 
+  /** The root-imported terms whose type is a singleton: `p.type`'s only value is `p` itself (the
+    * draft specification ch. 3's stable identifier types). The library's two parameterless
+    * root-imported objects are `scala.None` and `scala.Nil` (scala-library 3.9.0); both spellings
+    * of one object — simple and `scala.`-prefixed — denote the same value, so the table keys by
+    * every spelling and gives one canonical identity. A source binding of the name outranks the
+    * table, as for the type entries.
+    */
+  private val singletonTerms: Map[String, String] = Map(
+    "None" -> "scala.None",
+    "scala.None" -> "scala.None",
+    "Nil" -> "scala.Nil",
+    "scala.Nil" -> "scala.Nil"
+  )
+
+  /** The canonical singleton term a written stable path names, if it is one of the table's. */
+  def singletonTerm(spelling: String): Option[String] = singletonTerms.get(spelling)
+
   // Each name under the root import that binds it, and under that import's own prefix.
   private def spelledBy(bindings: List[(String, String, Root)]): Map[String, String] =
     bindings.flatMap((name, fqn, root) => List(name -> fqn, s"${root.prefix}$name" -> fqn)).toMap

@@ -22,6 +22,10 @@ class StdlibModelSpec extends Specification {
       tuple spellings keep one override identity                    $tupleIdentity
       FunctionN and arrow spellings keep one override identity      $functionIdentity
       Either spellings are one evidence identity                    $eitherIdentity
+    Singleton terms
+      None and Nil singletons have their one value                  $singletonTerms
+      an unresolved path's singleton is the one value it names      $unresolvedSingleton
+      an inaccessible source module's singleton stays refused       $inaccessibleSingleton
     Sequences
       List, Vector, Seq, IndexedSeq and ArraySeq introduce Nil/Cons  $introduction
       an Array of a concrete element is a sequence                  $arrays
@@ -178,6 +182,28 @@ class StdlibModelSpec extends Specification {
     List("scala.util.Either", "scala.Either", "_root_.scala.Either", "_root_.scala.util.Either")
       .map(spelling => refused(pair(spelling), "ambiguous anonymous evidence"))
       .reduce(_.and(_))
+  }
+
+  // A singleton type's only value is its path's (draft specification ch. 3): `None.type` is
+  // inhabited by `None` alone, so a goal of it is 1 — the implementation returning the value. The
+  // table gives the library's two parameterless root-imported objects a canonical identity, so
+  // both spellings of one object are that one value. A path outside the sources is read the same
+  // way (D-terminal): the written `.type` is a stable path, the sources typecheck, and the one
+  // value it names is the implementation. A source module the use site may not reach keeps its
+  // refusal: the reading would need the module's member environment, not just its existence.
+  def singletonTerms = {
+    val code = "object N { def nn: None.type = ???; def nil: Nil.type = ??? }"
+    (count(code, "N.nn") === Count.Finite(1))
+      .and(count(code, "N.nil") === Count.Finite(1))
+      .and(count("object N { def q: scala.None.type = ??? }", "N.q") === Count.Finite(1))
+  }
+
+  def unresolvedSingleton =
+    count("object N { def wide: far.away.Unsupplied.type = ??? }", "N.wide") === Count.Finite(1)
+
+  def inaccessibleSingleton = {
+    val code = "object O { private object H }\nobject N { def out: O.H.type = ??? }"
+    refused(count(code, "N.out"), "inaccessible or ambiguous singleton path: O.H")
   }
 
   // Nil only without an element; with one, every length; List[Nothing] has only Nil.

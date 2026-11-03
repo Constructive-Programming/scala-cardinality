@@ -472,10 +472,15 @@ private[cardinality] object InferredResults {
       result match {
         case lit: Lit => literalClass(lit).map(Inferred(_, context)).toRight(singletonResult(call))
         case _: Type.Singleton =>
-          resolver.resolve(result, context) match {
-            case Right(Inhabitation.Shape.Singleton(_, None)) => Right(Inferred(result, context))
-            case _                                            => Left(singletonResult(call))
+          // An object's singleton widens to itself, its one value: a module's or the table's
+          // term. Any other resolved singleton — a path a call's result only borrows, an enum
+          // case's — Scala widens to a type this reading does not compute.
+          val kept = resolver.resolve(result, context).toOption.exists {
+            case Inhabitation.Shape.Singleton(id, None) =>
+              id.startsWith("module:") || id.startsWith("stdlib:")
+            case _ => false
           }
+          Either.cond(kept, Inferred(result, context), singletonResult(call))
         case _ => Left(singletonResult(call))
       }
 

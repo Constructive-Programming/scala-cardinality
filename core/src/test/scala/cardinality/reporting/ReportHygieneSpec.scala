@@ -518,11 +518,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
       "union _: unresolved type")
       .and(
         Blockers.category(
-          "union (None.type | (String, String)): unresolved singleton path: None"
-        ) === "union _: unresolved singleton path"
-      )
-      .and(
-        Blockers.category(
           "union (RecordLevel | Null): abstract type or method-valued representation: R"
         ) ===
           "union _: abstract type or method-valued representation"

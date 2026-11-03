@@ -51,7 +51,12 @@ private[cardinality] object SingletonIntersections {
 
   private def validateShape(shape: Shape, from: Frame, resolver: Resolver): Resolved = shape match {
     case s @ Shape.Singleton(id, None) if LiteralTypes.literal(id) => Right(s)
-    case s @ Shape.Singleton(id, None)                             =>
+    // A table term or an opaque path is one value at every use site: the singleton goal is
+    // terminal wherever it is read, so re-deriving the path at the use site could change only the
+    // identity, never the count.
+    case s @ Shape.Singleton(id, None) if id.startsWith("stdlib:") || id.startsWith("path:") =>
+      Right(s)
+    case s @ Shape.Singleton(id, None) =>
       moduleFrame(id, resolver)
         .toRight("singleton module identity not found")
         .flatMap(owner => module(owner.path.mkString("."), from, resolver).map(_ => s))
@@ -188,8 +193,17 @@ private[cardinality] object SingletonIntersections {
     found match {
       case List(owner) if eligibleModule(owner, from, resolver) =>
         moduleEnvironment(owner, name)
-      case Nil => Left(s"unresolved singleton path: $name")
-      case _   => Left(s"inaccessible or ambiguous singleton path: $name")
+      case Nil =>
+        // A written `p.type` is the type of the one value p (draft specification ch. 3: a stable
+        // identifier's type is a singleton), so the goal is terminal — exactly one implementation,
+        // the one returning p — however the path is unresolved. The table's terms carry a
+        // canonical identity; any other path an opaque one of its own spelling.
+        val id = StdlibModel
+          .singletonTerm(name)
+          .map(fqn => s"stdlib:$fqn")
+          .getOrElse(s"path:$name")
+        Right(Shape.Singleton(id, None))
+      case _ => Left(s"inaccessible or ambiguous singleton path: $name")
     }
   }
 
