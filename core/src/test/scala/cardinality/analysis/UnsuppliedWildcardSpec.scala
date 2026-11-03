@@ -412,7 +412,7 @@ class UnsuppliedWildcardSpec extends Specification {
       .and(
         refused(
           found("p.F.h"),
-          "inherited type member not resolved: compose (unsupplied parent zzz.Base)"
+          "inherited term member not resolved: compose (unsupplied parent zzz.Base)"
         )
       )
   }

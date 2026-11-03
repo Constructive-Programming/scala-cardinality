@@ -2,6 +2,8 @@ package cardinality.capacity
 
 import scala.meta.*
 
+import cardinality.types.Trees
+
 /** The estimate's reading of one source, which `MethodAnalysis` reads a constructor's parameter
   * types through, so the two halves of a report answer with one number. A parameter type is read
   * where its constructor is written — inside the package clauses, objects, classes, methods and
@@ -36,7 +38,7 @@ final class Reading private (private val top: Scope) {
   // with the clauses written before the statement the type sits in, then the owner's binders and
   // parameters. A type with no position (built rather than parsed) reads at the top.
   private def at(tpe: Tree): Scope = {
-    val ancestors = List.unfold(tpe.parent)(_.map(t => t -> t.parent))
+    val ancestors = Trees.ancestors(tpe)
     val inside =
       java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Tree, java.lang.Boolean])
     ancestors.foreach(inside.add)
@@ -53,7 +55,11 @@ final class Reading private (private val top: Scope) {
           (positioned(entered, container, inside.contains), inner)
       }
       ._1
-    Scope.termsLens.modify(_ ++ parameters)(Scope.bindersLens.modify(binders ++ _)(body))
+    // An enum case's parameters read in the enum's companion (the case's enum owns them).
+    val read = owners
+      .collectFirst { case e: Defn.Enum if owners.exists(_.is[Defn.EnumCase]) => e }
+      .fold(body)(EnumCompanions.caseScope(body, _))
+    Scope.termsLens.modify(_ ++ parameters)(Scope.bindersLens.modify(binders ++ _)(read))
   }
 
   // A body's scope at the statement of `container` that holds the type: with the clauses written
@@ -79,9 +85,13 @@ final class Reading private (private val top: Scope) {
       case Some((inner, stats)) => (solve(container, stats, Walk.opening(scope, inner)), inner)
       case None                 =>
         container match {
+          // A method's parameters are terms nearer than anything a template around inherits.
           case m: Defn.Def =>
             val bound = Scope.bindersLens.modify(Counter.binders(m) ++ _)(scope)
-            (Scope.termsLens.modify(_ ++ Walk.parameters(m))(bound), path)
+            val params = Walk.parameters(m)
+            val nearer =
+              Scope.templatesLens.modify(_.map(_.defining(Set.empty, params.map(_._1).toSet)))
+            (Scope.termsLens.modify(_ ++ params)(nearer(bound)), path)
           case b: Term.Block => (solve(b, b.stats, scope), path)
           case d: Defn       => (Walk.bodyScope(scope, d)(solve(d, _, _)), path)
           case _             => (scope, path)

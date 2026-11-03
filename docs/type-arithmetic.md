@@ -520,22 +520,26 @@ The current API and representation have important limits:
   large finite results; `EffectiveEpsilon0` (`ε₀`) is the tier marker above it and is coarse in the
   same way. A result that equals either marker is not by itself a mathematical result, and the
   `ε₀` tier is countable, not uncountable.
-- The traversal estimates unions by addition (deduplicating identical syntax only) and
-  intersections by minimum, so it cannot see overlap or subtyping. It does not resolve generic
-  definitions, and its opaque-type singleton treatment is an approximation. Forward references and
-  recursion within a single compilation unit are resolved: `Counter.source` solves the definitions
-  as a system of equations by Kleene iteration from the empty type (§8), and abstract traits and
-  sealed classes are folded from their concrete subtypes in the same unit. Cycles through
-  recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict `Option[X]` fields,
-  and function fields `D => X` with inhabited `D` — also take the greatest fixed point: a
-  deterministic cycle adds its per-lap label space raised to ω, any branch (two continuations in
-  one arm, an `Option` field beside a hole, a domain with two or more inputs, a sealed parent with
-  several continuing children) saturates at ω under the §4 finite-program reading, one program per
-  unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded outright — strict self
-  argument, tuple, `Set[X]`, function domain — blocks coiteration: totals keep the
-  least-fixed-point value, and a row on or reading a blocked cycle that a by-name or function field
-  closes is `?` (`lazy cycle not completed`), because a lazy knot builds values that value omits
-  (see [stored-value names](research/stored-value-names.md)).
+- The traversal estimates unions by addition (deduplicating identical syntax only) and intersections
+  by minimum, so it cannot see overlap or subtyping. It does not resolve generic definitions. An
+  opaque alias is its representation's size where that is visible — inside the template that
+  declares it, or, for a top-level one, inside its file's synthetic package object (the block's
+  top-level definitions, its implicit classes and objects, and the companion objects of its
+  top-level types — not its other classes, traits, enums or objects) — and a reference anywhere else
+  is refused (`opaque type read outside its scope: p.Ids.Id`), never read as one value. Forward
+  references and recursion within a single compilation unit are resolved: `Counter.source` solves
+  the definitions as a system of equations by Kleene iteration from the empty type (§8), and
+  abstract traits and sealed classes are folded from their concrete subtypes in the same unit.
+  Cycles through recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict
+  `Option[X]` fields, and function fields `D => X` with inhabited `D` — also take the greatest fixed
+  point: a deterministic cycle adds its per-lap label space raised to ω, any branch (two
+  continuations in one arm, an `Option` field beside a hole, a domain with two or more inputs, a
+  sealed parent with several continuing children) saturates at ω under the §4 finite-program
+  reading, one program per unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded
+  outright — strict self argument, tuple, `Set[X]`, function domain — blocks coiteration: totals
+  keep the least-fixed-point value, and a row on or reading a blocked cycle that a by-name or
+  function field closes is `?` (`lazy cycle not completed`), because a lazy knot builds values that
+  value omits (see [stored-value names](research/stored-value-names.md)).
 - A growing recursive component is widened to its tier, as §8 describes: a name that can reach
   itself and keeps growing is replaced by the tier it has grown into, so the iteration terminates.
   Separately, completion of each lazy/coinductive type combines its μ estimate and infinite

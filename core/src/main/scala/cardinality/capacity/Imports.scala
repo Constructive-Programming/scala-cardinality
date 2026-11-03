@@ -120,13 +120,7 @@ private[cardinality] object Imports {
   def before(stats: List[Stat]): Stat => Imports = {
     val types = Walk.typeNames(stats)
     val terms = Walk.termsOf(stats).keySet
-    val imported = positions(stats, none)
-    val exported = stats
-      .foldLeft(none) {
-        case (acc, e: Export) => acc ++ clauses(e.importers, "exported", imported(e))
-        case (acc, _)         => acc
-      }
-      .definingInside(types ++ terms)
+    val exported = exports(stats)
     val at = positions(stats, exported)
     st => {
       val here = at(st)
@@ -136,6 +130,19 @@ private[cardinality] object Imports {
         Option.when(kept.types || kept.terms)(n -> kept)
       })
     }
+  }
+
+  /** What a body's export clauses define: their selectors, each read with the imports written
+    * before it, and their wildcards, which bind no name the body itself defines.
+    */
+  def exports(stats: List[Stat]): Imports = {
+    val imported = positions(stats, none)
+    stats
+      .foldLeft(none) {
+        case (acc, e: Export) => acc ++ clauses(e.importers, "exported", imported(e))
+        case (acc, _)         => acc
+      }
+      .definingInside(Walk.typeNames(stats) ++ Walk.termsOf(stats).keySet)
   }
 
   // The clauses each statement of a body reads with when only its imports count, from `start`.
@@ -151,6 +158,15 @@ private[cardinality] object Imports {
     st => Option(at.get(st)).getOrElse(start)
   }
 
+  /** The names an importer's wildcard does not bind: those it unimports, and those it renames — a
+    * renamed member is no longer importable under its own name, by the wildcard beside it too.
+    */
+  def hidden(importer: Importer): Set[TypeName] =
+    importer.importees.collect {
+      case Importee.Unimport(n)     => TypeName.of(n.value)
+      case Importee.Rename(from, _) => TypeName.of(from.value)
+    }.toSet
+
   // What the importers of one clause bind: each selected name with its selector, read with the
   // clauses written before the clause (`before`), and one wildcard per importer that has one, minus
   // the names that importer hides.
@@ -164,15 +180,10 @@ private[cardinality] object Imports {
         case Importee.Name(name)       => TypeName.of(name.value) -> selector(name)
         case Importee.Rename(from, to) => TypeName.of(to.value) -> selector(from)
       }
-      // A renamed member is no longer importable under its own name, by the wildcard beside it too.
-      val hidden = importer.importees.collect {
-        case Importee.Unimport(n)     => TypeName.of(n.value)
-        case Importee.Rename(from, _) => TypeName.of(from.value)
-      }
       def wildcard(written: String, kind: Wildcard.Kind) = Wildcard(
         Namespaces.path(importer.ref).getOrElse(Nil),
         written,
-        hidden.toSet,
+        hidden(importer),
         importer.parent.flatMap(_.parent),
         kind
       )

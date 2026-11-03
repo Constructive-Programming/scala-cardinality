@@ -127,7 +127,8 @@ object Definition {
 
     case Object
 
-    /** A top-level value: one inhabitant; its declared type is not measured. */
+    /** A top-level value: `min(1, |T|)` of its declared type, 1 with none; never its initializer.
+      */
     case Value
 
     case Alias
@@ -137,7 +138,7 @@ object Definition {
       */
     case Constructor
 
-    /** An opaque type: one value outside the scope that defines it. */
+    /** An opaque type: its row reads the representation, which only its own scope sees. */
     case Opaque
   }
 

@@ -265,6 +265,7 @@ private[cardinality] object SealedFamilies {
             module = s.isInstanceOf[Defn.Object],
             bindings = i.bindings.map((c, p) => TypeName.of(c) -> TypeName.of(p)),
             standard = outside => unstandard(site(s)(outside), "it", i),
+            built = outside => Builds.unread(s, site(s)(outside)),
           )
           Found(child, intermediate)
         }
@@ -326,7 +327,10 @@ private[cardinality] object SealedFamilies {
       outside => {
         val sc = Counter.signature(parent)(outside)
         children.foldLeft(NothingSize: Size) { (acc, child) =>
-          acc + unmatched(outside, parent, child).getOrElse(summand(sc, params, child))
+          acc + unmatched(outside, parent, child).getOrElse {
+            unbuilt(outside, child)
+            summand(sc, params, child)
+          }
         }
       },
       children = children
@@ -341,6 +345,12 @@ private[cardinality] object SealedFamilies {
       outside.noteUnsummed(Walk.named(parent), s"a subtype $why: ${child.name.value}")
       EffectiveOmega
     }
+
+  // A module's one value counts whether or not it is built; a value row asks (`Builds`) — a class
+  // child's equation notes it itself.
+  private def unbuilt(outside: Scope, child: Child): Unit =
+    if (child.module && outside.readingValue)
+      child.built(outside).foreach(why => outside.note(Overcount.Unread(why)))
 
   private def summand(sc: Scope, params: List[TypeName], child: Child): Size =
     if (child.module) UnitSize

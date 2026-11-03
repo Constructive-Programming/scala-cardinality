@@ -69,7 +69,7 @@ class ReportSpec extends Specification {
       a name two packages define stays unresolved  $crossSourceAmbiguous
       an imported name is left to the import     $crossSourceImported
       a sealed hierarchy sums across files       $crossSourceSealed
-      an opaque value is one value outside       $crossSourceOpaque
+      an opaque type is refused outside its scope $crossSourceOpaque
     """
 
   private def definitions(code: String): List[Definition] =
@@ -501,10 +501,12 @@ class ReportSpec extends Specification {
       "Id.scala" -> "package p\nopaque type Id = Byte",
       "User.scala" -> "package p\ncase class User(id: Id, active: Boolean)",
     )
-    // An opaque row reads its representation (`Id` is 2^8), and a reference from outside the
-    // defining scope is one opaque value — the two readings the contract keeps apart. Constructor
-    // inputs multiply, so `User` is one opaque `Id` times two `active` states.
-    (rowsOf(root).filter(_._1 == "p.User") === List(("p.User", Some(TinySize(2)), Nil)))
+    // An opaque row reads its representation (`Id` is 2^8). A reference from another file is
+    // outside the scope that defines it, where the representation is not visible: a reason, not the
+    // single value an abstract type would suggest (that reading made `User` 2).
+    (rowsOf(root).filter(_._1 == "p.User") === List(
+      ("p.User", Some(EffectiveOmega), List("opaque type read outside its scope: p.Id"))
+    ))
       .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
   }
 

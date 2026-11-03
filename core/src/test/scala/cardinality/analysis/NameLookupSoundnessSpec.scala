@@ -178,14 +178,15 @@ class NameLookupSoundnessSpec extends Specification {
 
   // `lib.Base` is not supplied and may declare an `object c` (3.9.0: with `trait Base { object c {
   // type X = Boolean } }`, `def g(): c.X = true` compiles beside `w.c.X = Unit`), so the path is
-  // refused with the parent named rather than read as `w.c.X` (it read 1).
+  // refused with the parent named — `c` is a term member it may declare — rather than read as
+  // `w.c.X` (it read 1).
   def unsuppliedObjectPath =
     refused(
       counts(
         "c.scala" -> "package w\nobject c { type X = Unit }",
         "w.scala" -> "package w\nclass W extends lib.Base { def g(): c.X = ??? }"
       )("w.W.g"),
-      "inherited type member not resolved: c (unsupplied parent lib.Base)"
+      "inherited term member not resolved: c (unsupplied parent lib.Base)"
     )
 
 }

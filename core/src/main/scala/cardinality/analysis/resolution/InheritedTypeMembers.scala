@@ -31,7 +31,7 @@ import MethodAnalysis.{Frame, Resolved, TypeEntry}
   */
 final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, resolver: Resolver)
     extends InheritedObjects {
-  import InheritedTypeMembers.{Ancestry, Located, Location, Member, Outside}
+  import InheritedTypeMembers.{Ancestry, Located, Location, Member, MemberKind, Outside}
 
   private val ancestries = mutable.Map.empty[String, Ancestry]
   // The export clauses being read for a name: met again through inheritance, the body is taken to
@@ -79,7 +79,10 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
               case (Some(found), None)     => Some(Right(frame -> found))
               case (Some(_), Some(reason)) => Some(Left(reason))
               case (None, _)               =>
-                walk(outer, unread.orElse(unreadReason(name, ancestry, exportsName(_, name))))
+                walk(
+                  outer,
+                  unread.orElse(unreadReason(name, ancestry, exportsName(_, name), MemberKind.Type))
+                )
             }
           case _ :: outer => walk(outer, unread)
         }
@@ -134,7 +137,9 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
             s"inherited member path not resolved: $name (type arguments of ${entry.owner.path.last})"
           )
       }
-    declared.orElse(unreadReason(name, ancestry, exportsName(_, name)).map(Left(_)))
+    declared.orElse(
+      unreadReason(name, ancestry, exportsName(_, name), MemberKind.Type).map(Left(_))
+    )
   }
 
   // A member object is no given, and a protected one is selected only from inside the template or
@@ -154,7 +159,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
           Left(s"path through a value not followed: $name")
         )
       )
-      .orElse(unreadReason(name, ancestry, lookup.mayExport(_, name)).map(Left(_)))
+      .orElse(unreadReason(name, ancestry, lookup.mayExport(_, name), MemberKind.Term).map(Left(_)))
   }
 
   def at(head: InheritedObjects.Head): InheritedObjects.Path =
@@ -166,7 +171,8 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
       else if (ancestry.values(head.name))
         Some(Left(s"path through a value not followed: ${head.name}"))
       else
-        unreadReason(head.name, ancestry, lookup.mayExport(_, head.name)).map(Left(_))
+        unreadReason(head.name, ancestry, lookup.mayExport(_, head.name), MemberKind.Term)
+          .map(Left(_))
     }
 
   // An inherited member object as a path: its declaring parent read with its own binders, since a
@@ -207,13 +213,16 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   private def unreadReason(
       name: String,
       ancestry: Ancestry,
-      exported: Frame => Boolean
+      exported: Frame => Boolean,
+      kind: MemberKind
   ): Option[String] =
     ancestry.unread.headOption
       .orElse(
-        ancestry.exporters.find(exported).map(frame => s"exports of ${frame.path.last}")
+        ancestry.exporters
+          .find(exported)
+          .map(frame => InheritedTypeMembers.exportsOf(frame.path.last))
       )
-      .map(channel => s"inherited type member not resolved: $name ($channel)")
+      .map(InheritedTypeMembers.unresolved(kind, name, _))
 
   private def inBody(frame: Frame, file: String, position: Int): Boolean =
     frame.input == file && frame.tree.flatMap(TypeApplications.template).exists { templ =>
@@ -394,6 +403,22 @@ private[cardinality] object InheritedTypeMembers {
 
   /** A member found, with the type environment of the scope that declares it. */
   type Member = (TypeEntry, Map[String, Resolved])
+
+  /** The namespace an inherited name is read in: a type name, or a path's first name (a term). */
+  enum MemberKind(val label: String) {
+    case Type extends MemberKind("type")
+    case Term extends MemberKind("term")
+  }
+
+  /** Why a name a template may inherit is not read, on both sides (the stored estimate's
+    * `Inheritance` lends constructor slots this reading compares): `channel` says how a parent may
+    * define it.
+    */
+  def unresolved(kind: MemberKind, name: String, channel: String): String =
+    s"inherited ${kind.label} member not resolved: $name ($channel)"
+
+  /** The channel through which a parent's export clauses may define a name. */
+  def exportsOf(parent: String): String = s"exports of $parent"
 
   /** An inherited member with the template whose body inherits it, or why it is not known. */
   type Location = Either[String, (Frame, Member)]

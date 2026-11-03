@@ -377,7 +377,8 @@ constructor`. See [stored-value names](stored-value-names.md).
   `UnsuppliedWildcardSpec`.
 
 **Boundary.** This decides only *which* declaration a name denotes, and refuses where the value
-is not computed; it adds no counting rule. It does not read enums as namespaces and does not read
+is not computed; it adds no counting rule. It reads an enum as a namespace only through an
+explicit companion, whose class cases it refuses as types (D29), and does not read
 a namespace no source supplies — the standard library's included, beyond what `ListedNamespaces`
 lists (D16) — each stays `?` with its reason. It does not argue that a rebinding would make the
 rest of the program fail to typecheck (no rule licenses that; the B3 delta audit's dissent on
@@ -1405,6 +1406,175 @@ binder of a pattern is refused rather than read, and so is any count under a pat
 refine a type (whether the pattern's class pins an argument is not read); an intermediate level
 passing a parent's hidden argument is not followed; definitions in default arguments and in a
 named template's parent arguments are not indexed.
+
+## D29. A stored read binds what templates, packages and enum companions pass on
+
+**Decision.** The stored-value estimate, and the constructor slots it lends the method side, bind
+three kinds of members D11 did not read. (1) *Template members*: inside the body of a class, trait,
+enum or object, a bare type name or a path's first name binds the template's members — those its
+parents and its self type pass on — before any enclosing package member, import or root import; a
+declaration at or inside the body keeps its meaning (an enclosing class, object, method or block
+declaring it too is E049, so a valid program never asks); parent clauses and primary constructor
+parameters read outside the body. A member is read in the body of the supplied parent that declares
+it, through every supplied ancestor — a body member, or a `val` or `var` parameter (a case class's
+first clause included), which is a member too; a plain parameter is not. A `private` one is not
+inherited, a qualified-private one (`private[q]`) is — Scala binds the name to it from anywhere and
+rejects an access from outside `q` (E173). An abstract one is the implementing instance's (`member
+T`); an opaque one is outside its scope (D30); one under the `extends` clause's type arguments is
+refused (`inherited type member not resolved: X (type arguments of P)`). A parent's export clauses
+define alias members it passes on like its declarations; they are not followed, so a name one may
+define — a selector that names it in a namespace that has one, a wildcard whose namespace binds it,
+or a namespace not read — is refused (`inherited type member not resolved: Boolean (exports of B)`).
+A parent outside the sources may declare any name, so where the meaning would otherwise come from a
+package, an import or the root imports the name is refused (`inherited type member not resolved: X
+(unsupplied parent P)`; for a path's first name, a term, `inherited term member not resolved: x
+(…)`), unless the stdlib model knows the parent declares no type member (D16), spelled where no
+source binds it — the method side's guard (`InheritedTypeMembers`), with the same reasons, so a lent
+slot refuses where it does (before D29 the estimate read the builtin there). (2) *Package members*:
+a package holds what its package object's parents pass on and what its files' top-level exports
+define; a read inside the package that finds a name nowhere nearer binds such a member over the root
+imports. An export over an object the package defines, written where its file imports nothing before
+it, is followed, for a type name and a path's first name alike (a renamed selector binds only its
+new name, a wildcard no given, a private member is refused); a parent or any other export may bind
+any name the files do not define, which is refused (`X (may be a member of package lib, an inherited
+member not followed)`, or `of the empty package`), a path's first name included. (3) *Enum
+companions*: `enum E`'s cases are members of its companion — an explicit `object E` or the one Scala
+synthesizes — a class case as a type and a term, a singleton case as a term. Through an explicit
+companion they bind for `import E.*`, `export E.*`, `E.A` and a bare name in `object E`'s body; with
+or without one, the cases' parameters read in the companion (its members, its parents' and the
+cases, under the case's own copy of the enum's type parameters), and the enum's own body imports the
+cases by name. A case class is not read as a type of its own, so each such name is refused (`enum
+case type not read: p.E.A`), as the method side refuses it. Details: [stored-value
+names](stored-value-names.md).
+
+**Evidence.**
+
+- [28] Scala 3 draft specification, ch. 2 (**Inspected (full text)** (verifier)): the precedence
+  list puts "same-unit local, inherited or package-clause definitions" first, then explicit
+  imports, wildcard imports, and other-unit package members and compiler-supplied imports; "A
+  binding in some inner scope shadows bindings of lower precedence in the same scope as well as
+  bindings of the same or lower precedence in outer scopes."
+- [24] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
+  bibliographer**): a class case expands "analogous to a final case class in `E`'s companion
+  object" — the companion holds the cases. That the enum's body imports them by name is the
+  compiler's (fixtures below), not the reference's.
+- **Compiler fixtures** (Scala 3.9.0, this session: `$S/z1b/fx/inh`, `$S/z1b/fx/chk`,
+  `$S/z1b/fx/spec`; the integrated review's `probes/stored/{inh,self,inst2,inhterm,unsup,t3,en,
+  en2,en3,en4,pkgobj,pkgobj2}` and `probes/indep-*`): an inherited alias binds over a same-unit
+  package member and the root imports, and an outer object's definition beside it is E049 ("It is
+  both defined in object Outer and inherited subsequently in object O"); a nested object's own
+  definition is nearer than what its owner inherits; inherited `val p: H.type` and `object Inner`
+  bind a path's first name over the package's objects; a primary constructor's parameter reads
+  `scala.Boolean` while the body reads the inherited alias; a self type's alias binds in the body;
+  `import G.*` binds no type for `case Boolean`; `package object lib extends basep.Base` and
+  another file's `export Src.*` (or `export Src.{Boolean as Flag}`) bind `Boolean` (`Flag`) inside
+  the package as `Int`; `import E.*` over an explicit companion binds the case class `E.A`. Fix
+  round (`$S/probes/review-Z1b/{a,a2,en9,en10,en5n,x6,x8}`, `$S/z1bfix/{qp,en,t3,t4}`):
+  `private[pa] type Boolean = Int` binds `Boolean` in `O extends Base` (`O.U(42)`), and from outside
+  `pa` it is E173, not the builtin; `case C(a: A)` builds `E.C(E.A(true))` beside another file's
+  `type A = Unit`, with or without an explicit companion, and `e.In(())` is rejected for an
+  enum-body `In(a: A)`; a companion's own alias is "illegal reference to type T from enum case",
+  its parent's is read (`G.K(true)`); a followed `export Src.*` passes on no `scala`, so
+  `scala.Boolean` stays the root's. Second fix round (`$S/z1bfix2/fx/{ex,vp}`, the review's
+  `probes/review-Z1b/r2/{inh,inh2}`): a parent's `export Src.Boolean`, `export Src.q` and `export
+  Src.*` bind `Boolean`, `q` and `Flag` in a subclass's body (`O.U(42).b: Int`, `OW.UW(42L).f:
+  Long`), a self type's export alike; a `val` parameter and a case class's parameter are inherited
+  (`OP.UP(42).x: Int`), a plain or private one is not (`OC.UC(()).x: Unit`).
+- **Executable**: `StoredScopesSpec` (positive and adversarial; `inheritedTerms` and
+  `inheritedExports` for the parameters and exports), with the expectations it moved:
+  `GroundEnvironmentSpec.shadowedPosition`, `constructorScope`, `symbolicDisagreement` (the lent
+  slot now agrees with the method side: 2^64, 2, 2^(2^16)), `StdlibModelSpec.constructorExempt`
+  (`In(b: Boolean)` in `trait Outer extends lib.Base`: refused, not 2), and the method side's
+  term-head wording (`NameLookupSoundnessSpec.unsuppliedObjectPath`,
+  `UnsuppliedWildcardSpec`: `inherited term member not resolved: c`).
+
+**Boundary.** Not a counting rule: it decides which declaration a name denotes. Members of a
+parent applied to type arguments, export clauses that read imports or name anything but a plain
+object of the package, package objects' parents and a template's inherited members met past an
+unread parent where a method parameter or block outside every template declares the name are
+refused, never followed; class cases are never read as types; a companion's own members, which
+Scala forbids a case to name, are read as the companion's; a parent's export clauses are refused,
+never followed. No eo 1.0.0 count moves; four eo rows keep `?` with a reason naming the unread
+parent.
+
+## D30. An opaque alias is its representation only where it is visible; a value row is min(1, |T|)
+
+**Decision.** (1) A reference to an opaque alias reads its representation's size where the
+representation is visible: inside the template that declares it, or, for a top-level alias, inside
+its file's synthetic package object — that package block's top-level definitions (a class nested in
+one of them included), its implicit classes and implicit objects and its `given` instances, which
+Scala 3 wraps there too, and the companion objects of its top-level types; not its other top-level
+classes, traits, enums or objects, nor another file. Anywhere else, and for a type rebuilt with no
+source position, the reference is refused (`opaque type read outside its scope: p.Ids.Id`), and so
+is a constructor slot lent to the method side, whose own reading follows the same scope; the opaque
+type's own row still reads its representation. This replaces the reading of an opaque reference as
+one value, which made `U(id: Ids.Id)` 1. (2) A stored value row is `min(1, |T|)` for its declared
+type `T`, read as inhabitation: 0 when `T` is empty, 1 when it has a value or none is declared,
+`T`'s reasons when neither is decided; the initializer is never read. A function type has a value
+when its result type has one or a parameter type is empty (the absurd function), although the
+algebra counts it 0; a witness — a standard-library type the library gives a value of, an enum's
+parameterless case, a sealed family's module that is a member of every instantiation — decides the
+rest of the type. A value of a class, enum or module exists only if one is built, which runs every
+ancestor's primary constructor (D26, CROSSCHECK X6): the arguments of its `extends` clauses, the
+defaults its parents fall back to, the strict members and statements of its body, and an enum's
+companion for its singleton cases. Where one of them throws, where the constructor is private or
+protected, where implicit search supplies a parent's context argument, or where a parent is not
+read, the reading is refused (`value not decided: K holds K, whose construction evaluates a throw`)
+— never the 1 the algebra's count of what `K` stores gives, nor the 0 that would follow for `K =>
+Nothing`. A singleton type `p.type` holds what `p` denotes: an object with no parents whose body
+throws nothing is built, a standard-library object is; a value's singleton and any other path are
+refused (`value not decided: n.type, a value's singleton type`), and so is a class holding a
+singleton type. Adopted on a 2/3 vote of the integrated review: the dissent held that a value row is
+documented as one inhabitant with its declared type unmeasured. Details: [type arithmetic
+§10](../type-arithmetic.md), [pure code §2](pure-code.md).
+
+**Evidence.**
+
+- [21] Scala 3 reference, *Opaque Type Aliases* and *More Details* (**Inspected (full text)**
+  (verifier)): the alias is transparent inside its defining scope and abstract with its bounds
+  outside it; the scope is the whole defining scope, not a companion.
+- **Compiler fixtures** (Scala 3.9.0, `$S/z1b/fx/opq`; the integrated review's
+  `probes/stored/opq`, `probes/indep-opq`, `probes/model-opq`): a top-level `def`, a class nested
+  in one, `object Flag` beside `opaque type Flag` and `object Al` beside `type Al` read `Flag` as
+  `Boolean`; a top-level class, another object, another file and a subclass of the declaring trait
+  reject it (E007). Fix round (`$S/z1bfix/op`, the review's `review-z1b-quality/p2`): `implicit
+  class R(f: Flag)`, `implicit object IO` and a `given … with` body read `f` as `Boolean`; a plain
+  `class R(f: Flag)` does not. Scala 3's desugaring wraps "implicit classes and objects" into the
+  package object (compiler behaviour, not a reference text). Second fix round
+  (`$S/z1bfix2/fx/{ub,sg}`, the review's `probes/review-Z1b/r2/x6`): `final case class K() extends
+  Base(???)`, `case object E extends V(???)`, `enum En extends Base(???) { case X }`, `final class P
+  private (i: Int)` and `val sn: n.type = n` for `val n: Nothing` all compile; none of them
+  builds a value (`???` throws, `P` has no caller, `n` holds none).
+- **Register D26** (this file): building an instance runs each level's parent arguments, strict
+  initializers and statements, and one that only throws leaves no instance — the method side's
+  `Construction`, read here by `Builds` with every simple name taken for the root imports'
+  (refused, never read as empty).
+- **Classical** (set theory): a value of type `T` exists exactly when `T` is inhabited; `B^∅` has
+  one element (the empty function), so the stored algebra's `0` for a function from an empty
+  domain ([type arithmetic](../type-arithmetic.md) §3: it never runs) is a capacity, not
+  emptiness. Its intersection is the smaller side, an upper bound (`Int & String` is empty, its
+  bound 2^32), and a refinement is the type it refines. Elsewhere its numbers are counts or
+  rounded-up counts of at least 128: its 0 is emptiness and any other number inhabitation (sums,
+  products, powers and least fixed points of inhabited parts are inhabited).
+- **Executable**: `StoredScopesSpec.opaqueMembers`, `opaqueTopLevel`, `opaqueLending`;
+  `ValueRowsSpec.emptyValues`, `valueReasons`, `valueWitnesses`, `unbuiltValues`,
+  `singletonValues`; `OpaqueTypeScopeSpec` (unchanged); moved expectations
+  `ReportSpec.crossSourceOpaque` and `CardinalitySpec` (a reference from another file or a
+  top-level class: refused, not one value), `ValueRowsSpec.valueReasons` (`vr.f`: 0 → 1).
+
+**Boundary.** A value row reads inhabitation, not the algebra's capacity: where the algebra's 0 for
+a type rests on a function from an empty domain met inside a definition (`P(f: Nothing => Int)`),
+the row is refused (`value not decided: P holds a function from an empty type`), and so is a number
+read through an intersection or refinement (`value not decided: Int & String holds an intersection
+or refinement`), a template whose construction is not read, or a singleton type. A value of an
+unresolved type no witness covers keeps its reasons (`Box[Json]` for a case class `Box`), and an
+opaque alias read outside its scope is refused here too. A construction step that does not throw is
+read as yielding a value of its type (concrete code obeys the model, D-env-concrete); one that
+throws only if a simple name is the root imports' is refused, whatever binds the name. The witness
+table is a small fixed list of standard-library names (`ValueRows.Witnessed`), each with the value
+it is witnessed by; a standard-library name a source binds is the source's. An opaque alias inside a
+template is not visible in a subclass's body; a reference rebuilt without a position (a substituted
+slot) is refused even inside the scope.
 
 ## How to extend this register
 

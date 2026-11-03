@@ -42,7 +42,7 @@ class GroundEnvironmentSpec extends Specification {
       a wildcard import of a supplied value is refused               $valueImport
       a name no builtin spells keeps lookup's own reason             $notBuiltin
       aliases, enum bodies, explicit exports and unread steps        $moreChannels
-      a constructor position never falls back to the estimate        $shadowedPosition
+      a constructor position reads the inherited member on both sides $shadowedPosition
       constructor parameters do not see the template's members       $constructorScope
       a foreign wildcard refuses a builtin beside a supplied one     $foreignWildcard
     Name precedence
@@ -442,18 +442,15 @@ class GroundEnvironmentSpec extends Specification {
         s"package q\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Frame): Frame = x }"
     )("q.Z.f") === Count.Unresolved(List("path through a value not followed: o"))
 
-  // `Int` is `Long` inside `O`, so P's value space is 2^64; the estimate's 2^32 rests on the same
-  // name read as the builtin (it reads no inherited member of an enclosing template), and the
-  // disagreement is refused. Through `import O.*` the estimate refuses the name itself: a wildcard
-  // over an object with parents may bind a member it does not read.
+  // `Int` is `Long` inside `O`, so P's value space is 2^64: the method side reads the inherited
+  // member, and so does the estimate it is checked against (register D29 — it used to read the
+  // builtin's 2^32, and the disagreement was refused). Through `import O.*` the estimate refuses the
+  // name itself: a wildcard over an object with parents may bind a member it does not read.
   def shadowedPosition = {
     val base = "package w12\ntrait Base { type Int = Long }\n"
-    unresolvedOn(
-      counts("a.scala" -> s"${base}object O extends Base { final case class P(x: Int) }")(
-        "w12.O.P.<init>"
-      ),
-      "constructor position readings disagree: x (value space 2^64, estimate a capacity of width 32 bits)"
-    ).and(
+    (counts("a.scala" -> s"${base}object O extends Base { final case class P(x: Int) }")(
+      "w12.O.P.<init>"
+    ) === Count.Finite(BigInt(2).pow(64))).and(
       unresolvedOn(
         counts(
           "a.scala" -> s"${base}object O extends Base\nimport O.*\nfinal case class P(x: Int)"
@@ -466,22 +463,16 @@ class GroundEnvironmentSpec extends Specification {
   }
 
   // `new Sub(3)` compiles: a primary constructor's parameters are read outside the template's
-  // members. A case class nested in a template that inherits `Int` reads the member: the method side
-  // reads `Base.Int = Boolean` (2), but the estimate does not bind inherited type members and reads
-  // the builtin (2^32). A value merely within the estimate's capacity does not show one type was
-  // read (`q.X` below has the same two numbers with the estimate right), so the readings disagree.
+  // members (2^32). A case class nested in a template that inherits `Int` reads the member on both
+  // sides: `Base.Int = Boolean`, so 2 (the estimate read the builtin's 2^32 before register D29,
+  // and the disagreement was refused).
   def constructorScope = {
     val rows = counts(
       "a.scala" ->
         s"package cp\n${base}class Sub(val x: Int) extends Base\nobject O extends Base { final case class P(x: Int) }"
     )
     (rows("cp.Sub.<init>") === Count.Finite(BigInt(2).pow(32)))
-      .and(
-        unresolvedOn(
-          rows("cp.O.P.<init>"),
-          "constructor position readings disagree: x (value space 2, estimate a capacity of width 32 bits)"
-        )
-      )
+      .and(rows("cp.O.P.<init>") === Count.Finite(2))
   }
 
   // A namespace no supplied term heads is foreign: `org.foo` may declare `Int` (a wildcard import
@@ -684,15 +675,14 @@ class GroundEnvironmentSpec extends Specification {
           pow(2, 65536)
         )
       )
+      // The inherited `Int = Char => Boolean` on both sides: 2^(2^16) (a disagreement with the
+      // builtin's 2^32 before register D29).
       .and(
-        unresolvedOn(
-          count(
-            "package w12s\ntrait Base { type Int = Char => Boolean }\n" +
-              "object O extends Base { final case class P(x: Int) }",
-            "w12s.O.P.<init>"
-          ),
-          "constructor position readings disagree: x (value space 2^(2^16), estimate a capacity of width 32 bits)"
-        )
+        count(
+          "package w12s\ntrait Base { type Int = Char => Boolean }\n" +
+            "object O extends Base { final case class P(x: Int) }",
+          "w12s.O.P.<init>"
+        ) === Count.Symbolic(pow(2, 65536))
       )
       .and(counts(valPath*)("a.b.UsesT.<init>").render === "≤2^8")
 

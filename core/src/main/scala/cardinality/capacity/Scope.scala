@@ -13,8 +13,9 @@ import dev.constructive.eo.optics.Lens
 // the other supplied sources. Unresolved names are collected so a report can say *why* a size is
 // unbounded; `measured` starts a fresh record per definition.
 
-/** What a read carries besides solved names; `opened` are its package clauses, innermost first, and
-  * `slots` which slots of each generic definition solved around it are positive (`Positivity`).
+/** What a read carries besides solved names; `opened` are its package clauses, innermost first,
+  * `slots` which slots of each generic definition solved around it are positive (`Positivity`), and
+  * `templates` the templates whose bodies the read is inside that have parents (`Inheritance`).
   */
 final private[cardinality] case class World(
     definitions: Map[TypeName, Named] = Map.empty,
@@ -28,17 +29,20 @@ final private[cardinality] case class World(
     families: Families = Families(),
     session: Session = Session(),
     slots: Map[TypeName, Positivity.Slots] = Map.empty,
+    templates: List[Inheriting] = Nil,
 )
 
 /** The abstractions a body holds: open ones, the abstract type members of a class or trait template
-  * (`members`, each instance's to choose), sealed families it does not sum, and the definitions the
-  * solver left on a cycle without a count (`blocked`).
+  * (`members`, each instance's to choose), sealed families it does not sum, the definitions the
+  * solver left on a cycle without a count (`blocked`), and the type names that bind here to a
+  * declaration the estimate does not read (`refused`, each with why: an enum's class case).
   */
 final private[cardinality] case class Families(
     open: Set[TypeName] = Set.empty,
     unsummed: Map[TypeName, String] = Map.empty,
     blocked: Map[TypeName, Blocked] = Map.empty,
     members: Set[TypeName] = Set.empty,
+    refused: Map[TypeName, Definition.Unbound] = Map.empty,
 )
 
 /** Why the solver gives a definition on a cycle no count: a lazy cycle the ν completion did not
@@ -151,15 +155,22 @@ final private[cardinality] class Recursion(val named: Named, val value: Size) {
 /** One reference's collection of reasons: each definition it reads adds its reasons once, and a
   * definition on a lazy cycle is named once, whichever key or plain name it is read by.
   */
-final private[cardinality] class Taint {
+final private[cardinality] class Taint(val values: Boolean = false) {
 
   private val seen = Taint.identities()
 
   private val lazies = Taint.identities()
 
+  // What the reference read whose size is not whether it has a value, in the order met (`ValueRows`).
+  private val readings = mutable.LinkedHashSet.empty[Overcount]
+
   def visit(named: Named): Boolean = seen.add(named)
 
   def blockedOnce(named: Named): Boolean = lazies.add(named)
+
+  def read(overcount: Overcount): Unit = { readings += overcount; () }
+
+  def overcounts: List[Overcount] = readings.toList
 }
 
 private object Taint {
@@ -171,18 +182,22 @@ private object Taint {
 }
 
 /** The type members a class, trait or enum (`owner`) declares: what an instance path (`x.B`)
-  * resolves to; abstract ones are supplied by implementors. `body` builds the scope the
-  * definition's own body reads in, where a member's syntax means what it was written to mean.
+  * resolves to; abstract ones are supplied by implementors. `defn` is the definition, and `around`
+  * builds the scope it is written in — where its parent clauses read (`Inheritance`); its own body
+  * reads in `inside`, where a member's syntax means what it was written to mean.
   */
 final private[cardinality] class Members(
     val owner: TypeName,
     val params: List[TypeName],
     val declared: Map[TypeName, Type],
     val abstractMembers: Set[TypeName],
-    body: () => Scope,
+    val defn: Defn,
+    around: () => Scope,
 ) {
 
-  lazy val inside: Scope = body()
+  lazy val outside: Scope = around()
+
+  lazy val inside: Scope = Walk.bodyScope(outside, defn)(Walk.solved)
 }
 
 /** A declared type parameter and its own arity: `F[_]` has one, `F[_, _]` two, plain `A` none. */
@@ -196,13 +211,14 @@ final private[cardinality] case class Binder(name: TypeName, arity: Int) {
   * (`bindings`, subtype parameter to parent parameter), or by its solved value when it has none.
   * `standard` says, from the scope the family is read in, why the subtype is a member of some
   * instantiations only: a name its clause or fields take for the standard library's that a source
-  * binds where it is written.
+  * binds where it is written; `built`, why a module is not known to be built.
   */
 final private[cardinality] case class Child(
     name: TypeName,
     module: Boolean,
     bindings: List[(TypeName, TypeName)] = Nil,
     standard: Scope => Option[String] = _ => None,
+    built: Scope => Option[String] = _ => None,
 )
 
 final private[cardinality] class Scope(
@@ -258,15 +274,14 @@ final private[cardinality] class Scope(
     * solved yet is a reason of its own.
     */
   def binding(name: TypeName): Binding =
-    exported(name).getOrElse {
+    exported(name).orElse(Inheritance.bind(name, world.templates)).getOrElse {
       if (here(name) && !(world.imports.foreign(name) && wildcard(name).isDefined)) Binding.Here
       else
         world.imports.types
           .get(name)
           .flatMap(selected(name, _))
           .orElse(wildcard(name))
-          .orElse(world.library.frame(name, world).map(Binding.Elsewhere(_, name)))
-          .orElse(world.library.pending(name, world).map(Binding.Clause(_)))
+          .orElse(world.library.member(name, world, this))
           .getOrElse(Binding.Free)
     }
 
@@ -296,7 +311,8 @@ final private[cardinality] class Scope(
   // abstraction with no value of its own.
   private def here(name: TypeName): Boolean =
     values.contains(name) || world.definitions.contains(name) || world.members.contains(name) ||
-      world.families.open(name) || world.families.unsummed.contains(name)
+      world.families.open(name) || world.families.unsummed.contains(name) ||
+      world.families.refused.contains(name)
 
   // The first wildcard, latest first, that binds the name: a supplied namespace that defines it, or
   // one the sources do not supply, which may. Each reads its path with the wildcards before it. Two
@@ -375,8 +391,10 @@ final private[cardinality] class Scope(
       }
     }
 
-  /** The explicit clause that binds a name, if one does. */
+  /** The explicit clause that binds a term name, or a type name, if one does. */
   def clause(name: TypeName): Option[Selector] = world.imports.terms.get(name)
+
+  def typeClause(name: TypeName): Option[Selector] = world.imports.types.get(name)
 
   def library: Library = world.library
 
@@ -388,6 +406,10 @@ final private[cardinality] class Scope(
 
   /** Why a sealed family this scope does not sum is not summed, if it is one. */
   def unsummed(name: TypeName): Option[String] = world.families.unsummed.get(name)
+
+  /** Why a name that binds here to a declaration the estimate does not read is refused, if it is.
+    */
+  def refused(name: TypeName): Option[Definition.Unbound] = world.families.refused.get(name)
 
   /** Why the solver left a name on a cycle without a count, if it did. */
   def blocking(name: TypeName): Option[Blocked] = world.families.blocked.get(name)
@@ -553,10 +575,12 @@ final private[cardinality] class Scope(
           ownSet(families.open),
           own(families.unsummed),
           own(families.blocked),
-          ownSet(families.members)
+          ownSet(families.members),
+          own(families.refused)
         ),
         terms = (world.terms -- layer.imports.terms.keySet) ++ layer.terms,
         slots = own(world.slots),
+        templates = world.templates.map(_.defining(layer.types, layer.terms.keySet)),
         imports = imports.copy(foreign = imports.foreign -- layer.types -- layer.terms.keySet),
         opened = layer.opened.getOrElse(world.opened),
         binders = world.binders.filterNot(b => hidden(b.name)),
@@ -579,11 +603,18 @@ final private[cardinality] class Scope(
     * which collects the reasons of every definition it reads — a number resting on a sibling's
     * unknown name is no more bounded than the sibling.
     */
-  def measured: Scope =
+  def measured: Scope = recorded(new Taint)
+
+  /** The same for a value row, which also notes what is not known to be built (`Builds`). */
+  def measuredValue: Scope = recorded(new Taint(values = true))
+
+  def readingValue: Boolean = world.session.taint.exists(_.values)
+
+  private def recorded(taint: Taint): Scope =
     new Scope(
       values,
       mutable.LinkedHashSet.empty,
-      world.copy(session = world.session.copy(recording = true, taint = Some(new Taint))),
+      world.copy(session = world.session.copy(recording = true, taint = Some(taint))),
       outer
     )
 
@@ -604,6 +635,11 @@ final private[cardinality] class Scope(
 
   /** Records a reason directly. */
   def note(reason: Definition.Unbound): Unit = { notes += reason; () }
+
+  /** Records that the reference read a size that is not whether it has a value (`ValueRows`). */
+  def note(overcount: Overcount): Unit = world.session.taint.foreach(_.read(overcount))
+
+  def overcounts: List[Overcount] = world.session.taint.fold(Nil)(_.overcounts)
 
   /** Records a name directly, for a reason that is not a type's own syntax. */
   def note(name: String): Unit = note(Definition.Unbound.Unknown(name))
@@ -635,10 +671,13 @@ final private[cardinality] class Scope(
   // summed), the clause that binds it, or the name.
   private def nameReason(name: TypeName): Definition.Unbound = {
     def kind(in: Scope, key: TypeName): Definition.Unbound =
-      if (in.world.families.members(key)) Definition.Unbound.Member(name.value)
-      else if (in.isOpen(key)) Definition.Unbound.Open(name.value)
-      else if (in.unsummed(key).isDefined) Scope.unsummedReason(name, in.unsummed(key))
-      else Definition.Unbound.Unknown(name.value)
+      in.refused(key)
+        .getOrElse(
+          if (in.world.families.members(key)) Definition.Unbound.Member(name.value)
+          else if (in.isOpen(key)) Definition.Unbound.Open(name.value)
+          else if (in.unsummed(key).isDefined) Scope.unsummedReason(name, in.unsummed(key))
+          else Definition.Unbound.Unknown(name.value)
+        )
     binding(name) match {
       case Binding.Here               => kind(this, name)
       case Binding.Elsewhere(in, key) => kind(in, key)
@@ -698,7 +737,9 @@ private[cardinality] object Scope {
   val unsummedLens = familiesLens.andThen(lens[Families](_.unsummed))
   val blockedLens = familiesLens.andThen(lens[Families](_.blocked))
   val slotsLens = worldLens.andThen(lens[World](_.slots))
+  val templatesLens = worldLens.andThen(lens[World](_.templates))
   val membersOfLens = familiesLens.andThen(lens[Families](_.members))
+  val refusedLens = familiesLens.andThen(lens[Families](_.refused))
   val activeLens = sessionLens.andThen(lens[Session](_.active))
   val selfLens = sessionLens.andThen(lens[Session](_.self))
   val summingLens = sessionLens.andThen(lens[Session](_.summing))
@@ -710,8 +751,10 @@ private[cardinality] object Scope {
 }
 
 /** One named definition a reference can resolve: the type parameters it declares, what its type is
-  * worth with those parameters in scope, and the scope its own syntax reads in (`read`, from the
-  * scope a reader hands it) — what a match type's case body is read in.
+  * worth with those parameters in scope, the scope its own syntax reads in (`read`, from the scope
+  * a reader hands it) — what a match type's case body is read in — for an opaque alias, its
+  * definition (`OpaqueScopes`), whether an enum has a parameterless case (`constant`), and why an
+  * instance of a class or enum is not known to be built (`Construction`).
   */
 final private[cardinality] case class Named(
     params: List[TypeName],
@@ -719,10 +762,24 @@ final private[cardinality] case class Named(
     matchType: Option[Type] = None,
     children: List[Child] = Nil,
     read: Scope => Scope = identity,
+    opaque: Option[Defn.Type] = None,
+    constant: Boolean = false,
+    built: Scope => Option[String] = _ => None,
 ) {
+
+  /** Whether every instantiation has a value, whatever its arguments, read where `in` reads it: an
+    * enum's parameterless case without `extends`, or a summed family's module, built (`Builds`).
+    */
+  def witnessed(in: Scope): Boolean =
+    constant && built(in).isEmpty ||
+      children.exists(c => c.module && c.standard(in).isEmpty && c.built(in).isEmpty)
 
   /** The same definition read through `view`: how a body hands its own syntax its lexical scope. */
   def viewed(view: Scope => Scope): Named =
-    copy(equation = sc => equation(view(sc)), read = sc => read(view(sc)))
+    copy(
+      equation = sc => equation(view(sc)),
+      read = sc => read(view(sc)),
+      built = sc => built(view(sc))
+    )
 
 }

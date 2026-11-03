@@ -141,6 +141,7 @@ private[cardinality] object Walk {
         Scope.membersOfLens.modify(_ ++ bodies.flatMap(b => instanceMembers(b.stats))),
         Scope.unsummedLens.modify(_ ++ SealedFamilies.unsummed(families)),
         Scope.termsLens.modify(_ ++ views.flatMap(_._1.keyedTerms)),
+        Scope.refusedLens.modify(_ ++ views.flatMap(_._1.refusals)),
       )
     )(base)
     val site = Scope.bindersLens.get(withNames)
@@ -169,11 +170,11 @@ private[cardinality] object Walk {
         case (s, (name, members)) => Scope.membersLens.modify(_.updated(name, members))(s)
       }
     val first = solve(surroundings)
-    // An equation that reads a member of one of the body's own classes through a value (`q.X`)
-    // reads it in a second solve, against the members of the first: the first solve has no class
-    // body to read it in yet.
+    // An equation that reads a member of one of the body's own classes through a value (`q.X`),
+    // or one an object inherits from them, reads it in a second solve, against the members of the
+    // first: the first solve has no class body to read it in yet.
     val solved =
-      if (!stats.exists(declaresTypes)) first
+      if (!stats.exists(declaresTypes) && !Inheritance.fromBody(stats)) first
       else {
         lazy val provisional: Scope = holding(first, members(provisional))
         solve(holding(surroundings, members(provisional)))
@@ -303,18 +304,20 @@ private[cardinality] object Walk {
   ): List[(TypeName, Members)] =
     stats.collect {
       case d: (Defn.Class | Defn.Trait | Defn.Enum) =>
-        key(named(d)) -> members(d, key(named(d)), () => bodyScope(around(d)(), d)(solved))
+        key(named(d)) -> members(d, key(named(d)), around(d))
     }
 
   // What a definition's own body reads with: its type parameters, declared members, and term
   // names — all scoped to that body, innermost over the enclosing ones.
   private def declared(scope: Scope, d: Defn): Scope = {
-    val withBinders = Scope.bindersLens.modify(Counter.binders(d) ++ _)(scope)
+    val withBinders =
+      Scope.bindersLens
+        .modify(Counter.binders(d) ++ _)(Inheritance.enter(scope, d, terms(d).keySet))
     // An object is a namespace, not a type: its members are read through its key, not its name.
     val withMembers = d match {
       case _: Defn.Object => withBinders
       case _              =>
-        val owned = members(d, named(d), () => bodyScope(scope, d)(solved))
+        val owned = members(d, named(d), () => scope)
         Scope.membersLens.modify(_.updated(named(d), owned))(withBinders)
     }
     Scope.termsLens.modify(_ ++ terms(d))(withMembers)
@@ -332,22 +335,24 @@ private[cardinality] object Walk {
       case o: Defn.Object => moduleView(scope, o).getOrElse(solve(template(d), declared(scope, d)))
       case c: Defn.Class if Counter.isConcreteClass(c) =>
         solve(template(d), declared(own, d).updated(named(d), sizeOf(own)(d)))
-      case _: Defn.Enum => solve(template(d), own.updated(named(d), sizeOf(own)(d)))
-      case _            => solve(template(d), declared(scope, d))
+      case e: Defn.Enum =>
+        val body = EnumCompanions.bodyScope(Inheritance.enter(own, e), e)
+        solve(template(d), body.updated(named(d), sizeOf(own)(d)))
+      case _ => solve(template(d), declared(scope, d))
     }
   }
 
   // An object's body reads in its view of the enclosing body, which solved its members under
   // their keys: its rows report the values a qualified reference from outside reads.
-  private def moduleView(scope: Scope, d: Defn.Object): Option[Scope] =
+  private[capacity] def moduleView(scope: Scope, d: Defn.Object): Option[Scope] =
     scope.term(named(d)).collect {
       case Bound.Module(prefix, _) => Namespaces.Module(named(d), prefix, d).view(scope)
     }
 
   // The type members a body declares: what a qualified reference can resolve to. A member with a
   // body reads as written, in the body that declares it; an abstract one is supplied by
-  // implementors.
-  private[cardinality] def members(d: Defn, owner: TypeName, body: () => Scope): Members = {
+  // implementors. `around` is the scope the definition is written in.
+  private[cardinality] def members(d: Defn, owner: TypeName, around: () => Scope): Members = {
     val stats = template(d)
     new Members(
       owner,
@@ -356,7 +361,8 @@ private[cardinality] object Walk {
         case t: Defn.Type if !t.mods.exists(_.is[Mod.Opaque]) => TypeName.of(t.name.value) -> t.body
       }.toMap,
       stats.collect { case t: Decl.Type => TypeName.of(t.name.value) }.toSet,
-      body,
+      d,
+      around,
     )
   }
 
@@ -427,10 +433,10 @@ private[cardinality] object Walk {
     case _              => None
   }
 
-  // The members a definition's body holds; a value or an enum case declares none.
-  private def template(d: Defn): List[Stat] = templateOf(d).fold(Nil)(_.body.stats)
+  /** The members a definition's body holds; a value or an enum case declares none. */
+  private[capacity] def template(d: Defn): List[Stat] = templateOf(d).fold(Nil)(_.body.stats)
 
-  private def templateOf(d: Defn): Option[Template] = d match {
+  private[capacity] def templateOf(d: Defn): Option[Template] = d match {
     case c: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) => Some(c.templ)
     case _                                                      => None
   }
@@ -476,7 +482,9 @@ private[cardinality] object Walk {
     // An enum's cardinality is the sum over its cases, which the solver gives it; its own
     // constructor arguments are shared state.
     case d: Defn.Enum =>
-      sizedRow(scope, prefix)(d)((s, size) => s.updated(named(d), size))
+      sizedRow(scope, prefix)(d) { (s, size) =>
+        EnumCompanions.bodyScope(Inheritance.enter(s, d), d).updated(named(d), size)
+      }
     // A module (including a `case object`) is a single instance: a term, never a type, so a
     // companion's value is its own and the type keeps the name.
     case d: Defn.Object =>
@@ -487,9 +495,9 @@ private[cardinality] object Walk {
           case None       => row.inside(declared(s, d), prefix :+ named(d).value, template(d))
         }
       }
-    // An opaque type hides what it holds: outside its scope a reference is one opaque value, as
-    // the body's equation says. Its *row* reads here, where the representation is visible —
-    // `|A|` for `opaque type Direct[X, A] = A` — and it adds no inhabitants of its own either way.
+    // An opaque type's row reads its representation here, where it is visible — `|A|` for
+    // `opaque type Direct[X, A] = A` — and adds no inhabitants of its own; a reference reads the
+    // representation only where it is visible too, and is refused elsewhere (`OpaqueScopes`).
     case d: Defn.Type if Counter.isOpaqueAlias(d) =>
       measured(scope, d) { s =>
         val represented = Counter.typeIn(s)(d.body)
@@ -513,12 +521,12 @@ private[cardinality] object Walk {
       }
     // An enum case is counted by its enum; it has no body of its own.
     case _: Defn.EnumCase | _: Defn.RepeatedEnumCase => Introduced.none
-    // A top-level value is one inhabitant; inside a body it is derived state, counting nothing
-    // extra.
+    // A top-level value holds one value of its declared type, none when that type is empty (and
+    // carries the type's reasons); inside a body it is derived state, counting nothing extra.
     case d @ (_: Defn.Val | _: Defn.Var) if top =>
       measured(scope, d) { s =>
-        val size = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Value, Nil, Some(size), size)
+        val size = Counter.defnIn(s)(d)
+        introduced(prefix, d, Definition.Kind.Value, s.unbound, Some(size), size)
       }
     // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
     // exhaustive match is impossible. Every other member — nested values, methods, givens —

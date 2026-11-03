@@ -13,6 +13,9 @@ private[cardinality] object Trees {
     case None         => tree
   }
 
+  /** The trees around `tree`, innermost first. */
+  def ancestors(tree: Tree): List[Tree] = List.unfold(tree.parent)(_.map(t => t -> t.parent))
+
   /** The first answer `f` gives on the trees around `from`, innermost first. */
   @tailrec
   def innermost[A](from: Tree)(f: Tree => Option[A]): Option[A] = from.parent match {
@@ -31,6 +34,16 @@ private[cardinality] object Trees {
     */
   def declaresPackageMember(stats: List[Stat], packageObject: Boolean): Boolean =
     packageObject || stats.exists(stat => !stat.is[Pkg] && !stat.is[Pkg.Object] && !stat.is[Import])
+
+  /** The statement of a package clause's body, or of a file, that a tree is written in. */
+  def topLevelStatement(tree: Tree): Option[Tree] =
+    (tree :: ancestors(tree)).find(_.parent.exists(p => p.is[Pkg.Body] || p.is[Source]))
+
+  /** The constructor a type applies (`C` of `C[A]`), or the type itself. */
+  def callee(tpe: Type): Type = tpe match {
+    case Type.Apply.After_4_6_0(c, _) => c
+    case other                        => other
+  }
 
   /** The types a constructor's parameters declare. */
   def fields(ctor: Ctor.Primary): List[Type] =

@@ -32,16 +32,27 @@ private[cardinality] object Namespaces {
     /** The objects the body defines, under keys inside this one's. */
     lazy val nested: List[Module] = modules(stats, Some(prefix))
 
+    /** The cases of the enum the object accompanies, if it does: members of the object. */
+    private lazy val cases: EnumCompanions = EnumCompanions.of(defn)
+
+    // The term names the object binds: its body's, and its enum's cases (values not read).
+    private lazy val terms: Map[TypeName, Bound] =
+      cases.terms.map(_ -> Bound.Value(None)).toMap ++ Walk.termsOf(stats, key)
+
     /** What the body adds to the scope around it: its own types (shadowing the enclosing body's,
-      * solved under this object's keys) and its term names.
+      * solved under this object's keys) and its term names — its enum's cases among both.
       */
     lazy val layer: Layer =
-      Layer(types = Walk.typeNames(stats), terms = Walk.termsOf(stats, key), rekey = Some(key))
+      Layer(types = Walk.typeNames(stats) ++ cases.types, terms = terms, rekey = Some(key))
 
     /** The term names the body binds, under their keys: how a path through the object (`O.I.T`, or
       * `I.T` under `import O.*`) finds its nested objects and values from outside.
       */
-    def keyedTerms: Map[TypeName, Bound] = Walk.termsOf(stats, key).map((n, b) => key(n) -> b)
+    def keyedTerms: Map[TypeName, Bound] = terms.map((n, b) => key(n) -> b)
+
+    /** The class cases the object holds, under their keys, each with why it is not read. */
+    def refusals: Map[TypeName, Definition.Unbound] =
+      cases.types.map(n => key(n) -> cases.refusal(n)).toMap
 
     /** The clauses each statement of the body reads with. */
     lazy val clauses: Stat => Imports = Imports.before(stats)
@@ -49,8 +60,10 @@ private[cardinality] object Namespaces {
     // Each type the body defines, by the statement that defines it.
     private lazy val statements: Map[TypeName, Stat] = Walk.statements(stats)
 
-    /** The scope the body reads in, from a scope that holds its members under their keys. */
-    def view(scope: Scope): Scope = scope.within(layer)
+    /** The scope the body reads in, from a scope that holds its members under their keys: with what
+      * its parents pass on behind its own names (`Inheritance`).
+      */
+    def view(scope: Scope): Scope = Inheritance.enter(scope, defn).within(layer)
 
     /** A scope at one of the body's statements: with the clauses written before it. */
     def at(st: Stat)(scope: Scope): Scope = scope.within(Layer(imports = clauses(st)))
@@ -416,7 +429,7 @@ private[cardinality] object Namespaces {
     case Reason(reason: Definition.Unbound)
   }
 
-  private def target(bound: Bound, in: Scope): Target = bound match {
+  private[capacity] def target(bound: Bound, in: Scope): Target = bound match {
     case Bound.Module(prefix, exposure) => Target.Obj(prefix, in, exposure)
     case Bound.Value(declared)          => Target.Value(declared, in)
   }
@@ -454,6 +467,11 @@ private[cardinality] object Namespaces {
   }
 
   private def head(scope: Scope, first: TypeName): Target =
+    Inheritance.term(first, scope).getOrElse(unbound(scope, first))
+
+  // A first name no template around the read inherits: its innermost term binding, else what the
+  // clauses, the opened packages and the root packages bind.
+  private def unbound(scope: Scope, first: TypeName): Target =
     scope.term(first) match {
       case Some(bound) => target(bound, scope)
       case None        =>
@@ -464,7 +482,7 @@ private[cardinality] object Namespaces {
             wildcardHead(scope, first)
               .orElse(
                 scope.openedPackages.iterator
-                  .map(Target.Package(_, library).select(first))
+                  .map(packageHead(scope, _, first))
                   .find(_ != Target.Absent)
               )
               .orElse(
@@ -472,6 +490,14 @@ private[cardinality] object Namespaces {
               )
               .getOrElse(Target.Absent)
         }
+    }
+
+  // A first name a package the read's clauses open holds: an object, value or subpackage of its
+  // files, else what its export clauses and package object's parents pass on.
+  private def packageHead(scope: Scope, path: List[TypeName], first: TypeName): Target =
+    Target.Package(path, scope.library).select(first) match {
+      case Target.Absent => scope.library.head(path, first, scope).getOrElse(Target.Absent)
+      case found         => found
     }
 
   // A first name an explicit clause binds: the namespace its member is, its path read with the

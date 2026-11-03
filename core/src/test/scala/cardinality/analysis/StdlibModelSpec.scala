@@ -641,15 +641,22 @@ class StdlibModelSpec extends Specification {
           Count.Finite(1)
       )
 
-  // `Err(m: Boolean)` has 2 values whatever RuntimeException declares, and `In(b)` 2 whatever its
-  // open owner inherits; a non-final case class's method is not exempt.
+  // `Err(m: Boolean)` has 2 values whatever RuntimeException declares: its parameters are read
+  // outside its body. `In(b: Boolean)` is read inside `Outer`'s, where the unsupplied `lib.Base` may
+  // declare `type Boolean = Int` (2^32), so no number stands (it was 2 before register D29). A
+  // non-final case class's method is not exempt.
   def constructorExempt = {
     val code = "import lib.Base\nfinal class Err(m: Boolean) extends RuntimeException\n" +
       "case class K[A](a: A) extends Base { def g(x: A): A = ??? }\n" +
       "trait Outer extends Base { final case class In(b: Boolean) }"
     (count(code, "Err.<init>") === Count.Finite(2))
       .and(count(code, "K.<init>") === Count.Finite(1))
-      .and(count(code, "Outer.In.<init>") === Count.Finite(2))
+      .and(
+        refused(
+          count(code, "Outer.In.<init>"),
+          "inherited type member not resolved: Boolean (unsupplied parent Base)"
+        )
+      )
       .and(refused(count(code, "K.g"), "inherited parent declaration not supplied: lib.Base"))
   }
 

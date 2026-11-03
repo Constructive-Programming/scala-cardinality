@@ -22,7 +22,7 @@ final class Library private[cardinality] (
     private val unsolved: Set[List[TypeName]],
     private[cardinality] val synonyms: SealedFamilies.Synonyms = SealedFamilies.Synonyms.none,
     private val filled: Set[List[TypeName]] = Set.empty,
-    private val exposures: Map[List[TypeName], Exposure] = Map.empty,
+    private val packageMembers: Map[List[TypeName], PackageMembers] = Map.empty,
 ) {
 
   // Every package path the source set opens or nests inside: `a.b.c` makes `a` and `a.b` packages.
@@ -36,19 +36,45 @@ final class Library private[cardinality] (
 
   /** What a clause over the package imports of the top-level members its files define. */
   private[cardinality] def exposure(path: List[TypeName]): Exposure =
-    exposures.getOrElse(path, Exposure.none)
+    packageMembers.get(path).fold(Exposure.none)(_.exposure)
 
-  /** The package scope a bare name the read's package clauses open resolves to. */
-  private[cardinality] def frame(name: TypeName, world: World): Option[Scope] =
-    opened(world.opened).flatMap(packages.get).find(_.defines(name))
-
-  /** The reason a bare name the read's package clauses open has no value yet: a package of a cycle
-    * the library is still solving defines it.
+  /** How a bare name binds as a member of a package the read's clauses open, innermost first: a
+    * definition of its files, under its own name in the package's scope; the reason a package of a
+    * cycle the library is still solving gives; or what the package holds beyond its files' own
+    * definitions (`PackageMembers`) — an exported alias, read in the package's scope (the read's
+    * own, `reading`, while the package is being solved), or the reason it may bind the name.
     */
-  private[cardinality] def pending(name: TypeName, world: World): Option[Definition.Unbound] =
-    opened(world.opened).iterator.flatMap(pendingMember(_, name)).nextOption()
+  private[cardinality] def member(name: TypeName, world: World, reading: Scope): Option[Binding] =
+    opened(world.opened).iterator
+      .flatMap { path =>
+        packages
+          .get(path)
+          .filter(_.defines(name))
+          .map(Binding.Elsewhere(_, name))
+          .orElse(pendingMember(path, name).map(Binding.Clause(_)))
+          .orElse(
+            Option
+              .unless(declared.get(path).exists(_(name)))(packageMembers.get(path))
+              .flatten
+              .flatMap(_.bind(name, path, packages.getOrElse(path, reading)))
+          )
+      }
+      .nextOption()
 
-  /** The same for a member of one package. */
+  /** What a path's first name the package's files define no term or subpackage of names as a member
+    * of the package — through its export clauses or its package object's parents (see
+    * `PackageMembers.head`), read as `member` reads a type.
+    */
+  private[cardinality] def head(
+      path: List[TypeName],
+      first: TypeName,
+      reading: Scope
+  ): Option[Namespaces.Target] =
+    packageMembers.get(path).flatMap(_.head(first, path, packages.getOrElse(path, reading)))
+
+  /** The reason a member of one package has no value yet: a package of a cycle the library is still
+    * solving defines it.
+    */
   private[cardinality] def pendingMember(
       path: List[TypeName],
       name: TypeName
@@ -86,14 +112,7 @@ object Library {
         path
     }.toSet
     // A package object's parents and export clauses add members to its package.
-    val exposures = parts.view.mapValues { found =>
-      val stats = found.flatMap(_.stats)
-      Exposure(
-        stats,
-        found.exists(_.packageObject.exists(_.templ.inits.nonEmpty)),
-        stats.exists(_.is[Export])
-      )
-    }.toMap
+    val packageMembers = parts.view.mapValues(PackageMembers.of).toMap
     val reads = parts.map((path, found) => path -> Reads.of(path, found, parts.keySet))
     // Every alias and renaming the sources write: one may name a sealed family a subtype extends
     // through it.
@@ -101,7 +120,7 @@ object Library {
     Reads
       .components(parts.keySet.toList.sortBy(_.mkString(".")), reads)
       .foldLeft(
-        new Library(Map.empty, declared, Set.empty, synonyms, filled, exposures)
+        new Library(Map.empty, declared, Set.empty, synonyms, filled, packageMembers)
       ) { (library, component) =>
         val cyclic = component.size > 1 || component.exists(p => reads(p)(p))
         solve(parts, component, if (cyclic) component.size + 3 else 1, library)
@@ -124,7 +143,7 @@ object Library {
         component.toSet,
         done.synonyms,
         done.filled,
-        done.exposures
+        done.packageMembers
       )
     Iterator
       .iterate(start) { behind =>
@@ -138,7 +157,7 @@ object Library {
           Set.empty,
           done.synonyms,
           done.filled,
-          done.exposures
+          done.packageMembers
         )
       }
       .drop(rounds)

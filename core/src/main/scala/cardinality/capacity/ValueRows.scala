@@ -1,0 +1,199 @@
+package cardinality.capacity
+
+import scala.meta.*
+
+import cardinality.types.{Trees, TypeName}
+
+/** What a reading met whose size is not whether a value exists (`ValueRows`): a function from an
+  * empty type (the algebra's 0, though the absurd function is a value), an intersection or
+  * refinement (an upper bound, maybe over an empty type: `Int & String`), or a value that is not
+  * known to exist — a template whose construction is not read (`Builds`), a singleton type.
+  */
+private[cardinality] enum Overcount {
+  case EmptyDomain
+  case Narrowing
+  case Unread(what: String)
+}
+
+// What a top-level value holds (docs/research/pure-code.md §2, register D30): one value when its
+// declared type has one, none when that type is empty — `min(1, |T|)` read as inhabitation, not as
+// the algebra's capacity, which counts a function from an empty domain 0 (it never runs,
+// docs/type-arithmetic.md §3) though the absurd function is a value, an intersection or a
+// refinement by an upper bound, and a class by what its constructor stores, whether or not an
+// instance is ever built. A witness decides inhabitation without the rest of the type: a result
+// type with a value, an empty parameter type, a standard-library type the library gives a value of
+// whatever its arguments, an enum's parameterless case or a sealed family's module that is a member
+// of every instantiation and is built. Anything else reads the algebra (`capacity`). The
+// initializer is never read.
+private[capacity] object ValueRows {
+
+  // Inhabited (true) or empty (false); or the reasons neither is decided.
+  private type Verdict = Either[List[Definition.Unbound], Boolean]
+
+  /** What a value holds: 1, 0, or — with the reasons noted — at most 1. With no declared type, 1.
+    */
+  def value(scope: Scope)(declared: Option[Type]): Size =
+    declared.fold(UnitSize) { tpe =>
+      inhabited(scope, tpe) match {
+        case Right(true)   => UnitSize
+        case Right(false)  => NothingSize
+        case Left(reasons) =>
+          reasons.foreach(scope.note)
+          UnitSize
+      }
+    }
+
+  private def inhabited(scope: Scope, tpe: Type): Verdict = tpe match {
+    case f: Type.FunctionType => function(scope, f.paramClause.values, f.res)
+    case Type.ByName(inner)   => inhabited(scope, inner)
+    case Type.Tuple(args)     => all(args.map(arg => inhabited(scope, Counter.tupleElem(arg))))
+    case Type.ApplyInfix(l, Type.Name("*:"), r) =>
+      all(List(inhabited(scope, l), inhabited(scope, r)))
+    case Type.ApplyInfix(l, Type.Name("|"), r) =>
+      any(List(inhabited(scope, l), inhabited(scope, r)))
+    case Type.Singleton(ref) => singleton(scope, ref)
+    case _ if standard(scope, Trees.callee(tpe)) || witnessed(scope, Trees.callee(tpe)) =>
+      Right(true)
+    case _ => capacity(scope, tpe)
+  }
+
+  // A function has a value when its result type has one, or when a parameter type is empty (the
+  // absurd function); none when every parameter type has a value and the result type none.
+  private def function(scope: Scope, params: List[Type], result: Type): Verdict = {
+    val domain = params.map(p => inhabited(scope, Counter.tupleElem(p)))
+    inhabited(scope, result) match {
+      case Right(true)                                     => Right(true)
+      case _ if domain.contains(Right(false))              => Right(true)
+      case Right(false) if domain.forall(_ == Right(true)) => Right(false)
+      case codomain                                        => Left(reasons(codomain :: domain))
+    }
+  }
+
+  // A product has a value when every factor has one, and none when a factor has none.
+  private def all(factors: List[Verdict]): Verdict =
+    if (factors.contains(Right(false))) Right(false)
+    else if (factors.forall(_ == Right(true))) Right(true)
+    else Left(reasons(factors))
+
+  // A union has a value when a branch has one, and none when every branch has none.
+  private def any(branches: List[Verdict]): Verdict =
+    if (branches.contains(Right(true))) Right(true)
+    else if (branches.forall(_ == Right(false))) Right(false)
+    else Left(reasons(branches))
+
+  private def reasons(verdicts: List[Verdict]): List[Definition.Unbound] =
+    verdicts.flatMap(_.left.toOption).flatten.distinct
+
+  private def undecided(what: String): Verdict =
+    Left(List(Definition.Unbound.Refusal(s"value not decided: $what")))
+
+  // `p.type` holds the value `p` denotes, if it denotes one: an object that inherits nothing and
+  // whose body evaluates no throw is built; a standard-library object is. A value's declared type
+  // is not read here (it reads where the value is declared, which a path does not carry), so its
+  // singleton is undecided — `val n: Nothing; val sn: n.type` holds no value, not the 1 a
+  // singleton's capacity is (`ValueRowsSpec`'s `singletonValues`).
+  private def singleton(scope: Scope, ref: Term.Ref): Verdict = {
+    val written = s"${ref.syntax}.type"
+    Namespaces.path(ref).map(Namespaces.target(scope, _)) match {
+      case Some(Namespaces.Target.Obj(_, _, exposure)) if exposure.inherits =>
+        undecided(s"$written, whose object's parents are not read")
+      case Some(Namespaces.Target.Obj(_, _, exposure)) =>
+        if (Builds.throwing(exposure.stats)) undecided(s"$written, whose object's body throws")
+        else Right(true)
+      case Some(_: Namespaces.Target.Stdlib) => Right(true)
+      case Some(_: Namespaces.Target.Value)  => undecided(s"$written, a value's singleton type")
+      case _                                 => undecided(s"$written, whose path is not read")
+    }
+  }
+
+  // The algebra's reading in a record of its own: with no reason, its 0 is emptiness and any other
+  // number inhabitation — unless it read a function from an empty domain (a 0 with a value), or an
+  // intersection or refinement, or a value not known to exist (a number with maybe none).
+  private def capacity(scope: Scope, tpe: Type): Verdict = {
+    val probe = scope.measuredValue
+    val size = Counter.typeIn(probe)(tpe)
+    val read = probe.overcounts
+    if (probe.unbound.nonEmpty) Left(probe.unbound)
+    else if (size.isZero) {
+      if (read.contains(Overcount.EmptyDomain))
+        undecided(s"${tpe.syntax} holds a function from an empty type")
+      else Right(false)
+    } else
+      read
+        .collectFirst {
+          case Overcount.Narrowing    => "holds an intersection or refinement"
+          case Overcount.Unread(what) => s"holds $what"
+        }
+        .fold(Right(true): Verdict)(why => undecided(s"${tpe.syntax} $why"))
+  }
+
+  // A source definition every instantiation of which has a value (`Named.witnessed`).
+  private def witnessed(scope: Scope, callee: Type): Boolean =
+    Namespaces
+      .lookup(scope, callee)((in, key, _) => in.definition(key).map(_.witnessed(in)))
+      .contains(true)
+
+  // A standard-library type with a value the library gives for every argument, spelled where no
+  // source binds the name: through the root imports, or in full where no source namespace has the
+  // path.
+  private def standard(scope: Scope, callee: Type): Boolean = callee match {
+    case Type.Name(name) => Witnessed.named(name) && !scope.binds(TypeName.of(name))
+    case select @ Type.Select(q, Type.Name(name)) =>
+      Witnessed.qualified(select.syntax.stripPrefix("_root_.")) &&
+      Namespaces.locate(scope, q, TypeName.of(name)).isEmpty
+    case _ => false
+  }
+
+  // The standard-library types with a value for every argument, and the value: the top types
+  // (`()`, `0`, `""`), the marker traits a string or `None` extends, `BigInt(0)`, a comparison
+  // that finds every two values equal (`Ordering`, `Equiv`, `Comparable`), the throwables the root
+  // imports bind (`new Exception`, register D26), and the containers with an empty one. The method
+  // side's `StdlibModel` lists neither the top types nor `BigInt` or `Ordering`, so the spellings
+  // are kept here (an open follow-up: one table for both).
+  private object Witnessed {
+
+    private val root: Map[String, List[String]] = Map(
+      "Any" -> List("scala.Any"),
+      "AnyRef" -> List("scala.AnyRef"),
+      "AnyVal" -> List("scala.AnyVal"),
+      "Matchable" -> List("scala.Matchable"),
+      "Object" -> List("java.lang.Object"),
+      "String" -> List("java.lang.String", "scala.Predef.String"),
+      "CharSequence" -> List("java.lang.CharSequence"),
+      "Comparable" -> List("java.lang.Comparable"),
+      "Product" -> List("scala.Product"),
+      "Equals" -> List("scala.Equals"),
+      "Serializable" -> List("scala.Serializable", "java.io.Serializable"),
+      "BigInt" -> List("scala.BigInt", "scala.math.BigInt"),
+      "BigDecimal" -> List("scala.BigDecimal", "scala.math.BigDecimal"),
+      "Ordering" -> List("scala.Ordering", "scala.math.Ordering"),
+      "Equiv" -> List("scala.Equiv", "scala.math.Equiv"),
+      "Option" -> List("scala.Option"),
+      "List" -> List("scala.List", "scala.collection.immutable.List"),
+      "Seq" -> List("scala.Seq", "scala.collection.immutable.Seq"),
+      "IndexedSeq" -> List("scala.IndexedSeq", "scala.collection.immutable.IndexedSeq"),
+      "Vector" -> List("scala.Vector", "scala.collection.immutable.Vector"),
+      "Iterable" -> List(
+        "scala.Iterable",
+        "scala.collection.Iterable",
+        "scala.collection.immutable.Iterable"
+      ),
+      "Iterator" -> List("scala.Iterator", "scala.collection.Iterator"),
+      "LazyList" -> List("scala.LazyList", "scala.collection.immutable.LazyList"),
+      "Map" -> List("scala.Predef.Map", "scala.collection.immutable.Map"),
+      "Set" -> List("scala.Predef.Set", "scala.collection.immutable.Set"),
+      "Array" -> List("scala.Array"),
+      "PartialFunction" -> List("scala.PartialFunction"),
+    ) ++ BaseTypes.throwables.map((name, t) =>
+      name -> (t.fqn :: Option.when(t.scalaAlias)(s"scala.$name").toList)
+    )
+
+    private val fqns: Set[String] = root.values.flatten.toSet
+
+    def named(name: String): Boolean = root.contains(name)
+
+    def qualified(fqn: String): Boolean = fqns(fqn)
+
+  }
+
+}

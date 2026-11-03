@@ -30,7 +30,38 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   reason rather than reading an outer object `p`. A wildcard's own path resolves the same way, so
   `import x.*` inside package `p` names `p`'s object `x` before a root package `x`, and
   `import Scanner.*` names an object. There is no "the one object of that name anywhere" fallback.
-- **A bare name binds as Scala binds it.** A definition of an enclosing body, then an explicit
+- **A template body binds what its parents and self type pass on.** Inside the body of a class,
+  trait, enum or object, a bare type name or a path's first name binds the template's members —
+  inherited ones and its self type's included — before any enclosing package member, import or
+  root import (Scala 3.9.0 reads `Boolean` in `object O extends Base { case class U(b: Boolean) }`
+  as `Base`'s `type Boolean = Int`, over a package's own `Boolean` too, and `p.X` there through an
+  inherited `val p: H.type` as `H.X`). A declaration at or inside the body keeps its meaning, and
+  an enclosing class, object, method or block that declares the name too makes the reference
+  ambiguous (E049), so a valid program never asks this reading to choose there. Parents are read
+  where the `extends` clause is written, outside the body, and so are a primary constructor's
+  parameters (`class K(b: Boolean) extends Base` holds the builtin's `Boolean`). A member is read
+  in the body of the parent that declares it, through every supplied ancestor. A `private` member
+  is not inherited; a qualified-private one (`private[pa] type Boolean = Int`) is: Scala binds
+  the name to it from anywhere and rejects an access from outside `pa` (E173), so in a valid
+  program the reference is inside `pa` and reads `Int`. An abstract member is the implementing
+  instance's to choose (`member T`, as the template's own); an opaque one is outside its scope;
+  one whose parent the `extends` clause applies to type arguments is refused (`inherited type
+  member not resolved: Boolean (type arguments of BaseP)`). A parent outside the sources may
+  declare any name, so where the meaning would otherwise come from a package, an import or the
+  root imports, the name is refused with the parent named (`inherited type member not resolved:
+  Boolean (unsupplied parent zz.Base)`; a path's first name is a term, `inherited term member not
+  resolved: scala (…)`) — unless the stdlib model knows the parent declares no type member
+  (`Serializable`, `Product`, the throwables), spelled where no source binds it. A parent spelled
+  through an alias or a value is not read either (`parent BA, whose declaration is not read`,
+  `parent h.B, whose prefix is a value`). A parent's `val` and `var` parameters are members it
+  passes on (a case class's first clause too; a plain parameter is not one), read where the class
+  is written. A parent's export clauses define alias members, which are not followed: a name one may
+  define is refused (`inherited type member not resolved: Boolean (exports of B)`). This is the
+  method side's `InheritedTypeMembers` rule, with the same reasons, so a constructor slot the
+  estimate lends reads the same member; before register D29 the estimate read the builtin there
+  and the slot was refused as a disagreement.
+- **A bare name binds as Scala binds it.** A definition of an enclosing body (or a member a
+  template around it passes on, above), then an explicit
   import or export (followed), then the wildcards in scope, latest first — a supplied
   namespace (package or object) that defines it, or a namespace no source supplies, which may
   bind any name and so stops the read (`StringBuilder (may be imported by
@@ -54,7 +85,30 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   given value only. A package some file declares a member in is read as complete (the
   closed-package assumption); one the sources spell only as the prefix of a deeper package (`zz`
   for `package zz.inner`) holds its subpackages and may hold anything else, so its wildcard may
-  bind any other name.
+  bind any other name. A package also holds what its package object's parents pass on and what
+  its files' top-level export clauses define, and a read inside the package that finds the name
+  nowhere nearer binds that member over the root imports (scalac reads `lib.U(b: Boolean)` as an
+  `Int` through `package object lib extends basep.Base`, and `lib3.W`'s through `export Src.*` in
+  another file). An export over an object the package defines, in a file that imports nothing
+  before it, is followed — `export Src.*` makes `Src.Boolean` the package's `Boolean` and `Src.q`
+  its `q` (a path's first name), a renamed selector only the name it binds, a wildcard no given;
+  a name the exported object does not define is not exported, so `scala.Boolean` stays the root
+  package's. The exported object's own parents may pass on any name (`Boolean (may be exported
+  from Src, an inherited member not followed)`). A package object's parent, or any other export
+  clause, may bind any name the files do not define, so the name is refused (`Boolean (may be a
+  member of package lib, an inherited member not followed)`, `of the empty package` in a file with
+  no package clause), and so is a path's first name.
+- **An enum's companion holds the enum's cases.** `object E` beside `enum E` — or, with none
+  written, the one Scala synthesizes — is where Scala puts the cases: `import E.*`, `export E.*`
+  and a bare name inside an explicit `object E` bind them over every outer or other-file name
+  (scalac binds `A` to the case class `E.A` over a package's `type A = Unit`). The cases'
+  parameters read in the companion too, explicit or not (`case C(a: A)` is `C(E.A)`: scalac
+  builds `E.C(E.A(true))`), its parents' members included, under the case's own copy of the
+  enum's type parameters; and the enum's own body imports the cases by name (`type W = Option[A]`
+  and a body class `In(a: A)` read the case: scalac rejects `e.In(())`). A class case (`case A(i:
+  Int)`) is a type and a term, a singleton case (`case B`) a term only (`case Boolean` binds no
+  type `Boolean`). A case class is not read as a type of its own, so every name that binds one is
+  refused, as the method side refuses it: `enum case type not read: en.E.A`.
 - **Clauses bind where Scala says.** An import binds the statements after it in its block or
   template, never the ones before (`UseBare(o: Obj); import x.*; After(o: Obj)` reads two
   different `Obj`s). An export defines members of its template, so it binds the whole body: an
@@ -186,8 +240,18 @@ over another file's; `import x.*` inside package `p` binds `p.x`'s `Obj` over th
 shadows `a`'s object `x`; `val (p, n) = …` and `self: Pr =>` bind `p` and `self`; `O.M[Int]` reads
 `O.Span`; `trait Holder { type W; U(w: W) }` with `Impl` choosing `type W = Int`.
 
+Further fixtures (Scala 3.9.0, the integrated review's `probes/stored/{inh,self,inst2,inhterm,
+unsup,t3,en,en2,en3,en4,pkgobj,pkgobj2}` and `z1b/fx/{inh,chk,spec}`): an inherited alias binds over
+a package member of the same unit and the root imports, and an outer object's definition beside
+it is E049; a nested object's own definition is nearer than what its owner inherits; inherited
+`val p: H.type` and `object Inner` bind a path's first name over the package's objects; a
+primary constructor's parameter reads the builtin; `import E.*` over an explicit companion binds
+the case class and no singleton case as a type; a package object's parents and another file's
+`export Src.{Boolean as Flag}` bind inside the package.
+
 **Executable**: `NamespaceSpec` and `NamespaceScopingSpec` (positive and adversarial
-source-to-count regressions for every rule above), `ReportSpec.memberByName`,
+source-to-count regressions for every rule above), `StoredScopesSpec` (inherited members, package
+members, enum companions), `ReportSpec.memberByName`,
 `ReportSpec.crossSourceSealed`, `ReportSpec.crossSourceImported`.
 
 ## Limits (what stays `?`, and why)
@@ -206,7 +270,22 @@ source-to-count regressions for every rule above), `ReportSpec.memberByName`,
 - **A `given` selector over a supplied namespace** binds a given instance the estimate holds as a
   value (a `given x: T = …` alias); a `given x: T with { … }` instance is no term here, so a path
   through it is not refused by that selector.
-- **Enums are not namespaces here.** `Shape.Circle` stays a reason.
+- **An enum's class case is not read as a type.** `Shape.Circle`, and every name that binds it —
+  through an explicit companion, in a case's parameters, in the enum's body — says `enum case type
+  not read: p.Shape.Circle`; so does the enum, when a case holds another case. With no explicit
+  companion the enum is no namespace for a reference from outside, and a wildcard over it may bind
+  anything.
+- **Inherited members are read only where this reading can place them.** A parent applied to type
+  arguments is not read under them; a nested object's `extends` clause naming a class of the same
+  body is read in the body's second solve (`Walk.system`); a name a method parameter or a block
+  outside every template declares is refused past an unread parent where Scala would bind it (a
+  constructor slot inside a method sees its parameters).
+- **A package's members beyond its files.** An export written after an import, over anything but
+  an object the package defines by a plain name, or of a private member, is not followed; a
+  package object's parents never are.
+- **A parent's export clauses** are never followed: a name one may define is refused in the
+  subclass's body (`inherited type member not resolved: Boolean (exports of B)`), even where the
+  export would bind what the reading would have found anyway.
 - **A blocked lazy cycle with no knot.** `X(b: => X, a: X)` admits no value (the strict `a`
   demands one first), so μ = 0 is exact, but the cycle is still read as blocked.
 - **A pattern variable or an untyped self alias** is a value of no type read here: a path through

@@ -281,9 +281,12 @@ class CardinalitySpec extends Specification {
     type alias                               ${src(
       "type Flag = Boolean; case class F(f: Flag)"
     ) === BooleanSize}
-    opaque type hides cardinality           ${src(
+    opaque type is read only in its scope    ${src(
       "opaque type Id = Byte; case class User(id: Id)"
-    ) === UnitSize}
+    ) === EffectiveOmega} (a top-level class is outside: unresolved, not one value)
+    opaque type inside its scope            ${src(
+      "object Ids { opaque type Id = Boolean; case class User(id: Id) }"
+    ) === TinySize(3)} (Ids 1 + User 2)
 
   Polynomial sums (issue #12)
     either of two countable types keeps both   ${tpe(

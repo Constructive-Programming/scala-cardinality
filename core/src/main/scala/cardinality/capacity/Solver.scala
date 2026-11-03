@@ -39,11 +39,8 @@ private[cardinality] object Shapes {
   def of(stats: List[Stat], rewrite: (Defn, Type) => Type = (_, t) => t): Shapes = {
     val classes = stats.collect { case d: Defn.Class if Counter.isConcreteClass(d) => d }
     Shapes(
-      stats.collect {
-        // An opaque alias hides its body: nothing it names is a dependency outside its scope.
-        case d: Defn.Type if Counter.isOpaqueAlias(d) => Counter.nameOf(d) -> None
-        case d: Defn.Type => Counter.nameOf(d) -> Some(rewrite(d, d.body))
-      }.toMap,
+      // An opaque alias's equation reads its representation, so what that names is a dependency.
+      stats.collect { case d: Defn.Type => Counter.nameOf(d) -> Some(rewrite(d, d.body)) }.toMap,
       classes.map { d =>
         Counter.nameOf(d) -> List(stored(d.tparamClause.values, d.ctor).map(rewrite(d, _)))
       }.toMap ++ stats.collect {
