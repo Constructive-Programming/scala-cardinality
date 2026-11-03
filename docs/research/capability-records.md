@@ -100,6 +100,42 @@ anywhere else makes it a *possible view*, which carries the reason `overridable 
 the measured declaration: C.m`. The reading is by slot: members of one name are grouped by override
 identity, and each nested class, trait or object is a slot of its own.
 
+The measured declaration may be a local definition: the member whose body evaluates it is its
+view, at the same positions — a name the body binds to that very definition is a mention of it, a
+name bound again (a parameter, a pattern, a nearer definition) is not, and the definition's own
+body is the choice being counted. A local `def h` that `m` calls at its result makes `m` (and
+`other = m(true)`) a definite view, so `h(y)` reads `y` and the capture `b`: 16, as for a final
+class and as the lambda-lifted twin `h(b)(y)` reads (it read 2^32); a named argument `id(x = h(b))`
+of an eager clause is evaluated as a positional one. A lambda applied in place, a local def calling
+`h`, or an η-expansion of it is not on that list: a possible view — and so is a mention anywhere
+the reading enters loosely (a match arm, a `try`, an interpolation, a partial function, a `while`
+body: `?`, never the 2^16 of `m` left free). Constructing a class runs its constructors: `new
+C(…)`, an `extends C(…)` clause or a secondary constructor's `this(…)` may run the secondary
+constructors' bodies, the template statements and the strict initializers of every receiver level
+among C's supplied base classes, C a subclass of the receiver's own class included (`def m = { new
+Sub; true }` with `class Sub extends C`), so a member constructing one is a possible view of what
+they run (`def other = new E(()).n` with `def this(u: Unit) = { this(true); val _ = h(true) }`:
+`E.h` is `?`, not 2^8). A creator application builds a class as `new` does — `E(true)`,
+`E.apply(true)` or `p.E(true)` where E names a supplied class (a case class's companion `apply`
+or any class's constructor proxy), and `copy(…)` builds the case class it is a member of (on
+`this`, the receiver's own; on another value, one this reading does not follow). A class with a
+level outside the receiver's that runs code of its own — statements, strict initializers,
+arguments to its parents, secondary constructors — may run any member it inherits on the new
+instance, the measured one too: `new Sub().x` with `class Sub extends C { val x = h(true) }` is a
+possible view of `C.h` (3.9.0 run: an implementation of h returning other overflows). A class
+outside the sources extends no receiver level and runs none of its code; one this reading cannot
+follow (an unresolved name, an unread parent, a name a block import may rebind) may be any.
+
+A count refused only by possible views is read between two bounds (register D31): the possible
+views P bound as free capabilities give an upper reading, left out a lower one. Every
+recursion-free implementation is among the upper reading's terms, and every term of the lower
+reading is recursion-free, so lower ≤ count ≤ upper (a member of P with an empty type makes the
+upper reading vacuous, but then no implementation uses it and the count is the lower reading): an
+upper reading of 0 is the count, and so is 1 when the lower reading is 1 too. Agreeing bounds past
+1 would fix the count as well; deciding only 0 and 1 is a deliberately narrow choice, so the
+reasons stay there. A member of P whose binding is refused in the upper reading refuses the row. eo's `ComposedGetOptionLaws.getOptionInner` is 1: the record
+`CanGetOption[A, B]` has the None-returning implementation alone, with or without the law member.
+
 Each of those positions is evaluated only if the compiler inserts no code that defers it
 (`Insertions`, `ReceiverCalls`):
 
@@ -128,9 +164,14 @@ Each of those positions is evaluated only if the compiler inserts no code that d
 - A lambda returned at a declared type that is no function or context-function type — a SAM or
   another record — is observable through its other members without being applied: possible.
 - Implicit search is not syntax: `summon`, a `using` clause filled implicitly or a conversion may
-  select any given or implicit member of the receiver, or of an enclosing template. So every body
-  but a literal mentions those members, and one of them that may re-enter the declaration (`given
-  self: T = this`, `given g: Boolean = target(true)`) makes the body a possible view.
+  select any given or implicit member of the receiver, or of an enclosing template — the measured
+  declaration itself included when it is a given or implicit member, abstract or concrete. So
+  every body but a literal mentions those members, and one of them that may re-enter the
+  declaration (`given self: T = this`, `given g: Boolean = target(true)`) makes the body a
+  possible view: with `given g: Boolean` and `def other = summon[Boolean]`, other may re-enter g
+  (a 3.9.0 run overflows the stack). A body that only returns one of its parameters, declared with
+  exactly its result type, inserts no conversion and searches nothing (`def other(using b:
+  Boolean): Boolean = b`).
 - `super.m` runs whichever definition of m the instance's linearization puts after the template:
   any definition of m's slot, so a possible mention of it.
 
@@ -219,9 +260,20 @@ number of binders or parameters per clause is always another slot.
 | A member of a template only its file extends (own private constructor, private or local scope) that another template of the file defines — in its body, as a pattern binder or as a constructor parameter — or that a subclass of the file may inherit from a parent written outside it | `member of a template only its file extends may be overridden there: C.m` |
 | A view through code the compiler inserts: a by-name extension receiver, conversion or `==` overload, a context-function parameter, a SAM-converted lambda, implicit search reaching a given that may re-enter, `super.m` | `overridable member may re-enter the measured declaration: C.m` |
 
-Case classes keep their product reading, sealed families their sum, enums their cases; a case
-class with a body is still refused. Model assumption for views: a declaration outside the sources
-reaches a body only through a channel this reading sees — an unsupplied wildcard import, parent or
+Case classes keep their product reading, sealed families their sum, enums their cases. A final
+case class with more than its product — members, parents, a second clause, a constructor modifier
+— is a final class: its record is its constructor arguments, the first clause its public fields,
+a later clause hidden state (`final class field not observable injectively: C.b`), a private
+constructor the specific reason. A case class no `final` closes, with more than its product, is
+refused for what it is: `case class open to extension: NC (overridable member hit)`.
+A record's proper type parameters remember their arguments as written, as a case class's do
+(members MT1'), so a match-type field reduces on a tuple argument: `final class Miss[A](val fst:
+Fst[A])` read as `Miss[(Unit, Unit)]` has the field `Unit` (eo's `pickFoldMiss`: 1). A member's own
+type parameter of a class parameter's name is another binder there: `def out[A](a: A): Fst[(A,
+Unit)]` in `Rec[A]` reads its own A, never the argument written for the class's.
+
+Model assumption for views: a declaration outside the sources reaches a body only through a
+channel this reading sees — an unsupplied wildcard import, parent or
 self type, an import or export of the selected name, or an import of an enclosing block; an
 unsupplied *named* import of a by-name implicit conversion, and a by-name `==` overload declared in
 an unsupplied class, are assumed absent (Scala 3's own conversions are `Conversion` instances, by

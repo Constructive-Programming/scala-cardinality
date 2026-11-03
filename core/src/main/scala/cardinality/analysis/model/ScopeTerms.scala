@@ -3,7 +3,7 @@ package cardinality.analysis.model
 import scala.meta.*
 
 import cardinality.analysis.SourceIndex
-import cardinality.types.TypeApplications
+import cardinality.types.{Overrides, TypeApplications}
 
 /** The term names one scope's own statements define — every variable of a pattern definition (`val
   * (seed, z) = …`) and every extension method included — which hide an outer binding of the name
@@ -81,19 +81,13 @@ private[cardinality] object ScopeTerms {
   /** Whether a member is invisible to subclasses: `private` or `private[this]`, not `private[p]`.
     */
   def privateMember(stat: Stat): Boolean = stat match {
-    case member: Stat.WithMods => unqualifiedPrivate(member.mods)
+    case member: Stat.WithMods => Overrides.unqualifiedPrivate(member.mods)
     case _                     => false
   }
 
   def protectedMember(tree: Tree): Boolean = tree match {
     case member: Stat.WithMods => member.mods.exists(_.is[Mod.Protected])
     case _                     => false
-  }
-
-  /** Whether modifiers make a member `private` or `private[this]`. */
-  def unqualifiedPrivate(mods: List[Mod]): Boolean = mods.exists {
-    case Mod.Private(within) => within.is[Name.Anonymous] || within.is[Term.This]
-    case _                   => false
   }
 
   /** What the statements' export clauses define as terms: the names their explicit selectors spell,

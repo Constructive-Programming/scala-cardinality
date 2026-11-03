@@ -3,7 +3,12 @@ package cardinality.analysis
 import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.capability.{DeferredInline, PassedState, ReceiverCapabilities}
+import cardinality.analysis.capability.{
+  DeferredInline,
+  PassedState,
+  ReceiverCapabilities,
+  TargetViews
+}
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
@@ -16,9 +21,15 @@ import MethodAnalysis.{sequence, Entry, Frame, Resolved, Target}
 /** One signature's environment: the bindings visible from its frame, the diagnostics that make that
   * environment incomplete, and the count the two admit.
   */
-final private[cardinality] class Measurement(target: Target, resolver: Resolver) {
+final private[cardinality] class Measurement(
+    target: Target,
+    resolver: Resolver,
+    mode: TargetViews.ViewMode = TargetViews.ViewMode.Refuse
+) {
 
   private val errors = mutable.ListBuffer.empty[String]
+  // The reasons that are possible views of the declaration (capabilities C6), for `ViewSandwich`.
+  private val views = mutable.Set.empty[String]
   // Whether an import clause may rebind a builtin name.
   private var rebound = false
   private val values = mutable.LinkedHashMap.empty[String, Binding]
@@ -50,6 +61,12 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private val contexts =
     new ContextBinders(target, inferred, steps, readingContext(_, Map.empty), resolver)
 
+  /** Whether possible views (capabilities C6) are all that refused a count of this measurement. */
+  def refusedByViews(count: Count): Boolean = count match {
+    case Count.Unresolved(reasons) => reasons.nonEmpty && reasons.forall(views)
+    case _                         => false
+  }
+
   def entry(): Entry = {
     owners.foreach { owner =>
       scan(owner)
@@ -65,7 +82,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     bindParams(target.frame)
     errors ++= positions.refusals
     errors ++= resolver.inlineBodies.refusal(target)
-    hiddenReads(steps)
+    heldCaptures()
     errors ++= capabilities.construction.built.left.toOption
     val result = if (target.constructor) constructorShape() else declaredShape(inferred)
     result.left.foreach(errors += _)
@@ -92,7 +109,13 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     )
 
   private lazy val capabilities =
-    new ReceiverCapabilities(target, resolver, overrideIdentity, walked.flatMap(_.toOption))
+    new ReceiverCapabilities(
+      target,
+      resolver,
+      overrideIdentity,
+      walked.flatMap(_.toOption),
+      mode
+    )
 
   // A declaration inherited from a parent the source set defines is a slot as well: the caller
   // fills it through the subclass. Declarations travel, and so do the open concrete members the
@@ -113,7 +136,9 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       inherited(step, step.root :: ancestors(step.root.id), steps, capabilities)
     )
     capabilities.members.foreach {
-      case Left(reason)  => errors += reason
+      case Left(refusal) =>
+        errors += refusal.reason
+        if (refusal.view) views += refusal.reason
       case Right(member) =>
         val slot = member.slot.copy(concrete = true)
         member.tree match {
@@ -210,25 +235,14 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       case None => errors += s"inherited override identity not resolved: ${method.name.value}"
     }
 
-  // A final template's implementation reads the captures visible where the template is declared.
-  // One of an enclosing local owner (no `Outer.this` reaches it) that the target hides behind a
-  // nearer binding stays reachable through that member: a member that is the capture itself (`def
-  // seed: A = a1`) adds it back to the environment; any other reading of it is refused.
-  private def hiddenReads(steps: List[InheritedScopes.Step]): Unit =
-    implementations.distinct
-      .filterNot((_, tree) => DeclarationIdentity.same(tree, target.tree))
-      .foreach { (template, tree) =>
-        val members = FinalImplementations.memberNames(
-          template :: InheritedScopes.levels(steps, template)
-        )
-        val (reads, alias) = FinalImplementations.reads(tree)
-        val visible = visibleAt.getOrElse(template.id, Map.empty)
-        reads.filterNot(members).foreach { name =>
-          visible.get(name).filter(hidden(name, _)).foreach { binding =>
-            if (alias.contains(name)) qualifiedValues.update(binding.id, binding)
-            else errors += s"final implementation reads a hidden capture: $name"
-          }
-        }
+  // A capture the target cannot name that a member around it holds stays an input, or refuses the
+  // count (`HeldCaptures`).
+  private def heldCaptures(): Unit =
+    new HeldCaptures(target, steps, visibleAt.getOrElse(_, Map.empty), hidden, resolver)
+      .of(owners, implementations.toList)
+      .foreach {
+        case Left(reason)   => errors += reason
+        case Right(binding) => qualifiedValues.update(binding.id, binding)
       }
 
   private def hidden(name: String, binding: Binding): Boolean =
@@ -483,14 +497,13 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       case Left(reason)                                 => errors += reason
       case Right(Observation.Value(tpe))                => add(name, Some(tpe), slot, slot.scope)
       case Right(Observation.Applied(callable, result)) =>
-        val env = slot.env ++ callable.binders
-        val read = resolveIn(_, slot.scope, env, slot.receiver)
-        read(callable.tpe).flatMap(callable.close) match {
-          case Left(_) if MemberSyntax.buildsUnit(result, read)    => ()
-          case Left(reason)                                        => errors += reason
-          case Right(shape) if MemberSyntax.deferredInline(member) =>
+        val read = resolveIn(_, slot.scope, slot.env ++ callable.binders, slot.receiver)
+        MemberSyntax.applied(callable, result, read) match {
+          case Right(None)                                               => ()
+          case Left(reason)                                              => errors += reason
+          case Right(Some(shape)) if MemberSyntax.deferredInline(member) =>
             errors ++= DeferredInline.refusal(shape, slot.member(name), Some(target.tree), resolver)
-          case Right(shape) => bindMember(slot, name, member, shape)
+          case Right(Some(shape)) => bindMember(slot, name, member, shape)
         }
     }
 
@@ -560,7 +573,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
       bounds: List[Binding]
   ): Count = result match {
     // No receiver the declaration runs in is ever built (register D26): it is never called.
-    case _ if capabilities.construction.built == Right(false) => Count.Finite(1)
+    case _ if capabilities.neverCalled => Count.Finite(1)
     case Right(shape)
         if !target.constructor && !rebound && bounded.invalid.isEmpty &&
           TopTypes.terminalGoal(shape) =>

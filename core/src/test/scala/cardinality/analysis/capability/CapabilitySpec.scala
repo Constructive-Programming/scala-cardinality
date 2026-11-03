@@ -18,6 +18,7 @@ class CapabilitySpec extends Specification {
     The enclosing receiver (C5, C6)
       an overridable concrete sibling is a capability (B3)          $openSibling
       a final, private or inline sibling is fixed concrete code     $fixedSibling
+      a subclass may make an open step distinguish every iterate     $openSteps
       a sibling whose default re-enters the declaration is a view   $definiteView
       a re-entry under a branch or an escaping this is a reason     $possibleView
       an open class's implementation that re-enters is its view (B2) $openImplementation
@@ -91,6 +92,33 @@ class CapabilitySpec extends Specification {
     (found("T.get") === Count.Finite(2))
       .and(found("OpenEnv.pick") === Count.Countable)
       .and(found("OpenEnv.id") === Count.Finite(4))
+  }
+
+  // An open step distinguishes every iterate. step's default reads only t, but a subclass may
+  // override it: step[C](f: C => B, t: T, c: C): T is (B, T) => T by parametricity, and an
+  // override g makes t, g(b, t), g(b, g(b, t)), … pairwise distinct — place(b) is ω (OpenStep,
+  // OpenStepB, OpenPoly; FreeSib's transfer likewise). OpenStepCalls' step calls place: a definite
+  // view, so place(b) is the identity — 1. FL2.fromList is never 0 — an implementation may
+  // delegate to other — and other's binder A keeps it `?`.
+  def openSteps = {
+    val found = one("""
+      trait OpenStep[T, B] { def place(b: B): T => T; def step(t: T): T = t }
+      trait OpenStepB[T, B] { def place(b: B): T => T; def step(b: B, t: T): T = t }
+      trait OpenStepCalls[T, B] { def place(b: B): T => T; def step(b: B, t: T): T = place(b)(t) }
+      trait OpenPoly[T, B] { def place(b: B): T => T; def step[C](f: C => B, t: T, c: C): T = t }
+      trait FreeSib[T, B] { def place(b: B): T => T; def transfer[C](f: C => B): T => C => T = t => c => t }
+      trait FL2[F[_]] { def fromList[A](xs: List[A]): F[A]; def other[A](arr: Array[Any], from: Int, size: Int): F[A] = ??? }
+    """)
+    List("OpenStep", "OpenStepB", "OpenPoly", "FreeSib")
+      .map(t => found(s"$t.place") === Count.Countable)
+      .reduce(_ and _)
+      .and(found("OpenStepCalls.place") === Count.Finite(1))
+      .and(found("FL2.fromList") must beLike {
+        case Count.Unresolved(reasons) =>
+          reasons must contain(
+            "polymorphic capability binder: A (free-theorem quotient not modelled for FL2.other)"
+          )
+      })
   }
 
   // No instance replaces a final, private or inline member, nor a member of a final class: they

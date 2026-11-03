@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.{ScopeTerms, UniversalMembers}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
-import cardinality.types.Spelling
+import cardinality.types.{Overrides, Spelling}
 
 import MethodAnalysis.Frame
 
@@ -121,7 +121,7 @@ private[cardinality] object InheritedTerms {
 
   // A class parameter its subclasses inherit: a field that is not `private`.
   private def field(param: Term.Param, name: String, level: Frame): Boolean =
-    FinalImplementations.field(param, name, level) && !ScopeTerms.unqualifiedPrivate(param.mods)
+    FinalImplementations.field(param, name, level) && !Overrides.unqualifiedPrivate(param.mods)
 
   /** The values a supplied ancestor passes on that a wildcard (or, `givens`, a `given` selector)
     * over a subclass's object imports: its definitions and its fields, but private ones.

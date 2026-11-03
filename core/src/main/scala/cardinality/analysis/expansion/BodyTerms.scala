@@ -6,7 +6,7 @@ import scala.meta.*
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex}
-import cardinality.types.{ListedNamespaces, Spelling, TypeApplications}
+import cardinality.types.{ListedNamespaces, Overrides, Spelling, TypeApplications}
 
 import MethodAnalysis.Frame
 
@@ -229,7 +229,7 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
         val definitions = (template :: above).flatMap(definitionsOf(_, name))
         if (definitions.isEmpty)
           !(LibraryInlines.universal(name) || LibraryInlines.references(name))
-        else definitions.exists(overridableDefinition)
+        else definitions.exists(Overrides.overridable)
     })
 
   private def definitionsOf(level: Frame, name: String): List[Tree] =
@@ -241,18 +241,6 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
     } ++ level.params.filter(p =>
       p.name.value == name && FinalImplementations.field(p, name, level)
     )
-
-  // An object, or a class's or an enum's companion, is no member a subclass overrides.
-  private def overridableDefinition(tree: Tree): Boolean = tree match {
-    case _: (Defn.Object | Defn.Class | Defn.Trait | Defn.Enum) => false
-    case p: Term.Param                                          => open(p.mods)
-    case d: Stat.WithMods if MemberSyntax.inline(d)             => false
-    case d: Stat.WithMods                                       => open(d.mods)
-    case _                                                      => true
-  }
-
-  private def open(mods: List[Mod]): Boolean =
-    !mods.exists(_.is[Mod.Final]) && !ScopeTerms.unqualifiedPrivate(mods)
 
   /** The members of a template named `name`: its own (its parameters included), and what its
     * supplied ancestors pass on — their fields and their definitions but private ones. A parent
@@ -306,7 +294,7 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
   // A parameter a subclass inherits: a field, not private.
   private def field(level: Frame)(param: Term.Param): Boolean =
     FinalImplementations.field(param, param.name.value, level) &&
-      !ScopeTerms.unqualifiedPrivate(param.mods)
+      !Overrides.unqualifiedPrivate(param.mods)
 
   private def inherited(level: Frame, name: String): List[Meaning] =
     declared(level.copy(stats = level.stats.filterNot(ScopeTerms.privateMember)), name)

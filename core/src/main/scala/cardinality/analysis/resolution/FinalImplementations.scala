@@ -6,28 +6,28 @@ import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.SourceIndex
 import cardinality.analysis.model.{GivenNames, MemberSyntax, ScopeTerms}
 import cardinality.capacity.Counter
-import cardinality.types.TypeApplications
+import cardinality.types.{Overrides, TypeApplications}
 
 /** Inherited declarations a final template implements in its own body.
   *
   * No subclass can override a member of a final concrete class, an object or a given instance, nor
-  * a `var` of any template (E164), so where such a member implements an inherited declaration, the
-  * member *is* that concrete body, not a free capability a caller fills. The match is by name and
-  * clause shape; a parameterless declaration is also implemented by a `val` or a constructor `val`.
-  * A same-shaped overload leaves the declaration implemented by other concrete code: a concrete
-  * final template implements every inherited declaration somewhere. An `abstract final` class
-  * implements nothing by being final, and an implementation inherited from an intermediate parent
-  * is not followed here (members gate G1).
+  * a given, a `var`, or a final or inline member of any template (E164, `Overrides.overridable`),
+  * so where such a member implements an inherited declaration, the member *is* that concrete body,
+  * not a free capability a caller fills. The match is by name and clause shape; a parameterless
+  * declaration is also implemented by a `val` or a constructor `val`. A same-shaped overload leaves
+  * the declaration implemented by other concrete code: a concrete final template implements every
+  * inherited declaration somewhere. An `abstract final` class implements nothing by being final; an
+  * implementation in an intermediate parent is members gate G1's.
   */
 private[cardinality] object FinalImplementations {
 
   /** The member of a template's own body that implements an inherited declaration for every
-    * instance: any member of a final template, and a `var` of any template.
+    * instance: any member of a final template, and a fixed value (`fixedValue`) of any template.
     */
   def implementation(template: Frame, declaration: Stat): List[(String, Tree)] = {
     val closed = template.tree.exists(isFinal)
     declared(declaration).flatMap { (name, groups) =>
-      implementing(template, name, groups).filter(closed || variable(_)).map(name -> _)
+      implementing(template, name, groups).filter(closed || fixedValue(groups)(_)).map(name -> _)
     }
   }
 
@@ -40,26 +40,24 @@ private[cardinality] object FinalImplementations {
       .find(implements(_, name, groups))
       .orElse(Option.when(groups.isEmpty)(template.params.find(field(_, name, template))).flatten)
 
-  // The model reads a `var` as the value it was initialized with, and no member overrides it.
-  private def variable(member: Tree): Boolean = member match {
-    case _: Defn.Var   => true
-    case p: Term.Param => p.mods.exists(_.is[Mod.VarParam])
-    case _             => false
-  }
-
   /** The level of a final root's linearization that implements an inherited declaration, if one
     * does: a concrete member of its name and clause shape, or for a parameterless one a field or a
-    * `var` (members gate G1). An open root implements a declaration for good only by a `var`: any
-    * other member a subclass may override.
+    * `var` (members gate G1). An open root implements one for good only by a fixed value.
     */
   def implementer(root: Frame, linearization: List[Frame], declaration: Stat): Option[Frame] = {
     val nearest = linearization.find(implementedIn(_, declaration))
     if (root.tree.exists(isFinal)) nearest
     else
       nearest.filter(level =>
-        declared(declaration).exists(implementing(level, _, _).exists(variable))
+        declared(declaration)
+          .exists((name, groups) => implementing(level, name, groups).exists(fixedValue(groups)))
       )
   }
+
+  // In an open template only an exact match counts: a parameterless one. A same-shaped overload
+  // (`final def get(b: Int)` beside `get(b: Boolean)`) leaves override identity to decide.
+  private def fixedValue(groups: List[Member.ParamClauseGroup])(member: Tree): Boolean =
+    groups.isEmpty && !Overrides.overridable(member)
 
   private def implementedIn(template: Frame, declaration: Stat): Boolean =
     declared(declaration).exists { (name, groups) =>
@@ -138,7 +136,8 @@ private[cardinality] object FinalImplementations {
       case _           => false
     }
 
-  private def readNames(tree: Tree): List[String] = tree match {
+  /** The term names a tree reads; a `throw`'s operand reads nothing a result is built from. */
+  def readNames(tree: Tree): List[String] = tree match {
     case _: Term.Throw   => Nil
     case Term.Name(name) => List(name)
     case other           => other.children.flatMap(readNames)

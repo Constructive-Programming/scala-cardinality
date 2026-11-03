@@ -34,6 +34,8 @@ class InlineMethodsSpec extends Specification {
       a package's synthetic object inherits Any's members            $packageMembers
       compile-time operations in types the body writes               $compileTimeTypes
       a member that does not apply falls back to an extension        $extensionFallback
+      an extension restating the member is never taken (P2)          $restatedExtension
+      an extension on its own type parameter may answer anything     $binderExtension
       a member an argument's or a subclass's class may override      $overriddenMembers
       implicit search through extensions, context functions, eta     $searchForms
       a type test on an array reads its element type                 $arrayTests
@@ -341,6 +343,83 @@ class InlineMethodsSpec extends Specification {
       |}""".stripMargin)
     refused(found("Use.call"), "applies m, which an extension of that name may answer")
       .and(found("Use.plain") === pow2(37))
+  }
+
+  // An extension that restates the member (same parameter names and types under the receiver's
+  // base type, an invariant receiver) never answers: the member applies wherever it would — the
+  // declaration of CanGet the member implements only adds an alternative. callR is m's Int => Int
+  // at 5 — 2^32; andThen builds Getter(s => inner.get(get(s))), a final class's record S => B
+  // with S, B rigid and no other B — 1 (eo's Getter.andThen). Swapped's base Opt[A, S] gives the
+  // extension s: A against the member's S, PolyGetter's get takes its own binder, Named's names
+  // its parameter t, Hidden's is private, Q's member wants a String, CoOpt is covariant: the
+  // extension may answer — `?`.
+  def restatedExtension = {
+    val found = rows("""import scala.compiletime.summonFrom
+      |final class R { def m(x: Int): Int = 1 }
+      |object R { extension (r: R) inline def m(x: Int): Int = summonFrom { case n: Int => n; case _ => 2 } }
+      |final class Q { def m(x: String): Int = 1 }
+      |object Q { extension (q: Q) inline def m(x: Int): Int = summonFrom { case n: Int => n; case _ => 2 } }
+      |trait Opt[S, A] { def to(s: S): A }
+      |object Opt { extension [S, A](self: Opt[S, A]) inline def get(s: S): A = summonFrom { case _ => self.to(s) } }
+      |trait CanGet[S, A] { def get(s: S): A }
+      |final class Getter[S, A](read: S => A) extends Opt[S, A], CanGet[S, A] {
+      |  def to(s: S): A = read(s)
+      |  def get(s: S): A = read(s)
+      |  inline def andThen[B](inner: Getter[A, B]): Getter[S, B] = new Getter(s => inner.get(get(s)))
+      |}
+      |final class Swapped[S, A](read: S => A, back: A => S) extends Opt[A, S] {
+      |  def to(a: A): S = back(a)
+      |  def get(s: S): A = read(s)
+      |  inline def twice(inner: Swapped[S, A], s: S): A = inner.get(s)
+      |}
+      |final class PolyGetter[S, A](read: S => A) extends Opt[S, A] {
+      |  def to(s: S): A = read(s)
+      |  def get[X](s: S): A = read(s)
+      |  inline def again(p: PolyGetter[S, A], s: S): A = p.get(s)
+      |}
+      |final class Named[S, A](read: S => A) extends Opt[S, A] {
+      |  def to(s: S): A = read(s)
+      |  def get(t: S): A = read(t)
+      |  inline def call(p: Named[S, A], s: S): A = p.get(s)
+      |}
+      |final class Hidden[S, A](read: S => A) extends Opt[S, A] {
+      |  def to(s: S): A = read(s)
+      |  private def get(s: S): A = read(s)
+      |  inline def call(p: Hidden[S, A], s: S): A = p.get(s)
+      |}
+      |trait CoOpt[+S]
+      |object CoOpt { extension [S](self: CoOpt[S]) inline def get(s: S): String = summonFrom { case n: String => n; case _ => "e" } }
+      |final class CoGetter[S] extends CoOpt[S] { def get(s: S): String = "m" }
+      |object Use {
+      |  inline def callR(r: R): Int = r.m(5)
+      |  inline def callQ(q: Q): Int = q.m(5)
+      |  inline def same(q: CoGetter[Int]): String = q.get(1)
+      |}""".stripMargin)
+    (found("Use.callR") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("Getter.andThen") === Count.Finite(1))
+      .and(refused(found("Swapped.twice"), "applies get, which an extension of that name may"))
+      .and(refused(found("Use.callQ"), "applies m, which an extension of that name may answer"))
+      .and(refused(found("Use.same"), "applies get, which an extension of that name may answer"))
+      .and(
+        List("PolyGetter.again", "Named.call", "Hidden.call")
+          .map(name =>
+            refused(found(name), "applies get, which an extension of that name may answer")
+          )
+          .reduce(_ and _)
+      )
+  }
+
+  // The extension's receiver type is its own binder `Other`, not the class of that name: it applies
+  // to any value, so where C's get(s: Int) rejects an A it answers, and its inline match on B = A
+  // reveals A (3.9.0 run: U.f[Int] and U.f[String] print true and false). Refused, never 2.
+  def binderExtension = {
+    val found = rows("""import scala.compiletime.erasedValue
+      |class Other
+      |final class C { def get(s: Int): Int = s }
+      |extension [Other](x: Other)
+      |  inline def get[B](s: B): Boolean = inline erasedValue[B] match { case _: Int => true; case _ => false }
+      |object U { inline def f[A](c: C, a: A): Boolean = c.get(a) }""".stripMargin)
+    refused(found("U.f"), "applies get, which an extension of that name may answer")
   }
 
   // An unsupplied wildcard may bring a conversion the compiler inserts where a type does not

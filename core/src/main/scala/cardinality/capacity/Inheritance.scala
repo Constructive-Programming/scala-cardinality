@@ -4,10 +4,9 @@ import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.analysis.StdlibModel
-import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.analysis.resolution.InheritedTypeMembers
 import cardinality.analysis.resolution.InheritedTypeMembers.MemberKind
-import cardinality.types.{Trees, TypeName, TypeSubstitution}
+import cardinality.types.{Overrides, Trees, TypeName, TypeSubstitution}
 
 /** A template whose body a read is inside, when it has parents or a self type: the types they name,
   * the scope those are read in (`around`, outside the body), and the type and term names declared
@@ -242,17 +241,7 @@ private[capacity] object Inheritance {
   // The constructor parameters a subclass inherits as members: `val` and `var` ones, and a case
   // class's first clause — not a plain one, which is no member, nor a private one.
   private def fields(d: Defn): Map[TypeName, Bound] = {
-    val kept = d match {
-      case c: (Defn.Class | Defn.Trait) =>
-        val caseClass = c.mods.exists(_.is[Mod.Case])
-        c.ctor.paramClauses.zipWithIndex.flatMap { (clause, i) =>
-          clause.values
-            .filter(p => caseClass && i == 0 || MemberSyntax.keptParameter(p))
-            .filterNot(p => ScopeTerms.unqualifiedPrivate(p.mods))
-            .map(_.name.value)
-        }
-      case _ => Nil
-    }
+    val kept = Overrides.inheritedFields(d).map(_.name.value)
     Walk.parameters(d).filter((name, _) => kept.contains(name.value)).toMap
   }
 
@@ -276,7 +265,7 @@ private[capacity] object Inheritance {
   // binding stands (`StoredScopesSpec`'s `qualifiedPrivate`).
   private def inherited(members: Members): List[Stat] =
     Walk.template(members.defn).filterNot {
-      case member: Stat.WithMods => ScopeTerms.unqualifiedPrivate(member.mods)
+      case member: Stat.WithMods => Overrides.unqualifiedPrivate(member.mods)
       case _                     => false
     }
 

@@ -134,7 +134,7 @@ object MethodAnalysis {
 
     val operators = new TypeOperators(resolve(_, _), constructorKinds.of(_, _))
     val boundedBinders: Map[String, (Frame, Type.Param)] = indexer.boundedBinders.toMap
-    private val representations = new Representations(indexer, accessible, packageGrant)
+    private val representations = new Representations(indexer, accessible, packageGrant, this)
     private lazy val records = new CapabilityRecords(this, new OverrideIdentity(this))
 
     def analyze(): List[Entry] = indexer.targets.toList.map(measure)
@@ -506,7 +506,7 @@ object MethodAnalysis {
                 )
             else Left(s"type constructor used as a proper type: $name")
           case tree if CapabilityRecords.applies(tree) =>
-            records.resolve(name, entry, args, context.inScope(entry.owner, scope))
+            records.resolve(name, entry, arguments, context.inScope(entry.owner, scope))
           case _ =>
             val (parameters, bodies) = representations.of(entry, key, context.useSite)
             bodies.flatMap(cases =>
@@ -540,9 +540,7 @@ object MethodAnalysis {
         .applied(name, parameters)(args)
         .flatMap { replacements =>
           // Proper parameters remember their arguments as written, for a projection to reread.
-          val written = parameters.zip(applied.arguments.written).collect {
-            case (p, argument) if Kinds.of(p) == Kind.Proper => p.name.value -> argument
-          }
+          val written = applied.arguments.proper(parameters)
           val scoped =
             context.inScope(entry.owner, scope ++ replacements).written(written).enter(key)
           sequence(cases.map(fields => sequence(fields.map(scoped.read(_, this)))))
@@ -567,7 +565,8 @@ object MethodAnalysis {
     def kindOf(target: Target): String =
       if (target.constructor) "constructor" else if (target.declaration) "declaration" else "method"
 
-    private def measurement(target: Target): Entry = new Measurement(target, this).entry()
+    private def measurement(target: Target): Entry =
+      ViewSandwich.entry(new Measurement(target, this, _))
 
   }
 

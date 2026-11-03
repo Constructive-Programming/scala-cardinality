@@ -38,6 +38,22 @@ private[cardinality] object TargetViews {
     case Free, Possible, Definite
   }
 
+  /** How a measurement reads possible views (`ViewSandwich`): refused, left out (as a definite view
+    * is) or bound as free capabilities.
+    */
+  enum ViewMode {
+    case Refuse, Exclude, Include
+
+    def effective(view: View): View = (this, view) match {
+      case (Exclude, View.Possible) => View.Definite
+      case (Include, View.Possible) => View.Free
+      case _                        => view
+    }
+
+  }
+
+  val Reentry = "overridable member may re-enter the measured declaration"
+
   /** The value clauses a mention applies (`using` clauses are filled implicitly) and the argument
     * count of the first.
     */
@@ -64,6 +80,20 @@ private[cardinality] object TargetViews {
 
     /** Every slot a name may denote: members, nested templates, the measured declaration. */
     def named(name: String): Set[Int]
+
+    /** A mention of a definition local to the body, applied as given: the measured declaration's
+      * slot when the definition is the measured one, none otherwise.
+      */
+    def local(definition: Tree, applied: Applied): Option[Resolution]
+
+    /** The slots building a class may run (`Constructs`, spelled at offset `at`): the constructors,
+      * strict initializers and statements of the levels it extends, and any member its own code may
+      * call.
+      */
+    def constructed(constructs: Constructs, at: Int): Set[Int]
+
+    /** Whether a literal has the declared result type as it is, so no conversion is searched. */
+    def conforms(literal: Lit, result: Type): Boolean
 
     /** The enclosing template a bare name not of this receiver is a member of. */
     def enclosing(name: String): Option[String]
@@ -112,19 +142,32 @@ private[cardinality] object TargetViews {
       searches: Boolean
   )
 
-  /** One member's body: its tree, the names its parameters bind, and its declared result type
-    * (`None` when inferred).
+  /** One member's body: its tree, the names its parameters bind, its declared result type (`None`
+    * when inferred), and whether it can search no implicit (`settled`). A secondary constructor's
+    * tree is its block, and a template's the statements its primary constructor runs.
     */
-  final case class Body(tree: Tree, parameters: Set[String], result: Option[Type])
+  final case class Body(
+      tree: Tree,
+      parameters: Set[String],
+      result: Option[Type],
+      settled: Boolean = false
+  )
 
-  /** What a member's body (a template's, read loosely) reads of its receiver. */
+  /** What a member's body (a nested template's, read loosely) reads of its receiver. */
   def reads(body: Body, self: Self, scope: Scope): Reads = {
     val walk = new Walk(scope, self)
+    val bound = Bound(body.parameters, Map.empty)
     body.tree match {
-      case term: Term => walk.result(term, body.parameters, body.result)
-      case other      => walk.loose(other, body.parameters)
+      case term: Term         => walk.result(term, bound, body.result)
+      case block: Ctor.Block  => walk.statements(block.stats, bound)
+      case template: Template => walk.statements(template.body.stats.filter(_.is[Term]), bound)
+      case other              => walk.loose(other, bound)
     }
-    walk.reads.copy(searches = !body.tree.is[Lit])
+    val literal = body.tree match {
+      case lit: Lit => body.result.forall(scope.conforms(lit, _))
+      case _        => false
+    }
+    walk.reads.copy(searches = !literal && !body.settled)
   }
 
   /** Each node's view of the target slot, by position: a node is a concrete member or a nested
@@ -184,7 +227,7 @@ private[cardinality] object TargetViews {
     // The body as the member's result, `expected` its declared type: a lambda returned as a
     // function (or with an inferred type) is applied; one converted to a SAM or another type may
     // only be observed through other members. A block's last expression is the result.
-    def result(term: Term, bound: Set[String], expected: Option[Type]): Unit = term match {
+    def result(term: Term, bound: Bound, expected: Option[Type]): Unit = term match {
       case Term.Function.After_4_6_0(params, body) =>
         val inner = bound ++ params.values.map(_.name.value)
         functionResult(expected) match {
@@ -202,6 +245,10 @@ private[cardinality] object TargetViews {
       case other => evaluate(other, strict = typed(strict = true), bound)
     }
 
+    /** Statements run in order, as a constructor runs its body's. */
+    def statements(stats: List[Stat], bound: Bound): Unit =
+      importing { block(stats, strict = true, bound); () }
+
     // A block's imports bind only inside it.
     private def importing(body: => Unit): Unit = {
       val enclosing = imports
@@ -209,7 +256,7 @@ private[cardinality] object TargetViews {
       imports = enclosing
     }
 
-    private def evaluate(term: Tree, strict: Boolean, bound: Set[String]): Unit = term match {
+    private def evaluate(term: Tree, strict: Boolean, bound: Bound): Unit = term match {
       case name: Term.Name                    => named(name.value, Applied.bare, strict, bound)
       case here: Term.This                    => thisRef(here, bound)
       case select: Term.Select                => selection(select, Applied.bare, strict, bound)
@@ -237,8 +284,9 @@ private[cardinality] object TargetViews {
     }
 
     // A bare name: a member of this receiver, of an enclosing template, or a nested template.
-    private def named(name: String, applied: Applied, strict: Boolean, bound: Set[String]): Unit =
-      if (bound(name)) ()
+    private def named(name: String, applied: Applied, strict: Boolean, bound: Bound): Unit =
+      if (bound(name))
+        bound.definitions.get(name).flatMap(scope.local(_, applied)).foreach(record(_, strict))
       else if (self.aliases(name)) escapes = true
       else
         scope.own(name, applied) match {
@@ -253,7 +301,7 @@ private[cardinality] object TargetViews {
       possible ++= scope.named(name)
     }
 
-    private def thisRef(here: Term.This, bound: Set[String]): Unit =
+    private def thisRef(here: Term.This, bound: Bound): Unit =
       receiver(here, bound) match {
         case Some(Left(template)) => reach(template, "")
         case _                    => escapes = true
@@ -261,7 +309,7 @@ private[cardinality] object TargetViews {
 
     // `this`, the template's own `T.this` or its self alias (Right), or an enclosing template's
     // `Outer.this` (Left).
-    private def receiver(term: Term, bound: Set[String]): Option[Either[String, Unit]] =
+    private def receiver(term: Term, bound: Bound): Option[Either[String, Unit]] =
       term match {
         case Term.This(_: Name.Anonymous)                             => Some(Right(()))
         case Term.This(name) if self.template(name.value)             => Some(Right(()))
@@ -280,7 +328,7 @@ private[cardinality] object TargetViews {
         select: Term.Select,
         applied: Applied,
         strict: Boolean,
-        bound: Set[String]
+        bound: Bound
     ): Unit = {
       val name = select.name.value
       (select.qual, receiver(select.qual, bound)) match {
@@ -303,16 +351,16 @@ private[cardinality] object TargetViews {
         possible ++= scope.own(name, applied).toList.flatMap(_.slots)
       else reach(owner.value, name)
 
-    private def qualifier(qual: Term, name: String, applied: Applied, bound: Set[String]): Boolean =
+    private def qualifier(qual: Term, name: String, applied: Applied, bound: Bound): Boolean =
       !imports.open && !imports.names(name) &&
         scope.evaluatesQualifier(member(qual, bound), name, applied, qual.pos.start)
 
     // The receiver member a qualifier names, if it is one: a bare name or one selected on `this`.
-    private def member(qual: Term, bound: Set[String]): Option[String] =
+    private def member(qual: Term, bound: Bound): Option[String] =
       chain(qual, bound).collect { case List(name) => name }
 
     // The names of a selection chain rooted at a bare name or at `this`.
-    private def chain(term: Term, bound: Set[String]): Option[List[String]] = term match {
+    private def chain(term: Term, bound: Bound): Option[List[String]] = term match {
       case Term.Name(name) if !bound(name) && !self.aliases(name) => Some(List(name))
       case Term.Select(qualifier, Term.Name(name))                =>
         if (receiver(qualifier, bound).contains(Right(()))) Some(List(name))
@@ -323,7 +371,7 @@ private[cardinality] object TargetViews {
     // A call: its head is evaluated (a member applied as its clauses say); its arguments are, where
     // the callee's declaration says they are by value. A head naming a local binding or a member of
     // one has no declaration this reading looks up.
-    private def application(apply: Term.Apply, strict: Boolean, bound: Set[String]): Unit = {
+    private def application(apply: Term.Apply, strict: Boolean, bound: Bound): Unit = {
       val (head, clauses, typeArguments) = spine(apply, Nil, typeArguments = false)
       val contextual = clauses.map(_.mod.exists(_.is[Mod.Using]))
       val values = clauses.zip(contextual).collect { case (clause, false) => clause }
@@ -333,6 +381,7 @@ private[cardinality] object TargetViews {
         case select: Term.Select => selection(select, applied, strict, bound)
         case other               => evaluate(other, strict, bound)
       }
+      possible ++= creation(head, bound)
       val known = head match {
         case Term.Name(name)                      => !bound(name)
         case Term.Select(Term.Name(qualifier), _) => !bound(qualifier) && !self.aliases(qualifier)
@@ -342,8 +391,39 @@ private[cardinality] object TargetViews {
         if (known) scope.byValue(head, contextual, typeArguments)
         else List.fill(contextual.size)(false)
       clauses.zip(byValue).foreach { (clause, eager) =>
-        clause.values.foreach(evaluate(_, typed(strict && eager), bound))
+        clause.values.map(argument).foreach(evaluate(_, typed(strict && eager), bound))
       }
+    }
+
+    // A creator application builds a class as `new` does: `C(…)`, `p.C(…)` or `C.apply(…)` — a case
+    // class's companion `apply` or any class's constructor proxy, where the name is a supplied
+    // class's — and `copy(…)` builds the case class it is a member of: this receiver's own on
+    // `this`, one this reading does not follow on any other value.
+    private def creation(head: Term, bound: Bound): Set[Int] = {
+      def named(tpe: Type, name: String) =
+        Option.when(!bound(name) && !self.aliases(name) && scope.own(name, Applied.bare).isEmpty)(
+          Constructs.Named(tpe, name, imports.open || imports.names(name), creator = true)
+        )
+      (head match {
+        case Term.Name("copy") if !bound("copy")  => Some(Constructs.Own)
+        case Term.Select(qual, Term.Name("copy")) =>
+          Some(
+            if (receiver(qual, bound).contains(Right(()))) Constructs.Own
+            else Constructs.Unfollowed
+          )
+        case Term.Select(Term.Name(name), Term.Name("apply")) => named(Type.Name(name), name)
+        case Term.Name(name)                                  => named(Type.Name(name), name)
+        case Term.Select(path: Term.Ref, Term.Name(name)) if chain(path, bound).nonEmpty =>
+          named(Type.Select(path, Type.Name(name)), root(path))
+        case _ => None
+      }).fold(Set.empty[Int])(scope.constructed(_, head.pos.start))
+    }
+
+    // A named argument `p = e` is `e` in the clause it fills (every parameter of an eager clause is
+    // by value, wherever it sits); `p` names a parameter, not a value in scope.
+    private def argument(arg: Term): Term = arg match {
+      case Term.Assign(_: Term.Name, rhs) => rhs
+      case other                          => other
     }
 
     // A call's head, its argument lists, and whether it passes explicit type arguments.
@@ -362,7 +442,7 @@ private[cardinality] object TargetViews {
     // `l op r` calls `op` on `l` with `r`: `l` is evaluated as a selection's receiver is, and `r`
     // before the call only for universal equality whose by-name overloads cannot be selected. A
     // right-associative `l op: r` calls it on `r`, and `l` may be by name.
-    private def operator(infix: Infix, strict: Boolean, bound: Set[String]): Unit = {
+    private def operator(infix: Infix, strict: Boolean, bound: Bound): Unit = {
       val Infix(lhs, op, rhs) = infix
       val rightAssociative = op.endsWith(":")
       val (callee, operands) = if (rightAssociative) (rhs, List(lhs)) else (List(lhs), rhs)
@@ -380,37 +460,42 @@ private[cardinality] object TargetViews {
     // Statements in order; a lazy value or a method body is not evaluated by the block. Every local
     // definition binds its name in the whole block: Scala rejects a reference that would reach past
     // a local value to an outer one, so no name the block defines means a member anywhere in it.
-    private def block(stats: List[Stat], strict: Boolean, bound: Set[String]): Set[String] = {
-      val scope = bound ++ stats.flatMap(local)
+    private def block(stats: List[Stat], strict: Boolean, bound: Bound): Bound = {
+      val inner = bound.defining(stats.flatMap(stat => local(stat).map(_ -> stat)))
       stats.foreach {
         case v: Defn.Val =>
           val eager = strict && !v.mods.exists(_.is[Mod.Lazy])
-          evaluate(v.rhs, if (v.decltpe.isEmpty) eager else typed(eager), scope)
-        case d: Defn.Def =>
+          evaluate(v.rhs, if (v.decltpe.isEmpty) eager else typed(eager), inner)
+        // The measured declaration's own body is the choice being counted, no mention of it.
+        case d: Defn.Def if scope.local(d, Applied.bare).isEmpty =>
           evaluate(
             d.body,
             strict = false,
-            scope ++ MemberSyntax.parameterNames(d.paramClauseGroups)
+            inner ++ MemberSyntax.parameterNames(d.paramClauseGroups)
           )
-        case term: Term => evaluate(term, strict, scope)
-        case i: Import  =>
+        case _: Defn.Def => ()
+        case term: Term  => evaluate(term, strict, inner)
+        case i: Import   =>
           imports = ScopeTerms
             .imported(List(i))
             .fold(imports.copy(open = true))(names => imports.copy(names = imports.names ++ names))
-          loose(i, scope)
-        case other => loose(other, scope)
+          loose(i, inner)
+        case other => loose(other, inner)
       }
-      scope
+      inner
     }
 
     private def local(stat: Stat): List[String] =
       MemberSyntax.templateName(stat).fold(MemberSyntax.defined(stat))(List(_))
 
-    // Anything this walk does not read: every name in it a possible mention, nested templates
-    // included (`new H()` names H as a type).
-    def loose(tree: Tree, bound: Set[String]): Unit =
+    // Anything this walk does not read: every name in it a possible mention — the measured local
+    // definition's included, inside a match arm, a `try`, an interpolation or a loop as anywhere —
+    // and nested templates too (`new H()` names H as a type). A local class is read where the block
+    // defines it, its parents' construction included.
+    def loose(tree: Tree, bound: Bound): Unit =
       tree.traverse {
-        case Term.Name(name) if !bound(name) =>
+        case Term.Name(name) if bound(name) => possible ++= local(name, bound)
+        case Term.Name(name)                =>
           if (self.aliases(name)) escapes = true
           else {
             scope.own(name, Applied.bare).foreach(r => possible ++= r.slots)
@@ -418,7 +503,45 @@ private[cardinality] object TargetViews {
           }
         case Type.Name(name) => possible ++= scope.named(name)
         case here: Term.This => thisRef(here, bound)
+        case init: Init      =>
+          spelled(init.tpe) match {
+            case Some(Left(name)) if bound(name) => ()
+            case first                           =>
+              val imported = imports.open || first.exists(f => imports.names(f.merge))
+              possible ++= scope.constructed(Constructs.of(init.tpe, imported), init.pos.start)
+          }
+        case apply: Term.Apply => possible ++= creation(spine(apply, Nil, false)._1, bound)
       }
+
+    // How an initializer's class is spelled: a plain name (Left), or the first name of a path.
+    private def spelled(tpe: Type): Option[Either[String, String]] = tpe match {
+      case Type.Name(name)                   => Some(Left(name))
+      case Type.Select(path, _)              => Some(Right(root(path)))
+      case Type.Apply.After_4_6_0(callee, _) => spelled(callee)
+      case _                                 => None
+    }
+
+    @scala.annotation.tailrec
+    private def root(path: Term.Ref): String = path match {
+      case Term.Select(qualifier: Term.Ref, _) => root(qualifier)
+      case other                               => other.syntax
+    }
+
+    // The target's slot when a bound name is the measured local definition.
+    private def local(name: String, bound: Bound): Set[Int] =
+      bound.definitions.get(name).flatMap(scope.local(_, Applied.bare)).fold(Set.empty)(_.slots)
+
+  }
+
+  /** The names a body binds, a local definition's with its tree; a name bound again drops it. */
+  final case class Bound(names: Set[String], definitions: Map[String, Tree]) {
+
+    def apply(name: String): Boolean = names(name)
+
+    def ++(more: Iterable[String]): Bound = Bound(names ++ more, definitions -- more)
+
+    def defining(locals: List[(String, Tree)]): Bound =
+      Bound(names ++ locals.map(_._1), definitions ++ locals)
 
   }
 
@@ -431,8 +554,48 @@ private[cardinality] object TargetViews {
   // Operators every value has (`Any`'s and `AnyRef`'s equality), whose operand they evaluate.
   private val universal: Set[String] = Set("==", "!=", "eq", "ne")
 
+  /** The class a construction builds, as the walk spells it. */
+  enum Constructs {
+
+    /** The class of the body's own level: `this(…)`, `copy(…)` on `this`. */
+    case Own
+
+    /** A class named by `tpe`, whose simple name is `name`: `imported` when a block import around
+      * it may bind the name, `creator` for a creator application, which builds nothing unless the
+      * name is a supplied class's (it may be a method's or an object's `apply`).
+      */
+    case Named(tpe: Type, name: String, imported: Boolean, creator: Boolean)
+
+    /** A class this reading does not follow. */
+    case Unfollowed
+  }
+
+  object Constructs {
+
+    /** The class an initializer's type names. */
+    def of(tpe: Type, imported: Boolean): Constructs = tpe match {
+      case Type.Name(name)                   => Named(tpe, name, imported, creator = false)
+      case Type.Select(_, Type.Name(name))   => Named(tpe, name, imported, creator = false)
+      case Type.Apply.After_4_6_0(callee, _) => of(callee, imported)
+      case Type.Singleton(_: Term.This)      => Own
+      case _                                 => Unfollowed
+    }
+
+  }
+
   /** `Any`'s members: every value has them, so selecting one evaluates its receiver. */
   val anyMembers: Set[String] = UniversalMembers.any
+
+  /** A body returning a parameter declared with exactly its (non-contextual) result type: it
+    * conforms where it is read, so no conversion is inserted and nothing is searched.
+    */
+  def returnsParameter(d: Defn.Def): Boolean = (d.body, d.decltpe) match {
+    case (Term.Name(name), Some(result)) if !result.is[Type.ContextFunction] =>
+      MemberSyntax
+        .parameters(d.paramClauseGroups)
+        .exists(p => p.name.value == name && p.decltpe.exists(_.structure == result.structure))
+    case _ => false
+  }
 
   /** The type a lambda's body has when the lambda is returned at `expected`: `Some(None)` for an
     * inferred type, `None` when the lambda is converted to a type that is no function — a SAM or

@@ -581,7 +581,25 @@ See [stored-value families](stored-value-families.md).
 Mutual recursion between generic families, a match type over another match type's result,
 absorption by an exact 0, an instantiation's recursion through `&` that settles late, negative
 recursion, recursion through an unread constructor or a value's type member, and a match case only
-subtyping would match stay `?`, as the page's limits state.
+subtyping would match stay `?`, as the page's limits state. A case-class leaf no `final` closes is
+no closed summand when a subclass may override a member it has (its own — an extension method
+included —, a source parent's body member or `val` parameter, or one the stdlib model lists): both
+sides refuse the family (`sealed family leaf may be extended: S1 (overridable member m)`); the
+compiler's synthesized case-class members and the leaf's own fields (its first clause and `val`
+parameters, not a later clause's plain parameter) are outside the reading (an override of a field
+is another value of its type). A parameterless member fixed anywhere in the ancestry (final,
+inline, a given or a `var`; a private one is no member of a subclass) fixes its name for every
+subclass, so a final override in a parent between the leaf and the declaration closes it (scalac
+rejects overriding it again, E164); a member with parameters fixes nothing, since the member it
+overrides depends on the types its parameters resolve to (a final `d(i: Int)` leaves an inherited
+`d(s: String)` open). Every parent is read before a member is: one not read is the reason. Each parent is the
+declaration its name denotes where the clause is written: the method side resolves it as any
+parent (imports, enclosing scopes), the stored side reads a class or trait of the file the name
+denotes lexically there, or the stdlib model's parent (one table for both sides,
+`StdlibModel.leafParent`) only where no source binds the name at the clause — an imported source
+`Product` is `(parent not read: Product)`, another package's `Exception` no import brings is not the
+one a leaf extends. A non-final case class with more than its product is refused for what it is
+(`case class open to extension: NC (overridable member hit)`).
 
 ## D16. Library declarations are read from a versioned model; absent ones are reported
 
@@ -802,7 +820,22 @@ class, an object's singleton kept, any other singleton refused). Details:
 
 **Boundary.** The premise is readability: opaque types outside their scope, classes with
 non-public constructors, opaque callables with transparent results and names outside the sources
-keep their own reasons, which is where a concrete producer could matter. Exported or imported
+keep their own reasons, which is where a concrete producer could matter. The premise also needs
+the values: a capture the target cannot name (hidden by a member, an inherited member or its own
+parameter) that a member nothing overrides still holds is put back when the member is the capture
+itself (a parent's field the template can read passed exactly it, `def seed = b`) at the
+capture's own type, adds nothing when the member's type has one value (`def seed: Any = b`, a field
+of a binder the template gives `Any`: D-top), and is refused otherwise — a wider type, a field a
+nearer level overrides (the parent's constructor still read the argument: a 3.9.0 run shows a
+strict val of the parent keeping it), any other reading (`local capture held by a member that hides
+it: n`; `mk`: 16, it read 4). The same holds for a local definition around the target — a method, a
+lazy value or a given of an enclosing block, before or after the target (`def seed = b` beside
+`def target(b: Boolean)`: 16, it read 4) — and a local object or class reading the capture is
+refused (`class H { def seed = b }`, which the target may build). No subclass overrides a given (a deferred one, `= deferred`, is
+abstract: each class extending its trait supplies it) or a `var`, nor a final, inline or
+unqualified-private member (E164, `Overrides`); in an
+open template such a member implements an inherited declaration for good only when the
+declaration is parameterless (a same-shaped overload is not an implementation). Exported or imported
 terms that may hide a local capture, the names an ancestor's exports define, a foreign wildcard
 export, a
 package-level export of another file, a path through a value, an override a base class outside
@@ -880,9 +913,13 @@ exist: X6), unexposed or non-injectively exposed final fields, non-public or sco
 recursive records (the type reading's structural-proof guard) are refused with their reasons, and
 polymorphic open members are read by D24; a member's type is read at the record's arguments, its
 template's aliases included (`type T = A` is the record's argument, never the template's binder or a
-member binder that shadows it); case classes, sealed families and enums keep their own readings. A
-possible view, a record member that may be the declaration on its receiver, a view through code the
-compiler inserts, and an override identity resting on foreign or opaque declarations stay `?`. The
+member binder that shadows it), its proper parameters remembering their arguments as written so a
+match-type field reduces on a tuple argument (eo's `pickFoldMiss`: 1); case classes, sealed
+families and enums keep their own readings, except that a final case class with more than its
+product (members, parents, a later clause, a constructor modifier) is a final class's record (eo's
+`JsonPathScanner.Span`: 2^64 values). A possible view (but see D31), a record member that may be
+the declaration on its receiver, a view through code the compiler inserts, and an override
+identity resting on foreign or opaque declarations stay `?`. The
 view rule assumes no unsupplied *named* import brings a by-name implicit conversion and no
 unsupplied class overloads `==` by name; every other unsupplied channel (wildcard import, parent,
 self type, an import or export of the selected name, a block's import) refuses. Open: a by-name
@@ -1207,11 +1244,16 @@ decision, v1 §2), and every reading obeys it.
 
 `Throws` recognizes its forms by syntax and never follows a body into a callee. An object whose
 initializer throws is still one value as a singleton type, and a class a static object encloses
-is built without it. The sealed-family reading reads no leaf member: an abstract empty member of a
-family's root does not empty it, and a non-final case-class leaf is read as its fields though a
-subclass in another file may override what it inherits (a throwable's `getMessage` included) —
-both readings predate D26 and belong to D15. Open (owner): a member nothing overrides that
-implements a declaration of an empty type (`object OQ extends P { def k(x: Int): Nothing = ??? }`,
+is built without it. An inline member of a static object or of a file's top level is counted as
+in a built owner: its expansion does not build the owner (Scala 3.9.0 runs print no `K init` for
+`K.f(true)`), and the owner's own members supply nothing — an object or a file declares no slot
+and has no open member, so none is an input; a class's, a trait's or a member object's inline
+member keeps 1. A parameterless `given … with` instance is such an object (Scala 3.9.0 compiles it
+to a module, which `G.f(true)` does not initialize either). These runs were session fixtures (Scala
+3.9.0, not retained). The sealed-family reading reads no leaf member: an abstract empty member of
+a family's root does not empty it (predating D26, it belongs to D15); a non-final case-class leaf a
+subclass may extend with an override is no closed summand (D15). Open (owner): a member nothing
+overrides that implements a declaration of an empty type (`object OQ extends P { def k(x: Int): Nothing = ??? }`,
 eo's `PSVec.Empty.apply`) is code no pure program contains; its template is read as built (`OQ.f`
 4) while its parent's record has no instance (1).
 
@@ -1312,7 +1354,11 @@ by a named import of a declaration outside them, selected because a member does 
 seen (the view rule's assumption, D20); likewise a given of the sources whose class is declared
 outside them is not read as a conversion (its parents are not supplied). Which conversions and
 extensions the body may find is over-approximated, never narrowed: every scope Scala may search,
-an import matched by its last segment; aliases and export chains are followed to their end. The
+an import matched by its last segment; aliases and export chains are followed to their end. An
+extension that restates the selected member (an invariant base class receiver, the same parameter
+names and resolved types under the qualifier's final class's base type, or a receiver no base class
+of it) is never taken, since the member applies wherever it would (eo's `Getter.andThen`,
+`BijectionIso.andThen`, `Review.andThen`: 1); anything less keeps the fallback reason. The
 library table is what the check needs, not the library:
 any member outside it refuses. Untyped lambda parameters, pattern variables and most library
 results are not typed, so a selection on them refuses. A member selected on a parameter of a
@@ -1575,6 +1621,63 @@ table is a small fixed list of standard-library names (`ValueRows.Witnessed`), e
 it is witnessed by; a standard-library name a source binds is the source's. An opaque alias inside a
 template is not visible in a subclass's body; a reference rebuilt without a position (a substituted
 slot) is refused even inside the scope.
+
+## D31. A count refused only by possible views is read between two bounds
+
+**Decision.** C6's views see every way the receiver's code may run the measured declaration: a
+local definition is mentioned by the name its block binds to it (a name bound again is another
+binding, and its own body is the choice being counted), so the enclosing member whose body runs it
+at a definite position is a definite view (`C.m.h`: 16, not 2^32) — a named argument of an eager
+clause too — and one that mentions it anywhere this reading enters loosely (a match arm, a `try`,
+an interpolation, a partial function, a loop) a possible view; constructing a class (`new C(…)`,
+`extends C(…)`, a secondary constructor's `this(…)`, a creator application `C(…)` or `C.apply(…)`
+where C names a supplied class, `copy(…)`) may run the secondary constructors, template statements
+and strict initializers of every receiver level among the class's supplied base classes — a
+subclass of the receiver's own included — a possible mention of what they run; a level of the
+class outside the receiver's that runs code of its own (statements, strict initializers, parent
+arguments, secondary constructors) may run any member it inherits, the measured one too (`new
+Sub().x` with `class Sub extends C { val x = h(true) }`); a class outside the sources extends
+none; one this reading cannot follow (an unread parent, `q.copy(…)` on another value, a name a
+block import may rebind) may be any. Implicit search may select the measured declaration itself
+when it is a given or implicit member, abstract or not (`given g: Boolean` beside `def other =
+summon[Boolean]`: `?`, not 4). A body that only returns one of its parameters, declared with
+exactly its result type, searches nothing, nor does a literal of the declared result type (or of
+`Any`, `Matchable`, `AnyVal`/`AnyRef` above it); a literal at another type may be converted
+(`def other: Boolean = 5` is `conv(5)`). Where the only reasons left are possible views P, two
+more readings bound the count R of recursion-free implementations: P bound as free capabilities
+(upper) and P left out (lower). If the upper reading is 0 the count is 0; if both are 1 it is 1;
+otherwise the reasons stay.
+
+**Derivation.** Every recursion-free implementation is a term over the environment that, in every
+admissible receiver, never re-enters the declaration; reading each member of P as a free
+capability of its type admits every behavior its default or an override has, so every such term is
+among the upper reading's terms and is told apart from another no less finely: R ≤ upper. A term of
+the lower reading uses no member of P (and no definite view), so it re-enters nothing: lower ≤ R.
+Hence upper = 0 gives R = 0, and upper = 1 with lower ≥ 1 gives R = 1. One proviso: a member of P
+whose type is empty makes the upper reading vacuous (every goal has its one absurd answer), so it
+is no bound then — but no implementation can use that member either (it never returns), so R =
+lower, and both cases stand (a vacuous reading is 1, never 0). Agreeing bounds past 1 fix R as
+well once the upper reading is known not to be vacuous; the rule decides only 0 and 1 as a
+deliberately narrow choice, not because agreeing bounds could miss the count. A member of P whose
+binding the upper reading refuses refuses the row.
+
+**Evidence.**
+
+- First principles (the derivation above), over D4's recursion-free terms and D20's free
+  capabilities.
+- **Compiler fixtures** (session fixtures, Scala 3.9.0, not retained): a run overflows the stack when
+  `C.m.h` delegates to `other`, and one for `given g` read through `summon`; one with a constructor
+  re-entering its helper does not terminate; twin programs with the possible view left out (lower)
+  and bound to an arbitrary function (upper) print the two bounds.
+- **Executable**: `ReentrySpec`, `TargetViewsSpec`, `CapabilitySpec.openSteps` (an open step
+  distinguishes every iterate).
+
+**Boundary.** A lambda applied in place, a local definition calling the declaration, an
+η-expansion and a constructor run are possible views, not definite ones. The sandwich decides
+only 0 and 1 (`ReentrySpec`'s `E3.to`, with both bounds 4, stays `?` by that choice), and never
+substitutes a reachability test for a view (`Opt.to` stays `?` although every instance the sources
+declare fixes the dependent member away from the goal: the closed-world reading is unsound for an
+open class, X5). eo's `ComposedGetOptionLaws.getOptionInner` is 1.
 
 ## How to extend this register
 

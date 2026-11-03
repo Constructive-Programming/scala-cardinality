@@ -113,7 +113,18 @@ implementation in a local template may read a capture of an enclosing method tha
 behind a parameter of the same name (`def m(a1: A)` inside `mk(a1: A, …)`): no prefix names it, so
 the member is the only route to it. A member that is that capture (`def seed: A = a1`) puts it back
 in the environment (fixture `mk(1, 2).m(3)`: 3, 2 or 1 — 3 values); any other reading of it is
-refused (`final implementation reads a hidden capture: a1`).
+refused (`final implementation reads a hidden capture: a1`). The same holds for any member that
+holds a hidden capture, not only an implementation: an own alias, or a parent's constructor
+`val` the template can read and passed exactly the capture (`new F[A](a1) { override def m(a1: A):
+A = a1 }`: 3), keeps it in the environment at its own type; one typed with a single value (`def
+seed: Any = a1`) shows nothing of it and adds nothing; another reading — a wider type, a field a
+nearer level overrides — refuses (`local capture held by a member that hides it: a1`, [definition
+inventory](definition-inventory.md)). A local definition of a block around the target holds a
+capture the same way, wherever in the block it stands (a block's methods see each other): a
+method, lazy value or given that is the capture puts it back (`def seed = b` beside `def
+target(b: Boolean)`: 16, it read 4; 3.9.0 runs print the outer `b` through it), and a local
+object or class that reads it — which the target may build — is refused, unless its own member of
+the name is what it reads.
 
 Inside a template body a simple type name the template inherits from a supplied parent means that
 member before an enclosing or package-level declaration or import (fixture: with `type X = Unit` at

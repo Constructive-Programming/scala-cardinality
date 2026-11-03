@@ -70,6 +70,9 @@ private[cardinality] object TypeApplications {
 
   def name(tpe: Type): String = spelled(tpe).stripPrefix("_root_.")
 
+  /** The simple name a parent of an `extends` clause spells. */
+  def parentName(init: Init): String = name(init.tpe).takeWhile(_ != '[').split('.').last
+
   /** A constructor's name as written, a `_root_` anchor kept for lookup to read. */
   def spelled(tpe: Type): String = tpe match {
     case n: Type.Name => n.value

@@ -188,11 +188,11 @@ private[cardinality] object Walk {
   private def sites(
       bodies: List[Body],
       views: List[(Namespaces.Module, Scope => Scope)]
-  ): Stat => Scope => Scope = {
+  ): Stat => Option[Scope => Scope] = {
     val at = new java.util.IdentityHashMap[Stat, Scope => Scope]
     bodies.foreach(b => b.stats.foreach(st => at.put(st, b.viewAt(st))))
     views.foreach((m, view) => m.stats.foreach(st => at.put(st, sc => m.at(st)(view(sc)))))
-    st => Option(at.get(st)).getOrElse(identity)
+    st => Option(at.get(st))
   }
 
   // Whether a statement is a class, trait or enum whose body declares a type member.

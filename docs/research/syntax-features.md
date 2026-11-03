@@ -293,7 +293,24 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
 - An inserted extension or conversion. When no member of the selected name applies to the
   arguments, Scala tries an extension or a conversion of that name. Fixture a6 `fb`: `r.m(5)`
   takes an inline extension `m(Int)` beside the member `m(String)`, and prints 2, then 9 under a
-  call-site given. A conversion is inserted wherever an expression's type does not conform (Scala
+  call-site given. An extension that restates the member never answers, since the member applies
+  wherever it would: for `q.m(args)` with `q` of a final supplied class C, its own public member
+  m among the alternatives the selection finds (others only add ways for a member to apply), of
+  one plain value clause the call fills, every extension of the name the body may meet either
+  takes a supplied receiver class that is no base class of C, or takes an invariant base class R
+  of C — C itself or a direct parent — with each of the group's binders spelled once in the
+  receiver, no binder, default or repeated parameter of its own, and one value clause whose
+  parameter names, and whose types read with the binders bound to C's base-type arguments, are
+  the member's (by resolved identity). A receiver type headed by a type parameter — the group's
+  own, or one of a scope around it — is no class, whatever class shares its name: `extension
+  [Other](x: Other)` applies to anything, so it keeps the reason (`binderExtension`; a 3.9.0 run
+  shows its inline match reading the call's type). eo's `Getter.andThen`, `BijectionIso.andThen`
+  and `Review.andThen` are 1 (`inner.get` / `inner.reverseGet` restate `Optic`'s inline
+  extensions). A covariant receiver, swapped base arguments, a binder of the method's own, other
+  parameter names or a private member keep the reason (`InlineMethodsSpec.restatedExtension`:
+  `Swapped.twice`, `PolyGetter.again`, `Named.call`, `Hidden.call`, `Use.same`; a session
+  fixture, Scala 3.9.0, not retained, shows a result the member misses is a type error, never
+  the extension). A conversion is inserted wherever an expression's type does not conform (Scala
   3 reference, *Implicit Conversions*, classical here; not re-verified in this session). A
   conversion is read by its type, not its spelling: a given or implicit value of `scala.Conversion`
   (through an alias or a renaming import) or of a supplied class extending it, an implicit object

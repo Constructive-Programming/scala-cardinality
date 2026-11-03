@@ -80,7 +80,15 @@ member binds the name. Scala types each such term `Nothing`, and so does the ana
   scopes around it, and the imports written before it (an export binds throughout its template).
   A parent's arguments see no member, since no `this` exists yet. The measured declaration's own
   body is excluded: it is the choice being counted. A constructor row keeps its convention: it
-  reads its parameters.
+  reads its parameters. An inline member of a static object or of a file's top level is the
+  exception: it is expanded where it is called, and the expansion builds the object only where it
+  selects one of its members (3.9.0 runs: `K.f(true)` returns while `K`'s initializer throws, and
+  prints no `K init`; `b && K.z` builds `K`). So it is counted as in a built owner whose own
+  members supply nothing — an object or a file declares no slot and has no open member, so none
+  of them is an input anyway: `object K { val z: Boolean = ???; inline def f(b: Boolean): Boolean
+  = !b }` has 4 implementations of `f` (an inline given `Int` of `K`, 2^32). A class's, a trait's
+  or a member object's inline member still needs the receiver its call is made on: 1. Rows nested
+  in such an inline body follow it (register D28).
 - **A throw's operand reads nothing that a result is built from.** A final implementation that
   reads a hidden capture only to build the exception it throws is not refused. The view rule (C6)
   still sees a re-entry inside the operand, because Scala evaluates the operand before throwing.

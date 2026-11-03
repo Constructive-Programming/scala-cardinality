@@ -116,14 +116,15 @@ class EnvironmentCompletenessSpec extends Specification {
     )
 
   // `Secret.on` is the only way to a `Secret`: inside, the field is not any Boolean (its factories
-  // decide), and outside, the representation is not read.
+  // decide), and outside, the final case class is a final class's record its private constructor
+  // constrains.
   def privateConstructor = {
     val found = rows(
       "final case class Secret private (b: Boolean) { def get: Boolean = b }\n" +
         "object Secret { val on: Secret = new Secret(true) }\ndef f(): Secret = Secret.on"
     )
     refused(found("Secret.get"), "receiver fields constrained by a non-public constructor: Secret")
-      .and(refused(found("f"), "abstract type or method-valued representation: Secret"))
+      .and(refused(found("f"), "receiver fields constrained by a non-public constructor: Secret"))
   }
 
   // `g(a)` is eliminated once (capabilities C10) and the helper `M.not` adds no new function of it:
@@ -437,8 +438,11 @@ class EnvironmentCompletenessSpec extends Specification {
     (found("T.pick") === Count.Finite(2)).and(found("Open.other") === Count.Finite(2))
   }
 
-  // Inside `C`, `seed` is `C.seed`, and a local class has no path to `outer`'s parameter: `other`
-  // only (1), for `g` and for `seed` itself. `E` hides nothing: seed or other (2).
+  // Inside `C`, `seed` is `C.seed`, and a local class has no path to `outer`'s parameter — but the
+  // sibling class `E` reads it, and `C` may build one: `new E().k()` is outer's seed (3.9.0 run
+  // prints it). So `g` and `seed` read other and seed (2), which this reading refuses rather than
+  // count `other` alone (it read 1). A sibling defining its own `seed` reads nothing hidden: H's
+  // g is other (1). `E` hides nothing: seed or other (2).
   def hiddenCapture = {
     val found = rows("""object Out {
       |  def outer[X](seed: X, other: X): Int = {
@@ -446,10 +450,17 @@ class EnvironmentCompletenessSpec extends Specification {
       |    final class E { def k(): X = seed }
       |    0
       |  }
+      |  def own[X](seed: X, other: X): Int = {
+      |    final class H { def seed: X = other; def g(): X = seed }
+      |    final class F { val seed: X = other; def k(): X = seed }
+      |    0
+      |  }
       |}""".stripMargin)
-    (found("Out.outer.C.g") === Count.Finite(1))
-      .and(found("Out.outer.C.seed") === Count.Finite(1))
+    val held = "local capture held by a member that hides it: seed"
+    refused(found("Out.outer.C.g"), held)
+      .and(refused(found("Out.outer.C.seed"), held))
       .and(found("Out.outer.E.k") === Count.Finite(2))
+      .and(found("Out.own.H.g") === Count.Finite(1))
   }
 
   // `Outer.this.seed` still reaches the class parameter: other or seed (2).

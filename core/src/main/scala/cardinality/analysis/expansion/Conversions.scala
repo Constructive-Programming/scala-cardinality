@@ -36,8 +36,8 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private lazy val conversions: List[Candidate] =
     resolver.memberScopes.flatMap(scope => scope.stats.flatMap(conversion(_, scope)))
 
-  private lazy val extensions: List[(String, Frame)] =
-    resolver.memberScopes.flatMap(scope => extensionNames(scope.stats).map(_ -> scope))
+  private lazy val extensions: List[Extension] =
+    resolver.memberScopes.flatMap(scope => extensionsIn(scope.stats, scope))
 
   // Export clauses, with the scope each defines its aliases in.
   private lazy val exports: List[(Frame, List[Importer])] =
@@ -47,11 +47,14 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
 
   // The extensions an expansion would not run as one function of its values were they selected:
   // inline ones, and those that take a contextual clause.
-  private def extensionNames(stats: List[Stat]): List[String] =
+  private def extensionsIn(stats: List[Stat], scope: Frame): List[Extension] =
     stats
       .collect { case e: Defn.ExtensionGroup => e }
       .flatMap(group =>
-        ScopeTerms.extensionMethods(group).filter(contextualExtension(group, _)).map(_.name.value)
+        ScopeTerms
+          .extensionMethods(group)
+          .filter(contextualExtension(group, _))
+          .map(Extension(group, _, scope))
       )
 
   private def contextualExtension(
@@ -68,10 +71,13 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   /** The first conversion that may answer an applied selection read in `frame`. */
   def conversion(frame: Frame): Option[Candidate] = candidates(frame).nextOption()
 
-  /** Whether an extension of the name, inline or contextual, may answer a selection in `frame`. */
-  def extension(name: String, frame: Frame): Boolean =
-    extensionNames(local(frame)).contains(name) ||
-      extensions.exists((declared, scope) => declared == name && visible(scope, frame))
+  /** The extensions of the name, inline or contextual, a selection in `frame` may meet, each with
+    * the scope declaring it; unknown when one is local to a method around the body (no scope this
+    * reading resolves it in).
+    */
+  def extensionsOf(name: String, frame: Frame): Extensions =
+    if (extensionsIn(local(frame), frame).exists(_.name == name)) Extensions.Unknown
+    else Extensions.Known(extensions.filter(e => e.name == name && visible(e.scope, frame)))
 
   // The body's own conversions and those of the methods around it, then the visible ones.
   private def candidates(frame: Frame): Iterator[Candidate] =
@@ -259,4 +265,26 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
     case _            => false
   }
 
+}
+
+/** The extensions of a name a selection may meet: those known, or unknown ones. */
+private[expansion] enum Extensions {
+  case Unknown
+  case Known(extensions: List[Extension])
+
+  /** Whether some extension may answer. */
+  def any: Boolean = this match {
+    case Unknown           => true
+    case Known(extensions) => extensions.nonEmpty
+  }
+
+}
+
+/** An inline or contextual extension method, its group and the scope declaring the group. */
+final private[expansion] case class Extension(
+    group: Defn.ExtensionGroup,
+    method: Defn.Def | Decl.Def,
+    scope: Frame
+) {
+  def name: String = method.name.value
 }

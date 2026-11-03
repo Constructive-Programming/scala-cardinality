@@ -3,7 +3,7 @@ package cardinality.analysis.capability
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.analysis.model.{MemberPath, MemberSyntax, ResolutionContext}
+import cardinality.analysis.model.{Arguments, MemberPath, MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.{
   FinalImplementations,
   InheritedScopes,
@@ -42,24 +42,34 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
   import CapabilityRecords.*
 
   /** The record a source class or trait applied to `args` (as `name` spells it) is read as, at
-    * `context`'s use site.
+    * `context`'s use site. Its proper parameters remember their arguments as written, as a case
+    * class's do, so a match type over one of them reduces on a tuple argument (members MT1').
     */
-  def resolve(name: String, entry: TypeEntry, args: List[Shape], context: ResolutionContext) = {
+  def resolve(name: String, entry: TypeEntry, args: Arguments, context: ResolutionContext) = {
     val key = entry.key
     entry.self.toRight(s"abstract type or method-valued representation: $key").flatMap { template =>
       resolver.operators
-        .applied(name, template.typeParams)(args)
+        .applied(name, template.typeParams)(args.shapes)
         .flatMap { bound =>
           val env = resolver.typeParameters(template) ++ bound
-          Reading(template, env, context.enter(key), key).record
+          Reading(
+            template,
+            env,
+            args.proper(template.typeParams).toMap,
+            context.enter(key),
+            key
+          ).record
         }
     }
   }
 
-  /** One record being read: its template, the binders its arguments fix, and the use site. */
+  /** One record being read: its template, the binders its arguments fix (and those arguments as
+    * written), and the use site.
+    */
   final private case class Reading(
       template: Frame,
       env: Map[String, Resolved],
+      written: Map[String, (Type, ResolutionContext)],
       context: ResolutionContext,
       key: String
   ) {
@@ -96,7 +106,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
 
     private def observable(parameter: Term.Param): Resolved =
       fieldType(parameter).flatMap { field =>
-        if (publicField(parameter)) Right(field)
+        if (publicField(parameter, template)) Right(field)
         else
           Either.cond(
             exposures(parameter.name.value).exists(alias => observed(alias).contains(field)),
@@ -124,7 +134,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       val all = table.levels
       val closures = TemplateClosures.of(template, all)
       refusal(all, closures).toLeft(()).flatMap { _ =>
-        val open = table.open(None)
+        val open = table.open(None, TargetViews.ViewMode.Refuse).map(_.left.map(_.reason))
         val members = open.collect { case Right(c) => c.tree } ++ all.flatMap(abstracts)
         for {
           _ <- selfView(members, all).toLeft(())
@@ -196,7 +206,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     // A constructor parameter of an open class: a public field is one any instance may give any
     // value of its type; hidden state is observed by no field, but a goal still needs it built.
     private def valField(parameter: Term.Param): Resolved =
-      if (!publicField(parameter))
+      if (!publicField(parameter, template))
         Left(s"open class with hidden constructor state: $key.${parameter.name.value}")
       else fieldType(parameter)
 
@@ -275,25 +285,34 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
           case MemberSyntax.Observation.Value(tpe) =>
             read(tpe, level, envAt(level, steps)).map(Some(_))
           case MemberSyntax.Observation.Applied(callable, result) =>
-            val at = envAt(level, steps) ++ callable.binders
-            read(callable.tpe, level, at).flatMap(callable.close) match {
-              case Left(_) if MemberSyntax.buildsUnit(result, read(_, level, at)) => Right(None)
-              case other => other.map(Some(_))
-            }
+            MemberSyntax.applied(
+              callable,
+              result,
+              read(_, level, envAt(level, steps), callable.binders)
+            )
         }
 
     private def envAt(level: Frame, steps: List[InheritedScopes.Step]): Map[String, Resolved] =
       steps.find(_.declared.id == level.id).fold(env)(_.env)
 
-    // A member's type, read where its level declares it with `this` the record's template.
-    private def read(tpe: Type, level: Frame, at: Map[String, Resolved]): Resolved =
+    // A member's type, read where its level declares it with `this` the record's template. The
+    // member's own binders bind last, so an argument written for a class parameter they shadow is
+    // not reread for them.
+    private def read(
+        tpe: Type,
+        level: Frame,
+        at: Map[String, Resolved],
+        binders: Map[String, Resolved] = Map.empty
+    ): Resolved = {
+      val scoped = context.inScope(level, at)
       resolver.resolve(
         tpe,
-        context
-          .inScope(level, at)
+        (if (level.id == template.id) scoped.written(written) else scoped)
+          .bind(binders)
           .copy(observer = Some(useSite))
           .as(MemberPath.self(template, env))
       )
+    }
 
     // A field is public unless a modifier restricts it.
     private def visible(member: Tree, level: Frame): Boolean = member match {
@@ -307,14 +326,17 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
 
 private[cardinality] object CapabilityRecords {
 
-  /** A source class or trait the record reading covers: not a sealed family, an enum, a case class
-    * or a template with only type members — those have their own readings.
+  /** A source class or trait the record reading covers: not a sealed family, an enum, a template
+    * with only type members or a case class — those have their own readings — except a final case
+    * class with more than its product (members, parents, more clauses, a constructor modifier): a
+    * final class, whose record its constructor arguments are.
     */
   def applies(tree: Tree): Boolean = tree match {
     case t: Defn.Trait => !Counter.isSealed(t) && !Representations.typesOnly(t)
-    case c: Defn.Class =>
-      !Counter.isSealed(c) && !c.mods.exists(_.is[Mod.Case]) && !Representations.typesOnly(c)
-    case _ => false
+    case c: Defn.Class if c.mods.exists(_.is[Mod.Case]) =>
+      FinalImplementations.isFinal(c) && !Representations.plainCase(c)
+    case c: Defn.Class => !Counter.isSealed(c) && !Representations.typesOnly(c)
+    case _             => false
   }
 
   // A final concrete class or a value class: its constructor arguments are its whole state.
@@ -342,9 +364,10 @@ private[cardinality] object CapabilityRecords {
   }
 
   // A `var` parameter is a field holding the argument it was given, as a `val` one is: the model has
-  // no mutation.
-  private def publicField(parameter: Term.Param): Boolean =
-    MemberSyntax.keptParameter(parameter) && !parameter.mods.exists(MemberSyntax.restricted)
+  // no mutation. A case class's first clause is fields; a later one is not.
+  private def publicField(parameter: Term.Param, template: Frame): Boolean =
+    ReceiverMembers.fieldParams(template).exists(_ eq parameter) &&
+      !parameter.mods.exists(MemberSyntax.restricted)
 
   // `def m = p`, or `def m(x1, …, xn) = p(x1, …, xn)` with one clause of its own parameters.
   private def alias(member: Defn.Def, parameter: String): Boolean =

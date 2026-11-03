@@ -97,12 +97,15 @@ private[cardinality] object TypeIdentities {
     */
   def lineage(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[Lineage] =
     head(tpe, context, resolver)
-      .filter(entry => entry.tree.is[Defn.Class] || entry.tree.is[Defn.Trait])
-      .flatMap(_.self)
+      .flatMap(classFrame)
       .map { frame =>
         val (bases, complete) = resolver.baseClasses(frame)
         Lineage(frame.id, bases, complete)
       }
+
+  /** The frame of the class or trait a declaration is, if it is one. */
+  def classFrame(entry: TypeEntry): Option[MethodAnalysis.Frame] =
+    entry.self.filter(_ => entry.tree.is[Defn.Class] || entry.tree.is[Defn.Trait])
 
   // The source declaration a type's head names, where the head is a name or a path, not a binder.
   private def head(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[TypeEntry] = {

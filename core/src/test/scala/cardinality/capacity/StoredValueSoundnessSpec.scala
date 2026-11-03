@@ -213,7 +213,9 @@ class StoredValueSoundnessSpec extends Specification {
 
   // Each family has values no named subtype the estimate reads enumerates: an anonymous instance,
   // a given, a plain class any file may extend, an inner class (one per enclosing instance), an
-  // abstract subtype that is not sealed. Its users get no number (before: 1, 2, …).
+  // abstract subtype that is not sealed, a case class no `final` closes whose member (or a parent
+  // this reading cannot list) a subclass may override (more in `LeafFamiliesSpec`). Its users get
+  // no number (before: 1, 2, …); the final leaf keeps W = C's 2 + K's 1 = 3.
   def notClosed =
     (refused(
       "sealed trait W\ncase object W1 extends W\nobject Anon { val extra: W = new W {} }\nfinal case class Use(w: W)"
@@ -236,6 +238,37 @@ class StoredValueSoundnessSpec extends Specification {
           "sealed trait W\ntrait Mid extends W\ncase object K extends W\nfinal case class Use(w: W)"
         ) ===
           notSummed("W", "an abstract subtype open to extension: Mid")
+      )
+      .and(
+        refused(
+          "sealed trait W\ncase class C(x: Boolean) extends W { def m: Int = 1 }\ncase object K extends W\nfinal case class Use(w: W)"
+        ) === notSummed("W", "a subtype open to extension: C (overridable member m)")
+      )
+      .and(
+        refused(
+          "sealed trait W\ncase class C(x: Boolean) extends Exception with W\nfinal case class Use(w: W)"
+        ) === notSummed(
+          "W",
+          "a subtype open to extension: C (overridable member Exception.getCause)"
+        )
+      )
+      .and(
+        refused(
+          "package lib { trait Product { def describe: Boolean = true } }\n" +
+            "import lib.Product\nsealed trait W\ncase class C(x: Boolean) extends Product with W\n" +
+            "case object K extends W\nfinal case class Use(w: W)"
+        ) === notSummed("W", "a subtype open to extension: C (parent not read: Product)")
+      )
+      .and(
+        refused(
+          "sealed trait W extends Any\ncase class C(x: Boolean) extends AnyVal with W\n" +
+            "case object K extends W\nfinal case class Use(w: W)"
+        ) === "3"
+      )
+      .and(
+        refused(
+          "sealed trait W\nfinal case class C(x: Boolean) extends W { def m: Int = 1 }\ncase object K extends W\nfinal case class Use(w: W)"
+        ) === "3"
       )
 
   // `Fused[S, M0] extends W[S]` leaves M0 to range over every type; `IntW extends W[Int]` (and an

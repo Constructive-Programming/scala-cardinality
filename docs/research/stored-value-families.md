@@ -33,7 +33,24 @@ subtype belongs to every instantiation of `P`. The estimate checks both conditio
   extends Q`). Every such name, transitively, is searched for, in the file and in every supplied
   source, and a subtype found through one is a refusal rather than a missing summand.
 - **What each subtype contributes.** An object contributes 1. A case class, final class or enum
-  contributes its own space. A sealed intermediate contributes its own sum. A subtype reached
+  contributes its own space. A case class no `final` closes may still be extended in any file (by
+  a class that is no case class), and a subclass may override a member it has — its own, a
+  parent's of its file, or one of a parent outside the file (`Exception.getMessage`) — so its
+  values differ beyond its fields (Scala 3.9.0: a subclass of a non-final case leaf overriding
+  `getMessage` prints another message for equal fields). Such a leaf is refused: `a subtype open to
+  extension: C (overridable member m)`, or `(parent not read: P)` for a parent that is neither a
+  class or trait of the file the name denotes where the clause is written nor one the stdlib
+  model reads (one table for both sides: a root or marker type, `AnyVal` among them, opens nothing;
+  `Exception` opens on its `getCause`) — and for a library parent with nothing to override, also
+  where a source binds its name at the clause (an import of a source `Product`, a declaration of
+  the package in another file). Members the compiler synthesizes for a case class (`Product`'s,
+  `Equals`'), a restated universal member and a field of the leaf (whose override is another
+  value of its type) open nothing; an extension method of the leaf and a parent's `val` parameter
+  do. A parameterless member fixed anywhere in the ancestry fixes its name for every subclass
+  (`trait P extends GP { final override def d = 2 }` closes GP's `d`); a later clause's plain
+  parameter or a member with parameters fixes nothing. The method side reads its parents through
+  the supplied sources and the stdlib model (`sealed family leaf may be extended: C (overridable
+  member Exception.getCause)`). A sealed intermediate contributes its own sum. A subtype reached
   twice (`C extends D1 with D2`, both sealed under `D`) is refused, because its values would be
   counted twice.
 - **Instantiation.** A subtype `C[Ȳ] extends P[ā]` must bind each of its parameters to exactly

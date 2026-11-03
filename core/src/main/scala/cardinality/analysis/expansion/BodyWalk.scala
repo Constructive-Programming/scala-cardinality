@@ -43,11 +43,13 @@ final private[expansion] case class Scope(
 final private[expansion] class BodyWalk(
     terms: BodyTerms,
     inlined: Definition => Option[String],
-    fallback: (String, Frame) => Option[String],
+    fallback: (RestatedExtensions.Applied, Frame) => Option[String],
     resolver: Resolver
 ) {
 
   private val typesOf = new BodyTypes(terms, resolver, pathMeaning)
+
+  private val applyMember = RestatedExtensions.Applied("apply", None)
 
   /** The first reason a definition's body, or a default of its parameters, makes its expansions
     * differ, if any.
@@ -139,8 +141,21 @@ final private[expansion] class BodyWalk(
     case Term.Select(q, Term.Name("isInstanceOf")) =>
       qualifier(q, scope).orElse(all(found.targs)(tested(_, scope)))
     case s: Term.Select =>
-      qualifier(s.qual, scope)
-        .orElse(selected(selection(s, scope), s.name.value, found.clauses, scope))
+      qualifier(s.qual, scope).orElse {
+        val meaning = selection(s, scope)
+        val call = RestatedExtensions.Call(
+          () => receiver(s.qual, scope),
+          meaning,
+          found.args.size,
+          found.clauses
+        )
+        selected(
+          meaning,
+          RestatedExtensions.Applied(s.name.value, Some(call)),
+          found.clauses,
+          scope
+        )
+      }
     case n: Term.Name =>
       val named = meaning(n, scope)
       check(named, found.clauses, scope).orElse(reifies(named, found.targs, scope))
@@ -174,7 +189,7 @@ final private[expansion] class BodyWalk(
         op.receiver.fold(Some(s"applies ${op.name} to no operand")) { operand =>
           selected(
             terms.selectOn(receiver(operand, scope), op.name),
-            op.name,
+            RestatedExtensions.Applied(op.name, None),
             if (op.infix) false :: clauses else clauses,
             scope
           )
@@ -185,12 +200,12 @@ final private[expansion] class BodyWalk(
   // extension or a conversion of the name, which the sources may declare (`fallback`).
   private def selected(
       meaning: Meaning,
-      name: String,
+      applied: RestatedExtensions.Applied,
       clauses: List[Boolean],
       scope: Scope
   ): Option[String] =
     check(meaning, clauses, scope).orElse(
-      Option.when(clauses.nonEmpty)(name).flatMap(fallback(_, scope.frame))
+      Option.when(clauses.nonEmpty)(applied).flatMap(fallback(_, scope.frame))
     )
 
   // A qualifier is evaluated, so its own calls are checked; a path is only resolved.
@@ -210,9 +225,9 @@ final private[expansion] class BodyWalk(
       case Meaning.Methods(definitions)   => all(definitions)(definition(_, clauses, scope))
       case Meaning.Call(_, result, arity) => further(result, clauses.drop(arity), scope)
       case Meaning.Value(_, _, _) | Meaning.Instance(_) if clauses.nonEmpty =>
-        selected(applyOf(value(meaning)), "apply", clauses, scope)
+        selected(applyOf(value(meaning)), applyMember, clauses, scope)
       case Meaning.Module(_) if clauses.nonEmpty =>
-        selected(guarded(terms.select(meaning, "apply")), "apply", clauses, scope)
+        selected(guarded(terms.select(meaning, "apply")), applyMember, clauses, scope)
       case Meaning.Library(module) if clauses.nonEmpty =>
         if (LibraryInlines.module(module).exists(_("apply")))
           check(terms.select(meaning, "apply"), clauses, scope)
@@ -231,7 +246,7 @@ final private[expansion] class BodyWalk(
   // g: Fn` is `Obj.g.apply(x)`, and Fn's inline apply is expanded at each call site (fixture
   // review-A6 r2 m1).
   private def further(result: Receiver, clauses: List[Boolean], scope: Scope): Option[String] =
-    Option.when(clauses.nonEmpty)(selected(applyOf(result), "apply", clauses, scope)).flatten
+    Option.when(clauses.nonEmpty)(selected(applyOf(result), applyMember, clauses, scope)).flatten
 
   private def applyOf(receiver: Receiver): Meaning = guarded(terms.selectOn(receiver, "apply"))
 
@@ -253,7 +268,7 @@ final private[expansion] class BodyWalk(
       scope: Scope
   ): Option[String] =
     if (clauses.headOption.contains(true) && typesOf.topContext(tpe))
-      selected(applyOf(terms.receiverOf(value)), "apply", clauses, scope)
+      selected(applyOf(terms.receiverOf(value)), applyMember, clauses, scope)
     else
       Some(
         s"reads ${value.phrase}, of the context function type ${Spelling.of(tpe)}, which implicit " +

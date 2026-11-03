@@ -120,6 +120,18 @@ private[cardinality] object MemberSyntax {
   def keptParameter(parameter: Term.Param): Boolean =
     parameter.mods.exists(m => m.is[Mod.ValParam] || m.is[Mod.VarParam])
 
+  /** The constructor parameters of a class or trait that are members: `val`/`var` ones, and a case
+    * class's first clause.
+    */
+  def fieldParams(declaration: Tree): List[Term.Param] = declaration match {
+    case c: Defn.Class =>
+      val clauses = c.ctor.paramClauses.toList.map(_.values)
+      val caseFields = if (c.mods.exists(_.is[Mod.Case])) clauses.take(1).flatten else Nil
+      clauses.flatten.filter(p => keptParameter(p) || caseFields.exists(_ eq p))
+    case t: Defn.Trait => t.ctor.paramClauses.toList.flatMap(_.values).filter(keptParameter)
+    case _             => Nil
+  }
+
   /** A repeated (`A*`) parameter. */
   def repeated(parameter: Term.Param): Boolean = parameter.decltpe.exists(_.is[Type.Repeated])
 
@@ -176,6 +188,19 @@ private[cardinality] object MemberSyntax {
     */
   def buildsUnit(result: Type, read: Type => Resolved): Boolean =
     read(lastResult(result)) == Right(Inhabitation.Shape.Product(Nil))
+
+  /** What an applied member observes, its types read by `read`: its callable, or nothing when it
+    * only ever builds Unit (its parameter types then need no reading).
+    */
+  def applied(
+      callable: Callable,
+      result: Type,
+      read: Type => Resolved
+  ): Either[String, Option[Inhabitation.Shape]] =
+    read(callable.tpe).flatMap(callable.close) match {
+      case Left(_) if buildsUnit(result, read) => Right(None)
+      case other                               => other.map(Some(_))
+    }
 
   /** The modifiers of a method or a given alias, the definitions that may be `inline`. */
   def methodModifiers(tree: Tree): List[Mod] = tree match {

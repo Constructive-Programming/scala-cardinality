@@ -209,9 +209,9 @@ final private[cardinality] case class Binder(name: TypeName, arity: Int) {
 /** A sealed parent's subtype, under the key its system solves it by: a module counts its one value;
   * any other is read with each of its parameters bound to the parent parameter its slot binds
   * (`bindings`, subtype parameter to parent parameter), or by its solved value when it has none.
-  * `standard` says, from the scope the family is read in, why the subtype is a member of some
-  * instantiations only: a name its clause or fields take for the standard library's that a source
-  * binds where it is written; `built`, why a module is not known to be built.
+  * `standard` gives, from the scope the family is read in, why it is not summed there: a name the
+  * subtype's clause, fields or closedness take for the standard library's that a source binds;
+  * `built`, why a module is not known to be built.
   */
 final private[cardinality] case class Child(
     name: TypeName,

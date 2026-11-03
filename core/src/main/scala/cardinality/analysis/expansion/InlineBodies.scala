@@ -31,6 +31,7 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
   private val terms = new BodyTerms(resolver)
   private val conversions = new Conversions(resolver, terms)
   private val walk = new BodyWalk(terms, verdict, fallback, resolver)
+  private val restated = new RestatedExtensions(terms, resolver)
 
   // Verdicts by definition. A call back into a definition still being read (a cycle of inline
   // calls) adds nothing the walk does not reach anyway, so it passes for now; the cycle is one
@@ -148,20 +149,24 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
 
   /** Why an applied selection of `name` read in `frame` may run code the member reading did not
     * resolve: Scala tries an extension or a conversion when no member of the name accepts the
-    * arguments, which this reading does not type.
+    * arguments, which this reading does not type — unless every extension restates the member
+    * (`RestatedExtensions`).
     */
-  private def fallback(name: String, frame: Frame): Option[String] =
+  private def fallback(applied: RestatedExtensions.Applied, frame: Frame): Option[String] = {
+    val name = applied.name
     conversions
       .conversion(frame)
       .map(c =>
         s"applies $name, whose arguments this reading does not type: if no member accepts them, " +
           s"the implicit conversion ${c.label} may answer"
       )
-      .orElse(
-        Option.when(conversions.extension(name, frame))(
+      .orElse {
+        val extensions = conversions.extensionsOf(name, frame)
+        Option.when(extensions.any && !applied.call.exists(restated.answered(_, extensions)))(
           s"applies $name, which an extension of that name may answer when no member applies"
         )
-      )
+      }
+  }
 
   private def defaults(tree: Tree): List[Term] =
     MemberSyntax.parameters(MemberSyntax.groups(tree)).flatMap(_.default)
@@ -190,5 +195,13 @@ private[cardinality] object InlineBodies {
   val Prefix = "inline method"
 
   val Inside = "definition inside an inline method"
+
+  /** Whether a definition is expanded where it is called: an inline method or given alias, or a
+    * definition inside one, which every expansion copies.
+    */
+  def expanded(target: Target): Boolean =
+    !target.constructor &&
+      (MemberSyntax.inline(target.tree) ||
+        target.frame.chain.drop(1).exists(_.tree.exists(MemberSyntax.inline)))
 
 }

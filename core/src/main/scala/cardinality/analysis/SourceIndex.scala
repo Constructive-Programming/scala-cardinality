@@ -83,7 +83,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private[cardinality] val anonymousTargets: Set[(String, String)] =
     inputs.iterator.flatMap { input =>
       input.tree
-        .collect { case n: Term.NewAnonymous => n.templ.inits.map(initParentName) }
+        .collect { case n: Term.NewAnonymous => n.templ.inits.map(TypeApplications.parentName) }
         .flatten
         .map(input.path -> _)
     }.toSet
@@ -97,7 +97,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       .flatMap { input =>
         input.tree.collect {
           case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum) if !static(d) =>
-            d.templ.inits.map(init => (input.path, initParentName(init)) -> d.name.value)
+            d.templ.inits.map(init =>
+              (input.path, TypeApplications.parentName(init)) -> d.name.value
+            )
         }.flatten
       }
       .toList
@@ -167,13 +169,10 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       .toList
 
   private def initNames(tree: Tree): List[String] = tree match {
-    case d: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) => d.templ.inits.map(initParentName)
-    case _                                                      => Nil
+    case d: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) =>
+      d.templ.inits.map(TypeApplications.parentName)
+    case _ => Nil
   }
-
-  /** The simple name a parent of an `extends` clause spells. */
-  private[cardinality] def initParentName(init: Init): String =
-    TypeApplications.name(init.tpe).takeWhile(_ != '[').split('.').last
 
   private def inspect(operation: String): Unit = work.foreach(_.step(operation))
 
@@ -241,7 +240,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       // NOTE both kind methods above register the name: an enum's cases and a trait's members
       // are resolved through the declaration this puts in `types`.
       case d: Defn.Given =>
-        d.templ.inits.foreach(init => givens += frame.chain.last.id -> initParentName(init))
+        d.templ.inits.foreach(init =>
+          givens += frame.chain.last.id -> TypeApplications.parentName(init)
+        )
         indexGiven(input, frame, d)
       case d: Defn.ExtensionGroup => indexExtension(input, frame, d)
       case d: Defn.Def            =>

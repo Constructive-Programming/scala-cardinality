@@ -530,11 +530,11 @@ class ReportHygieneSpec extends Specification with AfterAll {
 
   // The union is code however it is spelled — lower-case names, literals holding `: ` or a bracket,
   // a refinement's or a match type's keywords — so unions that stopped on one reason tally once,
-  // read from sources as from reasons. A case class with a body is the alternative that stops (an
-  // abstract class with a method reads as a capability record and an empty open trait as one value,
-  // either leaving the union to the overlap proof).
+  // read from sources as from reasons. A case class with a body that no `final` closes is the
+  // alternative that stops (an abstract class with a method reads as a capability record and an
+  // empty open trait as one value, either leaving the union to the overlap proof).
   def unionAlternatives = {
-    val why = "abstract type or method-valued representation"
+    val why = "case class open to extension"
     val written = List(
       "json | Missing",
       "Data | Missing",

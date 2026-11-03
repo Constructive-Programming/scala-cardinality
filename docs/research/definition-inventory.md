@@ -98,6 +98,22 @@ template is refused: `open class with hidden constructor state: Hide.h`. This ap
 template, named final classes too (`final class Impl extends Hide[A](a) { val a: A = b; … }`), and
 an intermediate level passing a parent's argument is not followed.
 
+A member that holds a hidden capture keeps it in the environment. In `def mk(n: Boolean): P = new
+P(n) { override def m(b: Boolean): Boolean = !b }` with `class P(val n: Boolean)`, the inherited
+field `n` hides the capture `n` (E049), yet the field holds it: `m` reads `b` and `this.n` — 16, as
+a 3.9.0 run shows (`List(true, false)` for the two `mk`s); dropping both the capture and the field
+as concrete code said 4. So a capture the target cannot name that a parent's field the template
+can read (not private to the parent) was passed exactly (`new P(n)`, `extends P(n)`), or that an
+own member is (`def seed: Boolean = b`, a capture hidden by the target's own parameter `b`), is put
+back when the field's or member's type, read where it is declared (the field's with the arguments
+the extends chain gives its parent), is the capture's own; at a type with one value (`seed: Any`,
+`class PT[X](val n: X)` given `Any`) it shows nothing and adds nothing (D-top); any other reading of
+one — a field passed `!n`, a parameter no field exposes, a member computing from it, a field at a
+wider type, a field a nearer level overrides (`override val n = true`: the parent's constructor
+still read `n`, and a strict val of the parent keeps it, a 3.9.0 run shows) — refuses the row
+(`local capture held by a member that hides it: n`). Only members no instance replaces matter: an
+open member is a capability of its own.
+
 **Nested scopes.** A definition below a body's top block is indexed in the scopes around it: a
 block, a function literal (whose parameters are parameters, supplied by whoever applies it, as a
 method's are), a case clause, a for-comprehension, an anonymous class. Its environment is its

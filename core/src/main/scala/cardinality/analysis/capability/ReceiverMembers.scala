@@ -3,12 +3,12 @@ package cardinality.analysis.capability
 import scala.meta.*
 
 import cardinality.analysis.*
-import cardinality.analysis.model.{MemberSyntax, ResolutionContext}
+import cardinality.analysis.model.{DeclarationIdentity, MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.*
-import cardinality.types.TypeApplications
+import cardinality.types.{Overrides, TypeApplications}
 
 import MethodAnalysis.Frame
-import TargetViews.{Applied, Resolution, View}
+import TargetViews.{Applied, Resolution, View, ViewMode}
 
 /** The concrete members of one receiver `this` — a template owner of the measured declaration —
   * over its supplied linearization, classified (capabilities C1, C2, C5).
@@ -78,37 +78,38 @@ final private[cardinality] class ReceiverMembers(
     * any free state leaves the environment unread. `measured` is the declaration whose views are
     * judged: this receiver's own member, or one of a template it encloses.
     */
-  def open(measured: Option[Measured]): List[Either[String, Concrete]] = {
+  def open(measured: Option[Measured], mode: ViewMode): List[Either[Refusal, Concrete]] = {
     val closures = TemplateClosures.of(root, levels)
     val views = measured.fold(Map.empty[Concrete, View])(viewsOf)
-    destructured(closures) ++ hiddenParameters ++ concretes.flatMap { c =>
+    val refused = (destructured(closures) ++ hiddenParameters).map(reason => Left(Refusal(reason)))
+    refused ++ concretes.flatMap { c =>
       overridden(c) match {
-        case Left(reason)                => List(Left(reason))
-        case Right(true) if freeState(c) => List(Left(hiddenState(c.level, c.name)))
+        case Left(reason)                => List(Left(Refusal(reason)))
+        case Right(true) if freeState(c) => List(Left(Refusal(hiddenState(c.level, c.name))))
         case Right(true)                 => Nil
-        case Right(false)                => verdict(c, closures, views, measured).toList
+        case Right(false)                =>
+          if (measured.exists(_.is(c))) Nil
+          else verdict(c, closures, mode.effective(views.getOrElse(c, View.Free)))
       }
     }
   }
 
-  // An effective member: none for the declaration itself, a universal member, or a derived one;
-  // a reason for a refusal or a possible view; the member when it is open and no definite view.
+  // An effective member other than the declaration itself: none for a universal member, a derived
+  // one or a definite view; a reason for a refusal or a possible view; the member when it is open.
   private def verdict(
       c: Concrete,
       closures: List[TemplateClosures.Closure],
-      views: Map[Concrete, View],
-      measured: Option[Measured]
-  ): Option[Either[String, Concrete]] =
-    if (measured.exists(_.is(c)) || universal(c.tree, c.level)) None
+      view: View
+  ): Option[Either[Refusal, Concrete]] =
+    if (universal(c.tree, c.level)) None
     else
       classification(c, closures) match {
-        case Some(refused) => refused.left.toOption.map(Left(_))
+        case Some(refused) => refused.left.toOption.map(reason => Left(Refusal(reason)))
         case None          =>
-          views.getOrElse(c, View.Free) match {
+          view match {
             case View.Definite => None
-            case View.Possible =>
-              Some(Left(s"overridable member may re-enter the measured declaration: ${label(c)}"))
-            case View.Free => Some(Right(c))
+            case View.Possible => Some(Left(Refusal(s"${TargetViews.Reentry}: ${label(c)}", true)))
+            case View.Free     => Some(Right(c))
           }
       }
 
@@ -118,12 +119,10 @@ final private[cardinality] class ReceiverMembers(
 
   // The constructor parameters of unpassed levels that no field observes: free state hidden from
   // every member but the level's own code.
-  private def hiddenParameters: List[Either[String, Concrete]] =
+  private def hiddenParameters: List[String] =
     levels.drop(1).filterNot(passed).flatMap { level =>
       val fields = fieldParams(level)
-      level.params
-        .filterNot(p => fields.exists(_ eq p))
-        .map(p => Left(hiddenState(level, p.name.value)))
+      level.params.filterNot(p => fields.exists(_ eq p)).map(p => hiddenState(level, p.name.value))
     }
 
   private def hiddenState(level: Frame, name: String): String =
@@ -148,14 +147,12 @@ final private[cardinality] class ReceiverMembers(
 
   // A pattern definition defines members this reading does not name one by one; on a receiver an
   // instance may override them, they are unread.
-  private def destructured(
-      closures: List[TemplateClosures.Closure]
-  ): List[Either[String, Concrete]] =
+  private def destructured(closures: List[TemplateClosures.Closure]): List[String] =
     if (resolver.fixedTemplate(root) || closures.contains(TemplateClosures.Closure.Final)) Nil
     else
       levels.flatMap(_.stats).collect {
         case v: Defn.Val if !v.pats.forall(_.is[Pat.Var]) && !Concrete.unoverridable(v) =>
-          Left(s"destructured member of an open receiver not read: ${root.path.mkString(".")}")
+          s"destructured member of an open receiver not read: ${root.path.mkString(".")}"
       }
 
   // Whether a nearer level redefines the member: a level before the member's own in the receiver's
@@ -186,6 +183,8 @@ final private[cardinality] class ReceiverMembers(
       closures: List[TemplateClosures.Closure]
   ): Option[Either[String, Unit]] =
     if (freeState(c)) Option.when(c.hidden)(Left(hiddenState(c.level, c.name)))
+    else if (deferredElsewhere(c))
+      Some(Left(s"given alias of a deferred not resolved to scala.compiletime: ${label(c)}"))
     else if (
       resolver.fixedTemplate(root) || closures.contains(TemplateClosures.Closure.Final) || c.fixed
     )
@@ -200,25 +199,46 @@ final private[cardinality] class ReceiverMembers(
       )
     else None
 
+  // A given alias spelled `deferred` is abstract (`Overrides.deferred`) only where the name is
+  // scala.compiletime's: a bare one an import of it binds, a selected one no source rebinds the path
+  // of. A term of the name around the member — a member of the receiver, a definition or parameter
+  // of a scope around it — or an import of another declaration makes it a fixed given, which this
+  // reading does not tell apart.
+  private def deferredElsewhere(c: Concrete): Boolean = c.tree match {
+    case g: Defn.GivenAlias if Overrides.deferred(g) =>
+      val head = g.body.collect { case Term.Name(name) => name }.headOption.getOrElse("")
+      val context = contextAt(c.level, g.body.pos.start)
+      (levels ++ c.level.chain).exists(definesOrTakes(_, head)) ||
+      (resolver.resolveName(g.body.syntax, context) match {
+        case Found.Foreign(path, _) => path != "scala.compiletime.deferred"
+        case Found.Absent           => g.body.is[Term.Name]
+        case _                      => true
+      })
+    case _ => false
+  }
+
   private lazy val fileOverrides = new FileOverrides(root, levels, resolver)
 
   private lazy val calls = new ReceiverCalls(levels, resolver)
 
   private def label(c: Concrete): String = s"${root.path.mkString(".")}.${c.name}"
 
-  // Views of the measured declaration among every concrete member's default and every nested
-  // template's body (derived members carry a view to the open members calling them).
+  // Views of the measured declaration among every concrete member's default, every nested
+  // template's body and what constructing a level runs (derived members carry a view to the open
+  // members calling them).
   //
   // Implicit search is not syntax: `summon[T]`, a `using` clause filled implicitly or a conversion
-  // may evaluate any given or implicit member of the receiver. So every body that may search — any
-  // but a literal; a stored field reads none — mentions those members, and one of them that may
-  // re-enter the declaration makes the body a possible view.
+  // may evaluate any given or implicit member of the receiver — the measured declaration itself
+  // when it is one, abstract or not. So every body that may search — any but a literal; a stored
+  // field reads none — mentions those members, and one of them that may re-enter the declaration
+  // makes the body a possible view.
   private def viewsOf(measured: Measured): Map[Concrete, View] = {
     val slots = new Slots(measured)
-    val trees = concretes.map(c => c.level -> c.tree) ++ slots.templates
+    val trees = concretes.map(c => c.level -> c.tree) ++ slots.templates ++ slots.constructions
     val nodes = trees.map((level, tree) => (slots.of(level, tree), tree, slots.reads(level, tree)))
     val implicits =
-      nodes.collect { case (slot, tree, _) if MemberSyntax.implicitMember(tree) => slot }.toSet
+      nodes.collect { case (slot, tree, _) if MemberSyntax.implicitMember(tree) => slot }.toSet ++
+        Option.when(MemberSyntax.implicitMember(measured.tree))(slots.target)
     val searched = nodes.map { (slot, _, reads) =>
       slot -> (if (reads.searches) reads.copy(possible = reads.possible ++ implicits) else reads)
     }
@@ -237,6 +257,14 @@ final private[cardinality] class ReceiverMembers(
 
     val templates: List[(Frame, Tree)] = levels.flatMap { level =>
       level.stats.collect { case t @ (_: Defn.Class | _: Defn.Trait | _: Defn.Enum) => level -> t }
+    }
+
+    // What constructing a level runs besides its fields' initializers (their own slots): each
+    // secondary constructor's body, and the statements of its template, which the primary
+    // constructor runs — every constructor, a subclass's too, runs it.
+    val constructions: List[(Frame, Tree)] = levels.flatMap { level =>
+      level.tree.flatMap(TypeApplications.template).toList.map(level -> _) ++
+        level.stats.collect { case c: Ctor.Secondary => level -> c }
     }
 
     // Each name's slots, and whether some identity among its members is unknown.
@@ -260,15 +288,66 @@ final private[cardinality] class ReceiverMembers(
 
     private def typeId(index: Int): Int = grouped.size + index
 
+    private def constructionId(index: Int): Int = grouped.size + templates.size + index
+
     /** The measured declaration's slot: its own on this receiver, a slot of its own otherwise. */
     val target: Int =
       if (ownTemplate) grouped.indexWhere(_._2.exists(_._1 eq measured.tree)) else -1
 
     def of(level: Frame, tree: Tree): Int =
-      templates.indexWhere(_._2 eq tree) match {
-        case -1    => grouped.indexWhere(_._2.exists((t, l) => (t eq tree) && l.id == level.id))
-        case index => typeId(index)
+      (templates.indexWhere(_._2 eq tree), constructions.indexWhere(_._2 eq tree)) match {
+        case (-1, -1) => grouped.indexWhere(_._2.exists((t, l) => (t eq tree) && l.id == level.id))
+        case (-1, index) => constructionId(index)
+        case (index, _)  => typeId(index)
       }
+
+    // Constructing the levels `built` (by id): their constructors and template statements run, and
+    // each strict field initializer.
+    def constructed(built: Set[String]): Set[Int] = {
+      val runs =
+        constructions.indices.filter(i => built(constructions(i)._1.id)).map(constructionId)
+      val initialized = grouped.zipWithIndex.collect {
+        case ((_, members), id) if members.exists((t, l) => built(l.id) && strict(t)) => id
+      }
+      (runs ++ initialized).toSet
+    }
+
+    // A construction this reading cannot follow: every level's constructors and initializers may
+    // run, and the class's own code any member, the measured one too.
+    def unknown: Set[Int] = constructed(levels.map(_.id).toSet) + target
+
+    // Building a class whose supplied base classes are `bases`: the receiver levels among them run
+    // their constructors and initializers, and a level of the class outside the receiver's that
+    // runs code of its own may call any member it inherits, the measured one too.
+    def building(entry: MethodAnalysis.TypeEntry, bases: Set[String]): Option[Set[Int]] = {
+      val own = levels.map(_.id).toSet
+      val shared = bases.intersect(own)
+      if (shared.isEmpty || bases.subsetOf(own)) Some(constructed(shared))
+      else
+        TypeIdentities.classFrame(entry).flatMap(below(_, own)).map { runs =>
+          constructed(shared) ++ Option.when(runs)(target)
+        }
+    }
+
+    // Whether a level of a class outside the receiver's runs code when the class is built.
+    private def below(frame: Frame, own: Set[String]): Option[Boolean] =
+      InheritedScopes
+        .ancestors(frame, resolver)
+        .map(ancestors => (frame :: ancestors).filterNot(l => own(l.id)).exists(runsCode))
+
+    // Building a level runs its template's statements and strict initializers, its arguments to
+    // its parents and possibly a secondary constructor.
+    private def runsCode(level: Frame): Boolean =
+      level.tree.flatMap(TypeApplications.template).exists { template =>
+        template.inits.exists(_.argClauses.exists(_.values.nonEmpty)) ||
+        template.body.stats.exists(stat => stat.is[Term] || stat.is[Ctor.Secondary] || strict(stat))
+      }
+
+    private def strict(member: Tree): Boolean = member match {
+      case v: Defn.Val => !v.mods.exists(_.is[Mod.Lazy])
+      case _: Defn.Var => true
+      case _           => false
+    }
 
     // A body that may search implicits may also select an enclosing template's given or implicit
     // member, which reaches the declaration as `Outer.this.g` would.
@@ -276,7 +355,13 @@ final private[cardinality] class ReceiverMembers(
       val self = TargetViews.Self(selves(level), level.path.lastOption.toSet)
       val names = scope(level)
       val read = TargetViews.reads(bodyOf(tree), self, names)
-      read.copy(outer = read.outer || (read.searches && outerImplicits(level, names)))
+      // A secondary constructor first calls another constructor of its class.
+      val chained =
+        if (tree.is[Ctor.Secondary]) constructed(linearization.bases(level.id)) else Set.empty
+      read.copy(
+        possible = read.possible ++ chained,
+        outer = read.outer || (read.searches && outerImplicits(level, names))
+      )
     }
 
     private def outerImplicits(level: Frame, names: TargetViews.Scope): Boolean =
@@ -289,16 +374,26 @@ final private[cardinality] class ReceiverMembers(
     // A field is a stored value: reading it runs no code.
     private def bodyOf(tree: Tree): TargetViews.Body = tree match {
       case d: Defn.Def =>
-        TargetViews.Body(d.body, MemberSyntax.parameterNames(d.paramClauseGroups), d.decltpe)
+        TargetViews.Body(
+          d.body,
+          MemberSyntax.parameterNames(d.paramClauseGroups),
+          d.decltpe,
+          TargetViews.returnsParameter(d)
+        )
       case g: Defn.GivenAlias =>
         TargetViews.Body(g.body, MemberSyntax.parameterNames(g.paramClauseGroups), Some(g.decltpe))
-      case v: Defn.Val   => TargetViews.Body(v.rhs, Set.empty, v.decltpe)
-      case v: Defn.Var   => TargetViews.Body(v.body, Set.empty, v.decltpe)
+      case v: Defn.Val       => TargetViews.Body(v.rhs, Set.empty, v.decltpe)
+      case v: Defn.Var       => TargetViews.Body(v.body, Set.empty, v.decltpe)
+      case c: Ctor.Secondary =>
+        TargetViews.Body(c.body, c.paramClauses.flatMap(_.values).map(_.name.value).toSet, None)
       case _: Term.Param => TargetViews.Body(Lit.Unit(), Set.empty, None)
       case other         => TargetViews.Body(other, Set.empty, None)
     }
 
-    private def scope(level: Frame): TargetViews.Scope = new TargetViews.Scope {
+    private def scope(level: Frame): TargetViews.Scope = new LevelScope(level)
+
+    // What the names a body written at `level` spells mean on this receiver.
+    final private class LevelScope(level: Frame) extends TargetViews.Scope {
       private val visible = linearization.bases(level.id)
 
       def own(name: String, applied: Applied): Option[Resolution] = {
@@ -324,6 +419,54 @@ final private[cardinality] class ReceiverMembers(
         grouped.zipWithIndex.collect { case ((`name`, _), id) => id }.toSet ++
           templates.indices.filter(i => templateName(templates(i)._2) == name).map(typeId) ++
           Option.when(!ownTemplate && name == measured.name)(-1)
+
+      // A local definition is the measured one only by identity: a name a body binds again is
+      // another definition.
+      def local(definition: Tree, applied: Applied): Option[Resolution] =
+        Option.when(!ownTemplate && DeclarationIdentity.same(definition, measured.tree))(
+          Resolution(Set(target), Signature.of(definition).evaluates(applied))
+        )
+
+      // A secondary constructor's `this(…)` builds its own class; any other construction what
+      // building the class it names runs (`building`). A class outside the sources extends none of
+      // the levels; one this reading cannot follow — its name, a parent of it, a block import that
+      // may rebind it — may be any. A creator application builds a class only where its name is a
+      // supplied class's.
+      def constructed(constructs: TargetViews.Constructs, at: Int): Set[Int] =
+        constructs match {
+          case TargetViews.Constructs.Own => Slots.this.constructed(linearization.bases(level.id))
+          case TargetViews.Constructs.Unfollowed                          => unknown
+          case TargetViews.Constructs.Named(tpe, name, imported, creator) =>
+            val context = contextAt(level, at)
+            val head = TypeApplications.headAndArguments(tpe)._1
+            resolver.declaration(head, InheritedScopes.typeName(tpe), context) match {
+              case Found.Entry(entry) if creator && !entry.tree.is[Defn.Class] => Set.empty
+              case _ if imported                                               => unknown
+              case Found.Entry(entry)                                          =>
+                TypeIdentities
+                  .lineage(tpe, context, resolver)
+                  .filter(_.complete)
+                  .flatMap(lineage => building(entry, lineage.bases))
+                  .getOrElse(unknown)
+              case _ if creator        => Set.empty
+              case Found.Foreign(_, _) => Set.empty
+              case Found.Absent        =>
+                if (resolver.builtin(name, context).isRight) Set.empty else unknown
+              case _: Found.Blocked => unknown
+            }
+        }
+
+      def conforms(literal: Lit, result: Type): Boolean =
+        (result.is[Lit] && result.syntax == literal.syntax) || (result match {
+          case named: (Type.Name | Type.Select) =>
+            val context = contextAt(level, named.pos.start)
+            resolver.declaration(named, named.syntax, context) == Found.Absent &&
+            resolver
+              .builtin(named.syntax, context)
+              .toOption
+              .exists(InferredResults.literalTypes(literal))
+          case _ => false
+        })
 
       def enclosing(name: String): Option[String] =
         level.chain.tail
@@ -364,15 +507,7 @@ final private[cardinality] class ReceiverMembers(
       // A name an import or export binds outside the sources where the body reads it (an import
       // binds only after itself), or one the lookup cannot follow: it may be an extension.
       private def imported(name: String, at: Int): Boolean =
-        resolver.resolveName(
-          name,
-          ResolutionContext(
-            level,
-            resolver.typeParameters(level),
-            Set.empty,
-            at = Some(level.input -> at)
-          )
-        ) match {
+        resolver.resolveName(name, contextAt(level, at)) match {
           case _: Found.Failed => true
           case _               => false
         }
@@ -392,15 +527,25 @@ final private[cardinality] class ReceiverMembers(
             }.nonEmpty
           }
       }
+
     }
 
     private def templateName(tree: Tree): String = MemberSyntax.templateName(tree).getOrElse("")
 
-    private def definesOrTakes(frame: Frame, name: String): Boolean =
-      frame.params.exists(_.name.value == name) ||
-        frame.stats.exists(MemberSyntax.names(_).contains(name))
-
   }
+
+  // The context a name written at `offset` in `level` is read in.
+  private def contextAt(level: Frame, offset: Int): ResolutionContext =
+    ResolutionContext(
+      level,
+      resolver.typeParameters(level),
+      Set.empty,
+      at = Some(level.input -> offset)
+    )
+
+  private def definesOrTakes(frame: Frame, name: String): Boolean =
+    frame.params.exists(_.name.value == name) ||
+      frame.stats.exists(MemberSyntax.names(_).contains(name))
 
   private def selves(level: Frame): Set[String] =
     level.tree
@@ -413,6 +558,11 @@ final private[cardinality] class ReceiverMembers(
 }
 
 private[cardinality] object ReceiverMembers {
+
+  /** Why a member or free state leaves the environment unread; `view` when it is a possible view of
+    * the measured declaration (capabilities C6), which `ViewSandwich` may read between bounds.
+    */
+  final case class Refusal(reason: String, view: Boolean = false)
 
   /** The measured definition among a level's members: its tree and its name, since a definition of
     * several names (`val a, b = …`) is one tree whose other names are members beside it.
@@ -450,21 +600,16 @@ private[cardinality] object ReceiverMembers {
     else if (answers.forall(_.contains(false))) Right(false)
     else Left(s"inherited declaration identity not resolved: $name")
 
-  /** The constructor parameters that are members: `val`/`var` ones, and a case class's first
-    * clause.
-    */
+  /** The constructor parameters that are members (`MemberSyntax.fieldParams`). */
   def fieldParams(frame: Frame): List[Term.Param] =
-    frame.tree match {
-      case Some(c: Defn.Class) =>
-        val clauses = c.ctor.paramClauses.toList
-        val caseFields =
-          if (c.mods.exists(_.is[Mod.Case])) clauses.take(1).flatMap(_.values) else Nil
-        clauses
-          .flatMap(_.values)
-          .filter(p => MemberSyntax.keptParameter(p) || caseFields.exists(_ eq p))
-      case Some(t: Defn.Trait) =>
-        t.ctor.paramClauses.toList.flatMap(_.values).filter(MemberSyntax.keptParameter)
-      case _ => Nil
+    frame.tree.toList.flatMap(MemberSyntax.fieldParams)
+
+  /** A class's or trait's constructor parameter clauses; none for any other template. */
+  def constructorClauses(frame: Frame): List[List[Term.Param]] =
+    frame.tree.toList.flatMap {
+      case c: Defn.Class => c.ctor.paramClauses.toList.map(_.values)
+      case t: Defn.Trait => t.ctor.paramClauses.toList.map(_.values)
+      case _             => Nil
     }
 
   def fields(frame: Frame): Set[String] = fieldParams(frame).map(_.name.value).toSet
@@ -521,20 +666,9 @@ private[cardinality] object ReceiverMembers {
   object Concrete {
 
     /** No instance replaces a final, private or inline member, a given, a member object or a `var`
-      * (Scala 3 makes givens and objects final, and lets nothing override a `var`: E164).
+      * (`Overrides.overridable`).
       */
-    def unoverridable(member: Tree): Boolean = member match {
-      case _: (Defn.GivenAlias | Defn.Given | Defn.Object | Defn.Var) => true
-      case p: Term.Param    => p.mods.exists(m => m.is[Mod.VarParam] || fixing(m))
-      case d: Stat.WithMods => d.mods.exists(fixing)
-      case _                => false
-    }
-
-    private def fixing(mod: Mod): Boolean =
-      mod.is[Mod.Final] || mod.is[Mod.Inline] || (mod match {
-        case p: Mod.Private => p.within.is[Name.Anonymous] || p.within.is[Term.This]
-        case _              => false
-      })
+    def unoverridable(member: Tree): Boolean = !Overrides.overridable(member)
 
     def of(level: Frame, stat: Stat): List[Concrete] = stat match {
       case _: (Defn.Def | Defn.GivenAlias | Defn.Given | Defn.Object | Defn.Val | Defn.Var) =>

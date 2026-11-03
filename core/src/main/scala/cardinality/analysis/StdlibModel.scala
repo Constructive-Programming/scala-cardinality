@@ -364,6 +364,10 @@ private[cardinality] object StdlibModel {
       parents.get(canonical(path).orElse(markerSpelled.get(path)).getOrElse(path))
     )
 
+  /** What a sealed leaf's subclass may override of a stdlib parent (nothing of a marker). */
+  def leafParent(name: String): Option[Set[String]] =
+    parent(name).map(summary => if (summary.listed) summary.overridable else Set.empty)
+
   // The root and marker types that are not entries, by the root import that binds each:
   // `java.io.Serializable` only by its own path.
   private val markers: List[(String, String, Root)] =

@@ -3,7 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, Throws}
-import cardinality.analysis.{MethodAnalysis, SourceIndex}
+import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.capacity.Counter
 import cardinality.types.*
 
@@ -16,7 +16,8 @@ import MethodAnalysis.{sequence, Frame, TypeEntry}
 final private[cardinality] class Representations(
     indexer: SourceIndex,
     accessible: (Tree, Frame, Frame) => Boolean,
-    packageGrant: (List[Mod], List[String]) => Option[List[String]]
+    packageGrant: (List[Mod], List[String]) => Option[List[String]],
+    resolver: Resolver
 ) {
   import Representations.{Family, Representation}
 
@@ -30,7 +31,7 @@ final private[cardinality] class Representations(
         (t.tparamClause.values, sealedCases(Family(entry, t, Nil, useSite)))
       case d: (Defn.Trait | Defn.Class) if Representations.typesOnly(d) =>
         (d.tparamClause.values, Right(List(Nil)))
-      case c: Defn.Class => caseClassRepresentation(c, key)
+      case c: Defn.Class => caseClassRepresentation(entry, c, key)
       case e: Defn.Enum  => enumRepresentation(e, key, entry.owner)
       case _             => abstractRepresentation(key)
     }
@@ -77,9 +78,9 @@ final private[cardinality] class Representations(
       .filterNot(child => seen(child.key))
       .collectFirst(Function.unlift { child =>
         child.tree match {
-          case _: Defn.Object                                      => None
-          case c: Defn.Class if closedLeaf(c)                      => None
-          case d: (Defn.Class | Defn.Trait) if Counter.isSealed(d) =>
+          case _: Defn.Object                                               => None
+          case c: Defn.Class if closedLeaf(c) && openLeaf(child, c).isEmpty => None
+          case d: (Defn.Class | Defn.Trait) if Counter.isSealed(d)          =>
             openSubtype(child, seen + entry.key)
           case _ => Some(child.name)
         }
@@ -100,16 +101,58 @@ final private[cardinality] class Representations(
             .map(_ => List(Nil))
         case d: (Defn.Class | Defn.Trait) if intermediate(d) => sealedIntermediate(child, d, family)
         case c: Defn.Class if closedLeaf(c)                  =>
-          SealedSlots
-            .instantiation(slots(parent.name, level), SealedSlots.subtype(c, inFile(c)))
-            .flatMap(i => sealedLeaf(c, child.owner, useSite).map(renamed(_, i.bindings)))
+          openLeaf(child, c)
+            .map(why => s"sealed family leaf may be extended: ${child.name} ($why)")
+            .toLeft(())
+            .flatMap { _ =>
+              SealedSlots
+                .instantiation(slots(parent.name, level), SealedSlots.subtype(c, inFile(c)))
+                .flatMap(i => sealedLeaf(c, child.owner, useSite).map(renamed(_, i.bindings)))
+            }
         case _ =>
           Left(s"sealed subtype outside the closed fragment: ${child.name}")
       }
   }
 
   // A leaf no file outside the family's extends: a case class or a final class.
-  private def closedLeaf(c: Defn.Class): Boolean = isCaseClass(c) || c.mods.exists(_.is[Mod.Final])
+  private def closedLeaf(c: Defn.Class): Boolean =
+    Representations.caseClass(c) || c.mods.exists(_.is[Mod.Final])
+
+  // A case class that is not final may be extended all the same, and a subclass may override a
+  // member it has (`Overrides.openLeaf`): each parent is read as its clause's name resolves where
+  // it is written — a supplied class or trait, or the members the stdlib model lists of a parent it
+  // summarizes (none for a root or marker type, nor for `Product` and `Equals`, whose members the
+  // compiler synthesizes for a case class).
+  private def openLeaf(child: TypeEntry, c: Defn.Class): Option[String] =
+    child.self.fold(Some(s"leaf not read: ${child.name}")) { frame =>
+      Overrides.openLeaf(c, frame, Overrides.ancestry(frame, leafParents), leafParents)
+    }
+
+  private object leafParents extends Overrides.Parents[Frame] {
+
+    def body(level: Frame): List[Stat] = level.stats
+
+    def fields(level: Frame): List[Term.Param] = level.tree.toList.flatMap(MemberSyntax.fieldParams)
+
+    def key(level: Frame): String = level.id
+
+    def parents(level: Frame): List[(String, Overrides.Parent[Frame])] =
+      level.parents.map(init => TypeApplications.parentName(init) -> parent(init, level))
+
+    private def parent(init: Init, level: Frame): Overrides.Parent[Frame] =
+      resolver.parent(init, level) match {
+        case Right(Some((entry, _))) =>
+          TypeIdentities.classFrame(entry).fold(Overrides.Parent.Unread)(Overrides.Parent.Source(_))
+        case Right(None) =>
+          resolver
+            .outsideParent(init, level)
+            .filter(_.shadow.isEmpty)
+            .flatMap(outside => StdlibModel.leafParent(outside.path))
+            .fold(Overrides.Parent.Unread)(Overrides.Parent.Library(_))
+        case Left(_) => Overrides.Parent.Unread
+      }
+
+  }
 
   private def intermediate(declaration: Defn.Class | Defn.Trait): Boolean = declaration match {
     case c: Defn.Class => c.mods.exists(_.is[Mod.Abstract])
@@ -170,7 +213,7 @@ final private[cardinality] class Representations(
       Left(s"sealed subtype constructor not visible at use site: ${c.name.value}")
     else {
       val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
-      val fields = isCaseClass(c) || parameters.forall(MemberSyntax.keptParameter)
+      val fields = Representations.caseClass(c) || parameters.forall(MemberSyntax.keptParameter)
       if (!fields || parameters.exists(p => !usableWhere(p.mods, childOwner, useSite)))
         Left(s"sealed subtype hides a parameter: ${c.name.value}")
       else declaredFields(parameters, c.name.value).map(List(_))
@@ -222,7 +265,7 @@ final private[cardinality] class Representations(
 
   private def extendsThrowing(parents: List[Init], seen: Set[String]): Boolean =
     Throws.arguments(parents).exists(Throws.only(_, _ => true)) ||
-      parents.map(indexer.initParentName).filterNot(seen).exists { parent =>
+      parents.map(TypeApplications.parentName).filterNot(seen).exists { parent =>
         indexer.types.exists(e =>
           e.name == parent && (e.tree.is[Defn.Type] || mayThrow(e.tree, seen + parent))
         )
@@ -262,26 +305,30 @@ final private[cardinality] class Representations(
 
   // Only a case class whose single parameter list *is* the product can be projected: no second
   // list, no constructor modifiers, no parents, no members and no hidden parameter. A secondary
-  // constructor is no member: it delegates to the primary one, so it builds no other value.
-  private def caseClassRepresentation(c: Defn.Class, key: String): Representation =
-    if (!isCaseClass(c) || !isPlainProduct(c)) abstractRepresentation(key)
+  // constructor is no member: it delegates to the primary one, so it builds no other value. A final
+  // one with more is a final class's record (`CapabilityRecords`); one no `final` closes may be
+  // extended by a class overriding what it has, so its values are not its fields'.
+  private def caseClassRepresentation(
+      entry: TypeEntry,
+      c: Defn.Class,
+      key: String
+  ): Representation =
+    if (Representations.plainCase(c)) plainRepresentation(c, key)
+    else if (c.mods.exists(_.is[Mod.Final])) abstractRepresentation(key)
     else
       (
-        c.tparamClause.values,
-        declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key).map(List(_))
+        Nil,
+        Left(
+          s"case class open to extension: $key" +
+            openLeaf(entry, c).fold("")(why => s" ($why)")
+        )
       )
 
-  private def isCaseClass(c: Defn.Class): Boolean =
-    c.mods.exists(_.is[Mod.Case]) && !c.mods.exists(_.is[Mod.Abstract])
-
-  private def isPlainProduct(c: Defn.Class): Boolean =
-    c.ctor.paramClauses.size == 1 &&
-      c.ctor.mods.isEmpty &&
-      c.templ.inits.isEmpty &&
-      c.templ.body.stats.forall(_.is[Ctor.Secondary]) &&
-      !c.ctor.paramClauses.flatMap(_.values).exists(hiddenParameter)
-
-  private def hiddenParameter(p: Term.Param): Boolean = p.mods.exists(MemberSyntax.restricted)
+  private def plainRepresentation(c: Defn.Class, key: String): Representation =
+    (
+      c.tparamClause.values,
+      declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key).map(List(_))
+    )
 
   // A field without a declared type leaves the product unreadable.
   private def declaredFields(fields: List[Term.Param], key: String): Either[String, List[Type]] =
@@ -291,6 +338,16 @@ final private[cardinality] class Representations(
 
 private[cardinality] object Representations {
   type Representation = (List[Type.Param], Either[String, List[List[Type]]])
+
+  /** A concrete case class. */
+  def caseClass(c: Defn.Class): Boolean =
+    c.mods.exists(_.is[Mod.Case]) && !c.mods.exists(_.is[Mod.Abstract])
+
+  /** A case class whose single parameter list is its whole product, read as that product. */
+  def plainCase(c: Defn.Class): Boolean =
+    caseClass(c) && c.ctor.paramClauses.size == 1 && c.ctor.mods.isEmpty &&
+      c.templ.inits.isEmpty && c.templ.body.stats.forall(_.is[Ctor.Secondary]) &&
+      !c.ctor.paramClauses.flatMap(_.values).exists(_.mods.exists(MemberSyntax.restricted))
 
   /** A trait or plain class whose only members are types (members M3): no parent, parameter or self
     * type adds a term member, so no observation tells two of its values apart — its record is

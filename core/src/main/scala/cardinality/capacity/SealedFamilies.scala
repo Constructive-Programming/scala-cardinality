@@ -82,7 +82,7 @@ private[cardinality] object SealedFamilies {
       bodies: List[List[Stat]],
       modules: List[Namespaces.Module],
       synonyms: Synonyms = Synonyms.none,
-      site: Stat => Scope => Scope = _ => identity
+      site: Stat => Option[Scope => Scope] = _ => Some(identity)
   ): List[Family] = {
     val levels =
       bodies.map(stats => Level(stats, identity, Namespaces.modules(stats))) ++
@@ -127,7 +127,7 @@ private[cardinality] object SealedFamilies {
       level: Level,
       parent: Defn.Trait | Defn.Class,
       synonyms: Synonyms,
-      site: Stat => Scope => Scope
+      site: Stat => Option[Scope => Scope]
   ): (Family, List[Found]) = {
     val name = Walk.named(parent).value
     val key = level.key(TypeName.of(name))
@@ -254,31 +254,73 @@ private[cardinality] object SealedFamilies {
       d: Defn,
       key: TypeName,
       parent: SealedSlots.Parent,
-      site: Stat => Scope => Scope
+      site: Stat => Option[Scope => Scope]
   ): Either[String, Found] = {
-    def bound(s: Defn.Object | Defn.Class | Defn.Trait | Defn.Enum, intermediate: Boolean) =
+    def bound(
+        s: Defn.Object | Defn.Class | Defn.Trait | Defn.Enum,
+        intermediate: Boolean,
+        library: List[(Defn, String)] = Nil
+    ) =
       SealedSlots
         .instantiation(parent, SealedSlots.subtype(s, denoted(s)))
         .map { i =>
+          // The view the subtype's own statement reads in; the family's where the system has none.
+          def at(outside: Scope): Scope = site(s).fold(outside)(_(outside))
           val child = Child(
             key,
             module = s.isInstanceOf[Defn.Object],
             bindings = i.bindings.map((c, p) => TypeName.of(c) -> TypeName.of(p)),
-            standard = outside => unstandard(site(s)(outside), "it", i),
-            built = outside => Builds.unread(s, site(s)(outside)),
+            standard = outside =>
+              unstandard(at(outside), "it", i)
+                .map(why => s"a subtype $why: ${key.value}")
+                .orElse(rebound(library, site, outside).map(open(key, _))),
+            built = outside => Builds.unread(s, at(outside)),
           )
           Found(child, intermediate)
         }
     d match {
       case o: Defn.Object                              => bound(o, intermediate = false)
       case c: Defn.Class if Counter.isConcreteClass(c) =>
-        if (c.mods.exists(m => m.is[Mod.Case] || m.is[Mod.Final])) bound(c, intermediate = false)
+        if (c.mods.exists(_.is[Mod.Final])) bound(c, intermediate = false)
+        else if (c.mods.exists(_.is[Mod.Case]))
+          caseLeaf(c, key).flatMap(library => bound(c, intermediate = false, library))
         else Left(s"a subtype open to extension: ${key.value}")
       case e: Defn.Enum                                        => bound(e, intermediate = false)
       case t: (Defn.Class | Defn.Trait) if Counter.isSealed(t) => bound(t, intermediate = true)
       case _ => Left(s"an abstract subtype open to extension: ${key.value}")
     }
   }
+
+  private def open(key: TypeName, why: String): String =
+    s"a subtype open to extension: ${key.value} ($why)"
+
+  // A case class subtype no `final` closes: open when a subclass may override a member it has
+  // (`Overrides.openLeaf`); closed otherwise, with the library parents of its ancestry that have
+  // nothing to override, which `rebound` checks where the system reads each clause.
+  private def caseLeaf(c: Defn.Class, key: TypeName): Either[String, List[(Defn, String)]] = {
+    val parents = new FileParents(c)
+    val ancestry = Overrides.ancestry[Defn](c, parents)
+    Overrides
+      .openLeaf(c, c, ancestry, parents)
+      .map(open(key, _))
+      .toLeft(ancestry.collect {
+        case Overrides.Clause(owner, name, Overrides.Parent.Library(listed)) if listed.isEmpty =>
+          owner -> name
+      })
+  }
+
+  // A library parent read as the stdlib's with nothing to override (`Product`) is the stdlib's only
+  // where no source binds its name at the clause naming it — an import, a declaration of the
+  // package in another file. Where the clause's view is not one the system reads, it may be.
+  private def rebound(
+      library: List[(Defn, String)],
+      site: Stat => Option[Scope => Scope],
+      outside: Scope
+  ): Option[String] =
+    library.collectFirst {
+      case (owner, name) if site(owner).forall(_(outside).binds(TypeName.of(name))) =>
+        s"parent not read: $name"
+    }
 
   /** The constructor a subtype's field names: the declaration of the file that name denotes where
     * the subtype `d` is written (`ParentNames`), if any.
@@ -341,8 +383,8 @@ private[cardinality] object SealedFamilies {
   // as data, only as the standard library's: where the subtype's clause is written a source may
   // bind the name, and then the subtype is a member of some instantiations only.
   private def unmatched(outside: Scope, parent: Defn, child: Child): Option[Size] =
-    child.standard(outside).map { why =>
-      outside.noteUnsummed(Walk.named(parent), s"a subtype $why: ${child.name.value}")
+    child.standard(outside).map { reason =>
+      outside.noteUnsummed(Walk.named(parent), reason)
       EffectiveOmega
     }
 

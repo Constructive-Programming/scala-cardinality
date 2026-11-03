@@ -1,13 +1,13 @@
 package cardinality.analysis.capability
 
-import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.MethodAnalysis.{sequence, Frame}
-import cardinality.analysis.Resolver
 import cardinality.analysis.model.Throws
 import cardinality.analysis.resolution.{InheritedScopes, TermBinding, TermBindings}
+import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.TypeApplications
+
+import MethodAnalysis.Frame
 
 /** Whether instances of a template are ever built (register D26). Every constructor, a subclass's
   * included, runs the primary constructor of each level of the template's linearization: its
@@ -77,7 +77,7 @@ final private[cardinality] class Construction(
     case _                             => false
   }
 
-  private val ancestors = mutable.Map.empty[String, Option[List[Frame]]]
+  private val ancestors = scala.collection.mutable.Map.empty[String, Option[List[Frame]]]
 
   // A template's supplied ancestors: the walk the measurement read, or one of its own.
   private def ancestorsOf(frame: Frame): Option[List[Frame]] =
@@ -85,11 +85,7 @@ final private[cardinality] class Construction(
       frame.id,
       if (templateOf(frame).isEmpty) Some(Nil)
       else if (steps.exists(_.root.id == frame.id)) Some(InheritedScopes.levels(steps, frame))
-      else
-        sequence(
-          InheritedScopes.walk(List(frame -> resolver.typeParameters(frame)), resolver, frame)
-        ).toOption
-          .map(_.map(_.declared))
+      else InheritedScopes.ancestors(frame, resolver)
     )
 
   private val terms = new TermBindings(ancestorsOf(_).getOrElse(Nil), resolver)

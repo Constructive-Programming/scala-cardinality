@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms, Throws}
-import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
+import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
 
 import MethodAnalysis.{Frame, Resolved, Target}
@@ -99,6 +99,20 @@ private[cardinality] object InferredResults {
       case _: Lit.Unit    => Some("Unit")
       case _              => None
     }).map(rootedClass)
+
+  /** The canonical keys of the types a literal has without a conversion: its class and the top
+    * types above it.
+    */
+  def literalTypes(literal: Lit): Set[String] =
+    literalClass(literal).flatMap(c => BuiltinTypes.canonical(c.syntax)).fold(Set.empty[String]) {
+      own =>
+        Set(
+          own,
+          "scala.Any",
+          "scala.Matchable",
+          if (own == "scala.String") "scala.AnyRef" else "scala.AnyVal"
+        )
+    }
 
   // A literal's class by its simple name: `String` is `java.lang`'s, the others `scala`'s.
   private def rootedClass(name: String): Type =
