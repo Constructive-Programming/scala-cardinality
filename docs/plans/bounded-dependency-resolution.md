@@ -55,7 +55,8 @@ The stubs keep the guards the summary format was meant to keep:
   inline callee, a default, a parent's constructor argument - refuses as for any unresolved callee.
 - **No guessed signature.** A declaration whose type has no spelling keeps its name with the
   undeclared type `_root_.SignatureNotRead`; an unparseable stub file is left out, its names
-  unsupplied. Java and Scala 2 classes are not rendered: their names stay unsupplied.
+  unsupplied. Scala 2 classes are not rendered: their names stay unsupplied. Java classes are
+  rendered from their `.class` files under the rules below.
 - **No partial stdlib namespace.** Nothing is rendered into `scala.*`, `java.*` or `javax.*`, from
   any jar: the stdlib model answers those namespaces, and a stub there (`scala.collection.compat`)
   would make one partly supplied, so every lookup the model answers would doubt it.
@@ -64,7 +65,47 @@ The stubs keep the guards the summary format was meant to keep:
 - **Known gaps** (each refuses or reads less, never a different number): type-lambda parameter
   variances (tasty-query does not model them, so an alias's parameters read invariant), secondary
   constructors (not rendered), the Scala library itself (answered by the stdlib model, not its
-  TASTy).
+  TASTy), a Java class's constructor state (never read, even for a class that has none).
+
+**Java declarations** (2026-11-04, stub format `cardinality-stubs/2`). tasty-query 1.9.0 reads a
+Java `.class` file into a class symbol flagged Java (its access flags as `Final`, `Abstract`,
+`Trait` for an interface, `Enum`; package-private as a scope) plus a module class holding its
+statics; generic signatures become applied types, `? extends`/`? super` wildcard arguments, and
+Java's `Object` the `FromJavaObject` alias. It reads neither which static fields are enum
+constants (`ACC_ENUM`) nor `PermittedSubclasses`, so `JavaClassfile` reads those two facts from
+the class file itself. The rendering:
+
+- **Statics** go in the companion `object`, where Scala sees them; a class with none gets none.
+  `<clinit>`, bridges and synthetic members are skipped.
+- **An interface** is a `trait`: abstract methods abstract, default methods concrete
+  (overridable). It has no instance state, so its value is the record of its methods.
+- **An enum** is a Scala `enum` whose cases are its `ACC_ENUM` constants, in declaration order: a
+  closed set. A static field of the enum's type that is no constant is a companion `val`, never a
+  case; `values` and `valueOf(String)`, which the `enum` synthesizes, are not repeated; an abstract
+  method is concrete, since each constant implements it; constant bodies (which javac 17+ also
+  records as `PermittedSubclasses`) add no value.
+- **A class** keeps the state its constructors set, and no stub can tie that state to their
+  parameters (several constructors, private fields, inherited ones). It is spelled with one
+  constructor parameter that is no member, `(compiledStateNotRead: _root_.SignatureNotRead)`, so
+  a reading of its values refuses (`open class with hidden constructor state`, or the unsupplied
+  type) instead of reading a final class with fields as one value. A Java parent with that state
+  takes one unread argument. A non-final class is written `open`; `final` and `abstract` are kept.
+- **Sealed** (`PermittedSubclasses`): the permitted subclasses are not read, so a sealed class or
+  interface extends `SignatureNotRead` and its values refuse rather than read as open.
+- **Types**: `Object` is `scala.Any` (each conforms to the other in Scala 3); wildcards are spelled
+  (`java.util.List[? <: A]`); a raw type (a generic class named without arguments, which a Java
+  signature can only mean as raw) has no sound spelling and makes the declaration
+  `SignatureNotRead`. Nullability is outside the model, as everywhere.
+
+Against eo v1.0.0 (same 84 entries, now 5,555 stubs, 139 s) no row moves from one number to
+another and three gain one, all over `org.apache.avro.Schema.Type`, an enum of 14 constants:
+`WholeRecordBuilder.DirectKind.<init>` and its stored value read 14, and `notNullUnion` and
+`typeMismatch` read ω, like their `String`/`Int`-parameter siblings that build the same
+`IllegalArgumentException`. The avro module's `declaration not supplied` rows drop from 295 to 8
+(all `java.*` names the stdlib model does not list). Most become `open class with hidden
+constructor state: org.apache.avro.Schema` (an abstract Java class); `IndexedRecord`, an interface,
+now reaches that reason through `getSchema`. 129 rows already out of budget name a different
+stage, the larger environment moving where the quota runs out.
 
 **Bounded work.** With the stubs in the environment, the runner gives each target a fixed quota of
 logical work (`AnalysisWork`, 300,000 steps: ten times the most any eo v1.0.0 target spends with
