@@ -396,11 +396,16 @@ final private[cardinality] class ReceiverMembers(
     final private class LevelScope(level: Frame) extends TargetViews.Scope {
       private val visible = linearization.bases(level.id)
 
-      def own(name: String, applied: Applied): Option[Resolution] = {
-        val candidates = grouped.zipWithIndex.collect {
-          case ((`name`, members), id) if members.exists((_, l) => visible(l.id)) =>
-            id -> Signature.of(members.head._1)
+      // The member slots of `name` a body written at `level` may select: only the levels its
+      // scope sees (`visible`, the level and the levels it extends).
+      private def visibleSlots(name: String): List[(Int, List[(Tree, Frame)])] =
+        grouped.zipWithIndex.collect {
+          case ((`name`, members), id) if members.exists((_, l) => visible(l.id)) => id -> members
         }
+
+      def own(name: String, applied: Applied): Option[Resolution] = {
+        val candidates =
+          visibleSlots(name).map((id, members) => id -> Signature.of(members.head._1))
         Option.when(candidates.nonEmpty) {
           candidates.filter(_._2.accepts(applied)) match {
             case List((id, signature)) if !unsettled(name) =>
@@ -415,9 +420,15 @@ final private[cardinality] class ReceiverMembers(
           Resolution(Set(-1), measured.evaluates(applied))
         )
 
+      // The slots a body written at `level` may denote: the members and templates its own scope
+      // sees (`visible`, the level and the levels it extends), not the receiver's own additions -
+      // a parent's body resolves its names where it is written, not on the subclass that
+      // inherits it (register C6; `Construction` reads each level in its own scope too).
       def named(name: String): Set[Int] =
-        grouped.zipWithIndex.collect { case ((`name`, _), id) => id }.toSet ++
-          templates.indices.filter(i => templateName(templates(i)._2) == name).map(typeId) ++
+        visibleSlots(name).map(_._1).toSet ++
+          templates.indices
+            .filter(i => templateName(templates(i)._2) == name && visible(templates(i)._1.id))
+            .map(typeId) ++
           Option.when(!ownTemplate && name == measured.name)(-1)
 
       // A local definition is the measured one only by identity: a name a body binds again is

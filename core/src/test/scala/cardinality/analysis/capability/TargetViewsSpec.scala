@@ -19,6 +19,7 @@ class TargetViewsSpec extends Specification {
       an overload calling the declaration is a definite view          $overloadView
       an overload the arity does not settle is a possible view        $ambiguousOverload
       a default argument still selects the declaration                $defaults
+      a parent's default body resolves its names where written        $inheritedDefault
     Mentions that evaluate nothing
       an η-expanded method is not run: a possible view                $etaExpansion
       a right-associative operator's operand may be by name           $rightAssociative
@@ -99,6 +100,16 @@ class TargetViewsSpec extends Specification {
     )(
       "D.target"
     ) === Count.Finite(16)
+
+  // A parent's default body resolves its names where it is written: `???` in P0.k is Predef's
+  // (it throws, and supplies nothing), not the subclass's `???` member - S0.??? counts its
+  // concrete implementation (register C6; Construction reads each level in its own scope too).
+  def inheritedDefault =
+    one(
+      """class P0 { def k(x: Int): Nothing = ??? }
+        class S0 extends P0 { def ??? : Int = 1 }
+        object Use { def f(s: S0): Int = s.??? }"""
+    )("S0.???") === Count.Finite(1)
 
   // g(target) passes target η-expanded, and g never applies it: m runs no target (the true count is
   // 16), but whether a callee applies what it is given is not read — refused, never 4.
