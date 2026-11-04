@@ -151,18 +151,19 @@ private[cardinality] object PolymorphicMembers {
 
   // The polarities a binder occurs at — a function parameter flips — or none where it sits under
   // a constructor whose variance this reading does not know (a rigid application, a sequence, a
-  // proof, a package, a singleton or another member's binders).
+  // proof, a package, a singleton or another member's binders). One pass: a part without the binder
+  // joins as no polarity, so only a constructor the walk does not enter is searched for it.
   private def polarities(shape: Shape, binder: String, positive: Boolean): Option[Set[Boolean]] =
     shape match {
-      case Atom(`binder`)                    => Some(Set(positive))
-      case other if !mentions(other, binder) => Some(Set.empty)
-      case Function(parameters, result)      =>
+      case Atom(`binder`)               => Some(Set(positive))
+      case Function(parameters, result) =>
         joined(
           parameters.map(polarities(_, binder, !positive)) :+ polarities(result, binder, positive)
         )
-      case Product(parts) => joined(parts.map(polarities(_, binder, positive)))
-      case Sum(parts)     => joined(parts.map(polarities(_, binder, positive)))
-      case _              => None
+      case Product(parts)                   => joined(parts.map(polarities(_, binder, positive)))
+      case Sum(parts)                       => joined(parts.map(polarities(_, binder, positive)))
+      case other if mentions(other, binder) => None
+      case _                                => Some(Set.empty)
     }
 
   private def joined(parts: List[Option[Set[Boolean]]]): Option[Set[Boolean]] =

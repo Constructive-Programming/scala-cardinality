@@ -112,7 +112,9 @@ private[cardinality] object SealedFamilies {
       (acc, file) => if (acc.exists(_ eq file)) acc else file :: acc
     }
     // A file the given synonyms were read from adds nothing they lack.
-    val names = synonyms ++ Synonyms.of(files.filterNot(synonyms.holds))
+    // Kept as the same instance when nothing is added, so its indexes are read once.
+    val unread = files.filterNot(synonyms.holds)
+    val names = if (unread.isEmpty) synonyms else synonyms ++ Synonyms.of(unread)
     val first = levels.flatMap(level => sealedParents(level).map(read(level, _, names, site)))
     val found = first.map { (family, subtypes) =>
       family.key -> Option.when(family.summands.isRight)(subtypes)

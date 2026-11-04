@@ -71,7 +71,7 @@ class AnalysisBench {
   @Benchmark
   def withStubs(): Int = {
     val limits = MethodAnalysis.Limits()
-    val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth)
+    val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth, counting = false)
     val index = new MethodAnalysis.Index(inputs ++ stubs, limits, Some(work))
     index.selected(sampled, Set.empty).map { target =>
       work.target(300000L)

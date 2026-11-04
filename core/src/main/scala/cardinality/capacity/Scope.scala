@@ -559,10 +559,14 @@ final private[cardinality] class Scope(
     val named = layer.imports.types.keySet
     val hidden = layer.types ++ named
     val keys = layer.rekey.toList.flatMap(rekey => layer.types.map(n => n -> rekey(n)))
+    // `--` walks what it removes: a package's thousands of types against a few entries is walked
+    // from the smaller side, to the same result.
     def own[V](map: Map[TypeName, V]): Map[TypeName, V] =
-      (map -- hidden) ++ keys.flatMap((n, key) => map.get(key).map(n -> _))
+      (if (hidden.size > map.size) map.filterNot((k, _) => hidden(k)) else map -- hidden) ++
+        keys.flatMap((n, key) => map.get(key).map(n -> _))
     def ownSet(set: Set[TypeName]): Set[TypeName] =
-      (set -- hidden) ++ keys.collect { case (n, key) if set(key) => n }
+      (if (hidden.size > set.size) set.filterNot(hidden) else set -- hidden) ++
+        keys.collect { case (n, key) if set(key) => n }
     val families = world.families
     val imports = (world.imports ++ layer.imports).definingInside(layer.types ++ layer.terms.keySet)
     new Scope(

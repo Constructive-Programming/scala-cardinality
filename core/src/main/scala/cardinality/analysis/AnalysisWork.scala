@@ -3,7 +3,11 @@ package cardinality.analysis
 /** Logical work accounting for an opt-in request. Each target receives fuel before measurement;
   * unused fuel is not transferred to another target.
   */
-final private[cardinality] class AnalysisWork(indexLimit: Long, depthLimit: Int) {
+final private[cardinality] class AnalysisWork(
+    indexLimit: Long,
+    depthLimit: Int,
+    counting: Boolean = true
+) {
   private var indexing = true
   private var remaining = indexLimit
   private var depth = 0
@@ -26,7 +30,7 @@ final private[cardinality] class AnalysisWork(indexLimit: Long, depthLimit: Int)
       throw AnalysisWork.Exhausted(if (indexing) "index" else "target", operation)
     remaining -= 1
     used += 1
-    counts(operation) = counts.getOrElse(operation, 0L) + 1
+    if (counting) counts(operation) = counts.getOrElse(operation, 0L) + 1
   }
 
   def expanding[A](operation: String)(read: => A): A = {
