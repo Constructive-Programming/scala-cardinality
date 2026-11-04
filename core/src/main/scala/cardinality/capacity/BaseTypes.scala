@@ -21,6 +21,32 @@ private[cardinality] object BaseTypes {
   /** The same table, for a caller that is not matching on it. */
   def get(name: String): Option[Size] = sizes.get(name)
 
+  /** A throwable the root imports bind: its fully qualified name, and whether the `scala` package
+    * aliases it (every one but `IllegalStateException`, which only `java.lang` binds).
+    */
+  final case class RootThrowable(fqn: String, scalaAlias: Boolean)
+
+  /** The throwables the root imports bind, by simple name. Each is an open class: a value of one
+    * may be of any subclass, so the estimate leaves it to its implementations rather than guess a
+    * size — the method side reads them as data (register D26).
+    */
+  val throwables: Map[String, RootThrowable] =
+    (List(
+      "Throwable",
+      "Exception",
+      "Error",
+      "RuntimeException",
+      "NullPointerException",
+      "ClassCastException",
+      "IndexOutOfBoundsException",
+      "UnsupportedOperationException",
+      "IllegalArgumentException",
+      "NumberFormatException"
+    ).map(name => name -> RootThrowable(s"java.lang.$name", scalaAlias = true)) ++ List(
+      "IllegalStateException" -> RootThrowable("java.lang.IllegalStateException", false),
+      "NoSuchElementException" -> RootThrowable("java.util.NoSuchElementException", true)
+    )).toMap
+
   private val sizes: Map[String, Size] = Map(
     "Nothing" -> NothingSize,
     "Unit" -> UnitSize,

@@ -17,11 +17,12 @@ replacement. Consequently a caller's `A` cannot be captured by a lambda binder s
 `A`; nested binders shadow only their own lexical name. Alias bodies are resolved in
 the alias declaration's scope, not the application's scope.
 
-This does not implement arbitrary higher-kinded substitution. Unapplied lambdas,
-bounded/higher-kinded lambda parameters, and aliases with both outer parameters and a
-lambda body remain unresolved. Unknown external constructors such as `ZIO[R,E,x]`
-are not assumed to be structural containers. A reducible lambda cannot make unknown
-constructor semantics known.
+Higher-kinded substitution — a lambda or constructor passed where a constructor is
+expected, and aliases with both outer parameters and a lambda body applied in two steps —
+is the operator-closure reading of [higher-kinded binders](higher-kinded-binders.md).
+Unapplied lambdas in a type position and bounded lambda parameters remain unresolved.
+Unknown external constructors such as `ZIO[R,E,x]` are not assumed to be structural
+containers. A reducible lambda cannot make unknown constructor semantics known.
 
 ## Closed polymorphic identity
 
@@ -43,9 +44,10 @@ General rank-n counting requires quantified introduction, instantiation, and
 observational normalization rules beyond the current inhabitation solver.
 
 The polymorphic body is still resolved before rejecting unsupported shapes. A nested
-context function retains its evidence-analysis diagnostic, and an unknown external
-dependency retains its resolution diagnostic. In particular,
-`[b] => b => Type[b] ?=> Expr[Any]` is not counted and no macro/evidence code is run.
+context function reads as a function ([syntax-features.md](syntax-features.md)), and an unknown
+external dependency retains its resolution diagnostic. In particular,
+`[b] => b => Type[b] ?=> Expr[Any]` is not counted (`Type` and `Expr` are compile-time
+reflection) and no macro/evidence code is run.
 Incomplete accessible environments continue to block numeric answers even when the
 result itself is the closed identity type.
 

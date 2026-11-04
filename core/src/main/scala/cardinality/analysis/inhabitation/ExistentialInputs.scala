@@ -23,25 +23,34 @@ private[cardinality] object ExistentialInputs {
     private val templates =
       scala.collection.mutable.Map.empty[(String, String, Int, Int), String]
 
+    /** The arguments of one application, each read by `resolve` at the kind its parameter takes,
+      * except a wildcard at a proper position, which is a witness of the package the application
+      * becomes. A wildcard where a constructor is expected stands for an unknown constructor.
+      */
     def arguments(
         callee: Type,
-        types: List[Type],
+        kinded: List[(Type, Kind)],
         frame: Frame,
-        resolve: Type => Resolved
+        resolve: (Type, Kind) => Resolved
     ): Either[String, (List[String], List[Shape])] = {
       val witnesses = List.newBuilder[String]
-      val prepared = types.zipWithIndex.map { (tpe, index) =>
-        tpe match {
-          case wildcard: Type.Wildcard
-              if wildcard.bounds.lo.nonEmpty || wildcard.bounds.hi.nonEmpty =>
-            Left(TypePlaceholders.existential(wildcard))
-          case wildcard: Type.Wildcard =>
-            val key = (frame.id, TypeApplications.name(callee), wildcard.pos.start, index)
-            val name = templates.getOrElseUpdate(key, s"$$existentialTemplate${templates.size}")
-            witnesses += name
-            Right(Atom(name))
-          case other => resolve(other)
-        }
+      val prepared = kinded.zipWithIndex.map {
+        case ((tpe, kind), index) =>
+          tpe match {
+            case wildcard: Type.Wildcard if kind != Kind.Proper =>
+              Left(
+                s"existential type constructor requires witness-kind analysis: ${Spelling.of(wildcard)}"
+              )
+            case wildcard: Type.Wildcard
+                if wildcard.bounds.lo.nonEmpty || wildcard.bounds.hi.nonEmpty =>
+              Left(TypePlaceholders.existential(wildcard))
+            case wildcard: Type.Wildcard =>
+              val key = (frame.id, TypeApplications.name(callee), wildcard.pos.start, index)
+              val name = templates.getOrElseUpdate(key, s"$$existentialTemplate${templates.size}")
+              witnesses += name
+              Right(Atom(name))
+            case other => resolve(other, kind)
+          }
       }
       MethodAnalysis.sequence(prepared).map(shapes => witnesses.result() -> shapes)
     }
@@ -69,6 +78,9 @@ private[cardinality] object ExistentialInputs {
           val renamings =
             witnesses.map(id => id -> (if (env.inserted(id)) env.freshName() else id))
           Existential(renamings.map(_._2), kids.head(env, bound ++ renamings))
+        // A member's binders are unique to it, so they are bound without renaming.
+        case Poly(binders, _) =>
+          Poly(binders, kids.head(env, bound ++ binders.map(b => b.id -> b.id)))
         case _ =>
           Shape.rebuild(node, kids)(_(env, bound))
       }
@@ -79,13 +91,24 @@ private[cardinality] object ExistentialInputs {
       node match {
         case Atom(id) =>
           if (!includeBound && bound(id)) Set.empty else Set(id)
-        case Existential(witnesses, _) =>
-          (if (includeBound) witnesses.toSet else Set.empty[String]) ++
-            kids.head(includeBound, bound ++ witnesses)
+        case Binders(ids) =>
+          (if (includeBound) ids.toSet else Set.empty[String]) ++
+            kids.head(includeBound, bound ++ ids)
         case _ =>
           kids.foldLeft(Set.empty[String])((acc, kid) => acc ++ kid(includeBound, bound))
       }
     }
+
+  // The atoms a node binds over its body: an existential's witnesses, a member's own binders.
+  private object Binders {
+
+    def unapply(node: Shape): Option[List[String]] = node match {
+      case Existential(witnesses, _) => Some(witnesses)
+      case Poly(binders, _)          => Some(binders.map(_.id))
+      case _                         => None
+    }
+
+  }
 
   /** Capture-avoiding rewriting of free atoms. Renaming is deterministic and scoped. */
   def mapAtoms(shape: Shape)(rewrite: Atom => Shape): Shape = {

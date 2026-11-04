@@ -476,8 +476,11 @@ The article only sketches this area. One target, for arbitrary type constructors
 ```
 
 This requires type-equality evidence: for fixed equal types there is the identity;
-for distinct types there is no general conversion. Nested quantifiers and
-higher-kinded parameters require their own binding/variance-aware analysis.
+for distinct types there is no general conversion. The method side reads a plain
+higher-kinded binder exactly so (a rigid constructor over nominal argument keys — see
+[higher-kinded binders](research/higher-kinded-binders.md)); variance-annotated or
+bounded constructor binders and nested quantifiers still require their own
+binding/variance-aware analysis.
 Neither sampling instantiations nor treating an unknown constructor as infinite
 implements these rules.
 
@@ -499,11 +502,16 @@ The current API and representation have important limits:
 - [`Size`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Size.scala)
   is `a·ε₀ + b·ω + n`: contributions counted per tier and added componentwise, so
   `Either[String, String]` is `2ω`. Counts up to 127 are exact in the finite part, and
-  `FiniteSize(bits)` records only the binary width above that — it stands for a count in
-  `(2^(bits-1), 2^bits]`, so `2^32 + 3` becomes `FiniteSize(33)` instead of an exact count, and
-  algebraically equal expressions can round differently. The finite coordinate is an estimate
-  rather than a natural number: its addition is not associative. `FloatSize` and `DoubleSize` are
-  lossy stand-ins for the real types, not consequences of the integral-width rules.
+  `FiniteSize(bits)` records only the binary width above that — a count of at most `2^bits`, so
+  `2^32 + 3` becomes `FiniteSize(33)` instead of an exact count, and algebraically equal
+  expressions can round differently. A width read from one count (`Int`) also has more than
+  `2^(bits-1)` values, but sums and products round up, so a computed width keeps only the upper
+  bound: `Option[Option[Byte]]` holds 258 values and reads `FiniteSize(10)`. A report therefore
+  prints a capacity as the bound it is, `≤2^10`, never as the power itself. The finite coordinate
+  is an estimate rather than a natural number: its addition is not associative. `FloatSize` and
+  `DoubleSize` are lossy stand-ins for the real types, not consequences of the integral-width
+  rules; their widths round the same way (`Option[Option[Double]]`, at most `2^64 + 2` values,
+  reads width 66), so a report prints them as bounds too, marked: `≤2^66 (lossy)`.
 - Multiplication and exponentiation are coarse above the finite tier: after the zero and one
   identities (`p * 0 = 0`, `p * 1 = p`, `p^0 = 1`, `p^1 = p`), an infinite operand is projected to
   its dominant tier. So `2 * ω = ω` and `ω * ω = ω` even though `Either[String, String]` is `2ω`:
@@ -512,20 +520,26 @@ The current API and representation have important limits:
   large finite results; `EffectiveEpsilon0` (`ε₀`) is the tier marker above it and is coarse in the
   same way. A result that equals either marker is not by itself a mathematical result, and the
   `ε₀` tier is countable, not uncountable.
-- The traversal estimates unions by addition (deduplicating identical syntax only) and
-  intersections by minimum, so it cannot see overlap or subtyping. It does not resolve generic
-  definitions, and its opaque-type singleton treatment is an approximation. Forward references and
-  recursion within a single compilation unit are resolved: `Counter.source` solves the definitions
-  as a system of equations by Kleene iteration from the empty type (§8), and abstract traits and
-  sealed classes are folded from their concrete subtypes in the same unit. Cycles through
-  recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict `Option[X]` fields,
-  and function fields `D => X` with inhabited `D` — also take the greatest fixed point: a
-  deterministic cycle adds its per-lap label space raised to ω, any branch (two continuations in
-  one arm, an `Option` field beside a hole, a domain with two or more inputs, a sealed parent with
-  several continuing children) saturates at ω under the §4 finite-program reading, one program per
-  unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded outright — strict self
-  argument, tuple, `Set[X]`, function domain — blocks coiteration and is left at the sound
-  least-fixed-point under-count.
+- The traversal estimates unions by addition (deduplicating identical syntax only) and intersections
+  by minimum, so it cannot see overlap or subtyping. It does not resolve generic definitions. An
+  opaque alias is its representation's size where that is visible — inside the template that
+  declares it, or, for a top-level one, inside its file's synthetic package object (the block's
+  top-level definitions, its implicit classes and objects, and the companion objects of its
+  top-level types — not its other classes, traits, enums or objects) — and a reference anywhere else
+  is refused (`opaque type read outside its scope: p.Ids.Id`), never read as one value. Forward
+  references and recursion within a single compilation unit are resolved: `Counter.source` solves
+  the definitions as a system of equations by Kleene iteration from the empty type (§8), and
+  abstract traits and sealed classes are folded from their concrete subtypes in the same unit.
+  Cycles through recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict
+  `Option[X]` fields, and function fields `D => X` with inhabited `D` — also take the greatest fixed
+  point: a deterministic cycle adds its per-lap label space raised to ω, any branch (two
+  continuations in one arm, an `Option` field beside a hole, a domain with two or more inputs, a
+  sealed parent with several continuing children) saturates at ω under the §4 finite-program
+  reading, one program per unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded
+  outright — strict self argument, tuple, `Set[X]`, function domain — blocks coiteration: totals
+  keep the least-fixed-point value, and a row on or reading a blocked cycle that a by-name or
+  function field closes is `?` (`lazy cycle not completed`), because a lazy knot builds values that
+  value omits (see [stored-value names](research/stored-value-names.md)).
 - A growing recursive component is widened to its tier, as §8 describes: a name that can reach
   itself and keeps growing is replaced by the tier it has grown into, so the iteration terminates.
   Separately, completion of each lazy/coinductive type combines its μ estimate and infinite
@@ -550,7 +564,7 @@ it separates implemented rules from executable **targets**:
 | Recursive types (eager) with no base constructor | Asserted: least fixed points of the equation system; `μX.X` counts `0` |
 | Recursive types (eager) with a base constructor | Asserted: productive recursion widened to `ω`, and an `ε₀` payload never demoted |
 | Lazy (coinductive) recursion through recognized continuations — holes, strict `Option[X]` fields, inhabited function fields `D => X`, sealed-parent pass-throughs | Asserted: deterministic cycles add their label space raised to ω, then lazy-type completion normalizes the combined total (`νX.X` = 1, conaturals = ω, endless `νX.(2·X)` = ω, `LazyList[String]` = `ε₀`); branching cycles saturate at ω (§4 finite-program reading), an empty label space stays `0`, and a chain of consumers sees the settled value |
-| Coiteration blocked by a strict self argument (`x: X`) or a mention nested past the recognized forms (tuples, `Set[X]`, function domains, `Either`) | Kept at the least-fixed-point under-count (sound, deliberately not guessed) |
+| Coiteration blocked by a strict self argument (`x: X`) or a mention nested past the recognized forms (tuples, `Set[X]`, function domains, `Either`) | Totals keep the least-fixed-point value; rows on a blocked cycle a by-name or function field closes are `?` (`lazy cycle not completed`), never the under-count |
 | Union and intersection overlap beyond identical syntax | Pending: needs overlap and subtyping information |
 | Functions from countably infinite domains | Asserted at `ω` into a finite codomain and `ε₀` into an infinite one (§4) |
 | Containers, rank-N and higher-kinded types, counts under extra laws | Targets with nothing behind them yet |

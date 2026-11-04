@@ -1,13 +1,13 @@
 Generic method / constructor implementation cardinalities
   1 signature: 1 finite · 0 countably infinite · 0 unresolved
 
-4  optics.Composed.<init>  Composed[A](left: A, right: A)  Optic.scala:5  [constructor]
+4  optics.Composed.<init>  Composed[A](left: A, right: A)  optics/Optic.scala:5  [constructor]
 scala-cardinality — 1 source, 3 definitions
-  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
   ?: no single number here — the reason after the row says what would give one
   1 unresolved · 1 instantiation-dependent · 1 with one value
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
-?  optics.Composed[A]  class     Optic.scala:5  depends on its instantiation (A)
-?  optics.Optic        abstract  Optic.scala:3  unresolved: A
-1  optics.Id           object    Optic.scala:4
+?  optics.Composed[A]  class     optics/Optic.scala:5  depends on its instantiation (A)
+?  optics.Optic        abstract  optics/Optic.scala:3  unresolved: sealed family not summed: Optic (sealed subtype binds a parameter to no slot of its parent: Composed (A, of Optic))
+1  optics.Id           object    optics/Optic.scala:4

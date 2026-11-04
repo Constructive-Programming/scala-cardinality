@@ -119,14 +119,36 @@ private[cardinality] object TypeSubstitution {
       .get
 
   def typeNames(tpe: Type): List[String] =
-    Plated.universe(tpe).flatMap(typeNamePrism.getOption)
+    Universe.select(tpe)(typeNamePrism.getOption)
+
+  /** A union's two operands, in either spelling. */
+  object Union {
+
+    def unapply(tpe: Type): Option[(Type, Type)] = tpe match {
+      case Type.Or(left, right)                            => Some(left -> right)
+      case union: Type.ApplyInfix if union.op.value == "|" => Some(union.lhs -> union.rhs)
+      case _                                               => None
+    }
+
+  }
+
+  /** An intersection's two operands, in any spelling. */
+  object Meet {
+
+    def unapply(tpe: Type): Option[(Type, Type)] = tpe match {
+      case Type.And(left, right)                         => Some(left -> right)
+      case Type.With(left, right)                        => Some(left -> right)
+      case meet: Type.ApplyInfix if meet.op.value == "&" => Some(meet.lhs -> meet.rhs)
+      case _                                             => None
+    }
+
+  }
 
   val unionAlternatives: Type => List[Type] =
     hylo[Type, List[Type]](
       {
-        case Type.Or(left, right)                            => List(left, right)
-        case union: Type.ApplyInfix if union.op.value == "|" => List(union.lhs, union.rhs)
-        case _                                               => Nil
+        case Union(left, right) => List(left, right)
+        case _                  => Nil
       },
       (node, kids) => if (kids.isEmpty) List(node) else kids.flatten
     )
@@ -151,7 +173,7 @@ private[cardinality] object TypeSubstitution {
           case _: Type.Lambda       => "a type lambda"
           case _: Type.PolyFunction => "a polymorphic function type"
           case _: Type.Wildcard     => "a wildcard"
-          case other                => other.syntax.replaceAll("\\s+", " ")
+          case other                => Spelling.of(other)
         }
     )
 

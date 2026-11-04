@@ -16,12 +16,13 @@ class OverrideIdentityImplementationSpec extends Specification {
       substitutes sum constructors without supplying reverseGet       $sum
       keeps unrelated inherited capabilities                         $capability
       does not identify nominal products with tuples                  $nominal
-      retains unresolved imported constructor identity                 $imported
+      settles the identity in an object that implements the member    $nominalObject
+      keys an imported constructor by the path its import binds        $imported
       keeps a foreign method binder distinct from a class binder       $foreignBinder
       does not drop declarations at matching offsets in other files    $fileIdentity
       preserves a same-name overload with different arity              $overload
       recognizes transparent alias equivalence                          $alias
-      does not classify a covariant return as an unrelated overload      $covariance
+      reads a covariant return as the override it is                  $covariance
       ignores parameter annotations when identifying the target slot     $annotated
   """
 
@@ -73,35 +74,50 @@ class OverrideIdentityImplementationSpec extends Specification {
       }
     """) === Count.Finite(1)
 
+  // An open template: in a final one (an object) a same-shaped member implements or overloads the
+  // declaration, which is then never a capability, and the identity is not asked. Whether or not
+  // the tuple member overrides `Base.get`, an inherited `get[X, A](fa: Pair[X, A]): A` is
+  // `∀X A. X → A → A ≅ 1` (capabilities PB1: the known projection), so it adds nothing: `fa._2` — 1.
   def nominal =
     count("""
       case class Pair[X,A](x:X,a:A)
       trait Base[F[_,_]] { def get[X,A](fa:F[X,A]):A }
-      object Instance extends Base[Pair] {
+      abstract class Instance extends Base[Pair] {
         def get[X,A](fa:(X,A)):A = fa._2
       }
-    """) must beLike { case Count.Unresolved(_) => ok }
+    """) === Count.Finite(1)
+
+  // In an object (a final template) the member implemented with `Pair[X,A]` is that body, not a
+  // capability: `fa.a` is the only `A` — 1. (`(X,A)` there would leave `Base.get` unimplemented,
+  // which 3.9.0 rejects, so the open twin above carries the tuple question.)
+  def nominalObject =
+    count("""
+      case class Pair[X,A](x:X,a:A)
+      trait Base[F[_,_]] { def get[X,A](fa:F[X,A]):A }
+      object Instance extends Base[Pair] {
+        def get[X,A](fa:Pair[X,A]):A = fa.a
+      }
+    """) === Count.Finite(1)
 
   def imported =
     count("""
       import external.Foreign
       trait Base[F[_,_]] { def get[X,A](fa:F[X,A]):A }
-      object Instance extends Base[Foreign] {
+      abstract class Instance extends Base[Foreign] {
         def get[X,A](fa:Foreign[X,A]):A = ???
       }
     """) must beLike {
       case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inherited override identity")) must beTrue
+        reasons === List("declaration not supplied: external.Foreign (named import Foreign)")
     }
 
+  // The method binder `A` of `other` is its own, not the class's: `other: ∀A. A` is the empty type
+  // (capabilities PB1), so the environment is vacuous — 1.
   def foreignBinder =
     count("""
       trait Base[A] { def other[A]():A }
       abstract class Instance[A] extends Base[A] { def get(a:A):A = a }
-    """) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("polymorphic capability binder")) must beTrue
-    }
+    """) === Count.Finite(1)
 
   def overload =
     count("""
@@ -116,23 +132,22 @@ class OverrideIdentityImplementationSpec extends Specification {
       abstract class Instance[A] extends Base[A] { def get(a:A):A = a }
     """) === Count.Finite(1)
 
+  // Members match by parameters (SLS 5.1.3): a same-parameter member with a non-conforming result
+  // is a type error, so `get(a: A): A` overrides `get(a: A): Any` — the only A is a: 1.
   def covariance =
     count("""
       trait Base[A] { def get(a:A):Any }
       abstract class Instance[A] extends Base[A] { def get(a:A):A = a }
-    """) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("inherited override identity")) must beTrue
-    }
+    """) === Count.Finite(1)
 
   def fileIdentity = {
+    // `seed` is a closed value of `get`'s environment: kept, it raises the four Boolean
+    // endomorphisms to one per value of `seed` (4^2); dropped, it would leave 4.
     val entries = analyze(
-      "One.scala" -> "def get[A](a:A):A = a",
+      "One.scala" -> "def get(a:Boolean):Boolean = a",
       "Two.scala" -> "def seed: Boolean"
     )
-    entries.find(_.name == "get").get.count must beLike {
-      case Count.Unresolved(_) => ok
-    }
+    entries.find(_.name == "get").get.count === Count.Finite(16)
   }
 
 }

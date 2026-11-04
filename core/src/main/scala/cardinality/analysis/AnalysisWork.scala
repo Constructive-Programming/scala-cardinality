@@ -3,16 +3,21 @@ package cardinality.analysis
 /** Logical work accounting for an opt-in request. Each target receives fuel before measurement;
   * unused fuel is not transferred to another target.
   */
-final private[cardinality] class AnalysisWork(indexLimit: Long, depthLimit: Int) {
+final private[cardinality] class AnalysisWork(
+    indexLimit: Long,
+    depthLimit: Int,
+    counting: Boolean = true
+) {
   import AnalysisWork.*
 
   private var indexing = true
   private var remaining = indexLimit
   private var depth = 0
   private var used = 0L
-  private var counts = Map.empty[String, Long]
+  // One counter per operation, bumped on every step: mutable, copied out only when read.
+  private val counts = scala.collection.mutable.HashMap.empty[String, Long]
 
-  def counters: Map[String, Long] = counts
+  def counters: Map[String, Long] = counts.toMap
   def consumed: Long = used
 
   def target(quota: Long): Unit = {
@@ -27,7 +32,7 @@ final private[cardinality] class AnalysisWork(indexLimit: Long, depthLimit: Int)
       throw Exhausted.Fuel(if (indexing) Budget.Index else Budget.Target, operation)
     remaining -= 1
     used += 1
-    counts = counts.updated(operation, counts.getOrElse(operation, 0L) + 1)
+    if (counting) counts(operation) = counts.getOrElse(operation, 0L) + 1
   }
 
   def expanding[A](operation: String)(read: => A): A = {
@@ -52,6 +57,7 @@ private[cardinality] object AnalysisWork {
       case Budget.Index  => "index"
       case Budget.Target => "target"
     }
+
   }
 
   /** A work stop. A sum, not a budget × frontier product: a syntax-depth stop reports the source
@@ -59,12 +65,14 @@ private[cardinality] object AnalysisWork {
     * no stop can produce. Message text is unchanged — tests and reports read the same strings.
     */
   enum Exhausted(message: String) extends RuntimeException(message) {
+
     case Fuel(budget: AnalysisWork.Budget, operation: String)
         extends Exhausted(s"${budget.render} budget exhausted at $operation")
+
     case ResolutionDepth(operation: String)
         extends Exhausted(s"resolution depth budget exhausted at $operation")
-    case SyntaxDepth(path: String)
-        extends Exhausted(s"syntax depth budget exhausted at $path")
+
+    case SyntaxDepth(path: String) extends Exhausted(s"syntax depth budget exhausted at $path")
   }
 
 }

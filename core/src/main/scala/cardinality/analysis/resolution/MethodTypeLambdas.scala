@@ -2,13 +2,11 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.*
-import cardinality.analysis.inhabitation.*
+import cardinality.analysis.MethodAnalysis.Resolved
+import cardinality.analysis.Resolver
+import cardinality.analysis.inhabitation.Inhabitation.*
 import cardinality.analysis.model.*
 import cardinality.types.*
-
-import Inhabitation.Shape
-import MethodAnalysis.Resolved
 
 /** Hygienic first-order beta application and the closed total polymorphic identity fragment. */
 private[cardinality] object MethodTypeLambdas {
@@ -21,8 +19,7 @@ private[cardinality] object MethodTypeLambdas {
       resolver: Resolver
   ): Resolved = {
     val parameters = lambda.tparamClause.values
-    TypeApplications
-      .checkApplication(lambda.syntax, parameters, arguments.size, "type lambda", "type lambda")
+    checked(lambda, arguments.size)
       .flatMap { _ =>
         TypeSubstitution.lambdaBody
           .getOption(lambda)
@@ -37,17 +34,28 @@ private[cardinality] object MethodTypeLambdas {
       }
   }
 
+  /** A lambda applied to `count` arguments: one per parameter, every parameter plain. */
+  def checked(lambda: Type.Lambda, count: Int): Either[String, Unit] =
+    TypeApplications.checkApplication(
+      lambda.syntax,
+      lambda.tparamClause.values,
+      count,
+      "type lambda",
+      "type lambda"
+    )
+
   def resolve(
       poly: Type.PolyFunction,
       context: ResolutionContext,
       resolver: Resolver
   ): Resolved =
     if (poly.tparamClause.values.exists(TypeApplications.constrained))
-      Left(s"constrained polymorphic function: ${poly.syntax}")
+      Left(s"constrained polymorphic function: ${Spelling.of(poly)}")
     else
       readBody(poly, context, resolver).flatMap { _ =>
         if (identity(poly)) Right(Shape.Product(Nil))
-        else Left(s"polymorphic function outside the closed identity fragment: ${poly.syntax}")
+        else
+          Left(s"polymorphic function outside the closed identity fragment: ${Spelling.of(poly)}")
       }
 
   // Reading the body first retains dependency/evidence diagnostics; no context evidence executes.

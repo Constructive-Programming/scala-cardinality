@@ -22,7 +22,7 @@ class MethodTypePlaceholderSpec extends Specification {
       keeps nested placeholder binders separate                   $binders
       keeps existential result construction separate from capture $existential
       retains upper and lower existential bounds in diagnostics   $bounds
-      rejects unapplied higher-kinded arguments                   $higherKinded
+      applies a placeholder constructor argument                  $higherKinded
       rejects placeholder application with the wrong arity        $arity
   """
 
@@ -106,12 +106,12 @@ class MethodTypePlaceholderSpec extends Specification {
       unresolved("def pick[A](x: Option[? >: A]): A = ???", "? >: A")
     )
 
+  // F = [h] =>> A => h makes the field `A => A`: `a => a` or `_ => x`.
   def higherKinded =
-    unresolved(
+    count(
       "case class MultiFocus[F[_], A](value: F[A])\n" +
-        "def pick[A](x: A): MultiFocus[Function1[A, *], A] = ???",
-      "unapplied constructor placeholder"
-    )
+        "def pick[A](x: A): MultiFocus[Function1[A, *], A] = ???"
+    ) === Count.Finite(2)
 
   def arity =
     unresolved("def pick[A](x: A): (Either[*, *])[A] = ???", "arity")

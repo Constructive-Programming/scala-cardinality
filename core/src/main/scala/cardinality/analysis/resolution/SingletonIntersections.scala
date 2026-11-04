@@ -2,12 +2,11 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.*
-import cardinality.analysis.inhabitation.*
+import cardinality.analysis.MethodAnalysis.{Frame, Resolved}
+import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
-
-import Inhabitation.Shape
-import MethodAnalysis.{Frame, Resolved}
+import cardinality.analysis.{Resolver, StdlibModel}
+import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
 
 /** Stable reference identity is term identity, never the spelling or cardinality of its type.
   * Deliberately does not erase a module's callable environment into a Unit-shaped value.
@@ -22,12 +21,17 @@ private[cardinality] object SingletonIntersections {
 
   /** Normalize all source spellings of this feature family before resolving their semantics. */
   def unapply(tpe: Type): Option[Syntax] = tpe match {
-    case s: Type.Singleton                            => Some(Syntax.Reference(s.ref))
-    case Type.ApplyInfix(left, Type.Name("&"), right) => Some(Syntax.Meet(left, right))
-    case Type.And(left, right)                        => Some(Syntax.Meet(left, right))
-    case Type.With(left, right)                       => Some(Syntax.Meet(left, right))
-    case _                                            => None
+    case s: Type.Singleton                  => Some(Syntax.Reference(s.ref))
+    case TypeSubstitution.Meet(left, right) => Some(Syntax.Meet(left, right))
+    case _                                  => None
   }
+
+  /** The singleton identity of a module: its frame, as a value. */
+  def moduleId(owner: Frame): String = s"module:${owner.id}"
+
+  /** The module a singleton identity names. */
+  def moduleFrame(id: String, resolver: Resolver): Option[Frame] =
+    resolver.modules.find(owner => moduleId(owner) == id)
 
   def resolve(
       syntax: Syntax,
@@ -44,9 +48,14 @@ private[cardinality] object SingletonIntersections {
     resolver.expanding("shape validation")(validateShape(shape, from, resolver))
 
   private def validateShape(shape: Shape, from: Frame, resolver: Resolver): Resolved = shape match {
+    case s @ Shape.Singleton(id, None) if LiteralTypes.literal(id) => Right(s)
+    // A table term or an opaque path is one value at every use site: the singleton goal is
+    // terminal wherever it is read, so re-deriving the path at the use site could change only the
+    // identity, never the count.
+    case s @ Shape.Singleton(id, None) if id.startsWith("stdlib:") || id.startsWith("path:") =>
+      Right(s)
     case s @ Shape.Singleton(id, None) =>
-      resolver.modules
-        .find(owner => s"module:${owner.id}" == id)
+      moduleFrame(id, resolver)
         .toRight("singleton module identity not found")
         .flatMap(owner => module(owner.path.mkString("."), from, resolver).map(_ => s))
     case Shape.Singleton(id, Some(_))
@@ -79,7 +88,7 @@ private[cardinality] object SingletonIntersections {
         .collectFirst { case Some(result) => result }
         .getOrElse(module(name, context.frame, resolver))
     case _: Term.Select => module(ref.syntax.stripPrefix("_root_."), context.frame, resolver)
-    case _ => Left(s"unsupported stable singleton path: ${ref.syntax.stripPrefix("_root_.")}")
+    case _ => Left(s"unsupported stable singleton path: ${Spelling.of(ref).stripPrefix("_root_.")}")
   }
 
   private def local(
@@ -94,7 +103,7 @@ private[cardinality] object SingletonIntersections {
       .map(binding.parameter(_, resolver))
       .orElse {
         owner.stats.iterator
-          .filter(stat => bindingPatterns(stat).exists(namesBinding(_, name)))
+          .filter(stat => TypeApplications.boundNames(bindingPatterns(stat)).contains(name))
           .nextOption()
           .map(binding.stat(_, resolver))
       }
@@ -104,11 +113,9 @@ private[cardinality] object SingletonIntersections {
     case v: Decl.Val => v.pats
     case v: Defn.Val => v.pats
     case v: Defn.Var => v.pats
+    case v: Decl.Var => v.pats
     case _           => Nil
   }
-
-  private def namesBinding(pattern: Pat, name: String): Boolean =
-    ResolutionOptics.patVarName.getOption(pattern).contains(name)
 
   /** Lookup checks use the caller; binding types and initializers use the declaration scope. */
   private case class BindingScope(name: String, owner: Frame, caller: ResolutionContext) {
@@ -121,14 +128,18 @@ private[cardinality] object SingletonIntersections {
         .read(tpe, resolver)
         .map(shape => Shape.Singleton(s"${owner.id}:$name", Some(shape)))
 
+    // Scala's typing rule, not mutation, refuses a `var`'s singleton (E083, "not an immutable path").
     def parameter(p: Term.Param, resolver: Resolver): Resolved =
-      if (p.mods.exists(_.is[Mod.VarParam])) Left(s"mutable singleton path: $name")
+      if (p.mods.exists(_.is[Mod.VarParam])) Left(RefinedMembers.variable(name))
       else p.decltpe.toRight(s"missing singleton path type: $name").flatMap(value(_, resolver))
 
+    // A destructured variable is a part of its initializer's value, which no path names.
     def stat(stat: Stat, resolver: Resolver): Resolved = stat match {
       case v: Decl.Val => accessible(v, resolver).flatMap(_ => value(v.decltpe, resolver))
+      case v: Defn.Val if !TypeApplications.binds(name, v.pats) =>
+        Left(s"stable singleton binding identity not resolved: $name")
       case v: Defn.Val => accessible(v, resolver).flatMap(_ => capturedValue(v, resolver))
-      case _           => Left(s"mutable singleton path: $name")
+      case _           => Left(RefinedMembers.variable(name))
     }
 
     private def accessible(stat: Stat, resolver: Resolver): Either[String, Unit] =
@@ -169,7 +180,7 @@ private[cardinality] object SingletonIntersections {
   private def moduleEnvironment(owner: Frame, name: String): Resolved =
     if (owner.parents.nonEmpty || owner.stats.exists(stat => !stat.is[Defn.Type]))
       Left(s"singleton module member environment not resolved: $name")
-    else Right(Shape.Singleton(s"module:${owner.id}", None))
+    else Right(Shape.Singleton(moduleId(owner), None))
 
   private def module(name: String, from: Frame, resolver: Resolver): Resolved = {
     val paths = from.chain.map(f => (f.path :+ name).mkString(".")) :+ name
@@ -180,8 +191,17 @@ private[cardinality] object SingletonIntersections {
     found match {
       case List(owner) if eligibleModule(owner, from, resolver) =>
         moduleEnvironment(owner, name)
-      case Nil => Left(s"unresolved singleton path: $name")
-      case _   => Left(s"inaccessible or ambiguous singleton path: $name")
+      case Nil =>
+        // A written `p.type` is the type of the one value p (draft specification ch. 3: a stable
+        // identifier's type is a singleton), so the goal is terminal — exactly one implementation,
+        // the one returning p — however the path is unresolved. The table's terms carry a
+        // canonical identity; any other path an opaque one of its own spelling.
+        val id = StdlibModel
+          .singletonTerm(name)
+          .map(fqn => s"stdlib:$fqn")
+          .getOrElse(s"path:$name")
+        Right(Shape.Singleton(id, None))
+      case _ => Left(s"inaccessible or ambiguous singleton path: $name")
     }
   }
 
@@ -191,7 +211,10 @@ private[cardinality] object SingletonIntersections {
       context: ResolutionContext,
       resolver: Resolver
   ): Resolved = {
-    if (left.structure == right.structure) context.read(left, resolver)
+    // `Any` is the unit of intersection: `T & Any` is `T`, whatever `T` is.
+    if (TopTypes.isAny(left, context, resolver)) context.read(right, resolver)
+    else if (TopTypes.isAny(right, context, resolver)) context.read(left, resolver)
+    else if (left.structure == right.structure) context.read(left, resolver)
     else if (marker(left, context, resolver)) context.read(right, resolver).flatMap(singletonOnly)
     else if (marker(right, context, resolver)) context.read(left, resolver).flatMap(singletonOnly)
     else
@@ -199,15 +222,23 @@ private[cardinality] object SingletonIntersections {
         a <- context.read(left, resolver)
         b <- context.read(right, resolver)
         result <- provedIntersection(a, b)
-          .toRight(s"unsupported intersection relationship: ${left.syntax} & ${right.syntax}")
+          .toRight(
+            s"unsupported intersection relationship: ${Spelling.of(left)} & ${Spelling.of(right)}"
+          )
       } yield result
   }
 
+  // `scala.Singleton`, where no declaration nearer than the root imports binds the spelling: the
+  // name resolves to nothing the sources hold and no channel may rebind it — a wildcard over a
+  // namespace no source supplies may (Scala 3.9.0 reads `O.type & Singleton` as `Nothing` under a
+  // `zzz` declaring `type Singleton = Nothing`), and `quotes.reflect.*` does: reflect's own
+  // `Singleton` (probes/review-A7q).
   private def marker(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
     tpe.syntax match {
-      case "scala.Singleton" => resolver.lookup("scala.Singleton", context.frame).isEmpty
-      case "Singleton"       =>
-        resolver.lookup("Singleton", context.frame).isEmpty && unshadowedMarker(context)
+      case spelled @ ("scala.Singleton" | "Singleton") =>
+        Found.named(resolver, tpe, spelled, context).contains(Found.Absent) &&
+        resolver.rootShadow(spelled, context).isEmpty &&
+        (spelled.contains('.') || unshadowedMarker(context))
       case _ => false
     }
 
@@ -216,7 +247,7 @@ private[cardinality] object SingletonIntersections {
       !context.frame.chain.exists(_.stats.exists(markerImportOrExport))
 
   private def markerImportOrExport(stat: Stat): Boolean = stat match {
-    case i: Import => i.syntax.split("[^\\p{L}\\p{N}_$]+").contains("Singleton")
+    case i: Import => TypeName.words(i).contains("Singleton")
     case _: Export => true
     case _         => false
   }

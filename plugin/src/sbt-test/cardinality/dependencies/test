@@ -1,0 +1,9 @@
+# The report reads the declarations of the project's Compile dependencies from their TASTy, so a
+# row over a cats-kernel type gets a number; with the dependency classpath cleared it does not.
+> cardinalityReport
+> checkResolved
+> cardinalityReportSelected example.pick
+> checkResolved
+> set cardinalityDependencyClasspath := Nil
+> cardinalityReport
+> checkUnsupplied

@@ -42,6 +42,57 @@ Key references motivating this work:
 - [The Hidden Powers of Total Program Cardinality](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-9351ba774d4d)
 - [The Hidden Powers of Total Program Cardinality (2 of 2)](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-2-of-2-ceb0a3af13dd)
 
+## Assumption: the code has no side effects
+
+Every number the calculator reports rests on one assumption: **the code it measures has no
+side effects**. That covers both kinds of number, the values a data type holds and the
+implementations a method admits. Two consequences come up constantly in real code:
+
+- **A `var` is read as a `val`.** Reassignment is not modelled, so a `var` holds the value it
+  was given: its initializer, or the argument passed for a `var` constructor parameter.
+  - A `var` field adds exactly the values a `val` field of the same type would.
+  - A `var` that a method can read is an ordinary value in its environment.
+  - Scala's own typing rules still apply. A `var` is not a stable path, for example, so no
+    path-dependent type can be selected through one.
+- **Throwing is ignored.** A `throw`, or a call that may throw, is neither a value nor a way to
+  implement a signature, so it never adds to a count.
+  - `def make[A]: A` has `0` implementations, even though `throw new Exception` would compile.
+  - No count is withheld because some code might throw.
+  - Exceptions used as data are ordinary values: a `Throwable` passed in, stored in a field or
+    returned in an `Either`.
+
+Other effects are excluded the same way: I/O, logging, divergence, a `null` that the type does
+not declare, unsafe casts and reflection. None of them is counted.
+
+The calculator does not check that a body actually obeys this assumption. A result describes
+the pure, total implementations of a signature and the values of a type. The full statement is
+the counting contract in [docs/plans/v1.md §2](docs/plans/v1.md). [AGENTS.md](AGENTS.md)
+repeats it for coding agents working on this repository.
+
+### Inline methods
+
+An `inline def` is counted like a `def` when its body uses no compile-time operation: no
+`inline if` or `inline match`, nothing from `scala.compiletime` (`summonFrom`, `summonInline`,
+`erasedValue`, `constValue`, …), no quotes or splices. The same holds for every inline method the
+body calls.
+
+- `inline def pick[A](x: A, y: A): A = x` has `2` implementations, like the `def`. With
+  `inline erasedValue[A] match` in its body it is `?`.
+- `transparent` and `inline` parameters do not disqualify a method by themselves. Without side
+  effects, an `inline` parameter has its argument's value (boxing aside, which only the universal
+  members the model excludes can see).
+- A `transparent` result is `?` unless its declared type is a singleton: callers see the type of
+  what the expansion returns, which may be narrower than the declared one.
+- An expansion can also differ from the method's body without a compile-time operation, and those
+  bodies are `?` too: a member selected on a parameter or on `this` (`C.this` included) that a
+  subclass may override with an inline method (a function parameter's `apply` included, and the
+  `apply` a further argument clause selects on a call's result), a runtime class that depends on a
+  type parameter (a type test, or `classOf[Array[A]]`: each expansion reifies its type argument), a
+  given left to implicit search (a local method's `using` clause or context bound included), an
+  extension or conversion the body may meet. Definitions written in the body are read like
+  supplied ones, with `this` in a nested class or instance being that template.
+- Any other inline method is `?`, and the reason names what disqualified it.
+
 ## Status
 
 The [v1 implementation plan](docs/plans/v1.md) tracks the agreed counting contract,
@@ -167,6 +218,24 @@ is `ω + ω`, and a module with two `String => String` methods and one `String` 
 `2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
 reached ω or beyond and which type names stopped it from being tighter.
 
+`cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
+`Compile / dependencyClasspath` from their compiled TASTy: each Scala 3 class of a dependency
+joins the environment as a signature stub (`cardinality.tasty.TastyStubs`), so a row over a
+dependency's type gets a number instead of `declaration not supplied`. Stubs are never measured
+or reported, supply no bodies, and nothing is rendered into `scala.*`, `java.*` or `javax.*`;
+Java and Scala 2 classes stay unsupplied. With stubs present, each target gets a fixed quota of
+300,000 logical work steps. A stub that cannot be read is listed as `dependency stub not read`
+and refuses more, never differently. Choose the dependencies with `cardinalityDependencyClasspath`
+(`:= Nil` reads sources only); in the library, `Report.of(paths, classpath)` and
+`Report.Query(..., classpath = ...)`.
+
+The stubs are rendered once per set of dependency jars: `cardinalityDependencyStubs` is an sbt 2
+cached task, keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub format
+(`StubFile.Format`), whose output file (`target/out/cardinality/<project>/stubs.bin`) is declared
+with `Def.declareOutput` and so restored from sbt's machine-wide cache (or a remote one) instead
+of rendered again. A changed dependency renders again; a renderer change must bump the format.
+In the library, `Report.of(paths, stubs = Some(file))` reads such a file instead of a classpath.
+
 `sbt "cardinalityReportOf <path>..."` runs the same report over sources the
 build does not compile itself — a directory, a single file, or the
 `-sources.jar` a published library ships. That is how a dependency's types get
@@ -210,7 +279,10 @@ The whole project is read at once by the opt-in `cardinality.EoCheckout` runner:
 cats-eo checkout, it takes every production source of every module — the `v1.0.0` run covers
 thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that
 input order cannot move a result, that row identities stay unique, and that the production
-`Report.of` path renders the same report. Its ledger, per-module inventory and blocker buckets
+`Report.of` path renders the same report. An optional fourth argument names a classpath file (one
+jar per line): every Scala 3 class those jars declare is read from its TASTy and joins the
+environment as a signature stub - names and types, no bodies - never as a report row (see
+[`docs/plans/bounded-dependency-resolution.md`](docs/plans/bounded-dependency-resolution.md)). Its ledger, per-module inventory and blocker buckets
 are at [`docs/baselines/eo-checkout-2026-10-27-full.md`](docs/baselines/eo-checkout-2026-10-27-full.md).
 
 ### Method and constructor cardinality

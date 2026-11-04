@@ -19,7 +19,7 @@ class MethodMatchProjectionSpec extends Specification {
       project constructor inputs                                   $constructor
       keep owner and method binders distinct                       $hygiene
       keep pattern binders separate from alias parameters          $patternHygiene
-      do not reduce a free scrutinee                                $inert
+      keep a free scrutinee's projection stuck                       $inert
       report a nonmatching tuple                                   $nonmatching
       do not confuse a case-class product with a tuple              $nominal
       do not guess fixed-pattern identity or skip an unknown case   $fixed
@@ -86,8 +86,10 @@ class MethodMatchProjectionSpec extends Specification {
         "def pick[A, B](x: A, y: B): Pick[B, (A, Unit)] = x"
     ).count === Count.Finite(1)
 
+  // `Fst[T]` on an abstract `T` is stuck: its own atom, which nothing in scope produces (no `T` is
+  // destructured; Scala 3.9.0 rejects `x` as the body) — 0, like the reviewed `CanGet.get`.
   def inert =
-    unresolved(projections + "def pick[T](x: T): Fst[T] = ???", "inert match type")
+    entry(projections + "def pick[T](x: T): Fst[T] = ???").count === Count.Finite(0)
 
   def nonmatching =
     unresolved(projections + "def pick[A, B, C](x: A): Fst[(A, B, C)] = ???", "nonmatching tuple")

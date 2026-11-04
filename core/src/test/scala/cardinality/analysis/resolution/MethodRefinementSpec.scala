@@ -29,7 +29,7 @@ class MethodRefinementSpec extends Specification {
       do not assume a shadowed Nothing name denotes bottom          $shadowedBottom
       resolve paths in the binding's type-binder scope              $pathScope
       resolve declared stable values                               $stableValue
-      do not read type equalities through mutable paths             $mutablePath
+      do not read type equalities through a var (no stable path)    $mutablePath
   """
 
   private def input(code: String) =
@@ -173,7 +173,7 @@ class MethodRefinementSpec extends Specification {
 
   def mutablePath =
     valuePath("var r: { type X = Unit } = ???; def choose(): r.X = ()") must beLike {
-      case Left(reason) => reason must contain("unavailable stable path type")
+      case Left(reason) => reason must contain("not a stable path: r is a var")
     }
 
 }

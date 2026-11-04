@@ -10,7 +10,7 @@ import org.specs2.execute.Result
 // rule. The rest are `target`s: an expectation that fails today, which specs2 reports as pending
 // and turns into a failure once it starts holding, so support cannot land behind a stale marker.
 //
-// `TinySize(n)` is the exact count `n`; `FiniteSize(bits)` is a count in `(2^(bits-1), 2^bits]`,
+// `TinySize(n)` is the exact count `n`; `FiniteSize(bits)` is a count of at most `2^bits`,
 // which is why the larger examples below name a capacity such as 2^16 rather than a number.
 class ArticleCardinalitySpec extends Specification {
 

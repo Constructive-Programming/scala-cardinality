@@ -14,14 +14,15 @@ class OpaqueSumForwardingSpec extends Specification {
       count Either forwarding modulo sum eta                       $either
       prove unrelated applications unreachable                    $unreachable
       retain a unique unrelated result after observing a sum       $irrelevant
-      reject multiple opaque observations                          $multipleCalls
-      reject multiple argument values                              $multipleArguments
-      reject multiple unrelated results selectable by a tag        $multipleResults
-      reject applications enabled by exposed payloads               $crossCall
-      reject payload endomorphisms and recall                       $payloadConsumer
-      reject ambient payload producers                             $payloadProducer
-      reject nested and higher-order capabilities                  $unknown
-      keep Optional's dependent reverseGet unresolved              $optional
+    Beyond the certificate: neutrals eliminated once (capabilities C10)
+      multiple opaque observations combine their cases             $multipleCalls
+      multiple argument values are one neutral each                $multipleArguments
+      unrelated results are chosen per case                        $multipleResults
+      an application its payloads enable is eliminated in turn     $crossCall
+      a payload endomorphism cycles; a payload recall is unbounded $payloadConsumer
+      ambient payload producers add choices per case               $payloadProducer
+      nested payloads split; a higher-order observer is irrelevant $nestedAndHigherOrder
+      Optional's reverseGet reads the cases of getOrModify         $optional
       report reduced optic constructors end to end                 $report
       compile and execute forwarding witnesses and counterexample  $compiled
   """
@@ -39,11 +40,6 @@ class OpaqueSumForwardingSpec extends Specification {
   private def count(shapes: List[Shape], target: Shape): Count =
     Inhabitation.count(shapes.zipWithIndex.map((shape, i) => Binding(i.toString, shape)), target)
 
-  private def unresolved(value: Count) = value must beLike {
-    case Count.Unresolved(reasons) =>
-      reasons.exists(_.contains("opaque sum-producing")) must beTrue
-  }
-
   def option = count(List(pick), Function(List(s), opt)) === Count.Finite(2)
   def either = count(List(tear), Function(List(s), sum)) === Count.Finite(1)
 
@@ -55,34 +51,46 @@ class OpaqueSumForwardingSpec extends Specification {
     count(List(pick, Function(List(b), s)), Product(List(pick, Function(List(b), s)))) ===
       Count.Finite(2)
 
-  def multipleCalls = unresolved(count(List(s, pick, pick), opt))
-  def multipleArguments = unresolved(count(List(s, s, pick), opt))
-  def multipleResults = unresolved(count(List(s, b, b, pick), b))
+  // Two observations (two pickers, or one picker of two values): the four case combinations answer
+  // None (1); None or Some(a₂) (2); None or Some(a₁) (2); None, Some(a₁) or Some(a₂) (3) — 12.
+  def multipleCalls = count(List(s, pick, pick), opt) === Count.Finite(12)
+  def multipleArguments = count(List(s, s, pick), opt) === Count.Finite(12)
+  // Either case picks one of the two B values: 2 · 2.
+  def multipleResults = count(List(s, b, b, pick), b) === Count.Finite(4)
 
+  // `tear(s)`: Left(t) gives Left(t); Right(a) enables `q(a)`, whose cases both give Right(a): 1.
   def crossCall =
-    unresolved(count(List(s, tear, Function(List(a), Sum(List(unit, b)))), sum))
+    count(List(s, tear, Function(List(a), Sum(List(unit, b)))), sum) === Count.Finite(1)
 
+  // `pick(s)`: None (1); Some(a) reaches a, f(a), f(f(a)), … — ω. A picker of its own argument type
+  // has the unbounded family p(s), p(s'), … of neutrals.
   def payloadConsumer =
-    unresolved(count(List(s, pick, Function(List(a), a)), opt)).and(
-      unresolved(count(List(s, Function(List(s), Sum(List(unit, s)))), Sum(List(unit, s))))
+    (count(List(s, pick, Function(List(a), a)), opt) === Count.Countable).and(
+      count(List(s, Function(List(s), Sum(List(unit, s)))), Sum(List(unit, s))) must beLike {
+        case Count.Unresolved(reasons) =>
+          reasons.exists(_.contains("sum elimination over an unbounded argument space")) must beTrue
+      }
     )
 
+  // None: None or Some(g(s)) (2); Some(a): also Some(a) (3) — 6, with an ambient `a` alike.
   def payloadProducer =
-    unresolved(count(List(s, pick, Function(List(s), a)), opt)).and(
-      unresolved(count(List(s, a, pick), opt))
-    )
+    (count(List(s, pick, Function(List(s), a)), opt) === Count.Finite(6))
+      .and(count(List(s, a, pick), opt) === Count.Finite(6))
 
-  def unknown =
-    unresolved(count(List(s, Function(List(s), Sum(List(unit, Product(List(a, b)))))), opt))
-      .and(unresolved(count(List(s, pick, Function(List(Function(List(a), a)), b)), opt)))
+  // A product payload is flattened: None (1), Some((a, b)) gives None or Some(a) (2). A callable
+  // observing a function builds only a `B` no goal reads.
+  def nestedAndHigherOrder =
+    (count(List(s, Function(List(s), Sum(List(unit, Product(List(a, b)))))), opt) ===
+      Count.Finite(2))
+      .and(count(List(s, pick, Function(List(Function(List(a), a)), b)), opt) === Count.Finite(2))
 
+  // Memo E5: `S ⇒ Either[T, A]` is tear itself (1); `(S, B) ⇒ T` answers t or reverseGet in the
+  // Left case and reverseGet in the Right one (2) — 2.
   def optional =
-    unresolved(
-      count(
-        List(tear, Function(List(s, b), out)),
-        Product(List(tear, Function(List(s, b), out)))
-      )
-    )
+    count(
+      List(tear, Function(List(s, b), out)),
+      Product(List(tear, Function(List(s, b), out)))
+    ) === Count.Finite(2)
 
   def report = {
     val directory = Files.createTempDirectory("opaque-forwarding")
@@ -99,9 +107,11 @@ class OpaqueSumForwardingSpec extends Specification {
     (found("PickFold.<init>") === Count.Finite(2))
       .and(found("MendTearPrism.<init>") === Count.Finite(1))
       .and(found("PickMendPrism.<init>") === Count.Finite(2))
-      .and(unresolved(found("Optional.<init>")))
-      .and(unresolved(found("ManyCalls.<init>")))
-      .and(unresolved(found("TransformPayload.<init>")))
+      .and(found("Optional.<init>") === Count.Finite(2))
+      // Each `S ⇒ Option[A]` field reads both pickers: 12, twice.
+      .and(found("ManyCalls.<init>") === Count.Finite(144))
+      // `step` cycles on the picked A (and on A alone): ω.
+      .and(found("TransformPayload.<init>") === Count.Countable)
   }
 
   def compiled = {

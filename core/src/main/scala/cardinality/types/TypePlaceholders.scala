@@ -36,9 +36,9 @@ private[cardinality] object TypePlaceholders {
           rebuild(kids.map(_(state)))
         case other =>
           if (
-            dev.constructive.eo.optics.Plated
-              .universe(other)(using TypeSubstitution.localPlate)
-              .exists(_.isInstanceOf[Type.AnonymousParam])
+            Universe.exists(other)(_.isInstanceOf[Type.AnonymousParam])(using
+              TypeSubstitution.localPlate
+            )
           )
             state.failure = Some("constructor placeholder body requires unsupported hole traversal")
           other
@@ -68,7 +68,7 @@ private[cardinality] object TypePlaceholders {
 
   def existential(wildcard: Type.Wildcard): String =
     if (wildcard.bounds.lo.nonEmpty || wildcard.bounds.hi.nonEmpty)
-      s"bounded existential wildcard requires unknown witness and bounds analysis: ${wildcard.syntax}"
-    else s"existential wildcard requires unknown witness analysis: ${wildcard.syntax}"
+      s"bounded existential wildcard requires unknown witness and bounds analysis: ${Spelling.of(wildcard)}"
+    else s"existential wildcard requires unknown witness analysis: ${Spelling.of(wildcard)}"
 
 }

@@ -13,7 +13,10 @@ scope.
   redundant `case` analysis do not make two expressions different inhabitants. A refinement of that
   (exact equality in the model) is what the solver approximates with canonical constructions.
 - `Void ~ 0`, `() ~ 1`, `Bool ~ 2`, `Int ~ 2^32` — the `Size` algebra's `NothingSize`, `UnitSize`,
-  `BooleanSize` and the fixed-width sizes.
+  `BooleanSize` and the fixed-width sizes. On the method side a ground type is `Shape.Ground`: a
+  supplied one is case-split into `|G|` identical branches (one goal raised to `|G|`), a goal of one
+  is its literals, so `Int -> Int ~ 2^(2^37)` exactly (`Count.Symbolic`); `String` is ω and its
+  split saturates at 0, 1 or ω ([ground scalar types](research/ground-scalar-types.md)).
 - A coproduct adds: `Either a b ~ |a| + |b|` — `Shape.Sum`, and `Option a ~ 1 + |a|` in particular.
 - A product multiplies: `(a, b) ~ |a| * |b|` — `Shape.Product`; the empty product is `1` and an
   empty alternative is `0`.
@@ -33,8 +36,11 @@ scope.
 
 ## What the reference supports that the solver does not yet do
 
-- Rank-N and higher-kinded quantification (`∀f. f A -> f B`, Yoneda for higher kinds): the frontend
-  reports `?` for a bounded or higher-kinded parameter rather than guessing.
+- Rank-N quantification and Yoneda-style reasoning: the frontend reads a plain higher-kinded binder
+  as a rigid, uninterpreted constructor (`F[A]` and `F[B]` are distinct base types; see
+  [higher-kinded binders](research/higher-kinded-binders.md)), so `∀f. f A -> f B` counts 0 without
+  evidence and 1 with `A =:= B`, but it assumes no functor law and refuses variant or bounded
+  constructor binders rather than guessing.
 - Laws: "counting inhabitants of types given laws is hard" — the reference says so itself. A functor
   law, or an optic law, is an extra condition on inhabitant counts and is never assumed here.
 - Non-regular types such as `Set` beyond the `2^|a|` identity, and types whose inhabitants depend on
@@ -44,6 +50,11 @@ scope.
 
 - It counts **canonical pure, total parametric constructions**: no divergence, no effects, no casts,
   no unsafe equality.
+- `Any`, `AnyRef`, `Matchable` and `AnyVal` are the **terminal type** `1`: every universal member
+  (`==`, `hashCode`, `toString`, `getClass`, type tests, `eq`) is outside the model, so no context
+  tells two of their values apart. A goal with one value has one implementation in any environment,
+  and a union is a sum only where a class test is its eliminator
+  ([top types and unions](research/top-types-unions.md)).
 - An opaque callable is unconstrained, so applying it repeatedly is counted as countable
   (`∀a. (a -> a) -> a -> a ~ ℵ₀`); a callable the source set defines is a specific inhabitant of its
   type, whose values a total parametric body can only draw from the environment — so it neither

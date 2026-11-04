@@ -95,7 +95,7 @@ class EvidenceTransportCardinalitySpec extends Specification {
   def structuralEvidence =
     unsupported(
       "def use[A, B](x: A, ev: (A, A) =:= (B, B)): B = ???",
-      "free-atom endpoints"
+      "free-atom or rigid-application endpoints"
     )
 
   def directSolver = {

@@ -1,13 +1,24 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
+import scala.meta.{Defn, Mod, XtensionClassifiable}
 
-import cardinality.analysis.*
-
-import MethodAnalysis.{Frame, TypeEntry}
+import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
+import cardinality.analysis.model.{MemberSyntax, ResolutionContext}
+import cardinality.types.Trees
 
 /** Representation access follows the use site, never the scope of an exported transparent alias. */
 private[cardinality] object OpaqueTypes {
+
+  /** Whether the source declaration `entry` can be read from `context`: not one this reading is
+    * already inside (a cycle needs a structural proof), and not an opaque type hidden from the use
+    * site.
+    */
+  def readable(context: ResolutionContext, entry: TypeEntry): Either[String, Unit] =
+    if (context.visiting(entry.key))
+      Left(s"recursive type requires a structural proof: ${entry.key}")
+    else if (hidden(entry, context.useSite))
+      Left(s"opaque representation is not visible at use site: ${entry.key}")
+    else Right(())
 
   def hidden(entry: TypeEntry, from: Frame): Boolean = entry.tree match {
     case alias: Defn.Type if alias.mods.exists(_.is[Mod.Opaque]) => !visible(entry, from)
@@ -19,26 +30,13 @@ private[cardinality] object OpaqueTypes {
     else topLevelVisible(entry, from)
 
   private def topLevelVisible(entry: TypeEntry, from: Frame): Boolean =
-    if (entry.owner.chain.last.id != from.chain.last.id) false
-    else if (!samePackage(entry.owner, from)) false
-    else if (companionScope(entry, from)) true
-    else !from.chain.exists(scope => scope.tree.exists(template))
+    entry.owner.chain.last.id == from.chain.last.id && samePackage(entry.owner, from) &&
+      from.chain
+        .flatMap(_.tree)
+        .headOption
+        .forall(Trees.topLevelStatement(_).exists(MemberSyntax.wrappedInPackageObject))
 
   private def samePackage(owner: Frame, from: Frame): Boolean =
     from.chain.find(_.tree.isEmpty).exists(_.path == owner.path)
-
-  private def companionScope(entry: TypeEntry, from: Frame): Boolean =
-    from.chain.exists(scope =>
-      scope.tree match {
-        case Some(_: Defn.Object) => scope.path == entry.owner.path :+ entry.name
-        case _                    => false
-      }
-    )
-
-  private def template(tree: Tree): Boolean = tree match {
-    case _: Defn.Object | _: Defn.Class | _: Defn.Trait | _: Defn.Enum => true
-    case _: Defn.Given | _: Pkg.Object                                 => true
-    case _                                                             => false
-  }
 
 }

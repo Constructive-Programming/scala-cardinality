@@ -29,7 +29,7 @@ class OpaqueTypeScopeSpec extends Specification {
       keep inherited declarations hidden from an external caller $inheritedBoundary
       preserve failed inherited opaque argument substitutions    $inheritedArgumentBoundary
       keep type-lambda aliases hidden outside their scope         $lambdaBoundary
-      retain higher-kinded/evidence diagnostics                   $higherKindedBoundary
+      read a higher-kinded opaque type inside its scope           $higherKindedBoundary
       compile the visibility rules with Scala, not just parsing  $compiledVisibility
   """
 
@@ -207,15 +207,13 @@ class OpaqueTypeScopeSpec extends Specification {
       )
     )
 
+  // Inside Owner the alias is visible: `a: F[A]` with F rigid, and nothing yields an A.
   def higherKindedBoundary =
     count(
       "Owner.get",
       "Owner.scala" ->
         "object Owner { opaque type T[F[_], A] = F[A]; def get[F[_], A](a: T[F, A]): A = ??? }"
-    ) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("bounded or higher-kinded")) must beTrue
-    }
+    ) === Count.Finite(0)
 
   def compiledVisibility = {
     import opaquefixture.*

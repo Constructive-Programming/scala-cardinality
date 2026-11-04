@@ -217,8 +217,8 @@ object SourceSnapshot {
     hex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
   /** The length prefix framing each value's bytes: 32-bit for short request keys, 64-bit for
-    * snapshot digests. Two legal widths, so a closed sum — the old `Int` silently framed any
-    * value other than 4 as 64-bit.
+    * snapshot digests. Two legal widths, so a closed sum — the old `Int` silently framed any value
+    * other than 4 as 64-bit.
     */
   enum LengthPrefix {
     case Bits32
@@ -229,6 +229,7 @@ object SourceSnapshot {
       case Bits32 => ByteBuffer.allocate(4).putInt(length).array()
       case Bits64 => ByteBuffer.allocate(8).putLong(length.toLong).array()
     }
+
   }
 
   private[cardinality] def framedHash(

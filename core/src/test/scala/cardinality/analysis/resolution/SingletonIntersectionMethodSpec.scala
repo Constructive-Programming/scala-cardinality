@@ -23,7 +23,7 @@ class SingletonIntersectionMethodSpec extends Specification {
       reject unrelated trait and structural intersections           $unsupported
       preserve module member environment diagnostics                $members
       reject inaccessible paths and alias leaks                     $access
-      reject unstable, missing and non-capture references            $negative
+      reject unstable and forward references; a missing path is terminal $negative
   """
 
   private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
@@ -89,12 +89,12 @@ class SingletonIntersectionMethodSpec extends Specification {
     unknown("def pick[A](x: A, y: A): x.type & y.type = ???")
 
   def unsupported =
-    unknown("trait A\ntrait B\ndef pick(x: A & B): A = x")
+    unknown("trait A { def a: Int }\ntrait B { def b: Int }\ndef pick(x: A & B): A = x")
       .and(unknown("def pick[A](x: A): (A, A) & A = ???"))
       .and(unknown("def pick(): String & Singleton = ???"))
 
   def members =
-    unknown("object Token { def produce[A](): A = ??? }; def pick(x: Token.type): Unit = ()")
+    unknown("object Token { def produce[A](): A = ??? }; def pick(x: Token.type): Boolean = true")
       .and(unknown("trait Base\nobject Token extends Base\ndef pick(): Token.type = Token"))
 
   def access =
@@ -106,9 +106,13 @@ class SingletonIntersectionMethodSpec extends Specification {
         )
       )
 
+  // A var's singleton (E083), a forward `val` reference and a use of a block's own object are
+  // typing facts or captures this reading refuses. A name bound nowhere is different: the sources
+  // typecheck, so any written `missing.type` is a stable path of some term, and its one value is
+  // the goal's one implementation (D-terminal, P6) — `?` here claimed information was absent that
+  // the written `.type` itself supplies.
   def negative =
     unknown("var x: Boolean = true\ndef pick(): x.type = x")
-      .and(unknown("def pick(): missing.type = ???"))
       .and(
         unknown(
           "def outer[A](x: A): A = { def pick(): later.type = ???; val later = x; x }",
@@ -121,5 +125,6 @@ class SingletonIntersectionMethodSpec extends Specification {
           "outer.pick"
         )
       )
+      .and(entry("def pick(): missing.type = ???").count === Count.Finite(1))
 
 }

@@ -17,7 +17,7 @@ class GeneralInfixApplicationSpec extends Specification {
       resolves nested qualified and root-qualified prefix operands        $qualified
       enforces the same source constructor arity                          $arity
       reports missing external effect dependencies rather than syntax     $externalEffects
-      does not erase an unavailable effect constructor representation      $effectRepresentation
+      reads an infix source trait as the record prefix syntax reads        $effectRepresentation
   """
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
@@ -88,21 +88,25 @@ class GeneralInfixApplicationSpec extends Specification {
       "Option[A] < Var[A]" -> "<[Option[A], Var[A]]",
       "A < Unit" -> "<[A, Unit]"
     )
+    // The callee is read first: with `<` unsupplied, nothing says whether its arguments are types
+    // or constructors, so the missing callee is the one true reason, whatever its arguments name.
     pairs
       .map { (infix, prefix) =>
-        val expected =
-          if (infix.contains("Env")) "Env" else if (infix.contains("Var")) "Var" else "<"
         (count("", infix) === count("", prefix))
-          .and(count("", infix) === Count.Unresolved(List(s"unresolved type: $expected")))
+          .and(
+            count("", infix) === Count.Unresolved(
+              List(s"declaration not supplied: < (${StdlibModel.undeclared})")
+            )
+          )
       }
       .reduce(_.and(_))
   }
 
+  // The trait is the record of its one member (capabilities C4): `run` returns x or y — 2.
   def effectRepresentation = {
-    val definitions = "trait <[A, S]"
+    val definitions = "trait <[A, S] { def run: A }"
     val prefix = count(definitions, "<[A, Unit]")
-    (prefix === Count.Unresolved(List("abstract type or method-valued representation: <")))
-      .and(count(definitions, "A < Unit") === prefix)
+    (prefix === Count.Finite(2)).and(count(definitions, "A < Unit") === prefix)
   }
 
 }

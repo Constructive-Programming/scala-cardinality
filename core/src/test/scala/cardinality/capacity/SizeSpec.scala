@@ -4,7 +4,7 @@ import org.specs2.Specification
 
 // The size algebra: `aε₀ + bω + n`, added componentwise and compared lexicographically, with
 // deliberately coarse products and powers above the finite tier. `TinySize(n)` is the exact
-// count `n`, `FiniteSize(bits)` a count in `(2^(bits-1), 2^bits]`, `Size.tiers(a, b)` a
+// count `n`, `FiniteSize(bits)` a count of at most `2^bits`, `Size.tiers(a, b)` a
 // polynomial of whole tiers, and `EffectiveOmega` / `EffectiveEpsilon0` one tier each — so
 // `EffectiveOmega + EffectiveOmega` is `2ω`.
 class SizeSpec extends Specification {
@@ -19,7 +19,7 @@ class SizeSpec extends Specification {
     tiny arithmetic spills into bits           ${TinySize(100) + TinySize(100) === FiniteSize(8)}
     tiny powers do not saturate                ${(BooleanSize ^ TinySize(100)) === FiniteSize(100)}
     equal finite sums terminate                ${IntSize + IntSize === FiniteSize(33)}
-    sums keep the larger bit count             ${FloatSize + LongSize === FiniteSize(65)}
+    sums keep the larger bit count             ${FloatSize + LongSize === LossyInfiniteSize(65)}
     Nothing absorbs products                   ${(NothingSize * IntSize === NothingSize).and(
       EffectiveOmega * NothingSize === NothingSize
     )}
@@ -128,10 +128,12 @@ class SizeSpec extends Specification {
         UnitSize.render === "1"
       )
       .and(BooleanSize.render === "2")}
-    a capacity renders as the bound it is      ${(FiniteSize(9).render === "2^9").and(
-      IntSize.render === "2^32"
-    )}
-    a lossy size says so                       ${FloatSize.render === "2^32 (lossy)"}
+    a capacity renders as the bound it is      ${(FiniteSize(9).render === "≤2^9")
+      .and(
+        IntSize.render === "≤2^32"
+      )
+      .and((EffectiveOmega + FiniteSize(33)).render === "ω + ≤2^33")}
+    a lossy size says so                       ${FloatSize.render === "≤2^32 (lossy)"}
     the tiers render as ε₀ and ω               ${(EffectiveOmega.render === "ω").and(
       EffectiveEpsilon0.render === "ε₀"
     )}

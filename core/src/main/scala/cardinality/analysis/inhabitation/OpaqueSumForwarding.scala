@@ -1,5 +1,7 @@
 package cardinality.analysis.inhabitation
 
+import cardinality.types.Traversals
+
 import Inhabitation.Shape
 import Shape.*
 
@@ -20,7 +22,7 @@ private[cardinality] object OpaqueSumForwarding {
 
   def count(environment: List[Shape], target: Shape): Option[Int] =
     for {
-      calls <- Shape.sequenceOptions(
+      calls <- Traversals.defined(
         environment.flatMap(Shape.functionPrism.getOption).map(callable)
       )
       if environment.forall {
@@ -82,7 +84,7 @@ private[cardinality] object OpaqueSumForwarding {
       case a: Atom if counts(a) <= 1 => Some(counts(a))
       case Product(Nil)              => Some(1)
       case Sum(alternatives) if alternatives.size <= 2 && alternatives.forall(flat) =>
-        Shape.sequenceOptions(alternatives.map(ordinary(_, counts))).map(_.sum)
+        Traversals.defined(alternatives.map(ordinary(_, counts))).map(_.sum)
       case _ => None
     }
 
@@ -112,7 +114,7 @@ private[cardinality] object OpaqueSumForwarding {
   // can expose capabilities that this certificate's atomic reachability calculation does not see.
   private def callable(function: Function): Option[Call] =
     for {
-      inputs <- Shape.sequenceOptions(function.parameters.map(Shape.dataAtoms.get)).map(_.flatten)
+      inputs <- Traversals.defined(function.parameters.map(Shape.dataAtoms.get)).map(_.flatten)
       if function.result match {
         case _: Atom | Product(Nil) => true
         case Sum(alternatives)      =>

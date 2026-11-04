@@ -43,6 +43,7 @@ class ReportSpec extends Specification {
       reports a path it cannot read             $missing
       reports a source it cannot parse          $unparsable
       renders the numbers it found              $renders
+      counts an exact symbolic row as finite    $symbolicRow
       orders rows by cardinality                $orders
       renders an empty report                   $empty
 
@@ -68,7 +69,7 @@ class ReportSpec extends Specification {
       a name two packages define stays unresolved  $crossSourceAmbiguous
       an imported name is left to the import     $crossSourceImported
       a sealed hierarchy sums across files       $crossSourceSealed
-      an opaque value is one value outside       $crossSourceOpaque
+      an opaque type is refused outside its scope $crossSourceOpaque
     """
 
   private def definitions(code: String): List[Definition] =
@@ -129,7 +130,7 @@ class ReportSpec extends Specification {
     val found = definitions(
       "sealed trait Light {\n  case object Red extends Light\n  case object Green extends Light\n}",
     )
-    (found.map(_.name) === List("Light", "Light.Red", "Light.Green"))
+    (found.map(_.name) === List("Light", "Light#Red", "Light#Green"))
       .and(found.map(_.size) === List(None, Some(UnitSize), Some(UnitSize)))
   }
 
@@ -162,14 +163,13 @@ class ReportSpec extends Specification {
         reasons("case class Text(run: String => String)", "Text") === Nil
       )
       .and(
-        reasons("type Fst[T] = T match { case (a, b) => a }", "Fst") === List(
-          "a match type"
-        )
+        // A match type stuck only on the definition's own parameter is that parameter's to decide.
+        reasons("type Fst[T] = T match { case (a, b) => a }", "Fst") === List("T")
       )
   }
 
   def enclosing = {
-    val found = definition("class Outer(a: Boolean) { case class Inner(o: Outer) }", "Outer.Inner")
+    val found = definition("class Outer(a: Boolean) { case class Inner(o: Outer) }", "Outer#Inner")
     found.size === Some(BooleanSize)
   }
 
@@ -291,7 +291,7 @@ class ReportSpec extends Specification {
     (report.definitions.map(_.name) === List("Fine"))
       .and(report.errors.map(_.path) === List(root.resolve("Broken.scala").toString))
       .and(report.errors.map(_.message).mkString must contain("line"))
-      .and(report.render must contain(s"could not read ${root.resolve("Broken.scala")}"))
+      .and(report.render must contain("could not read Broken.scala: "))
   }
 
   def orders = {
@@ -328,7 +328,7 @@ class ReportSpec extends Specification {
   def empty = {
     val rendered = Report.of(Nil).render
     rendered === """scala-cardinality — 0 sources, 0 definitions
-                  |  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+                  |  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
                   |  ?: no single number here — the reason after the row says what would give one""".stripMargin
   }
 
@@ -358,6 +358,15 @@ class ReportSpec extends Specification {
       .and(estimate.last must contain("1  p.Shape   object"))
   }
 
+  // (2^32)^(2^32) is above the literal budget, so the row is a symbolic exact count: it prints in
+  // its normal form and the headline tallies it with the finite rows, not the unresolved ones.
+  def symbolicRow = {
+    val root = temporary("Ints.scala" -> "package p\ndef f(x: Int): Int = x")
+    val rendered = Report.of(List(root)).render
+    (rendered must contain("2^(2^37)  p.f  f(x: Int): Int  Ints.scala:2  [method]"))
+      .and(rendered must contain("1 signature: 1 finite · 0 countably infinite · 0 unresolved"))
+  }
+
   def appliedType = {
     val found = definitions(
       """|case class Pair[A](a: A, b: A)
@@ -378,7 +387,14 @@ class ReportSpec extends Specification {
       ("TwoBools", Some(TinySize(4)), Nil),
       ("Use", Some(TinySize(48)), Nil),
     ))
-      .and(found.map(Definition.instantiationDependent) === List(true, true, false, false))
+      .and(
+        found.map(d => Definition.gap(d).contains(Definition.Gap.Instantiation)) === List(
+          true,
+          true,
+          false,
+          false
+        )
+      )
   }
 
   def parameterisedRecursion = {
@@ -457,26 +473,24 @@ class ReportSpec extends Specification {
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "c/Use.scala" -> "package c\nimport a.Widget\ncase class Use(w: Widget)",
     )
-    // The import decides what the name means and the calculator does not follow imports, so the
-    // name stays a reason even though the source set defines it.
-    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
+    // The import decides what the name means, and it names a supplied declaration: `a.Widget`.
+    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(BooleanSize), Nil))
   }
 
   def crossSourceSealed = {
     val root = temporary(
-      "Nat.scala" -> "package p\nsealed trait Nat",
-      "Cases.scala" -> "package p\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
+      "Nat.scala" -> "package p\nsealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
       "Use.scala" -> "package p\ncase class Use(n: Nat)",
     )
-    // The package's equations are solved as one system, so the sealed parent sums the cases a
-    // sibling file defines, and the recursion is read through it. Rows follow the sources, so
-    // `Cases.scala` comes before `Nat.scala`.
-    (rowsOf(root).map(_._1) === List("p.Zero", "p.Succ", "p.Nat", "p.Use"))
+    // Scala keeps a sealed parent's subtypes in its own file ("Cannot extend sealed trait Nat in a
+    // different source file"), where the parent sums them; a sibling file reads the sum, recursion
+    // included, through the package's system.
+    (rowsOf(root).map(_._1) === List("p.Nat", "p.Zero", "p.Succ", "p.Use"))
       .and(
         rowsOf(root) === List(
+          ("p.Nat", Some(EffectiveOmega), Nil),
           ("p.Zero", Some(UnitSize), Nil),
           ("p.Succ", Some(EffectiveOmega), Nil),
-          ("p.Nat", Some(EffectiveOmega), Nil),
           ("p.Use", Some(EffectiveOmega), Nil),
         )
       )
@@ -487,10 +501,12 @@ class ReportSpec extends Specification {
       "Id.scala" -> "package p\nopaque type Id = Byte",
       "User.scala" -> "package p\ncase class User(id: Id, active: Boolean)",
     )
-    // An opaque row reads its representation (`Id` is 2^8), and a reference from outside the
-    // defining scope is one opaque value — the two readings the contract keeps apart. Constructor
-    // inputs multiply, so `User` is one opaque `Id` times two `active` states.
-    (rowsOf(root).filter(_._1 == "p.User") === List(("p.User", Some(TinySize(2)), Nil)))
+    // An opaque row reads its representation (`Id` is 2^8). A reference from another file is
+    // outside the scope that defines it, where the representation is not visible: a reason, not the
+    // single value an abstract type would suggest (that reading made `User` 2).
+    (rowsOf(root).filter(_._1 == "p.User") === List(
+      ("p.User", Some(EffectiveOmega), List("opaque type read outside its scope: p.Id"))
+    ))
       .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
   }
 
@@ -509,11 +525,12 @@ class ReportSpec extends Specification {
     )
     // A match type reduces on the argument's syntax: `Fst[(Boolean, Boolean)]` is `Boolean` because
     // the case pattern is that tuple and its body is the first binder. A concrete pattern matches
-    // by spelling and falls through to the binder case when it does not.
+    // by spelling and falls through to the binder case when it does not. The definitions' own rows
+    // are stuck only on their parameter `T`: each instantiation decides them.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
-      ("Fst", Some(EffectiveOmega), List("a match type")),
-      ("Snd", Some(EffectiveOmega), List("a match type")),
-      ("Pick", Some(EffectiveOmega), List("a match type")),
+      ("Fst", Some(EffectiveOmega), List("T")),
+      ("Snd", Some(EffectiveOmega), List("T")),
+      ("Pick", Some(EffectiveOmega), List("T")),
       ("Two", Some(BooleanSize), Nil),
       ("Second", Some(BooleanSize), Nil),
       ("ANumber", Some(BooleanSize), Nil),
@@ -551,7 +568,9 @@ class ReportSpec extends Specification {
       ("Only", Some(UnitSize), Nil),
       ("Uses", Some(EffectiveOmega), List("Open")),
     ))
-      .and(found.find(_.name == "Uses").exists(Definition.open))
+      .and(
+        found.find(_.name == "Uses").exists(d => Definition.gap(d).contains(Definition.Gap.Open))
+      )
   }
 
   def constructorRow = {
@@ -567,17 +586,18 @@ class ReportSpec extends Specification {
     val found = definitions(
       """|object Outer { type B = Boolean }
          |trait Foo[A] { type B = A }
-         |case class C(x: Outer.B, y: Foo.B)
+         |case class C(x: Outer.B)
          |""".stripMargin,
     )
-    // A qualified reference is a member the sources declare: the owner's parameters are replaced by
-    // what the reference supplied, so `Foo[Boolean].B` is `Boolean`.
+    // A qualified reference is a member the object's body declares: `Outer.B` is `Boolean`. A
+    // trait's member `Foo#B` is read through a value of the trait (`memberByValue`): `Foo.B` with no
+    // `object Foo` is not Scala, and `NamespaceSpec` keeps it a reason.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Outer", Some(UnitSize), Nil),
       ("Outer.B", Some(BooleanSize), Nil),
       ("Foo", None, Nil),
-      ("Foo.B", Some(EffectiveOmega), List("A")),
-      ("C", Some(EffectiveOmega), List("A")),
+      ("Foo#B", Some(EffectiveOmega), List("A")),
+      ("C", Some(BooleanSize), Nil),
     )
   }
 
@@ -591,9 +611,9 @@ class ReportSpec extends Specification {
     // member of `Foo[Boolean]`.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Foo", None, Nil),
-      ("Foo.B", Some(EffectiveOmega), List("A")),
+      ("Foo#B", Some(EffectiveOmega), List("A")),
       ("D", Some(EffectiveOmega), List("Foo")),
-      ("D.Y", Some(BooleanSize), Nil),
+      ("D#Y", Some(BooleanSize), Nil),
     )
   }
 
@@ -608,9 +628,9 @@ class ReportSpec extends Specification {
     (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("O", None, Nil),
       ("C", Some(EffectiveOmega), List("O")),
-      ("C.Y", Some(EffectiveOmega), List("x.Z")),
+      ("C#Y", Some(EffectiveOmega), List("x.Z")),
     ))
-      .and(found.find(_.name == "C.Y").exists(Definition.open))
+      .and(found.find(_.name == "C#Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
   }
 
   def memberUnknown = {
@@ -619,7 +639,7 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     // The sources do not say what `x` is, so the reference is the reason, as it was written.
-    found.find(_.name == "C.Y").map(d => (d.size, d.unbound.map(_.render))) ===
+    found.find(_.name == "C#Y").map(d => (d.size, d.unbound.map(_.render))) ===
       Some((Some(EffectiveOmega), List("x.Z")))
   }
 
@@ -637,7 +657,7 @@ class ReportSpec extends Specification {
       ("Value", Some(BooleanSize), Nil),
       ("Use", Some(EffectiveOmega), List("Open")),
     ))
-      .and(found.find(_.name == "Use").exists(Definition.open))
+      .and(found.find(_.name == "Use").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
   }
 
   def openRow = {
@@ -661,7 +681,7 @@ class ReportSpec extends Specification {
       ("Pairish", List("F[_, _]")),
       ("Mixed", List("A", "F[_]")),
     ))
-      .and(found.forall(Definition.instantiationDependent))
+      .and(found.forall(d => Definition.gap(d).contains(Definition.Gap.Instantiation)))
   }
 
   def latticeEnds = {
@@ -673,12 +693,13 @@ class ReportSpec extends Specification {
          |""".stripMargin,
     )
     // `Null` has the one value `null`; `Any` is the top of the lattice, and nothing the analysis can
-    // place is above the ε₀ tier, so it sits there — which makes an `Array[Any]` the countable
-    // space its length makes it, rather than an unknown name. eo's `PSVec.Slice` is that shape.
+    // place is above the ε₀ tier, so it sits there — and an `Array[Any]` holds each one-element
+    // array, so it is ε₀ too (`Σₙ aⁿ` from n = 1), never below its element. eo's `PSVec.Slice` is
+    // that shape.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("MaybeNull", Some(UnitSize), Nil),
       ("Anything", Some(EffectiveEpsilon0), Nil),
-      ("Elements", Some(EffectiveOmega), Nil),
+      ("Elements", Some(EffectiveEpsilon0), Nil),
       ("Nullable", Some(EffectiveOmega + UnitSize), Nil),
     )
   }

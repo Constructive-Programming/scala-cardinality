@@ -8,7 +8,7 @@ Generic method / constructor implementation cardinalities
 ε₀  example.Reducer.<init>  Reducer(run: String => String)  Light.scala:20  [constructor]
 ω  example.Succ.<init>  Succ(n: Nat)  Natural.scala:7  [constructor]
 scala-cardinality — 2 sources, 11 definitions
-  stored-value estimates: constructor inputs only; finite capacities are upper bounds
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
   ?: no single number here — the reason after the row says what would give one
   1 instantiation-dependent · 8 with more than one value · 2 with one value
 Stored-value estimates (constructor inputs; `?` = unresolved)

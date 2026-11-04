@@ -27,8 +27,9 @@ class CounterSpec extends Specification {
           beEqualTo(FiniteSize(96))
       )
       .and(
+        // Two floating-point stand-ins multiply to a width of unmodelled precision, still marked.
         Counter.source("case class NinetySix(a: Double, b: Double)".parse[Source].get) must
-          beEqualTo(FiniteSize(128))
+          beEqualTo(LossyInfiniteSize(128))
       )
   }
 

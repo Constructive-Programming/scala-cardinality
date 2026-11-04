@@ -3,229 +3,388 @@ package cardinality.analysis
 import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.inhabitation.*
+import cardinality.analysis.capability.{
+  DeferredInline,
+  PassedState,
+  ReceiverCapabilities,
+  TargetViews
+}
+import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.capacity.{Counter, Size}
 import cardinality.types.TypeApplications
 
+import MemberSyntax.Observation
 import Inhabitation.{Binding, Count, Shape}
-import MethodAnalysis.{sequence, Entry, Frame, Limits, Resolved, Target, TypeEntry}
-
-/** The narrow view of the index the measurement needs: resolve a name to the types that declare it,
-  * resolve a type to its shape, the frames a name may be read in, and the package and module lists
-  * an outside member could come from. The measurement holds this rather than the whole index, so
-  * the two files stay apart without a second copy of the resolution rules.
-  */
-private[cardinality] trait Resolver {
-
-  /** The estimate's reading of the source a signature was indexed from, so a constructor position
-    * can answer with the same space the definitions' rows use.
-    */
-  def reading(path: String): Counter.Reading
-
-  def lookup(name: String, frame: Frame): List[TypeEntry]
-
-  def resolve(
-      tpe: Type,
-      frame: Frame,
-      variables: Map[String, Resolved],
-      visiting: Set[String] = Set.empty
-  ): Resolved
-
-  def resolve(tpe: Type, context: ResolutionContext): Resolved
-
-  def typeParameters(frame: Frame): Map[String, Resolved]
-
-  def accessible(tree: Tree, owner: Frame, from: Frame): Boolean
-
-  def packages: List[Frame]
-
-  def modules: List[Frame]
-
-  def mentionedConcrete(target: Target): Set[String]
-
-  def kindOf(target: Target): String
-
-  def limits: Limits
-
-  def inspect(operation: String): Unit
-  def expanding[A](operation: String)(read: => A): A
-  def solverDepth: Int
-  def peers(path: List[String]): List[Frame]
-  def isPackage(frame: Frame): Boolean
-}
+import MethodAnalysis.{sequence, Entry, Frame, Resolved, Target}
 
 /** One signature's environment: the bindings visible from its frame, the diagnostics that make that
   * environment incomplete, and the count the two admit.
   */
-final private[cardinality] class Measurement(target: Target, resolver: Resolver) {
+final private[cardinality] class Measurement(
+    target: Target,
+    resolver: Resolver,
+    mode: TargetViews.ViewMode = TargetViews.ViewMode.Refuse
+) {
 
   private val errors = mutable.ListBuffer.empty[String]
+  // The reasons that are possible views of the declaration (capabilities C6), for `ViewSandwich`.
+  private val views = mutable.Set.empty[String]
+  // Whether an import clause may rebind a builtin name.
+  private var rebound = false
   private val values = mutable.LinkedHashMap.empty[String, Binding]
   private val qualifiedValues = mutable.LinkedHashMap.empty[String, Binding]
   private val captures = mutable.ListBuffer.empty[String]
   private val variables = resolver.typeParameters(target.frame)
   private val owners = target.frame.chain.reverse
-  private val overrideIdentity = new OverrideIdentity(target, resolver)
-  // Members of a module outside the lexical chain can never hold or produce this method's
-  // type parameters — a module's scope is fixed, and no method's binders reach it. They can
-  // only matter where a signature mentions a concrete, modelled type (a Boolean, an Option),
-  // so those modules, imports and sibling bodies are the ones to report rather than every
-  // companion object and every import in the file.
-  private val mentions = resolver.mentionedConcrete(target)
+  private val overrideIdentity = new OverrideIdentity(resolver)
+  private val declaredMembers = new DeclaredMembers
+  // The values each owner's scan left visible, and the implementations a final template gives its
+  // inherited declarations: a local one may read a capture the target hides.
+  private val visibleAt = mutable.Map.empty[String, Map[String, Binding]]
+  private val implementations = mutable.ListBuffer.empty[(Frame, Tree)]
+  // The bindings of open concrete members (capabilities C5): each is its receiver's effective
+  // member, never a restatement of a declaration.
+  private val concreteMembers = mutable.Set.empty[String]
+  // The slot, member name and short key each qualified binding was declared under.
+  private val declaredIn = mutable.Map.empty[String, Declared]
+
+  private val positions =
+    new ConstructorPositions(target, resolver, variables, (tpe, owner) => resolveIn(tpe, owner))
+
+  private val receivers = new SealedReceivers(target, resolver)
+
+  private val bounded = new BinderBounds(resolver, target.frame)
+
+  private lazy val inferred = InferredResults.declared(target, steps, variables, resolver)
+
+  private val contexts =
+    new ContextBinders(target, inferred, steps, readingContext(_, Map.empty), resolver)
+
+  /** Whether possible views (capabilities C6) are all that refused a count of this measurement. */
+  def refusedByViews(count: Count): Boolean = count match {
+    case Count.Unresolved(reasons) => reasons.nonEmpty && reasons.forall(views)
+    case _                         => false
+  }
 
   def entry(): Entry = {
-    variables.values.collect { case Left(reason) => reason }.foreach(errors += _)
-    owners.foreach(scan)
+    owners.foreach { owner =>
+      scan(owner)
+      visibleAt.update(owner.id, values.toMap)
+    }
+    owners.foreach(selfType)
     scanParents()
-    flagReachableModules()
+    val candidates = new ContextualScope(owners, steps, scopeReader).candidates
+    errors ++= ContextualEvidence.unreachable(candidates, resolver.boundedBinders.contains)
+    // The target's own binders matter only where they may hide anonymous evidence.
+    if (candidates.nonEmpty) contexts.of(target.frame).left.foreach(errors += _)
     // Parameters of the target hide outer names, but their type binders keep their identities.
     bindParams(target.frame)
-    val result = resultShape()
+    errors ++= positions.refusals
+    errors ++= resolver.inlineBodies.refusal(target)
+    heldCaptures()
+    errors ++= capabilities.construction.built.left.toOption
+    val result = if (target.constructor) constructorShape() else declaredShape(inferred)
     result.left.foreach(errors += _)
+    val shapes = environment.map(_.shape) ++ result.toOption
+    val (proofs, refusals) = bounded.of(shapes)
+    errors ++= refusals
+    errors ++= StuckProjections.refusal(shapes, proofs)
+    val bounds = proofs.zipWithIndex.map((proof, i) => Binding(s"<bound#$i>", proof))
     Entry.of(
       target,
       resolver.kindOf(target),
-      count(result),
+      count(result, inferred, bounds),
       captures.toList.distinct.sorted
     )
   }
 
+  // Every owner's supplied ancestors, read once: a scope's inherited members hide the local
+  // captures of its name before its own members are bound, and its declarations become slots.
+  private lazy val walked: List[Either[String, InheritedScopes.Step]] =
+    InheritedScopes.walk(
+      owners.map(owner => owner -> resolver.typeParameters(owner)),
+      resolver,
+      target.frame
+    )
+
+  private lazy val capabilities =
+    new ReceiverCapabilities(
+      target,
+      resolver,
+      overrideIdentity,
+      walked.flatMap(_.toOption),
+      mode
+    )
+
   // A declaration inherited from a parent the source set defines is a slot as well: the caller
-  // fills it through the subclass. Only declarations travel — a parent's concrete members hold
-  // values built from the environment it already shares — and an external parent is left alone
-  // rather than guessed at.
+  // fills it through the subclass. Declarations travel, and so do the open concrete members the
+  // receiver tables classify — a parent's overridable fields and an unpassed parent's fields among
+  // them (`ReceiverCapabilities`, capabilities C5); derived (final, private, inline, given) members
+  // do not — they are concrete code over the environment the receiver already shares. An external
+  // parent of an open owner is reported, not guessed at (`ForeignParents`). Each level is read
+  // under the arguments the whole `extends` chain gives it, so a grandparent's `seed: X` is this
+  // scope's type, not an intermediate level's binder. Each owner is its own receiver: a parent two
+  // of them inherit gives each its own members, and each owner then judges the closed declarations
+  // bound as its members (`InheritedClosedSlots`).
+  private lazy val steps: List[InheritedScopes.Step] = walked.flatMap(_.toOption)
+
   private def scanParents(): Unit = {
-    val seen = mutable.Set.empty[String]
-    var pending = owners.flatMap(owner => owner.parents.map(owner -> _))
-    while (pending.nonEmpty) {
-      pending = pending.flatMap { case (from, parent) => scanParent(seen, from, parent) }
+    walked.foreach(_.left.foreach(errors += _))
+    val ancestors = steps.groupMap(_.root.id)(_.declared).withDefaultValue(Nil)
+    steps.foreach(step =>
+      inherited(step, step.root :: ancestors(step.root.id), steps, capabilities)
+    )
+    capabilities.members.foreach {
+      case Left(refusal) =>
+        errors += refusal.reason
+        if (refusal.view) views += refusal.reason
+      case Right(member) =>
+        val slot = member.slot.copy(concrete = true)
+        member.tree match {
+          case p: Term.Param => add(member.name, p.decltpe, slot, slot.scope)
+          case stat: Stat    => addMember(slot, stat, member.name)
+        }
+    }
+    owners.foreach { root =>
+      judge(root)
+      // A constructor chooses only its parameters: no owner's parents add a choice to it.
+      if (!target.constructor) {
+        errors ++= ForeignParents.reasons(root :: ancestors(root.id), resolver)
+        if (root.isTemplate) errors ++= PassedState.reasons(root, ancestors(root.id), resolver)
+      }
     }
   }
 
-  // The parents one inherited declaration leaves to walk: nothing for a parent the source set does
-  // not define, and once per frame so a diamond does not read the same declaration twice.
-  private def scanParent(
-      seen: mutable.Set[String],
-      from: Frame,
-      parent: Init
-  ): List[(Frame, Init)] =
-    resolver.lookup(typeName(parent.tpe), from) match {
-      case List(entry) => sourceParent(entry, seen, from, parent)
-      case Nil         => Nil
-      case _           =>
-        errors += s"ambiguous inherited parent: ${parent.tpe.syntax}"
-        Nil
+  // One template's members in the order they were bound, its own declarations first. A closed one
+  // the template implements or restates is not a choice: dropped, or refused.
+  private def judge(root: Frame): Unit = {
+    val slots = new InheritedClosedSlots(root)
+    qualifiedValues.toList.foreach { (id, binding) =>
+      declaredIn
+        .get(id)
+        .filter(d => d.slot.template.id == root.id && !concreteMembers(id))
+        .foreach { declared =>
+          slots.verdict(declared.slot.scope, declared.member, declared.key, binding) match {
+            case InheritedClosedSlots.Keep           => ()
+            case InheritedClosedSlots.Refuse(reason) => errors += reason
+            case InheritedClosedSlots.Drop           =>
+              val dropped = qualifiedValues.remove(id)
+              if (dropped.exists(values.get(declared.key).contains)) values -= declared.key
+          }
+        }
     }
+  }
 
-  private def sourceParent(
-      entry: TypeEntry,
-      visited: mutable.Set[String],
-      from: Frame,
-      inheritedParent: Init
-  ): List[(Frame, Init)] =
-    entry.self match {
-      case Some(declared) => scanDeclared(visited, from, inheritedParent, declared)
-      case None           =>
-        errors += s"inherited parent declaration not resolved: ${inheritedParent.tpe.syntax}"
-        Nil
+  // What an inherited frame contributes: its declarations, read in the scope that named it, except
+  // those a final root implements, in its own body or at another level of its linearization, and
+  // those an open root's concrete members or fields implement (that member is classified instead,
+  // capabilities C5).
+  //
+  // Members gate G1: a final root's inherited declaration that another level of its linearization
+  // implements is that level's concrete code — no subclass replaces it — never a free capability:
+  // concrete code computes from the environment it is given, so it is dropped as the root's own
+  // implementations are. One a local template implements may read a capture the target hides (no
+  // prefix names it), so there it is refused.
+  private def inherited(
+      step: InheritedScopes.Step,
+      linearization: List[Frame],
+      steps: List[InheritedScopes.Step],
+      capabilities: ReceiverCapabilities
+  ): Unit = {
+    val implementedOpen =
+      step.declared.stats.map(stat => stat -> capabilities.implemented(stat, step))
+    errors ++= implementedOpen.collect { case (_, Left(reason)) => reason }
+    implementedOpen.collect { case (stat, Right(false)) => stat }.foreach { stat =>
+      val implemented = FinalImplementations.implementation(step.root, stat)
+      implemented.foreach((_, tree) => implementations += step.root -> tree)
+      val slot = MemberSlot(step.declared, step.env, step.root)
+      val implementer =
+        if (implemented.nonEmpty) None
+        else FinalImplementations.implementer(step.root, linearization, stat)
+      (stat, implementer) match {
+        case (_, Some(level))     => errors ++= FinalImplementations.localImplementer(level, stat)
+        case (value: Decl.Val, _) =>
+          withOwn(step, value)(own =>
+            addDeclaredValue(slot, value, implemented.map(_._1).toSet ++ own)
+          )
+        case _ if implemented.nonEmpty => ()
+        case (method: Decl.Def, _)     => inheritedCallable(step, slot, method, steps)
+        case (other, _) => withOwn(step, other)(own => if (own.isEmpty) declaration(slot, other))
+      }
     }
+  }
 
-  private def scanDeclared(
-      seen: mutable.Set[String],
-      from: Frame,
-      parent: Init,
-      declared: Frame
-  ): List[(Frame, Init)] =
-    if (seen.add(declared.id)) inherited(declared, parent, from) else Nil
-
-  // What an inherited frame contributes: its declarations, read in the scope that named it, then
-  // the parents it introduces itself.
-  private def inherited(declared: Frame, parent: Init, from: Frame): List[(Frame, Init)] = {
-    val env = resolver.typeParameters(declared) ++ inheritedEnv(declared, parent, from)
-    declared.stats.foreach {
-      case method: Decl.Def => inheritedCallable(declared, env, method, parent -> from)
-      case stat             => declaration(declared, env, stat)
-    }
-    declared.parents.map(declared -> _)
+  // The names of an inherited declaration the measured definition may be itself — binding one would
+  // let it delegate to itself — with the reasons naming those whose identity is not known.
+  private def withOwn(step: InheritedScopes.Step, stat: Stat)(use: Set[String] => Unit): Unit = {
+    val (own, unresolved) = OverrideIdentity.own(target, step, stat)
+    errors ++= unresolved
+    use(own)
   }
 
   private def inheritedCallable(
-      scope: Frame,
-      env: Map[String, Resolved],
+      step: InheritedScopes.Step,
+      slot: MemberSlot,
       method: Decl.Def,
-      inheritance: (Init, Frame)
+      steps: List[InheritedScopes.Step]
   ): Unit =
-    overrideIdentity.matches(method, inheritance._1, inheritance._2, scope) match {
+    overrideIdentity.matches(target, method, step, steps) match {
       case Some(true)  => ()
-      case Some(false) => addDeclaredCallable(scope, env, method)
-      case None        =>
-        errors += s"inherited override identity not resolved: ${method.name.value}"
+      case Some(false) => addMember(slot, method, method.name.value)
+      case None => errors += s"inherited override identity not resolved: ${method.name.value}"
     }
 
-  // The parent's type arguments, resolved where the parent is named: `extends Base[A]` reads an
-  // inherited `Base[A].seed` as this scope's A, not as a second binder that happens to share the
-  // name.
+  // A capture the target cannot name that a member around it holds stays an input, or refuses the
+  // count (`HeldCaptures`).
+  private def heldCaptures(): Unit =
+    new HeldCaptures(target, steps, visibleAt.getOrElse(_, Map.empty), hidden, resolver)
+      .of(owners, implementations.toList)
+      .foreach {
+        case Left(reason)   => errors += reason
+        case Right(binding) => qualifiedValues.update(binding.id, binding)
+      }
+
+  private def hidden(name: String, binding: Binding): Boolean =
+    !qualifiedValues.contains(binding.id) && !values.get(name).contains(binding)
+
   private def resolveIn(
       tpe: Type,
       owner: Frame,
-      env: Map[String, Resolved] = Map.empty
-  ): Resolved = {
+      env: Map[String, Resolved] = Map.empty,
+      receiver: Option[Frame] = None
+  ): Resolved = resolver.resolve(tpe, readingContext(owner, env, receiver))
+
+  // A parent's declaration is a member of the template that inherits it: its type members are
+  // that receiver's (members M2), so `to: S => F[X, A]` reads the receiver's `X`.
+  private def readingContext(
+      owner: Frame,
+      env: Map[String, Resolved],
+      receiver: Option[Frame] = None
+  ): ResolutionContext = {
     val bindings = if (env.isEmpty) resolver.typeParameters(owner) else env
-    resolver.resolve(tpe, ResolutionContext(owner, bindings, Set.empty, Some(target.frame)))
+    val context = ResolutionContext(owner, bindings, Set.empty, Some(target.frame))
+    receiver.fold(context)(r => context.as(MemberPath.self(r, resolver.typeParameters(r))))
   }
 
-  private def inheritedEnv(declared: Frame, parent: Init, from: Frame): Map[String, Resolved] =
-    TypeApplications.arguments.getOption(parent.tpe) match {
-      case None       => Map.empty
-      case Some(args) =>
-        declared.typeParams
-          .map(_.name.value)
-          .zip(args)
-          .map { case (name, arg) => name -> resolveIn(arg, from) }
-          .toMap
-    }
-
-  // Keep qualification: an external Outer.Base is not a same-spelled lexical Base.
-  // `Init.name` is anonymous for a plain type parent, so the type is the source of the name.
-  private def typeName(tpe: Type): String = tpe match {
-    case Type.Name(name)                   => name
-    case selected: Type.Select             => selected.syntax.stripPrefix("_root_.")
-    case Type.Apply.After_4_6_0(callee, _) => typeName(callee)
-    case other                             => other.syntax
-  }
-
-  private def declaration(scope: Frame, env: Map[String, Resolved], stat: Stat): Unit =
+  // The names in `own` are the measured definition's: of a declaration of several names (`val a,
+  // b: A`) the others are slots of its environment.
+  private def declaration(slot: MemberSlot, stat: Stat, own: Set[String] = Set.empty): Unit =
     stat match {
-      case v: Decl.Val       => addDeclaredValue(scope, env, v)
-      case d: Decl.Def       => addDeclaredCallable(scope, env, d)
-      case d: Decl.GivenLike => addDeclaredGiven(scope, env, d)
+      case v: Decl.Val       => addDeclaredValue(slot, v, own)
+      case v: Decl.Var       => addDeclaredValue(slot, Decl.Val(v.mods, v.pats, v.decltpe), own)
+      case d: Decl.Def       => addMember(slot, d, d.name.value)
+      case d: Decl.GivenLike => addDeclaredGiven(slot, d)
       case _                 => ()
     }
 
   // One owner's bindings: its own parameters, then every scope that shares its path.
   private def scan(owner: Frame): Unit = {
+    if (owner.id != target.frame.id) errors ++= ConstrainedReceivers.reason(owner)
+    errors ++= owner.refusals
+    val outer = values.keySet.toSet -- owner.params.map(_.name.value)
     bindParams(owner)
+    if (owner.id != target.frame.id) bindContext(owner)
+    frames(owner).foreach(scope => hide(scope.stats))
+    hideInherited(owner, outer)
+    hideImported(owner, outer)
     frames(owner).foreach(scanFrame)
   }
 
+  // A name the scope defines hides an outer binding of it everywhere inside the scope. One a
+  // qualified path reaches (`Outer.this.seed`) stays in the environment; a local owner's has no such
+  // path and leaves it — or, behind an export clause this reading does not enumerate, is unknown.
+  private def hide(stats: List[Stat]): Unit = {
+    ScopeTerms.defined(stats).foreach(values -= _)
+    ScopeTerms.exported(stats) match {
+      case Some(names) =>
+        local(names).foreach(name => errors += s"local capture hidden by an export: $name")
+      case None =>
+        local(values.keySet.toSet).headOption.foreach(name =>
+          errors += s"local capture may be hidden by an export: $name"
+        )
+    }
+  }
+
+  // The names among `names` whose binding is a local capture, which no qualified path reaches.
+  private def local(names: Set[String]): List[String] =
+    names.toList.sorted.filter(name =>
+      values.get(name).exists(binding => !qualifiedValues.contains(binding.id))
+    )
+
+  // A member a template inherits under a local capture's name makes the simple name ambiguous
+  // there (E049): the capture is out of reach. One a parent this reading does not enumerate may
+  // declare is unknown.
+  private def hideInherited(owner: Frame, outer: Set[String]): Unit =
+    if (owner.isTemplate) {
+      val levels = InheritedScopes.levels(steps, owner)
+      local(outer).foreach { name =>
+        InheritedTerms.inherits(owner, levels, name, resolver).foreach { parent =>
+          if (parent.certain) values -= name
+          else errors += s"local capture may be hidden by an inherited member: $name"
+        }
+      }
+    }
+
+  // An import of an inner scope binding a local capture's name makes the simple name ambiguous
+  // there as well; one whose selectors this reading does not enumerate may bind any name.
+  private def hideImported(owner: Frame, outer: Set[String]): Unit = {
+    val clauses =
+      owner.stats.filter(stat => stat.is[Import] && stat.pos.start < target.tree.pos.start)
+    val bound = ScopeTerms.imported(clauses).fold(local(outer))(names => local(outer & names))
+    bound.headOption.foreach(name => errors += s"local capture may be hidden by an import: $name")
+  }
+
   // One owner's parameters as bindings: the positions the estimate did not read, since a space it
-  // read *is* the count and binding the position would only add a diagnostic for it.
+  // read *is* the count and binding the position would only add a diagnostic for it. An anonymous
+  // contextual parameter binds under its owner and position, since every one of them has the
+  // empty name. A `var` parameter is a parameter: the model excludes mutation, so the field holds
+  // the value the caller supplied.
   private def bindParams(owner: Frame): Unit =
-    owner.params.foreach(p => if (leftToShape(p)) add(p.name.value, p.decltpe, owner))
+    owner.params.zipWithIndex.foreach { (p, index) =>
+      if (positions.leftToShape(p, owner))
+        add(
+          if (ContextualEvidence.anonymous(p)) ContextualEvidence.key(owner.path, index)
+          else p.name.value,
+          p.decltpe,
+          MemberSlot(owner, resolver.typeParameters(owner), owner),
+          ParameterScope.of(owner)
+        )
+    }
+
+  // The binders an enclosing definition's context-function result puts around its body are values
+  // of everything nested in it, read where its result is; implicit search alone reaches them, so
+  // the contextual scope refuses one a deeper candidate may shadow.
+  private def bindContext(owner: Frame): Unit =
+    contexts.of(owner) match {
+      case Left(reason)   => errors += reason
+      case Right(binders) =>
+        binders.foreach { binder =>
+          binder.shape match {
+            case Left(reason) => errors += reason
+            case Right(shape) =>
+              bindSlot(MemberSlot(owner, resolver.typeParameters(owner), owner), binder.key, shape)
+          }
+        }
+    }
+
+  // A self type adds another type's members to `this` without inheriting them. This reading does
+  // not enumerate them, so the environment is incomplete rather than smaller. A constructor's own
+  // template is exempt: the instance whose `this` it would read does not exist yet.
+  private def selfType(owner: Frame): Unit =
+    if (!(target.constructor && owner.id == target.frame.id))
+      TypeMembers.selfType(owner).foreach(errors += _)
 
   // Package-level declarations are indexed across all files. Unrelated class parameters are never
   // pooled just because both happen to be named A.
-  private def frames(owner: Frame): List[Frame] = {
-    val peers = resolver.peers(owner.path)
-    if (peers.exists(_.id == owner.id)) peers else List(owner)
-  }
+  private def frames(owner: Frame): List[Frame] = resolver.scopes(owner)
 
   private def scanFrame(scope: Frame): Unit = {
     resolver.inspect("scope")
     val visible = scope.stats.filter(visibleIn(scope, _))
-    new Aliases(visible, scope).report()
+    new CaptureAliases(visible, values.get, resolveIn(_, scope), resolver).bindings.foreach(
+      (name, binding) => bind(name, binding, scope)
+    )
     visible.foreach(flagStat(scope, _))
   }
 
@@ -233,185 +392,153 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
     (!scope.local || stat.pos.start < target.tree.pos.start) &&
       resolver.accessible(stat, scope, target.frame)
 
+  private def scopeReader = ContextualScope.Reader(
+    frames,
+    visibleIn,
+    resolveIn(_, _, _).toOption,
+    (tpe, owner, env, shape) =>
+      ContextFunctions.results(tpe, shape, readingContext(owner, env), resolver),
+    identify,
+    positions.leftToShape,
+    resolver.unsuppliedParent,
+    contexts.of(_).toOption.toList.flatten
+  )
+
+  private def identify(tpe: Type, owner: Frame, env: Map[String, Resolved]) =
+    TypeIdentities.nominal(tpe, readingContext(owner, env), resolver)
+
   private def bind(name: String, binding: Binding, owner: Frame): Unit = {
     values.update(name, binding)
     if (owner.id != target.frame.id) {
       captures += name
       // Shadowing the short name does not remove this.x / Outer.this.x / package.x.
-      if (!owner.local) qualifiedValues.update(s"${owner.id}:$name", binding)
+      if (!owner.local) qualifiedValues.update(binding.id, binding)
     }
   }
 
-  private def add(name: String, tpe: Option[Type], owner: Frame): Unit =
-    add(name, tpe, owner, resolver.typeParameters(owner))
+  /** A declaration bound in a slot: the member's name, and the key `values` holds it under (an
+    * overload's or an anonymous parameter's own).
+    */
+  private case class Declared(slot: MemberSlot, member: String, key: String)
 
-  private def add(
-      name: String,
-      tpe: Option[Type],
-      owner: Frame,
-      env: Map[String, Resolved]
-  ): Unit =
-    tpe
-      .toRight(s"missing type of accessible value: $name")
-      .flatMap(resolveIn(_, owner, env)) match {
+  // A member bound under its own name.
+  private def bindSlot(slot: MemberSlot, member: String, shape: Shape): Unit =
+    bindSlot(slot, member, member, shape)
+
+  private def bindSlot(slot: MemberSlot, member: String, key: String, shape: Shape): Unit = {
+    val binding = Binding(slot.id(key), shape, Some(member))
+    bind(key, binding, slot.scope)
+    if (slot.concrete) concreteMembers += binding.id
+    if (qualifiedValues.contains(binding.id))
+      declaredIn.update(binding.id, Declared(slot, member, key))
+  }
+
+  // A declaration is read where its slot declares it; a parameter, where its owner types it. A
+  // stable value's type-only refinement pins members of its path, which its path's reading follows:
+  // the value itself is a value of the refined type.
+  private def add(name: String, tpe: Option[Type], slot: MemberSlot, reading: Frame): Unit =
+    readValue(name, tpe, slot, reading) match {
       case Left(reason) => errors += reason
-      case Right(shape) => bind(name, Binding(s"${owner.id}:$name", shape), owner)
+      case Right(shape) => bindSlot(slot, name, shape)
     }
 
-  // A scope's declarations by kind: a value binds, a variable or an unreadable given is a
-  // diagnostic, and a body only matters where a concrete type is at stake.
+  private def readValue(
+      name: String,
+      tpe: Option[Type],
+      slot: MemberSlot,
+      reading: Frame
+  ): Resolved =
+    tpe
+      .toRight(s"missing type of accessible value: $name")
+      .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
+      .flatMap(resolveIn(_, reading, slot.env, slot.receiver))
+
+  // A scope's declarations by kind: a declaration binds a slot, a concrete value or variable is
+  // read through `Aliases`, and an import only matters where it may rebind a builtin name. The
+  // model excludes mutation, so a `var` holds the value it was initialized with, as a `val` does,
+  // and an abstract `var` is an abstract getter (its setter returns `Unit`): a declared slot.
   private def flagStat(scope: Frame, stat: Stat): Unit = stat match {
-    case v: Defn.Val                               => flagVal(v)
-    case d: (Decl.Val | Decl.Def | Decl.GivenLike) =>
-      if (!isTarget(d)) declaration(scope, resolver.typeParameters(scope), d)
-    case _: Defn.Var | _: Decl.Var => errors += "mutable capture"
-    case other                     => flagEnvironment(other)
+    case d: (Decl.Val | Decl.Var | Decl.Def | Decl.GivenLike) =>
+      val slot = MemberSlot(scope, resolver.typeParameters(scope), scope)
+      if (!isTarget(d)) declaration(slot, d)
+      else if (d.is[Decl.Val] || d.is[Decl.Var])
+        declaration(slot, d, target.frame.path.lastOption.toSet)
+    case i: Import => flagShadowing(i)
+    case _         => ()
   }
 
   // The signature being measured is not one of its own slots: binding it would let a declaration
   // delegate to itself and claim an implementation it does not have.
   private def isTarget(stat: Stat): Boolean = DeclarationIdentity.same(stat, target.tree)
 
-  private def flagVal(value: Defn.Val): Unit =
-    // A concrete value's body may compute, but what it can compute is already reachable from the
-    // environment: its own inhabitants are named by the values in scope, so it neither adds a
-    // choice nor hides one. Only a binding the scope cannot read at all does. (That is the
-    // parametricity argument: a total parametric body cannot invent a value it is not given, so
-    // leaving it out of the environment loses nothing.)
-    // A destructured value names the components of one binding already in scope — `val (a, b) =
-    // pair` binds nothing new, and `val (a, b) = capability()` names fields the capability's own
-    // result shape already carries — so it is skipped for the same reason as an unreadable body.
-    if (!value.pats.forall(TypeApplications.patVarName.getOption(_).nonEmpty)) ()
-
   private def addDeclaredValue(
-      scope: Frame,
-      env: Map[String, Resolved],
-      declaration: Decl.Val
+      slot: MemberSlot,
+      declaration: Decl.Val,
+      implemented: Set[String]
   ): Unit =
     declaration.pats.foreach { pat =>
       TypeApplications.patVarName.getOption(pat) match {
-        case Some(name) => add(name, Some(declaration.decltpe), scope, env)
+        case Some(name) if implemented(name)                        => ()
+        case Some(name) if MemberSyntax.deferredInline(declaration) =>
+          val shape = readValue(name, Some(declaration.decltpe), slot, slot.scope)
+          errors ++= DeferredInline.read(shape, slot.member(name), target.tree, resolver)
+        case Some(name) => add(name, Some(declaration.decltpe), slot, slot.scope)
         case None       => errors += "destructured capture not resolved"
       }
     }
 
-  // A declaration is not an implementation: someone else supplies it, so its result is a value this
-  // scope has, and a callable declaration is a callable it can apply.
-  private def addDeclaredCallable(
-      scope: Frame,
-      env: Map[String, Resolved],
-      declaration: Decl.Def
-  ): Unit = {
-    val groups = declaration.paramClauseGroups
-    val params = groups.flatMap(_.paramClauses).flatMap(_.values)
-    val tpes = params.map(_.decltpe)
-    // A declared callable is a capability whose *type* is what the fragment can count with:
-    // `def modify(f: A => B): S => T` is expressible and applies like any other callable, while
-    // `def get[M](): M` reads as an unresolved type because its own parameter M is not a shape this
-    // scope has. Resolution decides, not the mere presence of parameters.
-    if (!params.forall(_.decltpe.isDefined))
-      errors += s"missing callable parameter type: ${declaration.name.value}"
-    else {
-      val callable = Type.Function(Type.FuncParamClause(tpes.flatten), declaration.decltpe)
-      val binders = groups
-        .flatMap(_.tparamClause.values)
-        .map { parameter =>
-          parameter.name.value -> Left(s"polymorphic capability binder: ${parameter.name.value}")
+  // A declaration (or an open member) is not an implementation: someone else supplies it, so its
+  // result is a value this scope has, and a callable one is a callable it can apply. Its *type* is
+  // what the count works with: `def modify(f: A => B): S => T` applies like any other callable, and
+  // `def get[M](): M` is read through its own binder (`PolymorphicMembers`, capabilities C8). A
+  // member that only ever builds Unit is irrelevant (capabilities C7, the exact case).
+  private def addMember(slot: MemberSlot, member: Stat, name: String): Unit =
+    MemberSyntax.observation(
+      member,
+      name,
+      slot.member(name),
+      (id, kind) => resolver.operators.rigid(id, kind)
+    ) match {
+      case Left(reason)                                 => errors += reason
+      case Right(Observation.Value(tpe))                => add(name, Some(tpe), slot, slot.scope)
+      case Right(Observation.Applied(callable, result)) =>
+        val read = resolveIn(_, slot.scope, slot.env ++ callable.binders, slot.receiver)
+        MemberSyntax.applied(callable, result, read) match {
+          case Right(None)                                               => ()
+          case Left(reason)                                              => errors += reason
+          case Right(Some(shape)) if MemberSyntax.deferredInline(member) =>
+            errors ++= DeferredInline.refusal(shape, slot.member(name), Some(target.tree), resolver)
+          case Right(Some(shape)) => bindMember(slot, name, member, shape)
         }
-        .toMap
-      add(declaration.name.value, Some(callable), scope, env ++ binders)
+    }
+
+  // One key per member: an overload is a second key, a restatement none. Its parameter types'
+  // identities tell the two apart.
+  private def bindMember(slot: MemberSlot, name: String, declaration: Stat, shape: Shape): Unit = {
+    val context = readingContext(slot.scope, slot.env)
+    val identities = MemberSyntax
+      .parameters(MemberSyntax.groups(declaration))
+      .flatMap(_.decltpe)
+      .map(TypeIdentities.of(_, context, resolver))
+    val member = DeclaredMembers.Declared(slot.template.id, slot.scope.id, shape, identities)
+    declaredMembers.key(name, declaration, member) match {
+      case Left(reason)     => errors += reason
+      case Right(None)      => ()
+      case Right(Some(key)) => bindSlot(slot, name, key, shape)
     }
   }
 
-  private def addDeclaredGiven(
-      scope: Frame,
-      env: Map[String, Resolved],
-      declaration: Decl.GivenLike
-  ): Unit =
+  private def addDeclaredGiven(slot: MemberSlot, declaration: Decl.GivenLike): Unit =
     declaration.name match {
-      case name: Term.Name => add(name.value, Some(declaration.decltpe), scope, env)
+      case name: Term.Name => add(name.value, Some(declaration.decltpe), slot, slot.scope)
       case _               => errors += "anonymous given not resolved"
     }
 
-  // A method that is only declared, in this scope or an inherited one, cannot invent a value: a
-  // total parametric body builds its result from arguments and captures, and both are already in
-  // the environment. An import of a type or a typeclass is the same shape of thing. Only what can
-  // carry a *concrete* type this signature mentions is worth a diagnostic, since that is where an
-  // outside producer could change the count.
-  private def flagEnvironment(stat: Stat): Unit = stat match {
-    case _: Defn.Def => ()
-    case i: Import   => flagShadowing(i)
-    case _: Export   => flagShadowing(stat)
-    case _           => ()
-  }
-
-  // An import or an export can put a *different* type behind a name this resolution reads as a
-  // builtin (`Option`, `Boolean`), so a builtin is only trustworthy while nothing shadows it.
-  // That is the one way a name outside the lexical chain changes an answer here: a value
-  // outside the chain cannot hold this method's binders, so it cannot add one of their values.
-  // Named and renamed imports are now bound by lookup itself — they resolve their target or
-  // refuse the builtin — so they are no longer this shape of unknown. What lookup does not
-  // bind still is: a clause whose prefix is no pure path spells everything, and a `given`
-  // selector names a type behind a value no lookup models. Exports keep the blanket read.
-  private def flagShadowing(tree: Tree): Unit = {
-    val unbound = tree match {
-      case i: Import => unboundImportNames(i)
-      case _         => names(tree)
+  private def flagShadowing(clause: Import): Unit =
+    ImportShadowing.reason(clause).foreach { reason =>
+      rebound = true
+      errors += reason
     }
-    if (shadowable.exists(unbound.contains))
-      errors += s"imported environment not resolved: ${tree.syntax.replaceAll("\\s+", " ")}"
-  }
-
-  private def unboundImportNames(clause: Import): Set[String] =
-    clause.importers.flatMap { importer =>
-      val selectors = importer.importees.flatMap {
-        case _: Importee.Name   => Nil
-        case _: Importee.Rename => Nil
-        case e                  => names(e)
-      }
-      if (SourceIndex.importPath(importer.ref).isEmpty) names(importer.ref) ++ selectors
-      else selectors
-    }.toSet
-
-  // Every identifier a tree spells, which is what an import or an export can put a new meaning
-  // behind.
-  private def names(tree: Tree): Set[String] =
-    tree.syntax.split("[^\\p{L}\\p{N}_$]+").toSet
-
-  private def shadowable: Set[String] =
-    Set("Unit", "Nothing", "Boolean", "Option", "Either", "EmptyTuple")
-
-  private def flagReachableModules(): Unit = {
-    val reachable = resolver.modules.filter { module =>
-      resolver.inspect("module candidate")
-      !inChain(module) && moduleVisible(module)
-    }
-    if (reachable.nonEmpty) errors += qualifiedMemberMessage(reachable)
-  }
-
-  private def inChain(module: Frame): Boolean = owners.exists(_.id == module.id)
-
-  private def moduleVisible(module: Frame): Boolean =
-    !withinChain(module) && mentions.nonEmpty && module.stats.exists(
-      resolver.accessible(_, module, target.frame)
-    )
-
-  // A module nested inside the class, given or method this target lives in shares its binders: its
-  // members can hold the target's type parameters, so it is part of the scope rather than an
-  // outside producer. Package and file frames are not binders — sharing those means only that two
-  // declarations sit in the same package.
-  private def withinChain(module: Frame): Boolean = {
-    val binders = owners.filterNot(resolver.isPackage)
-    module.chain.exists(frame => binders.exists(_.id == frame.id))
-  }
-
-  private def qualifiedMemberMessage(reachable: List[Frame]): String = {
-    val rest = if (reachable.size == 1) "" else s" and ${reachable.size - 1} more"
-    s"qualified member environment not resolved: ${reachable.head.path.mkString(".")}$rest"
-  }
-
-  private def resultShape(): Resolved =
-    if (target.constructor) constructorShape() else declaredShape()
 
   // The positions left to the shape model: a type parameter's slot, whose count is the values the
   // caller supplies — the reading behind `Pair[A](x: A, y: A)` having four implementations — and
@@ -420,7 +547,7 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
   private def constructorShape(): Resolved =
     sequence(
       target.frame.params
-        .filter(leftToShape)
+        .filter(positions.leftToShape(_, target.frame))
         .map(p =>
           p.decltpe
             .toRight(s"missing parameter type: ${p.name.value}")
@@ -428,108 +555,66 @@ final private[cardinality] class Measurement(target: Target, resolver: Resolver)
         )
     ).map(Shape.Product(_))
 
-  // The one rule for a constructor's positions, wherever they are read: one the estimate read is
-  // counted by its space, and the shape model neither binds it nor reads it a second time — binding
-  // it would only plant a diagnostic for a name the report already answered.
-  private def leftToShape(param: Term.Param): Boolean = space(param.decltpe).isEmpty
+  // The result type, declared or inferred, read in its context.
+  private def declaredShape(inferred: Either[String, InferredResults.Inferred]): Resolved =
+    inferred.flatMap { result =>
+      resolver.resolve(result.tpe, result.context).flatMap(shape => observed(result).toLeft(shape))
+    }
 
-  /** What the estimate reads a constructor position as: the value space of the type, when this
-    * source answers it whole. None for a type parameter's slot and None for a type whose reading
-    * carries a reason; those stay with the shape model.
-    */
-  private def space(decltpe: Option[Type]): Option[Size] =
-    if (!target.constructor) None
-    else
-      decltpe
-        .filterNot {
-          case named: Type.Name => variables.contains(named.value)
-          case _                => false
-        }
-        .flatMap(resolver.reading(target.input).value)
+  // A transparent result is what the call site observes only when nothing can narrow it (rule X).
+  private def observed(result: InferredResults.Inferred): Option[String] =
+    Option
+      .when(TransparentResults.transparent(target))(result.tpe)
+      .flatMap(TransparentResults.narrowed)
 
-  private def declaredShape(): Resolved =
-    target.result
-      .toRight("inferred result type not resolved")
-      .flatMap(resolver.resolve(_, target.frame, variables))
+  // A goal with one value has one implementation whatever the environment holds, so nothing left
+  // unresolved around it can change the count — unless an import clause may rebind a builtin
+  // name, or a channel around the result reaches declarations the sources do not supply, which
+  // may give any name the result spells another meaning. A type parameter clause that is no Scala
+  // program makes the signature none either: it has no implementation to count.
+  private def count(
+      result: Resolved,
+      inferred: Either[String, InferredResults.Inferred],
+      bounds: List[Binding]
+  ): Count = result match {
+    // No receiver the declaration runs in is ever built (register D26): it is never called.
+    case _ if capabilities.neverCalled => Count.Finite(1)
+    case Right(shape)
+        if !target.constructor && !rebound && bounded.invalid.isEmpty &&
+          TopTypes.terminalGoal(shape) =>
+      inferred.toOption.flatMap(r => resolver.unreadChannel(r.context.referencing(r.tpe))) match {
+        case None         => Count.Finite(1)
+        case Some(reason) => measured(result, bounds, List(reason))
+      }
+    case _ => measured(result, bounds, Nil)
+  }
 
-  private def count(result: Resolved): Count =
-    if (errors.nonEmpty) Count.Unresolved(errors.toList.distinct.sorted)
-    else
-      result.fold(
-        unresolved,
-        shape =>
-          Count.product(target.frame.params.flatMap(p => space(p.decltpe)), inhabitation(shape))
-      )
+  // The ambient proofs of the bounded binders the environment mentions join it for the solver.
+  private def measured(result: Resolved, bounds: List[Binding], doubts: List[String]): Count =
+    positions.declining(
+      if (errors.nonEmpty) Count.Unresolved((errors.toList ++ doubts).distinct.sorted)
+      else
+        result.fold(
+          unresolved,
+          shape => {
+            val (exact, estimated) = positions.factors
+            receivers.certify(shape, Count.product(exact, estimated, inhabitation(shape, bounds)))
+          }
+        )
+    )
 
   private def unresolved(reason: String): Count = Count.Unresolved(List(reason))
 
-  private def inhabitation(shape: Shape): Count =
+  // The values the body can read, without the ambient proofs of their binders' bounds.
+  private def environment: List[Binding] = (values.values ++ qualifiedValues.values).toList
+
+  private def inhabitation(shape: Shape, bounds: List[Binding]): Count =
     Inhabitation.count(
-      (values.values ++ qualifiedValues.values).toList,
+      environment ++ bounds,
       shape,
       resolver.limits.maxStates,
       resolver.inspect,
       resolver.solverDepth
     )
-
-  /** One scope's value declarations, each resolved to the binding it names.
-    *
-    * A forward alias chain folds onto the value at its end; a chain that loops, names something
-    * invisible, or has a body the model cannot read fails closed, as a diagnostic.
-    */
-  private class Aliases(stats: List[Stat], owner: Frame) {
-
-    private val declared = stats
-      .collect { case v: Defn.Val => v }
-      .flatMap(v => v.pats.flatMap(TypeApplications.patVarName.getOption(_).map(_ -> v)))
-      .toMap
-
-    private val done = mutable.Map.empty[String, Either[String, Binding]]
-
-    def report(): Unit = declared.keys.toList.sorted.foreach(reportOne)
-
-    private def reportOne(name: String): Unit =
-      value(name, Set.empty) match {
-        case Right(binding) => bind(name, binding, owner)
-        // A body this pass cannot follow is a *specific* inhabitant of the value's type, and a
-        // total parametric body can only compute what the environment already holds: its value is
-        // one of the bindings in scope, so skipping it loses nothing and blocking the count would
-        // lose everything. Only an alias is worth following, because it *names* one of those
-        // bindings and so raises the count's precision.
-        case Left(_) => ()
-      }
-
-    private def value(name: String, active: Set[String]): Either[String, Binding] =
-      resolver.expanding("capture alias") {
-        if (active(name)) Left(s"recursive capture alias: $name")
-        else done.getOrElseUpdate(name, source(name, active))
-      }
-
-    private def source(name: String, active: Set[String]): Either[String, Binding] = {
-      val declaration = declared(name)
-      val named = declaration.rhs match {
-        case Term.Name(n) if declared.contains(n) => value(n, active + name)
-        case Term.Name(n)                         =>
-          values.get(n).toRight(s"capture alias not resolved: $name -> $n")
-        case _ => Left(s"$name is not an alias")
-      }
-      named.flatMap(binding => checked(name, binding, declaration))
-    }
-
-    // A declared type must agree with the binding the alias names; a mismatch is a conversion the
-    // model cannot follow.
-    private def checked(
-        name: String,
-        binding: Binding,
-        declaration: Defn.Val
-    ): Either[String, Binding] =
-      declaration.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
-        resolveIn(tpe, owner).flatMap { shape =>
-          if (binding.shape == shape) Right(binding)
-          else Left(s"capture alias type conversion not resolved: $name")
-        }
-      }
-
-  }
 
 }

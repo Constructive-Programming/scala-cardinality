@@ -14,8 +14,9 @@ class MethodUnionNullabilitySpec extends Specification {
       remove Nothing alternatives                                  $bottom
       preserve aliases of one free binder                           $binderAlias
       reject distinct potentially overlapping free binders           $overlapping
-      do not confuse nominal types with equal product shapes         $nominal
-      keep unsupported concrete alternatives unresolved             $unsupported
+      count distinct nominal types with equal shapes as two cases     $nominal
+      add disjoint builtin classes as a sum                          $builtins
+      keep overlapping concrete alternatives unresolved              $unsupported
     Null-free implementation semantics
       erase explicit nullability without adding a constructor        $nullable
       treat Null alone as empty                                      $nullOnly
@@ -48,16 +49,27 @@ class MethodUnionNullabilitySpec extends Specification {
         reasons.exists(_.contains("overlap and discrimination proof")) must beTrue
     }
 
+  // Two classes, neither deriving from the other: no value is both, so the union is their sum.
   def nominal =
-    entry("case class One()\ncase class Two()\ndef pick(): One | Two = One()").count must
-      beLike { case Count.Unresolved(_) => ok }
+    entry("case class One()\ncase class Two()\ndef pick(): One | Two = One()").count === Count
+      .Finite(2)
 
+  // `String` and `Boolean` are distinct final classes: the result has ω + 2 values, and a closed
+  // input split ω ways leaves ω.
+  def builtins =
+    entry("def pick(x: String): String | Boolean = x").count === Count.Countable
+
+  // `Both` is a `P` and a `Q`: no class test tells which alternative it was injected from.
   def unsupported =
-    entry("def pick(x: String): String | Boolean = x").count must beLike {
+    entry(
+      "sealed trait P\nsealed trait Q\ncase object Both extends P with Q\ncase object Q1 extends Q\n" +
+        "def pick(p: P): P | Q = p"
+    ).count must beLike {
       case Count.Unresolved(reasons) =>
-        reasons.exists(r =>
-          r.contains("union") && r.contains("unresolved type: String")
-        ) must beTrue
+        reasons.exists(
+          _.contains("overlap and discrimination proof: P | Q — Both derives from Q")
+        ) must
+          beTrue
     }
 
   def nullable =
