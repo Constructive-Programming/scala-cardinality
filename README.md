@@ -192,6 +192,13 @@ The full run is checked in at
 revision, the sources jar's SHA-256, the tool versions and the analysis limits in its header, so
 a later run can be diffed against it.
 
+The plugin also measures this repository itself: `project/plugins.sbt` adds the locally
+published plugin (`sbt publishLocal` first), so `sbt cardinalityReport` reports on `core` and
+`plugin`. That self-measurement is checked in at
+[`docs/baselines/self-2026-11-03.txt`](docs/baselines/self-2026-11-03.txt); the reduction
+workflow that consumes it — including the ranked stage hierarchy from the TPC articles — is in
+[`.claude/skills/cardinality-reduction/SKILL.md`](.claude/skills/cardinality-reduction/SKILL.md).
+
 The whole project is read at once by the opt-in `cardinality.EoCheckout` runner: pointed at a
 cats-eo checkout, it takes every production source of every module — the `v1.0.0` run covers
 thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that

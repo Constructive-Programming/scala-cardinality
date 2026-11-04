@@ -34,3 +34,7 @@ addSbtPlugin("io.stryker-mutator" % "sbt-stryker4s" % "1.1.1")
 //     then `docs/` examples are pinned by the test suite instead.
 libraryDependencies +=
   "org.typelevel" %% "laika-io" % "1.3.2"
+
+// Self-measurement: this build runs its own plugin on itself (`sbt cardinalityReport`).
+// Resolves from ~/.ivy2/local, so run `sbt publishLocal` after changing `core`/`plugin`.
+addSbtPlugin("io.github.constructive-programming" % "sbt-cardinality" % "0.1.0-SNAPSHOT")
