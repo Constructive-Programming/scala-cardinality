@@ -247,8 +247,13 @@ The whole project is read at once by the opt-in `cardinality.EoCheckout` runner:
 cats-eo checkout, it takes every production source of every module — the `v1.0.0` run covers
 thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that
 input order cannot move a result, that row identities stay unique, and that the production
-`Report.of` path renders the same report. Its ledger, per-module inventory and blocker buckets
-are at [`docs/baselines/eo-checkout-2026-10-27-full.md`](docs/baselines/eo-checkout-2026-10-27-full.md).
+`Report.of` path renders the same report. An optional fourth argument names a dependency's own
+sources directory (the bounded standalone fallback of
+[`docs/plans/bounded-dependency-resolution.md`](docs/plans/bounded-dependency-resolution.md)):
+those sources join the environment the analyzed targets read and report as rows of their own
+(`kyo-deps/…`), never folded into the targets' modules. Its ledger, per-module inventory and
+blocker buckets are at
+[`docs/baselines/eo-checkout-2026-10-27-full.md`](docs/baselines/eo-checkout-2026-10-27-full.md).
 
 ### Method and constructor cardinality
 
