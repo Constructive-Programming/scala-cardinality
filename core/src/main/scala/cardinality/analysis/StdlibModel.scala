@@ -308,6 +308,57 @@ private[cardinality] object StdlibModel {
   /** The canonical name of an entry's spelling: one name per declaration. */
   def canonical(name: String): Option[String] = entry(name).map(_.fqn)
 
+  // The standard-library types with a value for every argument, and the spellings each is read
+  // through: the top types (`()`, `0`, `""`), the marker traits a string or `None` extends,
+  // `BigInt(0)`, a comparison that finds every two values equal (`Ordering`, `Equiv`,
+  // `Comparable`), the throwables the root imports bind (`new Exception`, register D26), and the
+  // containers with an empty one. The stored side's witnessed reading (`ValueRows`) resolves its
+  // spellings here; the method side's own readings list neither the top types nor `BigInt` or the
+  // comparisons, so this registry is the one table for both readers.
+  private val witnesses: Map[String, List[String]] = Map(
+    "Any" -> List("scala.Any"),
+    "AnyRef" -> List("scala.AnyRef"),
+    "AnyVal" -> List("scala.AnyVal"),
+    "Matchable" -> List("scala.Matchable"),
+    "Object" -> List("java.lang.Object"),
+    "String" -> List("java.lang.String", "scala.Predef.String"),
+    "CharSequence" -> List("java.lang.CharSequence"),
+    "Comparable" -> List("java.lang.Comparable"),
+    "Product" -> List("scala.Product"),
+    "Equals" -> List("scala.Equals"),
+    "Serializable" -> List("scala.Serializable", "java.io.Serializable"),
+    "BigInt" -> List("scala.BigInt", "scala.math.BigInt"),
+    "BigDecimal" -> List("scala.BigDecimal", "scala.math.BigDecimal"),
+    "Ordering" -> List("scala.Ordering", "scala.math.Ordering"),
+    "Equiv" -> List("scala.Equiv", "scala.math.Equiv"),
+    "Option" -> List("scala.Option"),
+    "List" -> List("scala.List", "scala.collection.immutable.List"),
+    "Seq" -> List("scala.Seq", "scala.collection.immutable.Seq"),
+    "IndexedSeq" -> List("scala.IndexedSeq", "scala.collection.immutable.IndexedSeq"),
+    "Vector" -> List("scala.Vector", "scala.collection.immutable.Vector"),
+    "Iterable" -> List(
+      "scala.Iterable",
+      "scala.collection.Iterable",
+      "scala.collection.immutable.Iterable"
+    ),
+    "Iterator" -> List("scala.Iterator", "scala.collection.Iterator"),
+    "LazyList" -> List("scala.LazyList", "scala.collection.immutable.LazyList"),
+    "Map" -> List("scala.Predef.Map", "scala.collection.immutable.Map"),
+    "Set" -> List("scala.Predef.Set", "scala.collection.immutable.Set"),
+    "Array" -> List("scala.Array"),
+    "PartialFunction" -> List("scala.PartialFunction"),
+  ) ++ BaseTypes.throwables.map((name, t) =>
+    name -> (t.fqn :: Option.when(t.scalaAlias)(s"scala.$name").toList)
+  )
+
+  private val witnessedFqns: Set[String] = witnesses.values.flatten.toSet
+
+  /** The simple name of a witnessed type. */
+  def witnessName(name: String): Boolean = witnesses.contains(name)
+
+  /** A fully qualified spelling of a witnessed type, `_root_`-anchored or not. */
+  def witnessQualified(fqn: String): Boolean = witnessedFqns(fqn)
+
   /** The number of type arguments an entry the model reads takes, or why it does not hold them: an
     * unmodelled class is recorded by name alone, and an excluded entry's parameters are not read
     * (`scala.quoted.Type[T <: AnyKind]` takes a constructor as well).

@@ -2,6 +2,7 @@ package cardinality.capacity
 
 import scala.meta.*
 
+import cardinality.analysis.StdlibModel
 import cardinality.types.{Trees, TypeName}
 
 /** What a reading met whose size is not whether a value exists (`ValueRows`): a function from an
@@ -144,55 +145,14 @@ private[capacity] object ValueRows {
     case _ => false
   }
 
-  // The standard-library types with a value for every argument, and the value: the top types
-  // (`()`, `0`, `""`), the marker traits a string or `None` extends, `BigInt(0)`, a comparison
-  // that finds every two values equal (`Ordering`, `Equiv`, `Comparable`), the throwables the root
-  // imports bind (`new Exception`, register D26), and the containers with an empty one. The method
-  // side's `StdlibModel` lists neither the top types nor `BigInt` or `Ordering`, so the spellings
-  // are kept here (an open follow-up: one table for both).
+  // The standard-library types with a value for every argument, spelled where no source binds the
+  // name: the registry is the stdlib model's (`StdlibModel.witnesses`), one table for both
+  // readers - the follow-up that kept this copy beside `analysis.StdlibModel` is closed.
   private object Witnessed {
 
-    private val root: Map[String, List[String]] = Map(
-      "Any" -> List("scala.Any"),
-      "AnyRef" -> List("scala.AnyRef"),
-      "AnyVal" -> List("scala.AnyVal"),
-      "Matchable" -> List("scala.Matchable"),
-      "Object" -> List("java.lang.Object"),
-      "String" -> List("java.lang.String", "scala.Predef.String"),
-      "CharSequence" -> List("java.lang.CharSequence"),
-      "Comparable" -> List("java.lang.Comparable"),
-      "Product" -> List("scala.Product"),
-      "Equals" -> List("scala.Equals"),
-      "Serializable" -> List("scala.Serializable", "java.io.Serializable"),
-      "BigInt" -> List("scala.BigInt", "scala.math.BigInt"),
-      "BigDecimal" -> List("scala.BigDecimal", "scala.math.BigDecimal"),
-      "Ordering" -> List("scala.Ordering", "scala.math.Ordering"),
-      "Equiv" -> List("scala.Equiv", "scala.math.Equiv"),
-      "Option" -> List("scala.Option"),
-      "List" -> List("scala.List", "scala.collection.immutable.List"),
-      "Seq" -> List("scala.Seq", "scala.collection.immutable.Seq"),
-      "IndexedSeq" -> List("scala.IndexedSeq", "scala.collection.immutable.IndexedSeq"),
-      "Vector" -> List("scala.Vector", "scala.collection.immutable.Vector"),
-      "Iterable" -> List(
-        "scala.Iterable",
-        "scala.collection.Iterable",
-        "scala.collection.immutable.Iterable"
-      ),
-      "Iterator" -> List("scala.Iterator", "scala.collection.Iterator"),
-      "LazyList" -> List("scala.LazyList", "scala.collection.immutable.LazyList"),
-      "Map" -> List("scala.Predef.Map", "scala.collection.immutable.Map"),
-      "Set" -> List("scala.Predef.Set", "scala.collection.immutable.Set"),
-      "Array" -> List("scala.Array"),
-      "PartialFunction" -> List("scala.PartialFunction"),
-    ) ++ BaseTypes.throwables.map((name, t) =>
-      name -> (t.fqn :: Option.when(t.scalaAlias)(s"scala.$name").toList)
-    )
+    def named(name: String): Boolean = StdlibModel.witnessName(name)
 
-    private val fqns: Set[String] = root.values.flatten.toSet
-
-    def named(name: String): Boolean = root.contains(name)
-
-    def qualified(fqn: String): Boolean = fqns(fqn)
+    def qualified(fqn: String): Boolean = StdlibModel.witnessQualified(fqn)
 
   }
 
