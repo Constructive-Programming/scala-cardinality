@@ -22,10 +22,15 @@ vocabulary `{4, 8}` that silently framed every other value as 64-bit) narrowed t
 `LengthPrefix` enum — a finite `2` row — with byte-identical hashes for both widths. The
 framing dispatches from the sum (`LengthPrefix.header(length)`); a sealed-hierarchy variant
 with per-case implementations measured as split singleton rows plus two extra signatures, so
-the enum-with-dispatch-method form is the one kept. Published with `sbt publishLocal`, enabled
-on this build via `project/plugins.sbt`. Command: `sbt cardinalityReport`. Reports are per
-module (the root aggregates only). The signature section's `?` rows are the analyzer's own
-resolution limits when reading its own scalameta-typed sources, not infinity claims.
+the enum-with-dispatch-method form is the one kept. Skill export pass: the reduction skill is
+generalized into a template shipped as a plugin resource
+(`cardinality/cardinality-reduction-skill.md`), and `cardinalitySeedSkill` seeds it into a
+user's repository parameterized by the build — refreshing generated files, refusing to
+overwrite user-owned ones (the scripted `cardinality/seed` fixture pins all three behaviors).
+Published with `sbt publishLocal`, enabled on this build via `project/plugins.sbt`. Command:
+`sbt cardinalityReport`. Reports are per module (the root aggregates only). The signature
+section's `?` rows are the analyzer's own resolution limits when reading its own
+scalameta-typed sources, not infinity claims.
 
 ## core (scala-cardinality): 35 sources, 151 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
@@ -33,22 +38,26 @@ resolution limits when reading its own scalameta-typed sources, not infinity cla
   signatures: 650 · 7 finite · 10 countably infinite · 2 beyond countable · 631 unresolved
 
 ## plugin (sbt-cardinality): 1 source, 2 definitions
-  2 with one value; signatures: 3 · 3 unresolved
+  2 with one value; signatures: 4 · 4 unresolved
 
 === plugin ===
 Generic method / constructor implementation cardinalities
-  3 signatures: 0 finite · 0 countably infinite · 3 unresolved
-  2 unresolved on: unresolved type
+  4 signatures: 0 finite · 0 countably infinite · 4 unresolved
+  3 unresolved on: unresolved type
   1 unresolved on: inferred result type not resolved
 
 ?  cardinality.CardinalityPlugin.trigger  trigger: <inferred>  CardinalityPlugin.scala:16  [method]
     unresolved: inferred result type not resolved
-?  cardinality.CardinalityPlugin.projectSettings  projectSettings: Seq[Setting[?]]  CardinalityPlugin.scala:54  [method]
+?  cardinality.CardinalityPlugin.projectSettings  projectSettings: Seq[Setting[?]]  CardinalityPlugin.scala:64  [method]
     unresolved: unresolved type: Setting
-?  cardinality.CardinalityPlugin.report  report(log: Logger, paths: Seq[Path], output: File): Unit  CardinalityPlugin.scala:107  [method]
+?  cardinality.CardinalityPlugin.report  report(log: Logger, paths: Seq[Path], output: File): Unit  CardinalityPlugin.scala:130  [method]
     unresolved: unresolved type: File
     unresolved: unresolved type: Logger (imported from sbt.util.Logger)
     unresolved: unresolved type: Path (imported from java.nio.file.Path)
+?  cardinality.CardinalityPlugin.seedSkill  seedSkill(log: Logger, output: File, buildRoot: File, pluginVersion: String): File  CardinalityPlugin.scala:143  [method]
+    unresolved: unresolved type: File
+    unresolved: unresolved type: Logger (imported from sbt.util.Logger)
+    unresolved: unresolved type: String
 scala-cardinality — 1 source, 2 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
   ?: no single number here — the reason after the row says what would give one
