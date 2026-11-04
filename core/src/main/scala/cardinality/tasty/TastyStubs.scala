@@ -40,13 +40,26 @@ object TastyStubs {
       classpath: List[Path],
       rendered: Path => Boolean,
       packages: String => Boolean = _ => true
-  ): Result = {
+  ): Result = parse(render(classpath, rendered, packages))
+
+  /** Stub sources as text, by path: what `parse` reads and `StubFile` stores. */
+  final case class Rendered(stubs: List[(String, String)], errors: List[String] = Nil)
+
+  /** Renders the jars `selected` picks as `of` does, without parsing. */
+  def render(classpath: List[Path], selected: Path => Boolean): Rendered =
+    render(classpath, selected, _ => true)
+
+  private def render(
+      classpath: List[Path],
+      selected: Path => Boolean,
+      packages: String => Boolean
+  ): Rendered = {
     // One read per jar: a jar with no classes has no entry, so entries cannot be zipped back.
     val perJar = classpath.map(jar => jar -> ClasspathLoaders.read(List(readable(jar))))
     given Context = Context.initialize(perJar.flatMap(_._2) ++ ClasspathLoaders.read(List(jdk)))
     val declarations = StubDeclarations()
-    val selected = perJar.filter((jar, _) => rendered(jar)).flatMap((jar, es) => es.map(jar -> _))
-    val stubs = selected.flatMap { (jar, entry) =>
+    val chosen = perJar.filter((jar, _) => selected(jar)).flatMap((jar, es) => es.map(jar -> _))
+    val stubs = chosen.flatMap { (jar, entry) =>
       // An entry with no packages (a resources-only jar) has no symbols to look up.
       val symbols =
         try ctx.findSymbolsByClasspathEntry(entry).toList
@@ -72,14 +85,19 @@ object TastyStubs {
             (s"$Prefix${jar.getFileName}/$source", header + body.mkString("\n\n") + "\n")
         }
     }
-    val parsed = stubs.map((path, text) => (path, text, Spell.source(text)))
+    Rendered(stubs)
+  }
+
+  /** The rendered stubs parsed: a stub that does not parse is left out, with an error naming it. */
+  def parse(rendered: Rendered): Result = {
+    val parsed = rendered.stubs.map((path, text) => (path, text, Spell.source(text)))
     Result(
       parsed.collect { case (path, _, Parsed.Success(tree)) => MethodAnalysis.Input(path, tree) },
       parsed.collect {
         case (path, text, e: Parsed.Error) =>
           val line = text.linesIterator.drop(e.pos.startLine).nextOption().getOrElse("")
           s"$path:${e.pos.startLine + 1}: ${e.message}: $line"
-      }
+      } ++ rendered.errors
     )
   }
 

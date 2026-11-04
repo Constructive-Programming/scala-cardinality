@@ -86,6 +86,10 @@ recursive-type lane) now names each row's blocker.
 render the stubs of an explicit classpath with the same per-target quota; `cardinalityReport` and
 `cardinalityReportSelected` pass `Compile / dependencyClasspath` (`cardinalityDependencyClasspath`,
 never `fullClasspath`). A classpath that renders no stub runs the sources-only analysis unchanged.
+The rendering is the sbt 2 cached task `cardinalityDependencyStubs`: its inputs are the jars'
+content hashes and the stub format, its output a declared file (`StubFile`) the machine-wide or
+remote cache restores, so rendering (about 6.5 s for eo's 84 jars) happens once per dependency
+set.
 
 `TastyStubsSpec` holds the differential check: targets read through the stubs of compiled fixtures
 count what they count through the fixtures' own source, or refuse.

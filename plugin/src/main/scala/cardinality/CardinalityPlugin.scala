@@ -3,8 +3,10 @@ package cardinality
 import cardinality.analysis.MethodAnalysis
 import cardinality.reporting.Report
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
+import cardinality.tasty.{StubFile, TastyStubs}
 import sbt.*
 import sbt.Keys.*
+import sbt.util.CacheImplicits.given
 import sbt.util.Logger
 
 // The sbt face of scala-cardinality. Triggered automatically so a build only has to add the plugin
@@ -41,10 +43,13 @@ object CardinalityPlugin extends AutoPlugin {
     val cardinalitySnapshotLimits =
       settingKey[SourceSnapshot.Limits]("Input acquisition limits for selected reports.")
 
-    // `@transient`: sbt 2 caches no `File` output, and a build overrides this key with plain files.
-    @transient
-    val cardinalityDependencyClasspath = taskKey[Seq[File]](
+    // Content-hashed references: the cached stub task below is keyed by the jars' contents.
+    val cardinalityDependencyClasspath = taskKey[Seq[HashedVirtualFileRef]](
       "Compiled dependencies whose declarations the reports read; `Nil` reads sources only."
+    )
+
+    val cardinalityDependencyStubs = taskKey[HashedVirtualFileRef](
+      "The dependencies' declarations rendered as stubs: cached by sbt by the jars' contents."
     )
 
     val cardinalityReportFile =
@@ -56,6 +61,11 @@ object CardinalityPlugin extends AutoPlugin {
 
   import autoImport.*
 
+  // The stub file's format (`StubFile.Format`): an input of the cached stub task, so a renderer
+  // whose stubs differ never reads a file an earlier one wrote.
+  private val cardinalityStubFormat =
+    settingKey[String]("The format of the dependency stub file (internal).")
+
   override def projectSettings: Seq[Setting[?]] = Seq(
     cardinalityReportFile := target.value / "cardinality" / "report.txt",
     cardinalityQuerySupport := Nil,
@@ -64,17 +74,41 @@ object CardinalityPlugin extends AutoPlugin {
     cardinalitySnapshotLimits := SourceSnapshot.Limits(),
     // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
     // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
-    cardinalityDependencyClasspath := {
+    cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
+    // An sbt 2 cached task: keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub
+    // format, its file is restored from the machine-wide cache instead of rendered again.
+    cardinalityStubFormat := StubFile.Format,
+    cardinalityDependencyStubs := {
       val converter = fileConverter.value
-      (Compile / dependencyClasspath).value.map(entry => converter.toPath(entry.data).toFile)
+      val _ = cardinalityStubFormat.value
+      val jars = cardinalityDependencyClasspath.value.map(converter.toPath).toList.distinct
+      // Under sbt's output root, which the converter writes as `${OUT}`: the declared file is then
+      // a relative reference, restorable on any machine sharing the cache.
+      val out = rootOutputDirectory.value.resolve(s"cardinality/${name.value}/stubs.bin")
+      val rendered =
+        if (jars.isEmpty) TastyStubs.Rendered(Nil)
+        else
+          try TastyStubs.render(jars, _ => true)
+          catch {
+            case scala.util.control.NonFatal(error) =>
+              TastyStubs.Rendered(Nil, List(s"dependency classpath not read: $error"))
+          }
+      StubFile.write(rendered, out)
+      val file = converter.toVirtualFile(out)
+      Def.declareOutput(file)
+      file: HashedVirtualFileRef
     },
     // `Def.uncached`: a report over transient inputs (`sources` is excluded from sbt 2's cache
     // key) must re-run every time, never be served stale from the task cache.
     cardinalityReport := Def.uncached {
       val log = streams.value.log
       val scalaSources = (Compile / sources).value
-      val classpath = cardinalityDependencyClasspath.value.map(_.toPath)
-      report(log, Report.of(scalaSources.map(_.toPath), classpath), cardinalityReportFile.value)
+      val stubs = fileConverter.value.toPath(cardinalityDependencyStubs.value)
+      report(
+        log,
+        Report.of(scalaSources.map(_.toPath), stubs = Some(stubs)),
+        cardinalityReportFile.value
+      )
     },
     // The same report over sources the build does not compile itself — a library's published
     // sources jar, or another project's checkout — so that a dependency's types can be measured
@@ -100,7 +134,7 @@ object CardinalityPlugin extends AutoPlugin {
             cardinalitySnapshotLimits.value,
             cardinalityQueryLimits.value,
             cardinalityQueryBudget.value,
-            cardinalityDependencyClasspath.value.map(_.toPath)
+            stubs = Some(fileConverter.value.toPath(cardinalityDependencyStubs.value))
           )
         )
         val output = cardinalityReportFile.value

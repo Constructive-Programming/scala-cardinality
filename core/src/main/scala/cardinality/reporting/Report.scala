@@ -7,7 +7,7 @@ import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.{Measuring, MethodAnalysis}
 import cardinality.capacity.*
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import cardinality.tasty.TastyStubs
+import cardinality.tasty.{StubFile, TastyStubs}
 import dev.constructive.eo.generics.{lens, prism}
 import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
@@ -81,7 +81,8 @@ object Report {
       captureLimits: SourceSnapshot.Limits = SourceSnapshot.Limits(),
       limits: MethodAnalysis.Limits = MethodAnalysis.Limits(),
       budget: AnalysisQuery.Budget = AnalysisQuery.Budget(),
-      classpath: Seq[Path] = Nil
+      classpath: Seq[Path] = Nil,
+      stubs: Option[Path] = None
   )
 
   final case class QueryResult(
@@ -150,7 +151,7 @@ object Report {
           QueryResult(Report(Nil, errors), Some(snapshot.digest), None)
         else {
           val selected = targetRoots.flatMap(snapshot.roots)
-          val stubs = dependencies(request.classpath)
+          val stubs = dependencies(request.classpath, request.stubs)
           val found = AnalysisQuery.run(
             AnalysisQuery.Request(
               parsed.collect { case Right(input) => input } ++ stubs.inputs,
@@ -231,19 +232,21 @@ object Report {
     *
     * `classpath` lists compiled dependencies (jars or class directories): their Scala 3 classes
     * join the environment as signature stubs (`TastyStubs`), never measured and never reported.
+    * `stubs` names a file of stubs already rendered (`StubFile`), read instead of the classpath.
     */
-  def of(paths: Seq[Path], classpath: Seq[Path] = Nil): Report = {
+  def of(paths: Seq[Path], classpath: Seq[Path] = Nil, stubs: Option[Path] = None): Report = {
     val found = paths.toList.distinct.map(path => path -> read(path))
     val parsed: List[Either[Error, MethodAnalysis.Input]] = found.flatMap {
       case (_, Left(error))    => List(Left(error))
       case (_, Right(sources)) => sources.map(parse)
     }
     val inputs = parsed.collect { case Right(input) => input }
-    val stubs = dependencies(classpath)
+    val environment = dependencies(classpath, stubs)
     // One library for the whole run: every source is read against the others, so a reference can
     // leave its file.
-    val library = Library.of((inputs ++ stubs.inputs).map(_.tree))
-    val methods = Measuring.rows(inputs, stubs.inputs, library = Some(library)).groupBy(_.path)
+    val library = Library.of((inputs ++ environment.inputs).map(_.tree))
+    val methods =
+      Measuring.rows(inputs, environment.inputs, library = Some(library)).groupBy(_.path)
     Report(
       inputs.map(input =>
         Source(
@@ -254,14 +257,17 @@ object Report {
       ),
       parsed.collect { case Left(error) => error },
       Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1)))),
-      stubs.errors
+      environment.errors
     )
   }
 
   // The dependency stubs `classpath` renders. Every jar is rendered; nothing is rendered into the
   // stdlib model's namespaces, so the Scala library alone yields none. A classpath that cannot be
   // read is a warning: its names stay unsupplied, which only refuses more.
-  private def dependencies(classpath: Seq[Path]): TastyStubs.Result =
+  private def dependencies(classpath: Seq[Path], stubs: Option[Path]): TastyStubs.Result =
+    stubs.fold(rendered(classpath))(file => TastyStubs.parse(StubFile.read(file)))
+
+  private def rendered(classpath: Seq[Path]): TastyStubs.Result =
     if (classpath.isEmpty) TastyStubs.Result(Nil, Nil)
     else
       try TastyStubs.of(classpath.toList.distinct, _ => true)

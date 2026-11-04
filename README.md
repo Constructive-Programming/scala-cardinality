@@ -229,6 +229,13 @@ and refuses more, never differently. Choose the dependencies with `cardinalityDe
 (`:= Nil` reads sources only); in the library, `Report.of(paths, classpath)` and
 `Report.Query(..., classpath = ...)`.
 
+The stubs are rendered once per set of dependency jars: `cardinalityDependencyStubs` is an sbt 2
+cached task, keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub format
+(`StubFile.Format`), whose output file (`target/out/cardinality/<project>/stubs.bin`) is declared
+with `Def.declareOutput` and so restored from sbt's machine-wide cache (or a remote one) instead
+of rendered again. A changed dependency renders again; a renderer change must bump the format.
+In the library, `Report.of(paths, stubs = Some(file))` reads such a file instead of a classpath.
+
 `sbt "cardinalityReportOf <path>..."` runs the same report over sources the
 build does not compile itself — a directory, a single file, or the
 `-sources.jar` a published library ships. That is how a dependency's types get

@@ -1,6 +1,7 @@
 package cardinality.reporting
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
+import cardinality.tasty.{StubFile, TastyStubs}
 import java.nio.file.{Files, Path}
 import org.specs2.mutable.Specification
 
@@ -50,6 +51,21 @@ class ReportDependenciesSpec extends Specification {
   "stubs are environment, never rows, and parse" in {
     (withDependencies.sources.map(_.path) must_== List(source.toString))
       .and(withDependencies.warnings must beEmpty)
+  }
+
+  "a stub file written once reads back as the classpath it was rendered from" in {
+    val file = Files.createTempDirectory("stub-file").resolve("stubs.bin")
+    val rendered = TastyStubs.render(classpath, _ => true)
+    StubFile.write(rendered, file)
+    (StubFile.read(file) must_== rendered)
+      .and(Report.of(List(source), stubs = Some(file)).render must_== withDependencies.render)
+  }
+
+  "a stub file of another format holds nothing, and says why" in {
+    val file = Files.createTempFile("stubs", ".bin")
+    val _ = Files.write(file, Array[Byte](0, 4, 'o', 'l', 'd', '!'))
+    val read = StubFile.read(file)
+    (read.stubs must beEmpty).and(read.errors.mkString must contain("not cardinality-stubs/1"))
   }
 
   "an empty classpath is the sources-only report" in {
