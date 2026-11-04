@@ -199,6 +199,13 @@ published plugin (`sbt publishLocal` first), so `sbt cardinalityReport` reports 
 workflow that consumes it — including the ranked stage hierarchy from the TPC articles — is in
 [`.claude/skills/cardinality-reduction/SKILL.md`](.claude/skills/cardinality-reduction/SKILL.md).
 
+Users of the plugin can seed the same workflow into their own repositories:
+`sbt cardinalitySeedSkill` writes the reduction skill template — the ranked stage hierarchy
+from the TPC articles, the report-reading table, the per-stage passes — to
+`.claude/skills/cardinality-reduction/SKILL.md` (`cardinalitySkillFile` moves it),
+parameterized by the build. The task refreshes a file it generated and refuses to overwrite
+one it did not, so adopting a newer template means deleting or moving the old copy first.
+
 The whole project is read at once by the opt-in `cardinality.EoCheckout` runner: pointed at a
 cats-eo checkout, it takes every production source of every module — the `v1.0.0` run covers
 thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that
