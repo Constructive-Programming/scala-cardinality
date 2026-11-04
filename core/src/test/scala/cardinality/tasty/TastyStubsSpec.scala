@@ -120,4 +120,91 @@ class TastyStubsSpec extends Specification {
       }
       .reduce(_ and _)
   }
+
+  // Java declarations (javafixtures/*.java, from their .class files).
+
+  private lazy val javaStubs = TastyStubs.of(
+    List(jarOf(classOf[Option[?]]), jarOf(classOf[scala.deriving.Mirror]), fixtures).distinct,
+    _ == fixtures,
+    _ == "javafixtures"
+  )
+
+  private val javaTargets =
+    """package j
+      |import javafixtures.*
+      |def coin(c: Coin): Boolean = ???
+      |def pickCoin(b: Boolean): Coin = ???
+      |def op(o: Op): Boolean = ???
+      |def size(s: Box.Size): Boolean = ???
+      |def toggle(t: Toggle): Boolean = ???
+      |def mkToggle: Toggle = ???
+      |def point(p: Box.Point): Boolean = ???
+      |def box(b: Box[Boolean]): Boolean = ???
+      |def shape(s: Shape): Boolean = ???
+      |def choice(c: Choice): Boolean = ???
+      |def mkChoice: Choice = ???
+      |""".stripMargin
+
+  private val javaTarget =
+    MethodAnalysis.Input("j/J.scala", dialects.Scala3(javaTargets).parse[Source].get)
+
+  private def javaMethods(environment: List[MethodAnalysis.Input]) =
+    MethodAnalysis
+      .analyze(javaTarget :: environment)
+      .filter(_.path == javaTarget.path)
+      .map(e => e.name -> e.count)
+      .toMap
+
+  private lazy val throughJava = javaMethods(javaStubs.inputs)
+
+  private def javaStub(name: String): String =
+    javaStubs.inputs.find(_.path.endsWith(s"javafixtures/$name.scala")).fold("")(_.tree.syntax)
+
+  "every Java fixture class renders to a stub that parses" in {
+    (javaStubs.errors must beEmpty).and(
+      javaStubs.inputs.map(_.path.split('/').last).sorted must_==
+        List("Box.scala", "Choice.scala", "Coin.scala", "Op.scala", "Shape.scala", "Toggle.scala")
+    )
+  }
+
+  // A Java enum is exactly its constants: 2 values, so 2^2 maps to or from Boolean. A static field
+  // of the enum's type (`Coin.DEFAULT`) is no constant, and constant bodies (`Op`) add none.
+  "a Java enum is the closed set of its constants" in {
+    List("j.coin", "j.pickCoin", "j.op", "j.size")
+      .map(name => throughJava(name) must_== Inhabitation.Count.Finite(4))
+      .reduce(_ and _)
+      .and(refused(javaMethods(Nil)("j.coin")) must beTrue)
+  }
+
+  // An interface has no state: its value is the record of its abstract `flip` and its overridable
+  // default `same`, each Boolean => Boolean (4 behaviors), so 16 values, and 2^16 maps to Boolean.
+  "a Java interface is the record of its overridable methods" in {
+    (throughJava("j.mkToggle") must_== Inhabitation.Count.Finite(16))
+      .and(throughJava("j.toggle") must_== Inhabitation.Count.Finite(65536))
+  }
+
+  // A class's constructors set state no stub ties to their parameters; a sealed interface's
+  // permitted subclasses are not read. Each refuses rather than counting what it cannot see.
+  "a Java class's state and a sealed interface's subclasses are not read" in {
+    List("j.point", "j.box", "j.shape", "j.choice", "j.mkChoice")
+      .map(name =>
+        refused(throughJava(name)) must beTrue.setMessage(s"$name: ${throughJava(name)}")
+      )
+      .reduce(_ and _)
+      .and(throughJava("j.box").toString must contain("hidden constructor state"))
+  }
+
+  "Java signatures: statics in the companion, Object as Any, wildcards spelled, raw types unread" in {
+    val box = javaStub("Box")
+    (box must contain("open class Box[A](compiledStateNotRead: _root_.SignatureNotRead)"))
+      .and(box must contain("def any(x$0: scala.Any): scala.Any"))
+      .and(box must contain("def wild(): java.util.List[? <: A]"))
+      .and(box must contain("def raw: _root_.SignatureNotRead"))
+      .and(box must contain("def of[B](x$0: B): javafixtures.Box[B]"))
+      .and(javaStub("Toggle") must contain("final val LIMIT: scala.Int"))
+      .and(javaStub("Coin") must not(contain("case DEFAULT")))
+      .and(
+        javaStub("Shape") must contain("extends Box[java.lang.Boolean](_root_.compiledBodyNotRead)")
+      )
+  }
 }
