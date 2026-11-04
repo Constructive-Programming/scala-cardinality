@@ -3,7 +3,6 @@ package cardinality
 import cardinality.analysis.MethodAnalysis
 import cardinality.reporting.Report
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import java.nio.file.Path
 import sbt.*
 import sbt.Keys.*
 import sbt.util.Logger
@@ -42,6 +41,12 @@ object CardinalityPlugin extends AutoPlugin {
     val cardinalitySnapshotLimits =
       settingKey[SourceSnapshot.Limits]("Input acquisition limits for selected reports.")
 
+    // `@transient`: sbt 2 caches no `File` output, and a build overrides this key with plain files.
+    @transient
+    val cardinalityDependencyClasspath = taskKey[Seq[File]](
+      "Compiled dependencies whose declarations the reports read; `Nil` reads sources only."
+    )
+
     val cardinalityReportFile =
       settingKey[File](
         "Where a report is written, under the project's target directory by default."
@@ -57,12 +62,19 @@ object CardinalityPlugin extends AutoPlugin {
     cardinalityQueryBudget := AnalysisQuery.Budget(),
     cardinalityQueryLimits := MethodAnalysis.Limits(),
     cardinalitySnapshotLimits := SourceSnapshot.Limits(),
+    // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
+    // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
+    cardinalityDependencyClasspath := {
+      val converter = fileConverter.value
+      (Compile / dependencyClasspath).value.map(entry => converter.toPath(entry.data).toFile)
+    },
     // `Def.uncached`: a report over transient inputs (`sources` is excluded from sbt 2's cache
     // key) must re-run every time, never be served stale from the task cache.
     cardinalityReport := Def.uncached {
       val log = streams.value.log
       val scalaSources = (Compile / sources).value
-      report(log, scalaSources.map(_.toPath), cardinalityReportFile.value)
+      val classpath = cardinalityDependencyClasspath.value.map(_.toPath)
+      report(log, Report.of(scalaSources.map(_.toPath), classpath), cardinalityReportFile.value)
     },
     // The same report over sources the build does not compile itself — a library's published
     // sources jar, or another project's checkout — so that a dependency's types can be measured
@@ -73,7 +85,7 @@ object CardinalityPlugin extends AutoPlugin {
       val log = streams.value.log
       val paths = Def.spaceDelimited("<path>...").parsed
       Def.uncached {
-        report(log, paths.map(path => file(path).toPath), cardinalityReportFile.value)
+        report(log, Report.of(paths.map(path => file(path).toPath)), cardinalityReportFile.value)
       }
     },
     cardinalityReportSelected := {
@@ -87,7 +99,8 @@ object CardinalityPlugin extends AutoPlugin {
             names.toSet,
             cardinalitySnapshotLimits.value,
             cardinalityQueryLimits.value,
-            cardinalityQueryBudget.value
+            cardinalityQueryBudget.value,
+            cardinalityDependencyClasspath.value.map(_.toPath)
           )
         )
         val output = cardinalityReportFile.value
@@ -104,8 +117,7 @@ object CardinalityPlugin extends AutoPlugin {
   // or parsed: a report over sources the calculator could not read is incomplete, and failing
   // quietly would present the numbers it did find as the whole story. M3's report-then-fail, one
   // milestone early.
-  private def report(log: Logger, paths: Seq[Path], output: File): Unit = {
-    val found = Report.of(paths)
+  private def report(log: Logger, found: Report, output: File): Unit = {
     IO.write(output, found.render)
     log.info(found.render)
     log.info(s"report written to $output")

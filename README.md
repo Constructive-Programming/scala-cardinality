@@ -218,6 +218,17 @@ is `ω + ω`, and a module with two `String => String` methods and one `String` 
 `2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
 reached ω or beyond and which type names stopped it from being tighter.
 
+`cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
+`Compile / dependencyClasspath` from their compiled TASTy: each Scala 3 class of a dependency
+joins the environment as a signature stub (`cardinality.tasty.TastyStubs`), so a row over a
+dependency's type gets a number instead of `declaration not supplied`. Stubs are never measured
+or reported, supply no bodies, and nothing is rendered into `scala.*`, `java.*` or `javax.*`;
+Java and Scala 2 classes stay unsupplied. With stubs present, each target gets a fixed quota of
+300,000 logical work steps. A stub that cannot be read is listed as `dependency stub not read`
+and refuses more, never differently. Choose the dependencies with `cardinalityDependencyClasspath`
+(`:= Nil` reads sources only); in the library, `Report.of(paths, classpath)` and
+`Report.Query(..., classpath = ...)`.
+
 `sbt "cardinalityReportOf <path>..."` runs the same report over sources the
 build does not compile itself — a directory, a single file, or the
 `-sources.jar` a published library ships. That is how a dependency's types get

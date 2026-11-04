@@ -3,10 +3,11 @@ package cardinality.reporting
 import scala.jdk.CollectionConverters.*
 import scala.meta.{Source as ScalaSource, *}
 
-import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
+import cardinality.analysis.{AnalysisWork, MethodAnalysis}
 import cardinality.capacity.*
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
+import cardinality.tasty.TastyStubs
 import dev.constructive.eo.generics.{lens, prism}
 import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
@@ -20,12 +21,14 @@ import java.util.zip.ZipFile
   * The sources can be a project's, or the published `-sources.jar` of a library, which is what
   * makes a dependency's types measurable from outside. `locations` holds where `Report.of` placed
   * each source it read below its input; a report assembled from sources alone places them below the
-  * directory they share (`Report.locations`).
+  * directory they share (`Report.locations`). `warnings` lists the dependency declarations that
+  * could not be read: their names stay unsupplied, which only refuses more.
   */
 final case class Report(
     sources: List[Report.Source],
     errors: List[Report.Error],
-    locations: Map[String, String] = Map.empty
+    locations: Map[String, String] = Map.empty,
+    warnings: List[String] = Nil
 ) {
 
   def definitions: List[Definition] = sources.flatMap(_.definitions)
@@ -48,8 +51,8 @@ final case class Report(
   def render: String = {
     val location = located
     (Report.methods(models, location) ++ Report.summary(this) ++
-      Report.estimate(definitionRows, location) ++ errors.map(Report.failed(_, location)))
-      .mkString("\n")
+      Report.estimate(definitionRows, location) ++ errors.map(Report.failed(_, location)) ++
+      Report.warned(warnings)).mkString("\n")
   }
 
   /** Where a row of each source says it is. */
@@ -77,7 +80,8 @@ object Report {
       targetNames: Set[String] = Set.empty,
       captureLimits: SourceSnapshot.Limits = SourceSnapshot.Limits(),
       limits: MethodAnalysis.Limits = MethodAnalysis.Limits(),
-      budget: AnalysisQuery.Budget = AnalysisQuery.Budget()
+      budget: AnalysisQuery.Budget = AnalysisQuery.Budget(),
+      classpath: Seq[Path] = Nil
   )
 
   final case class QueryResult(
@@ -97,7 +101,8 @@ object Report {
           _.usage.map(u => s"work: ${u.path} ${u.name}: ${u.consumed}/${u.quota}")
         ) ++
         Report.methods(report.models, report.located) ++
-        report.errors.map(Report.failed(_, report.located))).mkString("\n")
+        report.errors.map(Report.failed(_, report.located)) ++
+        Report.warned(report.warnings)).mkString("\n")
 
   }
 
@@ -145,9 +150,10 @@ object Report {
           QueryResult(Report(Nil, errors), Some(snapshot.digest), None)
         else {
           val selected = targetRoots.flatMap(snapshot.roots)
+          val stubs = dependencies(request.classpath)
           val found = AnalysisQuery.run(
             AnalysisQuery.Request(
-              parsed.collect { case Right(input) => input },
+              parsed.collect { case Right(input) => input } ++ stubs.inputs,
               selected,
               request.targetNames,
               request.limits,
@@ -159,7 +165,11 @@ object Report {
             .filter(source => selected(source.id))
             .map(source => Source(source.id, Nil, grouped.getOrElse(source.id, Nil)))
           QueryResult(
-            Report(sources, found.errors.map(message => Error("", message))),
+            Report(
+              sources,
+              found.errors.map(message => Error("", message)),
+              warnings = stubs.errors
+            ),
             Some(snapshot.digest),
             Some(found),
             Option.when(found.key.nonEmpty)(
@@ -218,18 +228,22 @@ object Report {
 
   /** Reads every Scala source under `paths` — a file, a directory walked recursively, or a jar such
     * as the `-sources.jar` a library publishes — and measures the definitions it finds.
+    *
+    * `classpath` lists compiled dependencies (jars or class directories): their Scala 3 classes
+    * join the environment as signature stubs (`TastyStubs`), never measured and never reported.
     */
-  def of(paths: Seq[Path]): Report = {
+  def of(paths: Seq[Path], classpath: Seq[Path] = Nil): Report = {
     val found = paths.toList.distinct.map(path => path -> read(path))
     val parsed: List[Either[Error, MethodAnalysis.Input]] = found.flatMap {
       case (_, Left(error))    => List(Left(error))
       case (_, Right(sources)) => sources.map(parse)
     }
     val inputs = parsed.collect { case Right(input) => input }
+    val stubs = dependencies(classpath)
     // One library for the whole run: every source is read against the others, so a reference can
     // leave its file.
-    val library = Library.of(inputs.map(_.tree))
-    val methods = MethodAnalysis.analyze(inputs).groupBy(_.path)
+    val library = Library.of((inputs ++ stubs.inputs).map(_.tree))
+    val methods = measured(inputs, stubs.inputs).groupBy(_.path)
     Report(
       inputs.map(input =>
         Source(
@@ -239,9 +253,44 @@ object Report {
         )
       ),
       parsed.collect { case Left(error) => error },
-      Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1))))
+      Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1)))),
+      stubs.errors
     )
   }
+
+  // The dependency stubs `classpath` renders. Every jar is rendered; nothing is rendered into the
+  // stdlib model's namespaces, so the Scala library alone yields none. A classpath that cannot be
+  // read is a warning: its names stay unsupplied, which only refuses more.
+  private def dependencies(classpath: Seq[Path]): TastyStubs.Result =
+    if (classpath.isEmpty) TastyStubs.Result(Nil, Nil)
+    else
+      try TastyStubs.of(classpath.toList.distinct, _ => true)
+      catch {
+        case scala.util.control.NonFatal(error) =>
+          TastyStubs.Result(Nil, List(s"dependency classpath not read: $error"))
+      }
+
+  // Logical work one target may spend with dependency stubs in the environment: ten times the most
+  // any eo v1.0.0 target spends with the sources alone. A dependency's records can nest without
+  // end; a target that exhausts the quota refuses with the budget named.
+  private val TargetWork = 300000L
+
+  // The targets' method rows, with the dependency stubs in the environment but never measured.
+  // Without stubs the run is the sources-only analysis, unchanged.
+  private def measured(
+      inputs: List[MethodAnalysis.Input],
+      stubs: List[MethodAnalysis.Input]
+  ): List[MethodAnalysis.Entry] =
+    if (stubs.isEmpty) MethodAnalysis.analyze(inputs)
+    else {
+      val limits = MethodAnalysis.Limits()
+      val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth)
+      val index = new MethodAnalysis.Index(inputs ++ stubs, limits, Some(work))
+      index.selected(inputs.map(_.path).toSet, Set.empty).map { target =>
+        work.target(TargetWork)
+        index.measure(target)
+      }
+    }
 
   // Parses one source, and reports either what it defines or what stopped the parser.
   private def parse(source: (String, String)): Either[Error, MethodAnalysis.Input] = {
@@ -397,6 +446,10 @@ object Report {
   // A source or input that could not be read, placed as a row would be.
   private def failed(error: Error, location: String => String): String =
     s"  could not read ${location(error.path)}: ${error.message}"
+
+  // A dependency declaration left unsupplied, after the errors.
+  private def warned(warnings: List[String]): List[String] =
+    warnings.map(warning => s"  dependency stub not read: $warning")
 
   private def row(
       found: DefinitionRow,

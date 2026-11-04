@@ -82,6 +82,11 @@ needs the receiver typing FOLLOWUPS 16c describes. Core's 191 `declaration not s
 gone; what stood behind them (the single-pass `IterableOnce` exclusion, budget exhaustion, the
 recursive-type lane) now names each row's blocker.
 
+**In the plugin** (2026-11-04): `Report.of(paths, classpath)` and `Report.Query(classpath = …)`
+render the stubs of an explicit classpath with the same per-target quota; `cardinalityReport` and
+`cardinalityReportSelected` pass `Compile / dependencyClasspath` (`cardinalityDependencyClasspath`,
+never `fullClasspath`). A classpath that renders no stub runs the sources-only analysis unchanged.
+
 `TastyStubsSpec` holds the differential check: targets read through the stubs of compiled fixtures
 count what they count through the fixtures' own source, or refuse.
 
