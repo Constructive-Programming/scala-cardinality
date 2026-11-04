@@ -98,6 +98,13 @@ object MethodAnalysis {
     // The source a frame was indexed from: the file path is the root frame's identity and the
     // head of every nested `input:offset` id, so positions compared against it are positions
     // in the same file.
+    /** The term names its statements define (`ScopeTerms.values`), read once. */
+    lazy val values: Set[String] = cardinality.analysis.model.ScopeTerms.values(stats)
+
+    /** Its export clauses' importers, read once. */
+    lazy val exported: List[Importer] =
+      stats.collect { case clause: Export => clause.importers }.flatten
+
     lazy val input: String = {
       val colon = id.indexOf(':')
       if (colon < 0) id else id.substring(0, colon)

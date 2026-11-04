@@ -479,9 +479,7 @@ final private[cardinality] class ShadowedBuiltins(
     }
 
     private def exports(frame: Frame, via: String): List[Step] =
-      frame.stats
-        .collect { case clause: Export => clause.importers }
-        .flatten
+      frame.exported
         .flatMap { importer =>
           val prefix = SourceIndex.importPath(importer.ref)
           importer.importees.flatMap {

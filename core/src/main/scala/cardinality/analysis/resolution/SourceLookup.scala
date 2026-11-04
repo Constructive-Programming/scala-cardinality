@@ -4,7 +4,6 @@ import scala.annotation.tailrec
 import scala.meta.Tree
 
 import cardinality.analysis.*
-import cardinality.analysis.model.ScopeTerms
 import cardinality.types.{ListedNamespaces, Traversals, TypeApplications}
 
 import MethodAnalysis.{Frame, TypeEntry}
@@ -55,9 +54,7 @@ final private[cardinality] class SourceLookup(
 
   // The values a package's blocks declare, every file's together, indexed once.
   private lazy val packageValues: Map[List[String], Set[String]] =
-    packagePaths.map((path, frames) =>
-      path -> frames.flatMap(f => ScopeTerms.values(f.stats)).toSet
-    )
+    packagePaths.map((path, frames) => path -> frames.flatMap(_.values).toSet)
 
   // A package's blocks by file, indexed once: a package can span thousands of files.
   private lazy val blocksByFile: Map[(List[String], String), List[Frame]] =
@@ -586,7 +583,7 @@ final private[cardinality] class SourceLookup(
     private def value(scope: Frame, name: String): Boolean =
       scope.params.exists(_.name.value == name) ||
         (if (isPackage(scope)) packageValues.getOrElse(scope.path, Set.empty)(name)
-         else ScopeTerms.values(scope.stats)(name))
+         else scope.values(name))
 
     // A scope's imports binding a path's first segment before the position: a named import, read
     // at its own clause; a wildcard whose namespace holds the segment — with the path written — or

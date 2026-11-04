@@ -42,20 +42,41 @@ private[cardinality] object SealedFamilies {
     * mentions, and each name an import or export renames a type to (`P => Q`, `P as Q`), for the
     * renamed one — read once per source set.
     */
-  final case class Synonyms(entries: List[(String, Set[String])], renamed: Set[String]) {
+  final case class Synonyms(
+      entries: List[(String, Set[String])],
+      renamed: Set[String],
+      read: List[Tree] = Nil
+  ) {
 
     def ++(other: Synonyms): Synonyms =
-      Synonyms(entries ++ other.entries, renamed ++ other.renamed)
+      Synonyms(entries ++ other.entries, renamed ++ other.renamed, read ++ other.read)
+
+    /** Whether the synonyms already hold this file's (by identity: the file's own tree). */
+    def holds(file: Tree): Boolean = readFiles.contains(file)
+
+    private lazy val readFiles: java.util.Set[Tree] = {
+      val set =
+        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Tree, java.lang.Boolean])
+      read.foreach(set.add)
+      set
+    }
+
+    // Each word to the synonyms that spell it, so a closure follows only what a name reaches.
+    private lazy val spelledBy: Map[String, List[String]] =
+      entries.flatMap((n, words) => words.map(_ -> n)).groupMap(_._1)(_._2)
 
     // The names a parent may be extended by: its own, and every synonym that may stand for it or
     // for another such synonym — a superset, so a family is refused rather than summed short of a
     // subtype written against one (`type WA = W; … extends WA`, `import x.{W => V}; … extends V`).
     def of(parent: String): Set[String] = {
-      @tailrec def close(found: Set[String]): Set[String] = {
-        val next = found ++ entries.collect { case (n, words) if words.exists(found) => n }
-        if (next == found) found else close(next)
-      }
-      close(Set(parent))
+      @tailrec def close(frontier: List[String], found: Set[String]): Set[String] =
+        frontier match {
+          case Nil          => found
+          case word :: rest =>
+            val fresh = spelledBy.getOrElse(word, Nil).filterNot(found)
+            close(fresh ++ rest, found ++ fresh)
+        }
+      close(List(parent), Set(parent))
     }
 
   }
@@ -69,7 +90,7 @@ private[cardinality] object SealedFamilies {
         case d: Defn.Type              => (d.name.value -> TypeName.words(d.body).toSet, false)
         case Importee.Rename(from, to) => (to.value -> Set(from.value), true)
       })
-      Synonyms(found.map(_._1), found.collect { case ((n, _), true) => n }.toSet)
+      Synonyms(found.map(_._1), found.collect { case ((n, _), true) => n }.toSet, trees)
     }
 
   }
@@ -90,7 +111,8 @@ private[cardinality] object SealedFamilies {
     val files = levels.flatMap(_.stats.headOption.map(Trees.root)).foldLeft(List.empty[Tree]) {
       (acc, file) => if (acc.exists(_ eq file)) acc else file :: acc
     }
-    val names = synonyms ++ Synonyms.of(files)
+    // A file the given synonyms were read from adds nothing they lack.
+    val names = synonyms ++ Synonyms.of(files.filterNot(synonyms.holds))
     val first = levels.flatMap(level => sealedParents(level).map(read(level, _, names, site)))
     val found = first.map { (family, subtypes) =>
       family.key -> Option.when(family.summands.isRight)(subtypes)
