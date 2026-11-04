@@ -231,6 +231,12 @@ final private[cardinality] class Scope(
   /** The members a namespace solved under `key`. */
   def membersAt(key: TypeName): Option[Members] = world.members.get(key)
 
+  /** The same scope with a record of unresolved names of its own (its enclosing scopes' too): what
+    * a reading of it notes stays in the reading, never in the scope a library holds for others.
+    */
+  private[cardinality] def detached: Scope =
+    new Scope(values, mutable.LinkedHashSet.from(notes), world, outer.map(_.detached))
+
   /** The size this read binds a type parameter to: `case scope.Parameter(size)`. */
   object Parameter {
 

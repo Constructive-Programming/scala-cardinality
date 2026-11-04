@@ -17,13 +17,21 @@ import cardinality.types.*
   * yet is `pending` — a reason of its own.
   */
 final class Library private[cardinality] (
-    private val packages: Map[List[TypeName], Scope],
+    private val table: Library.Packages,
+    private val visible: Int,
+    private val overlay: Map[List[TypeName], Scope],
     private val declared: Map[List[TypeName], Set[TypeName]],
     private val unsolved: Set[List[TypeName]],
     private[cardinality] val synonyms: SealedFamilies.Synonyms = SealedFamilies.Synonyms.none,
     private val filled: Set[List[TypeName]] = Set.empty,
     private val packageMembers: Map[List[TypeName], PackageMembers] = Map.empty,
 ) {
+
+  // A package's solved scope, as the eager fold would hold it here: the round before of the cycle
+  // being solved, or a component before the `visible` one, solved on first use. Handed out detached:
+  // a reading notes into its own copy, never into a scope another reading (or worker) shares.
+  private def solvedAt(path: List[TypeName]): Option[Scope] =
+    overlay.get(path).orElse(table.solved(path, visible)).map(_.detached)
 
   // Every package path the source set opens or nests inside: `a.b.c` makes `a` and `a.b` packages.
   private val paths: Set[List[TypeName]] = declared.keySet.flatMap(_.inits)
@@ -47,8 +55,7 @@ final class Library private[cardinality] (
   private[cardinality] def member(name: TypeName, world: World, reading: Scope): Option[Binding] =
     opened(world.opened).iterator
       .flatMap { path =>
-        packages
-          .get(path)
+        solvedAt(path)
           .filter(_.defines(name))
           .map(Binding.Elsewhere(_, name))
           .orElse(pendingMember(path, name).map(Binding.Clause(_)))
@@ -56,7 +63,7 @@ final class Library private[cardinality] (
             Option
               .unless(declared.get(path).exists(_(name)))(packageMembers.get(path))
               .flatten
-              .flatMap(_.bind(name, path, packages.getOrElse(path, reading)))
+              .flatMap(_.bind(name, path, solvedAt(path).getOrElse(reading)))
           )
       }
       .nextOption()
@@ -70,7 +77,7 @@ final class Library private[cardinality] (
       first: TypeName,
       reading: Scope
   ): Option[Namespaces.Target] =
-    packageMembers.get(path).flatMap(_.head(first, path, packages.getOrElse(path, reading)))
+    packageMembers.get(path).flatMap(_.head(first, path, solvedAt(path).getOrElse(reading)))
 
   /** The reason a member of one package has no value yet: a package of a cycle the library is still
     * solving defines it.
@@ -87,7 +94,15 @@ final class Library private[cardinality] (
 
   private[cardinality] def isPackage(path: List[TypeName]): Boolean = paths(path)
 
-  private[cardinality] def pkg(path: List[TypeName]): Option[Scope] = packages.get(path)
+  private[cardinality] def pkg(path: List[TypeName]): Option[Scope] = solvedAt(path)
+
+  // The same library with other packages in view (`Packages.solve`).
+  private def view(
+      visible: Int,
+      overlay: Map[List[TypeName], Scope],
+      unsolved: Set[List[TypeName]]
+  ) =
+    new Library(table, visible, overlay, declared, unsolved, synonyms, filled, packageMembers)
 
   // The opened packages, innermost first; a source with no package clause reads in the empty
   // package, whose members are in scope.
@@ -98,9 +113,10 @@ final class Library private[cardinality] (
 
 object Library {
 
-  val empty: Library = new Library(Map.empty, Map.empty, Set.empty)
+  val empty: Library =
+    new Library(Packages.none, 0, Map.empty, Map.empty, Set.empty)
 
-  /** Every source's top-level definitions, solved package by package. */
+  /** Every source's top-level definitions, solved package by package as reads need them. */
   def of(sources: List[scala.meta.Source]): Library = {
     val parts = sources.zipWithIndex
       .flatMap((source, unit) => Walk.parts(source.stats, unit))
@@ -117,51 +133,80 @@ object Library {
     // Every alias and renaming the sources write: one may name a sealed family a subtype extends
     // through it.
     val synonyms = SealedFamilies.Synonyms.of(sources)
-    Reads
-      .components(parts.keySet.toList.sortBy(_.mkString(".")), reads)
-      .foldLeft(
-        new Library(Map.empty, declared, Set.empty, synonyms, filled, packageMembers)
-      ) { (library, component) =>
-        val cyclic = component.size > 1 || component.exists(p => reads(p)(p))
-        solve(parts, component, if (cyclic) component.size + 3 else 1, library)
-      }
+    val components = Reads.components(parts.keySet.toList.sortBy(_.mkString(".")), reads).toVector
+    val table = new Packages(parts, components, reads)
+    val library =
+      new Library(
+        table,
+        components.size,
+        Map.empty,
+        declared,
+        Set.empty,
+        synonyms,
+        filled,
+        packageMembers
+      )
+    table.bind(library)
+    library
   }
 
-  // A cycle of packages (or a package that reads itself by a qualified path) is solved in rounds,
-  // each against the round before; any other package once. A read down a chain of the cycle longer
-  // than the rounds stops at a pending member, which says so — never a guess.
-  private def solve(
+  /** The packages' solutions, each component of the read graph solved once, on first use, against
+    * the components before it in the order the eager fold solved them (a package after every
+    * package it reads, a cycle together): what it reads is solved first, on demand, and a component
+    * after it is not in view - as in the fold. Shared: a component's solution is a lazy value
+    * (thread-safe), and solving one reads only components before it, so no two wait on each other.
+    */
+  final private[cardinality] class Packages(
       parts: Map[List[TypeName], List[Walk.Part]],
-      component: List[List[TypeName]],
-      rounds: Int,
-      done: Library
-  ): Library = {
-    val start =
-      new Library(
-        done.packages,
-        done.declared,
-        component.toSet,
-        done.synonyms,
-        done.filled,
-        done.packageMembers
-      )
-    Iterator
-      .iterate(start) { behind =>
-        new Library(
-          done.packages ++ component.map { path =>
-            val base =
-              Scope.openedLens.replace(List(path))(Scope.libraryLens.replace(behind)(Scope.empty))
-            path -> Walk.solvedParts(parts(path), base)
-          },
-          done.declared,
-          Set.empty,
-          done.synonyms,
-          done.filled,
-          done.packageMembers
-        )
-      }
-      .drop(rounds)
-      .next()
+      components: Vector[List[List[TypeName]]],
+      reads: Map[List[TypeName], Set[List[TypeName]]]
+  ) {
+
+    private val componentOf: Map[List[TypeName], Int] =
+      components.zipWithIndex.flatMap((component, i) => component.map(_ -> i)).toMap
+
+    @volatile private var whole: Library = scala.compiletime.uninitialized
+
+    private[Library] def bind(library: Library): Unit = whole = library
+
+    final private class Cell(i: Int) {
+      lazy val solution: Map[List[TypeName], Scope] = solve(i)
+    }
+
+    private val cells = Vector.tabulate(components.size)(new Cell(_))
+
+    def solved(path: List[TypeName], visible: Int): Option[Scope] =
+      componentOf.get(path).filter(_ < visible).flatMap(i => cells(i).solution.get(path))
+
+    // A cycle of packages (or a package that reads itself by a qualified path) is solved in rounds,
+    // each against the round before; any other package once. A read down a chain of the cycle
+    // longer than the rounds stops at a pending member, which says so — never a guess.
+    private def solve(i: Int): Map[List[TypeName], Scope] = {
+      val component = components(i)
+      val cyclic = component.size > 1 || component.exists(p => reads(p)(p))
+      val rounds = if (cyclic) component.size + 3 else 1
+      val start = whole.view(i, Map.empty, component.toSet)
+      Iterator
+        .iterate(start) { behind =>
+          whole.view(
+            i,
+            component.map { path =>
+              val base =
+                Scope.openedLens.replace(List(path))(Scope.libraryLens.replace(behind)(Scope.empty))
+              path -> Walk.solvedParts(parts(path), base)
+            }.toMap,
+            Set.empty
+          )
+        }
+        .drop(rounds)
+        .next()
+        .overlay
+    }
+
+  }
+
+  private object Packages {
+    val none = new Packages(Map.empty, Vector.empty, Map.empty)
   }
 
 }
