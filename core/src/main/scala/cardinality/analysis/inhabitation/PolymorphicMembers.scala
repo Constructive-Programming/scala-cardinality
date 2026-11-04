@@ -2,11 +2,11 @@ package cardinality.analysis.inhabitation
 
 import scala.meta.*
 
-import cardinality.types.Traversals
+import cardinality.types.{Kind, Kinds, Traversals}
 import dev.constructive.eo.optics.Getter
 
 import GoalSolver.Producer
-import Inhabitation.{Binder, Shape}
+import Inhabitation.{Binder, Head, Shape}
 import Shape.*
 
 /** The type parameters of a supplied capability's member (capabilities C8, PB0–PB4).
@@ -35,16 +35,17 @@ import Shape.*
 private[cardinality] object PolymorphicMembers {
 
   /** How a member's binder is read in its type: a first-order one is its own atom; a higher-kinded
-    * one would need type-lambda shapes for its instantiations.
+    * one is the rigid constructor `rigid` binds (`TypeOperators.rigid`) — the member's type applies
+    * it uninterpreted, exactly as a method's own higher-kinded binder reads.
     */
-  def binder(member: String, parameter: Type.Param): Either[String, Shape] = {
+  def binder(
+      member: String,
+      parameter: Type.Param,
+      rigid: (String, Kind) => Shape
+  ): Either[String, Shape] = {
     val holes = parameter.tparamClause.values
     if (holes.isEmpty) Right(Atom(Binder(member, parameter.name.value).id))
-    else
-      Left(
-        s"polymorphic capability binder: ${parameter.name.value}" +
-          s"${List.fill(holes.size)("_").mkString("[", ", ", "]")} (higher-kinded)"
-      )
+    else Right(rigid(Binder(member, parameter.name.value).id, Kinds.of(parameter)))
   }
 
   /** A member's type with its binders read (PB0, PB1), or kept for the solver. A bound restricts
@@ -58,6 +59,7 @@ private[cardinality] object PolymorphicMembers {
   def close(member: String, parameters: List[Type.Param], shape: Shape): Either[String, Shape] = {
     val binders = parameters.map(p => p -> Binder(member, p.name.value))
     val occurring = binders.filter((_, binder) => occurs(shape, binder))
+    val applied = binders.find((_, binder) => appliesResult(shape, binder))
     val evidence = parameters.find(p => (p.bounds.context ++ p.bounds.view).nonEmpty)
     val twoSided = parameters.find(p => p.bounds.lo.nonEmpty && p.bounds.hi.nonEmpty)
     val bounded = occurring.collectFirst {
@@ -66,9 +68,33 @@ private[cardinality] object PolymorphicMembers {
     evidence.orElse(twoSided).orElse(bounded) match {
       case Some(p) => Left(s"polymorphic capability binder: ${p.name.value} (bounded)")
       case None    =>
-        val kept = occurring.map(_._2)
-        Right(if (kept.isEmpty) shape else yoneda(kept, shape).getOrElse(Poly(kept, shape)))
+        applied match {
+          case Some((p, _)) =>
+            Left(
+              s"polymorphic capability binder: ${p.name.value} (the result instantiates the binder)"
+            )
+          case None =>
+            val kept = occurring.map(_._2)
+            Right(if (kept.isEmpty) shape else yoneda(kept, shape).getOrElse(Poly(kept, shape)))
+        }
     }
+  }
+
+  /** Whether the callable's result applies the binder's rigid constructor: a caller instantiates
+    * the binder there, and the solver's terms from such a member never search the instantiation
+    * (`polymorphic capability binder: G (the result instantiates the binder)`). A binder the result
+    * never applies leaves the member's terms exact: its occurrences stand in parameters a counted
+    * implementation can only fill from its own environment, which holds no value of a rigid
+    * binder's application.
+    */
+  private def appliesResult(shape: Shape, binder: Binder): Boolean = {
+    val (_, result) = Shape.uncurried.get(shape)
+    applies(result, binder.id)
+  }
+
+  private def applies(shape: Shape, id: String): Boolean = shape match {
+    case Applied(Head.Rigid(`id`), _) => true
+    case other                        => Shape.children(other).exists(applies(_, id))
   }
 
   def occurs(shape: Shape, binder: Binder): Boolean = mentions(shape, binder.id)

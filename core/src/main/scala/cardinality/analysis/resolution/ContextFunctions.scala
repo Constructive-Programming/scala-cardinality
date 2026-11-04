@@ -267,8 +267,9 @@ private[cardinality] object ContextFunctions {
         .map {
           case Right(TypeMembers.Meaning.Alias(body, scope)) =>
             walk(body, Site(scope, NoArguments), rest.copy(spelled = callee))
-          case Right(_: TypeMembers.Meaning.Rigid) => Right(Nil)
-          case Left(reason)                        => unsupplied(reason)
+          case Right(_: TypeMembers.Meaning.Rigid)         => Right(Nil)
+          case Right(_: TypeMembers.Meaning.RigidOperator) => Right(Nil)
+          case Left(reason)                                => unsupplied(reason)
         }
 
     // An alias visible as one here: an opaque one hidden here is no context function at this use.

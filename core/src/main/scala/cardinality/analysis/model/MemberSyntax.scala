@@ -4,7 +4,9 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.{Inhabitation, PolymorphicMembers}
-import cardinality.types.TypeApplications
+import cardinality.types.{Kind, TypeApplications}
+
+import Inhabitation.Shape
 
 /** What a member's syntax spells — its clauses, the names it defines, the callable it is — read one
   * way wherever members are bound, compared or classified.
@@ -14,10 +16,15 @@ private[cardinality] object MemberSyntax {
   /** A member's callable type, its identity and its own type parameters, each read as the member's
     * own atom (`binders`): `close` reads them once the type is (capabilities C8).
     */
-  final case class Callable(tpe: Type, member: String, typeParameters: List[Type.Param]) {
+  final case class Callable(
+      tpe: Type,
+      member: String,
+      typeParameters: List[Type.Param],
+      rigid: (String, Kind) => Shape
+  ) {
 
     lazy val binders: Map[String, Resolved] =
-      typeParameters.map(p => p.name.value -> PolymorphicMembers.binder(member, p)).toMap
+      typeParameters.map(p => p.name.value -> PolymorphicMembers.binder(member, p, rigid)).toMap
 
     def close(shape: Inhabitation.Shape): Resolved =
       PolymorphicMembers.close(member, typeParameters, shape)
@@ -162,7 +169,12 @@ private[cardinality] object MemberSyntax {
     * it holds (the model has no mutation): its getter, its setter an effect. `name` is how a reason
     * spells the member; `member` is its identity, which names its binders (`Owner.name`).
     */
-  def observation(stat: Tree, name: String, member: String): Either[String, Observation] = {
+  def observation(
+      stat: Tree,
+      name: String,
+      member: String,
+      rigid: (String, Kind) => Shape
+  ): Either[String, Observation] = {
     val (applied, value) = stat match {
       case d: Decl.Def                                        => (Some(d.decltpe), None)
       case d: Defn.Def                                        => (d.decltpe, None)
@@ -177,7 +189,7 @@ private[cardinality] object MemberSyntax {
       case _                                                  => (None, None)
     }
     applied
-      .map(res => callable(name, member, groups(stat), res).map(Observation.Applied(_, res)))
+      .map(res => callable(name, member, groups(stat), res, rigid).map(Observation.Applied(_, res)))
       .orElse(value.map(tpe => Right(Observation.Value(tpe))))
       .getOrElse(Left(s"overridable member's result type is inferred: $name"))
   }
@@ -263,7 +275,8 @@ private[cardinality] object MemberSyntax {
       name: String,
       member: String,
       groups: List[Member.ParamClauseGroup],
-      result: Type
+      result: Type,
+      rigid: (String, Kind) => Shape
   ): Either[String, Callable] = {
     val params = parameters(groups)
     if (!params.forall(_.decltpe.isDefined)) Left(s"missing callable parameter type: $name")
@@ -272,7 +285,8 @@ private[cardinality] object MemberSyntax {
         Callable(
           Type.Function(Type.FuncParamClause(params.flatMap(_.decltpe)), result),
           member,
-          groups.flatMap(_.tparamClause.values)
+          groups.flatMap(_.tparamClause.values),
+          rigid
         )
       )
   }

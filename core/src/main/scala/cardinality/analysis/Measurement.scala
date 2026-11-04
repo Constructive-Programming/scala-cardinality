@@ -493,7 +493,12 @@ final private[cardinality] class Measurement(
   // `def get[M](): M` is read through its own binder (`PolymorphicMembers`, capabilities C8). A
   // member that only ever builds Unit is irrelevant (capabilities C7, the exact case).
   private def addMember(slot: MemberSlot, member: Stat, name: String): Unit =
-    MemberSyntax.observation(member, name, slot.member(name)) match {
+    MemberSyntax.observation(
+      member,
+      name,
+      slot.member(name),
+      (id, kind) => resolver.operators.rigid(id, kind)
+    ) match {
       case Left(reason)                                 => errors += reason
       case Right(Observation.Value(tpe))                => add(name, Some(tpe), slot, slot.scope)
       case Right(Observation.Applied(callable, result)) =>

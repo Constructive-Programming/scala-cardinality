@@ -394,6 +394,11 @@ class PolymorphicMemberSpec extends Specification {
 
   def boundedAndKinded =
     refused(poly4("poly4.U.bounded"), "polymorphic capability binder: M (bounded)")
-      .and(refused(poly4("poly4.U.kinded"), "polymorphic capability binder: G[_] (higher-kinded)"))
+      .and(
+        refused(
+          poly4("poly4.U.kinded"),
+          "polymorphic capability binder: G (the result instantiates the binder)"
+        )
+      )
 
 }

@@ -164,7 +164,13 @@ finite (register D2).
 ## Limits (each stays `?` with the reason given)
 
 - Non-reducible polymorphic members whose naive count exceeds 1, members whose binders the goal
-  does not fix, bounded, context-bounded and higher-kinded binders (reasons above).
+  does not fix, bounded, context-bounded and view-bounded binders (reasons above).
+- A higher-kinded member binder no longer refuses the record: it is read as the rigid constructor
+  `TypeOperators.rigid` binds (`register D34`), the member's type applying it uninterpreted — the
+  way a method's own higher-kinded binder reads. A member whose *result* instantiates its own
+  binder refuses (`polymorphic capability binder: G (the result instantiates the binder)`): a
+  caller instantiates the binder there, and the solver's terms never search the instantiation. The
+  instantiation search over the constructors the environment can witness is the open boundary.
 - PB1 does not see through rigid constructors (no functorial action), sequences, proofs or other
   members' binders, and does not uncurry a curried generator (`A => B => M`): those stay PB2–PB4.
 - Callable sums over ground, sum, sequence or lower-bounded arguments, over arguments a polymorphic

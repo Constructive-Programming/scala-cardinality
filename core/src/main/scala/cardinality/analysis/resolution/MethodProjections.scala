@@ -262,8 +262,9 @@ private[cardinality] object MethodProjections {
     // member is its atom, frozen like any other leaf.
     private def member(callee: Type, args: List[Type], context: ResolutionContext) =
       resolver.unappliedMember(callee, args, context).map {
-        case Right(meaning) => meaning.fold(syntax, _ => freeze(callee, context))
-        case Left(_)        => freeze(callee, context)
+        case Right(meaning) =>
+          meaning.fold(syntax, _ => freeze(callee, context), (_, _) => freeze(callee, context))
+        case Left(_) => freeze(callee, context)
       }
 
     private def applyAlias(

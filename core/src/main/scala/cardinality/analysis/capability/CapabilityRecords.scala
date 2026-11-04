@@ -351,16 +351,23 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       if (!visible(member, level))
         Left(s"capability record with members hidden at the use site: $key")
       else
-        MemberSyntax.observation(member, s"$key.$name", s"$key.$name").flatMap {
-          case MemberSyntax.Observation.Value(tpe) =>
-            read(tpe, level, scope).map(Some(_))
-          case MemberSyntax.Observation.Applied(callable, result) =>
-            MemberSyntax.applied(
-              callable,
-              result,
-              read(_, level, scope, callable.binders)
-            )
-        }
+        MemberSyntax
+          .observation(
+            member,
+            s"$key.$name",
+            s"$key.$name",
+            (id, kind) => resolver.operators.rigid(id, kind)
+          )
+          .flatMap {
+            case MemberSyntax.Observation.Value(tpe) =>
+              read(tpe, level, scope).map(Some(_))
+            case MemberSyntax.Observation.Applied(callable, result) =>
+              MemberSyntax.applied(
+                callable,
+                result,
+                read(_, level, scope, callable.binders)
+              )
+          }
 
     // A member's type, read where its level declares it with `this` the record's template, over
     // the scope's opened witnesses. The member's own binders bind last, so an argument written

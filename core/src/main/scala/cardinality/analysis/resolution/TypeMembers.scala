@@ -7,7 +7,7 @@ import cardinality.analysis.MethodAnalysis.{Frame, Resolved, TypeEntry}
 import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberPath, ResolutionContext}
-import cardinality.types.{Kinds, Spelling, TypeApplications}
+import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
 
 import TemplateClosures.Closure
 
@@ -59,6 +59,8 @@ final private[cardinality] class TypeMembers(
           }
       }
     case Type.Select(qualifier, name) =>
+      if (System.getenv("DBG") != null && name.value == "F")
+        println(s"DBG typeMember Select qualifier=$qualifier path=${path(qualifier, context)}")
       path(qualifier, context).map(_.flatMap(meaning(_, name.value, context)))
     case _ => None
   }
@@ -66,7 +68,11 @@ final private[cardinality] class TypeMembers(
   /** A member's meaning as a shape: an alias read where it is declared, or its rigid atom. */
   def denoted(meaning: Meaning, context: ResolutionContext): Resolved =
     meaning
-      .fold((body, scope) => scope.read(body, resolver), atom => Right(Shape.Atom(atom)))
+      .fold(
+        (body, scope) => scope.read(body, resolver),
+        atom => Right(Shape.Atom(atom)),
+        (atom, _) => Left(s"higher-kinded type member used as a proper type: $atom")
+      )
       .flatMap(SingletonIntersections.validate(_, context.useSite, resolver))
 
   // Inside a refinement, a name the refined value declares is its member (Scala reports one an
@@ -211,8 +217,6 @@ final private[cardinality] class TypeMembers(
     val member = path.spell(name)
     if (declared.isEmpty)
       Left(unsupplied(path, name).getOrElse(s"unavailable type member: $member"))
-    else if (declared.exists(_.tparamClause.values.nonEmpty))
-      Left(s"higher-kinded abstract type member $member")
     else
       declared.find(!trivial(_)) match {
         case Some(d) => Left(s"bounded abstract type member $member (${Spelling.of(d.bounds)})")
@@ -220,7 +224,14 @@ final private[cardinality] class TypeMembers(
           unsupplied(path, name)
             .orElse(unfree(path, name))
             .orElse(path.fixed.map(why => s"abstract type member $member is fixed: $why"))
-            .toLeft(Meaning.Rigid(path.atom(name)))
+            .toLeft(declared.find(_.tparamClause.values.nonEmpty) match {
+              case Some(d) =>
+                Meaning.RigidOperator(
+                  path.atom(name),
+                  Kind.Arrow(d.tparamClause.values.map(Kinds.of))
+                )
+              case None => Meaning.Rigid(path.atom(name))
+            })
       }
   }
 
@@ -574,10 +585,23 @@ private[cardinality] object TypeMembers {
     case Alias(body: Type, scope: ResolutionContext)
     case Rigid(atom: String)
 
-    /** The meaning read one of two ways: an alias body in its scope, or the atom. */
-    def fold[A](alias: (Type, ResolutionContext) => A, rigid: String => A): A = this match {
-      case Alias(body, scope) => alias(body, scope)
-      case Rigid(atom)        => rigid(atom)
+    /** A higher-kinded abstract member: the path atom as a rigid constructor, applied at its kind's
+      * arity (`Shape.rigid`) — the witness the path's package binds, read the way the method-side
+      * reads its own higher-kinded binders.
+      */
+    case RigidOperator(atom: String, kind: Kind)
+
+    /** The meaning read one of three ways: an alias body in its scope, the atom, or the constructor
+      * the path binds.
+      */
+    def fold[A](
+        alias: (Type, ResolutionContext) => A,
+        rigid: String => A,
+        operator: (String, Kind) => A
+    ): A = this match {
+      case Alias(body, scope)        => alias(body, scope)
+      case Rigid(atom)               => rigid(atom)
+      case RigidOperator(atom, kind) => operator(atom, kind)
     }
 
   }

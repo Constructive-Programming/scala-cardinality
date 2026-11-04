@@ -155,7 +155,9 @@ class TypeMemberSpec extends Specification {
       def h(x: P#X, y: P#X): P#X = ???
     """)
     refused(found("f"), "bounded abstract type member p#X (<: Tuple)")
-      .and(refused(found("g"), "higher-kinded abstract type member p#F"))
+      // g's higher-kinned member is the rigid constructor p's package binds: p.F[Int] is an
+      // uninterpreted application, and the only p.F[Int] value the environment builds is x — 1.
+      .and(found("g") === Count.Finite(1))
       .and(refused(found("h"), "type projection of abstract member P#X: no stable path"))
   }
 

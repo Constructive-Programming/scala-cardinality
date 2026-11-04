@@ -2,10 +2,11 @@ package cardinality.analysis.resolution
 
 import scala.meta.{Decl, Defn, Tree, Type, XtensionClassifiable}
 
-import cardinality.analysis.MethodAnalysis.Resolved
+import cardinality.analysis.MethodAnalysis.{sequence, Resolved}
 import cardinality.analysis.inhabitation.ExistentialInputs
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{Arguments, Operator, ResolutionContext}
+import cardinality.analysis.resolution.TypeMembers.Meaning
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
 import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
@@ -36,23 +37,54 @@ final private[cardinality] class ConstructorApplications(
   // operator keeps lhs before rhs. Associativity is already encoded in the parser's nested AST.
   // Both spellings share argument resolution, qualified lookup and representation/arity checks.
   def resolve(callee: Type, arguments: List[Type], context: ResolutionContext): Resolved =
-    memberApplied(callee, context).map(Left(_)).getOrElse {
-      if (projectable(callee, arguments, context))
-        MethodProjections.resolve(
-          Type.Apply(callee, Type.ArgClause(arguments)),
-          context,
-          resolver,
-          sourceNames
-        )
-      else applyCallee(callee, context, arguments, context)
+    memberApplied(callee, context) match {
+      case Some(Left(reason))                             => Left(reason)
+      case Some(Right(Meaning.RigidOperator(atom, kind))) =>
+        rigidApplication(atom, kind, callee, arguments, context)
+      case Some(Right(_)) =>
+        Left(s"type member applied to arguments: ${Spelling.of(callee)}")
+      case None =>
+        if (projectable(callee, arguments, context))
+          MethodProjections.resolve(
+            Type.Apply(callee, Type.ArgClause(arguments)),
+            context,
+            resolver,
+            sourceNames
+          )
+        else applyCallee(callee, context, arguments, context)
     }
 
-  // A first-order member applied to arguments is ill-kinded, and a higher-kinded one is refused
-  // where its path is read (members M1): an applied member is never read as a type here.
-  private def memberApplied(callee: Type, context: ResolutionContext): Option[String] =
-    resolver
-      .typeMember(callee, context)
-      .map(_.fold(identity, _ => s"type member applied to arguments: ${Spelling.of(callee)}"))
+  // A first-order member applied to arguments is ill-kinded (members M1); a higher-kinded abstract
+  // member is the rigid constructor its path binds, applied at its kind's arity — an
+  // uninterpreted application over the arguments' shapes, the way the method side reads its own
+  // higher-kinded binders (Scala 3.9.0 rejects an abstract constructor applied to a wildcard,
+  // E043, so such an application is no type and is never counted).
+  private def memberApplied(
+      callee: Type,
+      context: ResolutionContext
+  ): Option[Either[String, TypeMembers.Meaning]] =
+    resolver.typeMember(callee, context)
+
+  private def rigidApplication(
+      atom: String,
+      kind: Kind,
+      callee: Type,
+      arguments: List[Type],
+      context: ResolutionContext
+  ): Resolved = {
+    val name = Spelling.of(callee)
+    if (System.getenv("DBG") != null)
+      println(s"DBG rigidApplication $name arity=${kind.arity} args=${arguments.size}")
+    if (arguments.size != kind.arity) Left(s"type argument arity: $name")
+    else if (arguments.exists(_.is[Type.Wildcard]))
+      Left(s"unreducible application of a higher-kinded member to a wildcard: $name")
+    else
+      sequence(
+        arguments
+          .zip(kind.holes)
+          .map((arg, hole) => resolver.operators.argument(hole, arg, context))
+      ).map(shapes => Shape.rigid(atom, shapes))
+  }
 
   // A projection reads a source alias's applied body; a wildcard argument, a binder or an
   // inherited member has no such body to read.
@@ -102,6 +134,8 @@ final private[cardinality] class ConstructorApplications(
   ): Resolved = {
     val name = TypeApplications.spelled(callee)
     kinds(callee, name, calleeContext).flatMap { kinds =>
+      if (System.getenv("DBG") != null && name.contains("p.F"))
+        println(s"DBG applyNamed $name kinds=${kinds.size} args=${arguments.size}")
       if (kinds.size != arguments.size) Left(s"type argument arity: $name")
       else
         read(callee, arguments.zip(kinds), context).flatMap((witnesses, args) =>

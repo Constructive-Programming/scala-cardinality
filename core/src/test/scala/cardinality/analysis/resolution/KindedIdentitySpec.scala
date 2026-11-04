@@ -63,8 +63,8 @@ class KindedIdentitySpec extends Specification {
       .and(counts("C.k") === Count.Finite(16))
   }
 
-  // Each override implements only its own overload: the other stays an inherited capability, named
-  // by its own binder (`K` for C3, `H` for C4).
+  // Each override implements only its own overload: the other stays an inherited capability whose
+  // result instantiates its own binder (`K` for C3, `H` for C4), which the reading refuses.
   def kindOverloads = {
     val counts = entries("""
       import scala.annotation.targetName
@@ -80,10 +80,11 @@ class KindedIdentitySpec extends Specification {
     def inherits(name: String, kept: String, overridden: String) =
       counts(name) must beLike {
         case Count.Unresolved(reasons) =>
-          (reasons must contain(s"polymorphic capability binder: $kept (higher-kinded)"))
+          (reasons must contain(s"polymorphic capability binder: $kept"))
             .and(reasons.exists(_.contains(s"binder: $overridden")) must beFalse)
       }
-    inherits("C3.m", "K[_, _]", "H").and(inherits("C4.m", "H[_]", "K"))
+    inherits("C3.m", "K (the result instantiates the binder)", "H")
+      .and(inherits("C4.m", "H (the result instantiates the binder)", "K"))
   }
 
   private def refused(found: Count, fragment: String) =

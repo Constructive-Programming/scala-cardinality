@@ -65,7 +65,7 @@ final private[cardinality] class OverrideKeys(resolver: Resolver) {
         resolver.unappliedMember(tpe, args, side.context.referencing(tpe))
       )
       .flatten
-      .map(_.toOption.flatMap(_.fold(aliasKey(_, _, side.bindings), known)))
+      .map(_.toOption.flatMap(_.fold(aliasKey(_, _, side.bindings), known, (_, _) => None)))
 
   private def methodBinder(tpe: Type, bindings: Bindings): Boolean = tpe match {
     case n: Type.Name => bindings.locals.contains(n.value)

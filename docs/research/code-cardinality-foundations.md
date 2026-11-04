@@ -1766,6 +1766,46 @@ are the artifacts': a dependency upgrade re-checks them (the table names the ver
 types are listed separately — a term name the namespace declares does not shadow the same spelling
 as a type.
 
+## D34. A capability member's higher-kinded binder is a rigid constructor, gated on the result
+
+**Decision.** A capability member's own higher-kinded type parameter (`Optic.andThen[C, IB,
+G[_, _]]`) no longer refuses the record that holds it: the binder is read as the rigid constructor
+`TypeOperators.rigid` binds, and the member's type applies it uninterpreted — the same reading the
+method side gives its own higher-kinded binders, and the same one the compiler's typechecker
+gives (an abstract constructor applied to arguments is unreducible but well-kinded). The member
+stays polymorphic in its first-order binders (PB0–PB4 unchanged: the rigid applications sit
+outside the atom-based Yoneda and matching, so neither reaches them). A member whose *result*
+instantiates its own binder refuses — `polymorphic capability binder: G (the result instantiates
+the binder)` — because there the caller instantiates the binder, and the solver's terms from such
+a member never search the instantiation: counting without the search could report a 0 where an
+andThen-composition is the only implementation.
+
+**Derivation.** As an input, the member's terms exist only where a producer path's output meets a
+goal. The binder stands in the member's parameters — the caller fills them from its own
+environment, which holds no value of a rigid binder's application — so every path is either
+irrelevant (its result reaches no goal: the result is an uninterpreted application over atoms and
+constructors, which no eliminator of the model takes apart) or refused where the goal matches and
+the binder is undetermined (PB4). Both are exact: an implementation that calls the member must
+choose the binder's instantiation, and the choice's evidence would have to come from the same
+fixed environment — the enumeration of those choices is the open boundary, not a silent
+assumption. As a goal (the record's anonymous-subclass realization), the override is itself
+universally quantified in the binder, so the rigid reading is the parametric one and exact.
+
+**Evidence.**
+
+- **Executable**: `KindedIdentitySpec.kindOverloads` (the un-overridden `K[_, _]` overload refuses
+  with the result-instantiation reason), `PolymorphicMemberSpec.boundedAndKinded` (`Kinded.m[G[_]]
+  (x: G[Int]): G[Int]` — the result instantiates G), `TypeMemberSpec.boundedMember` (`def g(p: H,
+  x: p.F[Int]): p.F[Int]` = 1 — the higher-kinded abstract member `p.F` reads as the path's rigid
+  constructor applied at its arity, and the only `p.F[Int]` value the environment builds is `x`).
+- The cats-eo run: 291 rows reason-only, zero counts moved — the corpus's `G[_, _]` blocker
+  (297 rows) dissolves into the per-member reasons behind it.
+
+**Boundary.** A member whose result instantiates the binder stays refused; so do bounded,
+context-bounded and view-binded binders. The instantiation search — enumerating the constructors
+the environment can witness for the binder (`witness-kind analysis`) — is the feature's open half.
+
+
 
 ## How to extend this register
 

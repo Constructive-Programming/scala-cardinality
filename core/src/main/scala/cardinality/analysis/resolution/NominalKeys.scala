@@ -178,7 +178,15 @@ final private[cardinality] class NominalKeys(
   private def member(application: Application): Option[Keyed] =
     resolver
       .unappliedMember(application.callee, application.args, application.scope)
-      .map(_.flatMap(_.fold(read, atom => Right(Shape.Atom(atom)))))
+      .map(
+        _.flatMap(
+          _.fold(
+            read,
+            atom => Right(Shape.Atom(atom)),
+            (_, _) => Left("higher-kinded type member used as a proper type")
+          )
+        )
+      )
 
   // An alias, opaque or not, is read through: a transparent one is the type it names, an opaque
   // one only where it is visible. Outside its scope an opaque type is not a readable key: its API
