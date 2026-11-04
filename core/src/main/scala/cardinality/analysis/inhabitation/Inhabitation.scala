@@ -100,7 +100,7 @@ object Inhabitation {
       platedShape.childrenVec(shape).toList
 
     def exists(shape: Shape)(predicate: Shape => Boolean): Boolean =
-      Plated.universe(shape).exists(predicate)
+      cardinality.types.Universe.exists(shape)(predicate)
 
     val atomPrism = prism[Shape, Atom]
     val functionPrism = prism[Shape, Function]

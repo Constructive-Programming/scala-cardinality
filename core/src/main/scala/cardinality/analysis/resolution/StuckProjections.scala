@@ -4,7 +4,7 @@ import scala.meta.{Type, TypeCase}
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.SourceBindings
-import dev.constructive.eo.optics.Plated
+import cardinality.types.Universe
 
 /** Stuck tuple projections (members MT3).
   *
@@ -66,11 +66,14 @@ private[cardinality] object StuckProjections {
     * have none, given the proofs of its binders' bounds.
     */
   def refusal(shapes: List[Shape], proofs: List[Shape]): Option[String] = {
-    val projected = shapes.flatMap(Plated.universe(_)).collect {
-      case Shape.Atom(Projection(arity, _, scrutinee)) => scrutinee -> arity
-    }
+    val projected = shapes.flatMap(Universe.select(_) {
+      case Shape.Atom(Projection(arity, _, scrutinee)) => Some(scrutinee -> arity)
+      case _                                           => None
+    })
     val bound = atoms(proofs)
-    val equated = atoms(shapes.flatMap(Plated.universe(_)).collect { case e: Shape.Evidence => e })
+    val equated = atoms(
+      shapes.flatMap(Universe.select(_)(Shape.evidencePrism.getOption))
+    )
     projected.groupMap(_._1)(_._2).toList.sortBy(_._1).collectFirst {
       case (scrutinee, arities) if arities.distinct.size > 1 =>
         s"stuck match types on ${SourceBindings.label(scrutinee)} have no common reducing " +
@@ -83,6 +86,8 @@ private[cardinality] object StuckProjections {
   }
 
   private def atoms(shapes: List[Shape]): Set[String] =
-    shapes.flatMap(Plated.universe(_)).collect { case Shape.Atom(id) => id }.toSet
+    shapes
+      .flatMap(Universe.select(_)(Shape.atomPrism.getOption(_).map(_.id)))
+      .toSet
 
 }

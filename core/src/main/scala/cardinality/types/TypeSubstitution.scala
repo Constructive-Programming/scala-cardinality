@@ -119,7 +119,7 @@ private[cardinality] object TypeSubstitution {
       .get
 
   def typeNames(tpe: Type): List[String] =
-    Plated.universe(tpe).flatMap(typeNamePrism.getOption)
+    Universe.select(tpe)(typeNamePrism.getOption)
 
   /** A union's two operands, in either spelling. */
   object Union {

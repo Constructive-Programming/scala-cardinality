@@ -1,6 +1,6 @@
 package cardinality.analysis.inhabitation
 
-import dev.constructive.eo.optics.Plated
+import cardinality.types.Universe
 
 import Inhabitation.Shape
 import Inhabitation.Shape.*
@@ -16,7 +16,10 @@ private[cardinality] object TerminalHigherOrder {
     val calls = environment.flatMap(Shape.functionPrism.getOption).map(Shape.uncurried.get)
     val higher = calls.filter(_._1.exists(Shape.functionPrism.getOption(_).nonEmpty))
     val inputAtoms =
-      calls.flatMap(_._1).flatMap(Plated.universe(_)).flatMap(Shape.atomPrism.getOption).toSet
+      calls
+        .flatMap(_._1)
+        .flatMap(Universe.select(_)(Shape.atomPrism.getOption))
+        .toSet
     environment.forall(readable(_, allowFunctionalInput = true)) &&
     higher.nonEmpty && higher.forall {
       case (_, atom: Atom) => !inputAtoms(atom)

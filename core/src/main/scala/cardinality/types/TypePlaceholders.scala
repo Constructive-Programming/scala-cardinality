@@ -36,9 +36,9 @@ private[cardinality] object TypePlaceholders {
           rebuild(kids.map(_(state)))
         case other =>
           if (
-            dev.constructive.eo.optics.Plated
-              .universe(other)(using TypeSubstitution.localPlate)
-              .exists(_.isInstanceOf[Type.AnonymousParam])
+            Universe.exists(other)(_.isInstanceOf[Type.AnonymousParam])(using
+              TypeSubstitution.localPlate
+            )
           )
             state.failure = Some("constructor placeholder body requires unsupported hole traversal")
           other

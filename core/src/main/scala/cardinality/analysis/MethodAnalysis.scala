@@ -102,6 +102,7 @@ object MethodAnalysis {
       val colon = id.indexOf(':')
       if (colon < 0) id else id.substring(0, colon)
     }
+
   }
 
   final private[cardinality] case class TypeEntry(

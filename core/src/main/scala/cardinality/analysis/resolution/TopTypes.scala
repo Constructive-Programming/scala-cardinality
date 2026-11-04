@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.{ClosedSpaces, Inhabitation, Natural}
 import cardinality.analysis.model.*
 import cardinality.analysis.{MethodAnalysis, Resolver}
-import cardinality.types.{TypeApplications, TypeSubstitution}
+import cardinality.types.{TypeApplications, TypeSubstitution, Universe}
 import dev.constructive.eo.optics.Plated
 
 import Inhabitation.Shape
@@ -169,9 +169,9 @@ private[cardinality] object TopTypes {
   private def top(resolver: Resolver)(tpe: Type, context: ResolutionContext): Boolean =
     denoted(tpe, context, resolver).nonEmpty
 
-  private def namedParts(tpe: Type): List[Type] = Plated.universe(tpe).filter {
-    case _: Type.Name | _: Type.Select => true
-    case _                             => false
+  private def namedParts(tpe: Type): List[Type] = Universe.select(tpe) {
+    case named @ (_: Type.Name | _: Type.Select) => Some(named)
+    case _                                       => None
   }
 
   // Whether `sought` holds of `named`'s alias body, read in the alias's own scope.
@@ -201,7 +201,7 @@ private[cardinality] object TopTypes {
       resolver: Resolver,
       sought: (Type, ResolutionContext) => Boolean
   ): Boolean =
-    Plated.universe(tpe).exists(sought(_, scope)) ||
+    Universe.exists(tpe)(sought(_, scope)) ||
       namedParts(tpe).exists(behind(_, scope, resolver, sought))
 
   // The library constructors that hold their arguments by position alone, at the argument indexes
@@ -255,7 +255,7 @@ private[cardinality] object TopTypes {
     args.zipWithIndex.iterator
       .flatMap { (arg, index) =>
         if (kept(index)) merging(arg, context, resolver)
-        else Option.when(Plated.universe(arg).exists(denoted(_, context, resolver).nonEmpty))(name)
+        else Option.when(Universe.exists(arg)(denoted(_, context, resolver).nonEmpty))(name)
       }
       .nextOption()
   }
