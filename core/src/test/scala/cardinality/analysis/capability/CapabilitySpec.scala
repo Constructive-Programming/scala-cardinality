@@ -643,16 +643,21 @@ class CapabilitySpec extends Specification {
   def unreadMembers = {
     val found = one("""
       trait TP[A](val seed: A) { def x: A }
+      trait Plain[A](hidden: A) { def x: A }
       trait Mut[A] { var v: A; def x: A }
       trait Ext[A] { def x: A; extension (a: A) def twice: A }
       class Destr[A](a: A) { val (p, q) = (a, a); def pick(): A = a }
       object U {
         def tp[A](t: TP[A]): A = ???
+        def pl[A](t: Plain[A]): A = ???
         def mut[A](t: Mut[A]): A = ???
         def ext[A](t: Ext[A]): A = ???
       }
     """)
-    refused(found("U.tp"), "capability record with trait parameters not read: TP")
+    // A `val` trait parameter is a public field: the record is the pair (seed, x), both A, so the
+    // goal returns one of the two A-members - two implementations (the projections).
+    (found("U.tp") === Count.Finite(2))
+      .and(refused(found("U.pl"), "open class with hidden constructor state: Plain.hidden"))
       .and(found("U.mut") === Count.Finite(2))
       .and(refused(found("U.ext"), "capability record with an extension member not read: Ext"))
       .and(refused(found("Destr.pick"), "destructured member of an open receiver not read: Destr"))

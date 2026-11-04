@@ -28,6 +28,7 @@ class OwnersAndRecordsSpec extends Specification {
       an extension, a parent's field, an overload or a later clause too $openLeafMembers
       a parent is the declaration its name resolves to where written   $resolvedParents
       a final leaf, a final override or a universal member keeps it    $closedLeaf
+      an abstract member of the empty type empties the family          $emptyFamily
     Records
       a final case class with members or a marker parent is a record   $caseRecords
       a private constructor or a later clause gives its own reason     $caseRefusals
@@ -233,6 +234,19 @@ class OwnersAndRecordsSpec extends Specification {
           "sealed family leaf may be extended: X1 (overridable member RuntimeException.getCause)"
         )
       )
+  }
+
+  // Every leaf inherits the root's abstract `k: Nothing`; no pure, total body implements the
+  // empty type, so the family enumerates no value: a function from it has 1 implementation (the
+  // empty sum is 0 values, absurd elimination) and the stored estimate is 0.
+  def emptyFamily = {
+    val found = one("""
+      sealed trait Root { def k: Nothing }
+      case class L1(i: Int) extends Root
+      case object L2 extends Root
+      object Use { def f(r: Root): Int = ??? }
+    """)
+    found("Use.f") === Count.Finite(1)
   }
 
   // A subclass may override the leaf's extension foo, its parent's `val` field d (3.9.0 warns but

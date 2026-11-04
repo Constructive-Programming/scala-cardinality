@@ -324,7 +324,10 @@ object EoCheckout {
           .sum
         f"  $name%-14s ${entries.size}%6d signatures  ${entries.count(_.count.isFinite)}%5d finite  " +
           f"${entries.count(_.count.isCountable)}%4d countable  " +
-          f"${entries.count(entry => !entry.count.isFinite && !entry.count.isCountable)}%5d unresolved  " +
+          f"${entries.count(_.count.isBeyondCountable)}%5d beyond-e0  " +
+          f"${entries.count(entry =>
+              !entry.count.isFinite && !entry.count.isCountable && !entry.count.isBeyondCountable
+            )}%5d unresolved  " +
           f"$definitions%5d definitions"
       }
     ("Per module:" :: rows).mkString("\n")

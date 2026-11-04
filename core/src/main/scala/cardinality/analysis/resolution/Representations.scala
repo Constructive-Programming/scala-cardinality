@@ -56,6 +56,11 @@ final private[cardinality] class Representations(
     else if (mayThrow(level)) Left(s"sealed family construction not resolved: ${entry.name}")
     else if (indexer.typesInFile(file, entry.name).size != 1)
       Left(s"ambiguous sealed family: ${entry.name}")
+    // An abstract member of the empty type declared on the family's level (the root, or an
+    // intermediate through the recursion): every leaf inherits it, and no pure, total body
+    // implements `Nothing`, so the family enumerates no value - the empty sum says 0 (absurd
+    // elimination, the reading C4's contract rule gives a record's members).
+    else if (empties(level)) Right(Nil)
     // A sealed family with no subtypes in its file has none anywhere: the compiler's own
     // promise makes the empty enumeration an empty sum, and the empty sum says 0.
     else
@@ -66,6 +71,18 @@ final private[cardinality] class Representations(
             .map(_.flatten)
         )(Left(_))
   }
+
+  // An abstract declaration of the empty type: `Nothing` as written (an alias of it is refound
+  // through the resolution the cases' types run, so the spelling is what this check reads).
+  private def empties(level: Defn.Class | Defn.Trait): Boolean =
+    level.templ.body.stats.exists {
+      case d: (Decl.Def | Decl.Val) =>
+        d.decltpe match {
+          case Type.Name("Nothing") => true
+          case _                    => false
+        }
+      case _ => false
+    }
 
   /** A subtype of a sealed family through which a file outside the family's may extend it: a trait,
     * an abstract class or a plain class that is neither sealed nor final, at any depth of the

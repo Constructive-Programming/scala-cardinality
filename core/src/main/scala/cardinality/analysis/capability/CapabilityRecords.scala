@@ -25,7 +25,7 @@ import MethodAnalysis.{sequence, Frame, Resolved, TypeEntry}
   * tuple of their behaviors: Reynolds' and Cook's procedural reading of objects. One shape serves
   * an input and a goal, so a record is read only where the two readings coincide:
   *
-  *   - an *open* template (a trait without parameters, or a class whose constructor parameters are
+  *   - an *open* template (a trait or class whose constructor parameters are all public fields, or
   *     all public fields and whose constructor every subclass reaches): the product of its open
   *     members — abstract or overridable — and `val` fields. An input observes exactly those (a
   *     derived member is concrete code over them); a goal may pick any tuple of them, since an
@@ -206,11 +206,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
           s"capability record with an extension member not read: $key"
       }
       val types = unread.map(t => s"capability record with abstract type member not read: $key.$t")
-      val parameters = template.tree.collect {
-        case t: Defn.Trait if t.ctor.paramClauses.exists(_.values.nonEmpty) =>
-          s"capability record with trait parameters not read: $key"
-      }
-      restricted.orElse(foreign).orElse(parameters).orElse(unreadMember).orElse(types.headOption)
+      restricted.orElse(foreign).orElse(unreadMember).orElse(types.headOption)
     }
 
     // A type member no level defines, split by what this reading does: bounded or higher-kinded
