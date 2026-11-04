@@ -45,6 +45,13 @@ private[capacity] object Builds {
     case _                                            => None
   }
 
+  /** Whether an unread-construction reason says the construction provably builds nothing: a term it
+    * evaluates throws (`D-pure`), so the type has no value whatever it stores. Any other reason - a
+    * restricted constructor, an unread channel or parent - may hide a value built where this
+    * reading does not look, and only says the row is not decided.
+    */
+  def buildsNothing(reason: String): Boolean = reason.endsWith("evaluates a throw")
+
   /** Whether a body, built, evaluates a term that throws if its names are the root imports'. */
   def throwing(stats: List[Stat]): Boolean = Throws.evaluated(stats, None).exists(throws)
 

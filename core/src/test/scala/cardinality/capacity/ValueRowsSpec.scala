@@ -18,6 +18,7 @@ class ValueRowsSpec extends Specification {
       an inhabited, undeclared or unresolved type                     $valueReasons
       a witness decides it whatever the rest of the type              $valueWitnesses
       a class, enum or module no construction is read for             $unbuiltValues
+      a sum drops the summands that provably build nothing            $sumDropsEmptySummand
       a singleton type holds what its path denotes                    $singletonValues
     """
 
@@ -217,18 +218,16 @@ class ValueRowsSpec extends Specification {
     def refused(name: String, holds: String) =
       (found((s"ub.$name", Value)) === s"unresolved[value not decided: $holds]")
         .updateMessage(s"ub.$name: " + _)
-    val throws = "whose construction evaluates a throw"
-    refused("k", s"K holds K, $throws")
-      .and(refused("fk", s"K holds K, $throws"))
-      .and(refused("v", s"V holds E, $throws"))
-      .and(refused("fv", s"V holds E, $throws"))
-      .and(refused("en", s"En holds En, $throws"))
-      .and(refused("fen", s"En holds En, $throws"))
-      .and(refused("k2", s"Tp holds K2, $throws"))
-      .and(refused("deep", s"Deep holds Deep, $throws"))
-      .and(refused("w", s"W holds W, $throws"))
-      .and(refused("dd", s"Dd holds Dd, $throws"))
-      .and(refused("c2", s"C2 holds C2, $throws"))
+    // A construction that evaluates a throw builds nothing (D-pure): the type holds no value and
+    // the row reads 0, whatever it stores; a function from it holds the absurd value, 1. A private
+    // constructor, a context argument or an unread parent may hide a value built where this
+    // reading does not look, so those rows stay undecided instead.
+    List("k", "v", "en", "k2", "deep", "w", "dd", "c2")
+      .map(name => (found((s"ub.$name", Value)) === "0").updateMessage(s"ub.$name: " + _))
+      .reduce(_.and(_))
+      .and(found(("ub.fk", Value)) === "1")
+      .and(found(("ub.fv", Value)) === "1")
+      .and(found(("ub.fen", Value)) === "1")
       .and(refused("p", "P holds P, whose constructor is private"))
       .and(refused("q", "Q holds Q, whose parent Ctx takes context arguments not written"))
       .and(refused("z", "Z holds Z, built on unsupplied parent zz.Base"))
@@ -239,6 +238,21 @@ class ValueRowsSpec extends Specification {
       )
       .and(found(("ub.fok", Value)) === "0")
       .and(found(("ub.K", Class)) === "1")
+  }
+
+  // A sum drops the summands that provably build nothing: S1's parent's constructor throws, so a
+  // value of S is S2's alone - 1, not the refusal any unread summand gave (follow-up 25).
+  def sumDropsEmptySummand = {
+    val found = rows(
+      """|package uf
+         |abstract class Base(n: Int)
+         |sealed trait S
+         |case class S1(i: Int) extends Base(???)
+         |case object S2 extends S
+         |val s: S = ???
+         |""".stripMargin
+    )
+    found(("uf.s", Value)) === "1"
   }
 
   // `n.type` holds the value `n` denotes: `n: Nothing` holds none, so neither does `sn` — not the 1

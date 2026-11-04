@@ -370,8 +370,15 @@ private[cardinality] object SealedFamilies {
         val sc = Counter.signature(parent)(outside)
         children.foldLeft(NothingSize: Size) { (acc, child) =>
           acc + unmatched(outside, parent, child).getOrElse {
-            unbuilt(outside, child)
-            summand(sc, params, child)
+            // A summand whose construction provably builds nothing contributes no value: the sum
+            // drops it, and no overcount is noted - the value may be one of the summands left.
+            // Any other unread construction may hide a value built in the summand's own scope,
+            // and keeps the row undecided.
+            if (child.built(outside).exists(Builds.buildsNothing)) NothingSize
+            else {
+              unbuilt(outside, child)
+              summand(sc, params, child)
+            }
           }
         }
       },

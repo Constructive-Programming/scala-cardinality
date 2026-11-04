@@ -85,8 +85,13 @@ private[capacity] object ValueRows {
   private def reasons(verdicts: List[Verdict]): List[Definition.Unbound] =
     verdicts.flatMap(_.left.toOption).flatten.distinct
 
-  private def undecided(what: String): Verdict =
+  private def undecided(what: String): Verdict = {
+    if (what.contains("evaluates a throw")) {
+      val frames = new Exception("trace").getStackTrace.take(12).map(_.toString).mkString("\n  ")
+      println(s"DBG undecided: $what\n  at:\n  $frames")
+    }
     Left(List(Definition.Unbound.Refusal(s"value not decided: $what")))
+  }
 
   // `p.type` holds the value `p` denotes, if it denotes one: an object that inherits nothing and
   // whose body evaluates no throw is built; a standard-library object is. A value's declared type
@@ -112,20 +117,32 @@ private[capacity] object ValueRows {
   // intersection or refinement, or a value not known to exist (a number with maybe none).
   private def capacity(scope: Scope, tpe: Type): Verdict = {
     val probe = scope.measuredValue
-    val size = Counter.typeIn(probe)(tpe)
-    val read = probe.overcounts
-    if (probe.unbound.nonEmpty) Left(probe.unbound)
-    else if (size.isZero) {
-      if (read.contains(Overcount.EmptyDomain))
-        undecided(s"${tpe.syntax} holds a function from an empty type")
-      else Right(false)
-    } else
-      read
-        .collectFirst {
-          case Overcount.Narrowing    => "holds an intersection or refinement"
-          case Overcount.Unread(what) => s"holds $what"
-        }
-        .fold(Right(true): Verdict)(why => undecided(s"${tpe.syntax} $why"))
+    // A declared type whose construction provably builds nothing holds no value, whatever it
+    // stores: the row reads 0, and a function from it the absurd value. Any other unread
+    // construction step may hide a value built where this reading does not look, and stays with
+    // the overcount reasons below.
+    val built = Trees.callee(tpe) match {
+      case name @ (Type.Name(_) | Type.Select(_, _)) =>
+        Namespaces.lookup(probe, name)((in, key, _) => in.definition(key)).flatMap(_.built(probe))
+      case _ => None
+    }
+    if (built.exists(Builds.buildsNothing)) Right(false)
+    else {
+      val size = Counter.typeIn(probe)(tpe)
+      val read = probe.overcounts
+      if (probe.unbound.nonEmpty) Left(probe.unbound)
+      else if (size.isZero) {
+        if (read.contains(Overcount.EmptyDomain))
+          undecided(s"${tpe.syntax} holds a function from an empty type")
+        else Right(false)
+      } else
+        read
+          .collectFirst {
+            case Overcount.Narrowing    => "holds an intersection or refinement"
+            case Overcount.Unread(what) => s"holds $what"
+          }
+          .fold(Right(true): Verdict)(why => undecided(s"${tpe.syntax} $why"))
+    }
   }
 
   // A source definition every instantiation of which has a value (`Named.witnessed`).
