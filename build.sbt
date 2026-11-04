@@ -41,6 +41,17 @@ lazy val core = project
     coverageMinimumStmtTotal := 80
   )
 
+// JMH benchmarks over a real checkout (bench/README.md). Not aggregated by `root`: benchmarks run
+// on demand, never in CI, and publish nothing.
+lazy val bench = project
+  .enablePlugins(JmhPlugin)
+  .dependsOn(core)
+  .settings(
+    name := "scala-cardinality-bench",
+    publish / skip := true,
+    coverageEnabled := false
+  )
+
 // The sbt plugin: reads each subproject's sources and hands them to `core`.
 // Kept as thin as possible — logic that can live in `core` must live in
 // `core`, where the coverage and mutation gates bite.

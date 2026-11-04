@@ -34,3 +34,7 @@ addSbtPlugin("io.stryker-mutator" % "sbt-stryker4s" % "1.1.1")
 //     then `docs/` examples are pinned by the test suite instead.
 libraryDependencies +=
   "org.typelevel" %% "laika-io" % "1.3.2"
+
+// Benchmarks. JMH drives the `bench` module (not aggregated: never part of CI); run with
+// `sbt "bench/Jmh/run"` and the inputs named in bench/README.md.
+addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.8")
