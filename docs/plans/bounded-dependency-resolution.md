@@ -36,18 +36,60 @@ dependency source to the current report input list.
 | Parse and analyze all dependency sources | Transitively unbounded; adds library methods as report targets; sources can be absent or differ from compiled artifacts | Do not use as the default |
 | Guess models from simple library type names | Confuses shadowing, versions, visibility, and unknown producers | Reject |
 | Use compiled symbol metadata and explicit semantic models | Adds a versioned compiler adapter, but supplies actual identities/signatures without reading bodies recursively | Preferred build-integrated direction |
-| Explicit source dependency inputs | Works offline with the current parser; lacks full compiler name resolution | Bounded standalone fallback, with conservative guards |
+| Explicit source dependency inputs | Works offline with the current parser; lacks full compiler name resolution | Tried and withdrawn (below) |
+| Compiled TASTy rendered as signature stubs | Reuses every source lookup; the rendering must spell declarations faithfully | **Adopted** |
 
-Core consumes a small, versioned declaration-summary format, not compiler objects. Start with
-explicitly selected metadata artifacts and an empty foreign-environment default. Keep the foreign
-symbol environment separate from the source-derived `Library`; do not fabricate source trees to
-feed compiled declarations into its existing equations.
+Dependencies are read from their compiled **TASTy** (tasty-query 1.9.0, the release built on the
+analyzer's Scala 3.9.0), and reach the analyzer as **signature stubs**: each Scala 3 class of a
+selected jar is rendered as Scala source - every name, modifier, parameter clause, parent and type
+it declares - and parsed into the same trees the source-derived `Library` reads. This overturns the
+earlier rule against fabricating source trees for compiled declarations (owner decision,
+2026-11-04): every existing lookup, shadowing and visibility rule applies to a dependency unchanged,
+at the cost of a rendering step that must spell each declaration faithfully.
+
+The stubs keep the guards the summary format was meant to keep:
+
+- **No body is supplied.** Every concrete body is the undeclared name `_root_.compiledBodyNotRead`,
+  never an abstract member (which would read as a freely supplied capability) and never `???`
+  (which would read as a throw that supplies nothing). A reading that looks into a body - an
+  inline callee, a default, a parent's constructor argument - refuses as for any unresolved callee.
+- **No guessed signature.** A declaration whose type has no spelling keeps its name with the
+  undeclared type `_root_.SignatureNotRead`; an unparseable stub file is left out, its names
+  unsupplied. Java and Scala 2 classes are not rendered: their names stay unsupplied.
+- **No partial stdlib namespace.** Nothing is rendered into `scala.*`, `java.*` or `javax.*`, from
+  any jar: the stdlib model answers those namespaces, and a stub there (`scala.collection.compat`)
+  would make one partly supplied, so every lookup the model answers would doubt it.
+- **No rows.** Stub inputs (`tasty/<jar>/<source path>`) are environment: they are never measured
+  and never reported.
+- **Known gaps** (each refuses or reads less, never a different number): type-lambda parameter
+  variances (tasty-query does not model them, so an alias's parameters read invariant), secondary
+  constructors (not rendered), the Scala library itself (answered by the stdlib model, not its
+  TASTy).
+
+**Bounded work.** With the stubs in the environment, the runner gives each target a fixed quota of
+logical work (`AnalysisWork`, 300,000 steps: ten times the most any eo v1.0.0 target spends with
+the sources alone). A dependency's capability records can nest without end - a type class whose
+members' types open further type classes - and a target that exhausts its quota refuses with the
+budget named. Enabling the accounting changes no sources-only row.
+
+**Run against eo v1.0.0** (84 classpath entries, 2,421 stubs, 5 min): order-invariant, no row
+changes from one number to another; 27 rows gain a number (the cats, chimney, jsoniter and kyo
+declarations the targets read) and 27 lose one, all to two known costs that the source fallback
+had too. The dependencies' conversions and by-name members are read type-blind and without regard
+to where they are visible (`Insertions`, the inline conversion candidates): 22 inline-method rows
+and 4 re-entry rows now refuse because a compiled by-name conversion *may* apply. Recovering them
+needs the receiver typing FOLLOWUPS 16c describes. Core's 191 `declaration not supplied` rows are
+gone; what stood behind them (the single-pass `IterableOnce` exclusion, budget exhaustion, the
+recursive-type lane) now names each row's blocker.
+
+`TastyStubsSpec` holds the differential check: targets read through the stubs of compiled fixtures
+count what they count through the fixtures' own source, or refuse.
 
 **The standalone source fallback was tried and withdrawn** (2026-11-04): a dependency's own
 sources joined the environment as report rows of their own. Its costs (the dependency's companion
 givens joining the implicit scope, type-blind inline-conversion candidates, rows that are not
-review targets) and the source/artifact mismatch above led to its removal. Dependencies are read
-from their compiled TASTy instead (below).
+review targets) and the source/artifact mismatch above led to its removal, in favor of the TASTy
+stubs above.
 
 A later build-integrated **metadata producer** should use Scala 3 compiler/TASTy information in the
 analyzed project's compiler context, isolated from the plugin's own compiler/runtime classloader.

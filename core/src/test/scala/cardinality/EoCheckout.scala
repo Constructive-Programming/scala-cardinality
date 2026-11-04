@@ -7,6 +7,7 @@ import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.*
 import cardinality.reporting.*
+import cardinality.tasty.TastyStubs
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 
@@ -32,8 +33,8 @@ object EoCheckout {
 
   def main(args: Array[String]): Unit = {
     require(
-      args.length == 3,
-      "usage: EoCheckout <checkout-directory> <output-directory> <revision>"
+      args.length == 3 || args.length == 4,
+      "usage: EoCheckout <checkout-directory> <output-directory> <revision> [classpath-file]"
     )
     val checkout = Path.of(args(0)).toAbsolutePath.normalize()
     val output = Path.of(args(1))
@@ -47,6 +48,26 @@ object EoCheckout {
       val text = Files.readString(checkout.resolve(relative), UTF_8)
       MethodAnalysis.Input(relative, dialects.Scala3(text).parse[Source].get)
     }
+    // Compiled dependency declarations: the classpath file lists the project's dependency jars,
+    // one per line; every Scala 3 class they declare outside the stdlib model's namespaces joins
+    // the environment as a signature stub, never as a report row.
+    val classpath = args.lift(3).filter(_.nonEmpty).map(Path.of(_)).toList.flatMap { file =>
+      Files
+        .readAllLines(file, UTF_8)
+        .toArray(Array.empty[String])
+        .toList
+        .map(_.trim)
+        .filter(_.nonEmpty)
+        .map(Path.of(_))
+    }
+    val dependencies =
+      if (classpath.isEmpty) Nil
+      else {
+        val stubs = TastyStubs.of(classpath, _ => true)
+        // An unparseable stub is left out: its names stay unsupplied, which only refuses more.
+        stubs.errors.foreach(e => println(s"stub not parsed: $e"))
+        stubs.inputs
+      }
     val trees = inputs.map(input => input.path -> input.tree).toMap
     def dynamicInit(init: Init): Boolean =
       init.tpe.syntax == "Dynamic" || init.tpe.syntax == "scala.Dynamic"
@@ -68,25 +89,29 @@ object EoCheckout {
 
     def key(entry: MethodAnalysis.Entry) = EoBaseline.identity(entry, trees(entry.path))
 
-    val forward = MethodAnalysis.analyze(inputs).sortBy(key)
-    val reverse = MethodAnalysis.analyze(inputs.reverse).sortBy(key)
+    val forward = measured(inputs, dependencies).sortBy(key)
+    val reverse = measured(inputs.reverse, dependencies.reverse).sortBy(key)
     require(reverse == forward, "method results depend on source input order")
     require(forward.map(key).distinct.size == forward.size, "duplicate method row identity")
-    val (definitions, rows) = checkedDefinitions(inputs)
+    val (definitions, rows) = checkedDefinitions(inputs, dependencies)
 
     val report = assemble(inputs, definitions, forward)
-    val production = Report.of(selected.map(checkout.resolve))
-    require(production.errors.isEmpty, production.errors.mkString("\n"))
-    require(
-      production.render == report.render,
-      "the production Report.of path and the assembled checkout report differ"
-    )
+    // The production path reads sources only; with compiled dependencies the reports differ by
+    // exactly what the dependencies resolve.
+    if (dependencies.isEmpty) {
+      val production = Report.of(selected.map(checkout.resolve))
+      require(production.errors.isEmpty, production.errors.mkString("\n"))
+      require(
+        production.render == report.render,
+        "the production Report.of path and the assembled checkout report differ"
+      )
+    }
 
     val coreInputs = inputs.filter(_.path.startsWith("core/"))
     val coreReport = assemble(
       coreInputs,
-      definitionsOf(coreInputs),
-      MethodAnalysis.analyze(coreInputs)
+      definitionsOf(coreInputs, dependencies),
+      measured(coreInputs, dependencies)
     )
 
     val _ = Files.createDirectories(output)
@@ -95,14 +120,16 @@ object EoCheckout {
     writeTables(output, forward.map(entry => row(entry, key(entry)._4)), rows)
     write(output.resolve("eo-checkout-blockers.tsv"), blockers(forward, coreReport))
 
+    if (dependencies.nonEmpty)
+      println(s"${dependencies.size} dependency stubs from ${classpath.size} classpath entries.")
     println(
       s"${selected.size} sources, ${report.definitions.size} definitions, " +
         s"${forward.size} signatures at $commit."
     )
     println(moduleTable(report, forward))
     println(
-      "The production Report.of path rendered the same report; input order cannot move a " +
-        "result; identities unique."
+      (if (dependencies.isEmpty) "The production Report.of path rendered the same report; "
+       else "") + "input order cannot move a result; identities unique."
     )
     println(s"Artifacts written to $output.")
   }
@@ -126,11 +153,12 @@ object EoCheckout {
     * not to move a stored value and no two rows share an identity.
     */
   private[cardinality] def checkedDefinitions(
-      inputs: List[MethodAnalysis.Input]
+      inputs: List[MethodAnalysis.Input],
+      dependencies: List[MethodAnalysis.Input] = Nil
   ): (Map[String, List[Definition]], List[Report.DefinitionRow]) = {
-    val definitions = definitionsOf(inputs)
+    val definitions = definitionsOf(inputs, dependencies)
     require(
-      definitionsOf(inputs.reverse) == definitions,
+      definitionsOf(inputs.reverse, dependencies.reverse) == definitions,
       "stored-value results depend on source input order"
     )
     val rows = Report(
@@ -199,13 +227,37 @@ object EoCheckout {
     )
   }
 
-  // Every source's definitions, read against one library of the sources in the order given.
+  // Every source's definitions, read against one library of the sources (and the dependency
+  // stubs) in the order given.
   private[cardinality] def definitionsOf(
-      inputs: List[MethodAnalysis.Input]
+      inputs: List[MethodAnalysis.Input],
+      dependencies: List[MethodAnalysis.Input] = Nil
   ): Map[String, List[Definition]] = {
-    val library = Library.of(inputs.map(_.tree))
+    val library = Library.of((inputs ++ dependencies).map(_.tree))
     inputs.map(input => input.path -> Counter.definitions(input.tree, library)).toMap
   }
+
+  // Logical work one target may spend with dependency stubs in the environment: ten times the most
+  // any eo v1.0.0 target spends with the sources alone (29,366 steps). A dependency's records can
+  // nest without end (a type class whose members' types open further type classes); a target that
+  // exhausts the quota refuses with the budget named, like any `AnalysisQuery` target.
+  private val TargetWork = 300000L
+
+  // The targets' method rows, with the dependency stubs in the environment but never measured.
+  private def measured(
+      inputs: List[MethodAnalysis.Input],
+      dependencies: List[MethodAnalysis.Input]
+  ): List[MethodAnalysis.Entry] =
+    if (dependencies.isEmpty) MethodAnalysis.analyze(inputs)
+    else {
+      val limits = MethodAnalysis.Limits()
+      val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth)
+      val index = new MethodAnalysis.Index(inputs ++ dependencies, limits, Some(work))
+      index.selected(inputs.map(_.path).toSet, Set.empty).map { target =>
+        work.target(TargetWork)
+        index.measure(target)
+      }
+    }
 
   private[cardinality] def row(entry: MethodAnalysis.Entry, enclosing: String): List[String] = {
     val reasons = entry.count match

@@ -28,6 +28,8 @@ lazy val core = project
       "dev.constructive" %% "cats-eo-generics" % "1.0.0",
       "dev.constructive" %% "cats-eo-schemes" % "1.0.0",
       "org.scalameta" %% "scalameta" % "4.17.4",
+      // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
+      "ch.epfl.scala" %% "tasty-query" % "1.9.0",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
       "org.specs2" %% "specs2-cats" % "4.23.0" % Test
