@@ -19,7 +19,7 @@ written — on records and receivers alike; `canEqual` belongs to `scala.Equals`
 `canEqual(that: Any): Boolean` is an ordinary member (a free `Any => Boolean`, one Boolean since
 `Any` is terminal).
 
-**Abstract members of a record** ([D32](code-cardinality-foundations.md#d32-an-open-records-unbounded-abstract-member-opens-as-the-witness-of-each-values-package)).
+**Abstract members of a record** ([D32](code-cardinality-foundations.md)).
 An unbounded abstract type member no level defines does not refuse the record: the members are read
 over a witness named by the member, and the record is the package ∃X. members-over-X each value
 carries — an input opens it with a witness fresh per value (`Shape.Existential`, the same opening
@@ -27,7 +27,7 @@ the wildcard inputs get), so `p`'s and `q`'s never mix, and the witness itself i
 goal of the record is a result construction — the implementation would pick the witness — and stays
 at the existential result boundary. Bounded or higher-kinded members refuse, and so does any member
 the measured signature names through a path (`p.X`): the projection is an atom keyed by the path
-([TypeMembers](#c1c2--the-member-table)), and the opened witness and that atom would have to be
+(`TypeMembers`), and the opened witness and that atom would have to be
 one — a sharing this reading does not yet agree on.
 
 **C1/C2 — the member table.** A receiver's members are read over its supplied linearization, each
@@ -268,7 +268,7 @@ number of binders or parameters per clause is always another slot.
 
 | Situation | Reason |
 |---|---|
-| Abstract type member in a record that does not open: bounded or higher-kinded ones, and any the measured signature names through a path (`p.X`, `T#X`) — the opened witness and the path atom would have to be one ([D32](code-cardinality-foundations.md#d32-an-open-records-unbounded-abstract-member-opens-as-the-witness-of-each-values-package)) | `capability record with abstract type member not read: C.X` |
+| Abstract type member in a record that does not open: bounded or higher-kinded ones, and any the measured signature names through a path (`p.X`, `T#X`) — the opened witness and the path atom would have to be one ([D32](code-cardinality-foundations.md)) | `capability record with abstract type member not read: C.X` |
 | Self type | `self type not resolved: T` |
 | Hidden constructor state of an open class (X6: `class CNothing(n: Nothing)` has no instance), of a parameterized parent no class passes arguments to, or a free field a nearer `val` overrides | `open class with hidden constructor state: C.p` |
 | Final-class parameter no member observes injectively | `final class field not observable injectively: C.p` |
@@ -314,12 +314,12 @@ whose parameter type is unreadable and whose result is not Unit fails the enviro
 
 ## References
 
-- Scala 3 reference, *Open Classes* ([22], **inspected**): traits and abstract classes are always
+- Scala 3 reference, *Open Classes* (\[22\], **inspected**): traits and abstract classes are always
   open, and any non-final class may be extended; Scala 3 draft specification ch. 5 and SLS 2.13
-  ch. 5 ([30], [33], **inspected**): a final member may not be overridden, members of final classes
+  ch. 5 (\[30\], \[33\], **inspected**): a final member may not be overridden, members of final classes
   and objects are implicitly final, a concrete definition overrides an abstract one; Scala 3
-  reference *Inline* ([17], **inspected**): inline methods are effectively final; *The Matchable
-  Trait* ([19], **inspected**): the universal members C0 excludes.
+  reference *Inline* (\[17\], **inspected**): inline methods are effectively final; *The Matchable
+  Trait* (\[19\], **inspected**): the universal members C0 excludes.
 - Member matching by parameter types (SLS §5.1.3): **classical**, not among the inspected quotes.
 - Cook 2009 (**metadata-verified**: the abstract reports abstract data types and objects as two
   distinct forms of data abstraction); Cook & Palsberg 1989 (**metadata-verified**: the abstract

@@ -76,38 +76,12 @@ object CardinalityPlugin extends AutoPlugin {
   private val cardinalityStubFormat =
     settingKey[String]("The format of the dependency stub file (internal).")
 
-  override def projectSettings: Seq[Setting[?]] = Seq(
+  override def projectSettings: Seq[Setting[?]] = dependencySettings ++ Seq(
     cardinalityReportFile := target.value / "cardinality" / "report.txt",
     cardinalityQuerySupport := Nil,
     cardinalityQueryBudget := AnalysisQuery.Budget(),
     cardinalityQueryLimits := MethodAnalysis.Limits(),
     cardinalitySnapshotLimits := SourceSnapshot.Limits(),
-    // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
-    // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
-    cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
-    // An sbt 2 cached task: keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub
-    // format, its file is restored from the machine-wide cache instead of rendered again.
-    cardinalityStubFormat := StubFile.Format,
-    cardinalityDependencyStubs := {
-      val converter = fileConverter.value
-      val _ = cardinalityStubFormat.value
-      val jars = cardinalityDependencyClasspath.value.map(converter.toPath).toList.distinct
-      // Under sbt's output root, which the converter writes as `${OUT}`: the declared file is then
-      // a relative reference, restorable on any machine sharing the cache.
-      val out = rootOutputDirectory.value.resolve(s"cardinality/${name.value}/stubs.bin")
-      val rendered =
-        if (jars.isEmpty) TastyStubs.Rendered(Nil)
-        else
-          try TastyStubs.render(jars, _ => true)
-          catch {
-            case scala.util.control.NonFatal(error) =>
-              TastyStubs.Rendered(Nil, List(s"dependency classpath not read: $error"))
-          }
-      StubFile.write(rendered, out)
-      val file = converter.toVirtualFile(out)
-      Def.declareOutput(file)
-      file: HashedVirtualFileRef
-    },
     // Seeding is a repository-level act: the default lands beside the other agent instructions
     // at the build's root, wherever the task is run from.
     cardinalitySkillFile := (ThisBuild / baseDirectory).value / ".claude" / "skills" /
@@ -168,6 +142,36 @@ object CardinalityPlugin extends AutoPlugin {
           sys.error(s"${found.report.errors.size} selected report error(s)")
       }
     },
+  )
+
+  // The dependency declarations the reports read: which jars, and their stubs rendered once.
+  private def dependencySettings: Seq[Setting[?]] = Seq(
+    // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
+    // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
+    cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
+    // An sbt 2 cached task: keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub
+    // format, its file is restored from the machine-wide cache instead of rendered again.
+    cardinalityStubFormat := StubFile.Format,
+    cardinalityDependencyStubs := {
+      val converter = fileConverter.value
+      val _ = cardinalityStubFormat.value
+      val jars = cardinalityDependencyClasspath.value.map(converter.toPath).toList.distinct
+      // Under sbt's output root, which the converter writes as `${OUT}`: the declared file is then
+      // a relative reference, restorable on any machine sharing the cache.
+      val out = rootOutputDirectory.value.resolve(s"cardinality/${name.value}/stubs.bin")
+      val rendered =
+        if (jars.isEmpty) TastyStubs.Rendered(Nil)
+        else
+          try TastyStubs.render(jars, _ => true)
+          catch {
+            case scala.util.control.NonFatal(error) =>
+              TastyStubs.Rendered(Nil, List(s"dependency classpath not read: $error"))
+          }
+      StubFile.write(rendered, out)
+      val file = converter.toVirtualFile(out)
+      Def.declareOutput(file)
+      file: HashedVirtualFileRef
+    }
   )
 
   // Writes the report under `target/`, logs it, and fails the task when a source could not be read

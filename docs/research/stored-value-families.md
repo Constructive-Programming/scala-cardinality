@@ -13,7 +13,7 @@ file. Matching on the runtime class tells those subtypes apart. So the parent's 
 the disjoint union of its subtypes' spaces (type-arithmetic §2; recursion is the least fixed point
 of §8):
 
-  |P[t̄]| = Σ over the direct subtypes D of |D[ȳ := t̄]|
+  |P\[t̄\]| = Σ over the direct subtypes D of |D\[ȳ := t̄\]|
 
 This holds when every value of `P[t̄]` belongs to exactly one subtype the file names, and every
 subtype belongs to every instantiation of `P`. The estimate checks both conditions syntactically
@@ -229,19 +229,19 @@ A row belongs to the first class any of its reasons is in, and all classes are r
 
 ## Evidence
 
-- [30] Scala 3 draft specification, ch. 5, and [33] SLS 2.13, ch. 5 (**Inspected (full text) —
+- \[30\] Scala 3 draft specification, ch. 5, and \[33\] SLS 2.13, ch. 5 (**Inspected (full text) —
   bibliographer**, research bibliography T5): a `sealed` class "may not be directly inherited,
   except if the inheriting template is defined in the same source file", and "a `final` class may
   not be inherited by a template".
-- [24] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
+- \[24\] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
   bibliographer**, T5): an enum expands to a `sealed abstract` class, a class case to an analogue
   of a final case class, and a case with an explicit `extends` takes the enum's parameters only as
   its fields or parents mention them.
-- [22] Scala 3 reference, *Open Classes* (**Inspected (full text)** (verifier), T5): a sealed class
-  "can still be extended, but only in the same source file". [29] Scala 3 draft specification,
+- \[22\] Scala 3 reference, *Open Classes* (**Inspected (full text)** (verifier), T5): a sealed class
+  "can still be extended, but only in the same source file". \[29\] Scala 3 draft specification,
   ch. 3 (**Inspected — bibliographer**, T5): a sealed class is disjoint only "without anonymous
   child".
-- [15] Scala 3 reference, *Context Bounds* (**Inspected (full text) — bibliographer**, T2): a
+- \[15\] Scala 3 reference, *Context Bounds* (**Inspected (full text) — bibliographer**, T2): a
   bound `: Ord` on `T` "indicates a context parameter `using Ord[T]`".
 - Scala 3 reference, *Match Types*, and the Scala 3 draft specification, ch. 3, "Match Types":
   reduction passes a case only when the scrutinee is provably disjoint from its pattern

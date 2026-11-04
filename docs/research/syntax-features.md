@@ -15,7 +15,7 @@ the compiler). Executable: `SyntaxFeaturesSpec`, `ContextBindersSpec`, `InlineMe
 of a rigid constructor it keys as `NamedTuple[TupleN[names], TupleN[types]]`, the names being
 `String` literal types. A match type is stuck on one.
 
-**Derivation.** SIP-58 and the reference page *Named Tuples* ([4], **inspected**): "`NamedTuple`
+**Derivation.** SIP-58 and the reference page *Named Tuples* (\[4\], **inspected**): "`NamedTuple`
 is an opaque type alias of its second, value parameter", with `toTuple` and positional and named
 selection in its API; a regular tuple is a value of it ("a supertype … of its value parameter").
 So the two types have one value space and every observation of a named tuple is one of its
@@ -45,8 +45,8 @@ k1(g: (true | false) => Boolean): Boolean` = 16). A call whose type argument mak
 literal type is widened to the literal's class, as Scala widens an inferred result (`def call2(x:
 Boolean) = idc[1](1)` with `def idc[T](t: T): T` is an `Int`, `2^64`).
 
-**Derivation.** The draft specification, ch. 3 ([29], **inspected**): "A literal type `lit`
-denotes the single literal value `lit`"; SIP-23 ([3], **inspected**): literals in type position
+**Derivation.** The draft specification, ch. 3 (\[29\], **inspected**): "A literal type `lit`
+denotes the single literal value `lit`"; SIP-23 (\[3\], **inspected**): literals in type position
 designate "the corresponding singleton type". `null` is not a value of one (Scala 3.9.0 rejects
 `def nul: "a" = null`, fixture `m3`), so no null-free premise is needed. The value is a literal of
 a transparent ground type (D9), which any body can write, so an input of it changes no count:
@@ -92,7 +92,7 @@ so `(using A ?=> B)(using B)` refuses both. An expression without an expected ty
 context function — a call, an ascription — is applied where it is written, so it is no inferred
 result.
 
-**Derivation.** The reference, *Context Functions* ([16], **inspected**): context function types
+**Derivation.** The reference, *Context Functions* (\[16\], **inspected**): context function types
 "are shorthands for class types that define `apply` methods with context parameters", "erase to
 normal function types", and a literal's parameters "are available as givens in E". No source makes
 `?=>` ≅ `=>` a theorem; the reading rests on those statements. A body applies a value of
@@ -207,7 +207,7 @@ This covers an unsupplied parent or self type that may declare the name, an expo
 import the reading cannot list, an extension method, an import inside the body, and a `for`
 expression.
 
-**Derivation.** The Scala 3 reference, *Inline*, *Compile-time operations* and *Macros* ([17],
+**Derivation.** The Scala 3 reference, *Inline*, *Compile-time operations* and *Macros* (\[17\],
 **inspected**), lists every way an expansion is resolved at its call site. An inline match "is
 examined statically and … reduced accordingly". `erasedValue` and `constValue` read a type
 argument. `summonFrom` and `summonInline` search the call site's givens. A quote or splice runs a
@@ -377,8 +377,8 @@ member keeps D24's refusal in an inline target, even one whose body never calls 
 evidence; `scala.quoted` stays excluded as compile-time reflection.
 
 **Derivation.** `ClassTag[T]` "can serve as an extractor that matches only objects of type `T`"
-([11], **inspected**), a `TypeTest` makes an abstract-type test possible ([25], **inspected**), and
-`Mirror.Sum.ordinal` discriminates cases ([14], **inspected**): each tells instantiations apart, so
+(\[11\], **inspected**), a `TypeTest` makes an abstract-type test possible (\[25\], **inspected**), and
+`Mirror.Sum.ordinal` discriminates cases (\[14\], **inspected**): each tells instantiations apart, so
 a body holding one is not parametric in its argument. Related work: Washburn & Weirich 2005 (LICS,
 **metadata-verified**: the abstract reports that run-time type analysis breaks standard
 parametricity) and Neis, Dreyer & Rossberg 2009 (ICFP, **metadata-verified**: the abstract states

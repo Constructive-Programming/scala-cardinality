@@ -333,7 +333,7 @@ constructor`. See [stored-value names](stored-value-names.md).
 
 **Evidence.**
 
-- Scala 3 draft specification, ch. 2 [28], and SLS 2.13, ch. 2 [32] — both **Inspected (full
+- Scala 3 draft specification, ch. 2 \[28\], and SLS 2.13, ch. 2 \[32\] — both **Inspected (full
   text)** by the literature verifier: "There are two different name spaces, one for types and one
   for terms"; the precedence list (local, inherited or package-clause definitions of the same unit,
   then explicit imports, then wildcard imports, then other units' package members and the root
@@ -547,14 +547,14 @@ See [stored-value families](stored-value-families.md).
 
 **Evidence.**
 
-- [30] Scala 3 draft specification, ch. 5, and [33] SLS 2.13, ch. 5 (**Inspected (full text) —
-  bibliographer**, bibliography T5): `sealed` and `final` inheritance. [24] Scala 3 reference,
+- \[30\] Scala 3 draft specification, ch. 5, and \[33\] SLS 2.13, ch. 5 (**Inspected (full text) —
+  bibliographer**, bibliography T5): `sealed` and `final` inheritance. \[24\] Scala 3 reference,
   *Translation of Enums and ADTs* (**Inspected (full text) — bibliographer**, T5): enums as sealed
-  abstract classes, cases as final case classes, explicit `extends` pins. [22] Scala 3 reference,
+  abstract classes, cases as final case classes, explicit `extends` pins. \[22\] Scala 3 reference,
   *Open Classes* (**Inspected (full text)** (verifier), T5): a sealed class is extended only in its
-  source file. [29] Scala 3 draft specification, ch. 3 (**Inspected — bibliographer**, T5): a
+  source file. \[29\] Scala 3 draft specification, ch. 3 (**Inspected — bibliographer**, T5): a
   sealed class is disjoint only "without anonymous child".
-- [15] Scala 3 reference, *Context Bounds* (**Inspected (full text) — bibliographer**, T2): a
+- \[15\] Scala 3 reference, *Context Bounds* (**Inspected (full text) — bibliographer**, T2): a
   context bound is a `using` parameter of the bound applied to the type parameter.
 - Sum of products and the least fixed point for recursive types (type-arithmetic §2, §8;
   **classical**); `|List[A]| = Σₙ aⁿ` ≥ `a` (type-arithmetic §4; **classical**); no set X ≅ 2^X
@@ -712,12 +712,12 @@ code (members gate G1). Details: [type members](type-members.md).
   declarations typed as existential types); reading a parameter path as the opening of that
   package, whose witness the caller picks, is this register's derivation. Cardelli & Leroy 1990
   (**metadata-verified**, background only): dot notation.
-- Scala 3 draft specification ch. 3 ([29], **inspected**): abstract types have bounds, and the
+- Scala 3 draft specification ch. 3 (\[29\], **inspected**): abstract types have bounds, and the
   lower-bound rule breaks transitivity, so only unbounded members are free atoms; Hu & Lhoták 2020
   (**metadata-verified**: the abstract reports undecidable `D<:` subtyping and decidable
   fragments without bad bounds) is why bounded members stay `?`.
-- Match types: Scala 3 reference *Match Types* ([18], **inspected**), SIP-56 ([1], **inspected**)
-  and [29]: reduction only past provably disjoint cases, otherwise stuck, "just an abstract type";
+- Match types: Scala 3 reference *Match Types* (\[18\], **inspected**), SIP-56 (\[1\], **inspected**)
+  and \[29\]: reduction only past provably disjoint cases, otherwise stuck, "just an abstract type";
   Blanvillain et al. 2022 (**metadata-verified**: the abstract reports match types formalized in
   a calculus based on F<: and proved sound).
 - **Compiler fixtures** (Scala 3.9.0): two paths do not share a member, `q: p.type` does; a final
@@ -789,13 +789,13 @@ class, an object's singleton kept, any other singleton refused). Details:
 
 **Evidence.**
 
-- Reynolds 1983 ([9], **bibliography-verified**) and Mitchell & Plotkin 1988 (C-10,
+- Reynolds 1983 (\[9\], **bibliography-verified**) and Mitchell & Plotkin 1988 (C-10,
   **classical**): a closed term's denotation is parametric and its internals are unobservable
   through readable types. Pitts & Stark 1998 (**metadata-verified**: the abstract reports that
   local state must be handled for representation independence) is why mutation must be excluded,
   not the `var`-as-value reading itself, which is the contract's.
 - Scala 3 reference, *Export clauses* (**inspected**, extraction — cross-check): export clauses
-  define aliases for selected members; Scala 3 draft specification ch. 2 ([28], **inspected**):
+  define aliases for selected members; Scala 3 draft specification ch. 2 (\[28\], **inspected**):
   the precedence list, read with exports among the definitions.
 - **Compiler fixtures** (Scala 3.9.0, this session): no member overrides a `var` (E164); an
   overriding member without a declared result is typed by the overridden one (`Some(1)` overriding
@@ -867,11 +867,11 @@ records](capability-records.md).
 
 **Evidence.**
 
-- Scala 3 reference *Open Classes* ([22], **inspected**): traits and abstract classes are always
+- Scala 3 reference *Open Classes* (\[22\], **inspected**): traits and abstract classes are always
   open and any non-final class may be extended; Scala 3 draft specification ch. 5 and SLS 2.13
-  ch. 5 ([30], [33], **inspected**): a final member may not be overridden, members of final classes
-  or objects are implicitly final, a concrete definition overrides an abstract one; *Inline* ([17],
-  **inspected**): inline methods are effectively final; *The Matchable Trait* ([19],
+  ch. 5 (\[30\], \[33\], **inspected**): a final member may not be overridden, members of final classes
+  or objects are implicitly final, a concrete definition overrides an abstract one; *Inline* (\[17\],
+  **inspected**): inline methods are effectively final; *The Matchable Trait* (\[19\],
   **inspected**): the universal members excluded. Member matching by parameters (SLS §5.1.3) is
   **classical**.
 - Cook 2009 (**metadata-verified**: the abstract reports abstract data types and objects as two
@@ -942,8 +942,8 @@ sign).
 - Odersky 2024, SIP-58, and the reference page *Named Tuples* — **inspected (full text)** by the
   verifier: "`NamedTuple` is an opaque type alias of its second, value parameter"; "The order of
   names in a named tuple matters."
-- Scala 3 draft specification, ch. 3 ([29]) — **inspected (full text)**: "A literal type `lit`
-  denotes the single literal value `lit`." SIP-23 ([3]) — **inspected (full text)**: literals
+- Scala 3 draft specification, ch. 3 (\[29\]) — **inspected (full text)**: "A literal type `lit`
+  denotes the single literal value `lit`." SIP-23 (\[3\]) — **inspected (full text)**: literals
   designate "the corresponding singleton type".
 - **Compiler fixtures** (Scala 3.9.0): a match on `(x: Int, y: String)` reduces neither `case (a,
   b)` nor `case Int` and proves neither disjoint (`m1`, `m4`); `def nul: "a" = null` is rejected
@@ -971,7 +971,7 @@ result (Scala applies it).
 
 **Evidence.**
 
-- Scala 3 reference, *Context Functions* and *More Details* ([16]) — **inspected (full text)**:
+- Scala 3 reference, *Context Functions* and *More Details* (\[16\]) — **inspected (full text)**:
   context function types "erase to normal function types"; the literal's parameters "are available
   as givens in E". No source states `?=>` ≅ `=>` as a theorem; the reading rests on these.
 - **Compiler fixtures** (Scala 3.9.0, cross-check `cf`, `cf2`; design `cf3`): `g(using 1)(using 2)`
@@ -1003,8 +1003,8 @@ the refusal of every inline method this entry first recorded).
 
 **Evidence.**
 
-- Scala 2.13 library, `ClassTag` ([11]) — **inspected (full text)**: "can serve as an extractor
-  that matches only objects of type `T`"; *TypeTest* ([25]) and `scala.deriving.Mirror` ([14]) —
+- Scala 2.13 library, `ClassTag` (\[11\]) — **inspected (full text)**: "can serve as an extractor
+  that matches only objects of type `T`"; *TypeTest* (\[25\]) and `scala.deriving.Mirror` (\[14\]) —
   **inspected**.
 - Related work, **metadata-verified**: Washburn & Weirich 2005 (LICS; the abstract reports that
   run-time type analysis breaks standard parametricity); Neis, Dreyer & Rossberg 2009 (ICFP; the
@@ -1043,7 +1043,7 @@ of its receiver's static type (`deferred inline member resolved at each expansio
 
 **Evidence.**
 
-- Reynolds 1983 [9] (**bibliography-verified**), Wadler 1989 [37] (**metadata-verified**): D3. The
+- Reynolds 1983 \[9\] (**bibliography-verified**), Wadler 1989 \[37\] (**metadata-verified**): D3. The
   Yoneda lemma (**classical**); its parametric-model form and PB1's admissibility condition
   (generators plus a syntactically covariant rest) are this register's derivation. Pistone &
   Tranchini 2021, CSL, DOI 10.4230/LIPIcs.CSL.2021.35 (**metadata-verified**: the abstract reports
@@ -1053,7 +1053,7 @@ of its receiver's static type (`deferred inline member resolved at each expansio
   Wadler 1990, unpublished draft (**metadata-verified**), cited for excluding algebra premises.
 - Urzyczyn 1997 (**metadata-verified**: the abstract reports System F inhabitation undecidable;
   C-7 **classical**): no instantiation bound computable from the goal is complete, so counts above
-  1 need an exact reduction. Scala 3 reference *Polymorphic Function Types* [23] (**inspected**).
+  1 need an exact reduction. Scala 3 reference *Polymorphic Function Types* \[23\] (**inspected**).
 - PB2's upper bound (crosscheck X7) rests on coverage, which holds for members with no bare-binder
   result: every application of a path ending in a rigid constructor `F[M]` stands at a goal whose
   match fixes it, so every long normal form has a representative; quotienting only merges. Round 1
@@ -1195,8 +1195,8 @@ decision, v1 §2), and every reading obeys it.
 
 **Evidence.**
 
-- [29] Scala 3 draft specification, ch. 3 (**Inspected (full text) — bibliographer**): "´p.x´ is
-  a stable type if an only if `t` is a `val` or `object` definition". [30] Scala 3 draft
+- \[29\] Scala 3 draft specification, ch. 3 (**Inspected (full text) — bibliographer**): "´p.x´ is
+  a stable type if an only if `t` is a `val` or `object` definition". \[30\] Scala 3 draft
   specification, ch. 5 (**Inspected (full text) — bibliographer**): a `var` class parameter adds a
   getter and a setter `x_=`; "A stable member can only be overridden by a stable member".
 - **Compiler fixtures** (Scala 3.9.0, `$S/probes/c4/fixtures`): `throw`, `???`, `sys.error` and a
@@ -1301,13 +1301,13 @@ universal members and reflection the model excludes (D12): boxing lets an expans
 
 **Evidence.**
 
-- Scala 3 reference, *Inline*, *Compile-time operations*, *Macros* ([17]) — **inspected (full
+- Scala 3 reference, *Inline*, *Compile-time operations*, *Macros* (\[17\]) — **inspected (full
   text)**: the inline match "is examined statically and … reduced accordingly"; `erasedValue`,
   `constValue`, `summonFrom`, `summonInline` and quoted patterns read the call site; inline methods
   are effectively final. The decision rests on this enumeration plus the channels the fixtures
   below found (an inline override of a non-inline member among them): nothing else in a body is
   resolved at the call site.
-- Scala 3 draft specification, ch. 2 ([28]) — **inspected (full text)**: name binding and
+- Scala 3 draft specification, ch. 2 (\[28\]) — **inspected (full text)**: name binding and
   precedence, which the resolution follows (D11).
 - **Compiler fixtures** (Scala 3.9.0):
   - a6 `b1`: an overload picked in the body is the same at every call site, and a plain `if` is a
@@ -1409,7 +1409,7 @@ cases and unconditional structural givens are no rows. Details:
 
 **Evidence.**
 
-- [24] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
+- \[24\] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
   bibliographer**, T5): rules 6 and 9, a class case expands "analogous to a final case class in
   `E`'s companion object", with the enum's type parameters when it has none and no `extends`;
   rule 7, with an explicit `extends` it takes them only if "at least one of the parameters `Ts` is
@@ -1421,7 +1421,7 @@ cases and unconditional structural givens are no rows. Details:
   (**Metadata-verified**; the abstract reports GADTs are expressible through generics and
   subclassing) is background: reading a subclass that fixes its parent's type argument as a GADT
   case is this register's inference, not the abstract's claim.
-- [30] Scala 3 draft specification, ch. 5 (**Inspected (full text) — bibliographer**, T5):
+- \[30\] Scala 3 draft specification, ch. 5 (**Inspected (full text) — bibliographer**, T5):
   *Constructor Definitions* — a secondary constructor's "signature and the self constructor
   invocation … are type-checked and evaluated in the scope which is in effect at the point of the
   enclosing class definition, augmented by any type parameters of the enclosing class", and the
@@ -1495,12 +1495,12 @@ names](stored-value-names.md).
 
 **Evidence.**
 
-- [28] Scala 3 draft specification, ch. 2 (**Inspected (full text)** (verifier)): the precedence
+- \[28\] Scala 3 draft specification, ch. 2 (**Inspected (full text)** (verifier)): the precedence
   list puts "same-unit local, inherited or package-clause definitions" first, then explicit
   imports, wildcard imports, and other-unit package members and compiler-supplied imports; "A
   binding in some inner scope shadows bindings of lower precedence in the same scope as well as
   bindings of the same or lower precedence in outer scopes."
-- [24] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
+- \[24\] Scala 3 reference, *Translation of Enums and ADTs* (**Inspected (full text) —
   bibliographer**): a class case expands "analogous to a final case class in `E`'s companion
   object" — the companion holds the cases. That the enum's body imports them by name is the
   compiler's (fixtures below), not the reference's.
@@ -1576,7 +1576,7 @@ documented as one inhabitant with its declared type unmeasured. Details: [type a
 
 **Evidence.**
 
-- [21] Scala 3 reference, *Opaque Type Aliases* and *More Details* (**Inspected (full text)**
+- \[21\] Scala 3 reference, *Opaque Type Aliases* and *More Details* (**Inspected (full text)**
   (verifier)): the alias is transparent inside its defining scope and abstract with its bounds
   outside it; the scope is the whole defining scope, not a companion.
 - **Compiler fixtures** (Scala 3.9.0, `$S/z1b/fx/opq`; the integrated review's

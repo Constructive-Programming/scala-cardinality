@@ -87,7 +87,7 @@ captures are not read). An open root's implemented members stay the capabilities
 *Rigid atoms (M1).* In Scala an abstract member seen through a path is an abstract type: the typer
 neither reduces nor refines it, two paths are distinct (`x: p.X` does not type as `q.X`, even for
 `val q: R = p`) and a singleton alias is the same path (Scala 3.9.0 fixtures, `TypeMemberSpec
-.pathFacts`; draft specification ch. 3 [29]). So the well-typed bodies are those of the rigid
+.pathFacts`; draft specification ch. 3 \[29\]). So the well-typed bodies are those of the rigid
 reading. **Parity:** for a template whose member `X` no level fixes, the implementations of a member
 `m` are those of the same template with `X` as a fresh type parameter — a subclass picks `X` as a
 caller picks an argument, and that choice is free exactly when nothing constrains it — so the
@@ -108,7 +108,7 @@ trait or class among the cases lets any file pick the member, and only its own r
 `val` fixed by its own definition (a local value, a member of a closed template or object, a private
 or final field) has one value whose member nobody outside sees; a parent outside the source set may
 define it. A bounded member stays `?`: bounds
-on abstract members are where Scala's subtyping loses transitivity ([29]: "known to break
+on abstract members are where Scala's subtyping loses transitivity (\[29\]: "known to break
 transitivity"; the abstract of Hu & Lhoták 2020 (Metadata-verified) reports undecidable `D<:`
 subtyping and decidable fragments without bad bounds). A type projection `P#X` of an abstract
 member denotes no path's member — each value of `P` has its own (`∃p. p.X`) — so it is refused as
@@ -137,7 +137,7 @@ type is refused too.
 
 *Stuck projections (MT3).* (≤) With `α` abstract, a value of `proj(n,i,α)` comes only from a value
 of the same stuck type: Scala reduces a match type only past provably disjoint cases and otherwise
-leaves it stuck, "just an abstract type" ([18], [1], [29]), and nothing destructures an `α` (the
+leaves it stuck, "just an abstract type" (\[18\], \[1\], \[29\]), and nothing destructures an `α` (the
 body `x` for `Fst[T]` from `x: T` does not type: `TypeMemberSpec.projectionFacts`). Type equality
 of stuck applications is equality of the normalized match type, so the key is the projection, not
 the alias that spells it (`First[T]` is `Fst[T]`). (≥) One instantiation `α = (β₁, …, βₙ)` with
@@ -183,8 +183,8 @@ produce (`D.other` would read ω, true 1).
 
 ## References
 
-Verification levels as in the evidence register. [29] Scala 3 draft specification ch. 3 —
-**Inspected**; [18] Scala 3 reference, *Match Types* — **Inspected**; [1] Doeraene, SIP-56 —
+Verification levels as in the evidence register. \[29\] Scala 3 draft specification ch. 3 —
+**Inspected**; \[18\] Scala 3 reference, *Match Types* — **Inspected**; \[1\] Doeraene, SIP-56 —
 **Inspected**; Mitchell & Plotkin 1988, TOPLAS 10(3) — **Metadata-verified**, classical record for
 C-10 (the abstract reports abstract data type declarations typed as existential types); Hu &
 Lhoták 2020, PACMPL 4(POPL), DOI 10.1145/3371077 — **Metadata-verified** (the abstract reports the

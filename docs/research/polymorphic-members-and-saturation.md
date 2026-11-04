@@ -191,7 +191,7 @@ finite (register D2).
 
 ## References
 
-- Reynolds 1983 [9] (**bibliography-verified**) and Wadler 1989 [37] (**metadata-verified**):
+- Reynolds 1983 \[9\] (**bibliography-verified**) and Wadler 1989 \[37\] (**metadata-verified**):
   parametric uniformity, register D3. The Yoneda lemma (C-6, **classical**); its
   parametric-model form here is a derivation, not a citation.
 - Pistone & Tranchini 2021, CSL, DOI 10.4230/LIPIcs.CSL.2021.35 (**metadata-verified**): the abstract
@@ -202,7 +202,7 @@ finite (register D2).
   (**metadata-verified**): background only.
 - Urzyczyn 1997, TLCA (**metadata-verified**): the abstract reports that inhabitation is undecidable
   for the polymorphic second-order λ-calculus (C-7, **classical**) — why counts above 1 for
-  polymorphic members need an exact reduction. Scala 3 reference *Polymorphic Function Types* [23]
+  polymorphic members need an exact reduction. Scala 3 reference *Polymorphic Function Types* \[23\]
   (**inspected**): a binder may be instantiated at a polymorphic function type.
 - Wadler 1990, *Recursive types for free!* (unpublished draft; **metadata-verified**): cited for
   the exclusion of algebra premises (`Φ(M) → M`, an initial-algebra encoding) from PB1.

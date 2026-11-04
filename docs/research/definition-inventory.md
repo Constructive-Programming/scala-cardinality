@@ -3,7 +3,7 @@
 The method report has rows for the definitions beyond `def`s and the primary constructors of
 concrete classes (the few kinds that stay without a row are listed under *Not rows*). Each new
 kind is measured by the rule its Scala translation already has; no counting rule is new. Sources keep the verification level the
-literature pass gave them: [24] Scala 3 reference, *Translation of Enums and ADTs*, and [30] Scala
+literature pass gave them: \[24\] Scala 3 reference, *Translation of Enums and ADTs*, and \[30\] Scala
 3 draft specification, ch. 5, both **Inspected (full text) — bibliographer** (bibliography T5).
 Compiler fixtures were run with Scala 3.9.0 in this session (`$S/probes/b5/scalac`,
 `$S/probes/b5/specfix`, `$S/probes/b5-fix2`, every spec fixture). Executable:
@@ -67,14 +67,14 @@ carries `definition inside an inline method: …` when it does not
 `$S/probes/b5-land`).
 
 **Values.** A `val` is a parameterless member: "a stable member can only be overridden by a stable
-member" ([30], *Overriding*), and a 3.9.0 fixture (`specfix/f08`) compiles a `val` implementing a
+member" (\[30\], *Overriding*), and a 3.9.0 fixture (`specfix/f08`) compiles a `val` implementing a
 parameterless `def` of its name, so it is that declaration. Its signature is that of a nullary
 method of its type. Without a written type it takes an overridden declaration's result (fixture
 `specfix/f11` types `val held = new Getter {…}` overriding `val held: Boolean ?=> Getter[…]` with
 the declaration's context function, so `summon[Boolean]` in its body finds the binder), and
 otherwise its right-hand side's, as an inferred method result does (D19); a `final` or `inline`
 `val` (lazy or not) with a literal keeps the literal's own type: "constant value definitions …
-require an explicit `final` modifier" ([30], *`final`*). A `var` is no constant value definition:
+require an explicit `final` modifier" (\[30\], *`final`*). A `var` is no constant value definition:
 3.9.0 types `final var x = 3` as `Int` (`def useX: 3 = x` fails with E007), so it is 2^32. The
 names of a pattern (`val (a, b) = …`) are typed by the pattern, which syntax does not give: `?`.
 Of a definition of several names (`val a, b: A`), each is its own row, and the others are slots of
@@ -171,11 +171,11 @@ a by-name argument and a dead branch all leave the typing context as it is: `def
 under `case true` of `b` is a Boolean function of `b`, 4, as it is at the top of the body.
 
 **Enum cases.** A parameterized case expands "analogous to a final case class in `E`'s companion
-object" and, with neither type parameters nor `extends`, takes the enum's type parameters ([24],
+object" and, with neither type parameters nor `extends`, takes the enum's type parameters (\[24\],
 rules 6 and 9; a case needs a parameter list: 3.9.0 rejects `case C[B] extends …`, E004). With an
 `extends` clause and no type parameters of its own, it takes them only if "at least one of the
 parameters `Ts` is mentioned in a parameter type in `<value-params>` or in a type argument in
-`<parents>`" ([24], rule 7, **Inspected (full text) — bibliographer**); 3.9.0 does so (`enum E[A,
+`<parents>`" (\[24\], rule 7, **Inspected (full text) — bibliographer**); 3.9.0 does so (`enum E[A,
 B] { case D(y: A) extends E[Int, Int] }` prints `final case class D[A, B](y: A) extends E[Int,
 Int]`, `-Vprint:typer`), so the case's parameters read the enum's binders either way, never an
 outer type of the same name. Its signature
@@ -191,7 +191,7 @@ estimate reads counts its value space, a type-parameter slot the values supplied
 **Secondary constructors.** "The signature and the self constructor invocation of a constructor
 definition are type-checked and evaluated in the scope which is in effect at the point of the
 enclosing class definition, augmented by any type parameters of the enclosing class", and the
-invocation "must construct a generic instance of the class" ([30], *Constructor Definitions*). The
+invocation "must construct a generic instance of the class" (\[30\], *Constructor Definitions*). The
 invocation calls another constructor of the class, and every chain of them ends in the primary
 one, so an implementation is a choice of the primary constructor's arguments over the secondary's
 parameters (and the class bounds' evidence 3.9.0 adds to it): the row measures the tuple of the

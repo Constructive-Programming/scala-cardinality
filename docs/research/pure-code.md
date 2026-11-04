@@ -12,7 +12,7 @@ With no mutation, no program can tell a `var` from the value it was given. So ea
 `var` exactly like a `val`, and no refusal or reason mentions mutability.
 
 - A `var` constructor parameter is a field holding its argument, like a `val` parameter. Scala adds
-  a getter for both and a setter `x_=` for the `var`, and the setter is an effect ([30] ch. 5). So
+  a getter for both and a setter `x_=` for the `var`, and the setter is an effect (\[30\] ch. 5). So
   a public `var` field is observable in an open class's or final class's record. It is a product
   field of a case class or a sealed leaf. A `private` or `protected` field stays hidden, as a
   `val` would. A plain class's parameter written with neither `val` nor `var` is no field at all
@@ -23,7 +23,7 @@ With no mutation, no program can tell a `var` from the value it was given. So ea
   code: a record does not count it as a free choice, and it implements an inherited declaration in
   any template.
 - Scala's typing rules still hold. A `var` is not a stable path: `p.x` is a stable type only if
-  `x` is a `val` or an `object` ([29] ch. 3), and scalac rejects `x.type` for a `var` (E083, "not an
+  `x` is a `val` or an `object` (\[29\] ch. 3), and scalac rejects `x.type` for a `var` (E083, "not an
   immutable path"). The refusal says `not a stable path: x is a var`. That is a typing fact, not a
   claim about mutation.
 
@@ -229,10 +229,10 @@ reason `open to implementations (Throwable)`. It never claims a finite size.
 
 ## Evidence
 
-- [29] Scala 3 draft specification, ch. 3, *Types* (**Inspected (full text) — bibliographer**):
+- \[29\] Scala 3 draft specification, ch. 3, *Types* (**Inspected (full text) — bibliographer**):
   "´p.x´ is a stable type if an only if `t` is a `val` or `object` definition" (re-read for this
   page in the research bibliography's source copy).
-- [30] Scala 3 draft specification, ch. 5, *Classes and Objects* (**Inspected (full text) —
+- \[30\] Scala 3 draft specification, ch. 5, *Classes and Objects* (**Inspected (full text) —
   bibliographer**): a `val` or `var` class parameter adds an accessor, and a `var` adds a setter
   `x_=`; "A stable member can only be overridden by a stable member".
 - **Compiler fixtures** (Scala 3.9.0, `$S/probes/c4/fixtures`, `$S/probes/c4-fix1`,

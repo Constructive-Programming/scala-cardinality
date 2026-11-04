@@ -157,7 +157,7 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   them a case pattern binds, are read where the reference is, the case body in `M`'s own scope
   with those bound.
 - **A generic definition named without arguments is a type constructor.** `type Qual = O.Pair2`
-  has no value space of its own (|Pair2[Nothing]| = 0, |Pair2[Boolean]| = 4): `type
+  has no value space of its own (|Pair2\[Nothing\]| = 0, |Pair2\[Boolean\]| = 4): `type
   constructor: O.Pair2`, never the template's placeholder.
 - **A constructor slot is read where the constructor is written.** The method side borrows the
   estimate's reading of a constructor's parameter types; that reading descends the package
@@ -212,8 +212,8 @@ packages they open visible (and only those); and bindings follow the precedence 
 definition or inherited member (or a package member of the same compilation unit), explicit
 import, wildcard import, package member of another compilation unit, with a binding in an inner
 scope shadowing bindings of lower precedence in its scope and of the same or lower precedence
-outside it; a binder is innermost in its definition (Scala 3 draft specification ch. 2 [28] and
-SLS 2.13 ch. 2 [32] in the verified bibliography, both **Inspected (full text)**). The
+outside it; a binder is innermost in its definition (Scala 3 draft specification ch. 2 \[28\] and
+SLS 2.13 ch. 2 \[32\] in the verified bibliography, both **Inspected (full text)**). The
 least-fixed-point reading of an object member solved with its enclosing body agrees with solving
 the body first and the object after (Bekić's lemma — **classical**). A lazy knot is a value the
 least fixed point does not contain: it is the greatest-fixed-point part the ν completion counts

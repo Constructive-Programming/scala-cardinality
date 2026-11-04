@@ -34,7 +34,7 @@ wrong number for tier 2.
 
 **Tier 3 — a recursive type at a goal position** (`f(b: Boolean): R`). The
 least-fixed-point rule the counting contract already states
-([counting-type-inhabitants.md](counting-type-inhabitants.md), "A recursive type is a
+([counting-type-inhabitants.md](../counting-type-inhabitants.md), "A recursive type is a
 least fixed point"): `μx. 1 + x ~ ℵ₀` — `Count.Countable` — *only when a starting
 inhabitant exists*; `μx. 0 = 0`. The seed is a parameter (or supplied value) of the
 recursive type itself: with `f(r: R, b: Boolean): R` the constructions are `r`,
