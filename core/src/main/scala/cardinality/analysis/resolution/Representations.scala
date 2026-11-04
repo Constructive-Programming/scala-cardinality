@@ -271,21 +271,62 @@ final private[cardinality] class Representations(
   // simple name its `extends` clause spells (an alias of that name may stand for any), so none is
   // missed. This reading resolves no term names, so it cannot tell whether a body's `???` is the
   // root imports' one: such a body is refused for that gap, never read as built or as empty.
-  private def mayThrow(tree: Tree, seen: Set[String] = Set.empty): Boolean = tree match {
-    case c: Defn.EnumCase => extendsThrowing(c.inits, seen)
-    case _                =>
-      TypeApplications.template(tree).exists { template =>
-        Throws.evaluated(template.body.stats, None).exists(Throws.only(_, _ => true)) ||
-        extendsThrowing(template.inits, seen)
-      }
+  private def mayThrow(tree: Tree, seen: Set[String] = Set.empty): Boolean = {
+    val file = fileOf.get(tree.pos.input)
+    tree match {
+      case c: Defn.EnumCase => extendsThrowing(c.inits, seen, file)
+      case _                =>
+        TypeApplications.template(tree).exists { template =>
+          Throws.evaluated(template.body.stats, None).exists(Throws.only(_, _ => true)) ||
+          extendsThrowing(template.inits, seen, file)
+        }
+    }
   }
 
-  private def extendsThrowing(parents: List[Init], seen: Set[String]): Boolean =
+  // Every type declaration by its simple name, indexed once.
+  private lazy val typesNamed = indexer.types.toList.groupBy(_.name)
+
+  // The file each indexed tree was parsed from.
+  private lazy val fileOf: Map[scala.meta.inputs.Input, String] =
+    indexer.types.map(e => e.tree.pos.input -> e.owner.input).toMap
+
+  // The names each file's imports spell; none (anything) where an import is not followed.
+  private lazy val importedIn: Map[String, Option[Set[String]]] =
+    indexer.imports.toList.groupMap(_._1.takeWhile(_ != ':'))(_._2).map { (file, bindings) =>
+      file -> Option.when(bindings.forall(_.unfollowed.isEmpty))(
+        bindings
+          .flatMap(b => b.named.flatMap(_._2) ++ b.wildcards.flatten ++ b.givens.flatten)
+          .toSet
+      )
+    }
+
+  private lazy val exportedNames: Set[String] =
+    indexer.exports.toList.flatMap(_._2.prefix.split('.')).toSet
+
+  // Whether a parent's simple name, spelled in a file, may denote a declaration. A type nested only
+  // in objects is named bare in its own file, where an import of the file names one of those
+  // objects, or wherever an export (which a class's subclasses inherit) names one; a package's type
+  // or one in a class or trait (which inheritance passes on) always may.
+  private def reachable(e: TypeEntry, file: Option[String]): Boolean = {
+    val containers = e.owner.chain.takeWhile(f => !resolver.isPackage(f) && f.parent.nonEmpty)
+    def named(f: Frame) = f.name.exists(n =>
+      exportedNames(n) || file.forall(importedIn.getOrElse(_, Some(Set.empty)).forall(_(n)))
+    )
+    file.forall(_ == e.owner.input) || containers.isEmpty ||
+    containers.exists(f => !f.tree.exists(_.is[Defn.Object])) || containers.exists(named)
+  }
+
+  private def extendsThrowing(
+      parents: List[Init],
+      seen: Set[String],
+      file: Option[String]
+  ): Boolean =
     Throws.arguments(parents).exists(Throws.only(_, _ => true)) ||
       parents.map(TypeApplications.parentName).filterNot(seen).exists { parent =>
-        indexer.types.exists(e =>
-          e.name == parent && (e.tree.is[Defn.Type] || mayThrow(e.tree, seen + parent))
-        )
+        typesNamed
+          .getOrElse(parent, Nil)
+          .filter(reachable(_, file))
+          .exists(e => e.tree.is[Defn.Type] || mayThrow(e.tree, seen + parent))
       }
 
   // A singleton case is a `val` of the enum's companion, built with it (a class case is not: a

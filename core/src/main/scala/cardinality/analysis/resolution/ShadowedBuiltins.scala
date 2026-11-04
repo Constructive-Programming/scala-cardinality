@@ -75,6 +75,9 @@ final private[cardinality] class ShadowedBuiltins(
   private val packageTypeNames =
     types.filter(entry => resolver.isPackage(entry.owner)).map(_.name).toSet
 
+  private def spellable(name: String): Boolean =
+    if (name.contains('.')) typeNames(name.split('.').last) else packageTypeNames(name)
+
   private val spelled = typeNames ++ cases.map(_._2) ++ sources.flatMap(exportedNames)
 
   private val terms = sources.flatMap(declaredTerms).toSet
@@ -572,9 +575,10 @@ final private[cardinality] class ShadowedBuiltins(
               // known to declare no type — and only where they are the root imports' declarations.
               case Found.Foreign(path, _) if InheritedTypeMembers.markerName(path) =>
                 summarized(path, via, context)
-              case Found.Foreign(path, _)                            => List(Step.Unread(path, via))
-              case Found.Absent if typeNames(parent.split('.').last) =>
-                List(Step.Doubt(parent, via))
+              case Found.Foreign(path, _) => List(Step.Unread(path, via))
+              // A bare name found nowhere may still be a package's type this reading missed; a type
+              // nested in an object or class is reachable only through its container's name.
+              case Found.Absent if spellable(parent) => List(Step.Doubt(parent, via))
               // A name found nowhere is outside the sources, unless it is a root or marker type.
               case Found.Absent if InheritedTypeMembers.markerName(parent) =>
                 summarized(parent, via, context)

@@ -37,6 +37,7 @@ class PureCodeSpec extends Specification {
       a member without a result type that may override is kept      $overridingResult
       an empty type is read from its structure                      $emptyTypes
       a constructor that only throws builds no instance             $construction
+      an alias nested out of reach does not stand for a parent      $constructionReach
       a fixed member that only throws is concrete code              $fixedThrowing
       top-level vals are built with their file's definitions        $topLevel
       a member object carries the instance it belongs to            $memberObjects
@@ -409,6 +410,19 @@ class PureCodeSpec extends Specification {
   // empty (0), and its members are never called (1). A lazy val or a method runs only when
   // called: LK2 and DK2 are the record (boom, m) of two Booleans, 2^4 = 16. A member named `???`
   // is no throw: Mem.m ranges over functions of (b, x, ???), never 1.
+  // The construction check reads a parent by its simple name, so an alias of that name may stand
+  // for any type - but only an alias a bare name can denote there: one nested in an object of
+  // another file is named only through that object (an import of it, or an export).
+  def constructionReach = {
+    val family = "trait Base\nsealed trait S extends Base\ncase object S1 extends S\n" +
+      "object U { def s(x: S): Boolean = ??? }"
+    val compat = "lib.scala" -> "package nlib\nobject Compat { type Base = Any }"
+    val apart = files(compat, "a.scala" -> s"package na\n$family")
+    val imported = files(compat, "a.scala" -> s"package na\nimport nlib.Compat.*\n$family")
+    (apart("na.U.s") === Count.Finite(2))
+      .and(refused(imported("na.U.s"), "sealed family construction not resolved: S"))
+  }
+
   def construction = {
     val found = rows("""class OK2 { val boom: Nothing = ???; def m: Boolean = true }
       |class LK2 { lazy val boom: Boolean = ???; def m: Boolean = true }

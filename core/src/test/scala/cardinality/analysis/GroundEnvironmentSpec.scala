@@ -38,6 +38,7 @@ class GroundEnvironmentSpec extends Specification {
       a package object's parents shadow it in its package            $packageObject
       a parent named through an import declares the member           $importedParents
       a scala.Dynamic parent supplies nothing the count reads        $dynamicParent
+      a nested type of the parent's name does not doubt it           $nestedParentName
       exports bind it where they forward                             $exports
       an enum's cases shadow it after a wildcard import              $enumCases
       a wildcard import of a supplied value is refused               $valueImport
@@ -351,6 +352,24 @@ class GroundEnvironmentSpec extends Specification {
       "d.scala" -> "trait Rec extends Dynamic\ndef f(r: Rec, b: Boolean): Boolean = ???"
     )
     rows("f") === Count.Finite(4)
+  }
+
+  // A bare parent name found in no scope is the stdlib's; a supplied type of the same simple name
+  // doubts it only where a bare name could denote that type - a package's type, not one nested in
+  // an object (izumi's `CollectionCompat.IterableOnce`), which only its container's name reaches.
+  def nestedParentName = {
+    val parent = "sealed trait V[+B] extends IterableOnce[B]\n" +
+      "object V { case object E extends V[Nothing] { def length: Int = 0 } }"
+    val nested = counts(
+      "lib.scala" -> "package nlib\nobject Compat { type IterableOnce[A] = List[A] }",
+      "v.scala" -> s"package nv\n$parent"
+    )
+    val packaged = counts(
+      "lib.scala" -> "package plib\ntype IterableOnce[A] = List[A]",
+      "v.scala" -> s"package pv\n$parent"
+    )
+    (nested("nv.V.E.length") === Count.Finite(BigInt(2).pow(32)))
+      .and(packaged("pv.V.E.length") must beLike { case _: Count.Unresolved => ok })
   }
 
   def packageObject = {
