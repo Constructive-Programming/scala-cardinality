@@ -44,18 +44,29 @@ object Definition {
       case Syntax(what)              => what
     }
 
+    /** A reason whose answer depends on the instantiation: no single number exists, whatever the
+      * caller supplies.
+      */
+    def instantiationDependent: Boolean = this match {
+      case Parameter(_) | HigherKinded(_, _) => true
+      case _                                 => false
+    }
+
+    /** An unsealed abstraction any subtype anywhere may extend: the reference has no bound. */
+    def opensAbstraction: Boolean = this match {
+      case Open(_) => true
+      case _       => false
+    }
+
   }
 
   /** A row whose only reasons are its own type parameters: every instantiation has its own. */
   def instantiationDependent(definition: Definition): Boolean =
-    definition.unbound.nonEmpty && definition.unbound.forall {
-      case Unbound.Parameter(_) | Unbound.HigherKinded(_, _) => true
-      case _                                                 => false
-    }
+    definition.unbound.nonEmpty && definition.unbound.forall(_.instantiationDependent)
 
   /** A row an open abstraction unbounds — bounding it would be a claim about unseen code. */
   def open(definition: Definition): Boolean =
-    definition.unbound.exists(_.isInstanceOf[Unbound.Open])
+    definition.unbound.exists(_.opensAbstraction)
 
   /** What kind of definition this is; the kind decides how its size reads. */
   enum Kind {

@@ -3,6 +3,7 @@ package cardinality.analysis.inhabitation
 import scala.collection.mutable
 
 import cardinality.capacity.{EffectiveOmega, FinitePart, Size, UnitSize}
+import cats.syntax.all.*
 import dev.constructive.eo.data.PSVec
 import dev.constructive.eo.generics.prism
 import dev.constructive.eo.optics.{Getter, Plated}
@@ -72,16 +73,15 @@ object Inhabitation {
     val evidencePrism = prism[Shape, Evidence]
     val repeatedPrism = prism[Shape, Repeated]
 
+    /** `Traverse.sequence` for the two short-circuit shapes the analyses share. cats-core
+      * answers both, so the hand-rolled fold and the `Option`-as-`Either` encoding with a
+      * throwaway message are gone. The leftmost failure still wins, order is preserved.
+      */
     def sequenceEithers[A](values: Iterable[Either[String, A]]): Either[String, List[A]] =
-      values.foldRight(Right(Nil): Either[String, List[A]])((head, tail) =>
-        for {
-          h <- head
-          t <- tail
-        } yield h :: t
-      )
+      values.toList.sequence
 
     def sequenceOptions[A](values: Iterable[Option[A]]): Option[List[A]] =
-      sequenceEithers(values.map(_.toRight(""))).toOption
+      values.toList.sequence
 
     def tryRebuild(node: Shape, kids: Iterable[Either[String, Shape]]): Either[String, Shape] =
       sequenceEithers(kids).map(rebuild(node, _)(identity))
