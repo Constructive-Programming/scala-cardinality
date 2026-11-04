@@ -2,16 +2,18 @@ package cardinality.analysis
 
 import scala.meta.XtensionCollectionLikeUI
 
+import cardinality.capacity.Library
 import kyo.*
 
 /** The rows of a set of target sources, with an environment beside them (dependency stubs) that is
   * read but never measured, across workers.
   *
   * Each worker builds an index of its own over every input and measures a share of the target
-  * files: an index's caches, cycle guards and name counters are never shared, and the rows do not
-  * depend on which targets an index measured before (the runner checks input order cannot move a
-  * result). The rows come back in the order one index gives: file by file in path order, each
-  * file's rows in its index's order.
+  * files, over one shared library: an index's caches, cycle guards and name counters are never
+  * shared, the library's solutions are read-only once solved, and the rows do not depend on which
+  * targets an index measured before (the runner checks input order cannot move a result). The rows
+  * come back in the order one index gives: file by file in path order, each file's rows in its
+  * index's order.
   *
   * With an environment, each target gets `quota` logical steps (`AnalysisWork`); a target that
   * exhausts them refuses with the budget named. Without one the measurement is unbudgeted, as
@@ -27,15 +29,19 @@ private[cardinality] object Measuring {
       environment: List[MethodAnalysis.Input] = Nil,
       workers: Int = defaultWorkers,
       quota: Long = TargetWork,
-      only: String => Boolean = _ => true
+      only: String => Boolean = _ => true,
+      library: Option[Library] = None
   ): List[MethodAnalysis.Entry] = {
     val groups = shares(targets.filter(t => only(t.path)), workers)
+    // One library for every worker: its packages are solved once, on first use, and each reading
+    // notes into a detached copy of what it reads (`Library`).
+    val shared = library.getOrElse(Library.of((targets ++ environment).map(_.tree)))
     val measured =
-      if (groups.size <= 1) groups.map(measure(targets, environment, _, quota))
+      if (groups.size <= 1) groups.map(measure(targets, environment, _, quota, shared))
       else {
         import AllowUnsafe.embrace.danger
         val all = Async.foreach(groups, groups.size)(group =>
-          Sync.defer(measure(targets, environment, group, quota))
+          Sync.defer(measure(targets, environment, group, quota, shared))
         )
         KyoApp.Unsafe.runAndBlock(Duration.Infinity)(all).getOrThrow.toList
       }
@@ -53,15 +59,17 @@ private[cardinality] object Measuring {
       targets: List[MethodAnalysis.Input],
       environment: List[MethodAnalysis.Input],
       files: Set[String],
-      quota: Long
+      quota: Long,
+      library: Library
   ): List[MethodAnalysis.Entry] =
     if (environment.isEmpty) {
-      val index = new MethodAnalysis.Index(targets, MethodAnalysis.Limits())
+      val index = new MethodAnalysis.Index(targets, MethodAnalysis.Limits(), None, Some(library))
       index.inFiles(files).map(index.measure)
     } else {
       val limits = MethodAnalysis.Limits()
       val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth, counting = false)
-      val index = new MethodAnalysis.Index(targets ++ environment, limits, Some(work))
+      val index =
+        new MethodAnalysis.Index(targets ++ environment, limits, Some(work), Some(library))
       index.selected(files, Set.empty).map { target =>
         work.target(quota)
         index.measure(target)

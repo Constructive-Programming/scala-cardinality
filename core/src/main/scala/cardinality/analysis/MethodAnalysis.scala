@@ -138,7 +138,8 @@ object MethodAnalysis {
   final private[cardinality] class Index(
       inputs: List[Input],
       val limits: Limits,
-      work: Option[AnalysisWork] = None
+      work: Option[AnalysisWork] = None,
+      shared: Option[Library] = None
   ) extends Resolver {
     private val sourceNames = inputs.flatMap(_.tree.collect { case name: Name => name.value }).toSet
 
@@ -155,7 +156,8 @@ object MethodAnalysis {
     // a constructor's parameter answers `Int` with 2^32 and `Nat` with its sealed sum — the same
     // numbers the definitions' rows carry.
     private lazy val readings: Map[String, Reading] = {
-      val library = Library.of(inputs.map(_.tree))
+      // A library built over these inputs elsewhere (`Measuring` shares one across workers).
+      val library = shared.getOrElse(Library.of(inputs.map(_.tree)))
       inputs.map(input => input.path -> Reading.of(input.tree, library)).toMap
     }
 

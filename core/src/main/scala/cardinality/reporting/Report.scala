@@ -243,7 +243,7 @@ object Report {
     // One library for the whole run: every source is read against the others, so a reference can
     // leave its file.
     val library = Library.of((inputs ++ stubs.inputs).map(_.tree))
-    val methods = Measuring.rows(inputs, stubs.inputs).groupBy(_.path)
+    val methods = Measuring.rows(inputs, stubs.inputs, library = Some(library)).groupBy(_.path)
     Report(
       inputs.map(input =>
         Source(
