@@ -91,6 +91,20 @@ object Definition {
       case _: (Unknown | Imported | Syntax | Refusal) => Gap.Unresolved
     }
 
+    /** A reason whose answer depends on the instantiation: no single number exists, whatever the
+      * caller supplies.
+      */
+    def instantiationDependent: Boolean = this match {
+      case Parameter(_) | HigherKinded(_, _) => true
+      case _                                 => false
+    }
+
+    /** An unsealed abstraction any subtype anywhere may extend: the reference has no bound. */
+    def opensAbstraction: Boolean = this match {
+      case Open(_) => true
+      case _       => false
+    }
+
   }
 
   /** The classes of reasons, in the order they decide a row: unresolved hides nothing behind an

@@ -216,14 +216,30 @@ object SourceSnapshot {
   private def hash(bytes: Array[Byte]): String =
     hex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
-  private[cardinality] def framedHash(values: List[String], lengthBytes: Int = 8): String = {
+  /** The length prefix framing each value's bytes: 32-bit for short request keys, 64-bit for
+    * snapshot digests. Two legal widths, so a closed sum — the old `Int` silently framed any value
+    * other than 4 as 64-bit.
+    */
+  enum LengthPrefix {
+    case Bits32
+    case Bits64
+
+    /** The length prefix framing a value's bytes, as `ByteBuffer` writes it. */
+    def header(length: Int): Array[Byte] = this match {
+      case Bits32 => ByteBuffer.allocate(4).putInt(length).array()
+      case Bits64 => ByteBuffer.allocate(8).putLong(length.toLong).array()
+    }
+
+  }
+
+  private[cardinality] def framedHash(
+      values: List[String],
+      prefix: LengthPrefix = LengthPrefix.Bits64
+  ): String = {
     val digest = MessageDigest.getInstance("SHA-256")
     values.foreach { value =>
       val bytes = value.getBytes(StandardCharsets.UTF_8)
-      val header =
-        if (lengthBytes == 4) ByteBuffer.allocate(4).putInt(bytes.length).array()
-        else ByteBuffer.allocate(8).putLong(bytes.length.toLong).array()
-      digest.update(header)
+      digest.update(prefix.header(bytes.length))
       digest.update(bytes)
     }
     hex(digest.digest())

@@ -91,7 +91,7 @@ object AnalysisQuery {
         pending = pending.tail
         work.step("index node")
         if (depth > request.budget.maxTreeDepth)
-          throw AnalysisWork.Exhausted("syntax depth", input.path)
+          throw AnalysisWork.Exhausted.SyntaxDepth(input.path)
         pending = tree.children.map(_ -> (depth + 1)) ::: pending
       }
     }
@@ -112,7 +112,7 @@ object AnalysisQuery {
         inputs ++ List(request.targetPaths.size.toString) ++ paths ++
         List(request.targetNames.size.toString) ++ names ++
         List(request.limits.toString, request.budget.toString),
-      lengthBytes = 4
+      prefix = SourceSnapshot.LengthPrefix.Bits32
     )
   }
 
