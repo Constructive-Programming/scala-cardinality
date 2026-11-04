@@ -51,7 +51,21 @@ final private[cardinality] class SourceLookup(
   // highest precedence wherever in the file its block stands (spec ch. 2; Scala 3.9.0 reads a
   // sibling `package p { type Two = Boolean }` over `import zzz.*`: probes/review-A7/r9).
   private def blocks(scope: Frame): List[Frame] =
-    if (isPackage(scope)) peers(scope.path).filter(_.input == scope.input) else List(scope)
+    if (isPackage(scope)) blocksByFile.getOrElse(scope.path -> scope.input, Nil) else List(scope)
+
+  // The values a package's blocks declare, every file's together, indexed once.
+  private lazy val packageValues: Map[List[String], Set[String]] =
+    packagePaths.map((path, frames) =>
+      path -> frames.flatMap(f => ScopeTerms.values(f.stats)).toSet
+    )
+
+  // A package's blocks by file, indexed once: a package can span thousands of files.
+  private lazy val blocksByFile: Map[(List[String], String), List[Frame]] =
+    packagePaths.toList
+      .flatMap((path, frames) =>
+        frames.groupBy(_.input).map((input, inFile) => (path, input) -> inFile)
+      )
+      .toMap
 
   // A constructor's frame shares its class's id and path but holds none of its body: its parameters
   // are typed outside the template (Scala 3.9.0 reads `class C(x: Any) { type Any = Boolean }` with
@@ -571,8 +585,8 @@ final private[cardinality] class SourceLookup(
     // member of the value's type, which no object or package of the name answers.
     private def value(scope: Frame, name: String): Boolean =
       scope.params.exists(_.name.value == name) ||
-        (if (isPackage(scope)) peers(scope.path) else List(scope))
-          .exists(frame => ScopeTerms.values(frame.stats)(name))
+        (if (isPackage(scope)) packageValues.getOrElse(scope.path, Set.empty)(name)
+         else ScopeTerms.values(scope.stats)(name))
 
     // A scope's imports binding a path's first segment before the position: a named import, read
     // at its own clause; a wildcard whose namespace holds the segment — with the path written — or
