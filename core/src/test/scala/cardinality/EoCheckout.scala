@@ -1,6 +1,5 @@
 package cardinality
 
-import scala.jdk.CollectionConverters.*
 import scala.meta.{Defn, Init, *}
 import scala.sys.process.*
 
@@ -33,32 +32,20 @@ object EoCheckout {
 
   def main(args: Array[String]): Unit = {
     require(
-      args.length == 3 || args.length == 4,
-      "usage: EoCheckout <checkout-directory> <output-directory> <revision> [dependency-sources-directory]"
+      args.length == 3,
+      "usage: EoCheckout <checkout-directory> <output-directory> <revision>"
     )
     val checkout = Path.of(args(0)).toAbsolutePath.normalize()
     val output = Path.of(args(1))
     val revision = args(2)
     require(Files.isDirectory(checkout), s"not a directory: $checkout")
-    // Explicit source dependency inputs (the bounded standalone fallback of
-    // docs/plans/bounded-dependency-resolution.md): the dependency's own sources join the
-    // environment the analyzed targets read, as report rows of their own - never folded into the
-    // targets' modules.
-    val dependencies = args.lift(3).filter(_.nonEmpty).map(Path.of(_).toAbsolutePath.normalize())
-    dependencies.foreach(d => require(Files.isDirectory(d), s"not a directory: $d"))
     val commit =
       Process("git", List("-C", checkout.toString, "rev-parse", "HEAD")).!!.trim
 
     val selected = trackedSources(checkout)
-    val dependencyInputs = dependencies.toList.flatMap(dependencySources)
     val inputs = selected.map { relative =>
       val text = Files.readString(checkout.resolve(relative), UTF_8)
       MethodAnalysis.Input(relative, dialects.Scala3(text).parse[Source].get)
-    } ++ dependencyInputs.map { (relative, path) =>
-      MethodAnalysis.Input(
-        relative,
-        dialects.Scala3(Files.readString(path, UTF_8)).parse[Source].get
-      )
     }
     val trees = inputs.map(input => input.path -> input.tree).toMap
     def dynamicInit(init: Init): Boolean =
@@ -79,13 +66,7 @@ object EoCheckout {
           "members (selectDynamic, applyDynamic, ...) are outside the counting model"
       )
 
-    // Dependency rows carry their line: two same-named same-signature local definitions of one
-    // dependency file are distinct scopes the qualified name does not separate. Positions are
-    // provenance, not identity - for the pinned dependency sources they are stable, and the rows
-    // are environment, never review targets.
-    def key(entry: MethodAnalysis.Entry) =
-      val base = EoBaseline.identity(entry, trees(entry.path))
-      if (entry.path.startsWith("kyo-deps/")) base.copy(_2 = base._2 + "@" + entry.line) else base
+    def key(entry: MethodAnalysis.Entry) = EoBaseline.identity(entry, trees(entry.path))
 
     val forward = MethodAnalysis.analyze(inputs).sortBy(key)
     val reverse = MethodAnalysis.analyze(inputs.reverse).sortBy(key)
@@ -94,18 +75,12 @@ object EoCheckout {
     val (definitions, rows) = checkedDefinitions(inputs)
 
     val report = assemble(inputs, definitions, forward)
-    val production = Report.of(
-      selected.map(checkout.resolve) ++ dependencyInputs.map(_._2)
-    )
+    val production = Report.of(selected.map(checkout.resolve))
     require(production.errors.isEmpty, production.errors.mkString("\n"))
-    // The production path renders the report `Locations.shared` names from one tree; a dependency
-    // sources directory is another tree, whose rows the assembled report spells by their declared
-    // prefix. The equality this check guards holds for the single-checkout run.
-    if (dependencies.isEmpty)
-      require(
-        production.render == report.render,
-        "the production Report.of path and the assembled checkout report differ"
-      )
+    require(
+      production.render == report.render,
+      "the production Report.of path and the assembled checkout report differ"
+    )
 
     val coreInputs = inputs.filter(_.path.startsWith("core/"))
     val coreReport = assemble(
@@ -251,17 +226,7 @@ object EoCheckout {
   private def kind(definition: Definition): String = definition.kind.toString.toLowerCase
 
   private def rowIdentity(row: Report.DefinitionRow): (String, String, String, List[String]) =
-    (
-      row.source,
-      dependencyRowName(row),
-      kind(row.definition),
-      row.definition.params
-    )
-
-  // The dependency rows' line, for the same reason the method rows' carry theirs.
-  private def dependencyRowName(row: Report.DefinitionRow): String =
-    if (row.source.startsWith("kyo-deps/")) row.definition.name + "@" + row.definition.line
-    else row.definition.name
+    (row.source, row.definition.name, kind(row.definition), row.definition.params)
 
   private def definitionOrder(row: Report.DefinitionRow): (String, Int, String, String) =
     (row.source, row.definition.line, row.definition.name, kind(row.definition))
@@ -333,16 +298,6 @@ object EoCheckout {
     ("Per module:" :: rows).mkString("\n")
 
   private def module(path: String): String = path.takeWhile(_ != '/')
-
-  /** The dependency sources' relative paths and files, under the prefix their report rows carry. */
-  private def dependencySources(dir: Path): List[(String, Path)] = {
-    val root = dir.toAbsolutePath.normalize()
-    val walk = Files.walk(root)
-    val found =
-      try walk.iterator().asScala.filter(p => p.toString.endsWith(".scala")).toList
-      finally walk.close()
-    found.map(p => (s"kyo-deps/${root.relativize(p)}", p)).sorted
-  }
 
   private def trackedSources(checkout: Path): List[String] = {
     val listing = Process("git", List("-C", checkout.toString, "ls-files", "-z", "*.scala")).!!

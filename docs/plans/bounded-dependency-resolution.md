@@ -43,15 +43,11 @@ explicitly selected metadata artifacts and an empty foreign-environment default.
 symbol environment separate from the source-derived `Library`; do not fabricate source trees to
 feed compiled declarations into its existing equations.
 
-**The standalone fallback is in use** (runner, 2026-11-04): `EoCheckout` takes an optional
-dependency-sources directory whose files join the environment as report rows of their own
-(`kyo-deps/…`), never folded into the targets' modules — run against kyo 1.0.0-RC7's sources.
-Two costs it names: the dependency's companion givens join the implicit scope, and the
-inline-conversion candidates they add are type-blind, so 22 target rows that counted (the optic
-inline members and the `==`-applying terminalOf/isIdent rows) now refuse with the honest
-`may answer` reason — the refinement is typed conversion candidates (the domain checked against
-the application). The dependency rows whose identities collide (same-named same-signature local
-definitions of one file) carry their line.
+**The standalone source fallback was tried and withdrawn** (2026-11-04): a dependency's own
+sources joined the environment as report rows of their own. Its costs (the dependency's companion
+givens joining the implicit scope, type-blind inline-conversion candidates, rows that are not
+review targets) and the source/artifact mismatch above led to its removal. Dependencies are read
+from their compiled TASTy instead (below).
 
 A later build-integrated **metadata producer** should use Scala 3 compiler/TASTy information in the
 analyzed project's compiler context, isolated from the plugin's own compiler/runtime classloader.
