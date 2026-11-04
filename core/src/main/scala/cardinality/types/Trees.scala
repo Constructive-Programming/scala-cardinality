@@ -6,6 +6,14 @@ import scala.meta.*
 /** What the readers of a source ask of its syntax trees. */
 private[cardinality] object Trees {
 
+  /** A set of trees by identity: two equal-looking trees at different places are different. */
+  def identitySet(trees: Iterable[Tree]): java.util.Set[Tree] = {
+    val set =
+      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Tree, java.lang.Boolean])
+    trees.foreach(set.add)
+    set
+  }
+
   /** The source a tree is part of. */
   @tailrec
   def root(tree: Tree): Tree = tree.parent match {

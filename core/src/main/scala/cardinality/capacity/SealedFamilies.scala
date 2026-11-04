@@ -54,12 +54,7 @@ private[cardinality] object SealedFamilies {
     /** Whether the synonyms already hold this file's (by identity: the file's own tree). */
     def holds(file: Tree): Boolean = readFiles.contains(file)
 
-    private lazy val readFiles: java.util.Set[Tree] = {
-      val set =
-        java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Tree, java.lang.Boolean])
-      read.foreach(set.add)
-      set
-    }
+    private lazy val readFiles: java.util.Set[Tree] = cardinality.types.Trees.identitySet(read)
 
     // Each word to the synonyms that spell it, so a closure follows only what a name reaches.
     private lazy val spelledBy: Map[String, List[String]] =

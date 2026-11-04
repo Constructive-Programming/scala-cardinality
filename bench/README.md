@@ -14,4 +14,6 @@ CARDINALITY_BENCH_CHECKOUT=/tmp/eo CARDINALITY_BENCH_CLASSPATH=/tmp/eo-classpath
 - `definitions`: every stored-value row of the sources alone.
 - `renderStubs`: the dependency jars' TASTy rendered as stubs.
 - `withStubs`: every fourth source's method rows with the stubs in the environment, under the
-  runner's 300,000-step budget per target.
+  runner's 300,000-step budget per target, on one worker.
+- `withStubsParallel`, `sourcesOnlyParallel`: the same with `Measuring`'s four workers, each with
+  an index of its own.

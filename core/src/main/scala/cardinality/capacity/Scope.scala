@@ -703,7 +703,8 @@ final private[cardinality] class Scope(
 
 private[cardinality] object Scope {
 
-  val empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
+  // A fresh scope each time: its record of unresolved names is mutable, never shared.
+  def empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
 
   /** Whether a name denotes one declaration in every one of `readers`: the standard library's in
     * all, or one definition (by identity) in all.

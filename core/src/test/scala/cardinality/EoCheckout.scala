@@ -237,27 +237,12 @@ object EoCheckout {
     inputs.map(input => input.path -> Counter.definitions(input.tree, library)).toMap
   }
 
-  // Logical work one target may spend with dependency stubs in the environment: ten times the most
-  // any eo v1.0.0 target spends with the sources alone (29,366 steps). A dependency's records can
-  // nest without end (a type class whose members' types open further type classes); a target that
-  // exhausts the quota refuses with the budget named, like any `AnalysisQuery` target.
-  private val TargetWork = 300000L
-
-  // The targets' method rows, with the dependency stubs in the environment but never measured.
+  // The targets' method rows, with the dependency stubs in the environment but never measured
+  // (`Measuring`: the runner's own budget, workers in parallel).
   private def measured(
       inputs: List[MethodAnalysis.Input],
       dependencies: List[MethodAnalysis.Input]
-  ): List[MethodAnalysis.Entry] =
-    if (dependencies.isEmpty) MethodAnalysis.analyze(inputs)
-    else {
-      val limits = MethodAnalysis.Limits()
-      val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth, counting = false)
-      val index = new MethodAnalysis.Index(inputs ++ dependencies, limits, Some(work))
-      index.selected(inputs.map(_.path).toSet, Set.empty).map { target =>
-        work.target(TargetWork)
-        index.measure(target)
-      }
-    }
+  ): List[MethodAnalysis.Entry] = Measuring.rows(inputs, dependencies)
 
   private[cardinality] def row(entry: MethodAnalysis.Entry, enclosing: String): List[String] = {
     val reasons = entry.count match

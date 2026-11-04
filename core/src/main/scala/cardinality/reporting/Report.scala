@@ -4,7 +4,7 @@ import scala.jdk.CollectionConverters.*
 import scala.meta.{Source as ScalaSource, *}
 
 import cardinality.analysis.inhabitation.Inhabitation
-import cardinality.analysis.{AnalysisWork, MethodAnalysis}
+import cardinality.analysis.{Measuring, MethodAnalysis}
 import cardinality.capacity.*
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
 import cardinality.tasty.TastyStubs
@@ -243,7 +243,7 @@ object Report {
     // One library for the whole run: every source is read against the others, so a reference can
     // leave its file.
     val library = Library.of((inputs ++ stubs.inputs).map(_.tree))
-    val methods = measured(inputs, stubs.inputs).groupBy(_.path)
+    val methods = Measuring.rows(inputs, stubs.inputs).groupBy(_.path)
     Report(
       inputs.map(input =>
         Source(
@@ -269,28 +269,6 @@ object Report {
         case scala.util.control.NonFatal(error) =>
           TastyStubs.Result(Nil, List(s"dependency classpath not read: $error"))
       }
-
-  // Logical work one target may spend with dependency stubs in the environment: ten times the most
-  // any eo v1.0.0 target spends with the sources alone. A dependency's records can nest without
-  // end; a target that exhausts the quota refuses with the budget named.
-  private val TargetWork = 300000L
-
-  // The targets' method rows, with the dependency stubs in the environment but never measured.
-  // Without stubs the run is the sources-only analysis, unchanged.
-  private def measured(
-      inputs: List[MethodAnalysis.Input],
-      stubs: List[MethodAnalysis.Input]
-  ): List[MethodAnalysis.Entry] =
-    if (stubs.isEmpty) MethodAnalysis.analyze(inputs)
-    else {
-      val limits = MethodAnalysis.Limits()
-      val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth, counting = false)
-      val index = new MethodAnalysis.Index(inputs ++ stubs, limits, Some(work))
-      index.selected(inputs.map(_.path).toSet, Set.empty).map { target =>
-        work.target(TargetWork)
-        index.measure(target)
-      }
-    }
 
   // Parses one source, and reports either what it defines or what stopped the parser.
   private def parse(source: (String, String)): Either[Error, MethodAnalysis.Input] = {

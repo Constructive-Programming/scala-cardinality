@@ -30,6 +30,8 @@ lazy val core = project
       "org.scalameta" %% "scalameta" % "4.17.4",
       // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
       "ch.epfl.scala" %% "tasty-query" % "1.9.0",
+      // Parallel measurement (Measuring): kyo 1.0.0-RC7 is built on Scala 3.9.0.
+      "io.getkyo" %% "kyo-core" % "1.0.0-RC7",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
       "org.specs2" %% "specs2-cats" % "4.23.0" % Test

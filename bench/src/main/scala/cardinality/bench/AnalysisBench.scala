@@ -9,7 +9,7 @@ import scala.sys.process.Process
 
 import org.openjdk.jmh.annotations.*
 
-import cardinality.analysis.{AnalysisWork, MethodAnalysis}
+import cardinality.analysis.{Measuring, MethodAnalysis}
 import cardinality.capacity.{Counter, Library}
 import cardinality.tasty.TastyStubs
 
@@ -67,15 +67,17 @@ class AnalysisBench {
     TastyStubs.of(classpath, _ => true).inputs.size
   }
 
-  /** The sampled targets' rows with the stubs in the environment, under the runner's budget. */
+  /** The sampled targets' rows with the stubs in the environment, under the runner's budget: one
+    * worker, the sequential measurement.
+    */
   @Benchmark
-  def withStubs(): Int = {
-    val limits = MethodAnalysis.Limits()
-    val work = new AnalysisWork(Long.MaxValue, limits.maxTypeDepth, counting = false)
-    val index = new MethodAnalysis.Index(inputs ++ stubs, limits, Some(work))
-    index.selected(sampled, Set.empty).map { target =>
-      work.target(300000L)
-      index.measure(target)
-    }.size
-  }
+  def withStubs(): Int = Measuring.rows(inputs, stubs, workers = 1, only = sampled).size
+
+  /** The same with the default workers in parallel, each with an index of its own. */
+  @Benchmark
+  def withStubsParallel(): Int = Measuring.rows(inputs, stubs, only = sampled).size
+
+  /** Every method row of the sources alone, with the default workers in parallel. */
+  @Benchmark
+  def sourcesOnlyParallel(): Int = Measuring.rows(inputs).size
 }

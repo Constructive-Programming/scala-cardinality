@@ -230,9 +230,13 @@ object MethodAnalysis {
       sourceNames
     )
 
+    /** The targets of the given files, in index order (`analyze`'s). */
+    def inFiles(paths: Set[String]): List[Target] =
+      indexer.targets.toList.filter(t => paths(t.input))
+
     def selected(paths: Set[String], names: Set[String]): List[Target] =
-      indexer.targets.toList
-        .filter(t => paths(t.input) && (names.isEmpty || names(t.name)))
+      inFiles(paths)
+        .filter(t => names.isEmpty || names(t.name))
         .sortBy(t => (t.input, t.name, t.signature, t.tree.pos.start))
 
     def inspect(operation: String): Unit = work.foreach(_.step(operation))

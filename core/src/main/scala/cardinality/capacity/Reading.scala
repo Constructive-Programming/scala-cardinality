@@ -39,9 +39,7 @@ final class Reading private (private val top: Scope) {
   // parameters. A type with no position (built rather than parsed) reads at the top.
   private def at(tpe: Tree): Scope = {
     val ancestors = Trees.ancestors(tpe)
-    val inside =
-      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap[Tree, java.lang.Boolean])
-    ancestors.foreach(inside.add)
+    val inside = Trees.identitySet(ancestors)
     val owners = ancestors.takeWhile(!Reading.container(_)) ++
       ancestors.dropWhile(!Reading.container(_)).take(1)
     val binders = owners.collect { case d: Defn => Reading.binders(d) }.flatten
