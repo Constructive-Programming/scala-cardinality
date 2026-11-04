@@ -139,7 +139,10 @@ qualified ones, and named imports of a model path (`import java.util.List` reads
 `java.util.List`, never a Scala sequence).
 
 **Wildcard refusal.** A wildcard import of a namespace the sources do not supply may declare any
-name — `import java.util.*` brings `java.util.List` over `scala.List`. Every builtin and model
+name. A `scala.Dynamic` parent is registered in the same table as a marker that declares no member
+a count reads: the structural calls its subclasses enable (`selectDynamic`, `applyDynamic`, …)
+are compile-time-generated members outside the model, and a run over sources that use them logs a
+notice saying so — the assumption is that no counted implementation calls a structural member. — `import java.util.*` brings `java.util.List` over `scala.List`. Every builtin and model
 name is refused there (`builtin name List may be shadowed through a reference not
 supplied: java.util (wildcard import of java.util)`), as is any other channel to undeclared names (an unsupplied
 parent, self type or package clause). A `_root_`-anchored path is exempt. One table,

@@ -37,6 +37,7 @@ class GroundEnvironmentSpec extends Specification {
       a wildcard-imported object's inherited members bind it         $importedInherited
       a package object's parents shadow it in its package            $packageObject
       a parent named through an import declares the member           $importedParents
+      a scala.Dynamic parent supplies nothing the count reads        $dynamicParent
       exports bind it where they forward                             $exports
       an enum's cases shadow it after a wildcard import              $enumCases
       a wildcard import of a supplied value is refused               $valueImport
@@ -339,6 +340,17 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("a2.f") === Count.Finite(4))
       .and(rows("zz.f") === Count.Finite(4))
       .and(rows("w8b.f") === Count.Finite(1))
+  }
+
+  // A `scala.Dynamic` parent is the structural-member marker: it declares no member a count
+  // reads, and the structural calls its subclasses enable (selectDynamic, …) are outside the
+  // counting model - the run logs the notice. The builtin beside it is not shadowed, and the
+  // record of the receiver is its declared members alone.
+  def dynamicParent = {
+    val rows = counts(
+      "d.scala" -> "trait Rec extends Dynamic\ndef f(r: Rec, b: Boolean): Boolean = ???"
+    )
+    rows("f") === Count.Finite(4)
   }
 
   def packageObject = {

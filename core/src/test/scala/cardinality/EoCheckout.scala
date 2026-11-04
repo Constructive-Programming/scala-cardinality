@@ -1,7 +1,7 @@
 package cardinality
 
 import scala.jdk.CollectionConverters.*
-import scala.meta.*
+import scala.meta.{Defn, Init, *}
 import scala.sys.process.*
 
 import cardinality.analysis.*
@@ -61,6 +61,24 @@ object EoCheckout {
       )
     }
     val trees = inputs.map(input => input.path -> input.tree).toMap
+    def dynamicInit(init: Init): Boolean =
+      init.tpe.syntax == "Dynamic" || init.tpe.syntax == "scala.Dynamic"
+    // The structural-member notice: a `scala.Dynamic` parent declares no member a count reads,
+    // and the structural calls its subclasses enable (selectDynamic, …) are outside the counting
+    // model - a body that calls them is read without them.
+    val dynamicDeclarations = inputs.count(input =>
+      input.tree.collect {
+        case t: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum)
+            if t.templ.inits.exists(dynamicInit) =>
+          1
+      }.nonEmpty
+    )
+    if (dynamicDeclarations > 0)
+      println(
+        s"notice: $dynamicDeclarations declarations extend scala.Dynamic; their structural " +
+          "members (selectDynamic, applyDynamic, ...) are outside the counting model"
+      )
+
     // Dependency rows carry their line: two same-named same-signature local definitions of one
     // dependency file are distinct scopes the qualified name does not separate. Positions are
     // provenance, not identity - for the pinned dependency sources they are stable, and the rows

@@ -40,12 +40,15 @@ import cardinality.types.{
   * package the sources spell only as a prefix), a wildcard whose prefix's first name such a
   * wildcard may bind (`doubted`: `compose.*` after `import zzz.*` may be `zzz.compose.*`) — which
   * may bind any name at all. Every builtin and stdlib-model name is refused there whether or not
-  * the sources spell it (with `object Defs extends ext.X`, `Any` after `import Defs.*` is `Boolean`
-  * when `X` declares `type Any = Boolean`; `import lib.*` may bring a `lib.Option`), and so is the
-  * one-value shortcut on a declared result — except through the namespaces `ListedNamespaces`
-  * lists, which bind only the members they declare: the stdlib's (`quotes.reflect`'s `Singleton`)
-  * and the dependencies' (cats-core 2.13.0's syntax and instances objects, kyo 1.0.0-RC7's
-  * package), so the root spellings survive their wildcards.
+  * the sources spell it — except through a `scala.Dynamic` parent (the structural-member marker: it
+  * declares no member a count reads, and the structural calls its subclasses enable are outside the
+  * model, which the run logs a notice for) — the sources spell it (with
+  * `object Defs extends ext.X`, `Any` after `import Defs.*` is `Boolean` when `X` declares
+  * `type Any = Boolean`; `import lib.*` may bring a `lib.Option`), and so is the one-value shortcut
+  * on a declared result — except through the namespaces `ListedNamespaces` lists, which bind only
+  * the members they declare: the stdlib's (`quotes.reflect`'s `Singleton`) and the dependencies'
+  * (cats-core 2.13.0's syntax and instances objects, kyo 1.0.0-RC7's package), so the root
+  * spellings survive their wildcards.
   */
 final private[cardinality] class ShadowedBuiltins(
     resolver: Resolver,
@@ -66,6 +69,11 @@ final private[cardinality] class ShadowedBuiltins(
   private val declarations = types.map(entry => entry.owner.id -> entry.name).toSet ++ cases
 
   private val typeNames = types.map(_.name).toSet
+
+  // The type names a bare simple name could denote: the types a package owns. A type nested in an
+  // object or class (`kyo.Tag.Dynamic`) is reachable only through that container's name.
+  private val packageTypeNames =
+    types.filter(entry => resolver.isPackage(entry.owner)).map(_.name).toSet
 
   private val spelled = typeNames ++ cases.map(_._2) ++ sources.flatMap(exportedNames)
 
@@ -542,25 +550,36 @@ final private[cardinality] class ShadowedBuiltins(
         case Some(parent)               =>
           val at = Option.when(tpe.pos.start >= 0)(from.input -> tpe.pos.start)
           val context = ResolutionContext(from, Map.empty, Set.empty, at = at)
-          resolver.resolveName(parent, context) match {
-            case Found.Entry(entry) =>
-              (entry.self, entry.tree) match {
-                case (Some(frame), _)         => List(Step.Reach(frame, via))
-                case (None, alias: Defn.Type) => named(alias.body, entry.owner, via, depth + 1)
-                case _                        => List(Step.Doubt(parent, via))
-              }
-            case _: Found.Blocked => List(Step.Doubt(parent, via))
-            // An import binds it outside the sources, where only the stdlib model's summaries are
-            // known to declare no type — and only where they are the root imports' declarations.
-            case Found.Foreign(path, _) if InheritedTypeMembers.markerName(path) =>
-              summarized(path, via, context)
-            case Found.Foreign(path, _)                            => List(Step.Unread(path, via))
-            case Found.Absent if typeNames(parent.split('.').last) => List(Step.Doubt(parent, via))
-            // A name found nowhere is outside the sources, unless it is a root or marker type.
-            case Found.Absent if InheritedTypeMembers.markerName(parent) =>
-              summarized(parent, via, context)
-            case Found.Absent => List(Step.Unread(parent, via))
-          }
+          // A `scala.Dynamic` parent is the structural-member marker (StdlibModel's parents
+          // table holds it memberless): it declares no member a count reads, and the structural
+          // calls its subclasses enable (`selectDynamic`, …) are outside the counting model —
+          // the run logs the notice. The step supplies nothing and is followed no further,
+          // spelled through the root package and rebound by no source declaration or import.
+          if (
+            dynamicMarker(parent) && !terms("Dynamic") && !packageTypeNames("Dynamic") &&
+            namedImport("Dynamic", from, at).isEmpty
+          ) Nil
+          else
+            resolver.resolveName(parent, context) match {
+              case Found.Entry(entry) =>
+                (entry.self, entry.tree) match {
+                  case (Some(frame), _)         => List(Step.Reach(frame, via))
+                  case (None, alias: Defn.Type) => named(alias.body, entry.owner, via, depth + 1)
+                  case _                        => List(Step.Doubt(parent, via))
+                }
+              case _: Found.Blocked => List(Step.Doubt(parent, via))
+              // An import binds it outside the sources, where only the stdlib model's summaries are
+              // known to declare no type — and only where they are the root imports' declarations.
+              case Found.Foreign(path, _) if InheritedTypeMembers.markerName(path) =>
+                summarized(path, via, context)
+              case Found.Foreign(path, _)                            => List(Step.Unread(path, via))
+              case Found.Absent if typeNames(parent.split('.').last) =>
+                List(Step.Doubt(parent, via))
+              // A name found nowhere is outside the sources, unless it is a root or marker type.
+              case Found.Absent if InheritedTypeMembers.markerName(parent) =>
+                summarized(parent, via, context)
+              case Found.Absent => List(Step.Unread(parent, via))
+            }
       }
 
     private def summarized(name: String, via: String, context: ResolutionContext): List[Step] =
@@ -669,6 +688,11 @@ private[cardinality] object ShadowedBuiltins {
     case applied: Type.Apply   => parentName(applied.tpe)
     case _                     => None
   }
+
+  // The structural-member marker's spellings: `scala.Dynamic` itself, or the bare name the
+  // caller checks against the source's own declarations and imports.
+  private def dynamicMarker(parent: String): Boolean =
+    parent == "scala.Dynamic" || parent == "Dynamic"
 
   private def qualified(frame: Frame): String = frame.path.mkString(".")
 
