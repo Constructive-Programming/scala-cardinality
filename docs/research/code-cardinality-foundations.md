@@ -1721,6 +1721,52 @@ functions from `c.b`'s value to the result, and the witness adds nothing.
 higher-kinded members; witnesses of two values never unify. Lifting the path case needs the two
 readings to agree on one atom for `p.X` — the next slice of the same feature.
 
+## D33. A listed dependency namespace binds only the members its artifacts declare
+
+**Decision.** The wildcard-shadow guard (builtins D11's rank rules) treats a wildcard over a
+namespace no source supplies as binding any name. For a namespace whose surface the artifacts
+give, the guard instead reads its member list: a wildcard over it binds exactly the listed names,
+so a root spelling that is not one survives (`import cats.syntax.functor.*` beside `def f(i: Int,
+b: Boolean): Boolean` counts — the previous run refused it with `builtin name Unit may be shadowed
+through a reference not supplied`), a member the namespace declares is refused as the import it is
+(`import _root_.kyo.*` beside `def f(s: Stream): Boolean` names `kyo.Stream`), and a source name's
+doubt chain through the wildcard dissolves when no link declares the name (`Fst (may be imported by
+compose.*: compose may be imported by cats.instances.function.*)` reads past the doubt). The
+listed namespaces are the corpus's: cats-core 2.13.0's syntax objects (`functor`, `either`,
+`flatMap`, `coflatMap`, `applicative`) and its `instances.function`, and kyo 1.0.0-RC7's `kyo`
+package. A namespace no artifact covers keeps the blanket refusal (`hearth.fp.instances`, whose
+package object's members the class entries cannot complete).
+
+**Derivation.** Shadowing is a name question, and the artifacts answer it completely: a wildcard
+binds the namespace's own and inherited members, and the sources jars (cats-core) and the class
+entries plus sources (kyo — whose package has no package object or `package.tasty`, so its
+top-level surface is wholly enumerable) enumerate them. The listed sets are supersets checked
+against the analyzer's vocabulary: no member of any listed namespace is a root spelling, so a root
+spelling under such a wildcard keeps the model's reading — which is the same reading the compiler
+gives, since nothing in the namespace can shadow it. The recovery this unlocks is the one the
+integrated review deferred to "the dependency name index": eo's `Optic.id` and `ModifyF.map.map`
+count 1 — `id`'s `BijectionIso` fixes `X = Nothing` and its two `A => A` fields are the identity
+each (parametricity over the rigid binder), and `map`'s continuation is uniquely `f ∘ inner` with
+`fa.modifier._1` the only `Fst[X]` — together with `ModifyF.<init>`, its two `coerceToModify`
+members and `Modify.from`'s pair.
+
+**Evidence.**
+
+- **Inspected**: cats-core 2.13.0 sources jar (`cats/syntax/package.scala` — objects only;
+  `functor.scala`, `either.scala`, `flatMap.scala`, `coflatMap.scala`, `applicative.scala` —
+  methods and the one `private[syntax]` nested class; `Functor.scala`'s `ToFunctorOps` — no type
+  members); kyo 1.0.0-RC7 sources jars (prelude, kernel, data, schema, schema-json) and the class
+  entries of all ten cached artifacts — 397 types, 82 terms, none a root spelling.
+- **Executable**: `StdlibModelSpec.dependencyNamespaces` (the root spellings survive
+  `cats.syntax.functor.*` and `_root_.kyo.*` at Boolean^(2^33); `kyo.Stream` refused as the
+  import it is), `StdlibModelSpec.nowhere` (the kyo wildcard's doubt names `kyo.Frame`).
+
+**Boundary.** A namespace the artifacts do not cover keeps the blanket refusal. The listed sets
+are the artifacts': a dependency upgrade re-checks them (the table names the versions). Terms and
+types are listed separately — a term name the namespace declares does not shadow the same spelling
+as a type.
+
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

@@ -1,12 +1,14 @@
 package cardinality.types
 
-/** The stdlib namespaces whose wildcard imports both the method side and the stored-value estimate
-  * know (docs/research/stdlib-model.md). A wildcard outranks another file's package member and the
-  * root imports (register D11), so one over a namespace the sources do not supply may bind any
-  * name; one listed here binds the members it lists (scala-library 3.9.0 class files and TASTy),
-  * or, when they are not listed, any name but a root package and the root spellings each side reads
-  * — except the root spellings the namespace is known to declare (`quotes.reflect`'s `Singleton`
-  * and `Symbol`, its only type members the root imports also bind).
+/** The namespaces whose wildcard imports both the method side and the stored-value estimate know
+  * (docs/research/stdlib-model.md): the stdlib's, and the dependency namespaces the analyzed
+  * corpora's wildcards open, listed from their artifacts (cats-core 2.13.0, kyo 1.0.0-RC7). A
+  * wildcard outranks another file's package member and the root imports (register D11), so one over
+  * a namespace the sources do not supply may bind any name; one listed here binds the members it
+  * lists (scala-library 3.9.0 class files and TASTy; the dependencies' sources jars and class
+  * entries), or, when they are not listed, any name but a root package and the root spellings each
+  * side reads — except the root spellings the namespace is known to declare (`quotes.reflect`'s
+  * `Singleton` and `Symbol`, its only type members the root imports also bind).
   */
 private[cardinality] object ListedNamespaces {
 
@@ -90,6 +92,134 @@ private[cardinality] object ListedNamespaces {
 
   private val reflection = "compile-time reflection"
 
+  // kyo's package members (kyo 1.0.0-RC7: prelude, kernel, data, stats-registry, schema,
+  // schema-json and the artifacts they pull, from the sources jars and the entries). The
+  // terms are its top-level objects, definitions, givens and extensions; the types add its
+  // classes, traits, enums and top-level type aliases.
+  private val kyoTypes: Set[String] =
+    """
+|Abort Access Admission AllowUnsafe AmbiguousVariantMatchException Ansi Aspect
+|AtomicBoolean AtomicInt AtomicLong AtomicRef Base64 Batch Builder ByteSize Changeset
+|Check CheckFailed Choice Chunk ChunkBuilder Clock Closed Codec CommandException
+|Compare CompileTimeFlag ConcreteTag Console Const ConstValue
+|ConstructorRejectedException Convert Counter CounterGauge DecodeException Dict
+|DictBuilder Discriminator DoubleAdder DuplicateRepresentationException Duration
+|DynamicFlag Emit Env Field FieldNameCollisionException Fields
+|FileAccessDeniedException FileAlreadyExistsException
+|FileAtomicMoveUnsupportedException FileDirectoryNotEmptyException FileIOException
+|FileInvalidPathException FileIsADirectoryException FileLockCleanupException
+|FileLockException FileLockOwnershipLostException FileLockTimeoutException
+|FileLockUnavailableException FileNotADirectoryException FileNotFoundException
+|FileReadException FileStructureException FileSystem FileSystemException
+|FileSystemOperation FileWatchException FileWatchInvalidatedException
+|FileWriteException FileWriteStalledException Flag FlagChoiceParseException
+|FlagDuplicateNameException FlagException FlagExpressionParseException
+|FlagNameException FlagParseException FlagPlatform FlagRegistrationException
+|FlagRolloutParseException FlagValidationException FlagValidationFailedException
+|FlagValueParseException Focus Frame Gauge Glob GlobMacro GlobParseException Histogram
+|HostFileSystem Hub Id Instant Interrupted IsFatal Json JsonLines Jsonl Kyo KyoApp
+|KyoAppInterrupts KyoException Latch Layer LimitExceededException Local Log LongAdder
+|Maybe Memo Meter MissingFieldException MissingTagKeyException Modify
+|NavigationException NoVariantMatchException OrderedDict OrderedDictBuilder
+|ParseException PathNotFoundException PathRead PathWatch PathWrite
+|PermissionDeniedException Pipe Poll ProgramNotFoundException Random RangeException
+|Record RecordDecodeException Rejected Render RepresentationUnsupportedException Result
+|Retry Rollout Schedule Schema SchemaException SchemaIndexOutOfBoundsException
+|SchemaNotSerializableException Scope SecureRandom SecureRandomPlatformSpecific
+|ShallowTag Signal Sink Span Stat StaticFlag Stream StreamCompression
+|StreamCoreExtensions StreamSystemExtensions Structure System Tag Timeout
+|TrailingInputException TransformException TransformFailedException
+|TruncatedInputException TypeMap TypeMismatchException UUID UUIDCoreExtensions
+|UUIDGenerator UnknownFieldException UnknownVariantException ValidationException
+|ValidationFailedException Var VariantNameCollisionException
+|WorkingDirectoryNotFoundException async bug""".stripMargin.split("\\s+").toSet
+
+  private val kyoTerms: Set[String] =
+    """
+|Abort Ansi Aspect Base64 Batch ByteSize Check Choice Chunk ChunkBuilder ConcreteTag
+|ConstValue Dict DictBuilder Discriminator Duration Emit Env Field Fields Frame Glob
+|GlobMacro Instant IsFatal Kyo KyoException Layer Local Loop Maybe Memo OrderedDict
+|OrderedDictBuilder Pipe Poll Record Render Result Schedule ShallowTag Sink Span Stream
+|Tag TypeMap UUID Var asUnit bug bytes day days discard gb gib glob hour hours isNull
+|kb kib mb mib micro micros milli millis minute minutes month months nano nanos render
+|second seconds tib week weeks year years""".stripMargin.split("\\s+").toSet
+
+  // The dependency namespaces the analyzed corpora's wildcards open, listed from their artifacts.
+  // cats-core 2.13.0 (sources jar): the syntax objects hold only ops-converter methods, and the
+  // syntax traits and the To*Ops parents they extend declare no type members; the instances
+  // object's members are its given methods. kyo 1.0.0-RC7 (sources jars and entries across the
+  // ten artifacts): its classes, traits, objects, definitions and top-level type aliases. None
+  // declares a name the root imports or the model bind.
+  private def syntaxObject(name: String, terms: Set[String], types: Set[String] = Set.empty) =
+    Namespace(
+      s"cats.syntax.$name",
+      None,
+      Some(types),
+      Some(terms),
+      "cats syntax extensions"
+    )
+
+  private val dependencyNamespaces: List[Namespace] = List(
+    syntaxObject("functor", Set("toFunctorOps", "catsSyntaxFunctorTuple2Ops", "catsSyntaxIfF")),
+    syntaxObject(
+      "either",
+      Set(
+        "catsSyntaxEither",
+        "catsSyntaxEitherBinCompat0",
+        "catsSyntaxEitherId",
+        "catsSyntaxEitherIdBinCompat0",
+        "catsSyntaxEitherObject",
+        "catsSyntaxLeft",
+        "catsSyntaxRight"
+      ),
+      Set("CatchOnlyPartiallyApplied")
+    ),
+    syntaxObject(
+      "flatMap",
+      Set(
+        "catsSyntaxFlatMapIdOps",
+        "catsSyntaxFlatMapOps",
+        "catsSyntaxFlatMapOptionOps",
+        "catsSyntaxFlatten",
+        "catsSyntaxIfM",
+        "toFlatMapOps"
+      )
+    ),
+    syntaxObject("coflatMap", Set("toCoflatMapOps")),
+    syntaxObject(
+      "applicative",
+      Set(
+        "catsSyntaxApplicative",
+        "catsSyntaxApplicativeByName",
+        "catsSyntaxApplicativeByValue",
+        "catsSyntaxApplicativeId"
+      )
+    ),
+    Namespace(
+      "cats.instances.function",
+      None,
+      Some(Set.empty),
+      Some(
+        """catsKernelBandForFunction0 catsKernelBandForFunction1 catsKernelBoundedSemilatticeForFunction0
+          |catsKernelBoundedSemilatticeForFunction1 catsKernelCommutativeGroupForFunction0
+          |catsKernelCommutativeGroupForFunction1 catsKernelCommutativeMonoidForFunction0
+          |catsKernelCommutativeMonoidForFunction1 catsKernelCommutativeSemigroupForFunction0
+          |catsKernelCommutativeSemigroupForFunction1 catsKernelEqForFunction0 catsKernelGroupForFunction0
+          |catsKernelGroupForFunction1 catsKernelHashForFunction0 catsKernelMonoidForFunction0
+          |catsKernelMonoidForFunction1 catsKernelOrderForFunction0 catsKernelPartialOrderForFunction0
+          |catsKernelSemigroupForFunction0 catsKernelSemigroupForFunction1 catsKernelSemilatticeForFunction0
+          |catsKernelSemilatticeForFunction1 catsSddDeferForFunction0 catsSyntaxCommutativeMonadForFunction0
+          |catsSyntaxCommutativeSemigroupForFunction0 catsSyntaxFlatMapForFunction0 catsSyntaxFunctorForFunction0
+          |catsSyntaxMonoidForFunction0 catsSyntaxSemigroupForFunction0 catsSyntaxTraverseForFunction0
+          |catsUnzipForFunction0 commasForFunction0 commasForFunction1""".stripMargin
+          .split("\\s+")
+          .toSet
+      ),
+      "cats instances"
+    ),
+    Namespace("kyo", None, Some(kyoTypes), Some(kyoTerms), "kyo effects and data")
+  )
+
   private val all: List[Namespace] = List(
     Namespace("scala.quoted", None, Some(quoted.map(_._1).toSet), Some(quotedTerms), reflection),
     Namespace(
@@ -111,7 +241,7 @@ private[cardinality] object ListedNamespaces {
       reflection,
       Set("Singleton", "Symbol")
     )
-  )
+  ) ++ dependencyNamespaces
 
   /** The listed namespace a wildcard prefix spells (a `_root_` anchor dropped); whether its first
     * name denotes the library's is the caller's to check, against the namespace's anchor.

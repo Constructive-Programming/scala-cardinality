@@ -150,8 +150,19 @@ wildcards both readings know, with what each declares: `scala.quoted.*` (the typ
 conversion classes, each with the implicit conversion of its name) and `quotes.reflect.*` (members
 not listed) — scala-library 3.9.0 class files, read with `javap` and the jar's entries, and for
 `quotes.reflect` the TASTy of `scala.quoted.Quotes` (its type members are abstract, which `javap`
-cannot show). None of them declares one of the 93 root spellings the analyzer reads through the
-model (Scala 3.9.0 fixtures: under each, `summon[N[…] =:= _root_.<fqn>[…]]` compiles for all 93).
+cannot show). The same listing covers the dependency namespaces the analyzed corpora's wildcards
+open, taken from their artifacts: cats-core 2.13.0's syntax objects (`cats.syntax.functor`,
+`either`, `flatMap`, `coflatMap`, `applicative` — the ops converters their sources declare, the
+syntax traits and their `To*Ops` parents carrying no type members) and its instances object
+(`cats.instances.function` — its given methods), and the `kyo` package of kyo 1.0.0-RC7 (its
+classes, traits, objects, top-level definitions and aliases, across the artifacts the corpus
+pulls, from the sources jars and the entries). None declares a root spelling, so the 283 rows the
+blanket doubt had stopped — `builtin name Unit may be shadowed …: cats.syntax.functor` and kin —
+read the names behind it (`register D33`). A namespace no source supplies and no listing covers
+(`hearth.fp.instances`, whose package object's surface the entries cannot complete) keeps the
+blanket refusal. None of them declares one of the 93 root spellings the analyzer reads through the
+model — the stdlib namespaces checked with Scala 3.9.0 fixtures (under each, `summon[N[…] =:=
+_root_.<fqn>[…]]` compiles for all 93), the dependencies from their sources' declarations.
 `quotes.reflect` does declare two names the root imports bind: of its 323 type members, `Singleton`
 and `Symbol` are the only ones a `scala.*`, `scala.Predef` or `java.lang.*` type also spells (scalac
 compiles `summon[Symbol =:= quotes.reflect.Symbol]` there), so the table records both as reflect's,

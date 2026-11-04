@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
+import cardinality.analysis.inhabitation.NaturalSyntax.pow
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -56,6 +57,7 @@ class StdlibModelSpec extends Specification {
       a supplied namespace answers instead                          $wildcardSupplied
       a Java collection wildcard shadows List                       $javaWildcard
       listed stdlib namespaces shadow no model name                 $listedNamespaces
+      dependency namespaces are listed from their artifacts         $dependencyNamespaces
       a listed namespace's member reads the model                   $namespaceMember
       a listed namespace counts only through the library's head     $listedHead
       a listed namespace's member outranks another file's member    $listedPrecedence
@@ -421,15 +423,16 @@ class StdlibModelSpec extends Specification {
     count("import zz.{Widget as W}\nobject U { def f(w: W): W = w }", "U.f") ===
       Count.Unresolved(List("declaration not supplied: zz.Widget (renamed import W)"))
 
-  // With nothing in scope that could bind it, and beside a wildcard of a namespace nobody supplied.
+  // With nothing in scope that could bind it, and beside a wildcard of a listed dependency
+  // namespace: kyo is listed from its artifacts (kyo 1.0.0-RC7), so the wildcard's doubt names
+  // the declaration it binds instead of the whole namespace.
   def nowhere =
     (count("object U { def f(x: Frame): Boolean = ??? }", "U.f") ===
       Count.Unresolved(List(s"declaration not supplied: Frame (${StdlibModel.undeclared})")))
       .and(
         refused(
           count("import kyo.*\nobject U { def f(x: Frame): Boolean = ??? }", "U.f"),
-          s"declaration not supplied: Frame (${StdlibModel.undeclared}, may be bound through " +
-            "kyo, which is not supplied (wildcard import of kyo))"
+          "declaration not supplied: kyo.Frame (wildcard import)"
         )
       )
 
@@ -619,6 +622,19 @@ class StdlibModelSpec extends Specification {
       "outside the counting model: scala.quoted.Expr (compile-time reflection)"
     )
       .and(use("q1.O.g") === Count.Finite(2))
+  }
+
+  // The dependency namespaces the corpora's wildcards open, listed from their artifacts
+  // (cats-core 2.13.0, kyo 1.0.0-RC7): the root spellings survive their wildcards — Int's
+  // 2^32 values and b's 2 give Boolean^(2^33) — a member a namespace declares is refused as
+  // imported, and a name it does not declare is not shadowed.
+  def dependencyNamespaces = {
+    val cats = "import cats.syntax.functor.*\nobject C { def f(i: Int, b: Boolean): Boolean = ??? }"
+    val kyo = "import _root_.kyo.*\nobject K { def f(i: Int, b: Boolean): Boolean = ??? }"
+    val member = "import _root_.kyo.*\nobject K { def f(s: Stream): Boolean = ??? }"
+    (count(cats, "C.f") === Count.Symbolic(pow(2, BigInt("8589934592"))))
+      .and(count(kyo, "K.f") === Count.Symbolic(pow(2, BigInt("8589934592"))))
+      .and(refused(count(member, "K.f"), "declaration not supplied: kyo.Stream (wildcard import)"))
   }
 
   // `lib.sub` is a package the sources supply, `Missing` a member of it they do not: absent,

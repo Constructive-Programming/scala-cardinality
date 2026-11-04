@@ -42,8 +42,10 @@ import cardinality.types.{
   * may bind any name at all. Every builtin and stdlib-model name is refused there whether or not
   * the sources spell it (with `object Defs extends ext.X`, `Any` after `import Defs.*` is `Boolean`
   * when `X` declares `type Any = Boolean`; `import lib.*` may bring a `lib.Option`), and so is the
-  * one-value shortcut on a declared result — except through the stdlib namespaces `StdlibModel`
-  * lists, which bind only the root spellings they declare (`quotes.reflect`'s `Singleton`).
+  * one-value shortcut on a declared result — except through the namespaces `ListedNamespaces`
+  * lists, which bind only the members they declare: the stdlib's (`quotes.reflect`'s `Singleton`)
+  * and the dependencies' (cats-core 2.13.0's syntax and instances objects, kyo 1.0.0-RC7's
+  * package), so the root spellings survive their wildcards.
   */
 final private[cardinality] class ShadowedBuiltins(
     resolver: Resolver,
