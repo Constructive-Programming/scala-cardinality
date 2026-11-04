@@ -163,10 +163,13 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // The declarations of a name in one file: uniqueness here is what makes a `sealed` parent's
   // simple name in a child's `extends` clause denote exactly the family being enumerated.
   private[cardinality] def typesInFile(file: String, name: String): List[TypeEntry] =
-    types.iterator
-      .filter(entry => entry.owner.chain.last.id == file && entry.name == name)
+    typesByFile.getOrElse((file, name), Nil)
+
+  // Read only once indexing is done (measurements), so built then, in declaration order.
+  private lazy val typesByFile: Map[(String, String), List[TypeEntry]] =
+    types.toList
       .filter(entry => !entry.tree.is[Defn.Object])
-      .toList
+      .groupBy(entry => (entry.owner.chain.last.id, entry.name))
 
   private def initNames(tree: Tree): List[String] = tree match {
     case d: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) =>

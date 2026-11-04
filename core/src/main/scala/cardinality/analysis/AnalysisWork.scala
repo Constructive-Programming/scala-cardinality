@@ -8,9 +8,10 @@ final private[cardinality] class AnalysisWork(indexLimit: Long, depthLimit: Int)
   private var remaining = indexLimit
   private var depth = 0
   private var used = 0L
-  private var counts = Map.empty[String, Long]
+  // One counter per operation, bumped on every step: mutable, copied out only when read.
+  private val counts = scala.collection.mutable.HashMap.empty[String, Long]
 
-  def counters: Map[String, Long] = counts
+  def counters: Map[String, Long] = counts.toMap
   def consumed: Long = used
 
   def target(quota: Long): Unit = {
@@ -25,7 +26,7 @@ final private[cardinality] class AnalysisWork(indexLimit: Long, depthLimit: Int)
       throw AnalysisWork.Exhausted(if (indexing) "index" else "target", operation)
     remaining -= 1
     used += 1
-    counts = counts.updated(operation, counts.getOrElse(operation, 0L) + 1)
+    counts(operation) = counts.getOrElse(operation, 0L) + 1
   }
 
   def expanding[A](operation: String)(read: => A): A = {

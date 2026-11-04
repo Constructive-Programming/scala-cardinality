@@ -86,7 +86,8 @@ object MethodAnalysis {
       tree: Option[Tree] = None,
       refusals: List[String] = Nil
   ) {
-    def chain: List[Frame] = this :: parent.toList.flatMap(_.chain)
+    // Read on nearly every lookup, so computed once per frame.
+    lazy val chain: List[Frame] = this :: parent.fold(Nil)(_.chain)
 
     /** The name the frame's definition or scope has in its owner's path (none for a file root). */
     def name: Option[String] = path.lastOption
@@ -97,7 +98,10 @@ object MethodAnalysis {
     // The source a frame was indexed from: the file path is the root frame's identity and the
     // head of every nested `input:offset` id, so positions compared against it are positions
     // in the same file.
-    def input: String = id.takeWhile(_ != ':')
+    lazy val input: String = {
+      val colon = id.indexOf(':')
+      if (colon < 0) id else id.substring(0, colon)
+    }
   }
 
   final private[cardinality] case class TypeEntry(
