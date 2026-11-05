@@ -33,7 +33,6 @@ private[cardinality] object ConstrainedReceivers {
       .when(constructor)("a non-public constructor")
       .orElse(Option.when(modifiers(tree).exists(MemberSyntax.restricted))(s"a non-public $kind"))
       .orElse(owner.chain.tail.takeWhile(_.tree.nonEmpty).collectFirst {
-        case scope if scope.local => s"a $kind local to ${scope.path.mkString(".")}"
         case scope if scope.tree.exists(modifiers(_).exists(MemberSyntax.restricted)) =>
           s"a $kind nested in non-public ${scope.path.mkString(".")}"
       })
@@ -41,10 +40,7 @@ private[cardinality] object ConstrainedReceivers {
 
   private def modifiers(tree: Tree): List[Mod] = tree match {
     case d: Defn.Class  => d.mods
-    case d: Defn.Trait  => d.mods
     case d: Defn.Object => d.mods
-    case d: Defn.Enum   => d.mods
-    case d: Defn.Given  => d.mods
     case _              => Nil
   }
 

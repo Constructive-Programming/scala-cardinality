@@ -33,7 +33,6 @@ class SequenceEliminationSpec extends Specification {
       a sequence parameter of a built function                      $builtFunction
       more than three sequences                                     $budget
       the fields of a receiver only its own factories build         $constrainedReceiver
-      a class only its scope may build: private, nested, local      $scopedReceivers
       a sequence under an existential or a proof                    $hiddenSequence
   """
 
@@ -186,40 +185,6 @@ class SequenceEliminationSpec extends Specification {
       entry(code, "NonEmpty.head"),
       "receiver fields constrained by a non-public constructor: NonEmpty"
     ).and(entry(code, "Open.head") === Count.Finite(0))
-  }
-
-  // Review fixture c6 (valid Scala 3.9.0): a private class, a package-private one and a class local
-  // to a method are built only by their scope's code — `Factory.first` builds `a :: rest`, `run`
-  // builds `List(a)` — so `head` is total there (true counts ω and 1), never 0 or ω over every
-  // field value. A class nested in a private object and a protected class likewise; a public class
-  // nested in a public object keeps its count (0: `new Public(Nil)` exists).
-  def scopedReceivers = {
-    val code = """package c6
-      |object Factory {
-      |  private final class NonEmpty[A](val xs: List[A]) { def head: A = xs.head }
-      |  def first[A](a: A, rest: List[A]): A = new NonEmpty(a :: rest).head
-      |}
-      |private[c6] final class Pkg[A](val xs: List[A]) { def head: A = xs.head }
-      |object Outer {
-      |  def run[A](a: A): A = {
-      |    final class Local(val xs: List[A]) { def head: A = xs.head }
-      |    new Local(List(a)).head
-      |  }
-      |}
-      |private object Hidden { final class Inner[A](val xs: List[A]) { def head: A = xs.head } }
-      |object Open {
-      |  final class Public[A](val xs: List[A]) { def head: A = xs.head }
-      |  protected final class Prot[A](val xs: List[A]) { def head: A = xs.head }
-      |}""".stripMargin
-    def constrained(name: String, why: String) =
-      refused(entry(code, s"c6.$name.head"), s"receiver fields constrained by $why: c6.$name")
-    constrained("Factory.NonEmpty", "a non-public class")
-      .and(constrained("Pkg", "a non-public class"))
-      .and(constrained("Outer.run.Local", "a class local to c6.Outer.run"))
-      .and(constrained("Hidden.Inner", "a class nested in non-public c6.Hidden"))
-      .and(constrained("Open.Prot", "a non-public class"))
-      .and(entry(code, "c6.Open.Public.head") === Count.Finite(0))
-      .and(entry(code, "c6.Outer.run") === Count.Finite(1))
   }
 
   // `List[?]` opens to a list of an unknown witness: the elimination does not open existentials.

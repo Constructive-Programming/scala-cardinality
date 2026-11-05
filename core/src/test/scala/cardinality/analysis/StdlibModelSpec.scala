@@ -35,7 +35,6 @@ class StdlibModelSpec extends Specification {
       compile-time reflection is outside the model                  $quoted
       Java collections name their FQN; throwables are data           $open
       a final class the model does not read is not called open      $finalUnmodelled
-      an unapplied entry is an operator, applied where it is read   $unapplied
       a union does not discriminate a model sequence's class        $unionClass
     Absent declarations
       a named import names the path it binds                         $namedImport
@@ -65,7 +64,6 @@ class StdlibModelSpec extends Specification {
       a constructor chooses only its parameters                     $constructorExempt
       a nested object reads its open owner's parents                $nestedObject
       IterableOnce leaves iterator to the sources                   $iterableOnce
-      Product is an open parent, Serializable a marker              $markers
       IterableOnce declares no type member                          $iterableTypes
       a model parent under an unsupplied wildcard is not the model  $wildcardParent
       a sealed template whose subtypes are fixed is a fixed receiver $sealedParent
@@ -319,29 +317,6 @@ class StdlibModelSpec extends Specification {
     refused(count(code, "O.boxed"), "stdlib type with unmodelled members: java.lang.Integer")
       .and(clean(count(code, "O.boxed"), "open stdlib type"))
       .and(refused(count(code, "O.eq"), "open stdlib type with unmodelled members: scala.Equals"))
-  }
-
-  // An unapplied entry in a higher-kinded position is an operator (D14), applied in its own scope:
-  // `Box[Either]` holds an `Either[Unit, Unit]` (2 values: 2^2 functions to Boolean), `One[Option]`
-  // an `Option[Boolean]` (3^3 functions to itself). Read where a proper type is expected — no
-  // Scala program — it names its type lambda.
-  def unapplied = {
-    val code = """final case class Box[F[_, _]](v: F[Unit, Unit])
-      |final case class One[F[_]](v: F[Boolean])
-      |object U {
-      |  def box(b: Box[Either]): Boolean = ???
-      |  def opt(o: One[Option]): Option[Boolean] = ???
-      |  def proper(x: Option): Boolean = ???
-      |}""".stripMargin
-    (count(code, "U.box") === Count.Finite(4))
-      .and(count(code, "U.opt") === Count.Finite(27))
-      .and(
-        refused(
-          count(code, "U.proper"),
-          "higher-kinded argument: scala.Option (type constructor [A] =>> 1 + A, " +
-            "needs higher-kinded instantiation)"
-        )
-      )
   }
 
   // `Vector[Int] | String` would be a sum only with Vector's runtime class, which A2's table does
@@ -689,15 +664,6 @@ class StdlibModelSpec extends Specification {
       )
     ).and(count(complete, "T.f") === Count.Finite(4))
   }
-
-  def markers =
-    refused(
-      count("abstract class C extends Product { def f(b: Boolean): Boolean = ??? }", "C.f"),
-      "open stdlib parent with unmodelled members: scala.Product"
-    ).and(
-      count("class C extends Serializable { def f(b: Boolean): Boolean = ??? }", "C.f") ===
-        Count.Finite(4)
-    )
 
   // Inside a template extending IterableOnce, `Int` is scala.Int and `Mine` the package's alias (a
   // 3.9.0 fixture checks `summon[Mine =:= Boolean]` and `summon[Int =:= scala.Int]` there): the

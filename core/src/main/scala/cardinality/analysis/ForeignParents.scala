@@ -41,12 +41,7 @@ private[cardinality] object ForeignParents {
       case (Some(route), _) => List(absent(parent.path, s"may be bound $route"))
       case (None, Some(summary)) if summary.listed =>
         unread(StdlibModel.canonical(parent.path).getOrElse(parent.path), summary, defined)
-      case (None, _) =>
-        List(
-          StdlibModel
-            .entry(parent.path)
-            .fold(absent(parent.path, parent.binding))(StdlibModel.parentReason)
-        )
+      case (None, _) => List(absent(parent.path, parent.binding))
     }
 
   private def absent(path: String, binding: String): String =

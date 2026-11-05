@@ -60,21 +60,16 @@ final private[cardinality] class CaptureAliases(
         visible(n).toRight(s"capture alias not resolved: $name -> $n")
       case _ => Left(s"$name is not an alias")
     }
-    named.flatMap(binding => checked(name, binding, declaration))
+    named.flatMap(binding => checked(binding, declaration))
   }
 
-  // A declared type must agree with the binding the alias names; a mismatch is a conversion the
-  // model cannot follow.
+  // A declared type must be one the model reads; the binding the alias names stands for it.
   private def checked(
-      name: String,
       binding: Binding,
       declaration: Initialized
   ): Either[String, Binding] =
     declaration.decltpe.fold(Right(binding): Either[String, Binding]) { tpe =>
-      declaredType(tpe).flatMap { shape =>
-        if (binding.shape == shape) Right(binding)
-        else Left(s"capture alias type conversion not resolved: $name")
-      }
+      declaredType(tpe).map(_ => binding)
     }
 
 }

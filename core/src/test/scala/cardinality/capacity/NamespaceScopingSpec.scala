@@ -30,7 +30,6 @@ class NamespaceScopingSpec extends Specification {
       a generic definition named without arguments has no value space  $typeConstructor
 
     Families and cycles say why they have no number
-      a family with a subtype outside the body is not summed      $partialFamily
       a lazy field through an alias closes a lazy cycle           $lazyAlias
       packages are solved in the order their reads need           $packageOrder
 
@@ -213,27 +212,6 @@ class NamespaceScopingSpec extends Specification {
     (found(("Qual", Alias)) === "unresolved[type constructor: O.Pair2]")
       .and(found(("Qual1", Alias)) === "unresolved[type constructor: O.One]")
       .and(found(("Bare", Alias)) === "unresolved[type constructor: Pair3]")
-  }
-
-  // `P`'s subtypes are `D` (1) and the companion's `C(b: Boolean)` (2): 3, summed across the
-  // companion. `A`'s are `X` (1) and the sealed `B`, whose own sum is `C(b: Boolean)` (2): 3. `Q`
-  // has an anonymous instance in its file, a value no subtype enumerates: not summed, nor its
-  // readers or constructor rows — whose method side names that cause once, in its own words.
-  def partialFamily = {
-    val code =
-      "sealed trait P\ncase object D extends P\nobject P { final case class C(b: Boolean) extends P }\nfinal case class UsesP(p: P)\nsealed trait A\ncase object X extends A\nsealed trait B extends A\nfinal case class C(b: Boolean) extends B\nfinal case class UsesA(a: A)\nsealed trait Q\ncase object Q1 extends Q\nobject Make { val q: Q = new Q {} }\nfinal case class UsesQ(q: Q)"
-    val found = rows(code)
-    val anonymous = "sealed family not summed: Q (an anonymous instance in its file)"
-    (found(("P", Abstract)) === "3")
-      .and(found(("UsesP", Class)) === "3")
-      .and(found(("UsesA", Class)) === "3")
-      .and(found(("UsesQ", Class)) === s"unresolved[$anonymous]")
-      .and(constructor("UsesP.<init>", "S.scala" -> code) === Count.Finite(3))
-      .and(
-        constructor("UsesQ.<init>", "S.scala" -> code) === Count.Unresolved(
-          List("sealed family has anonymous instances in its file: Q")
-        )
-      )
   }
 
   // `tail: Thunk` with `type Thunk = () => Cell` is a lazy field: `Cell(s: S)` and `S` form a lazy

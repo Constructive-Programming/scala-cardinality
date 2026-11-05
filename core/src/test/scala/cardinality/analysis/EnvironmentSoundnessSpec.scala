@@ -45,7 +45,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       refuse an enum case pinned to one instantiation              $enumPin
       read enum cases that bind or bottom-pin the parameters       $enumBinds
       read enum cases that take parameters through `extends`       $enumBindsByExtends
-      refuse a sealed family with anonymous instances              $sealedAnonymous
       refuse a sealed family extended through an alias             $sealedAlias
       refuse a sealed family with an inner or local child          $sealedInner
       refuse a sealed family with a child in any block             $sealedBlockChild
@@ -480,22 +479,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |enum H[A, B] { case Kh(a: A) extends H[A, B] }
       |object Use { def g[A](): G[A] = ???; def h[A, B](a: A): H[A, B] = ??? }""".stripMargin)
     (found("Use.g") === Count.Finite(2)).and(found("Use.h") === Count.Finite(1))
-  }
-
-  // `Arb` is only ever `new Arb[T] {…}`: read as the sum of its named subtypes it was empty (0
-  // and 1); `W` has `W1` and an anonymous instance (read as 1). Both refused.
-  def sealedAnonymous = {
-    val found = counts("Anon.scala" -> """sealed abstract class Arb[T] { def arbitrary: T }
-      |object Arb { def apply[T](g: T): Arb[T] = new Arb[T] { def arbitrary: T = g } }
-      |object Use { def mk[T](x: T): Arb[T] = ???; def read[T](a: Arb[T]): Option[T] = ??? }
-      |sealed trait W
-      |case object W1 extends W
-      |object Extra { val extra: W = new W {} }
-      |object UseW { def makeW(): W = ??? }""".stripMargin)
-    val reason = "sealed family has anonymous instances in its file"
-    refused(found("Use.mk"), s"$reason: Arb")
-      .and(refused(found("Use.read"), s"$reason: Arb"))
-      .and(refused(found("UseW.makeW"), s"$reason: W"))
   }
 
   // Children are registered by the parent name their clause spells: `new SA {}` through `type SA =

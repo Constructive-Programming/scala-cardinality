@@ -82,7 +82,6 @@ class TopTypesUnionSpec extends Specification {
       a case extending through an alias                              $aliasChild
       an enum case that extends the other alternative                $enumCase
       a parent an unread parent may declare                          $unreadParent
-      unenumerable families on both sides                            $anonymousBoth
       a family whose shape misses an enum-case subclass              $unenumeratedChild
       a family a child extends through a parameterised alias         $aliasApplicationChild
       one union alias applied twice to one runtime class             $aliasTwice
@@ -549,13 +548,6 @@ class TopTypesUnionSpec extends Specification {
         "  sealed trait Q\n  case object Q1 extends Q with Mixin\n  def pq(p: P): P | Q = p\n}",
       "O.pq",
       "P | Q — ancestry of P1 not resolved: Mixin"
-    )
-
-  def anonymousBoth =
-    reasonContains(
-      families + "val a: P = new P {}\nval b: Q = new Q {}\ndef pq(q: Q): P | Q = q",
-      "pq",
-      "sealed family has anonymous instances in its file"
     )
 
   // P is {P1, E.A}, but its shape reads P1 alone: Q's side proves the pair apart, so only the

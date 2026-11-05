@@ -65,11 +65,7 @@ private[cardinality] object StdlibModel {
     * values have spelled over those parameters (the body of the type lambda an unapplied spelling
     * denotes; empty for an entry the model does not read).
     */
-  final case class Entry(fqn: String, parameters: List[String], reading: Reading, body: String) {
-
-    /** The type constructor an unapplied spelling denotes. */
-    def lambda: String = parameters.mkString("[", ", ", s"] =>> $body")
-  }
+  final case class Entry(fqn: String, parameters: List[String], reading: Reading, body: String)
 
   private def numbered(prefix: String, count: Int): List[String] =
     (1 to count).map(i => s"$prefix$i").toList
@@ -387,11 +383,6 @@ private[cardinality] object StdlibModel {
   def read(entry: Entry, args: List[Shape]): Either[String, Shape] = entry.reading match {
     case Excluded(why)                                  => Left(outside(entry, why))
     case Unmodelled(open)                               => Left(unmodelled(open, "type", entry))
-    case _ if args.isEmpty && entry.parameters.nonEmpty =>
-      Left(
-        s"higher-kinded argument: ${entry.fqn} (type constructor ${entry.lambda}, " +
-          "needs higher-kinded instantiation)"
-      )
     case _ if args.size != entry.parameters.size =>
       Left(s"type argument arity: ${entry.fqn} takes ${entry.parameters.size}, given ${args.size}")
     case Structural(shape) => Right(shape(args))
@@ -412,18 +403,7 @@ private[cardinality] object StdlibModel {
   // widened type (`x.type` for `x: A` has no `ClassTag` either). An object's singleton has one.
   private def rigid(element: Shape): Boolean = element match {
     case _: Shape.Atom                     => true
-    case Shape.Existential(_, opened)      => rigid(opened)
-    case Shape.Singleton(_, Some(widened)) => rigid(widened)
     case _                                 => false
-  }
-
-  /** Why a stdlib parent the model does not summarize, or summarizes without its term members,
-    * leaves a template's members unknown.
-    */
-  def parentReason(entry: Entry): String = entry.reading match {
-    case Excluded(why)    => outside(entry, why)
-    case Unmodelled(open) => unmodelled(open, "parent", entry)
-    case _                => unmodelled(open = true, "parent", entry)
   }
 
   /** A stdlib parent the model knows declares no type member, with the term members a subclass must

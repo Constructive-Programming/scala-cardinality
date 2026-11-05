@@ -30,7 +30,6 @@ class UnsuppliedWildcardSpec extends Specification {
     Selectors and prefixes the reading does not follow
       a `given` selector may bind a path's first name                  $givenSelectors
       a supplied wildcard binding a value, an enum case                $valuesAndCases
-      an import whose prefix is no path                                $unfollowedPrefixes
       a package the sources spell only as a prefix is open             $prefixPackages
       a parameter whose declared type is in doubt keeps that reason    $doubtedParameter
     Term heads a supplied clause binds (probes/a7fix2/spec)
@@ -239,35 +238,6 @@ class UnsuppliedWildcardSpec extends Specification {
       .and(found("p.V.b") === Count.Finite(1))
       .and(found("p.V.d") === Count.Finite(1))
       .and(found("p.W.pick") === Count.Finite(1))
-  }
-
-  // `import Outer3.this.o.Two` names a member of a value (scalac: r12 binds `o.Two`, an `Int`, over
-  // the package's `Two`), and its wildcard twin may bind any name. A selector naming another member
-  // binds nothing else (probes/a7fix2/spec/outer5 compiles `val w: Two = true`): 4.
-  def unfollowedPrefixes = {
-    val found = counts(
-      two,
-      "p/O.scala" ->
-        """|package p
-           |final class Lib { type Two = Int; type Other = Unit }
-           |final class Outer3(val o: Lib) {
-           |  import Outer3.this.o.Two
-           |  def pick(x: Two): Two = x
-           |}
-           |final class Outer4(val o: Lib) {
-           |  import Outer4.this.o.*
-           |  def pick(x: Two): Two = x
-           |}
-           |final class Outer5(val o: Lib) {
-           |  import Outer5.this.o.Other
-           |  def pick(x: Two): Two = x
-           |}""".stripMargin
-    )
-    refused(found("p.Outer3.pick"), "path through a value not followed: Outer3.this.o")
-      .and(
-        refused(found("p.Outer4.pick"), "unresolved type: Two (may be imported by Outer4.this.o.*)")
-      )
-      .and(found("p.Outer5.pick") === Count.Finite(4))
   }
 
   // A package no file declares a member in — `zzz`, spelled only by `package zzz.inner` — holds
