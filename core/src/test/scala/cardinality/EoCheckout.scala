@@ -29,12 +29,13 @@ object EoCheckout {
 
   // The survey scope of the earlier checkout run: production module sources only. Tests, demos
   // and benchmarks are not part of what a report on the project must process.
-  private val excludedRoots = List("benchmarks/", "tests/", "demos/")
+  private val excludedRoots = List("benchmarks/", "spark-bench/", "tests/", "demos/")
 
   def main(args: Array[String]): Unit = {
     require(
-      args.length == 3 || args.length == 4,
-      "usage: EoCheckout <checkout-directory> <output-directory> <revision> [classpath-file]"
+      args.length >= 3 && args.length <= 5,
+      "usage: EoCheckout <checkout-directory> <output-directory> <revision> [classpath-file] " +
+        "[source-regex]"
     )
     val checkout = Path.of(args(0)).toAbsolutePath.normalize()
     val output = Path.of(args(1))
@@ -43,7 +44,10 @@ object EoCheckout {
     val commit =
       Process("git", List("-C", checkout.toString, "rev-parse", "HEAD")).!!.trim
 
-    val selected = trackedSources(checkout)
+    // Which tracked sources are production code: `/src/main/` (sbt layout) unless the fifth
+    // argument says otherwise (Mill's `os/src/`, one module's `core/src/main/`).
+    val sources = args.lift(4).filter(_.nonEmpty).getOrElse("/src/main/").r
+    val selected = trackedSources(checkout).filter(sources.findFirstIn(_).nonEmpty)
     val inputs = selected.map { relative =>
       val text = Files.readString(checkout.resolve(relative), UTF_8)
       MethodAnalysis.Input(relative, dialects.Scala3(text).parse[Source].get)
@@ -88,11 +92,15 @@ object EoCheckout {
       )
 
     def key(entry: MethodAnalysis.Entry) = EoBaseline.identity(entry, trees(entry.path))
+    // A class and its companion object may declare the same member (`SourceIndex.importPath` in
+    // this repository): both rows carry one name, so the line tells them apart.
+    def ordering(entry: MethodAnalysis.Entry) = (key(entry), entry.line)
 
-    val forward = measured(inputs, dependencies).sortBy(key)
-    val reverse = measured(inputs.reverse, dependencies.reverse).sortBy(key)
+    val forward = measured(inputs, dependencies).sortBy(ordering)
+    val reverse = measured(inputs.reverse, dependencies.reverse).sortBy(ordering)
     require(reverse == forward, "method results depend on source input order")
-    require(forward.map(key).distinct.size == forward.size, "duplicate method row identity")
+    val duplicates = forward.groupBy(ordering).collect { case (k, es) if es.size > 1 => k }
+    require(duplicates.isEmpty, s"duplicate method row identity: ${duplicates.mkString("; ")}")
     val (definitions, rows) = checkedDefinitions(inputs, dependencies)
 
     val report = assemble(inputs, definitions, forward)
@@ -341,7 +349,6 @@ object EoCheckout {
     listing
       .split('\u0000')
       .filter(_.nonEmpty)
-      .filter(_.contains("/src/main/"))
       .filterNot(path => excludedRoots.exists(path.startsWith))
       .toList
       .sorted

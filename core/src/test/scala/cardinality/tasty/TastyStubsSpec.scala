@@ -207,4 +207,19 @@ class TastyStubsSpec extends Specification {
         javaStub("Shape") must contain("extends Box[java.lang.Boolean](_root_.compiledBodyNotRead)")
       )
   }
+
+  "a jar tasty-query cannot load renders nothing and says why, instead of failing the read" in {
+    // `Box.class` alone: its `InnerClasses` attribute names `Box$Point`, which the jar lacks (as a
+    // shaded jar can), so loading the jar's symbols throws.
+    val broken = Files.createTempDirectory("broken").resolve("broken.jar")
+    val out = new java.util.jar.JarOutputStream(Files.newOutputStream(broken))
+    out.putNextEntry(new java.util.jar.JarEntry("javafixtures/Box.class"))
+    out.write(getClass.getResourceAsStream("/javafixtures/Box.class").readAllBytes())
+    out.close()
+    val rendered = TastyStubs.render(
+      List(jarOf(classOf[Option[?]]), jarOf(classOf[scala.deriving.Mirror]), broken).distinct,
+      _ == broken
+    )
+    (rendered.stubs must beEmpty).and(rendered.errors.mkString must contain("broken.jar"))
+  }
 }

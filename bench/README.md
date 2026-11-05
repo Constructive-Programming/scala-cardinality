@@ -3,7 +3,7 @@
 JMH over a real checkout, the same inputs the `EoCheckout` runner reads. Not part of CI.
 
 ```bash
-git clone https://github.com/Constructive-Programming/eo /tmp/eo && git -C /tmp/eo checkout v1.0.0
+git clone https://github.com/Constructive-Programming/eo /tmp/eo && git -C /tmp/eo checkout v1.1.1
 cs fetch --scala-version 3.9.0 <the checkout's dependencies> > /tmp/eo-classpath.txt
 CARDINALITY_BENCH_CHECKOUT=/tmp/eo CARDINALITY_BENCH_CLASSPATH=/tmp/eo-classpath.txt \
   sbt "bench/Jmh/run"                       # all benchmarks

@@ -60,33 +60,39 @@ object TastyStubs {
     given Context = Context.initialize(perJar.flatMap(_._2) ++ ClasspathLoaders.read(List(jdk)))
     val chosen = perJar.filter((jar, _) => selected(jar)).flatMap((jar, es) => es.map(jar -> _))
     val declarations = StubDeclarations(javaClassfiles(chosen.map(_._2)))
-    val stubs = chosen.flatMap { (jar, entry) =>
-      // An entry with no packages (a resources-only jar) has no symbols to look up.
-      val symbols =
-        try ctx.findSymbolsByClasspathEntry(entry).toList
-        catch { case _: UnknownClasspathEntry => Nil }
-      val classes = symbols.collect {
-        case c: ClassSymbol
-            if c.sourceLanguage != SourceLanguage.Scala2 &&
-              (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
-              !stdlibOwned(packageOf(c)) && packages(packageOf(c)) =>
-          c
-      }
-      classes
-        .groupBy(c => (packageOf(c), sourceOf(c)))
-        .toList
-        .sortBy(_._1)
-        .map {
-          case ((pkg, source), cs) =>
-            val body = cs.sortBy(_.name.toString).flatMap { c =>
-              try declarations.topLevel(c)
-              catch { case NonFatal(e) => List(s"// not rendered: ${c.name}: ${e.getMessage}") }
-            }
-            val header = if (pkg.isEmpty) "" else s"package $pkg\n\n"
-            (s"$Prefix${jar.getFileName}/$source", header + body.mkString("\n\n") + "\n")
-        }
+    // An entry with no packages (a resources-only jar) has no symbols to look up; one tasty-query
+    // cannot load (a shaded jar's missing inner class, a second stdlib) renders nothing, said once.
+    val loaded = chosen.map { (jar, entry) =>
+      jar -> (try Right(ctx.findSymbolsByClasspathEntry(entry).toList)
+      catch {
+        case _: UnknownClasspathEntry => Right(Nil)
+        case NonFatal(e)              => Left(s"${jar.getFileName}: ${e.getMessage}")
+      })
     }
-    Rendered(stubs)
+    val stubs =
+      loaded.collect { case (jar, Right(symbols)) => jar -> symbols }.flatMap { (jar, symbols) =>
+        val classes = symbols.collect {
+          case c: ClassSymbol
+              if c.sourceLanguage != SourceLanguage.Scala2 &&
+                (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
+                !stdlibOwned(packageOf(c)) && packages(packageOf(c)) =>
+            c
+        }
+        classes
+          .groupBy(c => (packageOf(c), sourceOf(c)))
+          .toList
+          .sortBy(_._1)
+          .map {
+            case ((pkg, source), cs) =>
+              val body = cs.sortBy(_.name.toString).flatMap { c =>
+                try declarations.topLevel(c)
+                catch { case NonFatal(e) => List(s"// not rendered: ${c.name}: ${e.getMessage}") }
+              }
+              val header = if (pkg.isEmpty) "" else s"package $pkg\n\n"
+              (s"$Prefix${jar.getFileName}/$source", header + body.mkString("\n\n") + "\n")
+          }
+      }
+    Rendered(stubs, loaded.collect { case (_, Left(error)) => error })
   }
 
   /** A Java class's `.class` file facts, read from the rendered entries (a Java class's nested

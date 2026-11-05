@@ -35,7 +35,7 @@ class AnalysisBench {
     val listing = Process("git", List("-C", checkout.toString, "ls-files", "-z", "*.scala")).!!
     inputs = listing
       .split('\u0000')
-      .filter(p => p.contains("/src/main/") && !List("benchmarks/", "tests/", "demos/").exists(p.startsWith))
+      .filter(p => p.contains("/src/main/") && !List("benchmarks/", "spark-bench/", "tests/", "demos/").exists(p.startsWith))
       .toList
       .sorted
       .map(p =>

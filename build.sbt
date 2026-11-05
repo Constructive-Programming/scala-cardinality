@@ -5,7 +5,7 @@ version := "0.1.0-SNAPSHOT"
 organization := "io.github.constructive-programming"
 
 // Pinned to the Scala version sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is
-// 3.9.0, matching cats-eo 1.0.0): the sbt plugin — and `core`, which it loads — must
+// 3.9.0, matching cats-eo 1.1.1): the sbt plugin — and `core`, which it loads — must
 // be binary-loadable inside sbt, and Scala 3 binary compatibility is backward only.
 scalaVersion := "3.9.0"
 
@@ -24,9 +24,9 @@ lazy val core = project
   .settings(
     name := "scala-cardinality",
     libraryDependencies ++= Seq(
-      "dev.constructive" %% "cats-eo" % "1.0.0",
-      "dev.constructive" %% "cats-eo-generics" % "1.0.0",
-      "dev.constructive" %% "cats-eo-schemes" % "1.0.0",
+      "dev.constructive" %% "cats-eo" % "1.1.1",
+      "dev.constructive" %% "cats-eo-generics" % "1.1.1",
+      "dev.constructive" %% "cats-eo-schemes" % "1.1.1",
       "org.scalameta" %% "scalameta" % "4.17.4",
       // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
       "ch.epfl.scala" %% "tasty-query" % "1.9.0",
