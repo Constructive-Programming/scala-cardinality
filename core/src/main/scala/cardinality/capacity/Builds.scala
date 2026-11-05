@@ -2,7 +2,7 @@ package cardinality.capacity
 
 import scala.meta.*
 
-import cardinality.analysis.model.{MemberSyntax, Throws}
+import cardinality.analysis.model.Throws
 
 // Whether an instance of a template is ever built (registers D26 and D30; CROSSCHECK X6). A class
 // row counts what a constructor stores; a value row asks whether a value exists, and building one
@@ -13,10 +13,8 @@ import cardinality.analysis.model.{MemberSyntax, Throws}
 // value of its type, as concrete code obeys the model (D-env-concrete) — the method side's
 // `Construction` reads the same steps. This reading resolves no term name, so a term that throws if
 // its names are the root imports' leaves the construction unread rather than empty, as does a
-// private or protected constructor (`final class P private (i: Int)`: no caller is read), a context
-// argument implicit search supplies, an enum's companion whose construction is not read (it builds
-// the singleton cases), and a parent the estimate does not read (`ValueRowsSpec`'s
-// `unbuiltValues`).
+// private constructor (`final class P private (i: Int)`: no caller is read) and a parent the
+// estimate does not read.
 private[capacity] object Builds {
 
   /** Why no instance of `d`, written where `around` reads, is known to be built; None when every
@@ -27,22 +25,12 @@ private[capacity] object Builds {
     access(d)
       .map(restricted => s"$name, whose constructor is $restricted")
       .orElse(level(d, around, name, Nil))
-      .orElse(companion(d).flatMap(level(_, around, name, Nil)))
   }
 
   private def access(d: Defn): Option[String] = d match {
     case c: Defn.Class =>
-      c.ctor.mods.collectFirst {
-        case _: Mod.Private   => "private"
-        case _: Mod.Protected => "protected"
-      }
+      c.ctor.mods.collectFirst { case _: Mod.Private => "private" }
     case _ => None
-  }
-
-  // The companion of an enum with a singleton case: the cases are its values, built with it.
-  private def companion(d: Defn): Option[Defn.Object] = d match {
-    case e: Defn.Enum if EnumCompanions.singletons(e) => EnumCompanions.companion(e)
-    case _                                            => None
   }
 
   /** Whether an unread-construction reason says the construction provably builds nothing: a term it
@@ -84,8 +72,7 @@ private[capacity] object Builds {
     }
 
   // The parameters a parent's clause does not write: each takes its default, which is evaluated,
-  // or — a trait's — another clause's argument; a context clause left out is filled by implicit
-  // search, which is not read.
+  // or — a trait's — another clause's argument.
   private def omitted(init: Init, parent: Defn, leaf: String): Option[String] = {
     val clauses = parent match {
       case c: (Defn.Class | Defn.Trait) => c.ctor.paramClauses.toList
@@ -93,20 +80,15 @@ private[capacity] object Builds {
     }
     clauses.zipWithIndex.iterator
       .flatMap { (clause, i) =>
-        init.argClauses.lift(i) match {
-          case None if MemberSyntax.contextual(clause) =>
-            Some(s"$leaf, whose parent ${init.tpe.syntax} takes context arguments not written")
-          case written =>
-            val args = written.fold(List.empty[Term])(_.values)
-            val named = args.collect { case Term.Assign(Term.Name(n), _) => n }.toSet
-            val positional = args.count(!_.is[Term.Assign])
-            clause.values
-              .drop(positional)
-              .filterNot(p => named(p.name.value))
-              .flatMap(_.default)
-              .find(throws)
-              .map(_ => thrown(leaf))
-        }
+        val args = init.argClauses.lift(i).fold(List.empty[Term])(_.values)
+        val named = args.collect { case Term.Assign(Term.Name(n), _) => n }.toSet
+        val positional = args.count(!_.is[Term.Assign])
+        clause.values
+          .drop(positional)
+          .filterNot(p => named(p.name.value))
+          .flatMap(_.default)
+          .find(throws)
+          .map(_ => thrown(leaf))
       }
       .nextOption()
   }

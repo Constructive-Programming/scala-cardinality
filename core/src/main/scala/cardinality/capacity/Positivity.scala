@@ -67,10 +67,9 @@ private[capacity] object Positivity {
   ) {
 
     // The types a definition's value is made of: an alias's body, a class's or an enum's stored
-    // fields and evidence, and what a member of a value it stores makes a field.
+    // fields and evidence.
     private def types(name: TypeName): List[Type] =
-      shapes.aliases.get(name).flatten.toList ++ shapes.arms.getOrElse(name, Nil).flatten ++
-        shapes.reads.getOrElse(name, Nil)
+      shapes.aliases.get(name).flatten.toList ++ shapes.arms.getOrElse(name, Nil).flatten
 
     /** The names a definition mentions in a non-positive position, each with its cause. */
     def nonPositive(

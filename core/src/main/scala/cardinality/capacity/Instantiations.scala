@@ -1,6 +1,5 @@
 package cardinality.capacity
 
-import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.types.*
@@ -46,43 +45,24 @@ private[capacity] object Instantiations {
     def in(scope: Scope): Scope = scope.instantiating(sizes, stand, held)
   }
 
-  /** One instantiation, read: the definition's recursion on its own parameters reads the fixed
-    * point being found, a re-entry is a reason, a recursion through a non-positive position has no
-    * count, a match type reduces on the arguments' syntax, and everything else substitutes the
-    * arguments into the equation.
+  /** One instantiation, read: a re-entry — a recursion through instantiations, its own included —
+    * is a reason, a match type reduces on the arguments' syntax, and everything else substitutes
+    * the arguments into the equation.
     */
-  def read(i: Instance): Size = {
-    val self = i.scope
-      .readingItself(i.named)
-      .exists(own =>
-        own.size == i.args.size && own.zip(i.args).forall {
-          case (Some(param), Type.Name(arg)) => arg == param.value
-          case _                             => false
-        }
+  def read(i: Instance): Size =
+    if (Scope.activeLens.get(i.context)(i.name)) {
+      // Re-entered (`Ev[A]` inside `Od[A]` inside `Ev[A]`): no fixed point is solved for it, and
+      // the name itself is not unknown.
+      i.scope.note(
+        Definition.Unbound.Refusal(s"recursive instantiation not solved: ${Spelling.of(i.callee)}")
       )
-    val current =
-      if (self) i.scope.noticeRecursion(i.named).orElse(i.context.size(i.name)) else None
-    current.getOrElse {
-      val blocked = i.context.blocking(i.name)
-      blocked.foreach(i.scope.noteBlocked(i.name, _, Some(i.named)))
-      if (Scope.activeLens.get(i.context)(i.name)) {
-        // Re-entered through another definition's instantiation (`Ev[A]` inside `Od[A]` inside
-        // `Ev[A]`): no fixed point is solved for the pair, and the name itself is not unknown.
-        i.scope.note(
-          Definition.Unbound.Refusal(
-            s"recursive instantiation not solved: ${Spelling.of(i.callee)}"
-          )
-        )
-        EffectiveOmega
-      } else if (blocked.exists(_.uncounted)) EffectiveOmega
-      else i.named.matchType.fold(substituted(i))(reduced(i, _))
-    }
-  }
+      EffectiveOmega
+    } else i.named.matchType.fold(substituted(i))(reduced(i, _))
 
   // The instantiation's frame is the only one its equation reads: the definition's names resolve
   // where it was written, not in whatever instantiation the reference sits in.
   private def substituted(i: Instance): Size =
-    fixed(frame(i.scope, i.written).in(i.entered), i.named, i.callee)
+    i.named.equation(frame(i.scope, i.written).in(i.entered))
 
   // A match type reduces on the arguments' *syntax*. They, and the parts of them a case pattern
   // binds, are read where the reference is; the case body where the match type is written, with
@@ -120,36 +100,6 @@ private[capacity] object Instantiations {
       placeholders(in, bindings),
       bindings.map((param, arg) => param -> argument(in, arg))
     )
-
-  // An instantiation that recurses on its own parameters is its own least fixed point, found by
-  // Kleene iteration from 0 and widened, as the solver widens a cycle, once it grows twice in a row.
-  // The template's fixed point would not do: it reads the parameters as placeholders, so it is ω
-  // where `T[Nothing]` of `enum T[A] { case Leaf(a: A); case Node(l: T[A], r: T[A]) }` is 0. A
-  // sum-of-products recursion that grows twice grows without bound; one through a `&` (read as
-  // `min`) may still settle, which a widened value the equation falls below shows: a reason. A
-  // recursion through a non-positive position never gets here (`Positivity`).
-  private def fixed(read: Scope, named: Named, callee: Type): Size = {
-    def at(value: Size): (Size, Boolean) = {
-      val probe = new Recursion(named, value)
-      (named.equation(Scope.recursionLens.replace(Some(probe))(read)), probe.recursed)
-    }
-    def widened(next: Size): Size = {
-      val bound = next.widen
-      if (bound.larger(at(bound)._1))
-        read.note(
-          Definition.Unbound.Refusal(s"recursive instantiation not settled: ${Spelling.of(callee)}")
-        )
-      bound
-    }
-    @tailrec def iterate(value: Size, grew: Boolean): Size = {
-      val next = at(value)._1
-      if (next == value) value
-      else if (grew) widened(next)
-      else iterate(next, grew = true)
-    }
-    val (first, recursed) = at(NothingSize)
-    if (!recursed || first == NothingSize) first else iterate(first, grew = false)
-  }
 
   // The parameter a match type inspects, when its scrutinee is one of them as written.
   private def scrutinee(matchType: Type, written: Map[TypeName, Type]): Option[TypeName] =

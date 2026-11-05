@@ -48,10 +48,6 @@ private[capacity] object EnumCompanions {
       case o: Defn.Object if o.name.value == e.name.value => o
     }
 
-  /** Whether an enum has a singleton case: a value of its companion, built with it. */
-  def singletons(e: Defn.Enum): Boolean =
-    (ScopeTerms.enumCases(e).toSet -- ScopeTerms.classCases(e)).nonEmpty
-
   /** The scope an enum's case parameters read in, from the scope around the enum: the companion's —
     * the explicit one's view, else the cases alone — with the case's copy of the enum's type
     * parameters innermost (Scala 3.9.0 builds `E.C(E.A(true))` for `case C(a: A)` beside another

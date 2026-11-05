@@ -66,24 +66,18 @@ private[cardinality] enum Blocked(val reason: String) {
     case _                   => s"$reason: $name"
   }
 
-  /** Whether the definition has no count at all, not only an incomplete one. */
-  def uncounted: Boolean = this != Lazy
 }
 
 /** How a read is made: `template` frames bind a definition's own parameters while its reasons are
   * collected; `placeholders` stand for parameters no instantiation fixed; `arguments` are what the
-  * frame's names were written as; `active` guards re-entry; `self` and `summing` say whose own
-  * equation is read; `recursion` notices an instantiation's recursion on its parameters;
-  * `recording` and `taint` collect a row's reasons; `saturating` marks the method side's reading.
+  * frame's names were written as; `active` guards re-entry; `recording` and `taint` collect a row's
+  * reasons; `saturating` marks the method side's reading.
   */
 final private[cardinality] case class Session(
     template: Boolean = false,
     placeholders: Set[TypeName] = Set.empty,
     arguments: Map[TypeName, Argument] = Map.empty,
     active: Set[TypeName] = Set.empty,
-    self: Option[Itself] = None,
-    summing: List[Itself] = Nil,
-    recursion: Option[Recursion] = None,
     recording: Boolean = false,
     taint: Option[Taint] = None,
     saturating: Boolean = false,
@@ -93,19 +87,6 @@ final private[cardinality] case class Session(
   * reads it: a match type over the parameter reduces on this syntax, its parts read where written.
   */
 final private[cardinality] case class Argument(tpe: Type, in: Scope)
-
-/** The definition whose own equation is being read, and the names that stand for its parameters
-  * there, slot by slot — its own, or, while a sealed parent reads a subtype, the subtype's
-  * parameters each slot binds (none for a slot pinned bottom-up) — so that a reference applying it
-  * to them is its recursion.
-  */
-final private[cardinality] case class Itself(named: Named, own: List[Option[TypeName]])
-
-private[cardinality] object Itself {
-
-  /** A definition reading its own equation: its parameters stand for themselves. */
-  def of(named: Named): Itself = Itself(named, named.params.map(Some(_)))
-}
 
 /** What a term name denotes where it is read: an object, by the key prefix its members are solved
   * under (and what a clause over it imports, `Exposure`), or a value (a `val`, a parameter, a
@@ -140,18 +121,6 @@ final private[cardinality] case class Layer(
     rekey: Option[TypeName => TypeName] = None,
 )
 
-/** One instantiation of `named` being solved for its own least fixed point: the approximation its
-  * recursion on its own parameters reads (`value`), and whether it read one.
-  */
-final private[cardinality] class Recursion(val named: Named, val value: Size) {
-
-  private var read = false
-
-  def recursed: Boolean = read
-
-  def notice(): Size = { read = true; value }
-}
-
 /** One reference's collection of reasons: each definition it reads adds its reasons once, and a
   * definition on a lazy cycle is named once, whichever key or plain name it is read by.
   */
@@ -181,23 +150,12 @@ private object Taint {
 
 }
 
-/** The type members a class, trait or enum (`owner`) declares: what an instance path (`x.B`)
-  * resolves to; abstract ones are supplied by implementors. `defn` is the definition, and `around`
-  * builds the scope it is written in — where its parent clauses read (`Inheritance`); its own body
-  * reads in `inside`, where a member's syntax means what it was written to mean.
+/** A class, trait or enum (`owner`) as a parent: `defn` is the definition, and `around` builds the
+  * scope it is written in — where its parent clauses read (`Inheritance`).
   */
-final private[cardinality] class Members(
-    val owner: TypeName,
-    val params: List[TypeName],
-    val declared: Map[TypeName, Type],
-    val abstractMembers: Set[TypeName],
-    val defn: Defn,
-    around: () => Scope,
-) {
+final private[cardinality] class Members(val owner: TypeName, val defn: Defn, around: () => Scope) {
 
   lazy val outside: Scope = around()
-
-  lazy val inside: Scope = Walk.bodyScope(outside, defn)(Walk.solved)
 }
 
 /** A declared type parameter and its own arity: `F[_]` has one, `F[_, _]` two, plain `A` none. */
@@ -287,7 +245,7 @@ final private[cardinality] class Scope(
           .get(name)
           .flatMap(selected(name, _))
           .orElse(wildcard(name))
-          .orElse(world.library.member(name, world, this))
+          .orElse(world.library.member(name, world))
           .getOrElse(Binding.Free)
     }
 
@@ -397,8 +355,6 @@ final private[cardinality] class Scope(
   /** The explicit clause that binds a term name, or a type name, if one does. */
   def clause(name: TypeName): Option[Selector] = world.imports.terms.get(name)
 
-  def typeClause(name: TypeName): Option[Selector] = world.imports.types.get(name)
-
   def library: Library = world.library
 
   /** The packages the read's clauses open, innermost first; the empty package with none. */
@@ -430,18 +386,6 @@ final private[cardinality] class Scope(
   def unfixed(name: TypeName): Boolean =
     if (frame(name).isDefined) world.session.template || world.session.placeholders(name)
     else unboundBinder(name)
-
-  /** The names that stand for `named`'s parameters when its own equation is what is being read: a
-    * reference applying it to them is a recursion, not an instantiation.
-    */
-  def readingItself(named: Named): Option[List[Option[TypeName]]] =
-    (world.session.self.toList ++ world.session.summing).find(_.named eq named).map(_.own)
-
-  /** The approximation the instantiation of `named` being solved reads for its own recursion,
-    * marking that the recursion was read.
-    */
-  def noticeRecursion(named: Named): Option[Size] =
-    world.session.recursion.filter(_.named eq named).map(_.notice())
 
   /** Whether the sources bind a name here, which takes it from the standard library's base type of
     * that spelling: a root import is the outermost binding there is.
@@ -476,7 +420,6 @@ final private[cardinality] class Scope(
         session = other.world.session.copy(
           template = false,
           active = other.world.session.active ++ session.active,
-          recursion = session.recursion,
           saturating = session.saturating,
           recording = session.recording,
           taint = if (session.recording) Some(session.taint.getOrElse(new Taint)) else None,
@@ -517,7 +460,7 @@ final private[cardinality] class Scope(
       world.copy(
         frames = List(frame),
         session = world.session
-          .copy(template = false, placeholders = placeholders, arguments = arguments, summing = Nil)
+          .copy(template = false, placeholders = placeholders, arguments = arguments)
       ),
       outer
     )
@@ -649,7 +592,6 @@ final private[cardinality] class Scope(
   def overcounts: List[Overcount] = world.session.taint.fold(Nil)(_.overcounts)
 
   /** Records a name directly, for a reason that is not a type's own syntax. */
-  def note(name: String): Unit = note(Definition.Unbound.Unknown(name))
 
   /** Records an abstraction a member is supplied by, named as the reference is written. */
   def noteOpen(reference: String): Unit = note(Definition.Unbound.Open(reference))
@@ -749,9 +691,6 @@ private[cardinality] object Scope {
   val membersOfLens = familiesLens.andThen(lens[Families](_.members))
   val refusedLens = familiesLens.andThen(lens[Families](_.refused))
   val activeLens = sessionLens.andThen(lens[Session](_.active))
-  val selfLens = sessionLens.andThen(lens[Session](_.self))
-  val summingLens = sessionLens.andThen(lens[Session](_.summing))
-  val recursionLens = sessionLens.andThen(lens[Session](_.recursion))
   val recordingLens = sessionLens.andThen(lens[Session](_.recording))
   val saturatingLens = sessionLens.andThen(lens[Session](_.saturating))
 
@@ -759,9 +698,8 @@ private[cardinality] object Scope {
 
 /** One named definition a reference can resolve: the type parameters it declares, what its type is
   * worth with those parameters in scope, the scope its own syntax reads in (`read`, from the scope
-  * a reader hands it) — what a match type's case body is read in — for an opaque alias, its
-  * definition (`OpaqueScopes`), whether an enum has a parameterless case (`constant`), and why an
-  * instance of a class or enum is not known to be built (`Construction`).
+  * a reader hands it) — what a match type's case body is read in — and for an opaque alias, its
+  * definition (`OpaqueScopes`).
   */
 final private[cardinality] case class Named(
     params: List[TypeName],
@@ -770,23 +708,13 @@ final private[cardinality] case class Named(
     children: List[Child] = Nil,
     read: Scope => Scope = identity,
     opaque: Option[Defn.Type] = None,
-    constant: Boolean = false,
-    built: Scope => Option[String] = _ => None,
 ) {
-
-  /** Whether every instantiation has a value, whatever its arguments, read where `in` reads it: an
-    * enum's parameterless case without `extends`, or a summed family's module, built (`Builds`).
-    */
-  def witnessed(in: Scope): Boolean =
-    constant && built(in).isEmpty ||
-      children.exists(c => c.module && c.standard(in).isEmpty && c.built(in).isEmpty)
 
   /** The same definition read through `view`: how a body hands its own syntax its lexical scope. */
   def viewed(view: Scope => Scope): Named =
     copy(
       equation = sc => equation(view(sc)),
-      read = sc => read(view(sc)),
-      built = sc => built(view(sc))
+      read = sc => read(view(sc))
     )
 
 }

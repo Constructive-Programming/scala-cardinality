@@ -112,7 +112,7 @@ private[cardinality] object Walk {
 
   // Solving reads no row's reasons: a row re-reads its own syntax once the body is solved. Every
   // equation reads with the binders of the place it was written and with its own statement's view,
-  // and knows itself (`Scope.readingItself`), whoever reads it.
+  // whoever reads it.
   private def system(bodies: List[Body], base: Scope): Scope = {
     val stats = bodies.flatMap(_.stats)
     val views = bodies.flatMap(b => Namespaces.views(b.modules, b.viewAt))
@@ -196,19 +196,12 @@ private[cardinality] object Walk {
   private def within(named: Named, view: Scope => Scope): Named =
     named.viewed(view)
 
-  // An equation that reads with `site`'s binders and knows itself, so a reference to it with its
-  // own parameters inside its own equation is a recursion — and the same spelling anywhere else is
-  // not.
-  private def mark(named: Named, site: List[Binder]): Named = {
-    lazy val self: Named = named.copy(
-      equation = sc =>
-        named.equation(
-          Scope.selfLens.replace(Some(Itself.of(self)))(Scope.bindersLens.replace(site)(sc))
-        ),
+  // An equation that reads with `site`'s binders.
+  private def mark(named: Named, site: List[Binder]): Named =
+    named.copy(
+      equation = sc => named.equation(Scope.bindersLens.replace(site)(sc)),
       read = sc => named.read(Scope.bindersLens.replace(site)(sc))
     )
-    self
-  }
 
   /** Each package body of a source (`unit`), flattened to the path an editor shows (`package a`
     * then `package b` is `a.b`), with what the file adds to reads inside it: chained clauses open
@@ -314,7 +307,7 @@ private[cardinality] object Walk {
   }
 
   /** The scope a definition's body reads in, entered as the walk enters it — an object through its
-    * view, a class or enum with its own value bound, any of them with its binders — with `solve`
+    * view, a concrete class with its own value bound, any of them with its binders — with `solve`
     * standing in for solving the body's statements.
     */
   private[cardinality] def bodyScope(scope: Scope, d: Defn)(
@@ -325,9 +318,6 @@ private[cardinality] object Walk {
       case o: Defn.Object => moduleView(scope, o).getOrElse(solve(template(d), declared(scope, d)))
       case c: Defn.Class if Counter.isConcreteClass(c) =>
         solve(template(d), declared(own, d).updated(named(d), sizeOf(own)(d)))
-      case e: Defn.Enum =>
-        val body = EnumCompanions.bodyScope(Inheritance.enter(own, e), e)
-        solve(template(d), body.updated(named(d), sizeOf(own)(d)))
       case _ => solve(template(d), declared(scope, d))
     }
   }
@@ -339,22 +329,9 @@ private[cardinality] object Walk {
       case Bound.Module(prefix, _) => Namespaces.Module(named(d), prefix, d).view(scope)
     }
 
-  // The type members a body declares: what a qualified reference can resolve to. A member with a
-  // body reads as written, in the body that declares it; an abstract one is supplied by
-  // implementors. `around` is the scope the definition is written in.
-  private[cardinality] def members(d: Defn, owner: TypeName, around: () => Scope): Members = {
-    val stats = template(d)
-    new Members(
-      owner,
-      Counter.parameterNames(d),
-      stats.collect {
-        case t: Defn.Type if !t.mods.exists(_.is[Mod.Opaque]) => TypeName.of(t.name.value) -> t.body
-      }.toMap,
-      stats.collect { case t: Decl.Type => TypeName.of(t.name.value) }.toSet,
-      d,
-      around,
-    )
-  }
+  // A class, trait or enum as a parent; `around` is the scope the definition is written in.
+  private[cardinality] def members(d: Defn, owner: TypeName, around: () => Scope): Members =
+    new Members(owner, d, around)
 
   /** The term names a definition's body binds: its constructor parameters, with their declared
     * types, its self alias (`self: Prism =>`, of the type it declares; `self =>` is `this`, of no
@@ -394,7 +371,6 @@ private[cardinality] object Walk {
         )
       case v: Defn.Val => values(v.pats, v.decltpe.orElse(constructed(v.rhs)))
       case v: Defn.Var => values(v.pats, v.decltpe)
-      case v: Decl.Val => values(v.pats, Some(v.decltpe))
       case d: Defn.Def => List(TypeName.of(d.name.value) -> Bound.Value(None))
       case d: Decl.Def => List(TypeName.of(d.name.value) -> Bound.Value(None))
       case g: Defn.GivenAlias if g.name.value.nonEmpty =>
@@ -403,8 +379,7 @@ private[cardinality] object Walk {
     }.toMap
 
   // The names a `val` binds. A single variable has the declared or constructed type; every
-  // variable of a tuple, extractor or typed pattern is a value whose type is not read here (a typed
-  // one, `(p: Prism, n)`, has the type it is ascribed).
+  // variable of a tuple, extractor or typed pattern is a value whose type is not read here.
   private def values(pats: List[Pat], known: Option[Type]): List[(TypeName, Bound)] =
     pats.flatMap {
       case Pat.Var(name) => List(TypeName.of(name.value) -> Bound.Value(known))
@@ -412,9 +387,8 @@ private[cardinality] object Walk {
     }
 
   private def variables(pattern: Tree): List[(TypeName, Bound)] = pattern match {
-    case Pat.Typed(Pat.Var(name), tpe) => List(TypeName.of(name.value) -> Bound.Value(Some(tpe)))
-    case Pat.Var(name)                 => List(TypeName.of(name.value) -> Bound.Value(None))
-    case other                         => other.children.flatMap(variables)
+    case Pat.Var(name) => List(TypeName.of(name.value) -> Bound.Value(None))
+    case other         => other.children.flatMap(variables)
   }
 
   // The class `new C(...)` constructs, without a refinement: the value's type, read syntactically.
@@ -556,12 +530,10 @@ private[cardinality] object Walk {
       scope.size(named(other)).getOrElse(measured)
   }
 
-  // Measures one definition with a scope that records only its own reasons, reading as the
-  // definition's own equation does — so a reference to itself is its recursion — and noting a
-  // lazy cycle the solver could not complete.
+  // Measures one definition with a scope that records only its own reasons, noting a lazy cycle
+  // the solver could not complete.
   private def measured(scope: Scope, d: Defn)(f: Scope => Introduced): Introduced = {
-    val own = Scope.selfLens.replace(scope.definition(named(d)).map(Itself.of))(scope)
-    val s = Counter.signature(d)(own).measured
+    val s = Counter.signature(d)(scope).measured
     s.blocking(named(d)).foreach(s.noteBlocked(named(d), _, s.definition(named(d))))
     f(s)
   }

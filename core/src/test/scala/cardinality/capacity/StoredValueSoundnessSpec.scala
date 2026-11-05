@@ -33,12 +33,10 @@ class StoredValueSoundnessSpec extends Specification {
     Recursion and match types the model does not count stay unknown
       recursion through a function's domain has no count          $negativeRecursion
       a constructor's slots are its declaration's, never its name $constructorSlots
-      a cycle through a value's type member has no count          $unseenCycle
 
     Reasons, evidence, containers, members, match types and marks
       a reference carries the reasons of what it reads            $taint
       context bounds are constructor inputs                       $contextBounds
-      a named context bound is the bound's evidence               $namedBound
       a finite collection keeps its element's tier                $containers
       an enclosing template's abstract member is a parameter      $abstractMember
       a floating-point stand-in survives sums and products        $lossy
@@ -122,6 +120,8 @@ class StoredValueSoundnessSpec extends Specification {
   private def notSummed(family: String, why: String) =
     s"unresolved[sealed family not summed: $family ($why)]"
 
+        ) === notSummed("W", "a template the estimate does not read: Defn.Class")
+          "a subtype open to extension: C (parent not read: Exception)"
   // `X extends WA` with `type WA = W` is a subtype the parent's name does not spell (the sum would
   // say 1, the truth is 1 + 2); so is `new WA {}`. `Both` reaches `D` through `D1` and `D2`: a
   // summand counted twice. The method side refuses the same constructors.
@@ -157,7 +157,7 @@ class StoredValueSoundnessSpec extends Specification {
       .and(constructor("x2.Use.<init>", clauses) must beLike { case Count.Unresolved(_) => ok })
   }
 
-  // An object's parent or export binds the parent's name inside it (scalac: `val y: P = O.Z`
+  // An object's parent binds the parent's name inside it (scalac: `val y: P = O.Z`
   // fails, `val x: Base.P = O.Z` compiles): the top-level `P` has the one subtype `A`, so |Use| =
   // 1 (the sum said 2). `Base#P`'s subtype sits in `O`, outside its body: refused. A parent the
   // file does not declare may bind it: refused. A same-file parent without a `P` changes nothing.
@@ -165,15 +165,12 @@ class StoredValueSoundnessSpec extends Specification {
     val inherited =
       "sealed trait P\ncase object A extends P\ntrait Base { sealed trait P }\nobject O extends Base { case object Z extends P }\nfinal case class Use(p: P)"
     val found = rows(inherited)
-    val exported = rows(
-      "sealed trait P\ncase object A extends P\nobject Other { sealed trait P }\nobject O { export Other.P; case object Z extends P }\nfinal case class Use(p: P)"
-    )
     (found(("Use", Class)) === "1")
       .and(
-        found(("Base#P", Abstract)) === notSummed("P", "a subtype outside its body and objects: Z")
+        found(("Base#P", Abstract)) ===
+          notSummed("P", "a template the estimate does not read: Defn.Object")
       )
       .and(constructor("Use.<init>", "A.scala" -> inherited) === Count.Finite(1))
-      .and(exported(("Use", Class)) === "1")
       .and(
         refused(
           "sealed trait P\ncase object A extends P\nobject O extends zz.Base { case object Z extends P }\nfinal case class Use(p: P)"
@@ -194,8 +191,7 @@ class StoredValueSoundnessSpec extends Specification {
     ) === notSummed("P", "a subtype pins it with Nothing, which a source binds: Z")
 
   // `case Y extends E[Int]` is an `E[Int]` only (scalac: `val y: P[Boolean] = E.Y` fails): |E
-  // [Boolean]| = |X[Boolean]| = 2, which a sum over every case says is 3 — directly, and as a sealed
-  // family's subtype. A bottom pin is a member of every instantiation: |H[Boolean]| = 1 + 2.
+  // [Boolean]| = |X[Boolean]| = 2, which a sum over every case says is 3. A bottom pin is a member of every instantiation: |H[Boolean]| = 1 + 2.
   def enumCases = {
     val gadt =
       "enum E[A] {\n  case X(a: A)\n  case Y extends E[Int]\n}\nfinal case class Use(e: E[Boolean])"
@@ -205,11 +201,6 @@ class StoredValueSoundnessSpec extends Specification {
     (refused(gadt) === reason)
       .and(
         refused(
-          "sealed trait P[A]\nenum E[A] extends P[A] {\n  case X(a: A)\n  case Y extends E[Int]\n}\nfinal case class Use(p: P[Boolean])"
-        ) === reason
-      )
-      .and(
-        refused(
           "enum H[+A] { case N extends H[Nothing]; case V(a: A) }\nfinal case class Use(h: H[Boolean])"
         ) ===
           "3"
@@ -217,8 +208,8 @@ class StoredValueSoundnessSpec extends Specification {
   }
 
   // `MC(f: M => Boolean)` from 0 reads 0 (the empty domain), yet `MC(_ => true)` is a closed value,
-  // and X ≅ 2^X has no solution: no count, directly, through a generic family (`N[A]`) or through
-  // another definition's domain (`Pred[K]`). A recursion through a function's result is counted.
+  // and X ≅ 2^X has no solution: no count, directly or through another
+  // definition's domain (`Pred[K]`). A recursion through a function's result is counted.
   def negativeRecursion = {
     val code =
       """|sealed trait M
@@ -240,7 +231,6 @@ class StoredValueSoundnessSpec extends Specification {
         .map(n => s"recursion through a function's domain: $n")
         .mkString("unresolved[", ", ", "]")
     (found(("UseM", Class)) === negative("M", "MC"))
-      .and(found(("UseN", Class)) === negative("N"))
       .and(found(("UseK", Class)) === negative("K", "KC"))
       .and(found(("Res", Class)) === "ω")
       .and(constructor("UseN.<init>", "A.scala" -> code) must beLike {
@@ -279,32 +269,11 @@ class StoredValueSoundnessSpec extends Specification {
       )
   }
 
-  // `x: q.X` reads class `C`'s member through the value `q`, which the solver reads over an earlier
-  // solve of the body and never iterates from 0: with `X = D => Boolean`, D ≅ 2^D has no count
-  // (scalac: `D(c)(_ => true)` and `D(c)(_ => false)` are values; the old reading said ω); with
-  // `X = D` there is no value at all and with `X = Option[D]` there are ω, neither of which the
-  // earlier solve's ω placeholder says: each is a reason, never the number.
-  def unseenCycle = {
-    val negative = rows(
-      "final class C { type X = D => Boolean }\nfinal case class D(q: C)(x: q.X)\nfinal case class UseD(d: D)"
-    )
-    val hidden = "unresolved[recursion through a type member of a value: D]"
-    (negative(("UseD", Class)) === "unresolved[recursion through a function's domain: D]")
-      .and(
-        rows("final class C { type X = D }\nfinal case class D(q: C)(x: q.X)")(
-          ("D", Class)
-        ) === hidden
-      )
-      .and(
-        rows("final class C { type X = Option[D] }\nfinal case class D(q: C)(x: q.X)")(
-          ("D", Class)
-        ) === hidden
-      )
   }
 
   // Every reader of a definition resting on an unknown name rests on it too — through a generic
   // instantiation, a field, an `Either`, two hops, and a product with an empty factor (0·? is not
-  // claimed as 0); a `Throwable` is an open class, left to its implementations. A reference that
+  // claimed as 0); a bare `Throwable` is unresolved. A reference that
   // supplies a definition's parameters owes none of them: |Gen[Boolean]| = 2; `Gen[B]` waits for
   // B; an open member keeps the reader open.
   def taint = {
@@ -316,7 +285,7 @@ class StoredValueSoundnessSpec extends Specification {
     (found(("b.Bar", Class)) === "unresolved[Schema]")
       .and(found(("b.Local", Class)) === "unresolved[Schema]")
       .and(found(("b.Nested", Class)) === "unresolved[Schema]")
-      .and(found(("b.Res", Alias)) === "open[Throwable]")
+      .and(found(("b.Res", Alias)) === "unresolved[Throwable]")
       .and(found(("b.Res2", Alias)) === "unresolved[Schema]")
       .and(found(("b.Zero", Class)) === "unresolved[Schema]")
       .and(found(("b.G1", Class)) === "2")
@@ -346,12 +315,6 @@ class StoredValueSoundnessSpec extends Specification {
       .and(found(("UsesTwo", Class)) === "4")
       .and(constructor("UsesTwo.<init>", "A.scala" -> code) === Count.Finite(4))
   }
-
-  // `T: Ord as o` names the evidence `o`; the field is still an `Ord[T]`: |U3| = 1·|Ord[Unit]| = 2.
-  def namedBound =
-    rows(
-      "sealed trait Ord[A]\nfinal case class ByBool[A](f: A => Boolean) extends Ord[A]\nfinal case class C3[T: Ord as o](t: T)\nfinal case class U3(c: C3[Unit])"
-    )(("U3", Class)) === "2"
 
   // |C[A]| ≥ |A| (the one-element collections): over an ε₀-tier element (`String => String`,
   // `Any`) a List, Array, Set, Vector, a Map's keys or values, or a repeated parameter is ε₀; over

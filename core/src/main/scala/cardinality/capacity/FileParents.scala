@@ -2,14 +2,12 @@ package cardinality.capacity
 
 import scala.meta.*
 
-import cardinality.analysis.StdlibModel
 import cardinality.analysis.model.MemberSyntax
 import cardinality.capacity.ParentNames.Denotes
 import cardinality.types.{Overrides, SealedSlots, Trees, TypeApplications}
 
 // A case class subtype's parents as its file reads them: a class or trait of the file the plain
-// name denotes where the clause is written (`ParentNames`), or a parent the stdlib model reads.
-// Anything else, a qualified parent among them, is not read.
+// name denotes where the clause is written (`ParentNames`). Anything else is not read.
 final private[capacity] class FileParents(leaf: Defn.Class) extends Overrides.Parents[Defn] {
 
   def body(level: Defn): List[Stat] = template(level).fold(List.empty[Stat])(_.body.stats)
@@ -34,8 +32,7 @@ final private[capacity] class FileParents(leaf: Defn.Class) extends Overrides.Pa
       }
       .headOption match {
       case Some(declared) => Overrides.Parent.Source(declared)
-      case None           =>
-        StdlibModel.leafParent(name).fold(Overrides.Parent.Unread)(Overrides.Parent.Library(_))
+      case None           => Overrides.Parent.Unread
     }
 
   private def template(level: Defn): Option[Template] = level match {

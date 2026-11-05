@@ -24,7 +24,6 @@ class NamespaceScopingSpec extends Specification {
       an explicitly imported or bound constructor name is not the standard one  $modelledShadowing
 
     Term bindings and type bindings are Scala's
-      a package value, a pattern variable and a self alias are first names  $termBindings
       a class member's owner binds as any type name does          $ownerShadowing
       an abstract type member shadows an outer type               $abstractMember
       a generic definition named without arguments has no value space  $typeConstructor
@@ -159,28 +158,6 @@ class NamespaceScopingSpec extends Specification {
       .and(rows("final case class Plain(o: Option[Boolean])")(("Plain", Class)) === "3")
   }
 
-  // `x` under `package a; package b` is the inner package's `val x: Foo` (Foo's `T = Boolean`, 2),
-  // not package `a`'s object (Unit). `val (p, n) = …` binds `p` with no type read here: `p.X` is
-  // its own reason, never the object `p`'s Unit. `self: Prism =>` binds `self` to a `Prism`, whose
-  // `X = Boolean` (2), not the object `self`'s Unit. scalac accepts `true` for each. The method side's
-  // lookup refuses a path through the value `x` rather than read package `a`'s object (1), and the
-  // constructor counts the estimate's 2.
-  def termBindings = {
-    val pkg = List(
-      "A.scala" -> "package a\nobject x { type T = Unit }",
-      "B.scala" -> "package a.b\nfinal class Foo { type T = Boolean }\nval x: Foo = new Foo",
-      "C.scala" -> "package a\npackage b\ntype Y = x.T\nfinal case class UsesT(t: x.T)",
-    )
-    val local = rows(
-      "object p { type X = Unit }\nfinal class Prism { type X = Boolean }\nfinal class H { val (p, n) = (new Prism, 1); type Y = p.X }\nobject self { type X = Unit }\nclass Pr { type X = Boolean }\ntrait T { self: Pr => type Y = self.X }"
-    )
-    (rowsOf(pkg*)(("a.b.Y", Alias)) === "2")
-      .and(rowsOf(pkg*)(("a.b.UsesT", Class)) === "2")
-      .and(constructor("a.b.UsesT.<init>", pkg*) === Count.Finite(2))
-      .and(local(("H#Y", Alias)) === "unresolved[p.X]")
-      .and(local(("T#Y", Alias)) === "2")
-  }
-
   // `p: Prism` reads `p.X` through whatever `Prism` binds where `p` is: `O`'s alias `Prism =
   // Other`, which has no members of its own here, or `Holder`'s type parameter `Prism <: Other` —
   // never the package's class `Prism` (`X = Unit`, 1). Both are `?`.
@@ -203,7 +180,7 @@ class NamespaceScopingSpec extends Specification {
       .and(found(("O.UV", Class)) === "open[V]")
   }
 
-  // `O.Pair2`, `O.One` and `Pair3` are type constructors: |Pair2[Nothing]| = 0, |Pair2[Boolean]|
+  // `O.Pair2` and `O.One` are type constructors: |Pair2[Nothing]| = 0, |Pair2[Boolean]|
   // = 4, so no one number is theirs (before: the template's placeholder ω, and 1).
   def typeConstructor = {
     val found = rows(
@@ -211,7 +188,6 @@ class NamespaceScopingSpec extends Specification {
     )
     (found(("Qual", Alias)) === "unresolved[type constructor: O.Pair2]")
       .and(found(("Qual1", Alias)) === "unresolved[type constructor: O.One]")
-      .and(found(("Bare", Alias)) === "unresolved[type constructor: Pair3]")
   }
 
   // `tail: Thunk` with `type Thunk = () => Cell` is a lazy field: `Cell(s: S)` and `S` form a lazy

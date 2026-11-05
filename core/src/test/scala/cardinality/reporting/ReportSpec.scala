@@ -28,7 +28,6 @@ class ReportSpec extends Specification {
       a companion object keeps its own value    $companions
       signatures carry their parameters         $signatures
       an applied user type substitutes arguments  $appliedType
-      a parameterised recursion keeps its fixed point  $parameterisedRecursion
       a higher-kinded parameter names its arity  $higherKinded
       the top and the bottom of the lattice   $latticeEnds
 
@@ -51,8 +50,6 @@ class ReportSpec extends Specification {
       an open abstraction has no bound            $openAbstraction
       a type constructor is a shape, not a gap    $constructorRow
       a named member resolves                     $memberByName
-      an instance-qualified member resolves       $memberByValue
-      an abstract member is open                  $memberAbstract
       a member the sources do not give reads as written  $memberUnknown
       a refinement is read as the type it refines $refinementRow
       an open abstraction reads as one in a report  $openRow
@@ -368,18 +365,6 @@ class ReportSpec extends Specification {
       )
   }
 
-  def parameterisedRecursion = {
-    val found = definitions(
-      "case class Node[A](value: A, next: Option[Node[A]])",
-    )
-    // `Node[A]` inside `Node`'s own equation is the definition's own parameters: it borrows the
-    // fixed point the solver gives the name, so the parameterised recursion keeps its ω reading
-    // and reports the parameter, not the name.
-    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
-      ("Node", Some(EffectiveOmega), List("A"))
-    )
-  }
-
   private def rowsOf(root: Path): List[(String, Option[Size], List[String])] =
     Report.of(List(root)).definitions.map(d => (d.name, d.size, d.unbound.map(_.render)))
 
@@ -529,38 +514,6 @@ class ReportSpec extends Specification {
       ("Foo#B", Some(EffectiveOmega), List("A")),
       ("C", Some(BooleanSize), Nil),
     )
-  }
-
-  def memberByValue = {
-    val found = definitions(
-      """|trait Foo[A] { type B = A }
-         |class D(x: Foo[Boolean]) { type Y = x.B }
-         |""".stripMargin,
-    )
-    // An instance-qualified member reads the value's declared type, which is what makes `x.B` a
-    // member of `Foo[Boolean]`.
-    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
-      ("Foo", None, Nil),
-      ("Foo#B", Some(EffectiveOmega), List("A")),
-      ("D", Some(EffectiveOmega), List("Foo")),
-      ("D#Y", Some(BooleanSize), Nil),
-    )
-  }
-
-  def memberAbstract = {
-    val found = definitions(
-      """|trait O { type Z }
-         |class C(x: O) { type Y = x.Z }
-         |""".stripMargin,
-    )
-    // A member a body declares abstract is supplied by whoever implements it: unbounded, which the
-    // row says, rather than an unknown name.
-    (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
-      ("O", None, Nil),
-      ("C", Some(EffectiveOmega), List("O")),
-      ("C#Y", Some(EffectiveOmega), List("x.Z")),
-    ))
-      .and(found.find(_.name == "C#Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
   }
 
   def memberUnknown = {

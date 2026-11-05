@@ -10,7 +10,6 @@ private[capacity] object Qualified {
   def of(member: Member): String =
     (Trees.ancestors(member).reverse.flatMap {
       case p: Pkg                                 => List(p.ref.syntax)
-      case p: Pkg.Object                          => List(p.name.value)
       case d: Defn if Walk.templateOf(d).nonEmpty => List(Walk.named(d).value)
       case _                                      => Nil
     } :+ member.name.value).mkString(".")

@@ -39,10 +39,6 @@ class CardinalitySpec extends Specification {
     (Byte, Boolean)                          ${tpe("(Byte, Boolean)") === FiniteSize(9)}
     (Boolean, Nothing)                       ${tpe("(Boolean, Nothing)") === NothingSize}
     EmptyTuple                               ${tpe("EmptyTuple") === UnitSize}
-    Boolean *: Boolean *: EmptyTuple         ${tpe("Boolean *: Boolean *: EmptyTuple") === TinySize(
-      4
-    )}
-    (a: Boolean, b: Boolean) named tuple     ${tpe("(a: Boolean, b: Boolean)") === TinySize(4)}
 
   Sums
     Option[Boolean]                          ${tpe("Option[Boolean]") === TinySize(3)}
@@ -78,9 +74,6 @@ class CardinalitySpec extends Specification {
     Set[Boolean]                             ${tpe("Set[Boolean]") === TinySize(4)}
     Set[Byte]                                ${tpe("Set[Byte]") === FiniteSize(256)}
     Map[Boolean, Boolean]                    ${tpe("Map[Boolean, Boolean]") === TinySize(9)}
-    PartialFunction[Boolean, Boolean]        ${tpe(
-      "PartialFunction[Boolean, Boolean]"
-    ) === TinySize(9)}
 
   Unbounded collections
     List[Boolean]                            ${tpe("List[Boolean]") === EffectiveOmega}

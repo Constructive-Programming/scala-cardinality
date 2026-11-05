@@ -49,7 +49,7 @@ object Counter {
           )
         )
       case d: Defn.Enum =>
-        Some(Walk.named(d) -> built(d, enumSize(_)(d)).copy(constant = constant(d)))
+        Some(Walk.named(d) -> built(d, enumSize(_)(d)))
       case d: Defn.Class if isConcreteClass(d) =>
         Some(Walk.named(d) -> built(d, stored(_)(d.tparamClause.values, d.ctor)))
       case _ => None
@@ -67,8 +67,7 @@ object Counter {
       sc => {
         if (sc.readingValue) Builds.unread(d, sc).foreach(why => sc.note(Overcount.Unread(why)))
         equation(sc)
-      },
-      built = Builds.unread(d, _)
+      }
     )
   }
 
@@ -112,34 +111,15 @@ object Counter {
 
   private[cardinality] def isOpaqueAlias(d: Defn.Type): Boolean = d.mods.exists(_.is[Mod.Opaque])
 
+  // What a row measures from a definition's own syntax: a concrete class, an enum or a value.
   private[cardinality] def defnIn(scope: Scope): Defn => Size = {
-    // Abstract classes contribute no inhabitants of their own; only their concrete
-    // subclasses do.
-    case c: Defn.Class if c.mods.exists(_.is[Mod.Abstract]) => NothingSize
     case c: Defn.Class => stored(scope)(c.tparamClause.values, c.ctor)
     // An enum's cardinality is the sum over its cases; the enum's own constructor
     // arguments are shared state, not extra inhabitants.
-    case e: Defn.Enum => enumSize(scope)(e)
-    // A module (including a `case object`) is a single instance.
-    case _: Defn.Object => UnitSize
-    case v: Defn.Val    => ValueRows.value(scope)(v.decltpe)
-    case v: Defn.Var    => ValueRows.value(scope)(v.decltpe)
-    // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
-    // exhaustive match is impossible. Every other member — type members, methods, givens,
-    // enum cases — defines no values of its own.
-    case _ => NothingSize
+    case e: Defn.Enum             => enumSize(scope)(e)
+    case v: (Defn.Val | Defn.Var) => ValueRows.value(scope)(v.decltpe)
+    case other => unbound(scope, Definition.Unbound.Syntax(s"definition: ${Spelling.of(other)}"))
   }
-
-  // Whether an enum has a case that is one value of every instantiation: one without parameters,
-  // type parameters or `extends`.
-  private def constant(e: Defn.Enum): Boolean =
-    e.templ.body.stats
-      .collect {
-        case c: Defn.EnumCase =>
-          c.inits.isEmpty && c.tparamClause.values.isEmpty && Trees.fields(c.ctor).isEmpty
-        case _: Defn.RepeatedEnumCase => true
-      }
-      .contains(true)
 
   private def enumSize(scope: Scope): Defn.Enum => Size = e =>
     e.templ.body.stats.foldLeft(NothingSize: Size) {
@@ -178,14 +158,7 @@ object Counter {
   /** The evidence types a definition's context bounds add to its constructor: `TC[T]` per bound. */
   private[cardinality] def evidence(tparams: List[Type.Param]): List[Type] =
     tparams.flatMap { p =>
-      p.bounds.context.map { bound =>
-        // A named bound (`T: Ord as o`) names the evidence; its type is the bound.
-        val tc = bound match {
-          case named: Type.BoundsAlias => named.bounds
-          case plain                   => plain
-        }
-        Type.Apply(tc, Type.ArgClause(List(Type.Name(p.name.value))))
-      }
+      p.bounds.context.map(tc => Type.Apply(tc, Type.ArgClause(List(Type.Name(p.name.value)))))
     }
 
   private def paramIn(scope: Scope): Term.Param => Size =
@@ -301,12 +274,6 @@ object Counter {
     // is the outermost binding, so even another file's `Int` in the same package wins over it.
     case name @ BaseTypes(size) if !scope.binds(TypeName.of(name.syntax)) => size
 
-    // A throwable of the root imports is an open class: any subclass's values are its own.
-    case name: Type.Name
-        if BaseTypes.throwables.contains(name.value) && !scope.binds(TypeName.of(name.value)) =>
-      scope.noteOpen(name.value)
-      EffectiveOmega
-
     case select: Type.Select => qualified(scope, select)
 
     // Literal types (`true`, `42`, `'a'`) and singleton types (`None.type`) have exactly
@@ -322,19 +289,16 @@ object Counter {
     case Type.Repeated(tpe) => sequence(scope, typeIn(scope)(tpe))
 
     // Products: tuples multiply the sizes of their elements; `EmptyTuple` is the unit.
-    // A named-tuple element carries its type inside a `Type.TypedParam`.
     case Type.Tuple(args) =>
-      args.foldLeft(UnitSize: Size)((acc, arg) => acc * typeIn(scope)(tupleElem(arg)))
-
-    case Type.ApplyInfix(l, Type.Name("*:"), r) => typeIn(scope)(l) * typeIn(scope)(r)
+      args.foldLeft(UnitSize: Size)((acc, arg) => acc * typeIn(scope)(arg))
 
     // Sums: unions add the sizes of their branches, unless both branches describe the
     // exact same type, in which case they fully overlap and count once.
     case Type.ApplyInfix(l, Type.Name("|"), r) =>
       if (l.structure == r.structure) typeIn(scope)(l) else typeIn(scope)(l) + typeIn(scope)(r)
 
-    // Intersection: the overlap of two types is their meet, which is exact when (as here)
-    // one is a subtype of the other.
+    // Intersection (`sourceSignature` spells a given's parents so): the overlap of two types is
+    // their meet, which is exact when one is a subtype of the other.
     case Type.ApplyInfix(l, Type.Name("&"), r) =>
       scope.note(Overcount.Narrowing)
       typeIn(scope)(l).min(typeIn(scope)(r))
@@ -349,25 +313,16 @@ object Counter {
     // Named instantiations, and the constructors the algebra models (`builtin`).
     case Type.Apply.After_4_6_0(callee, Type.ArgClause(args)) => applied(scope)(callee, args)
 
-    // The name as it binds (`Scope.binding`); any other name is unbounded, and recorded. A generic
-    // definition named without arguments is a type constructor, with no value space of its own.
+    // The name as it binds (`Scope.binding`); any other name is unbounded, and recorded.
     case t: Type.Name =>
-      val name = TypeName.of(t.value)
-      if (generic(scope, t)) constructor(scope, t.value)
-      else
-        hidden(scope, t, Namespaces.lookup(scope, t)((in, key, _) => in.definition(key)))
-          .getOrElse(scope.resolve(name).getOrElse { scope.note(t); EffectiveOmega })
+      hidden(scope, t, Namespaces.lookup(scope, t)((in, key, _) => in.definition(key)))
+        .getOrElse(scope.resolve(TypeName.of(t.value)).getOrElse { scope.note(t); EffectiveOmega })
 
     // A refinement is read as the type it refines: the members the refinement binds are not what
     // the value space is made of, and the base type is what the reference means.
-    case refinement: Type.Refine =>
+    case refinement: Type.Refine if refinement.tpe.nonEmpty =>
       scope.note(Overcount.Narrowing)
-      refinement.tpe match {
-        case Some(inner) => typeIn(scope)(inner)
-        case None        =>
-          scope.note("a refinement")
-          EffectiveOmega
-      }
+      typeIn(scope)(refinement.tpe.get)
 
     // `Type` is not sealed (`Type.And`, `Type.Or`, `Type.Method`, `Type.ImplicitFunction`,
     // `Type.Quasi` are `private[meta]`): no exhaustive match. Each remaining form — a cross-file
@@ -384,15 +339,14 @@ object Counter {
   private def qualified(scope: Scope, select: Type.Select): Size =
     located(scope, select) match {
       case Some(Namespaces.Located.Member(key, in))      => keyed(scope, select, key, in)
-      case Some(Namespaces.Located.Instance(tpe, in))    => classMember(scope, select, tpe, in)
       case Some(Namespaces.Located.Unread(Some(clause))) =>
         unbound(scope, Definition.Unbound.Imported(TypeSubstitution.described(select), clause))
-      case Some(Namespaces.Located.Unread(None))        => unbound(scope, select)
       case Some(Namespaces.Located.Pending(reason))     => unbound(scope, reason)
       case None if Namespaces.standardThrowable(select) =>
         scope.noteOpen(select.syntax)
         EffectiveOmega
-      case None => standard(select).getOrElse(unbound(scope, select))
+      case None    => standard(select).getOrElse(unbound(scope, select))
+      case Some(_) => unbound(scope, select)
     }
 
   private def located(scope: Scope, select: Type.Select): Option[Namespaces.Located] =
@@ -401,9 +355,7 @@ object Counter {
   // `scala.Int`, `scala.Option`, `java.lang.String`: the base types the standard library spells in
   // full, when no source namespace has that path.
   private def standard(select: Type.Select): Option[Size] =
-    if (Namespaces.standardQualifier(select.qual)) BaseTypes.get(select.name.value)
-    else if (Namespaces.javaString(select)) BaseTypes.get("String")
-    else None
+    Option.when(Namespaces.standardQualifier(select.qual))(select.name.value).flatMap(BaseTypes.get)
 
   // A member a namespace solved, read with the reasons its value rests on: a qualified reference
   // to a definition that holds an unknown name is no more bounded than the definition is.
@@ -415,7 +367,6 @@ object Counter {
       case Some(_) if in.definition(key).exists(_.params.nonEmpty) =>
         constructor(scope, select.syntax)
       case Some(size) =>
-        in.blocking(key).foreach(scope.noteBlocked(key, _, in.definition(key)))
         in.definition(key).foreach(named => scope.taintOf(named, in.home(key, named)))
         size
       case None => missing(scope, select, key, in)
@@ -426,47 +377,12 @@ object Counter {
   private def missing(scope: Scope, select: Type.Select, key: TypeName, in: Scope): Size = {
     if (in.isOpen(key)) scope.noteOpen(select.syntax)
     else
-      (in.refused(key), in.unsummed(key)) match {
-        case (Some(reason), _) => scope.note(reason)
-        case (_, Some(why))    => scope.noteUnsummed(TypeName.of(select.syntax), why)
-        case _                 => scope.note(select)
+      in.unsummed(key) match {
+        case Some(why) => scope.noteUnsummed(TypeName.of(select.syntax), why)
+        case None      => scope.note(select)
       }
     EffectiveOmega
   }
-
-  // `x.T` with `x` a value of type `C[ā]`: class C's member T, read in C's own body, with C's
-  // parameters bound to `ā` as read where `x` is bound; an abstract member is supplied by whoever
-  // implements C. `C` binds as any type name does: a type parameter, or an alias or type with no
-  // members of its own, stops the read — never a same-named class elsewhere.
-  private def classMember(scope: Scope, select: Type.Select, declared: Type, in: Scope): Size = {
-    val member = TypeName.of(select.name.value)
-    val bound = if (in eq scope) scope else scope.borrow(in)
-    ownerMembers(bound, declared) match {
-      case Some((members, _)) if members.abstractMembers(member) =>
-        scope.noteOpen(select.syntax)
-        EffectiveOmega
-      case Some((members, arguments)) if members.declared.contains(member) =>
-        // A member that reads itself through an instance of its own class is a cycle Scala
-        // rejects; it is a reason here rather than a loop.
-        val guard = TypeName.of(s"${members.owner.value}#${member.value}")
-        if (Scope.activeLens.get(scope)(guard)) unbound(scope, select)
-        else {
-          val frame = members.params.zip(arguments).map((p, arg) => p -> typeIn(bound)(arg)).toMap
-          val inside = Scope.activeLens.modify(_ + guard)(scope.borrow(members.inside))
-          typeIn(inside.instantiating(frame))(members.declared(member))
-        }
-      case _ => unbound(scope, select)
-    }
-  }
-
-  // The members of the class a declared type names, with the arguments it applies.
-  private def ownerMembers(scope: Scope, tpe: Type): Option[(Members, List[Type])] =
-    TypeApplications.applied.getOption(tpe) match {
-      case Some(app) =>
-        ownerMembers(scope, app.tpe)
-          .map((members, _) => members -> TypeApplications.applyArguments.get(app))
-      case None => Namespaces.lookup(scope, tpe)((in, key, _) => in.membersAt(key)).map(_ -> Nil)
-    }
 
   // `codomain ^ domain`, except that an empty domain gives 0 rather than the set-theoretic 1,
   // `0^0` included. This is a constructivist approach: Scala is eager, a call evaluates its
@@ -500,9 +416,6 @@ object Counter {
     scope.note(reason)
     EffectiveOmega
   }
-
-  private def generic(scope: Scope, tpe: Type): Boolean =
-    Namespaces.lookup(scope, tpe)((in, key, _) => in.definition(key)).exists(_.params.nonEmpty)
 
   // A generic definition named without arguments.
   private def constructor(scope: Scope, written: String): Size =
@@ -556,8 +469,6 @@ object Counter {
     case (Modelled("Map"), List(k, v)) =>
       val key = typeIn(scope)(k)
       finite(scope, key, (typeIn(scope)(v) + UnitSize).pow(key))
-    case (Modelled("PartialFunction"), List(k, v)) =>
-      (typeIn(scope)(v) + UnitSize).pow(typeIn(scope)(k))
     case (Modelled("List" | "Vector" | "Seq" | "IndexedSeq" | "Array"), List(t)) =>
       sequence(scope, typeIn(scope)(t))
     // `LazyList`/`Stream` are the greatest fixed point `νX. 1 + A*X` (§8): all the finite ones
@@ -616,12 +527,6 @@ object Counter {
     val from = domain(scope)(params)
     if (from.isZero) scope.note(Overcount.EmptyDomain)
     arrow(codomain, from)
-  }
-
-  // A named-tuple element (`a: Boolean`) carries its type inside a TypedParam.
-  private[capacity] def tupleElem: Type => Type = {
-    case Type.TypedParam.After_4_7_8(_, tpe, _) => tpe
-    case other                                  => other
   }
 
 }

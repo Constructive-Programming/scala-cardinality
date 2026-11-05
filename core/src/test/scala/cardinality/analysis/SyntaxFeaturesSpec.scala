@@ -65,6 +65,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |object M { def map[I, X, A, B](fa: G[I][X, A], f: A => B): G[I][X, B] = ??? }
       |""".stripMargin)("M.map") === Count.Finite(1)
 
+      .and(stored("NamedFst")._2 must contain("a match type"))
   // `(x: A, y: A)` is the opaque `NamedTuple[("x", "y"), (A, A)]`: not `(A, A)`, nor `(y: A, x: A)`,
   // so a rigid F relates none of them (0); the same names, spelled either way, are one type (1).
   def namedKeys = {
