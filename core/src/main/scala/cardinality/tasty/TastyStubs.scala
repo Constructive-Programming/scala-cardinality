@@ -6,7 +6,7 @@ import scala.util.control.NonFatal
 import cardinality.analysis.MethodAnalysis
 import java.net.URI
 import java.nio.file.{FileSystems, Files, Path}
-import tastyquery.Classpaths.ClasspathEntry
+import tastyquery.Classpaths.{ClassData, ClasspathEntry, PackageData}
 import tastyquery.Contexts.*
 import tastyquery.Exceptions.UnknownClasspathEntry
 import tastyquery.SourceLanguage
@@ -56,8 +56,11 @@ object TastyStubs {
       packages: String => Boolean
   ): Rendered = {
     // One read per jar: a jar with no classes has no entry, so entries cannot be zipped back.
-    val perJar = classpath.map(jar => jar -> ClasspathLoaders.read(List(readable(jar))))
-    given Context = Context.initialize(perJar.flatMap(_._2) ++ ClasspathLoaders.read(List(jdk)))
+    val jdkEntries = ClasspathLoaders.read(List(jdk))
+    val read = classpath.map(jar => jar -> ClasspathLoaders.read(List(readable(jar))))
+    val visible = firstLoaded(jdkEntries ++ read.flatMap(_._2)).drop(jdkEntries.size).iterator
+    val perJar = read.map((jar, es) => jar -> es.map(_ => visible.next()))
+    given Context = Context.initialize(perJar.flatMap(_._2) ++ jdkEntries)
     val chosen = perJar.filter((jar, _) => selected(jar)).flatMap((jar, es) => es.map(jar -> _))
     val declarations = StubDeclarations(javaClassfiles(chosen.map(_._2)))
     // An entry with no packages (a resources-only jar) has no symbols to look up; one tasty-query
@@ -94,6 +97,42 @@ object TastyStubs {
       }
     Rendered(stubs, loaded.collect { case (_, Left(error)) => error })
   }
+
+  /** The classpath as the JVM loads it: each class file (a package and binary name) is read from
+    * the first entry that has one, the JDK's before any jar's (parent-first delegation), and a
+    * later copy is not seen. A shaded copy is left out too: its TASTy still declares the original
+    * package (scalameta's `scala/meta/shaded/internal/fastparse/` declares `fastparse`), a name the
+    * JVM never loads from it. tasty-query refuses a class declared twice, so either one would
+    * otherwise lose a whole jar.
+    */
+  private def firstLoaded(entries: List[ClasspathEntry]): List[ClasspathEntry] = {
+    val seen = scala.collection.mutable.Set.empty[(String, String)]
+    entries.map { entry =>
+      val packages = entry.listAllPackages().flatMap { p =>
+        val kept = p
+          .listAllClassDatas()
+          .filter(c =>
+            !relocated(p.dotSeparatedName, c) && seen.add(p.dotSeparatedName -> c.binaryName)
+          )
+        Option.when(kept.nonEmpty)(new PackageData {
+          val dotSeparatedName: String = p.dotSeparatedName
+          private lazy val byName = kept.map(c => c.binaryName -> c).toMap
+          def listAllClassDatas(): List[ClassData] = kept
+          def getClassDataByBinaryName(binaryName: String): Option[ClassData] =
+            byName.get(binaryName)
+          override def toString: String = p.toString
+        })
+      }
+      new ClasspathEntry {
+        def listAllPackages(): List[PackageData] = packages
+        override def toString: String = entry.toString
+      }
+    }
+  }
+
+  private def relocated(pkg: String, c: ClassData): Boolean =
+    c.hasTastyFile &&
+      !TastyNames.declares(IArray.genericWrapArray(c.readTastyFileBytes()).toArray, pkg)
 
   /** A Java class's `.class` file facts, read from the rendered entries (a Java class's nested
     * classes are files of the same package, `Outer$Inner`).
@@ -154,9 +193,33 @@ object TastyStubs {
 
   /** Namespaces the stdlib model answers: a stub there (`scala.collection.compat`, the Scala
     * library's own TASTy) would make the namespace partly supplied and doubt what the model reads.
+    * Under `scala` that is the package itself and the subpackages the Scala 3.9.0 library declares;
+    * a library's own namespace beside them (`scala.meta`) is a dependency like any other.
     */
   private def stdlibOwned(pkg: String): Boolean =
-    List("scala", "java", "javax").exists(root => pkg == root || pkg.startsWith(root + "."))
+    pkg == "scala" || List("java", "javax").exists(r => pkg == r || pkg.startsWith(r + ".")) ||
+      ScalaPackages.exists(sub => pkg == s"scala.$sub" || pkg.startsWith(s"scala.$sub."))
+
+  // `scala/*/` in scala-library 3.9.0 and scala3-library 3.9.0.
+  private val ScalaPackages = List(
+    "annotation",
+    "beans",
+    "caps",
+    "collection",
+    "compat",
+    "compiletime",
+    "concurrent",
+    "deriving",
+    "io",
+    "jdk",
+    "math",
+    "quoted",
+    "ref",
+    "reflect",
+    "runtime",
+    "sys",
+    "util"
+  )
 
   private def packageOf(c: ClassSymbol): String =
     c.owner match {
