@@ -1,15 +1,12 @@
 # Polymorphic capability members and callable sums
 
 How the method-side count reads a supplied member with its own type parameters, how it eliminates a
-supplied callable whose result is a sum or a ground value, and when a productive cycle answers ω
-although other producers carry reasons. Register entries:
+supplied callable whose result is a sum or a ground value. Register entries:
 [D24](code-cardinality-foundations.md#d24-a-polymorphic-capability-member-is-read-up-to-its-free-theorems)
 and
 [D25](code-cardinality-foundations.md#d25-a-supplied-sum-is-eliminated-once-per-argument-and-path).
-Design memo: capabilities.md C8, C10 and C11 (restricted as SYNTHESIS D-capabilities and crosscheck
-X3 require; X7 and X8 are answered below). Regressions: `PolymorphicMemberSpec`,
-`NeutralSaturationSpec` (fixtures compiled with scalac 3.9.0; the C11 fixture is the crosscheck's
-`c11`), and the updated `OpaqueSumForwardingSpec`, `InhabitationSpec`, `GroundTypesSpec`.
+Design memo: capabilities.md C8 and C10 (X7 and X8 are answered below). Regressions:
+`PolymorphicMemberSpec`, `NeutralSaturationSpec` (fixtures compiled with scalac 3.9.0), and the updated `OpaqueSumForwardingSpec`, `InhabitationSpec`, `GroundTypesSpec`.
 
 ## Rules
 
@@ -106,10 +103,7 @@ rendering of names, so two distinct neutrals never merge however their values ar
 The forwarding certificate (`OpaqueSumForwarding`) still answers where nothing was eliminated yet;
 on every case it covered, saturation agrees with it.
 
-**C11 — ω beside reasons (restricted).** A root whose rules carry reasons is ω when it reaches a
-cycle along rules with no reason and no polymorphic instantiation, every child of every such rule
-is built by rules with no reason, and at every goal on the way (the cycle included) the empty goal
-is not built even when reason-carrying rules are allowed. Eager (resolution-time) reasons never
+**Reasons.** A root whose rules carry reasons has no count. Eager (resolution-time) reasons never
 reach the solver.
 
 ## Derivations
@@ -155,12 +149,6 @@ absurd rule (crosscheck X8: the empty-type part rests on that rule, never on an 
 cutoff). Finiteness is checked, not assumed: the argument enumeration and the case-to-argument
 graph refuse every unbounded family.
 
-*C11.* Lower bound: the cycle's terms are pairwise distinct terms of every rule along the path, and
-each sibling has a real term, so there are infinitely many. They stay distinct: further producers
-can merge terms only by making a context absurd (crosscheck X3's `branchAbsurd`) or a sibling empty
-(`siblingZero`), and both are excluded at every goal on the way. Upper bound: a program text is
-finite (register D2).
-
 ## Limits (each stays `?` with the reason given)
 
 - Non-reducible polymorphic members whose naive count exceeds 1, members whose binders the goal
@@ -174,13 +162,8 @@ finite (register D2).
 - PB1 does not see through rigid constructors (no functorial action), sequences, proofs or other
   members' binders, and does not uncurry a curried generator (`A => B => M`): those stay PB2–PB4.
 - Callable sums over ground, sum, sequence or lower-bounded arguments, over arguments a polymorphic
-  input may build, and over unbounded families (reasons above); ω for them needs C11's conditions,
-  which a cycle behind a reason-carrying rule never meets (`sums1.U.first` stays `?` though its
-  model count is ω).
-- C11 never fires through a polymorphic instantiation, a reason-carrying rule, or a goal whose
-  context may be absurd.
-- A context holding a member whose result is a bare binder has no finite count, even where the true
-  count is 0 (`def zero[A](c: Church): A`).
+  input may build, and over unbounded families (reasons above): a cycle behind a reason-carrying
+  rule has no count (`sums1.U.first` stays `?` though its model count is ω).
 - A member whose result is a bare binder matches every goal; beside a type constructor it grows the
   goals without end (`trait W[F[_]] { def wrap[A](a: A): F[A]; def unwrap[A](fa: F[A]): A }`: at
   the goal `F[B]`, `unwrap` at `A := F[B]` needs `F[F[B]]`, …), so `cyc[F[_], B](w: W[F], b: B):

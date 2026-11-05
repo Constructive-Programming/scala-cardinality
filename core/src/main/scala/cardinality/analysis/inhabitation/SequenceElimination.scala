@@ -16,11 +16,9 @@ import Inhabitation.{Binding, Count, Shape}
   *     `kᵢ ≥ 1` (the valuation that told them apart repeats an element `i` already has), so every
   *     longer length along `i` has its own choice — infinitely many families, which finite programs
   *     bound by ℵ₀ (register D2): `ω`;
-  *   - otherwise `?`. Two answers at length 0 alone decide nothing: an element type with no
-  *     instance (`A => Nothing` beside an `a: A`) makes every longer environment absurd.
+  *   - otherwise `?`.
   *
-  * Lengths 0 to 2 of at most three sequences are counted (27 environments), each by the whole
-  * solver, so an element that is itself a sequence is eliminated the same way.
+  * Lengths 0 to 2 of at most three sequences are counted (27 environments), each by the solver.
   */
 private[cardinality] object SequenceElimination {
 
@@ -70,7 +68,7 @@ private[cardinality] object SequenceElimination {
     )
 
   private def atLeastTwo(count: Count): Boolean = count match {
-    case Count.Finite(value)               => value >= 2
+    case Count.Finite(value)                 => value >= 2
     case Count.Symbolic(_) | Count.Countable => true
     case _                                   => false
   }

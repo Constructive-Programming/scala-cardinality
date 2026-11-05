@@ -467,8 +467,8 @@ standard-library-sealed classes. A callable that returns a union is still not el
 over its arguments' nominal keys, equal only to the same head over the same keys, with no
 constructor or eliminator. A higher-kinded argument is an operator read where it is written (a
 closure, applied by β-reduction in that scope). A context bound is one more contextual parameter;
-a subtype bound an ambient `<:<` proof — between binders or rigid applications a directed view, to
-a closed structural type an elimination-only view (upper) or a construction (lower). Details:
+a subtype bound an ambient `<:<` proof, which the solver does not read: a count that reaches one is
+refused. Details:
 [higher-kinded binders](higher-kinded-binders.md).
 
 **Evidence.**
@@ -483,7 +483,7 @@ a closed structural type an elimination-only view (upper) or a construction (low
   abstract verified**): the semantic form of the rule, and the licence for rewriting under `=:=`
   through any `F`.
 - Undecidability of F<: subtyping (Pierce 1994, **metadata-verified**) bounds the fragment: a
-  finite graph of binder bounds plus closed structural views.
+  equality proofs only.
 - **Compiler fixtures** (Scala 3.9.0, this session): context bounds are `using` parameters, two of
   one type ambiguous (E172); for `A <: B` with evidence of both, `summon[B]` selects the `B`
   parameter (run); every positive fixture of the spec compiles; `F[?]` for an abstract `F` is
@@ -1101,9 +1101,7 @@ lead back to its own argument types, or whose argument types a producer cycle bu
 elimination over an unbounded argument space: p`; ground, sum, sequence or lower-bounded argument
 types, and types a polymorphic input may build, are `sum elimination over an argument space not
 enumerated: p`; higher-order arguments keep the elimination reason. A root whose rules carry
-reasons is ω when it reaches, along rules with no reason and no polymorphic instantiation whose
-every child is built without reasons, a cycle, and the empty goal is not built even optimistically
-at any goal on the way (C11 as restricted by crosscheck X3). Details: [polymorphic members and
+reasons has no count. Details: [polymorphic members and
 saturation](polymorphic-members-and-saturation.md).
 
 **Evidence.**
@@ -1133,8 +1131,7 @@ saturation](polymorphic-members-and-saturation.md).
   `TopTypesUnionSpec.callableSum` (27), `EnvironmentCompletenessSpec.opaqueCallable` (4).
 
 **Boundary.** Arguments over ground (literal) spaces, sums, sequences, lower-bounded types or
-polymorphic producers are not enumerated, and unbounded families are not counted; ω for them is
-claimed only under C11's conditions, which a cycle behind a reason-carrying rule never meets.
+polymorphic producers are not enumerated, and unbounded families are not counted.
 
 ## D26. Code has no side effects: a `var` is its value, a throw supplies nothing, a throwable is data
 
@@ -1673,48 +1670,6 @@ only 0 and 1 (`ReentrySpec`'s `E3.to`, with both bounds 4, stays `?` by that cho
 substitutes a reachability test for a view (`Opt.to` stays `?` although every instance the sources
 declare fixes the dependent member away from the goal: the closed-world reading is unsound for an
 open class, X5). eo's `ComposedGetOptionLaws.getOptionInner` is 1.
-
-## D32. An open record's unbounded abstract member opens as the witness of each value's package
-
-**Decision.** A capability record (C0–C5) whose template's linearization leaves an abstract type
-member `X` — unbounded, first order, defined by no level — no longer refuses: the record's members
-are read over a witness named by the member, and the record is the package ∃X. members-over-X
-(`Shape.Existential`), which the solver opens per supplied value with a witness fresh to that
-value, exactly as it opens a wildcard input (ExistentialInputs). Two supplied values never share a
-witness, and one value's members share theirs. The witness itself is unobservable: a record whose
-members return only the witness contributes no input factor of its own. A *goal* of the record is a
-result construction — the implementation would pick the witness — and stays at the existential
-result boundary (`existential wildcard result construction and repackaging requires witness-choice
-analysis`). Bounded or higher-kinded members keep
-`capability record with abstract type member not read: C.X`, and so does any member the measured
-signature names through a path (`p.X`, `T#X`): the projection reads as an atom keyed by the path
-(TypeMembers), and the opened witness and that atom would have to be one — a sharing this reading
-does not yet agree on.
-
-**Derivation.** A value of C is the existential package ∃X. members-over-X (Mitchell–Plotkin 1988;
-Cardelli–Leray dot notation, both already the register's for parameter paths). Eliminating a
-*supplied* package is parametric in the witness: the body cannot inspect it, choose it, or compare
-two witnesses for equality, which is precisely a fresh rigid atom per value — the opening's
-soundness is the same argument that makes the wildcard fragment's opening sound. The *goal*
-direction packages a witness (the anonymous subclass the count realizes picks X), which is result
-construction, outside the supported fragment (existential-inputs boundary 1). The observable
-content of an input record is its members' results over the witness: `sub(c: Sub): Boolean` with
-`Sub extends Base { def b: Int; type X }` is Boolean^Int = 2^(2^32) — implementations are the
-functions from `c.b`'s value to the result, and the witness adds nothing.
-
-**Evidence.**
-
-- **Executable**: `CapabilitySpec.existentialRecords` (`run(p: Pair): Boolean` = 4 — the four
-  Boolean functions of consume's behavior at the value the body can supply; `solo(p: Source)` = 2 —
-  a record of one witness-returning member leaves the literals alone; `both(p, q)` = 2^4 — two
-  independent packages, never crossed; a goal and a `p.X` mention refused),
-  `CapabilitySpec.existentials` (the `Opt` goal at the result boundary),
-  `TypeMemberBoundarySpec.typesOnly` (`sub` = 2^(2^32)), `TypeMemberScopeSpec.boundedTemplates`
-  (bounded members keep the refusal).
-
-**Boundary.** A signature that names the member through a path stays refused; so do bounded and
-higher-kinded members; witnesses of two values never unify. Lifting the path case needs the two
-readings to agree on one atom for `p.X` — the next slice of the same feature.
 
 ## D33. A listed dependency namespace binds only the members its artifacts declare
 

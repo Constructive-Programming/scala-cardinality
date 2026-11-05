@@ -27,9 +27,8 @@ import Shape.*
   * Anything else stays polymorphic (`Shape.Poly`). The solver instantiates such an input only where
   * matching its result against a goal fixes every binder (PB2): where no result is a bare binder,
   * every normal form applies it at those instantiations, so the naive count bounds the true one
-  * from above (quotienting only merges) and only 0 or 1 is reported.
-  * A member whose result meets no goal is irrelevant there (PB3); one whose binders the goal does
-  * not fix keeps a reason (PB4).
+  * from above (quotienting only merges) and only 0 or 1 is reported. A member whose result meets no
+  * goal is irrelevant there (PB3); one whose binders the goal does not fix keeps a reason (PB4).
   */
 private[cardinality] object PolymorphicMembers {
 

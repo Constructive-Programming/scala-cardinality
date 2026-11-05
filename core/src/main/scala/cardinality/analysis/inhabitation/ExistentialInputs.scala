@@ -49,12 +49,6 @@ private[cardinality] object ExistentialInputs {
 
   }
 
-  val resultBoundary =
-    "existential wildcard result construction and repackaging requires witness-choice analysis"
-
-  val callableBoundary =
-    "existential callable result elimination requires scoped witness-generation analysis"
-
   final private case class RewriteEnv(
       replacements: Map[String, Shape],
       inserted: Set[String],

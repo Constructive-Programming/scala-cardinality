@@ -6,8 +6,8 @@ import cardinality.analysis.MethodAnalysis
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// Elimination of supplied sum- and ground-valued callables (design/capabilities.md C10) and the
-// restricted ω-saturation (C11 as SYNTHESIS D-capabilities and crosscheck X3 restrict it). Every
+// Elimination of supplied sum- and ground-valued callables (design/capabilities.md C10); a root
+// whose rules carry reasons has no count, whatever cycle it reaches. Every
 // fixture is valid Scala 3.9.0 (compiled with scalac: probes/b4/spec sums1, c11, probes/b4fix/spec
 // sat, low and keys, probes/b4fix2/spec c11 and named; the c11 fixture extends research/xprobe/c11).
 // Each count is derived in the comment above its check.
@@ -30,7 +30,7 @@ class NeutralSaturationSpec extends Specification {
       a sum argument space is not enumerated                        $sumArgument
       a record's callable is named by its field                     $recordField
       a callable is named by its source name, whatever it spells    $sourceNames
-    ω with reasons elsewhere (C11, restricted by X3)
+    Reasons elsewhere leave no count
       a branch absurd only through a reasoned rule is never ω       $branchAbsurd
       a sibling that may truly be empty is never ω                  $siblingZero
       a context absurd through a reasoned rule is never ω           $reasonedAbsurd

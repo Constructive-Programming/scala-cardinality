@@ -14,7 +14,8 @@ import Shape.*
   * opaque elements is eliminated by `SequenceElimination` when it is a value of the environment
   * itself (a field of one included). Anywhere else an opaque sequence would be eliminated — under a
   * sum, as a callable's result, as a parameter of a function the goal or a callable's argument
-  * builds — the fragment is refused, unless the goal has one inhabitant whatever the sequence holds.
+  * builds — the fragment is refused, unless the goal has one inhabitant whatever the sequence
+  * holds.
   */
 private[cardinality] object RepeatedArguments {
 
@@ -43,8 +44,8 @@ private[cardinality] object RepeatedArguments {
   private val singletonCheck =
     Shape.cata[Boolean] { (node, kids) =>
       node match {
-        case Product(_)      => kids.forall(identity)
-        case Sum(_)          => kids.size == 1 && kids.head
+        case Product(_)     => kids.forall(identity)
+        case Sum(_)         => kids.size == 1 && kids.head
         case Function(_, _) => kids.last
         case _              => false
       }

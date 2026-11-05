@@ -69,27 +69,27 @@ private[cardinality] object NeutralSaturation {
       s"sum elimination over an argument space not enumerated: ${path.name}"
   }
 
-  /** Every neutral the first-order `values` and the callables' `paths` make available, eliminated or
-    * not yet, and the refusals.
+  /** Every neutral the first-order `values` and the callables' `paths` make available, eliminated
+    * or not yet, and the refusals.
     */
   def plan(values: List[(List[String], Shape)], paths: List[Path]): Plan = {
-      val terms = new Terms(values, paths.filterNot(p => eliminable(p.output)))
-      val graph = new Graph(paths)
-      val readings = paths.filter(p => eliminable(p.output)).map { path =>
-        val arguments =
-          if (graph.unbounded(path)) Left(Refusal.Unbounded)
-          else Traversals.sequence(path.parameters.map(terms.of(_, Set.empty))).map(tuples)
-        path -> arguments
-      }
-      Plan(
-        readings.collect {
-          case (path, Right(found)) =>
-            found.map(args => Neutral.Call(path.callee, args) -> path.output)
-        }.flatten,
-        readings.collect {
-          case (path, Left(refusal)) => path.callee -> reason(refusal, path)
-        }.toMap
-      )
+    val terms = new Terms(values, paths.filterNot(p => eliminable(p.output)))
+    val graph = new Graph(paths)
+    val readings = paths.filter(p => eliminable(p.output)).map { path =>
+      val arguments =
+        if (graph.unbounded(path)) Left(Refusal.Unbounded)
+        else Traversals.sequence(path.parameters.map(terms.of(_, Set.empty))).map(tuples)
+      path -> arguments
+    }
+    Plan(
+      readings.collect {
+        case (path, Right(found)) =>
+          found.map(args => Neutral.Call(path.callee, args) -> path.output)
+      }.flatten,
+      readings.collect {
+        case (path, Left(refusal)) => path.callee -> reason(refusal, path)
+      }.toMap
+    )
   }
 
   private def tuples(arguments: List[List[Neutral]]): List[List[Neutral]] =
@@ -120,18 +120,18 @@ private[cardinality] object NeutralSaturation {
 
     // Only a reading made outside every cycle is final: one inside reads its ancestor as empty.
     private def atomic(shape: Shape, open: Set[Shape]): Either[Refusal, List[Neutral]] = {
-        val variables = values.collect { case (path, `shape`) => Neutral.Variable(path) }
-        val applications = producers.filter(_.output == shape).map { producer =>
-          Traversals
-            .sequence(producer.parameters.map(of(_, open + shape)))
-            .map(tuples(_).map(Neutral.Call(producer.callee, _)))
-        }
-        val found = Traversals.sequence(applications).map(variables ++ _.flatten).flatMap { terms =>
-          Either.cond(terms.isEmpty || !cyclic(shape), terms, Refusal.Unbounded)
-        }
-        if (open.isEmpty) known.update(shape, found)
-        found
+      val variables = values.collect { case (path, `shape`) => Neutral.Variable(path) }
+      val applications = producers.filter(_.output == shape).map { producer =>
+        Traversals
+          .sequence(producer.parameters.map(of(_, open + shape)))
+          .map(tuples(_).map(Neutral.Call(producer.callee, _)))
       }
+      val found = Traversals.sequence(applications).map(variables ++ _.flatten).flatMap { terms =>
+        Either.cond(terms.isEmpty || !cyclic(shape), terms, Refusal.Unbounded)
+      }
+      if (open.isEmpty) known.update(shape, found)
+      found
+    }
 
   }
 

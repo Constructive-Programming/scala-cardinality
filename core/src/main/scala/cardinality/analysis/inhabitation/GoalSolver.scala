@@ -152,7 +152,7 @@ final private[inhabitation] class GoalSolver(
   private def name(path: List[String]): String = path match {
     case "input" :: id :: rest =>
       (source(id) :: rest.collect { case s"field:$index" => index }).mkString("#")
-    case _            => "a function the goal binds"
+    case _ => "a function the goal binds"
   }
 
   private def source(id: String): String = labels.getOrElse(id, id)
@@ -324,7 +324,7 @@ final private[inhabitation] class GoalSolver(
 
   private def flatten(values: List[Value]): List[Value] =
     values.flatMap {
-      case spent @ Value(_, _, Reading.Spent) => List(spent)
+      case spent @ Value(_, _, Reading.Spent)        => List(spent)
       case Value(_, _: (Existential | Singleton), _) =>
         throw new Inhabitation.Unsupported("an existential or singleton input")
       case Value(path, Product(fields), _) =>
