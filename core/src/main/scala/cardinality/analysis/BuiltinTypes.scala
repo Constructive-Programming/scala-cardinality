@@ -10,8 +10,8 @@ import Inhabitation.Shape
   * the model reads (`Option`, `Either`, tuples, functions, sequences) is `StdlibModel`'s. Ground
   * scalars are transparent — literals with a total equality — sized as the JVM stores them, `Float`
   * / `Double` under `equals` (one NaN, two zeros: raw NaN bits are platform-dependent), `String`
-  * the free monoid over `Char`: ω. The top types are the terminal type, `Unit`'s shape
-  * (`TopTypes`).
+  * the free monoid over `Char`: ω. A top type is one value until its place is known: `TopTypes`
+  * raises it to ω in an output.
   */
 private[cardinality] object BuiltinTypes {
 

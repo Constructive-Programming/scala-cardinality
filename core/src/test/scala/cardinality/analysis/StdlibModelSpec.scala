@@ -347,10 +347,11 @@ class StdlibModelSpec extends Specification {
   // empty set (a Boolean of it: 2), and so does Map[String, Nothing] (1). Over an infinite key the
   // finite maps and sets are countably many: ω. A rigid F tells Set[String] from List[String] (0:
   // no program between them) and keeps one key per Set spelling (1). Set[Boolean] has 2^2 = 4
-  // values, and Map[Color, Boolean] over a two-case enum 3^2 = 9. A top among the keys keeps the
-  // container's polarity (v1.md §2): as a parameter it is one value, so a Set[Any] input is empty
-  // or not (2 values, 2^2 = 4 Booleans of it) and a Map[Any, Boolean] input 3 (2^3 = 8); as a
-  // result it is ε₀, so Set[Any] is 2^ε₀ and Map[Any, Boolean] 3^ε₀, both ε₀ in the size algebra.
+  // values, and Map[Color, Boolean] over a two-case enum 3^2 = 9. A top among the keys takes the
+  // container's place (v1.md §2): in an input it is one value and the size is not known, so a
+  // Set[Any] input is empty or not (2 values, 2^2 = 4 Booleans of it) and a Map[Any, Boolean]
+  // input 3 (2^3 = 8); in an output it is ω, so Set[Any] is 2^ω and Map[Any, Boolean] 3^ω, both ω
+  // (they were ε₀).
   def keyed = {
     val code = """object X {
       |  def s(): Set[1 | 2] = ???
@@ -384,9 +385,9 @@ class StdlibModelSpec extends Specification {
       .and(count(code, "X.flags") === Count.Finite(4))
       .and(count(code, "X.colors") === Count.Finite(9))
       .and(count(code, "X.setIn") === Count.Finite(4))
-      .and(count(code, "X.setOut").render === "ε₀")
+      .and(count(code, "X.setOut") === Count.Countable)
       .and(count(code, "X.mapIn") === Count.Finite(8))
-      .and(count(code, "X.mapOut").render === "ε₀")
+      .and(count(code, "X.mapOut") === Count.Countable)
   }
 
   // Over a type parameter a Map or Set tests its keys for an equality no parametric program has

@@ -595,8 +595,11 @@ private[cardinality] object Namespaces {
     }
   }
 
-  /** `java.lang.String`, the one base type `java.lang` spells the way the algebra models it. */
-  def javaString(select: Type.Select): Boolean =
-    Set("java.lang.String", "_root_.java.lang.String")(select.syntax)
+  /** `java.lang.String` and `java.lang.Object`, the base types `java.lang` spells the way the
+    * algebra models them.
+    */
+  def javaLang(select: Type.Select): Boolean =
+    Set("String", "Object")(select.name.value) &&
+      Set("java.lang", "_root_.java.lang")(select.qual.syntax)
 
 }

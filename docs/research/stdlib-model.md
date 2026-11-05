@@ -39,7 +39,7 @@ goal of `E.A.type` is 1.
 | function | `Function0`…`Function22` ≡ the arrow they spell | `Function` |
 | finite sequence | `List`, `Vector`, `IndexedSeq`, `Seq`, `immutable.ArraySeq`, `Array[E]`; the single-pass `Iterator`, `IterableOnce`, `java.util.Iterator` (reading is no effect, v1.md §2) | `Repeated(E)` |
 | byte sequence | `java.nio.ByteBuffer`, `java.io.InputStream`: the bytes they yield (single-pass, as above) | `Repeated(Byte)` |
-| finite map, finite set | `Map[K, V]`, `Set[E]` under lawful key equality (v1.md §2): the finite partial function or finite subset, read over closed arguments as the function it tabulates, a top among the keys keeping the container's polarity (top-types-unions.md Rule P); over an open argument, refused | `Function(K, 1 + V)`, `Function(E, 2)`; refused: `<fqn> over an open type is not read (…)` |
+| finite map, finite set | `Map[K, V]`, `Set[E]` under lawful key equality (v1.md §2): the finite partial function or finite subset, read over closed arguments as the function it tabulates, a top among the keys taking the container's place (top-types-unions.md Rule P); over an open argument, refused | `Function(K, 1 + V)`, `Function(E, 2)`; refused: `<fqn> over an open type is not read (…)` |
 | same value space, other name | `scala.collection.{Seq, IndexedSeq, Iterable}`, `immutable.Iterable`, `mutable.{Seq, IndexedSeq, Iterable, Buffer, ArrayBuffer, ListBuffer}`, `java.lang.Iterable`, `java.util.{Collection, List, ArrayList, LinkedList, Vector}`, `java.util.stream.Stream` (sequences); `collection.Map`, `mutable.Map`, `concurrent.Map`, `java.util.{Map, HashMap, LinkedHashMap, TreeMap}`, `java.util.concurrent.{ConcurrentMap, ConcurrentHashMap}` (maps); `collection.Set`, `mutable.Set`, `java.util.{Set, HashSet, LinkedHashSet, TreeSet}` (sets); `java.lang.{Boolean, Byte, Short, Character, Integer, Long, Float, Double}` (their scalars); `java.util.Optional` (`Option`); `java.util.function.Function` (`Function1`) — mutability is a `var` read as a `val`, order and representation are not observed | the modelled type's shape, under its own name as a rigid constructor's argument |
 | type constructor | any of the above unapplied: in a higher-kinded position (`Box[Either]`) an operator of the higher-kinded reading, applied where it is read; read as a proper type (no Scala program) | operator ([higher-kinded binders](higher-kinded-binders.md) R3); refused: `higher-kinded argument: scala.util.Either (type constructor [L, R] =>> L + R, needs higher-kinded instantiation)` |
 | excluded (final) | `WeakReference`, `ReferenceQueue`; `scala.quoted.{Quotes, Expr, Type, …}`; `scala.reflect.{ClassTag, Manifest, TypeTest, Typeable}`, `scala.deriving.Mirror{, .Product, .Sum, .Singleton, .Of, .ProductOf, .SumOf}` (type-revealing evidence, [syntax-features.md](syntax-features.md)) | refused: `outside the counting model: <fqn> (<why>)` |
@@ -90,10 +90,9 @@ for a finite key, and ω for an infinite one (countably many finite maps; the em
 reads it as that function, and the solver splits a supplied one and builds a goal of one like any
 closed value; a rigid constructor's argument keeps the `Map` / `Set` key (`F[Set[Int]]` is not
 `F[List[Int]]`). Over an open argument (`Set[A]`) it is refused: the keys are compared by an
-equality no parametric program has. A top type among the keys tells many values apart
-(`Set(1, "a")` is not `Set(1)`), so it is read by the container's polarity
-([top-types-unions.md](top-types-unions.md) Rule P): one value in a parameter's `Set[Any]` (2
-sets), ε₀ in a result's (2^ε₀).
+equality no parametric program has. A top type among the keys takes the container's place
+([top-types-unions.md](top-types-unions.md) Rule P): one value in a parameter's `Set[Any]`, whose
+size the type does not fix (2 sets), ω in a result's (2^ω).
 
 **Closed sequences are transparent data.** A sequence of closed elements (`Array[Byte]`,
 `List[Int]`, `Array[Any]` — `Any` is `1` on the method side, register D12) is a closed value like

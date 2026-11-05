@@ -108,10 +108,10 @@ final private[cardinality] class ConstructorPositions(
       // written.
       val context = ResolutionContext(owner, variables, Set.empty)
       val unread = TopTypes.unestimable(tpe, context, resolver)
-      val slot = unread.fold(TopTypes.implementationSlot(tpe, context, resolver))(_ => None)
+      val slot = Option.unless(unread)(TopTypes.implementationSlot(tpe, context, resolver)).flatten
       val written = ContextBounds.written(param, tpe, owner.typeParams)
       val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), written)
-      // A slot is a parameter of the constructor: its tops are negative (v1.md §2).
+      // A slot is a parameter of the constructor, an input: a bare top in it is one value (v1.md §2).
       val shaped = resolveIn(tpe, owner).map(TopTypes.polarized(_, false))
       declined(tpe, reading, shaped.isLeft).getOrElse(
         readPosition(label(param, tpe), shaped, unread, slot.flatMap(_ => reading.toOption))
@@ -148,28 +148,30 @@ final private[cardinality] class ConstructorPositions(
   private def readPosition(
       name: String,
       shaped: Resolved,
-      unread: Option[String],
+      unread: Boolean,
       estimate: Option[Size]
   ): Position = {
     // A value space the estimate is not asked about, or cannot read.
-    def unestimated = Refused(
-      unread.fold(s"constructor position has no value-space reading: $name")(why =>
-        s"constructor position reads $why: $name"
-      )
-    )
+    def unestimated = Refused(s"constructor position has no value-space reading: $name")
+    def closedSpace(shape: Shape) =
+      Natural
+        .attempt(ClosedSpaces.space(shape))
+        .fold(Refused(_), closedPosition(name, shape, _, estimate))
     shaped match {
-      case Right(shape) if ClosedSpaces.closed(shape) =>
-        Natural
-          .attempt(ClosedSpaces.space(shape))
-          .fold(Refused(_), closedPosition(name, shape, _, estimate))
-      case Right(shape) if ClosedSpaces.mixed(shape) =>
+      case Right(shape) if ClosedSpaces.closed(shape) => closedSpace(shape)
+      case Right(shape) if ClosedSpaces.mixed(shape)  =>
         Refused(s"constructor position mixes type parameters with transparent ground values: $name")
+      // A top the estimate is not handed — behind an alias, or under a constructor that may place
+      // it in an output — is read on the method side, a stable path's singleton as its one value:
+      // a constructor is a method, its parameters inputs (v1.md §2).
+      case Right(shape) if ClosedSpaces.valued(shape) && (unread || TopTypes.holds(shape)) =>
+        ClosedSpaces.pointed(shape).fold(unestimated)(closedSpace)
       // No type parameter, so a value space: the shape model would count the functions of the
       // position's own value instead.
       case Right(shape) if ClosedSpaces.valued(shape) => estimate.fold(unestimated)(Estimated(_))
       // The estimate reads the builtin the method side refused: it would rest on the same name.
       case Left(reason) if ShadowedBuiltins.shadows(reason) => Refused(reason)
-      case Left(_) if unread.nonEmpty                       => unestimated
+      case Left(reason) if unread                           => Refused(reason)
       // A type parameter's slot: the shape model reads an alias's top as `()` itself.
       case _ => estimate.fold(Shaped)(Estimated(_))
     }
@@ -182,9 +184,10 @@ final private[cardinality] class ConstructorPositions(
       estimate: Option[Size]
   ): Position =
     space match {
-      // A top type's positive tier: the estimate reads `Any` as ε₀ too.
-      case Card.Epsilon0 => Estimated(cardinality.capacity.EffectiveEpsilon0)
-      case Card.Omega    =>
+      // A top in an output (`f: Unit => Any`) is ω: the method side's own tier, since the
+      // estimate is handed the slot with every top read as `()`.
+      case Card.Omega if TopTypes.unbounded(shape) => Estimated(ClosedSpaces.estimate(shape))
+      case Card.Omega                              =>
         estimate match {
           case None                           => Estimated(ClosedSpaces.estimate(shape))
           case Some(size) if size.hasInfinite => Estimated(size)

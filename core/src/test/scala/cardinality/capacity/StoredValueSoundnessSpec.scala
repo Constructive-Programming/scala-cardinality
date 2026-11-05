@@ -645,9 +645,9 @@ class StoredValueSoundnessSpec extends Specification {
       "sealed trait Ord[A]\nfinal case class ByBool[A](f: A => Boolean) extends Ord[A]\nfinal case class C3[T: Ord as o](t: T)\nfinal case class U3(c: C3[Unit])"
     )(("U3", Class)) === "2"
 
-  // |C[A]| ≥ |A| (the one-element collections): over an ε₀-tier element (`String => String`,
-  // `Any`) a List, Array, Set, Vector, a Map's keys or values, or a repeated parameter is ε₀; over
-  // a finite or countable one ω (`Set[Boolean]` = 2² = 4); over `Nothing` 1 (`Map[Boolean,
+  // |C[A]| ≥ |A| (the one-element collections): over an ε₀-tier element (`String => String`) a
+  // List, Set, a Map's keys or values, or a repeated parameter is ε₀; over a finite or countable
+  // one ω (`Array[Any]`, `Vector[Vector[Any]]`: `Any` is ω, v1.md §2; they were ε₀) (`Set[Boolean]` = 2² = 4); over `Nothing` 1 (`Map[Boolean,
   // Nothing]` = 1¹… the empty map). The method side keeps its own saturating reading (ω).
   def containers = {
     val code =
@@ -666,7 +666,7 @@ class StoredValueSoundnessSpec extends Specification {
          |""".stripMargin
     val found = rows(code)
     def sizes(names: String*) = names.map(n => found((n, Alias)))
-    (sizes("L", "A", "S", "MK", "MV", "VV") === List.fill(6)("ε₀"))
+    (sizes("L", "A", "S", "MK", "MV", "VV") === List("ε₀", "ω", "ε₀", "ε₀", "ε₀", "ω"))
       .and(sizes("LB", "LN", "SB", "SS", "MV0") === List("ω", "1", "4", "ω", "1"))
       .and(found(("Rep", Class)) === "ε₀")
       .and(constructor("Rep.<init>", "A.scala" -> code) === Count.Bounded(EffectiveOmega))

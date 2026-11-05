@@ -1,12 +1,14 @@
 # Top types, one-valued goals and unions
 
 The method-side solver reads `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` **by their place
-in their own arrow** (Rule P below, superseding Rule T's reading of an output): the terminal type
-`1` in an arrow's input, ε₀ in its output. It counts a goal with exactly one value as one implementation in every
-environment, and reads a union `A₁ | … | Aₙ` as the tagged sum `A₁ + … + Aₙ` only where a class
-test is its eliminator. This page states the rules, their derivations, the counts they produce and
-where they stop. The stored-value side keeps its own reading of `Any` (everything, ε₀) and `Null`
-(one value): the two views answer different questions and stay separate.
+in their own arrow** (Rule P): `1` in an arrow's input, ω in its output. The stored-value side reads
+`Any`, `AnyRef` / `Object` and `Matchable` as ω everywhere (Rule S). A goal with exactly one value
+has one implementation in every environment (Rule O); a top result is not such a goal. A union
+`A₁ | … | Aₙ` is the tagged sum `A₁ + … + Aₙ` only where a class test is its eliminator (Rule U).
+This page states the rules, their derivations, the counts they produce and where they stop.
+
+*Input* and *output* are used throughout: an input is a method's or a function's parameter, or a
+constructor slot, read by the code receiving it; an output is a result.
 
 ## What a value of a top type can be used for
 
@@ -30,85 +32,101 @@ The solver already reads an unbounded type parameter this way (`def f[A](a: A, b
 compiler fixtures). Ground scalars are the opposite case: their *own* equality is total and part of
 the model ([ground-scalar-types.md](ground-scalar-types.md)), which is why `def f[A](a: A): Int` is
 the `2^32` constants and never a function of `a.hashCode`. A source override of a universal member
-(`override def equals(that: Any): Boolean`) is counted like any method: `that` carries no
-information, so its implementations ignore it, which is exact in the model.
+(`override def equals(that: Any): Boolean`) is counted like any method: `that` is an input and
+carries nothing, so its implementations ignore it, which is exact in the model
+(`final class E(val n: Boolean) { override def equals(that: Any): Boolean }` is 2^2).
 
-## Rule P: a top type is read by its place in its own arrow (supersedes Rule T in outputs)
+## Rule P: a top type is read by its place in its own arrow
 
-**Statement** (the owner's idealization, v1.md §2, register D38). Each function type, and each
-method, is read on its own, innermost first. A top type in that arrow's *input* is `1`: the code
-receiving it observes nothing of it, as Rule T derives. A top type in that arrow's *output* is ε₀,
-the size algebra's tier for "any value" (the stored-value side's reading of `Any`), which absorbs
-ω and itself (`2^ε₀ = ε₀`). Nothing flips through nesting: in `f: Any => A` the top is f's input,
-1, wherever f itself sits; in `g: A => Any` it is g's output, ε₀. A top under no arrow takes the
-place of the shape it is in — a method parameter or a constructor slot is an input, the method's
-result an output. A product, a sum, a sequence, an existential or polymorphic body passes its
-place on, and so do a `Set`'s elements and a `Map`'s keys and values: the function the model
-tabulates such a container as is no arrow of the program (`TopTypes.keyed`). A rigid
-constructor's arguments are keys, not values, and are not read.
+**Statement** (the owner's decision, v1.md §2, register D38). Each function type, and each method,
+is read on its own, innermost first.
 
-*Arguments before the method.* A method's count is its result's choices over its argument
-spaces. Where an argument's space holds an ε₀ top (a supplied function returning a top), the
-choices are counted with that top as one value — the body observes nothing of it — and two or
-more choices over an ε₀ argument space are ε₀; one choice stays 1, none stays 0
-(`Inhabitation.count`). No count is refused because a top-typed position cannot be enumerated.
+1. **Input: 1.** A top in an arrow's input is one value: the code receiving it observes nothing of
+   it (Rule T). `def p(x: Any): Boolean` is 2^1.
+2. **Output: ω.** A top in an arrow's output is ω: the code building it may return any value a
+   finite program builds, countably many — the tier a `String` has. `def r(b: Boolean): Any` is
+   ω^2 = ω.
+3. **Nothing flips through nesting.** In `f: Any => R` the top is f's input, 1, wherever f itself
+   sits: `def call[R](f: Any => R): R` is 1 (`f(())`), and `Function1[Any, R]` is the same type.
+   In `g: A => Any` it is g's output, ω, so g's space is ω. A wildcard stays what it was:
+   `Function1[?, R]` is `∃X. (X → R)`, uncallable, 0 as a goal.
+4. **A top under no arrow takes the shape's place.** A method parameter and a constructor slot are
+   inputs, a result (a `val` included) an output. A product, a sum, a sequence, an existential or
+   polymorphic body passes its place on, and so does a container: an `Option`'s value, a `Set`'s
+   elements, a `Map`'s keys and values — the function a set or a map is tabulated as is no arrow of
+   the program (`TopTypes.keyed`). `Option[Any]` is 1 + 1 = 2 as an input and 1 + ω = ω as an
+   output. A source class applied to a top reads its fields, each arrow in them on its own
+   (`final case class Fn[A](f: Boolean => A)`: `Fn[Any]` holds an output top, ω). A rigid
+   constructor's arguments are keys, not values, and are not read.
+5. **Set elements and map keys.** In an input, the code receiving a `Set[Any]` cannot tell its
+   elements apart, so only its size could tell two sets apart, and the type fixes no size: a value
+   whose size is known a priori is determined (one value per known size), and one whose size is
+   unknown is empty or not, 2 values (`Set[Any] => Boolean` is 2^2). Scala's `Set[A]` fixes no
+   size, so every input `Set[Any]` is 2, and an input `Map[Any, Boolean]` 3 (no key, or the one key
+   with either value). In an output or a `val`, a `Set[Any]` is 2^ω = ω and a `Map[Any, Boolean]`
+   3^ω = ω.
+6. **Arguments before the method.** A method's count is its result's choices over its argument
+   spaces. Where an argument's space holds a top in an output — a supplied function returning a
+   top, ω values — the choices are counted with that top as one value, which the body cannot
+   observe, and two or more choices over such a space are ω; one stays 1, none 0
+   (`Inhabitation.count`). `def h(g: Unit => Any): Boolean` is ω; `def loop[A](a: A, f: Any => A,
+   g: A => Any): A` is ω (two choices, `a` and `f(())`, over g's ω space); `def u[A](f: Any => A,
+   g: A => Any): A` is 1 (one choice, `f(())`). No count is refused because a top-typed position
+   cannot be enumerated.
+7. **`AnyRef` / `Object` and `Matchable` are `Any`**, everywhere: on the method side, on the stored
+   side (Rule S) and in unions (Rule U: `T | AnyRef` is `AnyRef`, `T & AnyRef` is `T`). Boxing
+   refuses nothing. `AnyVal` keeps its reading: a top on the method side (this rule), unmodelled on
+   the stored side (`unresolved[AnyVal]`), refused beside another alternative in a union.
+8. **Evidence that a type is below a top carries nothing.** `A <:< Any` (`AnyRef`, `Object`,
+   `Matchable`) imposes nothing on `A`: the proof is one value, factor 1, and refuses nothing
+   (`def ev[A](x: A)(using e: A <:< Any): A` is 1). `Any <:< A` and `A =:= Any` stay refused.
+9. **Inline methods.** An `inline` method counts as a `def` (AGENTS.md): a top-typed parameter is
+   one value and refuses nothing (`inline def k(x: Any): Boolean` is 2); only a compile-time
+   operation or another channel to the call site refuses ([syntax-features.md](syntax-features.md)).
+10. **Repeated parameters.** `X*` is a possibly empty list, `Σ_{n≥0} Xⁿ`: `f()` is a call, so
+    `def first[A](xs: A*): A` is 0. `xs: Any*` as an input is one value per length: ω.
 
-**Counts** (`TopTypesUnionSpec`, `StdlibModelSpec.keyed`): `def p(x: Any): Boolean` 2;
-`def r(b: Boolean): Any` ε₀; `def call[R](f: Any => R): R` 1 (f's `Any` is f's input: `f(())`);
-`callTwo(f: Any => R, g: Any => R): R` 2; `def loop[A](a: A, f: Any => A, g: A => Any): A` ε₀ (two
-choices, `a` and `f(())`, over g's ε₀ space); `def u[A](f: Any => A, g: A => Any): A` 1 (one
-choice); `def h(g: Unit => Any): Boolean` ε₀; `Set[Any]` as a parameter 2 values (empty or not:
-`Set[Any] => Boolean` is 4), as a result ε₀; `Map[Any, Boolean]` as a parameter 3 values, as a
-result ε₀; `case class AnyBox(x: Any)` 1; `final case class TC(f: Any => Boolean)` 2 (f's `Any` is
-its input: 2^1); `case class T(x: Option[Any], y: Any => Boolean)` 4. A one-valued goal is judged
-after placing, so an `Any` result is not terminal: an unreadable name beside it refuses the count
-(`def encode(a: A): Any` beside an unsupplied `Schema`).
+A shadowed `Any` (an alias, a binder, an import, an inherited member) keeps the shadowing
+declaration's reading. A top behind a source alias (`type Top = Any`) is read through the alias:
+the method side places it as above, the stored-value side reads it as ω (Rule S).
 
-**Boundary.** The ε₀ over an ε₀ argument space is the rule's extensional reading: a body that
-cannot observe the top would have only its choices (2 for `h` above, 2^(2^32) for a `conv(i:
-Int): Boolean` beside a `def other: Any` capability, `ReentrySpec.literalSearch`), so the count is
-an upper tier there, never below the parametric count.
+**Boundary.** ω over an argument space holding an output top is the rule's extensional reading: a
+body that cannot observe the top has only its choices (2 for `h`, 2^(2^32) for a `conv(i: Int):
+Boolean` beside a `def other: Any` capability, `ReentrySpec.literalSearch`), so the count is a tier
+above the parametric count, never below it.
 
-## Rule T: the top types are terminal (negative positions)
+## Rule T: a top type in an input carries nothing
 
 **Statement.** Where a top spelling reaches the builtin — no binder, declaration, import, export,
 inherited member or wildcard-imported member gives it another meaning, and no channel around the
-reference reaches declarations the sources do not supply (below) — it denotes `Unit`'s shape `1`.
-Results of a top type have one implementation, inputs carry no information, `Any => R ≅ R`, and
-`F[Any] ≅ F[Unit]` for every `F` that holds its argument by position — functions, tuples, `Option`,
-`Either`, sequences, a `Map`'s values (`Option[Any]` = 2, `Either[Any, Any]` = 2). Not for an `F`
-that merges equal arguments (a `Set`, a `Map`'s keys): see rule K. Nor for a parameter of an
-`inline` method: its body is expanded at each call site, where `inline x match { case _: Int => …
-}` reads the argument's *static* type, so `isInt(1)` and `isInt("s")` differ though no value of
-`Any` tells them apart (Scala 3.9.0, **compiler fixture**). The same dispatch reaches every
-parameter, constant and type argument of an `inline` method, so the whole method is refused with
-`inline method: each expansion may inspect its call site's argument types, constants and givens
-(compile-time dispatch)` ([syntax-features.md](syntax-features.md)); a one-valued goal keeps its 1
-(rule O).
+reference reaches declarations the sources do not supply (below) — a top in an input denotes
+`Unit`'s shape `1`: an input of a top type carries no information, `Any => R ≅ R`, and `F[Any] ≅
+F[Unit]` in an input for every `F` that passes its place on to its argument — functions' outputs
+excepted, which Rule P reads as ω. An input `Set[Any]` is `Set[Unit]` too: Rule P (5).
 
 **Derivation.** A type with no operations is the existential `∃X. X` (Mitchell and Plotkin's
 "abstract types have existential type", **classical**). Encoded, `∃X. X ≅ ∀R. (∀X. X → R) → R`.
 For `k : ∀X. X → R` with `R` independent of `X`, the abstraction theorem at the relation
 `{(t, ())} ⊆ T × 1` gives `k[T](t) = k[1](())` (the free theorem `k[U] ∘ g = k[T]` at
-`g = !ₜ : T → 1`; register D3), so `∀X. X → R ≅ R` and `∃X. X ≅ ∀R. R → R`, whose only inhabitant
-is the identity (`∀a. a → a ~ 1`, encoded in `ReferenceInhabitantsSpec`). Directly: interpret the
-top type by the total relation; no term former of the model inspects a value of it — it is only
-named, stored, passed and returned — so the fundamental lemma holds and no context tells two of
-its values apart. It is always inhabited, by `()`; so `def f[A](g: Any => A): A` is 1 where
-`def f[A, X](g: X => A): A` is 0, and `def loop[A](a: A, f: Any => A, g: A => Any): A` is 2 (`a`,
-`f(())`) where the atom version is ω.
+`g = !ₜ : T → 1`; register D3), so `∀X. X → R ≅ R`: a function receiving a top observes nothing of
+it. Directly: interpret the top type by the total relation; no term former of the model inspects a
+value of it — it is only named, stored, passed and returned — so the fundamental lemma holds and no
+context tells two of its values apart. It is always inhabited, by `()`; so `def f[A](g: Any => A):
+A` is 1 where `def f[A, X](g: X => A): A` is 0. The argument concerns the code receiving a top; the
+code building one is Rule P's, which counts a top-typed output as ω by decision (register D38).
 
 `AnyRef`, `Matchable` and `AnyVal` add only unrestricted capabilities (`eq`, `synchronized`, an
-open-ended type test that needs a default case), all excluded, so they are terminal too. A
-wildcard stays what it was: `Function1[?, R]` is `∃X. (X → R)`, uncallable, 0; `Function1[Any, R]`
-is callable on `()`, 1. `xs: Any*` is not terminal: its length is observable.
+open-ended type test that needs a default case), all excluded, so in an input they carry nothing
+too. `xs: Any*` is not one value: its length is observable.
 
 ## Rule O: a goal with one value has one implementation
 
-**Statement.** If the declared result resolves to a shape with exactly one value — `Unit`, a top
-type, a singleton type, a product of those, a function into one, or a closed type of value space 1
+**Statement.** If the declared result resolves to a shape with exactly one value — `Unit`, a
+singleton type, a product of those, a function into one, or a closed type of value space 1
 (`Option[Nothing]`, `Nothing => Boolean`) — the count is 1 whatever else the environment leaves
-unresolved: unreadable captures, inherited declarations, parameter types.
+unresolved: unreadable captures, inherited declarations, parameter types. A top result is an
+output, ω (Rule P), not one value: an unreadable name beside it refuses the count
+(`def encode(a: A): Any` beside an unsupplied `Schema`).
 
 **Derivation.** Implementations are counted up to observational equality. If the environment is
 empty, every goal has the unique absurd answer: 1. Otherwise every implementation returns a value
@@ -136,6 +154,23 @@ another meaning may hide behind a name:
 
 Constructor rows are value spaces, not goals, and are untouched.
 
+## Rule S: the stored-value side reads a top as ω
+
+**Statement.** The stored-value estimate (the definitions table) asks what a value of a type may
+hold, not what code may observe of it: `Any`, `AnyRef` / `Object` (`java.lang.Object` included) and
+`Matchable` are ω wherever they appear, as `String` is — every value a finite program builds. A top
+behind a source alias (`type Top = Any`) is ω too, with no refusal. `AnyVal` stays unmodelled
+(`unresolved[AnyVal]`).
+
+**Constructor = a method; type = a value whose accessible state is observed.** A constructor
+(its `<init>` row) is counted like any other method: its parameters are inputs, read by the method
+side, so a top in one — spelled or behind an alias (`type Top = Any`), whatever is beside it — is
+one value, and the constructor row never hands a top to the stored-value estimate. The type as a
+value (its definitions row, a top-level `val`) is read by the stored-value side, where a top,
+aliased or not, is ω. `final class Walk(val cur: Any, val n: Int)`: the constructor is 1 · 2^32 =
+2^32, the type ω · 2^32 = ω. The type is the value space of the tuple `(Any, Int)`
+(`TopTypesUnionSpec.walkCtor`, `.walkType`, `.aliasSingletonCtor`).
+
 ## Rule X: `transparent inline` results callers may see narrowed
 
 **Statement.** A `transparent inline` def is `?` with `transparent inline result: the call site
@@ -145,7 +180,8 @@ literal type.
 **Why.** The declared type is only an upper bound; callers see the expansion's type, and two
 expansions with the same values are told apart by it (overload resolution, member selection,
 implicit search). In `transparent inline def sel(b: Boolean): Any = b` the expansion is a
-`Boolean`, so the terminal collapse would count one implementation where callers observe two.
+`Boolean`, whose members callers may select (the Scala 3 reference on `transparent`), though the
+declared `Any` says nothing of it.
 Beside `class Sub(val n: Boolean) extends Foo()`, Scala 3.9.0 compiles
 `transparent inline def mk(b: Boolean): Foo = new Sub(b)` and a caller's `mk(true).n`, and
 `Some(new Sub(b))` under a declared `Option[Foo]` gives `mo(true).get.n` (**compiler fixture**), so
@@ -165,33 +201,32 @@ values bound the expansion, the types callers observe do not.
 ## Rule K: constructor positions are read in the implementation model
 
 A constructor's count multiplies its positions' value spaces, consulting the stored-value estimate.
-For a top type or `Null` the two views disagree by design (`Any`: ε₀ against 1; `Null`: 1 against
-0; `X | Null`: |X| + 1 against |X|). Before the estimate is asked, the position's type is rewritten
-into its implementation reading — top types to `()`, `Null` to `Nothing`, `Null` alternatives
-dropped — and a union or intersection left over is not handed to the estimate (its sum is only a
-bound) but to the method side. The rewritten type is a new tree with no position of its own, so the
-estimate reads it in the scope of the slot it was rebuilt from — where the constructor is written
+A slot is an input, so for a top type or `Null` the two views disagree by design (`Any` in a slot:
+ω against 1; `Null`: 1 against 0; `X | Null`: |X| + 1 against |X|). Before the estimate is asked,
+the position's type is rewritten into its implementation reading — every top to `()`, `Null` to
+`Nothing`, `Null` alternatives dropped — and a union or intersection left over is not handed to the
+estimate (its sum is only a bound) but to the method side. The estimate is never handed a top. A
+top in a function's output in the slot is ω, the method side's own tier, which stands without the
+estimate (`final case class K(f: Unit => Any, b: Boolean)` is ω). The rewritten type is a new tree with no position of its own, so the estimate
+reads it in the scope of the slot it was rebuilt from — where the constructor is written
 ([stored-value-names.md](stored-value-names.md)): in `object O { final case class Red(); final case
 class Box(f: (Any, Red)) }`, `Red` is `O`'s one value, whatever the package declares. A position
 the estimate is not asked to size is still read through it as written, so a name it cannot bind
 declines that position as it declines any other. The `Null` rewrites only drop values the null-free
 model excludes.
-The top rewrite identifies values no term of the model tells apart, which is an isomorphism only
-where nothing *around* the top tells them apart either: under a constructor that holds its argument
-by position (functions, tuples, `Option`, `Either`, the sequences, `PartialFunction`, a `Map`'s
-values). A `Set` merges elements its equality calls equal, so its *size* separates `Set(1, "a")`
-from `Set(1)` with no test on a top value (Scala 3.9.0 prints sizes 0, 1, 2, 3 for four `Set[Any]`
-values, **compiler fixture**): `Set[Any]` has a value per size, while `Set[Unit]` has 2. A top
-inside a `Set`, a `Map`'s keys or any constructor not listed — a source class applied to it
-included, since its fields may hold such a container — is therefore not rewritten, and the position
-is the method side's alone: `constructor position reads a top type inside Set, which may tell its
-elements apart: <param>` where that side cannot read it (`Box[Any]` with `Box[A](a: A)` it reads
-whole: 1). So `case class AnyBox(x: Any)` = 1, `final class Walk(val cur: Any, val n: Int)` = 2^32,
-`Map[Boolean, Any]` = 4 (its key sets), and a
-`WalkRes(cur: Any, parents: Array[Any], parentsLen: Int)` is ω (1 × lengths × 2^32), not ε₀ — eo's
-own `WalkRes` too, now that both sides read its file's `scala.jdk.CollectionConverters.*` through
-the shared table of listed namespaces: `CollectionConverters.*` binds no root name
-([stdlib-model.md](stdlib-model.md)).
+
+The top rewrite identifies values no term of the model tells apart in an input, which holds under
+every library constructor that passes its place on to its arguments: functions (by arrow, above),
+tuples, `Option`, `Either`, the sequences, a `Set`'s elements and a `Map`'s keys and values (an
+input `Set[Any]` is `Set[Unit]`'s 2 values, Rule P (5)). A top inside any other constructor — a
+source class applied to it included, since its fields may hold it in an output — is not rewritten,
+and the position is the method side's alone (`Box[Any]` with `Box[A](a: A)` it reads whole: 1;
+`Fn[Any]` with `Fn[A](f: Boolean => A)`: ω). So `case class
+AnyBox(x: Any)` = 1, `final class Walk(val cur: Any, val n: Int)` = 2^32 (its type is ω: Rule S),
+`Set[Any]` in a slot = 2, `Map[Boolean, Any]` = 4 (its key sets), and a `WalkRes(cur: Any, parents:
+Array[Any], parentsLen: Int)` is ω (1 × lengths × 2^32) — eo's own `WalkRes` too, now that both
+sides read its file's `scala.jdk.CollectionConverters.*` through the shared table of listed
+namespaces: `CollectionConverters.*` binds no root name ([stdlib-model.md](stdlib-model.md)).
 
 Constructor parameters are typed outside their template — neither the body's declarations nor the
 parents' members, nor the companion's, are in scope (Scala 3.9.0: `class C(x: T)` beside `object C
@@ -201,12 +236,14 @@ reads the field as a capture: `final class S2(val a: Any, val b: Boolean) extend
 Boolean = b }` with `X`'s `type Any = Boolean` is 2^2, its `a` one value.
 
 The rewrite reads spellings, so a top or `Null` behind a source alias (`type Top = Any`) is not
-handed to the estimate either: a closed position takes the method side's exact value space
-(`final case class TA(x: Top)` = 1, `TC(f: Any => Boolean)` through an alias = 2), a type-parameter
-slot is the shape model's as usual, and a position only the estimate could read is refused with
-`constructor position reads a top type or Null through an alias: <param>`. The rewrite writes the
-empty type as `Nothing`, so a slot where that name means a binder or a source declaration is not
-handed to the estimate.
+handed to the estimate, which would read the alias's top as ω where the slot reads it as one value:
+the position is the method side's (`final case class TA(x: Top)` = 1, `TC(f: Any => Boolean)`
+through an alias = 2). A position holding a top that the estimate is not handed is read on the
+method side even beside a non-literal singleton, which is a stable path's one value
+(`final case class K(x: (Top, O.type), b: Boolean)` = 2); a type-parameter slot is the shape
+model's as usual. The stored-value row of the same type reads the alias's top as ω with no refusal
+(Rule S: `K` is ω). The rewrite writes the empty type as `Nothing`, so a slot where that name
+means a binder or a source declaration is not handed to the estimate.
 
 ## Rule U: unions
 
@@ -216,7 +253,9 @@ Exact type equalities apply first, before any alternative is resolved (rule L):
   replaced by the argument as written at the use (`RB | Green.type`, `Or[Red, Blue] | Green.type`,
   `ORB | Green.type` with `type ORB = Or[Red, Blue]`, and `Or[Red, Blue]` alone all read as
   `Red | Blue (| Green.type)`); a type parameter passed as an argument stays a type parameter;
-- `T | Any = Any` — even when `T` is a foreign name (`Schema | Any` = 1); `T & Any = T`;
+- `T | Any = Any` — even when `T` is a foreign name (`Schema | Any` is a top: ω as a result) —
+  and so `T | AnyRef`, `T | Object` and `T | Matchable`, the same type in the model (Rule P (7));
+  `T & Any = T`, and `T & AnyRef`, `T & Matchable`;
 - one class spelled twice, both unapplied, is one alternative (`Red | p.Red`; inside an opaque
   type's scope, `Age | Boolean` with `opaque type Age = Boolean`);
 - `S | T = T` when `S`'s class is known to derive from `T`'s, both unapplied — so
@@ -277,10 +316,33 @@ family, any other may.
 
 | Signature | Count | Why |
 |---|---:|---|
-| `def anyOut[A](a: A): Any` | 1 | terminal result |
+| `def p(x: Any): Boolean` | 2 | input top: 2^1 |
+| `def r(b: Boolean): Any` | ω | output top: ω^2 |
+| `def anyOut[A](a: A): Any` | ω | output top |
 | `def eqAny(x: Any, y: Any): Boolean` | 2 | no equality on `Any`, as on an unbounded `A` |
-| `def loop[A](a: A, f: Any => A, g: A => Any): A` | 2 | `a`, `f(())`; `f` is constant |
-| `trait Codec[A] { def encode(a: A): Any }` (`Schema` foreign) | 1 | rule O |
+| `def call[R](f: Any => R): R` | 1 | f's `Any` is f's input: `f(())` |
+| `def callTwo[R](f: Any => R, g: Any => R): R` | 2 | `f(())`, `g(())` |
+| `def m[R](consume: Function1[?, R]): R` / `Function1[Any, R]` | 0 / 1 | uncallable / `consume(())` |
+| `def loop[A](a: A, f: Any => A, g: A => Any): A` | ω | `a`, `f(())`: 2 choices over g's ω space |
+| `def u[A](f: Any => A, g: A => Any): A` | 1 | one choice, `f(())` |
+| `def h(g: Unit => Any): Boolean` | ω | 2 choices over g's ω space |
+| `def oi(o: Option[Any]): Boolean` / `def oo(b: Boolean): Option[Any]` | 4 / ω | 2 inputs: 2^2 / 1 + ω |
+| `def si(s: Set[Any]): Boolean` | 4 | empty or not: 2^2 |
+| `def so(b: Boolean): Set[Any]`, `val sv: Set[Any]` | ω | 2^ω |
+| `def mi(m: Map[Any, Boolean]): Boolean` / `def mo(b: Boolean): Map[Any, Boolean]` | 8 / ω | 3 inputs: 2^3 / 3^ω |
+| `def f(xs: Any*): Boolean` | ω | one input per length |
+| `override def equals(that: Any): Boolean` in `final class E(val n: Boolean)` | 4 | `that` carries nothing: 2^2 |
+| `inline def k(x: Any): Boolean` / `inline def r(b: Boolean): Any` | 2 / ω | counted as a `def` |
+| `def ev[A](x: A)(using e: A <:< Any): A` (or `<:< AnyRef`) | 1 | the proof carries nothing |
+| `def t(x: AnyRef, i: Boolean): AnyRef \| Boolean` | ω | absorbed into `AnyRef`, an output |
+| `def mt[A](a: A): A & AnyRef` | 1 | `A & AnyRef` is `A` |
+| `def v(i: Boolean): AnyVal \| Boolean` | ? | `AnyVal` is not absorbing |
+| `trait Codec[A] { def encode(a: A): Any }` (`Schema` foreign) | ? | an output top is not one-valued (rule O) |
+| `case class AnyBox(x: Any)` (constructor row) | 1 | rule K |
+| `final class Walk(val cur: Any, val n: Int)`: constructor row / type | 2^32 / ω | rule K / rule S |
+| `final case class TC(f: Any => Boolean)` (constructor row) | 2 | f's `Any` is f's input: 2^1 |
+| `final case class K(f: Unit => Any, b: Boolean)` (constructor row) | ω | f's output top |
+| `type Top = Any; final case class TA(x: Top)`: constructor row / type | 1 / ω | rule K / rule S |
 | `def out(r: Red, b: Blue): Red \| Blue` (`Red(level: Boolean)`, `Blue()`, final) | 9 | 3 results per value of `r.level` |
 | `def in(u: Red \| Blue): Boolean` | 8 | 3 input values |
 | `def t(p: (Boolean, Boolean)): Green.type \| (Boolean, Boolean)` | 625 | `(1 + 4)^4` |
@@ -291,7 +353,6 @@ family, any other may.
 | `transparent inline def one(b: Boolean): 1` | 1 | singleton result: nothing narrower |
 | `transparent inline def mk(b: Boolean): Foo` (`Foo` has a subclass) | ? | rule X |
 | `def oe(x: Option[Boolean]): Option[Boolean] \| Either[Unit, Unit]` | 125 | `5^3` |
-| `case class AnyBox(x: Any)` | 1 | rule K |
 
 ## What stays `?`
 
@@ -301,7 +362,7 @@ family, any other may.
 | one class, two alternatives | `… — two alternatives share runtime class Box` |
 | overlap | `… — PQ derives from Q`; `… — a case of Color derives from Q` |
 | open classes | `… — X and Y may overlap (non-final class and open trait)` — defensive: the shape reading refuses an open trait or a plain class first (`abstract type or method-valued representation`), so no count reaches it; `TopTypesUnionSpec.openPair` pins the pair check directly |
-| top-like beside other alternatives | `… — union with top-like alternative AnyRef is not a sum` (boxing makes `Int` an `AnyRef`) |
+| `AnyVal` beside other alternatives | `… — union with top-like alternative AnyVal is not a sum` (`AnyRef`, `Object` and `Matchable` absorb the union instead) |
 | ancestry not resolved | `… — ancestry of P1 not resolved: Mixin` |
 | sealed family with a subclass it does not hold (an enum case of another enum, an anonymous class, a given) | `… — sealed family P has a subclass this reading does not enumerate: …` (an anonymous instance in its file is usually refused first by the family reading: `sealed family has anonymous instances in its file`) |
 | sealed family a parent clause may reach through a parameterised alias | `… — sealed family S may be extended through Id[S], which this reading does not dealias` |
@@ -311,16 +372,16 @@ family, any other may.
 | callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md): `TopTypesUnionSpec.callableSum` 27); an open one keeps the union's own reason |
 | transparent result whose declared type is not a singleton | `transparent inline result: …` |
 | self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | the builtin (never-shadowed assumption); through the standard library or the JDK, `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
-| a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |
+| a constructor slot holding a top the method side cannot read (an unsupplied name beside it) | the method side's own reason |
 | an `inline` method whose body uses a compile-time operation or another channel to the call site | `inline method: <what failed>` ([syntax-features.md](syntax-features.md)) |
 | `Any` shadowed (alias, binder, import, inherited member) | the shadowing declaration's reading or refusal, unchanged |
-| evidence with a top endpoint (`A <:< Any`) | `unsupported evidence relationship: <:< requires free-atom endpoints` |
+| evidence with a top on its left or in an equality (`Any <:< A`, `A =:= Any`) | `unsupported evidence relationship: … requires free-atom or rigid-application endpoints` |
 
-Not done here: `A <: Any` as a vacuous bound (the bounded-parameter work owns bounds), absorption
-of classes into `AnyRef` / `Matchable` / `AnyVal` (refused instead), wildcards in variant slots as
-`Any` / `Nothing`, intersections other than `T & Any`, and union aliases spelled infix
-(`Red Or Blue`) or reached through a parameter (`type Id[A] = A` applied to a union reads the union
-as written, which is the same sum).
+Not done here: `A <: Any` as a vacuous bound and `A <: AnyRef` / `Matchable` / `AnyVal` bounds (the
+bounded-parameter work owns bounds), absorption of classes into `AnyVal` (refused instead),
+wildcards in variant slots as `Any` / `Nothing`, intersections other than `T & Any` (`AnyRef`,
+`Object`, `Matchable`), and union aliases spelled infix (`Red Or Blue`) or reached through a
+parameter (`type Id[A] = A` applied to a union reads the union as written, which is the same sum).
 
 ## Evidence
 
@@ -339,9 +400,12 @@ as written, which is the same sum).
   than an equal-valued body ascribed to the declared result (review-A6 h11–h14, a6-fix1 t1, dv); a self
   type, a wildcard-imported object's parent, a package object's parent, a wildcard import or
   export and an outer chained package clause each rebind `Unit` and `Any` when the outside
-  declaration says `type Unit = Boolean`; `Set[Any]` values of sizes 0–3; an `inline match` on an
-  `Any` parameter separating `isInt(1)` from `isInt("s")`; constructor parameters typed outside
-  the template's body, parents and companion; `extends Id[S]` with `type Id[X] = X` makes a child
-  of the sealed `S`.
-- **Executable**: `TopTypesUnionSpec`, `MethodUnionNullabilitySpec`, `ReferenceInhabitantsSpec`;
-  rule X in `TransparentInlineSpec`.
+  declaration says `type Unit = Boolean`; constructor parameters typed outside the template's body,
+  parents and companion; `extends Id[S]` with `type Id[X] = X` makes a child of the sealed `S`.
+- The output reading (ω), the set-size reading of Rule P (5), `AnyRef` / `Matchable` as `Any` and
+  the no-op `<:< Any` proof are the owner's decisions (register D38), not derivations.
+- **Executable**: `TopTypesUnionSpec` (`.polarity`, `.loop`, `.unseeded`, `.structural`,
+  `.otherTops`, `.containers`, `.equalsOverride`, `.inlineTop`, `.referenceTops`, `.evidence`,
+  `.walkCtor`, `.walkType`, `.outputSlot`, `.mergingCtor`, `.aliasedTopCtor`, `.topLike`),
+  `StdlibModelSpec.keyed`, `MethodUnionNullabilitySpec`, `ReferenceInhabitantsSpec`; rule X in
+  `TransparentInlineSpec`.

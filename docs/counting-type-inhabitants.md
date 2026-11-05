@@ -50,11 +50,12 @@ scope.
 
 - It counts **canonical pure, total parametric constructions**: no divergence, no effects, no casts,
   no unsafe equality.
-- `Any`, `AnyRef`, `Matchable` and `AnyVal` are the **terminal type** `1`: every universal member
-  (`==`, `hashCode`, `toString`, `getClass`, type tests, `eq`) is outside the model, so no context
-  tells two of their values apart. A goal with one value has one implementation in any environment,
-  and a union is a sum only where a class test is its eliminator
-  ([top types and unions](research/top-types-unions.md)).
+- `Any`, `AnyRef`, `Matchable` and `AnyVal` are read by their place in their own arrow: `1` in an
+  input, since every universal member (`==`, `hashCode`, `toString`, `getClass`, type tests, `eq`)
+  is outside the model and the code receiving one tells no two of its values apart; ω in an
+  output, where the code building one may return any value. A goal with one value has one
+  implementation in any environment (a top result is not one), and a union is a sum only where a
+  class test is its eliminator ([top types and unions](research/top-types-unions.md)).
 - An opaque callable is unconstrained, so applying it repeatedly is counted as countable
   (`∀a. (a -> a) -> a -> a ~ ℵ₀`); a callable the source set defines is a specific inhabitant of its
   type, whose values a total parametric body can only draw from the environment — so it neither

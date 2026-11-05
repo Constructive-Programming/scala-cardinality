@@ -56,7 +56,7 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
   // Scala 3.9.0 types an overriding member by the member it overrides (fixtures: `Some(1)`
   // overriding `Option[Int]` is an `Option[Int]`). eitherAccessor.getOption: Left gives None (1),
   // Right(a) gives None or Some(a) (2) — 1 × 2. O.k is an Option[Int]: 1 + 2^32. O.f is an Any
-  // result, positive: ε₀ (v1.md §2).
+  // result, an output: ω (v1.md §2; it was ε₀).
   def overrides = {
     val found = rows(
       """trait PartialAccessor[F[_, _]] { def getOption[X, A](fa: F[X, A]): Option[A] }
@@ -67,7 +67,7 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
     )
     (found("eitherAccessor.getOption") === Count.Finite(2))
       .and(found("O.k") === Count.Finite(BigInt(2).pow(32) + 1))
-      .and(found("O.f").render === "ε₀")
+      .and(found("O.f").render === "ω")
   }
 
   // `Ext` may declare `f`; Scala intersects every base class's declaration, so one `F` reads (`Int =>
@@ -106,14 +106,14 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
   // An abstract `var` declares a getter and a setter `f_=(x: Any): Unit`, and a given a method; a
   // member implementing one is typed by it (3.9.0 fixtures: `def f = true` there is an `Any`, `def
   // f_=(x: Any) = true` a `Unit`, value discarded): never the body's Boolean 2. The Any results are
-  // positive, ε₀ (v1.md §2); the setter's Unit is 1.
+  // outputs, ω (v1.md §2; they were ε₀); the setter's Unit is 1.
   def variableOverrides = {
     val found = rows("""trait P { var f: Any }
       |final class C extends P { def f = true; def f_=(x: Any) = true }
       |trait G { given f: Any; given h(using x: Int): Any }
       |final class D extends G { def f = true; def h(using x: Int) = true }""".stripMargin)
     (found("C.f_=") === Count.Finite(1))
-      .and(List("C.f", "D.f", "D.h").map(found(_).render === "ε₀").reduce(_ and _))
+      .and(List("C.f", "D.f", "D.h").map(found(_).render === "ω").reduce(_ and _))
   }
 
   // Every template extends `Any` and `Object`; a case class or object `Product` and `Equals`, an enum
@@ -300,12 +300,12 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       .and(found("O.kk") === Count.Countable)
   }
 
-  // `new Object` is an Object (a positive top: ε₀); `new StringBuilder` names its absent declaration; a
-  // stdlib class the model gives type parameters needs them.
+  // `new Object` is an Object (a top in an output: ω, v1.md §2; it was ε₀); `new StringBuilder` names
+  // its absent declaration; a stdlib class the model gives type parameters needs them.
   def outsideCreation = {
     val found =
       rows("object O { def f = new Object; def g = new StringBuilder; def h = new Some(1) }")
-    (found("O.f").render === "ε₀")
+    (found("O.f").render === "ω")
       .and(refused(found("O.g"), "declaration not supplied: StringBuilder"))
       .and(refused(found("O.h"), "inferred result type not resolved: instance creation needing"))
   }

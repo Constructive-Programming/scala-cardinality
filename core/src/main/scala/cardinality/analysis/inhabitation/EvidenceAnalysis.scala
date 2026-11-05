@@ -3,6 +3,7 @@ package cardinality.analysis.inhabitation
 import scala.annotation.tailrec
 
 import cardinality.analysis.*
+import cardinality.analysis.resolution.TopTypes
 import cardinality.types.Traversals
 
 import Inhabitation.Shape
@@ -23,7 +24,10 @@ import Inhabitation.Shape.*
 private[cardinality] object EvidenceAnalysis {
 
   def resolve(name: String, left: Shape, right: Shape): Either[String, Shape] =
-    if (endpoint(left) && endpoint(right)) Right(Evidence(left, right, name.endsWith("=:=")))
+    // `A <:< Any` (`AnyRef`, `Object`, `Matchable`) imposes nothing on `A`: the proof carries
+    // nothing, `Unit`'s one value (v1.md §2).
+    if (name.endsWith("<:<") && right == TopTypes.terminal) Right(Product(Nil))
+    else if (endpoint(left) && endpoint(right)) Right(Evidence(left, right, name.endsWith("=:=")))
     else
       Left(
         s"unsupported evidence relationship: $name requires free-atom or rigid-application endpoints"

@@ -6,9 +6,8 @@ import scala.meta.Type
   * worth.
   *
   * One table, so a reference and a report read the same list. `Null` is one value — `null` — and
-  * `Any` is the top of the lattice: nothing the analysis can place is above the ε₀ tier and `Any`
-  * holds everything, so it sits there. Other top-ish names (`AnyRef`, `Matchable`) stay unmodelled
-  * rather than guessed.
+  * `Any`, `AnyRef` (`Object`) and `Matchable` hold every value a finite program builds: ω, as
+  * `String` (v1.md §2). `AnyVal` stays unmodelled.
   */
 private[cardinality] object BaseTypes {
 
@@ -65,7 +64,10 @@ private[cardinality] object BaseTypes {
     "Long" -> LongSize,
     "Float" -> FloatSize,
     "Double" -> DoubleSize,
-    "Any" -> EffectiveEpsilon0,
+    "Any" -> EffectiveOmega,
+    "AnyRef" -> EffectiveOmega,
+    "Object" -> EffectiveOmega,
+    "Matchable" -> EffectiveOmega,
     "Null" -> UnitSize,
   )
 

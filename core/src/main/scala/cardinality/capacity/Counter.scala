@@ -422,11 +422,11 @@ object Counter {
   private def located(scope: Scope, select: Type.Select): Option[Namespaces.Located] =
     Namespaces.locate(scope, select.qual, TypeName.of(select.name.value))
 
-  // `scala.Int`, `scala.Option`, `java.lang.String`: the base types the standard library spells in
-  // full, when no source namespace has that path.
+  // `scala.Int`, `scala.Option`, `java.lang.String`, `java.lang.Object`: the base types the
+  // standard library spells in full, when no source namespace has that path.
   private def standard(select: Type.Select): Option[Size] =
     if (Namespaces.standardQualifier(select.qual)) BaseTypes.get(select.name.value)
-    else if (Namespaces.javaString(select)) BaseTypes.get("String")
+    else if (Namespaces.javaLang(select)) BaseTypes.get(select.name.value)
     else None
 
   // A member a namespace solved, read with the reasons its value rests on: a qualified reference

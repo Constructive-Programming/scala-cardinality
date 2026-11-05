@@ -12,17 +12,16 @@ import Inhabitation.Shape
 import MethodAnalysis.TypeEntry
 import TypeSubstitution.{platedType, Meet, Union}
 
-/** `Any`, `AnyRef` (`Object`), `Matchable` and `AnyVal` on the method side: the terminal type.
+/** `Any`, `AnyRef` (`Object`), `Matchable` and `AnyVal` on the method side, read by their place in
+  * their own arrow (Rule P, docs/research/top-types-unions.md).
   *
   * The contract excludes every operation Scala offers on a value of a top type — universal equality
-  * and hashing, `toString`, `getClass`, type tests and casts, `eq`, `synchronized` — so no context
-  * tells two such values apart: the type is `∃X. X`, which parametricity makes `1`
-  * (docs/research/top-types-unions.md). It is always inhabited, by `()`. Four places read it
+  * and hashing, `toString`, `getClass`, type tests and casts, `eq`, `synchronized` — so the code
+  * receiving one observes nothing of it: in an arrow's input it is `1`, always inhabited, by `()`.
+  * In an arrow's output it is ω: the code that builds it may return any value. Two places read it
   * differently on purpose: a `transparent inline` result, whose call site sees the expansion's type
-  * (`TransparentResults`); an `inline` method whose body may match on an argument's static type
-  * (`InlineBodies`); a constructor position, whose stored-value estimate keeps `Any` as everything
-  * (ε₀), so the position is read through this model before the estimate is asked; and a goal with
-  * exactly one value, which has one implementation in every environment.
+  * (`TransparentResults`); and a constructor position, whose stored-value estimate keeps `Any` as
+  * every value (ω), so the position is read through this model before the estimate is asked.
   */
 private[cardinality] object TopTypes {
 
@@ -47,9 +46,9 @@ private[cardinality] object TopTypes {
   /** The bare names an import or an export could put another meaning behind. */
   val names: Set[String] = spellings.keySet.filterNot(_.contains('.'))
 
-  /** A top type before its position is known: one value, which `polarized` keeps in a negative
-    * position (a parametric body observes nothing of it) and raises to ε₀ in a positive one (v1.md
-    * §2). Its own ground, so a key of a finite map or set tells it from `Unit`.
+  /** A top type before its position is known: one value, which `polarized` keeps in an input (the
+    * code receiving it observes nothing of it) and raises to ω in an output (v1.md §2). Its own
+    * ground, so a key of a finite map or set tells it from `Unit`.
     */
   val terminal: Shape = Shape.Ground("Any", Card.one)
 
@@ -71,7 +70,7 @@ private[cardinality] object TopTypes {
   }
 
   /** A shape with its tops read by position (v1.md §2): each arrow on its own, innermost first, a
-    * top in its input is one value and a top in its output ε₀; nothing flips through nesting. A top
+    * top in its input is one value and a top in its output ω; nothing flips through nesting. A top
     * under no arrow takes `positive`, the place the shape itself has (a method's parameter or a
     * constructor slot is an input, its result an output); a product, sum, sequence, existential or
     * polymorphic body passes its place on; a rigid application's arguments are keys, not values.
@@ -91,20 +90,26 @@ private[cardinality] object TopTypes {
     case other => Shape.rebuild(other, Shape.children(other))(placed(_, positive, enclosing))
   }
 
-  private def tier(positive: Boolean): Card = if (positive) Card.Epsilon0 else Card.one
+  private def tier(positive: Boolean): Card = if (positive) Card.Omega else Card.one
 
-  /** Whether a shape holds a top read at ε₀. */
+  /** Whether a shape holds a top type, in any place. */
+  def holds(shape: Shape): Boolean = Shape.exists(shape) {
+    case Shape.Ground(name, _) => top(name)
+    case _                     => false
+  }
+
+  /** Whether a shape holds a top read in an output, at ω. */
   def unbounded(shape: Shape): Boolean =
     Shape.exists(shape) {
-      case Shape.Ground(name, Card.Epsilon0) => top(name)
-      case _                                 => false
+      case Shape.Ground(name, Card.Omega) => top(name)
+      case _                              => false
     }
 
-  /** The shape with every ε₀ top read as `Unit`, one value: what a body that observes nothing of it
-    * may do with it.
+  /** The shape with every top read in an output as `Unit`, one value: what a body that observes
+    * nothing of it may do with it.
     */
   def observed(shape: Shape): Shape = shape match {
-    case Shape.Ground(name, Card.Epsilon0) if top(name)        => Shape.Product(Nil)
+    case Shape.Ground(name, Card.Omega) if top(name)           => Shape.Product(Nil)
     case _: (Shape.Applied | Shape.Evidence | Shape.Singleton) => shape
     case other => Shape.rebuild(other, Shape.children(other))(observed)
   }
@@ -123,6 +128,15 @@ private[cardinality] object TopTypes {
     */
   def isAny(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
     denoted(tpe, context, resolver).contains(Kind.Universal)
+
+  /** Whether a top absorbs a union and is the unit of `&`: `Any`, and `AnyRef` (`Object`) and
+    * `Matchable`, which the model reads exactly as `Any` (v1.md §2). `AnyVal` does not.
+    */
+  def absorbing(kind: Kind): Boolean = kind != Kind.Values
+
+  /** Whether `tpe` is an absorbing top where it is read (`absorbing`). */
+  def absorbs(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
+    denoted(tpe, context, resolver).exists(absorbing)
 
   /** Whether `tpe` is the builtin `Null` where it is read. */
   def isNull(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
@@ -177,22 +191,20 @@ private[cardinality] object TopTypes {
       ClosedSpaces.closed(other) && Natural.attempt(ClosedSpaces.space(other)).exists(_.isOne)
   }
 
-  /** Why a constructor position is the method side's alone to read, if it is: a top type or `Null`
-    * behind a source alias, which the rewrite below does not reach, or a top type inside a
-    * constructor that may merge the values the rewrite identifies.
+  /** Whether a constructor position is the method side's alone to read: a top type or `Null` behind
+    * a source alias, which the rewrite below does not reach, or a top type inside a constructor
+    * whose arguments' places the rewrite does not know. A constructor is a method: the estimate is
+    * never handed a top (v1.md §2).
     */
-  def unestimable(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
-    if (aliased(tpe, context, resolver)) Some("a top type or Null through an alias")
-    else
-      merging(tpe, context, resolver).map(head =>
-        s"a top type inside $head, which may tell its elements apart"
-      )
+  def unestimable(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
+    aliased(tpe, context, resolver) || merging(tpe, context, resolver).nonEmpty
 
   /** A constructor position's type in the implementation model, for the stored-value estimate: a
-    * top type is the one value `()`, `Null` is empty and drops out of a union. A union or an
-    * intersection left over is the shape model's to read — the estimate's sum is only a bound — and
-    * so is a slot where `Nothing`, the name the rewrite writes the empty type with, means a binder
-    * or a declaration of the sources.
+    * top type is the one value `()` — its reading in an input; a top in a function's output, ω, is
+    * the method side's own (`ConstructorPositions`) — `Null` is empty and drops out of a union. A
+    * union or an intersection left over is the shape model's to read — the estimate's sum is only a
+    * bound — and so is a slot where `Nothing`, the name the rewrite writes the empty type with,
+    * means a binder or a declaration of the sources.
     */
   def implementationSlot(
       tpe: Type,
@@ -264,11 +276,11 @@ private[cardinality] object TopTypes {
     Universe.exists(tpe)(sought(_, scope)) ||
       namedParts(tpe).exists(behind(_, scope, resolver, sought))
 
-  // The library constructors that hold their arguments by position alone, at the argument indexes
-  // they do: a sequence's elements, an option's value, a map's values. Reading a top as `()` there
-  // identifies values none of their operations keeps apart. A `Set` or a `Map`'s keys merge what
-  // equality calls equal, so `Set(1, "a")` and `Set(1)` differ in size though no operation tests a
-  // top value; any constructor not listed may do the same.
+  // The library constructors whose arguments take the constructor's own place, at the argument
+  // indexes they do: a sequence's elements, an option's value, a set's elements, a map's keys and
+  // values (v1.md §2: a set's size in an input is not known, so `Set[Any]` there is `Set[Unit]`'s
+  // 2). Any other constructor — a source class, a function type spelled as a class — may hold its
+  // argument in an output, where a top is ω, not `()`.
   private val positional: Map[String, Set[Int]] = Map(
     "Option" -> Set(0),
     "Either" -> Set(0, 1),
@@ -279,11 +291,11 @@ private[cardinality] object TopTypes {
     "Array" -> Set(0),
     "LazyList" -> Set(0),
     "Stream" -> Set(0),
-    "PartialFunction" -> Set(0, 1),
-    "Map" -> Set(1)
+    "Set" -> Set(0),
+    "Map" -> Set(0, 1)
   )
 
-  // The first constructor around a top type that may merge its arguments, as spelled.
+  // The first constructor around a top type that does not pass its place on, as spelled.
   private def merging(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
     tpe match {
       case a: Type.Apply => applied(a.tpe, a.argClause.values, context, resolver)

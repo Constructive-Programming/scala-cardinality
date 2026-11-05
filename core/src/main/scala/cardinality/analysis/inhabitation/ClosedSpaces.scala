@@ -1,14 +1,7 @@
 package cardinality.analysis.inhabitation
 
 import cardinality.analysis.resolution.LiteralTypes
-import cardinality.capacity.{
-  EffectiveEpsilon0,
-  EffectiveOmega,
-  FinitePart,
-  NothingSize,
-  Size,
-  UnitSize
-}
+import cardinality.capacity.{EffectiveOmega, FinitePart, NothingSize, Size, UnitSize}
 
 import Inhabitation.Shape
 import Shape.*
@@ -40,6 +33,23 @@ private[cardinality] object ClosedSpaces {
     * saturate it at ω. Used only where the estimate could not read the position itself.
     */
   def estimate(shape: Shape): Size = tiers.get(shape)
+
+  /** The value space of a shape whose only open nodes are singleton types, each a stable path's one
+    * value; None for any other open shape. A constructor position read on the method side alone
+    * (one holding a top type) is such a value space.
+    */
+  def pointed(shape: Shape): Option[Shape] = {
+    val read = Shape
+      .cata[Shape] { (node, kids) =>
+        node match {
+          case Singleton(id, None) if LiteralTypes.literal(id) => node
+          case _: Singleton                                    => Product(Nil)
+          case _ => Shape.rebuild(node, kids)(identity)
+        }
+      }
+      .get(shape)
+    Option.when(closed(read))(read)
+  }
 
   /** Atoms beside ground values: neither a value space nor a choice of supplied values. */
   def mixed(shape: Shape): Boolean =
@@ -107,7 +117,6 @@ private[cardinality] object ClosedSpaces {
     // A ground size is a word-sized literal or ω.
     def ground(size: Card) = size match {
       case Card.Exact(Natural.Lit(value)) => Size(0, 0, FinitePart.exact(value))
-      case Card.Epsilon0                  => EffectiveEpsilon0
       case _                              => EffectiveOmega
     }
     def plus(a: Size, b: Size) = a + b
