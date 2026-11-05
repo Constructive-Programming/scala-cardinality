@@ -9,12 +9,6 @@ object Counter {
   // Trees are parsed and reprinted under Scala 3 dialect rules.
   private given scala3: Dialect = dialects.Scala3
 
-  /** What every definition a source introduces holds together: the sum over its concrete classes,
-    * enums, modules and top-level values, nested definitions and supplied library sources included.
-    */
-  def source(s: Source, library: Library = Library.empty): Size =
-    Walk.body(s.stats, Scope.libraryLens.replace(library)(Scope.empty))
-
   /** Every definition a source introduces, in source order, with the cardinality of its type and
     * any reasons that stopped the calculator from bounding it.
     */
@@ -26,19 +20,6 @@ object Counter {
     * field in one object report `2ε₀ + ω`. See `signatureIn` for what counts as a member.
     */
   def sourceSignature: Source => Size = s => signatureBody(s.stats, Scope.empty)
-
-  def stat: Stat => Size = statIn(Scope.empty)
-
-  /** A single definition's member signature, summed as in `sourceSignature`. */
-  def defnSignature: Defn => Size = signatureIn(Scope.empty)
-
-  def defn: Defn => Size = defnIn(Scope.empty)
-
-  def ctor: Ctor.Primary => Size = ctorIn(Scope.empty)
-
-  def param: Term.Param => Size = paramIn(Scope.empty)
-
-  def `type`: Type => Size = typeIn(Scope.empty)
 
   // A type owns its name; a module is a term. `object Foo`'s value has type `Foo.type`, so no
   // equation is made for it: a type reference `Foo` means the trait, class, enum or alias, and a
@@ -130,23 +111,6 @@ object Counter {
     d.mods.exists(_.is[Mod.Sealed])
 
   private[cardinality] def isOpaqueAlias(d: Defn.Type): Boolean = d.mods.exists(_.is[Mod.Opaque])
-
-  // A statement's contribution to a source total. A definition the solver gave an equation
-  // contributes that solved value rather than a fresh evaluation: twice would count the base
-  // summand twice (`Q = 1 + Q` contributing `ω + 2` where a reference to `Q` gives `ω + 1`).
-  private def statIn(scope: Scope): Stat => Size = {
-    case p: Pkg                              => Walk.body(p.body.stats, scope)
-    case p: Pkg.Object                       => Walk.body(p.templ.body.stats, scope)
-    case d: Defn.Class if isConcreteClass(d) =>
-      scope.getOrElse(Walk.named(d), stored(scope)(d.tparamClause.values, d.ctor))
-    case d: Defn.Enum   => scope.getOrElse(Walk.named(d), enumSize(scope)(d))
-    case _: Defn.Object => UnitSize
-    // scalameta's `Stat` is not sealed and hides `Stat.Quasi` as `private[meta]`, so an
-    // exhaustive match is impossible. Every other statement — declarations, imports and
-    // exports, bare terms, aliases — defines no values of its own.
-    case d: Defn => defnIn(scope)(d)
-    case _       => NothingSize
-  }
 
   private[cardinality] def defnIn(scope: Scope): Defn => Size = {
     // Abstract classes contribute no inhabitants of their own; only their concrete

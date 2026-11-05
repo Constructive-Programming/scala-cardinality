@@ -22,7 +22,7 @@ class NamespaceSpec extends Specification {
       a sealed trait's companion does not stand in for its sum    $sealedCompanion
       a case-object child still counts once                       $caseObjectChild
       a case-object child is the module, whatever type shares its name  $caseObjectNamedLikeType
-      a companion counts its own one value in a source total      $companionTotal
+      a companion row counts its own one value      $companionTotal
 
     Objects and packages are namespaces
       a class nested in an object resolves, in the file and across packages  $nestedMember
@@ -114,13 +114,12 @@ class NamespaceSpec extends Specification {
     (found(("Light", Abstract)) === "2").and(found(("UsesLight", Class)) === "2")
   }
 
-  // A source holds its class's 2 values and its module's 1: 3. Before, the module read the class's
-  // value from the name they share and the source summed 2 + 2.
-  def companionTotal =
-    Counter.source(
-      dialects.Scala3("case class Spot(on: Boolean)\nobject Spot").parse[Source].get
-    ) ===
-      TinySize(3)
+  // The class holds its 2 values and its module its own 1. Before, the module read the class's
+  // value from the name they share.
+  def companionTotal = {
+    val found = rows("case class Spot(on: Boolean)\nobject Spot")
+    (found(("Spot", Class)) === "2").and(found(("Spot", Definition.Kind.Object)) === "1")
+  }
 
   // |Span| = 2^32 · 2^32 = 2^64, non-empty, so |List[Span]| = ω and |(Boolean, List[Span])| = 2 · ω
   // = ω, read through the object in the file and through the package path from another package.

@@ -6,20 +6,14 @@ import org.specs2.Specification
 
 // The member signature reading: what a definition declares, summed rather than multiplied. Every
 // typed field, term and method contributes the size of its declared type, so a module with two
-// methods from String to String and one String field is 2ε₀ + ω, while the value-space reading
-// (Counter.source) still multiplies the fields of a constructor. The two readings answer
-// different questions about the same source, which is why both survive.
+// methods from String to String and one String field is 2ε₀ + ω, while a value row still
+// multiplies the fields of a constructor. The two readings answer different questions about the
+// same source, which is why both survive.
 class SignatureSpec extends Specification {
 
   private def sig(code: String): Size =
     Counter.sourceSignature(dialects.Scala3(code).parse[Source].get)
 
-  private def value(code: String): Size = Counter.source(dialects.Scala3(code).parse[Source].get)
-
-  private def defnOf(code: String): Size =
-    Counter.defnSignature(
-      dialects.Scala3(code).parse[Source].get.stats.collectFirst { case d: Defn => d }.get
-    )
 
   private val service =
     "object Service { def parse(s: String): String = s; def render(s: String): String = s; val name: String = x }"
@@ -37,18 +31,12 @@ class SignatureSpec extends Specification {
     two endofunctions and a String field       ${sig(
       service
     ) === EffectiveEpsilon0 + EffectiveEpsilon0 + EffectiveOmega} (2ε₀ + ω)
-    the same module as a value is one          ${value(
-      service
-    ) === UnitSize} (an object is a single value)
     a module with one endofunction is smaller  ${sig(
       serviceOne
     ) === EffectiveEpsilon0 + EffectiveOmega}
     constructor fields add, not multiply       ${sig(
       "case class Flags(a: Boolean, b: Boolean, c: Boolean)"
     ) === TinySize(6)}
-    while the value space still multiplies     ${value(
-      "case class Flags(a: Boolean, b: Boolean, c: Boolean)"
-    ) === TinySize(8)}
     a case class parameter is a member         ${sig(
       "case class Pair(a: Boolean, b: Int)"
     ) === FiniteSize(33)}
@@ -102,7 +90,6 @@ class SignatureSpec extends Specification {
     packages are summed the same way           ${sig(
       "package a { object One { val b: Boolean = true } }; package b { object Two { val s: String = x } }"
     ) === EffectiveOmega + BooleanSize}
-    a single definition reports its own        ${defnOf(module) === TinySize(4)}
     completed lazy fields remain separate contributions ${sig(
       "object S { val first: LazyList[String] = LazyList.empty; val second: LazyList[String] = LazyList.empty }"
     ) === Size(2, 0, FinitePart.Zero)}

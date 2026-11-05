@@ -9,8 +9,8 @@ import org.specs2.Specification
 // abstract traits/classes and type aliases add nothing on their own.
 class CardinalitySpec extends Specification {
 
-  private def tpe(code: String): Size = Counter.`type`(dialects.Scala3(code).parse[Type].get)
-  private def src(code: String): Size = Counter.source(dialects.Scala3(code).parse[Source].get)
+  private def tpe(code: String): Size = Rows.sizeOf(code)
+  private def src(code: String): Size = Rows.held(code)
 
   def is = s2"""
   Primitives

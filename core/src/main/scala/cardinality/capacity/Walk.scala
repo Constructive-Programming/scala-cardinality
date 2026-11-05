@@ -13,13 +13,10 @@ private[cardinality] object Walk {
   // Trees are parsed and reprinted under Scala 3 dialect rules.
   private given scala3: Dialect = dialects.Scala3
 
-  final private[cardinality] case class Introduced(
-      contributes: Size,
-      definitions: List[Definition]
-  ) {
+  final private[cardinality] case class Introduced(definitions: List[Definition]) {
 
-    /** Adds nested definitions and their inhabitants from the body of this definition; `solve` is
-      * false for an object's body, which its enclosing body already solved.
+    /** Adds the nested definitions of this definition's body; `solve` is false for an object's
+      * body, which its enclosing body already solved.
       */
     def inside(
         scope: Scope,
@@ -27,17 +24,13 @@ private[cardinality] object Walk {
         stats: List[Stat],
         solve: Boolean = true
     ): Introduced = {
-      val body = of(stats, scope, prefix, top = false, solve)
-      copy(
-        contributes = contributes + body.contributes,
-        definitions = definitions ++ body.definitions
-      )
+      Introduced(definitions ++ of(stats, scope, prefix, top = false, solve).definitions)
     }
 
   }
 
   private[cardinality] object Introduced {
-    val none: Introduced = Introduced(NothingSize, Nil)
+    val none: Introduced = Introduced(Nil)
   }
 
   /** One file's statements in one package, with what that file adds to every read of them — the
@@ -66,10 +59,7 @@ private[cardinality] object Walk {
     val clauses = Imports.before(stats)
     stats.foldLeft(Introduced.none) { (acc, st) =>
       val introduced = statement(body.within(Layer(imports = clauses(st))), prefix, top)(st)
-      Introduced(
-        contributes = acc.contributes + introduced.contributes,
-        definitions = acc.definitions ++ introduced.definitions
-      )
+      Introduced(acc.definitions ++ introduced.definitions)
     }
   }
 
@@ -469,9 +459,7 @@ private[cardinality] object Walk {
   private[cardinality] def opening(scope: Scope, path: List[String]): Scope =
     Scope.openedLens.modify(path.map(TypeName.of) :: _)(scope)
 
-  // One definition: the row a report reads, what it contributes to its body, and what its own
-  // body introduces. A row may show more than the contribution — an alias names another type's
-  // values, an opaque type hides them, an abstract type has none of its own.
+  // One definition: the row a report reads, and what its own body introduces.
   private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
     case d: Defn.Class if Counter.isAbstractClass(d) => openRow(scope, prefix, d)
     case d: Defn.Class                               =>
@@ -489,7 +477,7 @@ private[cardinality] object Walk {
     // companion's value is its own and the type keeps the name.
     case d: Defn.Object =>
       measured(scope, d) { s =>
-        val row = introduced(prefix, d, Definition.Kind.Object, Nil, Some(UnitSize), UnitSize)
+        val row = introduced(prefix, d, Definition.Kind.Object, Nil, Some(UnitSize))
         moduleView(s, d) match {
           case Some(view) => row.inside(view, prefix :+ named(d).value, template(d), solve = false)
           case None       => row.inside(declared(s, d), prefix :+ named(d).value, template(d))
@@ -506,18 +494,17 @@ private[cardinality] object Walk {
           d,
           Definition.Kind.Opaque,
           s.unbound,
-          Some(represented),
-          Counter.defnIn(s)(d)
+          Some(represented)
         )
       }
     // A constructor alias names a *function* on types: the row is a shape, not a question.
     case d: Defn.Type if d.body.isInstanceOf[Type.Lambda] =>
-      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Constructor, None)))
+      Introduced(List(row(prefix, d, Definition.Kind.Constructor, None)))
     // A reference to the alias holds the aliased type's values; the alias itself adds none.
     case d: Defn.Type =>
       measured(scope, d) { s =>
         val aliased = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Alias, s.unbound, Some(aliased), NothingSize)
+        introduced(prefix, d, Definition.Kind.Alias, s.unbound, Some(aliased))
       }
     // An enum case is counted by its enum; it has no body of its own.
     case _: Defn.EnumCase | _: Defn.RepeatedEnumCase => Introduced.none
@@ -526,7 +513,7 @@ private[cardinality] object Walk {
     case d @ (_: Defn.Val | _: Defn.Var) if top =>
       measured(scope, d) { s =>
         val size = Counter.defnIn(s)(d)
-        introduced(prefix, d, Definition.Kind.Value, s.unbound, Some(size), size)
+        introduced(prefix, d, Definition.Kind.Value, s.unbound, Some(size))
       }
     // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
     // exhaustive match is impossible. Every other member — nested values, methods, givens —
@@ -544,16 +531,13 @@ private[cardinality] object Walk {
       case Some(family) =>
         measured(scope, d) { s =>
           family.equation(s)
-          introduced(prefix, d, Definition.Kind.Abstract, s.unbound, s.size(name), NothingSize)
+          introduced(prefix, d, Definition.Kind.Abstract, s.unbound, s.size(name))
         }
       case _ if scope.unsummed(name).isDefined =>
         val reason = List(Scope.unsummedReason(name, scope.unsummed(name)))
-        Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None, reason)))
+        Introduced(List(row(prefix, d, Definition.Kind.Abstract, None, reason)))
       case _ =>
-        Introduced(
-          NothingSize,
-          List(row(prefix, d, Definition.Kind.Abstract, scope.resolve(name))),
-        )
+        Introduced(List(row(prefix, d, Definition.Kind.Abstract, scope.resolve(name))))
     }
   }
 
@@ -582,20 +566,19 @@ private[cardinality] object Walk {
     f(s)
   }
 
-  // A definition as its source sees it: the row a report lists it as, and the cardinality it
-  // contributes. The row carries the definition's own reasons, kept apart from its siblings'.
+  // A definition as its source sees it: the row a report lists it as, carrying the definition's own
+  // reasons, kept apart from its siblings'.
   private def introduced(
       prefix: List[String],
       d: Defn,
       kind: Definition.Kind,
       unbound: List[Definition.Unbound],
       size: Option[Size],
-      contributes: Size,
   ): Introduced =
-    Introduced(contributes, List(row(prefix, d, kind, size, unbound)))
+    Introduced(List(row(prefix, d, kind, size, unbound)))
 
-  // A concrete class or enum: measured with its binders in scope, contributing the solved size
-  // to its body; the body's own definitions are introduced beneath the updated scope.
+  // A concrete class or enum: measured with its binders in scope, its solved size bound in its
+  // body; the body's own definitions are introduced beneath the updated scope.
   private def sizedRow(scope: Scope, prefix: List[String])(
       d: Defn.Class | Defn.Enum
   )(withSize: (Scope, Size) => Scope): Introduced =
@@ -604,7 +587,7 @@ private[cardinality] object Walk {
       val kind = d match
         case _: Defn.Class => Definition.Kind.Class
         case _: Defn.Enum  => Definition.Kind.Enum
-      introduced(prefix, d, kind, s.unbound, Some(size), size)
+      introduced(prefix, d, kind, s.unbound, Some(size))
         .inside(withSize(s, size), instances(prefix, d), template(d))
     }
 
@@ -659,12 +642,6 @@ private[cardinality] object Walk {
     case m: Member                => TypeName.of(m.name.value)
     case other                    => TypeName.of(Spelling.of(other))
   }
-
-  // What a body holds together: what `Counter.source` reports for a source is this walk over its
-  // top-level statements, and what `stat` reports for a package statement is the same walk over
-  // the statements the package contains.
-  def body(stats: List[Stat], scope: Scope): Size =
-    of(stats, scope, Nil, top = true).contributes
 
   // The equations a body defines: one per named type, plus one per sealed parent the body
   // provides subtypes for. Each equation recomputes its cardinality from a scope, so the

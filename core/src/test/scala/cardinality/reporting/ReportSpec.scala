@@ -23,11 +23,9 @@ class ReportSpec extends Specification {
       unresolved names are the reason           $unresolved
       a definition resolves inside its body     $enclosing
       a forward reference resolves through the body  $forward
-      entry points size one node at a time      $entryPoints
       package objects qualify their members     $packageObjects
       enum bodies contribute their cases        $enumBodies
       a companion object keeps its own value    $companions
-      a source counts its top-level values       $sourceTotals
       signatures carry their parameters         $signatures
       an applied user type substitutes arguments  $appliedType
       a parameterised recursion keeps its fixed point  $parameterisedRecursion
@@ -192,33 +190,8 @@ class ReportSpec extends Specification {
       .and(found.flatMap(_.unbound.map(_.render)) === Nil)
   }
 
-  def entryPoints = {
-    val source = dialects.Scala3("case class Pair(a: Boolean, b: Boolean)").parse[Source].get
-    val pair = source.stats.collectFirst { case definition: Defn.Class => definition }.get
-    val packageClause = dialects.Scala3("package p { case class X(a: Boolean) }").parse[Stat].get
-    val packageObject =
-      dialects.Scala3("package object p { case class X(a: Boolean) }").parse[Stat].get
-    (Counter.stat(pair) === TinySize(4))
-      .and(Counter.defn(pair) === TinySize(4))
-      .and(Counter.ctor(pair.ctor) === TinySize(4))
-      .and(Counter.param(pair.ctor.paramClauses.head.values.head) === BooleanSize)
-      .and(Counter.stat(packageClause) === BooleanSize)
-      .and(Counter.stat(packageObject) === BooleanSize)
-  }
-
   def packageObjects =
     definitions("package object p { case class X(a: Boolean) }").map(_.name) === List("p.X")
-
-  def sourceTotals = {
-    val source = dialects
-      .Scala3("val flag: Boolean = true\ncase class Pair(a: Boolean, b: Boolean)")
-      .parse[Source]
-      .get
-    (Counter.source(source) === TinySize(5))
-      .and(
-        Counter.source(dialects.Scala3("val flag: Boolean = true").parse[Source].get) === UnitSize
-      )
-  }
 
   def signatures = {
     val found = definitions("case class Pair[A, B](a: A, b: B)")
