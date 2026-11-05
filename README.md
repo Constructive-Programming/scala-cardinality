@@ -92,11 +92,15 @@ Three further idealizations hold for every count:
   (`import java.util.*` makes `List` mean `java.util.List`), and types with the same values count
   the same: Java and mutable collections as Scala's, `java.lang.Integer` as `Int`, `Optional` as
   `Option`.
-- **`Any` is read by its position.** As a parameter it is one value, since a body can learn
-  nothing from it; as a result it is ε₀, since a body may return anything. So
-  `def f(x: Any): Boolean` has 2 implementations and `def g(): Any` ε₀; a `Set[Any]` parameter
-  holds 2 values (empty or not) and a `Set[Any]` result 2^ε₀. The same holds for `AnyRef`,
-  `Object`, `Matchable` and `AnyVal`.
+- **`Any` is read by its place in its own arrow.** Each function type and each method is read on
+  its own: in its input `Any` is one value, since the code can learn nothing from it; in its output
+  it is ε₀, since the code may return anything. So `def f(x: Any): Boolean` has 2 implementations
+  and `def g(): Any` ε₀; `case class TC(f: Any => Boolean)` holds 2 values (f's `Any` is f's
+  input); a `Set[Any]` parameter holds 2 values (empty or not) and a `Set[Any]` result ε₀.
+  Arguments are read first: a supplied `g: A => Any` returns ε₀ values, so a method given it has ε₀
+  implementations once its result has two or more choices (`def loop[A](a: A, f: Any => A,
+  g: A => Any): A` is ε₀; one choice stays 1). The same holds for `AnyRef`, `Object`, `Matchable`
+  and `AnyVal`.
 
 The calculator does not check that a body actually obeys this assumption. A result describes
 the pure, total implementations of a signature and the values of a type. The full statement is

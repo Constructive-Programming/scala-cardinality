@@ -41,9 +41,13 @@ Three further idealizations stand beside it (v1.md §2):
   binds the names it declares by their rooted names (`import java.util.*`: `List` is
   `java.util.List`), and rooted names with the same values count the same (Java and mutable
   collections, boxes, `Optional`) while keeping their own identity as type arguments.
-- **A top type is read by its polarity.** `Any` (and `AnyRef`, `Object`, `Matchable`, `AnyVal`)
-  is one value where negative (a parameter) and ε₀ where positive (a result). Polarity flips only
-  through function domains; `Set` elements and `Map` keys keep their container's polarity.
+- **A top type is read by its place in its own arrow.** Each function type and each method is read
+  on its own, innermost first: `Any` (and `AnyRef`, `Object`, `Matchable`, `AnyVal`) in that
+  arrow's input is one value, in its output ε₀. Nothing flips through nesting: `f: Any => A` has a
+  one-valued input, `g: A => Any` an ε₀ output. `Set` elements, `Map` keys and values and sequence
+  elements take the place they sit in. Arguments come before the method: when an argument's space
+  is ε₀ (it holds an ε₀ top), two or more result choices are ε₀, one stays 1, none 0. Never refuse
+  because a top-typed position cannot be enumerated.
 
 ## The modelling assumption: a closed world
 

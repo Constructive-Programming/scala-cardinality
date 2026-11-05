@@ -53,32 +53,60 @@ private[cardinality] object TopTypes {
     */
   val terminal: Shape = Shape.Ground("Any", Card.one)
 
-  // A top among the keys of a finite map or set, read as the function the container tabulates:
-  // its domain flips the polarity once more, which the flipped name undoes, so a key keeps the
-  // container's polarity, as a sequence's element does.
-  private val Flipped = "Any (key)"
+  // A top among the keys or values of a finite map or set, read as the function the container
+  // tabulates: that function is no arrow of the program, so its contents take the container's own
+  // place, as a sequence's elements do.
+  private val Keyed = "Any (key)"
 
-  /** Whether a ground is a top type's, in either orientation. */
-  def top(name: String): Boolean = name == "Any" || name == Flipped
+  /** Whether a ground is a top type's, as written or as a key. */
+  def top(name: String): Boolean = name == "Any" || name == Keyed
 
-  /** A key shape of a finite map or set, its tops flipped (see `Flipped`). */
+  /** A key or value shape of a finite map or set, its tops marked as contents (see `Keyed`). A
+    * function inside it is an arrow of its own: its tops are read by their place in it.
+    */
   def keyed(key: Shape): Shape = key match {
-    case Shape.Ground("Any", size)   => Shape.Ground(Flipped, size)
-    case Shape.Ground(Flipped, size) => Shape.Ground("Any", size)
-    case other                       => Shape.rebuild(other, Shape.children(other))(keyed)
+    case Shape.Ground("Any", size) => Shape.Ground(Keyed, size)
+    case _: Shape.Function         => key
+    case other                     => Shape.rebuild(other, Shape.children(other))(keyed)
   }
 
-  /** A shape with its tops read by position: one value where negative, ε₀ where positive. Polarity
-    * flips through a function's parameters and nowhere else (a product, sum, sequence, existential
-    * or polymorphic body keeps it); a rigid application's arguments are keys, not values.
+  /** A shape with its tops read by position (v1.md §2): each arrow on its own, innermost first, a
+    * top in its input is one value and a top in its output ε₀; nothing flips through nesting. A top
+    * under no arrow takes `positive`, the place the shape itself has (a method's parameter or a
+    * constructor slot is an input, its result an output); a product, sum, sequence, existential or
+    * polymorphic body passes its place on; a rigid application's arguments are keys, not values.
     */
-  def polarized(shape: Shape, positive: Boolean): Shape = shape match {
-    case Shape.Ground(name, _) if top(name) =>
-      Shape.Ground(name, if (positive == (name == "Any")) Card.Epsilon0 else Card.one)
+  def polarized(shape: Shape, positive: Boolean): Shape = placed(shape, positive, positive)
+
+  // `enclosing` is the place of the nearest arrow around the shape, which a key takes.
+  private def placed(shape: Shape, positive: Boolean, enclosing: Boolean): Shape = shape match {
+    case Shape.Ground("Any", _)             => Shape.Ground("Any", tier(positive))
+    case Shape.Ground(Keyed, _)             => Shape.Ground(Keyed, tier(enclosing))
     case Shape.Function(parameters, result) =>
-      Shape.Function(parameters.map(polarized(_, !positive)), polarized(result, positive))
+      Shape.Function(
+        parameters.map(placed(_, false, positive)),
+        placed(result, true, positive)
+      )
     case _: (Shape.Applied | Shape.Evidence | Shape.Singleton) => shape
-    case other => Shape.rebuild(other, Shape.children(other))(polarized(_, positive))
+    case other => Shape.rebuild(other, Shape.children(other))(placed(_, positive, enclosing))
+  }
+
+  private def tier(positive: Boolean): Card = if (positive) Card.Epsilon0 else Card.one
+
+  /** Whether a shape holds a top read at ε₀. */
+  def unbounded(shape: Shape): Boolean =
+    Shape.exists(shape) {
+      case Shape.Ground(name, Card.Epsilon0) => top(name)
+      case _                                 => false
+    }
+
+  /** The shape with every ε₀ top read as `Unit`, one value: what a body that observes nothing of it
+    * may do with it.
+    */
+  def observed(shape: Shape): Shape = shape match {
+    case Shape.Ground(name, Card.Epsilon0) if top(name)        => Shape.Product(Nil)
+    case _: (Shape.Applied | Shape.Evidence | Shape.Singleton) => shape
+    case other => Shape.rebuild(other, Shape.children(other))(observed)
   }
 
   /** The top type a builtin spelling denotes. */

@@ -20,10 +20,10 @@ class TopTypesUnionSpec extends Specification {
       a bare Any is one value as a parameter, ε₀ as a result         $polarity
       an Any input carries no information                            $anyIn
       no equality on Any, exactly as on a type parameter             $noEquality
-      a consumer of Any takes ε₀ arguments                            $consumer
-      two consumers of Any give ε₀                                  $twoConsumers
-      an Any consumer fed a value is still ε₀                       $feed
-      a cycle through Any is refused                                  $loop
+      a consumer of Any takes one argument                          $consumer
+      two consumers of Any give one result each                     $twoConsumers
+      an Any consumer fed a value is still f(())                    $feed
+      a cycle through Any is ε₀ over g's ε₀ results                 $loop
       Any is always inhabited, so f(()) seeds a result               $unseeded
       structural results over Any are ε₀                           $structural
       the other top names are ε₀ too                                 $otherTops
@@ -67,7 +67,7 @@ class TopTypesUnionSpec extends Specification {
       a top behind an alias is read on the method side               $aliasedTopCtor
       a binder named Nothing does not capture the empty slot         $nothingBinderCtor
       a source type named Nothing does not capture it either         $nothingAliasCtor
-      a top inside a set or map key is read by its polarity      $mergingCtor
+      a top inside a set or map takes the container's place      $mergingCtor
       a rewritten slot is read where its constructor is written      $rewrittenScope
     Discriminable disjoint unions are sums
       a result adds its alternatives                                 $sumOut
@@ -145,31 +145,31 @@ class TopTypesUnionSpec extends Specification {
     (count("def eqAny(x: Any, y: Any): Boolean = true", "eqAny") === Count.Finite(2))
       .and(count("def eqParam[A](a: A, b: A): Boolean = true", "eqParam") === Count.Finite(2))
 
-  // A supplied `Any => R` takes an argument the body builds: its Any is positive, ε₀ choices (v1.md
-  // §2), so f applied to them gives ε₀ results, and so do two of them or one fed a value.
-  def consumer = count("def call[R](f: Any => R): R = f(())", "call").render === "ε₀"
+  // Each arrow is read on its own (v1.md §2): the Any of a supplied `Any => R` is that arrow's
+  // input, one value, so f is `Unit => R` and f(()) is the one R (ideal-dc read it positive, ε₀).
+  // Two consumers give f(()) or g(()): 2. Feeding f a value is f(()) again: 1.
+  def consumer = count("def call[R](f: Any => R): R = f(())", "call") === Count.Finite(1)
 
   def twoConsumers =
-    count("def callTwo[R](f: Any => R, g: Any => R): R = f(1)", "callTwo").render === "ε₀"
+    count("def callTwo[R](f: Any => R, g: Any => R): R = f(1)", "callTwo") === Count.Finite(2)
 
-  def feed = count("def feed[A, R](a: A, f: Any => R): R = f(a)", "feed").render === "ε₀"
+  def feed = count("def feed[A, R](a: A, f: Any => R): R = f(a)", "feed") === Count.Finite(1)
 
-  // `g: A => Any` yields a negative Any, a sum the solver does not enumerate at ε₀ arguments: the
-  // loop is refused where it was 2, never a wrong number. An opaque X still gives ω.
+  // Arguments before the method: f's Any is its input (1), g's is its output (ε₀), so g's space is
+  // ε₀. The result's choices, with g's top read as one value the body cannot observe, are a and
+  // f(()): 2, and two or more choices over an ε₀ argument space are ε₀ (it was refused, and 2
+  // before the polarity reading). An opaque X still gives ω. The same holds with no cycle: a Boolean
+  // over a `g: Unit => Any` is 2 choices over ε₀ arguments, ε₀.
   def loop =
-    reasonContains(
-      "def loop[A](a: A, f: Any => A, g: A => Any): A = a",
-      "loop",
-      "sum elimination over an argument space not enumerated: g"
-    ).and(count("def loop[A, X](a: A, f: X => A, g: A => X): A = a", "loop") === Count.Countable)
+    (count("def loop[A](a: A, f: Any => A, g: A => Any): A = a", "loop").render === "ε₀")
+      .and(count("def h(g: Unit => Any): Boolean = true", "h").render === "ε₀")
+      .and(count("def loop[A, X](a: A, f: X => A, g: A => X): A = a", "loop") === Count.Countable)
 
-  // Any is always inhabited (refused alike), not the 0 an uninhabited X would give.
+  // Any is always inhabited: f(()) is the one choice, and one choice stays 1 over g's ε₀ space —
+  // not the 0 an uninhabited X gives (it was refused).
   def unseeded =
-    reasonContains(
-      "def u[A](f: Any => A, g: A => Any): A = f(())",
-      "u",
-      "sum elimination over an argument space not enumerated: g"
-    ).and(count("def u[A, X](f: X => A, g: A => X): A = ???", "u") === Count.Finite(0))
+    (count("def u[A](f: Any => A, g: A => Any): A = f(())", "u") === Count.Finite(1))
+      .and(count("def u[A, X](f: X => A, g: A => X): A = ???", "u") === Count.Finite(0))
 
   def structural =
     (count("def opt: Option[Any] = None", "opt").render === "ε₀")
@@ -214,9 +214,10 @@ class TopTypesUnionSpec extends Specification {
       .and(reasonContains(code, "O.h", "unsupported intersection relationship: Red & Any"))
   }
 
+  // `Function1[Any, R]` is `Any => R`: its Any is the arrow's input, so consume(()) is the one R.
   def existential =
     (count("def m[R](consume: Function1[?, R]): R = ???", "m") === Count.Finite(0))
-      .and(count("def m[R](consume: Function1[Any, R]): R = ???", "m").render === "ε₀")
+      .and(count("def m[R](consume: Function1[Any, R]): R = ???", "m") === Count.Finite(1))
 
   // Ext could declare `type Unit = Boolean` and `type Any = Boolean` (g and h would have 2), but a
   // declaration outside the sources is assumed to rebind no builtin name (the never-shadowed
@@ -429,11 +430,12 @@ class TopTypesUnionSpec extends Specification {
   def nullCtor = {
     val code = colours + "case class N(x: Null)\ncase class NB(x: Boolean | Null)\n" +
       "case class R(x: Red | Blue)\ncase class T(x: Option[Any], y: Any => Boolean)"
-    // T's slots are negative: Option[Any] is 2, but `Any => Boolean` takes a positive Any, ε₀.
+    // T's slots are inputs: Option[Any] is 2, and `Any => Boolean` reads its Any as its own
+    // arrow's input, one value, so 2^1 functions: 2 · 2 = 4 (ideal-dc read that Any positive, ε₀).
     (count(code, "N.<init>") === Count.Finite(0))
       .and(count(code, "NB.<init>") === Count.Finite(2))
       .and(count(code, "R.<init>") === Count.Finite(3))
-      .and(count(code, "T.<init>").render === "ε₀")
+      .and(count(code, "T.<init>") === Count.Finite(4))
   }
 
   // The method side reads the alias's Any as (); the estimate would read it as everything. Through
@@ -445,7 +447,8 @@ class TopTypesUnionSpec extends Specification {
     val slots = "type Fn[A] = Any => A\nfinal case class W[A](f: Fn[A])\n" +
       "final case class V[A](f: Any => A)"
     (count(code, "TA.<init>") === Count.Finite(1))
-      .and(count(code, "TC.<init>").render === "ε₀")
+      // TC's f is read first: Any is f's input, one value, so 2^1 functions — 2.
+      .and(count(code, "TC.<init>") === Count.Finite(2))
       .and(count(code, "TB.<init>") === Count.Bounded(EffectiveOmega))
       .and(count(slots, "W.<init>") === count(slots, "V.<init>"))
   }
@@ -462,8 +465,8 @@ class TopTypesUnionSpec extends Specification {
       .and(count("type Nothing = Boolean\n" + slot, "NA.<init>") === Count.Finite(2))
   }
 
-  // A slot is negative (v1.md §2), and a Set's elements or a Map's keys keep the container's
-  // polarity: Any is one value there, so Set[Any] is 2 (empty or not), Map[Any, Boolean] 3,
+  // A slot is an input (v1.md §2), and a Set's elements or a Map's keys and values take the
+  // container's place: Any is one value there, so Set[Any] is 2 (empty or not), Map[Any, Boolean] 3,
   // Set[(Any, Boolean)] 2^2, Bag[Any]'s Set 2; a Map's values and an Option's are 1 too
   // (Map[Boolean, Any]: 2^2), and a source class the method side reads whole is 1 (Box[Any]).
   def mergingCtor = {

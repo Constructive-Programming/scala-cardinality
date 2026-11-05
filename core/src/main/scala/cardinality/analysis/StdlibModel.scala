@@ -500,8 +500,9 @@ private[cardinality] object StdlibModel {
         s"${entry.fqn} over an open type is not read (its keys are tested for an equality no " +
           "parametric program has)"
       )
-    // A key is content, as a sequence's element is: its tops keep the container's polarity.
-    case Tabulated(shape) => Right(shape(TopTypes.keyed(args.head) :: args.tail))
+    // Keys and values are content, as a sequence's elements are: the function the container
+    // tabulates is no arrow of the program, so their tops take the container's place.
+    case Tabulated(shape) => Right(shape(args.map(TopTypes.keyed)))
     case Transparent      => Right(Shape.Ground(entry.fqn, Card.Omega))
     // `new Array[E](0)` needs a `ClassTag[E]`, which Scala 3.9.0 synthesizes for every element type
     // but a type parameter, an abstract type member or a singleton of one — `Nothing`, `Null`, an

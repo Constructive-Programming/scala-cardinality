@@ -1,8 +1,8 @@
 # Top types, one-valued goals and unions
 
-The method-side solver reads `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` **by polarity**
-(Rule P below, superseding Rule T's reading of a positive position): the terminal type `1` where
-negative, ε₀ where positive. It counts a goal with exactly one value as one implementation in every
+The method-side solver reads `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` **by their place
+in their own arrow** (Rule P below, superseding Rule T's reading of an output): the terminal type
+`1` in an arrow's input, ε₀ in its output. It counts a goal with exactly one value as one implementation in every
 environment, and reads a union `A₁ | … | Aₙ` as the tagged sum `A₁ + … + Aₙ` only where a class
 test is its eliminator. This page states the rules, their derivations, the counts they produce and
 where they stop. The stored-value side keeps its own reading of `Any` (everything, ε₀) and `Null`
@@ -33,28 +33,41 @@ the `2^32` constants and never a function of `a.hashCode`. A source override of 
 (`override def equals(that: Any): Boolean`) is counted like any method: `that` carries no
 information, so its implementations ignore it, which is exact in the model.
 
-## Rule P: a top type is read by its polarity (supersedes Rule T where positive)
+## Rule P: a top type is read by its place in its own arrow (supersedes Rule T in outputs)
 
-**Statement** (the owner's idealization, v1.md §2, register D38). A top type in a negative
-position — a method parameter, a capture, the result of a function the body is given — is `1`:
-the body observes nothing of it, as Rule T derives. In a positive position — the method's result,
-a value the body builds, the parameter of a function the body is given — it is ε₀, the size
-algebra's tier for "any value" (the stored-value side's reading of `Any`), which absorbs ω and
-itself (`2^ε₀ = ε₀`). Polarity flips through a function's parameters and nowhere else: a product,
-a sum, a sequence, an existential or polymorphic body keeps it, and so do a `Set`'s elements and a
-`Map`'s keys, which are contents though the model reads the container as the function it
-tabulates (`TopTypes.keyed` undoes that domain's flip). A rigid constructor's arguments are keys,
-not values, and are not read. A constructor slot is a parameter of the constructor: negative.
+**Statement** (the owner's idealization, v1.md §2, register D38). Each function type, and each
+method, is read on its own, innermost first. A top type in that arrow's *input* is `1`: the code
+receiving it observes nothing of it, as Rule T derives. A top type in that arrow's *output* is ε₀,
+the size algebra's tier for "any value" (the stored-value side's reading of `Any`), which absorbs
+ω and itself (`2^ε₀ = ε₀`). Nothing flips through nesting: in `f: Any => A` the top is f's input,
+1, wherever f itself sits; in `g: A => Any` it is g's output, ε₀. A top under no arrow takes the
+place of the shape it is in — a method parameter or a constructor slot is an input, the method's
+result an output. A product, a sum, a sequence, an existential or polymorphic body passes its
+place on, and so do a `Set`'s elements and a `Map`'s keys and values: the function the model
+tabulates such a container as is no arrow of the program (`TopTypes.keyed`). A rigid
+constructor's arguments are keys, not values, and are not read.
 
-**Counts** (`TopTypesUnionSpec.polarity`, `StdlibModelSpec.keyed`): `def p(x: Any): Boolean` 2;
-`def r(b: Boolean): Any` ε₀; `def call[R](f: Any => R): R` ε₀ (the body builds f's argument);
-`Set[Any]` as a parameter 2 values (empty or not: `Set[Any] => Boolean` is 4), as a result
-`2^ε₀ = ε₀`; `Map[Any, Boolean]` as a parameter 3 values (8 Booleans of it), as a result `3^ε₀ = ε₀`;
-`case class AnyBox(x: Any)` 1, `final case class TC(f: Any => Boolean)` ε₀. A one-valued goal is
-judged after polarity, so an `Any` result is no longer terminal: an unreadable name beside it now
-refuses the count (`def encode(a: A): Any` beside an unsupplied `Schema`). A supplied `g: A => Any`
-yields a negative top the solver does not enumerate as an argument space where its result is
-eliminated, so `def loop[A](a: A, f: Any => A, g: A => Any): A` is refused (it was 2).
+*Arguments before the method.* A method's count is its result's choices over its argument
+spaces. Where an argument's space holds an ε₀ top (a supplied function returning a top), the
+choices are counted with that top as one value — the body observes nothing of it — and two or
+more choices over an ε₀ argument space are ε₀; one choice stays 1, none stays 0
+(`Inhabitation.count`). No count is refused because a top-typed position cannot be enumerated.
+
+**Counts** (`TopTypesUnionSpec`, `StdlibModelSpec.keyed`): `def p(x: Any): Boolean` 2;
+`def r(b: Boolean): Any` ε₀; `def call[R](f: Any => R): R` 1 (f's `Any` is f's input: `f(())`);
+`callTwo(f: Any => R, g: Any => R): R` 2; `def loop[A](a: A, f: Any => A, g: A => Any): A` ε₀ (two
+choices, `a` and `f(())`, over g's ε₀ space); `def u[A](f: Any => A, g: A => Any): A` 1 (one
+choice); `def h(g: Unit => Any): Boolean` ε₀; `Set[Any]` as a parameter 2 values (empty or not:
+`Set[Any] => Boolean` is 4), as a result ε₀; `Map[Any, Boolean]` as a parameter 3 values, as a
+result ε₀; `case class AnyBox(x: Any)` 1; `final case class TC(f: Any => Boolean)` 2 (f's `Any` is
+its input: 2^1); `case class T(x: Option[Any], y: Any => Boolean)` 4. A one-valued goal is judged
+after placing, so an `Any` result is not terminal: an unreadable name beside it refuses the count
+(`def encode(a: A): Any` beside an unsupplied `Schema`).
+
+**Boundary.** The ε₀ over an ε₀ argument space is the rule's extensional reading: a body that
+cannot observe the top would have only its choices (2 for `h` above, 2^(2^32) for a `conv(i:
+Int): Boolean` beside a `def other: Any` capability, `ReentrySpec.literalSearch`), so the count is
+an upper tier there, never below the parametric count.
 
 ## Rule T: the top types are terminal (negative positions)
 

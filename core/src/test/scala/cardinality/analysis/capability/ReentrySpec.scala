@@ -185,7 +185,9 @@ class ReentrySpec extends Specification {
   // `def other: Boolean = 5` is `conv(5)` (3.9.0 run: an implementation of conv returning other
   // overflows): other may re-enter conv — `?`, not 2^(2^33) (the true count is 2^(2^32)). A literal
   // of the result type (U), or at `Any` (V), inserts nothing: U's conv reads i and a free other —
-  // 2^(2^33); V's other has one value — 2^(2^32). An Int literal at Long may search: `?`.
+  // 2^(2^33). V's `def other: Any` is an argument conv is given whose Any is its output, ε₀ values
+  // (v1.md §2, arguments before the method): conv's 2^(2^32) choices over it are ε₀ (it read
+  // 2^(2^32) while that Any was one value). An Int literal at Long may search: `?`.
   def literalSearch = {
     val found = one("""
       trait T { implicit def conv(i: Int): Boolean; def other: Boolean = 5 }
@@ -195,7 +197,7 @@ class ReentrySpec extends Specification {
     """)
     view(found("T.conv"), "T.other")
       .and(found("U.conv").render === "2^(2^33)")
-      .and(found("V.conv").render === "2^(2^32)")
+      .and(found("V.conv").render === "ε₀")
       .and(view(found("W.conv"), "W.other"))
   }
 

@@ -1929,22 +1929,31 @@ Scala 3.9.0 fixtures r5, r8 and review-A7q/sc show a rebinding the assumption se
 **Boundary.** A count under an unsupplied wildcard is exact only if that namespace declares no
 root spelling; the report does not check it.
 
-## D38. A top type is read by its polarity
+## D38. A top type is read by its place in its own arrow
 
-**Decision.** The owner's idealization (v1 §2), superseding D12's terminal reading where it is
-positive: `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` are `1` in a negative position
-(D12's argument: a parametric body observes nothing of the value) and ε₀ in a positive one (the
-body may build any value; ε₀ is the stored-value side's reading of `Any`, and the solver's `Card`
-gains that tier, absorbing ω and itself). Polarity flips through function parameters only; a
-`Set`'s elements and a `Map`'s keys keep the container's (`TopTypes.polarized`, `TopTypes.keyed`).
-A constructor slot is negative. A one-valued goal is judged after polarity.
+**Decision.** The owner's idealization (v1 §2), superseding D12's terminal reading in outputs and
+ideal-dc's polarity flip: each function type and each method is read on its own, innermost
+first; `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` in that arrow's input are `1` (D12's
+argument: the code receiving it observes nothing of it) and in its output ε₀ (any value may be
+built; ε₀ is the stored-value side's reading of `Any`, and the solver's `Card` has that tier,
+absorbing ω and itself). Nothing flips through nesting (`TopTypes.polarized`); a container's
+contents — a sequence's elements, a `Set`'s elements, a `Map`'s keys and values — take its place
+(`TopTypes.keyed`). A constructor slot and a method parameter are inputs. Arguments are read
+before the method: where an argument's space holds an ε₀ top, the result's choices are counted
+with it as one value and two or more of them are ε₀, one stays 1, none 0 (`Inhabitation.count`);
+no count is refused for a top-typed position the solver cannot enumerate. A one-valued goal is
+judged after placing.
 
-**Evidence.** **Executable**: `TopTypesUnionSpec.polarity`, `.anyOut`, `.consumer`, `.structural`,
-`.mergingCtor`, `.nullCtor`; `StdlibModelSpec.keyed` (`Set[Any]` and `Map[Any, Boolean]` on both
+**Evidence.** **Executable**: `TopTypesUnionSpec.polarity`, `.anyOut`, `.consumer`
+(`call[R](f: Any => R): R` 1), `.twoConsumers` (2), `.feed` (1), `.loop` (ε₀; `h(g: Unit => Any):
+Boolean` ε₀), `.unseeded` (1), `.existential`, `.structural`, `.mergingCtor`, `.nullCtor` (4),
+`.aliasedTopCtor` (`TC(f: Any => Boolean)` 2); `ReentrySpec.literalSearch` (`V.conv` ε₀ over a `def
+other: Any` capability); `StdlibModelSpec.keyed` (`Set[Any]` and `Map[Any, Boolean]` on both
 sides, `Set[Boolean]`, an enum-keyed `Map`).
 
 **Boundary.** The ε₀ tier is a choice, not a derivation: it is an upper tier, rendered as a bound.
-A supplied `A => Any` whose result is eliminated is refused, not enumerated.
+Over an ε₀ argument space it is the extensional reading of the rule, above the parametric count a
+body that cannot observe the top would have (2 for `h`).
 
 ## D39. The supplied sources are the whole program (closed world)
 

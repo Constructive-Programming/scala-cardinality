@@ -258,25 +258,53 @@ object Inhabitation {
   ): Count =
     try
       inspect("solver preparation")
-      RepeatedArguments.prepare(
-        bindings.map(binding => binding.copy(shape = TopTypes.polarized(binding.shape, false))),
-        TopTypes.polarized(result, true)
-      ) match {
-        case Left(count)                                                  => count
-        case Right(RepeatedArguments.Prepared.Direct(normalized, target)) =>
-          new GoalSolver(maxStates, inspect, maxDepth).run(normalized, target)
-        case Right(RepeatedArguments.Prepared.Eliminate(rest, sequences, target)) =>
-          SequenceElimination.count(
-            rest,
-            sequences,
-            target,
-            count(_, _, maxStates, inspect, maxDepth)
+      val placed = bindings.map(b => b.copy(shape = TopTypes.polarized(b.shape, false)))
+      // Arguments before the method (v1.md §2): an argument space holding an ε₀ top — a top a
+      // supplied function returns — is ε₀ values. The body observes nothing of such a top, so the
+      // result's choices are counted with it as one value, and over ε₀ arguments two or more
+      // choices are ε₀; one stays 1, none 0.
+      if (placed.exists(b => TopTypes.unbounded(b.shape)))
+        overUnbounded(
+          count(
+            placed.map(b => b.copy(shape = TopTypes.observed(b.shape))),
+            result,
+            maxStates,
+            inspect,
+            maxDepth
           )
-      }
+        )
+      else
+        solved(placed, result, maxStates, inspect, maxDepth)
     catch {
       case error: Limit            => Unresolved(List(error.getMessage))
       case error: Unsupported      => Unresolved(List(error.getMessage))
       case error: Natural.Exceeded => Unresolved(List(error.getMessage))
+    }
+
+  private def overUnbounded(choices: Count): Count = choices match {
+    case Finite(n) if n <= 1 => choices
+    case Unresolved(_)       => choices
+    case _                   => Bounded(cardinality.capacity.EffectiveEpsilon0)
+  }
+
+  private def solved(
+      bindings: List[Binding],
+      result: Shape,
+      maxStates: Int,
+      inspect: String => Unit,
+      maxDepth: Int
+  ): Count =
+    RepeatedArguments.prepare(bindings, TopTypes.polarized(result, true)) match {
+      case Left(count)                                                  => count
+      case Right(RepeatedArguments.Prepared.Direct(normalized, target)) =>
+        new GoalSolver(maxStates, inspect, maxDepth).run(normalized, target)
+      case Right(RepeatedArguments.Prepared.Eliminate(rest, sequences, target)) =>
+        SequenceElimination.count(
+          rest,
+          sequences,
+          target,
+          count(_, _, maxStates, inspect, maxDepth)
+        )
     }
 
 }
