@@ -6,7 +6,6 @@ import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natu
 import cardinality.analysis.model.*
 import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.{TypeApplications, TypeSubstitution, Universe}
-import dev.constructive.eo.data.PSVec
 import dev.constructive.eo.optics.Plated
 
 import Inhabitation.Shape
@@ -92,6 +91,12 @@ private[cardinality] object TopTypes {
   }
 
   private def tier(positive: Boolean): Card = if (positive) Card.Omega else Card.one
+
+  /** Whether a shape holds a top type, in any place. */
+  def holds(shape: Shape): Boolean = Shape.exists(shape) {
+    case Shape.Ground(name, _) => top(name)
+    case _                     => false
+  }
 
   /** Whether a shape holds a top read in an output, at ω. */
   def unbounded(shape: Shape): Boolean =
@@ -186,24 +191,20 @@ private[cardinality] object TopTypes {
       ClosedSpaces.closed(other) && Natural.attempt(ClosedSpaces.space(other)).exists(_.isOne)
   }
 
-  /** Why a constructor position is the method side's alone to read, if it is: a top type or `Null`
-    * behind a source alias, which the rewrite below does not reach, or a top type inside a
-    * constructor whose arguments' places the rewrite does not know.
+  /** Whether a constructor position is the method side's alone to read: a top type or `Null` behind
+    * a source alias, which the rewrite below does not reach, or a top type inside a constructor
+    * whose arguments' places the rewrite does not know. A constructor is a method: the estimate is
+    * never handed a top (v1.md §2).
     */
-  def unestimable(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
-    if (aliased(tpe, context, resolver)) Some("a top type or Null through an alias")
-    else
-      merging(tpe, context, resolver).map(head =>
-        s"a top type inside $head, whose place in it this reading does not know"
-      )
+  def unestimable(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
+    aliased(tpe, context, resolver) || merging(tpe, context, resolver).nonEmpty
 
   /** A constructor position's type in the implementation model, for the stored-value estimate: a
-    * top type in an input is the one value `()` — a slot is an input, and so is a function's
-    * parameter — while one in a function's output stays a top, which the estimate reads as ω, as
-    * the method side does (v1.md §2); `Null` is empty and drops out of a union. A union or an
-    * intersection left over is the shape model's to read — the estimate's sum is only a bound — and
-    * so is a slot where `Nothing`, the name the rewrite writes the empty type with, means a binder
-    * or a declaration of the sources.
+    * top type is the one value `()` — its reading in an input; a top in a function's output, ω, is
+    * the method side's own (`ConstructorPositions`) — `Null` is empty and drops out of a union. A
+    * union or an intersection left over is the shape model's to read — the estimate's sum is only a
+    * bound — and so is a slot where `Nothing`, the name the rewrite writes the empty type with,
+    * means a binder or a declaration of the sources.
     */
   def implementationSlot(
       tpe: Type,
@@ -337,35 +338,23 @@ private[cardinality] object TopTypes {
     // operand it wrote from a `Nothing` the source spells.
     private val empty: Type = Type.Name("Nothing")
 
-    // A slot is an input.
-    val rewrite: Type => Type = at(_, output = false)
-
-    // Tops in an input become `()`, `Null` the empty type, and a union drops its empty
-    // alternatives. Each function type is read on its own: its parameters are inputs, its result
-    // an output; every other node passes its place on.
-    private def at(node: Type, output: Boolean): Type = node match {
-      case top if denoted(top, context, resolver).nonEmpty => if (output) top else Lit.Unit()
-      case read if isNull(read, context, resolver)         => empty
-      case _                                               =>
-        val children = TypeSubstitution.localPlate.childrenVec(node).toList
-        val kids = node match {
-          case _: Type.FunctionType =>
-            children.init.map(at(_, output = false)) :+ at(children.last, output = true)
-          case _ => children.map(at(_, output))
-        }
-        node match {
-          // The operands are the first and last children in either spelling; a rewritten operand
-          // is still the tree returned for it, not yet a copy under a new parent.
-          case Union(_, _) if kids.head eq empty => kids.last
-          case Union(_, _) if kids.last eq empty => kids.head
-          case _                                 => kept(node, children, kids)
-        }
+    // Tops become `()`, `Null` the empty type, and a union drops its empty alternatives.
+    val rewrite: Type => Type = TypeSubstitution.localCata[Type] { (node, kids, rebuild) =>
+      node match {
+        case top if denoted(top, context, resolver).nonEmpty => Lit.Unit()
+        case read if isNull(read, context, resolver)         => empty
+        // The operands are the first and last children in either spelling; a rewritten operand is
+        // still the tree returned for it, not yet a copy under a new parent.
+        case Union(_, _) if kids.head eq empty => kids.last
+        case Union(_, _) if kids.last eq empty => kids.head
+        case _                                 => kept(node, kids, rebuild)
+      }
     }
 
     // A type with nothing rewritten is handed over as written, positions included.
-    private def kept(node: Type, children: List[Type], kids: List[Type]): Type =
-      if (kids.corresponds(children)(_ eq _)) node
-      else TypeSubstitution.localPlate.rebuild(node, PSVec.from(kids))
+    private def kept(node: Type, kids: List[Type], rebuild: List[Type] => Type): Type =
+      if (kids.corresponds(TypeSubstitution.localPlate.childrenVec(node).toList)(_ eq _)) node
+      else rebuild(kids)
 
   }
 

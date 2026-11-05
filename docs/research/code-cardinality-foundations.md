@@ -1953,15 +1953,17 @@ is `T`); `AnyVal` keeps its reading (a top on the method side, unmodelled on the
 refused in a union). `A <:< Any` (`AnyRef`, `Object`, `Matchable`) is a proof that carries nothing:
 one value. An `inline` method's top-typed parameter refuses nothing. On the stored-value side `Any`,
 `AnyRef` / `Object` and `Matchable` are ω everywhere (it was ε₀ for `Any`, unresolved for the
-others), a top behind a source alias too; a constructor row (inputs) and its type's stored values
-are measured apart: `final class Walk(val cur: Any, val n: Int)` is 2^32 as a constructor and ω as
-a type. The solver's `Card` has no ε₀ tier any more: it was added only for tops.
+others), a top behind a source alias too. Constructor = a method, type = a value whose accessible
+state is observed: a constructor row reads its parameters as inputs on the method side and never
+hands a top (aliased or not) to the estimate, while the type's definitions row is the stored
+side's: `final class Walk(val cur: Any, val n: Int)` is 2^32 as a constructor and ω as a type. A
+repeated parameter is a possibly empty list (`first[A](xs: A*): A` is 0). The solver's `Card` has no ε₀ tier any more: it was added only for tops.
 
 **Evidence.** **Executable**: `TopTypesUnionSpec.polarity` (`r(b: Boolean): Any` ω), `.anyOut`,
 `.consumer` (`call[R](f: Any => R): R` 1), `.twoConsumers` (2), `.feed` (1), `.loop` (ω; `h(g: Unit
 => Any): Boolean` ω), `.unseeded` (1), `.existential`, `.structural`, `.otherTops`, `.containers`,
 `.equalsOverride`, `.inlineTop`, `.referenceTops`, `.evidence`, `.topLike`, `.walkCtor`, `.walkType`,
-`.outputSlot`, `.mergingCtor`, `.nullCtor` (4), `.aliasedTopCtor` (`TC(f: Any => Boolean)` 2);
+`.outputSlot`, `.aliasSingletonCtor`, `.repeated`, `.mergingCtor`, `.nullCtor` (4), `.aliasedTopCtor` (`TC(f: Any => Boolean)` 2);
 `ReentrySpec.literalSearch` (`V.conv` ω over a `def other: Any` capability); `StdlibModelSpec.keyed`
 (`Set[Any]` and `Map[Any, Boolean]` as input and output); `ReportSpec` (`Anything(x: Any)` and
 `Elements(xs: Array[Any])` ω); `StoredValueSoundnessSpec.containers`.

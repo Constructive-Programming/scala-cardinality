@@ -83,7 +83,8 @@ is read on its own, innermost first.
 9. **Inline methods.** An `inline` method counts as a `def` (AGENTS.md): a top-typed parameter is
    one value and refuses nothing (`inline def k(x: Any): Boolean` is 2); only a compile-time
    operation or another channel to the call site refuses ([syntax-features.md](syntax-features.md)).
-10. **Repeated parameters.** `xs: Any*` as an input is one value per length: ω.
+10. **Repeated parameters.** `X*` is a possibly empty list, `Σ_{n≥0} Xⁿ`: `f()` is a call, so
+    `def first[A](xs: A*): A` is 0. `xs: Any*` as an input is one value per length: ω.
 
 A shadowed `Any` (an alias, a binder, an import, an inherited member) keeps the shadowing
 declaration's reading. A top behind a source alias (`type Top = Any`) is read through the alias:
@@ -161,11 +162,14 @@ hold, not what code may observe of it: `Any`, `AnyRef` / `Object` (`java.lang.Ob
 behind a source alias (`type Top = Any`) is ω too, with no refusal. `AnyVal` stays unmodelled
 (`unresolved[AnyVal]`).
 
-**Constructor and type are measured apart.** The methods table counts a constructor `<init>` like a
-method: its parameters are inputs, so a top in a slot is one value (Rule K). The definitions table
-gives the stored values of the type. For `final class Walk(val cur: Any, val n: Int)` the
-constructor row is 1 · 2^32 = 2^32, and the type `Walk` is ω · 2^32 = ω, the value space of the
-tuple `(Any, Int)` (`TopTypesUnionSpec.walkCtor`, `.walkType`).
+**Constructor = a method; type = a value whose accessible state is observed.** A constructor
+(its `<init>` row) is counted like any other method: its parameters are inputs, read by the method
+side, so a top in one — spelled or behind an alias (`type Top = Any`), whatever is beside it — is
+one value, and the constructor row never hands a top to the stored-value estimate. The type as a
+value (its definitions row, a top-level `val`) is read by the stored-value side, where a top,
+aliased or not, is ω. `final class Walk(val cur: Any, val n: Int)`: the constructor is 1 · 2^32 =
+2^32, the type ω · 2^32 = ω. The type is the value space of the tuple `(Any, Int)`
+(`TopTypesUnionSpec.walkCtor`, `.walkType`, `.aliasSingletonCtor`).
 
 ## Rule X: `transparent inline` results callers may see narrowed
 
@@ -199,12 +203,11 @@ values bound the expansion, the types callers observe do not.
 A constructor's count multiplies its positions' value spaces, consulting the stored-value estimate.
 A slot is an input, so for a top type or `Null` the two views disagree by design (`Any` in a slot:
 ω against 1; `Null`: 1 against 0; `X | Null`: |X| + 1 against |X|). Before the estimate is asked,
-the position's type is rewritten into its implementation reading — a top in an input to `()`,
-`Null` to `Nothing`, `Null` alternatives dropped — and a union or intersection left over is not
-handed to the estimate (its sum is only a bound) but to the method side. Each function type in the
-slot is read on its own: its parameters are inputs, its result an output, where a top stays a top,
-which the estimate reads as ω, as the method side does (`final case class K(f: Unit => Any, b:
-Boolean)` is ω). The rewritten type is a new tree with no position of its own, so the estimate
+the position's type is rewritten into its implementation reading — every top to `()`, `Null` to
+`Nothing`, `Null` alternatives dropped — and a union or intersection left over is not handed to the
+estimate (its sum is only a bound) but to the method side. The estimate is never handed a top. A
+top in a function's output in the slot is ω, the method side's own tier, which stands without the
+estimate (`final case class K(f: Unit => Any, b: Boolean)` is ω). The rewritten type is a new tree with no position of its own, so the estimate
 reads it in the scope of the slot it was rebuilt from — where the constructor is written
 ([stored-value-names.md](stored-value-names.md)): in `object O { final case class Red(); final case
 class Box(f: (Any, Red)) }`, `Red` is `O`'s one value, whatever the package declares. A position
@@ -217,9 +220,8 @@ every library constructor that passes its place on to its arguments: functions (
 tuples, `Option`, `Either`, the sequences, a `Set`'s elements and a `Map`'s keys and values (an
 input `Set[Any]` is `Set[Unit]`'s 2 values, Rule P (5)). A top inside any other constructor — a
 source class applied to it included, since its fields may hold it in an output — is not rewritten,
-and the position is the method side's alone: `constructor position reads a top type inside <F>,
-whose place in it this reading does not know: <param>` where that side cannot read it (`Box[Any]`
-with `Box[A](a: A)` it reads whole: 1; `Fn[Any]` with `Fn[A](f: Boolean => A)`: ω). So `case class
+and the position is the method side's alone (`Box[Any]` with `Box[A](a: A)` it reads whole: 1;
+`Fn[Any]` with `Fn[A](f: Boolean => A)`: ω). So `case class
 AnyBox(x: Any)` = 1, `final class Walk(val cur: Any, val n: Int)` = 2^32 (its type is ω: Rule S),
 `Set[Any]` in a slot = 2, `Map[Boolean, Any]` = 4 (its key sets), and a `WalkRes(cur: Any, parents:
 Array[Any], parentsLen: Int)` is ω (1 × lengths × 2^32) — eo's own `WalkRes` too, now that both
@@ -235,12 +237,12 @@ Boolean = b }` with `X`'s `type Any = Boolean` is 2^2, its `a` one value.
 
 The rewrite reads spellings, so a top or `Null` behind a source alias (`type Top = Any`) is not
 handed to the estimate, which would read the alias's top as ω where the slot reads it as one value:
-a closed position takes the method side's exact value space (`final case class TA(x: Top)` = 1,
-`TC(f: Any => Boolean)` through an alias = 2), a type-parameter slot is the shape model's as usual,
-and a position only the estimate could read (one holding a non-literal singleton beside the alias,
-which the closed algebra does not size) is refused with `constructor position reads a top type or
-Null through an alias: <param>`. The stored-value row of the same type reads the alias's top as ω
-with no refusal (Rule S). The rewrite writes the empty type as `Nothing`, so a slot where that name
+the position is the method side's (`final case class TA(x: Top)` = 1, `TC(f: Any => Boolean)`
+through an alias = 2). A position holding a top that the estimate is not handed is read on the
+method side even beside a non-literal singleton, which is a stable path's one value
+(`final case class K(x: (Top, O.type), b: Boolean)` = 2); a type-parameter slot is the shape
+model's as usual. The stored-value row of the same type reads the alias's top as ω with no refusal
+(Rule S: `K` is ω). The rewrite writes the empty type as `Nothing`, so a slot where that name
 means a binder or a source declaration is not handed to the estimate.
 
 ## Rule U: unions
@@ -370,8 +372,7 @@ family, any other may.
 | callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md): `TopTypesUnionSpec.callableSum` 27); an open one keeps the union's own reason |
 | transparent result whose declared type is not a singleton | `transparent inline result: …` |
 | self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | the builtin (never-shadowed assumption); through the standard library or the JDK, `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
-| a constructor slot holding a top inside a source class or an unmodelled library constructor, which the method side cannot read | `constructor position reads a top type inside <F>, whose place in it this reading does not know: <param>` |
-| a constructor slot holding a top or `Null` behind an alias, which only the estimate could read | `constructor position reads a top type or Null through an alias: <param>` |
+| a constructor slot holding a top the method side cannot read (an unsupplied name beside it) | the method side's own reason |
 | an `inline` method whose body uses a compile-time operation or another channel to the call site | `inline method: <what failed>` ([syntax-features.md](syntax-features.md)) |
 | `Any` shadowed (alias, binder, import, inherited member) | the shadowing declaration's reading or refusal, unchanged |
 | evidence with a top on its left or in an equality (`Any <:< A`, `A =:= Any`) | `unsupported evidence relationship: … requires free-atom or rigid-application endpoints` |

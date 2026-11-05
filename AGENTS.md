@@ -53,6 +53,13 @@ Three further idealizations stand beside it (v1.md §2):
   `AnyVal` keeps its reading. `A <:< Any` carries nothing. On the stored-value side `Any`,
   `AnyRef` / `Object` and `Matchable` are ω. Never refuse because a top-typed position cannot be
   enumerated.
+- **Constructor = a method; type = a value whose accessible state is observed.** A constructor
+  (`<init>` row) is counted like any method: its parameters are inputs, read by the method side, so
+  a top in one (spelled or behind `type Top = Any`, whatever is beside it) is 1, and the row never
+  hands a top to the stored-value estimate. The type as a value (definitions row, top-level `val`)
+  is the stored side's: a top there is ω. `final class Walk(val cur: Any, val n: Int)`: constructor
+  2^32, type ω.
+- **`X*` is a possibly empty list** (`Σ_{n≥0} Xⁿ`): `def first[A](xs: A*): A` is 0, `Any*` ω.
 
 ## The modelling assumption: a closed world
 

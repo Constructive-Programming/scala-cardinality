@@ -71,6 +71,7 @@ class TopTypesUnionSpec extends Specification {
       an Any array beside them is a countable length                 $walkResCtor
       Null is empty and a union slot is its sum                      $nullCtor
       a top behind an alias is read on the method side               $aliasedTopCtor
+      an alias top beside a singleton: constructor 2, type ω         $aliasSingletonCtor
       a binder named Nothing does not capture the empty slot         $nothingBinderCtor
       a source type named Nothing does not capture it either         $nothingAliasCtor
       a top inside a set or map takes the container's place      $mergingCtor
@@ -202,8 +203,12 @@ class TopTypesUnionSpec extends Specification {
     (count("def q: scala.Any = ()", "q") === Count.Countable)
       .and(count("def j: java.lang.Object = \"\"", "j") === Count.Countable)
 
-  // Only the length of `xs` is observable: finitely describable predicates on it are ω many.
-  def repeated = count("def f(xs: Any*): Boolean = true", "f") === Count.Countable
+  // Only the length of `xs` is observable: finitely describable predicates on it are ω many. A
+  // repeated parameter is a possibly empty list (Σ_{n≥0} Xⁿ): `f()` is a call, so `first` has no
+  // total implementation, 0.
+  def repeated =
+    (count("def f(xs: Any*): Boolean = true", "f") === Count.Countable)
+      .and(count("def first[A](xs: A*): A = xs.head", "first") === Count.Finite(0))
 
   // `that` carries nothing: equals reads n (2) and that (1), 2^2.
   def equalsOverride =
@@ -533,6 +538,23 @@ class TopTypesUnionSpec extends Specification {
       .and(count(code, "TC.<init>") === Count.Finite(2))
       .and(count(code, "TB.<init>") === Count.Bounded(EffectiveOmega))
       .and(count(slots, "W.<init>") === count(slots, "V.<init>"))
+  }
+
+  // A constructor is a method: x is an input, so the alias's top is one value, and O.type a stable
+  // path's one value: (1 · 1) · 2 = 2, read on the method side (it was refused: `constructor
+  // position reads a top type or Null through an alias`); so is the top spelled directly. The type
+  // as a value is the stored side's: Top is ω there, ω · 1 · 2 = ω.
+  def aliasSingletonCtor = {
+    val code = "type Top = Any\nobject O\nfinal case class K(x: (Top, O.type), b: Boolean)\n" +
+      "final case class D(x: (Any, O.type), b: Boolean)"
+    val stored = cardinality.capacity.Counter
+      .definitions(dialects.Scala3(code).parse[Source].get)
+      .find(_.name == "K")
+      .flatMap(_.size)
+      .map(_.render)
+    (count(code, "K.<init>") === Count.Finite(2))
+      .and(count(code, "D.<init>") === Count.Finite(2))
+      .and(stored === Some("ω"))
   }
 
   def nothingBinderCtor =

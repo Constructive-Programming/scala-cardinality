@@ -102,8 +102,13 @@ Three further idealizations hold for every count:
   A, f: Any => A, g: A => Any): A` is ω; one choice stays 1). The same holds for `AnyRef`,
   `Object`, `Matchable` and `AnyVal`; the first three are `Any` in unions too (`T | AnyRef` is
   `AnyRef`), and `A <:< Any` carries nothing. In the stored values of a type, `Any`, `AnyRef` and
-  `Matchable` hold ω: `final class Walk(val cur: Any, val n: Int)` stores ω values, while its
-  constructor, whose parameters are inputs, has 2^32.
+  `Matchable` hold ω.
+- **A constructor is a method; a type is a value whose accessible state is observed.** A
+  constructor is counted like any method: its parameters are inputs, so a top in one (even behind
+  `type Top = Any`) is one value. The type as a value — its row in the definitions table, a
+  top-level `val` — holds what its fields may store, where a top is ω. So
+  `final class Walk(val cur: Any, val n: Int)` has a constructor with 2^32 implementations and a
+  type of ω values.
 
 The calculator does not check that a body actually obeys this assumption. A result describes
 the pure, total implementations of a signature and the values of a type. The full statement is
