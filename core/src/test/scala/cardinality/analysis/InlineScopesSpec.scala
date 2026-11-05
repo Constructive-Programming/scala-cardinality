@@ -11,7 +11,7 @@ import org.specs2.matcher.MatchResult
   * classes an expansion reifies, and conversions behind aliases (register D27). Every fixture is
   * valid Scala 3.9.0 (probes/a6-fix2, run: the printed values are the ones the comments quote).
   */
-class InlineScopesSpec extends Specification {
+class InlineScopesSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -38,14 +38,6 @@ class InlineScopesSpec extends Specification {
 
   private def parsed(code: String): MethodAnalysis.Input =
     MethodAnalysis.Input("Example.scala", dialects.Scala3(code).parse[Source].get)
-
-  private def rows(code: String): Map[String, Count] =
-    MethodAnalysis.analyze(List(parsed(code))).map(e => e.name -> e.count).toMap
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   private def pow2(exponent: Int): Count =
     Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, exponent)))
@@ -285,14 +277,6 @@ class InlineScopesSpec extends Specification {
     refused(found("U.f"), "may expand the inline conversion given A9[Int, String]")
   }
 
-  private def files(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis
-      .analyze(sources.toList.map { (path, text) =>
-        MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-      })
-      .map(e => e.name -> e.count)
-      .toMap
-
   // `forgetful.*` is in doubt (its `forgetful` may be `zzz.forgetful`), so the given's type name is
   // not read; the declaration it would otherwise be is: a plain trait leaves `U.f` its number (4),
   // one extending `Conversion` makes the inline-apply given a conversion every body may meet
@@ -301,12 +285,12 @@ class InlineScopesSpec extends Specification {
   def doubtedConversions = {
     val use =
       "p/U.scala" -> "package p\nobject U {\n  enum B { case T, F }\n  def id(b: B): B = b\n  inline def f(x: B): B = id(x)\n}"
-    val plain = files(
+    val plain = counts(
       "p/forgetful.scala" -> "package p\npackage forgetful\ntrait ForgetfulFunctor[F[_]]",
       "p/given.scala" -> "package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[List] with {}",
       use
     )
-    val converting = files(
+    val converting = counts(
       "p/forgetful.scala" ->
         "package p\npackage forgetful\ntrait ForgetfulFunctor[A, C] extends Conversion[A, C]",
       "p/given.scala" ->
@@ -321,7 +305,7 @@ class InlineScopesSpec extends Specification {
   // alone): it binds `Varargs` over another file's object of the name, and leaves `ExprMap` the
   // package's (probes/a7fix1/listed, valid Scala 3.9.0).
   def listedTerms = {
-    val found = files(
+    val found = counts(
       "p/defs.scala" ->
         "package p\nobject Varargs { val tag: Boolean = true }\nobject ExprMap { val tag: Boolean = true }",
       "p/u.scala" ->

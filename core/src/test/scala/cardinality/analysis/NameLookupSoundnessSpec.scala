@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -10,7 +8,7 @@ import org.specs2.matcher.MatchResult
   * with Scala 3.9.0 with the bodies given in the comments (`= true` where a `Boolean` is claimed);
   * each expected number is derived beside it.
   */
-class NameLookupSoundnessSpec extends Specification {
+class NameLookupSoundnessSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -29,20 +27,6 @@ class NameLookupSoundnessSpec extends Specification {
       read a path through an object the template inherits               $inheritedObjectPath
       refuse a path an unsupplied parent may bind                       $unsuppliedObjectPath
   """
-
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
-
-  private def counts(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   private val options = List(
     "a.scala" -> "package p\nobject Opt { final case class Option[A](u: Unit) }",

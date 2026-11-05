@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -12,7 +10,7 @@ import org.specs2.matcher.MatchResult
   * the two that import from `foo`, a package deliberately not supplied (`Blocked`, `W`). Each
   * expected number is derived in the comment beside it.
   */
-class PureCodeSpec extends Specification {
+class PureCodeSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -62,23 +60,8 @@ class PureCodeSpec extends Specification {
       a union with Exception has no runtime class to test           $exceptionUnion
   """
 
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
-
-  private def rows(code: String): Map[String, Count] = files("Example.scala" -> code)
-
-  private def files(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
-
   private def each(found: Map[String, Count], expected: Count)(names: String*) =
     names.map(name => found(name) === expected).reduce(_ and _)
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   // A Boolean input observed through one Boolean field: x, !x, true, false — 4; built from b, a
   // field is any function of b — 4. A public `var` parameter is a field holding its argument, as a
@@ -417,8 +400,8 @@ class PureCodeSpec extends Specification {
     val family = "trait Base\nsealed trait S extends Base\ncase object S1 extends S\n" +
       "object U { def s(x: S): Boolean = ??? }"
     val compat = "lib.scala" -> "package nlib\nobject Compat { type Base = Any }"
-    val apart = files(compat, "a.scala" -> s"package na\n$family")
-    val imported = files(compat, "a.scala" -> s"package na\nimport nlib.Compat.*\n$family")
+    val apart = counts(compat, "a.scala" -> s"package na\n$family")
+    val imported = counts(compat, "a.scala" -> s"package na\nimport nlib.Compat.*\n$family")
     (apart("na.U.s") === Count.Finite(2))
       .and(refused(imported("na.U.s"), "sealed family construction not resolved: S"))
   }
@@ -488,7 +471,7 @@ class PureCodeSpec extends Specification {
   // class is built without it (4), and another file's object is another one: g is 4. A package
   // object is an object like any: po.f 1, and with a lazy val pq.g 4.
   def topLevel = {
-    val found = files(
+    val found = counts(
       "A.scala" -> """package tp
         |val boom: Int = ???
         |def f(b: Boolean): Boolean = ???

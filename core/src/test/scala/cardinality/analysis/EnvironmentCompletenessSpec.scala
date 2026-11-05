@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -12,7 +10,7 @@ import org.specs2.matcher.MatchResult
   * point, and `Both`, a double definition kept as a refusal; each expected number is derived in the
   * comment beside it.
   */
-class EnvironmentCompletenessSpec extends Specification {
+class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -60,23 +58,6 @@ class EnvironmentCompletenessSpec extends Specification {
     Parameters
       a by-name parameter reads as its value                         $byName
   """
-
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
-
-  private def counts(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
-
-  private def rows(code: String): Map[String, Count] = counts("Example.scala" -> code)
-
-  private def count(code: String, name: String): Count = rows(code)(name)
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   private val intPredicate = Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 32)))
 

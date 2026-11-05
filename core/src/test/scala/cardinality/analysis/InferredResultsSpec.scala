@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -11,7 +9,7 @@ import org.specs2.matcher.MatchResult
   * Every fixture is valid Scala 3.9.0 except where a name outside the sources is the point; each
   * expected number is derived in the comment beside it.
   */
-class InferredResultsSpec extends Specification {
+class InferredResultsSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -35,23 +33,6 @@ class InferredResultsSpec extends Specification {
       an instance of a class outside the sources is read as written  $outsideCreation
       a transparent inline method's result is refused                $transparentInline
   """
-
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
-
-  private def counts(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
-
-  private def rows(code: String): Map[String, Count] = counts("Example.scala" -> code)
-
-  private def count(code: String, name: String): Count = rows(code)(name)
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   // `true` is a scala.Boolean even where `Boolean` names Int (2); `()` is Unit (1); `3` an Int.
   def literals = {

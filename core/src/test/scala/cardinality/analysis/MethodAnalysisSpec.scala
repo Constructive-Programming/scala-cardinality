@@ -1,12 +1,10 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 
-class MethodAnalysisSpec extends Specification {
+class MethodAnalysisSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -60,11 +58,6 @@ class MethodAnalysisSpec extends Specification {
       keep a file-private type from a sibling file                $filePrivateType
       read a package-private product from a sibling file          $packagePrivateProduct
   """
-
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
 
   private def entry(code: String, name: String): MethodAnalysis.Entry =
     MethodAnalysis.analyze(inputs("Example.scala" -> code)).find(_.name == name).get

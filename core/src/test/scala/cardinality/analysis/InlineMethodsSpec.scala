@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -11,7 +9,7 @@ import org.specs2.matcher.MatchResult
   * where a name outside the sources is the point (fixture a6 `r`, run: the printed values are the
   * ones the comments quote); each expected number is derived beside it.
   */
-class InlineMethodsSpec extends Specification {
+class InlineMethodsSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -49,17 +47,6 @@ class InlineMethodsSpec extends Specification {
       a cycle of inline calls is decided as one                      $cycles
       reasons quote what they name                                   $reasonPhrases
   """
-
-  private def rows(code: String): Map[String, Count] =
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Example.scala", dialects.Scala3(code).parse[Source].get)))
-      .map(e => e.name -> e.count)
-      .toMap
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   private def pow2(exponent: Int): Count =
     Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, exponent)))

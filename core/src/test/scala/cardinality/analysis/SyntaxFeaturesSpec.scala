@@ -11,7 +11,7 @@ import org.specs2.matcher.MatchResult
   * (docs/research/syntax-features.md). Every fixture is valid Scala 3.9.0 except where a name
   * outside the sources is the point; each expected number is derived in the comment beside it.
   */
-class SyntaxFeaturesSpec extends Specification {
+class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -50,17 +50,6 @@ class SyntaxFeaturesSpec extends Specification {
       runtime type evidence reveals its type argument                $revealingEvidence
       quoted code is compile-time reflection                         $quoted
   """
-
-  private def rows(code: String): Map[String, Count] =
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Example.scala", dialects.Scala3(code).parse[Source].get)))
-      .map(e => e.name -> e.count)
-      .toMap
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   // pair: each field from its one input (1); first: p.x (1); same: p.x or p.y (2); bool: every
   // function of two Booleans (2^4 = 16); one: the single field (1); nest: p.x.a or p.x.b (2).

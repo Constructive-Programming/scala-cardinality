@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -10,7 +8,7 @@ import org.specs2.matcher.MatchResult
   * ones it can. Every fixture compiles with Scala 3.9.0 (bodies included, where the file gives one
   * here as `???`); each expected number is derived in the comment beside it.
   */
-class EnvironmentSoundnessSpec extends Specification {
+class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
 
   def is = s2"""
@@ -65,22 +63,6 @@ class EnvironmentSoundnessSpec extends Specification {
       read a sealed family whose children live in an object        $sealedInObject
       read a family an alias names but nothing extends through it  $sealedAliasUnused
   """
-
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
-
-  private def counts(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
-
-  private def count(code: String, name: String): Count = counts("Example.scala" -> code)(name)
-
-  private def refused(found: Count, fragment: String): MatchResult[Count] =
-    found must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains(fragment)) must beTrue
-    }
 
   // Every anonymous `using` parameter has the empty name; keyed by name, the second replaced the
   // first. `anon2`: f(x), f(g(f(x))), … — ω, as for named f and g. `lost`: x, or the value in
