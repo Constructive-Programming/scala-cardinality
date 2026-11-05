@@ -10,7 +10,7 @@ checked to fail).
 ## Rules
 
 **R1 — rigid constructors.** A higher-kinded binder with no subtype bound and only plain holes (no
-bound or context bound on a hole, recursively; a hole's variance is not read) is rigid. An application `F[τ₁…τₙ]` is an
+variance, bound or context bound on a hole, recursively) is rigid. An application `F[τ₁…τₙ]` is an
 uninterpreted base type: `Shape.Applied(Rigid(F), keys)`, with no constructor and no eliminator,
 produced only by a value of the same head over the same argument keys. A binder that is never
 mentioned contributes nothing — the old blanket reason, which named every refused binder of the
@@ -29,23 +29,23 @@ applications are distinct types (`F = [x] =>> x` with disjoint arguments separat
 
 **R2 — nominal keys.** The arguments of a rigid head are keys, never shapes: `Option[A]` and
 `Either[Unit, A]` share the shape `1 + A`, yet no program converts `F[Option[A]]` to
-`F[Either[Unit, A]]`. A key is the canonical key `BuiltinTypes.canonical` gives a builtin or a
-[stdlib-model](stdlib-model.md) entry (`scala.Unit`, `scala.util.Either`,
-`scala.collection.immutable.List`, one per declaration whatever its spelling, which override and
-evidence identity share; an excluded or unmodelled entry, whose parameters the model does not
-hold, is no key) applied to its arguments' keys, each binder its own atom; a class, trait or enum
-of the sources is no key. Keys respect Scala's equalities: a transparent alias expands in its own
-scope, an opaque type only where it is visible, `(A, B)` is `Tuple2[A, B]` and `A => B` is
-`Function1[A, B]`, and an operator argument is its η-long lambda with parameters numbered by
-position, so α-equivalent operators share a key. Outside its scope an opaque type is no key at all:
-its API may relate it to other types (`inside: F[W[A]] => F[A]`), which a key cannot record, and
-concrete code is only irrelevant to the count when every input is readable. `=:=` evidence rewrites
-atoms inside keys (Leibniz: `substituteCo` exists for every `F`); `<:<` evidence never lifts through
-an invariant head. Rewriting replaces an occurrence by its equality class's representative, which
-depends on the class alone, so a rewriting that ends unfolds each class at most once along any
-chain: one still changing after as many steps as there are classes has met a class again and never
-ends (`A =:= F[A]`, an equation no finite type solves for every `F`) — refused, never cut off by a
-fixed budget. The builtin vocabulary is also what an import or an export must not shadow: an
+`F[Either[Unit, A]]`. A key is the declaration each name resolves to (`TypeIdentities.key`, or the
+canonical key `BuiltinTypes.canonical` gives a builtin or a [stdlib-model](stdlib-model.md) entry —
+`scala.Unit`, `scala.util.Either`, `scala.collection.immutable.List`, one per declaration whatever
+its spelling — which override and evidence identity share; an excluded or unmodelled entry, whose
+parameters the model does not hold, is no key) applied to its arguments' keys, each binder its own
+atom. Keys respect Scala's equalities: a transparent alias expands in its own scope, an opaque type
+only where it is visible, `(A, B)` is `Tuple2[A, B]` and `A => B` is `Function1[A, B]`, `A | A` is
+`A`, and an operator argument is its η-long lambda with parameters numbered by position, so
+α-equivalent operators share a key. Outside its scope an opaque type is no key at all: its API may
+relate it to other types (`inside: F[W[A]] => F[A]`), which a key cannot record, and concrete code
+is only irrelevant to the count when every input is readable. `=:=` evidence rewrites atoms inside
+keys (Leibniz: `substituteCo` exists for every `F`); `<:<` evidence never lifts through an invariant
+head. Rewriting replaces an occurrence by its equality class's representative, which depends on the
+class alone, so a rewriting that ends unfolds each class at most once along any chain: one still
+changing after as many steps as there are classes has met a class again and never ends
+(`A =:= F[A]`, an equation no finite type solves for every `F`) — refused, never cut off by a fixed
+budget. The builtin vocabulary is also what an import or an export must not shadow: an
 `export foo.Function1` leaves every reading of `Function1` unknown.
 
 **R3 — operator closures.** A callee is resolved first and its declaration's kinds direct its
@@ -74,38 +74,79 @@ not parsed, so it borrows its binder's place).
 
 **R5 — subtype bounds.** `A <: U` / `A >: L` are ambient proofs `A <:< U` / `L <:< A`: always
 available, never values (`summon[A <:< U]` compiles; a proof's only behaviour is the upcast).
-This reading constructs none of them: a binder the environment mentions is refused when it has a
-lower bound, or an upper bound other than `Any`, `AnyRef`, `AnyVal` or `Matchable`. `A <: Any`
-says nothing — where the name is the builtin's as the shape reading reads it: a channel that may
-rebind it (for a top name, a wildcard over a namespace no source supplies, D12) leaves a bound to
-read, refused with that channel. `AnyRef`, `AnyVal` and `Matchable` above say nothing of the
-binder's values (the contract excludes the runtime type tests `Matchable` permits), read past the
-same channels.
-Subtyping with bounded quantification is undecidable in full F<: (Pierce 1994).
+*Phase B1*: a bound to a binder or a rigid application is a directed view between nominal
+endpoints, a cycle of them an equality (`A >: B <: B` is `A = B`). *Phase B2*: a bound to a
+closed structural type — a sealed family, a case or final class, an enum, a builtin — views each
+of the binder's values as the bound for elimination only (upper), or builds the binder's goal as
+the bound (lower: split-and-rebuild already reaches the bound's values, so nothing is counted
+twice). The fields a view is flattened into are values of their own, read through their own bounds
+in the same pass: with `A <: P[B]`, `B <: Flag`, `a.x` is split by case like any Flag, so
+`[A <: P[B], B <: Flag](a: A): Flag` is |Flag → Flag| = 4 whatever the goal records later. A
+value's reading — unread, read with its views beside it, or a view — is a mark of the value, not a
+step of its path (a path starts with a binding id, which any source path may spell). `A <: Any`
+and `A >: Nothing` say nothing — where the name is the builtin's as the shape reading reads it: a
+channel that may rebind it (for a top name, a wildcard over a namespace no source supplies, D12)
+leaves a bound to read, refused with that channel. `AnyRef`, `AnyVal` and `Matchable` above say
+nothing of the binder's values (the contract excludes the runtime type tests `Matchable` permits),
+read past the same channels, but they are not top types: a structural lower bound below one — on
+the binder itself, or on a binder a bound or a proof puts below it — must be an instance of that
+class, read from its declaration (a class or enum is an `AnyRef` unless it extends `AnyVal`, a
+trait without parents is an `AnyRef`, tuples and functions are, value builtins are `AnyVal`s).
+Otherwise the binder is refused: Scala 3.9.0 accepts `[A >: Flag <: AnyVal]` and rejects every
+call (E057). A bounded binder's evidence is never provably unrelated to another candidate.
+Subtyping with bounded quantification is undecidable in full F<: (Pierce 1994); this fragment is a
+finite graph of binder edges plus closed views.
 
 Bounds that refer back to their binder are never read. Where the compiler follows bounds alone
 back to the binder — a binder an upper bound names, itself or as a union or intersection
 component, and every binder a lower bound mentions — the clause is no program (E140: `[A <: B, B <:
-A]`, `[A >: B, B >: A]`, `[A >: Option[A]]`). Such a clause is not detected as invalid here.
+A]`, `[A >: B, B >: A]`, `[A >: Option[A]]`), refused as invalid whether or not the binder is read
+— and whatever the result: a goal with one value (D12) has one implementation only in a signature
+that is a program.
+Inside an upper bound's applied type the compiler stops, so an F-bound `A <: P[A]` is legal; it
+describes A as a fixpoint — every value of A holds a smaller one — which for an invariant final
+`P` has no value at all (a vacuous context) while `A <: Option[A]` admits `None`. The shapes do not
+carry that inhabitation argument, so a bound whose structure holds its binder again, directly, via
+other bounds (`[B <: Option[A], A <: B]`) or via a proof (`using A <:< B` beside `B <: P[A]`), is
+refused; a binder held only as an application's argument (`A <: F[A]`) is a view and stays read.
+
+Structural lower and upper bounds are never read together. Where a binder bounded below by a
+structural type and one bounded above by one share a supertype in the graph (either may be it),
+a value viewed through the upper bound and a construction through the lower bound may be the same
+value: `[A >: Flag <: Flag](x: A): A` pins `A` to `Flag`, so the count is |Flag → Flag| = 4, but
+reading `x` beside the constructions `On`, `Off` in each case of `x` gives 3² = 9; with
+`Big = {One, Two : Sub; Three}`, `[A >: Sub <: Big](x: A): A` is 2·2·3 = 12, not 27. And the bounds
+may admit no type at all: Scala 3.9.0 accepts `[A >: Flag <: Boolean]` and rejects every call
+(E057), a vacuous context whose count is 1. Shapes erase the nominal identity that would decide
+either, so the meeting is refused.
 
 ## Boundary (each stays `?` with the reason named)
 
 | Case | Reason |
 |---|---|
+| variance on a rigid hole (`F[+_]`) | `variant higher-kinded parameter requires subtyping between applications` |
 | bound on a higher-kinded binder or a hole | `bounded higher-kinded parameter requires its bound's capabilities` |
-| upper bound to an open class | `upper bound requires capability analysis` |
-| any other upper bound the shape reading resolves | `bound to a structural type requires coercion analysis` |
+| upper bound to an open trait or abstract class | `upper bound requires capability analysis` |
+| bound to a type the solver cannot eliminate (paths, proofs, packages) | `bound to a structural type requires coercion analysis` |
 | foreign bound or evidence type | the foreign name's own reason |
-| any lower bound | `lower bound not read` |
-| a subtype proof or a binder bound the solver reaches | `unsupported evidence relationship: only equality proofs between endpoints are read` |
-| `<: Any` / `AnyRef` / `Object` / `AnyVal` / `Matchable` where a channel may rebind the name (`import foreign.*`) | `builtin name … may be shadowed through …` (the channel's reason) |
+| a bound whose structure holds its binder again (`A <: P[A]`, `[B <: Option[A], A <: B]`) | `recursive bound not read` |
+| the same through a subtype proof (`using A <:< B`, `B <: P[A]`) | `… a structural view holds a value of its own type` |
+| bounds referring back through bounds alone (invalid: E140), used or not, a `Unit` result too | `cyclic type bound (an invalid program)` |
+| `AnyRef` / `AnyVal` / `Matchable` above a structural lower bound whose class is not fixed or differs (`A >: Flag <: AnyVal`: every call E057) | `structural lower bound under a class bound requires class analysis` |
+| a view bound `A <% T` (invalid: removed in Scala 3), used or not, a `Unit` result too | `view bound is not Scala 3 (an invalid program)` |
+| `<: Any` / `AnyRef` / `Object` / `AnyVal` / `Matchable` or `>: Nothing` where a channel may rebind the name (`import foreign.*`) | `builtin name … may be shadowed through …` (the channel's reason) |
 | any builtin or model name under `import java.lang.*` (`Boolean`, `Byte`, `Short`, `Long`, `Float`, `Double` are the boxed classes there; the model does not list `java.lang`'s other members, so `Int` is refused too — D16) | `builtin name … may be shadowed through a reference not supplied: java.lang (wildcard import of java.lang)` |
+| a subtype proof beside a callable or a sum value | `unsupported subtype evidence interaction` (contravariant uses are not read) |
+| a callable producing a structurally bounded value | `… a callable produces a value its bound views as a structural type` |
+| two values a structural bound views producing their own type | `… values a bound views as a structural type may be the same case` |
+| structural lower and upper bounds sharing a supertype (`A >: Flag <: Flag`, `A >: Flag <: Boolean`) | `… a structural lower bound meets an upper one` |
 | an opaque type outside its scope in a key | `opaque representation is not visible at use site` |
 | an equality proof that never settles (`A =:= F[A]`) | `unsupported evidence relationship: an equality proof keeps unfolding` |
 | a rigid binder applied to a wildcard, `F[?]` (invalid: E043) | `unreducible application of a higher-kinded binder to a wildcard` |
 | a structurally substituted argument under a rigid head | `nominal identity of substituted argument not tracked` (the shape lost the identity; exact counts need the argument's syntax) |
-| unions, a class, trait or enum of the sources, nested wildcards, refinements | `nominal identity of argument not established` |
+| unions of distinct keys, nested wildcards, refinements | `nominal identity of argument not established` |
 | abstract type members, path types, inherited members in keys | `nominal identity of … not established` (members cluster) |
+| a wildcard where a constructor is expected | `existential type constructor requires witness-kind analysis` |
 | arity or kind mismatch (invalid programs), a constructor argument of the wrong kind applied or not | `type argument arity` / `kind mismatch` / `higher-kinded parameter used as a proper type` |
 | an unapplied type lambda where a type is expected | `unapplied type lambda used as a proper type` |
 | operators whose holes are themselves higher-kinded, in keys | `nominal identity of argument not established` |

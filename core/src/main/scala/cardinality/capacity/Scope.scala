@@ -759,9 +759,8 @@ private[cardinality] object Scope {
 
 /** One named definition a reference can resolve: the type parameters it declares, what its type is
   * worth with those parameters in scope, the scope its own syntax reads in (`read`, from the scope
-  * a reader hands it) — what a match type's case body is read in — for an opaque alias, its
-  * definition (`OpaqueScopes`), whether an enum has a parameterless case (`constant`), and why an
-  * instance of a class or enum is not known to be built (`Construction`).
+  * a reader hands it) — what a match type's case body is read in — and for an opaque alias, its
+  * definition (`OpaqueScopes`).
   */
 final private[cardinality] case class Named(
     params: List[TypeName],
@@ -770,23 +769,13 @@ final private[cardinality] case class Named(
     children: List[Child] = Nil,
     read: Scope => Scope = identity,
     opaque: Option[Defn.Type] = None,
-    constant: Boolean = false,
-    built: Scope => Option[String] = _ => None,
 ) {
-
-  /** Whether every instantiation has a value, whatever its arguments, read where `in` reads it: an
-    * enum's parameterless case without `extends`, or a summed family's module, built (`Builds`).
-    */
-  def witnessed(in: Scope): Boolean =
-    constant && built(in).isEmpty ||
-      children.exists(c => c.module && c.standard(in).isEmpty && c.built(in).isEmpty)
 
   /** The same definition read through `view`: how a body hands its own syntax its lexical scope. */
   def viewed(view: Scope => Scope): Named =
     copy(
       equation = sc => equation(view(sc)),
-      read = sc => read(view(sc)),
-      built = sc => built(view(sc))
+      read = sc => read(view(sc))
     )
 
 }

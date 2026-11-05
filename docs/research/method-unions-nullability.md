@@ -13,6 +13,9 @@ in general. The normalization:
 - `Null` (including `scala.Null`) is empty **under the null-free method model**.
   Thus `A | Null` is `A`, not `Option[A]`; a result `Null` has zero implementations,
   and an input `Null` is an impossible context with a unique absurd eliminator.
+- Aliases resolving to the same free type binder can collapse too.
+- `T | Any` is `Any`, one class spelled twice is one alternative, and a class
+  absorbs an alternative known to derive from it.
 - Remaining distinct alternatives are a tagged sum only when each has a runtime
   class, no class carries two of them, and the classes are pairwise provably
   disjoint: then a class-test `match` is the sum's eliminator. Equal structural

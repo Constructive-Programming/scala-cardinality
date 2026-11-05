@@ -68,7 +68,7 @@ object Counter {
           )
         )
       case d: Defn.Enum =>
-        Some(Walk.named(d) -> built(d, enumSize(_)(d)).copy(constant = constant(d)))
+        Some(Walk.named(d) -> built(d, enumSize(_)(d)))
       case d: Defn.Class if isConcreteClass(d) =>
         Some(Walk.named(d) -> built(d, stored(_)(d.tparamClause.values, d.ctor)))
       case _ => None
@@ -86,8 +86,7 @@ object Counter {
       sc => {
         if (sc.readingValue) Builds.unread(d, sc).foreach(why => sc.note(Overcount.Unread(why)))
         equation(sc)
-      },
-      built = Builds.unread(d, _)
+      }
     )
   }
 
@@ -165,17 +164,6 @@ object Counter {
     // enum cases — defines no values of its own.
     case _ => NothingSize
   }
-
-  // Whether an enum has a case that is one value of every instantiation: one without parameters,
-  // type parameters or `extends`.
-  private def constant(e: Defn.Enum): Boolean =
-    e.templ.body.stats
-      .collect {
-        case c: Defn.EnumCase =>
-          c.inits.isEmpty && c.tparamClause.values.isEmpty && Trees.fields(c.ctor).isEmpty
-        case _: Defn.RepeatedEnumCase => true
-      }
-      .contains(true)
 
   private def enumSize(scope: Scope): Defn.Enum => Size = e =>
     e.templ.body.stats.foldLeft(NothingSize: Size) {

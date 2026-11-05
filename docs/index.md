@@ -13,25 +13,25 @@ longer version of that argument.
 ## Counting a type
 
 ```scala
-Counter.definitions("enum Color { case Red, Green, Blue }".parse[Source].get)
-// Color: TinySize(3)
+Counter.source("enum Color { case Red, Green, Blue }".parse[Source].get)
+// TinySize(3)
 
-Counter.definitions("type Nested = Either[Boolean, Option[Boolean]]".parse[Source].get)
-// Nested: TinySize(5)
+Counter.`type`(dialects.Scala3("Either[Boolean, Option[Boolean]]").parse[Type].get)
+// TinySize(5)
 
-Counter.definitions("case class Pixel(shade: Byte, on: Boolean)".parse[Source].get)
-// Pixel: FiniteSize(9)   — 2^8 * 2, held as a 9-bit capacity
+Counter.source("case class Pixel(shade: Byte, on: Boolean)".parse[Source].get)
+// FiniteSize(9)   — 2^8 * 2, held as a 9-bit capacity
 
-Counter.definitions("type Two = Either[String, String]".parse[Source].get)
-// Two: 2ω                — two countable alternatives, kept as coefficients
+Counter.`type`(dialects.Scala3("Either[String, String]").parse[Type].get)
+// 2ω              — two countable alternatives, kept as coefficients
 
 Counter.sourceSignature("object S { def f(s: String): String = s; def g(s: String): String = s; val n: String = x }".parse[Source].get)
 // 2ε₀ + ω         — two ε₀-tier methods and one ω-tier field
 ```
 
-The first four rows are value spaces of definitions; the last is a member signature: what a
-definition declares, summed per tier, so two large modules can still be compared. A definition's
-row reads its solved value, and a recursive component that keeps growing is widened to
+The first four counts are value spaces of types; the last is a member signature: what a
+definition declares, summed per tier, so two large modules can still be compared. A definition
+contributes its solved value once, and a recursive component that keeps growing is widened to
 the tier it has grown into rather than counted round by round.
 
 Lazy types have an additional approximation at completion: combine the finite-value μ

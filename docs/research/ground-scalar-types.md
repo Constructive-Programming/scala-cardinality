@@ -108,8 +108,22 @@ declines the position for a reason — an import it does not follow, a wildcard 
 source supplies, a family it does not sum — the row is `?` with that reason: the method side's
 value space would have nothing to agree with.
 
-The method side's exact space stands as it reads it; an infinite space takes the estimate's
-reading, and is refused where the estimate has none.
+The two readings must agree: the size algebra must read the method side's closed type as the
+estimate reads its own — the same count where both are exact (up to 127), the same capacity width
+above — and an infinite space needs an infinite estimate (and vice versa). A literal merely within
+the estimate's capacity is not enough: in `Dep(q: Other)(val x: q.X)` the method side reads `q.X`
+through an object `q` (`X = Boolean`, 2) while the estimate reads the parameter's `Other.X = Int`
+(2^32), and in `object O extends Base { final case class P(x: Int) }` the method side reads the
+inherited `Base.Int = Boolean` (2) while the estimate, which does not bind inherited type members,
+reads the builtin (2^32) — the same two numbers, opposite readings right. Otherwise one side read
+a different type and the position is refused (`constructor position readings disagree: x (value
+space 2, estimate 2^32)`). Rounding is the only way one type reads to two capacities (sums round
+by `max(bits) + 1`, not associatively), and it refuses rather than guesses. A symbolic exact space
+is at least 2^65,536 (every smaller value is a literal), so it agrees only with an infinite
+estimate, which may saturate a power that wide, or a capacity of at least 65,536 bits
+(`P(p: Char => Boolean)` is `2^(2^16)` against `2^65536`). Since the corpus-coverage prune, a
+constructor whose solved part is ω or a symbolic number beside a position the estimate reads has
+no estimate form and is refused (`constructor space has no estimate form`).
 
 Only the constructor's own positions are value spaces. The parameters of an enclosing template
 are captures, bound like a method's: `Inner(a: A)` inside `Outer[A](val n: Int, val g: Int => A)`

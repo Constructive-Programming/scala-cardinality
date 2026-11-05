@@ -9,6 +9,27 @@ This page states the readings, the sequence-elimination rule they need, where th
 and what stays `?`. Executable: `StdlibModelSpec`, `SequenceEliminationSpec`,
 `RepeatedParameterFragmentSpec`.
 
+## Singleton terms
+
+The table also holds the library's two parameterless root-imported **terms**, `scala.None` and
+`scala.Nil`, keyed by both spellings (`None`, `scala.None`, `Nil`, `scala.Nil`). The rule is
+Scala's own singleton-type rule, not a model choice: a stable identifier's type `p.type` has the
+one value `p` (draft specification ch. 3), so a goal of it has exactly one implementation — the
+one returning `p` — and a `p.type` input carries exactly one value. The table's entries give the
+two objects a canonical identity, so `None.type` and `scala.None.type` are the same value.
+
+The same terminal reading answers a `p.type` whose path resolves to nothing this reading knows
+(`SingletonIntersections.module`): the sources typecheck, so the written `p.type` is a stable path
+of some term — of an unsupplied dependency, a top-level value, an enum case — and that term is the
+type's one value whatever it is. The two cases differ only in identity: a table term is the same
+value everywhere, an opaque path is its own spelling's. What stays refused is everything the
+singleton rule itself refuses, unchanged: a `var`'s path (E083), a forward reference, a path not
+an enclosing capture, and a source module the use site may not reach — the reading there needs the
+module's member environment, not just its existence. A call's singleton *result* keeps its own
+rule: an object's singleton widens to itself, anything else to a type this reading does not
+compute (`InferredResults`), so a method's result of `E.A.type` stays refused while a *declared*
+goal of `E.A.type` is 1.
+
 ## Readings
 
 | Reading | Entries | Shape |
@@ -97,6 +118,9 @@ inhabitants under βη, decided by saturating focused search; Scherer 2017 repor
 βη-equivalence with sums and the empty type is decidable and coincides with contextual
 equivalence (both **Metadata-verified**).
 
+A singleton alias of a value is that value (`q: p.type` beside `p: (List[B], A)` holds no second
+`A`): the sequences under it are the referent's own, eliminated once.
+
 A sequence the rule cannot reach stays `?` with its place: inside a supplied sum, as a supplied
 callable's result, as a parameter of a function the goal builds, under an existential or a proof
 (`Repeated-argument sequence elimination is unsupported: <place>`); a callable returning a closed
@@ -144,8 +168,9 @@ model — the stdlib namespaces checked with Scala 3.9.0 fixtures (under each, `
 _root_.<fqn>[…]]` compiles for all 93), the dependencies from their sources' declarations.
 `quotes.reflect` does declare two names the root imports bind: of its 323 type members, `Singleton`
 and `Symbol` are the only ones a `scala.*`, `scala.Predef` or `java.lang.*` type also spells (scalac
-compiles `summon[Symbol =:= quotes.reflect.Symbol]` there), so the table records both as reflect's.
-None declares a term `scala` or `java`.
+compiles `summon[Symbol =:= quotes.reflect.Symbol]` there), so the table records both as reflect's,
+and the `Singleton` marker of a singleton intersection is not read under it (below). None declares
+a term `scala` or `java`.
 
 **Listed and unsupplied wildcards against the sources' names.** Scala 3 ranks the bindings of a
 name (Scala 3 draft specification ch. 2, **Inspected (full text)**; register D11): a definition of
@@ -181,7 +206,10 @@ left to the root imports' reading, which refuses it through the same wildcard �
 prefix's first name is itself in doubt included: that reading asks the lookup about the prefix
 (`import zzz.{Boolean as _, *}; import compose.*` refuses `Boolean`, which `zzz.compose.*` may bind:
 `builtin name Boolean may be shadowed through a reference not supplied: compose (wildcard import of
-compose: compose may be imported by zzz.*)`, fixtures r8 and r5).
+compose: compose may be imported by zzz.*)`, fixtures r8 and r5). So does the `Singleton` marker of
+`O.type & Singleton`: it is `scala.Singleton` only where the lookup finds no declaration of the name
+and no channel may rebind it (under `import zzz.*` a `zzz.Singleton = Nothing` empties the type;
+under `quotes.reflect.*` it is reflect's own).
 
 The same reading covers every clause that may bind a name besides a wildcard over a path:
 
@@ -276,7 +304,9 @@ A method's environment includes what its owners inherit. An **open** owner — a
 abstract or non-final class — may leave a foreign parent's abstract members to a subclass, and a
 subclass may override its concrete ones: capabilities this reading cannot list. Such an owner's
 rows are refused (`inherited parent declaration not supplied: org.typelevel.discipline.Laws (named
-import Laws)`; `open stdlib parent with unmodelled members: scala.Product`). A receiver no subclass
+import Laws)`; a stdlib parent the model does not summarize, such as `Product`, reads alike since
+the corpus-coverage prune: `inherited parent declaration not supplied: Product (not declared in the
+sources or stdlib-model/1)`). A receiver no subclass
 replaces — an object, a given, a final class — has implemented every inherited member, and
 concrete code no subclass can override cannot change a count whose inputs and result are read (the
 environment reading's rule for concrete code). Constructors are exempt: a constructor
@@ -330,7 +360,8 @@ bind; a definition in another block of the reading file's package on the stored 
 constructor slots it reads (the method side reads it); a foreign
 parent of an open owner; SE beyond its three sequences and
 lengths ≤ 2, and the places listed under Rule SE; every name the sources and the table do not
-declare. Not modelled: `PartialFunction`, `LazyList`,
+declare — a written `p.type`'s path excepted, which its own spelling decides
+([Singleton terms](#singleton-terms)). Not modelled: `PartialFunction`, `LazyList`,
 `collection.Seq`, `Iterable`, `scala.Symbol`; dependency declarations are not read (no
 dependency-sources mode).
 

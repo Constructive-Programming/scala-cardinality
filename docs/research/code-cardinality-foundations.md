@@ -395,10 +395,9 @@ terminal type `1`: results of them have one implementation, inputs of them carry
 `Any => R ≅ R`. Every universal member — `==`, `!=`, `equals`, `hashCode`, `##`, `eq`, `ne`,
 `isInstanceOf`, type patterns, `asInstanceOf`, `getClass`, the default `toString`, `synchronized` —
 is outside the model on a value of an abstract, top or top-like type. A declared result with exactly
-one value (`Unit`, a top type, products of those, a function into one, a closed type of value
-space 1; singleton types were removed in the corpus-coverage prune) counts 1 whatever the
-environment leaves unresolved. The stored-value side keeps `Any` as everything (ε₀); constructor
-positions are read through the method-side model.
+one value (`Unit`, a top type, a singleton type, products of those, a function into one, a closed
+type of value space 1) counts 1 whatever the environment leaves unresolved. The stored-value side
+keeps `Any` as everything (ε₀); constructor positions are read through the method-side model.
 
 **Evidence.**
 
@@ -439,10 +438,7 @@ as `Set[Unit]`. See
 class, no class carries two alternatives, and the classes are pairwise provably disjoint (neither
 derives from the other, and one is final, both are classes, or one is sealed and its enumerated
 subclasses are each disjoint from the other). Exact type equalities (`T | Any = Any`, absorption of
-a known subclass, idempotence, `Nothing` / `Null` empty) apply first. Since the corpus-coverage
-prune only tuple classes and supplied declarations have runtime classes, a pair of supplied
-declarations and every sealed family are refused, and of the equalities only idempotence of a
-spelling and `Nothing` / `Null` remain.
+a known subclass, idempotence, `Nothing` / `Null` empty) apply first.
 
 **Evidence.**
 
@@ -456,8 +452,14 @@ spelling and `Nothing` / `Null` remain.
 - **Executable**: `TopTypesUnionSpec`, `MethodUnionNullabilitySpec`.
 
 **Boundary.** Type arguments never separate alternatives (runtime tests are by erased class).
-Union aliases are read as their alternatives at the use. A callable that returns a union is still
-not eliminated.
+Ancestry rests on supplied declarations: a parent that does not resolve refuses the pair unless no
+supplied declaration carries its name (a dependency cannot extend the sources depending on it).
+A sealed family whose file holds a subclass this reading cannot enumerate — or a parent clause that
+names it only in an argument (`extends Id[S]`), which a parameterised alias may dealias to it —
+refuses the union even when the other side proves the pair apart, since the sum adds the family's
+shape. Union aliases
+are read as their alternatives at the use. Builtins are a fixed list of final or
+standard-library-sealed classes. A callable that returns a union is still not eliminated.
 
 ## D14. A rigid constructor is an uninterpreted base type
 
@@ -465,9 +467,8 @@ not eliminated.
 over its arguments' nominal keys, equal only to the same head over the same keys, with no
 constructor or eliminator. A higher-kinded argument is an operator read where it is written (a
 closure, applied by β-reduction in that scope). A context bound is one more contextual parameter;
-a subtype bound an ambient `<:<` proof, which the solver does not read: a count that reaches one is
-refused, and the structural views were removed in the corpus-coverage prune, so a bound other than a
-top refuses the binder. Details:
+a subtype bound an ambient `<:<` proof — between binders or rigid applications a directed view, to
+a closed structural type an elimination-only view (upper) or a construction (lower). Details:
 [higher-kinded binders](higher-kinded-binders.md).
 
 **Evidence.**
@@ -482,7 +483,7 @@ top refuses the binder. Details:
   abstract verified**): the semantic form of the rule, and the licence for rewriting under `=:=`
   through any `F`.
 - Undecidability of F<: subtyping (Pierce 1994, **metadata-verified**) bounds the fragment: a
-  equality proofs only.
+  finite graph of binder bounds plus closed structural views.
 - **Compiler fixtures** (Scala 3.9.0, this session): context bounds are `using` parameters, two of
   one type ambiguous (E172); for `A <: B` with evidence of both, `summon[B]` selects the `B`
   parameter (run); every positive fixture of the spec compiles; `F[?]` for an abstract `F` is
@@ -498,11 +499,17 @@ refused), no bound (a bounded higher-kinded binder is refused). A key never iden
 by their shapes: a structurally substituted argument, a union of distinct keys, a path, an
 abstract member or an unsupplied name has no key and stays `?`. A subtype proof beside a callable
 or a sum value is refused (contravariant uses are not read); a callable producing a structurally
-bounded value is refused (its output would be eliminated). Bounds referring back through bounds
-alone, and view bounds, are invalid programs, refused whether or not the binder is read and whatever
-the result (D12's one-valued goal presumes a program). A top bound is a no-op only past every
-channel that may rebind the name (D12). An opaque type outside its scope is no key (its API may
-relate it to other types). Bounds to open traits wait for the capability records.
+bounded value is refused (its output would be eliminated). Structural lower and upper bounds
+that share a supertype are refused: a viewed value and a lower-bound construction may be one value,
+and the bounds may admit no type (a vacuous context); so is a structural lower bound under
+`AnyRef` / `AnyVal` / `Matchable` whose declared class does not fit. A bound whose structure holds
+its binder again (an F-bound through a structure, directly, via bounds or via a proof) is refused:
+its inhabitation is a fixpoint question; bounds referring back through bounds alone, and view
+bounds, are invalid programs, refused whether or not the binder is read and whatever the result
+(D12's one-valued goal presumes a program). A top or `Nothing` bound is a no-op only past every
+channel that may rebind the name (D12). An opaque type outside its
+scope is no key (its API may relate it to other types). Bounds to open traits wait for the
+capability records.
 
 ## D15. Sealed families are tagged sums; a number rests on everything it reads
 
@@ -697,8 +704,7 @@ and unbounded is the atom `member:<path>#N`, counted as a class type parameter i
 trait or class has one value; a single-case tuple projection on a rigid atom is the atom
 `proj:n:i:(α)` when one arity per scrutinee lets one instantiation reduce them all; an irrefutable
 first case reduces. A final root's inherited declaration another level implements is that level's
-code (members gate G1). `this` and field paths, singleton aliases and refinement bodies were
-removed in the corpus-coverage prune. Details: [type members](type-members.md).
+code (members gate G1). Details: [type members](type-members.md).
 
 **Evidence.**
 
@@ -740,8 +746,10 @@ class too), object or given never instantiates it; a private constructor (the te
 ancestor class's), a private or local template's scope, and a sealed family whose cases are all
 closed keep every subclass where none is enumerated (inside the family the receiver gate answers;
 an open case lets any file pick); a `val` fixed by its definition (local, private or final, or of
-a closed template) is no choice; and an unsupplied parent may define it. Since the corpus-coverage
-prune only the sealed family, the `val` and the unsupplied parent are refused with their reasons.
+a closed template) is no choice; and an unsupplied parent may define it — each refused with its
+reason; a member some level declares as a class is no atom. A field an alias reads is the
+receiver's field, at its most derived declaration. Inside a refinement `this` and the members it or
+its base declares are the refined value's; a projection `R#X` whose body reads either is refused.
 A stable input's type-only refinement is read as its base only where some value of the base may
 have its members (open supplied template, nothing it pins already fixed or bounded, bounds exact
 or one-sided and uncontradicted); otherwise the input may be empty and is refused. Bounded and higher-kinded members, `R#X`
@@ -927,8 +935,7 @@ goal, nothing as an input; a union of literal types is the set of its distinct c
 are closed spaces (one point, n points), so callables over them are counted as over `Unit` or a
 sum; a key is the literal's class and constant. A call's result that its type argument makes a
 literal type is widened to the literal's class. A floating zero is refused (the parser drops its
-sign). Named-tuple and literal keys and unions of literals were removed in the corpus-coverage
-prune.
+sign).
 
 **Evidence.**
 
@@ -960,8 +967,7 @@ anonymous evidence of everything nested in its body, refused where a deeper cand
 them and ambiguous within one clause. A candidate of type `A ?=> R` also answers searches for
 `R` (and a search for `A ?=> R` finds a plain `R`), so the rule compares every type a search may
 select a candidate for. A call or ascription yielding a context function is not an inferred
-result (Scala applies it). Since the corpus-coverage prune a chain that reaches a context function
-type is refused (`context function not read: …`) and a candidate answers no other search.
+result (Scala applies it).
 
 **Evidence.**
 
@@ -1095,7 +1101,9 @@ lead back to its own argument types, or whose argument types a producer cycle bu
 elimination over an unbounded argument space: p`; ground, sum, sequence or lower-bounded argument
 types, and types a polymorphic input may build, are `sum elimination over an argument space not
 enumerated: p`; higher-order arguments keep the elimination reason. A root whose rules carry
-reasons has no count. Details: [polymorphic members and
+reasons is ω when it reaches, along rules with no reason and no polymorphic instantiation whose
+every child is built without reasons, a cycle, and the empty goal is not built even optimistically
+at any goal on the way (C11 as restricted by crosscheck X3). Details: [polymorphic members and
 saturation](polymorphic-members-and-saturation.md).
 
 **Evidence.**
@@ -1122,10 +1130,11 @@ saturation](polymorphic-members-and-saturation.md).
   through a polymorphic instantiation never ω),
   `OpaqueSumForwardingSpec` (saturation agrees with the certificate where it applies: 2, 1, 1, 2;
   12, 12, 4, 1, ω, 6, 6, 2, 2, 2 beyond it), `InhabitationSpec`, `GroundTypesSpec.groundCallable`,
-  `EnvironmentCompletenessSpec.opaqueCallable` (4).
+  `TopTypesUnionSpec.callableSum` (27), `EnvironmentCompletenessSpec.opaqueCallable` (4).
 
 **Boundary.** Arguments over ground (literal) spaces, sums, sequences, lower-bounded types or
-polymorphic producers are not enumerated, and unbounded families are not counted.
+polymorphic producers are not enumerated, and unbounded families are not counted; ω for them is
+claimed only under C11's conditions, which a cycle behind a reason-carrying rule never meets.
 
 ## D26. Code has no side effects: a `var` is its value, a throw supplies nothing, a throwable is data
 
@@ -1157,11 +1166,15 @@ decision, v1 §2), and every reading obeys it.
      is taken at the record's or receiver's type arguments (`K2[Int]`, `K4 extends K2[Int]`), and
      a subclass whose member only throws counts as its parent with the abstract one;
    - a template whose primary constructor evaluates a parent argument, a strict `val` or `var`
-     initializer or a statement that only throws leaves the construction unresolved (`construction
-     not resolved: C`), and so does a template its instances carry (an outer instance, a local
-     template's receiver, a member object's owning instance, and for a top-level definition its
-     file's synthetic object; not a static object around a template). The measured declaration's
-     own body is excluded, and constructor rows keep their convention. A sealed case, family or enum whose construction
+     initializer or a statement that only throws is never built, by any subclass either: its record
+     is empty (an input vacuous, a goal 0), and a declaration that runs in it — or in a template
+     its instances carry (an outer instance, a local template's receiver, a member object's owning
+     instance, and for a top-level definition its file's synthetic object; not a static object
+     around a template) — is never called: 1. A name there is read in its own level's scope (its
+     parameters, members and inherited members, never a subclass's; the imports before it; the
+     exports of its template); one an unread scope may bind leaves the construction unresolved
+     (`construction not resolved: C`). The measured declaration's own body is excluded, and
+     constructor rows keep their convention. A sealed case, family or enum whose construction
      (every template it extends, and for singleton enum cases the companion) would only throw is
      refused, since that reading resolves no term names (`sealed family construction not
      resolved`, `enum construction not resolved`);
@@ -1175,8 +1188,8 @@ decision, v1 §2), and every reading obeys it.
    - subtyping adds only producers of types that are already inhabited;
    - a `null` message is read by the `T | Null` rule.
 
-   On the stored side a throwable spelled in full is an open class: `open to implementations
-   (java.lang.Throwable)`, never a size; a bare `Throwable` is not read. Its stack trace (reflection), `initCause`, `addSuppressed`, `printStackTrace` (effects)
+   On the stored side a throwable is an open class: `open to implementations (Throwable)`, never a
+   size. Its stack trace (reflection), `initCause`, `addSuppressed`, `printStackTrace` (effects)
    and `getSuppressed` are outside the model. Details: [code without side
    effects](pure-code.md).
 
@@ -1212,7 +1225,9 @@ decision, v1 §2), and every reading obeys it.
   representations depend on state) show why the exclusion is load-bearing; Banerjee & Naumann 2005
   (**metadata-verified**, background).
 - **Executable**: `PureCodeSpec`, `ThrowableSlotsSpec`, `StdlibModelSpec.open`,
-  `CapabilitySpec.unreadMembers`, `StoredValueSoundnessSpec.taint`.
+  `KindedIdentitySpec.modelKeys`, `CapabilitySpec.unreadMembers`,
+  `MethodRefinementSpec.mutablePath`, `StoredValueSoundnessSpec.taint`,
+  `TypeMemberSpec.valuePaths`.
 
 **Boundary.** These stay `?`, each with a named reason:
 - a union with a throwable (no runtime class the class test tells apart yet);
@@ -1269,13 +1284,16 @@ source:
 - a contextual clause left to implicit search — a callee's, its extension group's, a context
   bound, an eta-expanded method's, a local method's or given's — a value of a context function
   type read without an explicit `using`, `summon` and `implicitly`;
-- an applied selection of a member (since the corpus-coverage prune every one, which an extension
-  or a conversion may answer);
-- a body, unless it returns a parameter of the result's own type (since the corpus-coverage prune
-  whether or not a conversion the body may find exists).
+- an applied selection whose name an inline or contextual extension the body may find also
+  declares, or any applied selection when a conversion the body may find exists;
+- a body when an inline conversion the body may find exists, or when a channel outside the sources
+  is open where the method is written, unless it returns a parameter of the result's own type.
 
-Definitions written in the body refuse it (their reading was removed in the corpus-coverage
-prune). Abstract inline declarations and their implementations are refused (no body to check). A
+Definitions written in the body are read as supplied ones, under their own frames: a local
+method's or given's clauses, defaults and declared types; a local object's members; `this` and the
+inherited names of an anonymous class, a local class or a local given instance (their template,
+not the enclosing one). A local type whose name the reading resolves outside the body refuses.
+Abstract inline declarations and their implementations are refused (no body to check). A
 definition nested in a refused inline method stays refused. With those refused, the body is at
 every call site the same function of its signature's values as the method's own body, up to the
 universal members and reflection the model excludes (D12): boxing lets an expansion read
@@ -1336,14 +1354,21 @@ by a named import of a declaration outside them, selected because a member does 
 seen (the view rule's assumption, D20); likewise a given of the sources whose class is declared
 outside them is not read as a conversion (its parents are not supplied). Which conversions and
 extensions the body may find is over-approximated, never narrowed: every scope Scala may search,
-an import matched by its last segment; aliases are followed to their end. The library table is what
-the check needs, not the library: any member outside it refuses. Untyped lambda parameters, pattern
-variables and most library results are not typed, so a selection on them refuses. A member selected
-on a parameter of a sealed type is refused though every subclass is supplied, and an implementation
-of an abstract inline declaration is refused: both conservative. A passing body is then read by the
-solver exactly as its `def` twin, polymorphic members (D24) and sum elimination (D25) included; but
-a receiver or record holding a deferred inline member keeps D24's refusal in an inline target even
-when the body never calls the member (conservative). See [syntax-features.md](syntax-features.md).
+an import matched by its last segment; aliases and export chains are followed to their end. An
+extension that restates the selected member (an invariant base class receiver, the same parameter
+names and resolved types under the qualifier's final class's base type, or a receiver no base class
+of it) is never taken, since the member applies wherever it would (eo's `Getter.andThen`,
+`BijectionIso.andThen`, `Review.andThen`: 1); anything less keeps the fallback reason. The
+library table is what the check needs, not the library:
+any member outside it refuses. Untyped lambda parameters, pattern variables and most library
+results are not typed, so a selection on them refuses. A member selected on a parameter of a
+sealed type is refused though every subclass is supplied, and an implementation of an abstract
+inline declaration is refused: both conservative. A local class, trait or enum is read through its
+companion and its own body only, so a value of its type has no members the reading resolves. A
+passing body is then read by the solver exactly as its `def` twin, polymorphic members (D24) and
+sum elimination (D25) included; but a receiver or record holding a deferred inline member keeps
+D24's refusal in an inline target even when the body never calls the member (conservative). See
+[syntax-features.md](syntax-features.md).
 
 ## D28. Rows beyond defs, each measured by the rule its translation has
 
@@ -1413,8 +1438,9 @@ cases and unconditional structural givens are no rows. Details:
   E[A, B]` prints `final case class D[A, B](y: A)` (`$S/probes/b5-fix1`, `-Vprint:typer`); a
   secondary constructor's body reads the class's members and parameters; a context-function
   literal under a context-function result is one closure (no second wrapper); an anonymous given's
-  name is `given_` and its type's names (`given_A`, `given_Ord_Int`, `$S/probes/b5-fix2/gname`;
-  any other type's given is not named here), and `new C[A](x, y).given_A` selects one; matching `case TInt()` makes a method's or a class's type parameter `A`
+  name is `given_` and its type's names (`given_A`, `given_Ord_List`, `given_Int_String`,
+  `given_String_to_Int`, `given_&_Ord_Show`, …, `$S/probes/b5-fix2/gname`), and `new C[A](x,
+  y).given_A` selects one; matching `case TInt()` makes a method's or a class's type parameter `A`
   Int in the arm (`def h: A = 42` compiles), while abstract type members, path-dependent types,
   literal, binder and wildcard patterns refine nothing (`$S/probes/b5-fix2/refine`).
 - **Executable**: `DefinitionInventorySpec`; `MethodAnalysisSpec.abstractCase`,
@@ -1500,12 +1526,13 @@ names](stored-value-names.md).
   Src.*` bind `Boolean`, `q` and `Flag` in a subclass's body (`O.U(42).b: Int`, `OW.UW(42L).f:
   Long`), a self type's export alike; a `val` parameter and a case class's parameter are inherited
   (`OP.UP(42).x: Int`), a plain or private one is not (`OC.UC(()).x: Unit`).
-- **Executable**: `StoredScopesSpec` (`inheritedExports`, `unsuppliedParents`,
-  `unreadParents`), `StdlibModelSpec.constructorExempt` (`In(b: Boolean)` in `trait Outer extends
-  lib.Base`: refused, not 2), and the method side's term-head wording
-  (`NameLookupSoundnessSpec.unsuppliedObjectPath`, `UnsuppliedWildcardSpec`: `inherited term
-  member not resolved: c`). Since pruned to what the corpora exercise: the estimate reads no
-  inherited member, followed export or self type; each such name is refused with its parent.
+- **Executable**: `StoredScopesSpec` (positive and adversarial; `inheritedTerms` and
+  `inheritedExports` for the parameters and exports), with the expectations it moved:
+  `GroundEnvironmentSpec.shadowedPosition`, `constructorScope`, `symbolicDisagreement` (the lent
+  slot now agrees with the method side: 2^64, 2, 2^(2^16)), `StdlibModelSpec.constructorExempt`
+  (`In(b: Boolean)` in `trait Outer extends lib.Base`: refused, not 2), and the method side's
+  term-head wording (`NameLookupSoundnessSpec.unsuppliedObjectPath`,
+  `UnsuppliedWildcardSpec`: `inherited term member not resolved: c`).
 
 **Boundary.** Not a counting rule: it decides which declaration a name denotes. Members of a
 parent applied to type arguments, export clauses that read imports or name anything but a plain
@@ -1587,12 +1614,10 @@ a type rests on a function from an empty domain met inside a definition (`P(f: N
 the row is refused (`value not decided: P`), and so is a number read through an intersection or
 refinement (`value not decided: Int & String`), a template whose construction is not read, or a
 singleton type. A value of an unresolved type keeps its reasons (`Box[Json]` for a case class
-`Box`), and an
-opaque alias read outside its scope is refused here too. A construction step that does not throw is
-read as yielding a value of its type (concrete code obeys the model, D-env-concrete); one that
-throws only if a simple name is the root imports' is refused, whatever binds the name. An opaque
-alias inside a
-template is not visible in a subclass's body; a reference rebuilt without a position (a substituted
+`Box`), and an opaque alias read outside its scope is refused here too. A construction step that
+does not throw is read as yielding a value of its type (concrete code obeys the model,
+D-env-concrete); one that throws only if a simple name is the root imports' is refused, whatever
+binds the name. An opaque alias inside a template is not visible in a subclass's body; a reference rebuilt without a position (a substituted
 slot) is refused even inside the scope.
 
 ## D31. A count refused only by possible views is read between two bounds
@@ -1618,20 +1643,19 @@ exactly its result type, searches nothing, nor does a literal of the declared re
 `Any`, `Matchable`, `AnyVal`/`AnyRef` above it); a literal at another type may be converted
 (`def other: Boolean = 5` is `conv(5)`). Where the only reasons left are possible views P, two
 more readings bound the count R of recursion-free implementations: P bound as free capabilities
-(upper) and P left out (lower). If the upper reading is 0 the count is 0; if both are 1 it is 1;
-otherwise the reasons stay.
+(upper) and P left out (lower). If the upper reading is 0 the count is 0; otherwise the reasons
+stay (the lower reading's 1 was dropped in the corpus-coverage prune).
 
 **Derivation.** Every recursion-free implementation is a term over the environment that, in every
 admissible receiver, never re-enters the declaration; reading each member of P as a free
 capability of its type admits every behavior its default or an override has, so every such term is
 among the upper reading's terms and is told apart from another no less finely: R ≤ upper. A term of
 the lower reading uses no member of P (and no definite view), so it re-enters nothing: lower ≤ R.
-Hence upper = 0 gives R = 0 (upper = 1 with lower ≥ 1 would give R = 1, which no corpus row
-needs, so the analyzer decides 0 alone). One proviso: a member of P
+Hence upper = 0 gives R = 0, and upper = 1 with lower ≥ 1 gives R = 1. One proviso: a member of P
 whose type is empty makes the upper reading vacuous (every goal has its one absurd answer), so it
 is no bound then — but no implementation can use that member either (it never returns), so R =
 lower, and both cases stand (a vacuous reading is 1, never 0). Agreeing bounds past 1 fix R as
-well once the upper reading is known not to be vacuous; the rule decides only 0 as a
+well once the upper reading is known not to be vacuous; the rule decides only 0 and 1 as a
 deliberately narrow choice, not because agreeing bounds could miss the count. A member of P whose
 binding the upper reading refuses refuses the row.
 
@@ -1648,10 +1672,52 @@ binding the upper reading refuses refuses the row.
 
 **Boundary.** A lambda applied in place, a local definition calling the declaration, an
 η-expansion and a constructor run are possible views, not definite ones. The sandwich decides
-only 0 and 1 (`ReentrySpec`'s `E3.to`, with both bounds 4, stays `?` by that choice), and never
+only 0 (`ReentrySpec`'s `E3.to`, with both bounds 4, stays `?` by that choice), and never
 substitutes a reachability test for a view (`Opt.to` stays `?` although every instance the sources
 declare fixes the dependent member away from the goal: the closed-world reading is unsound for an
 open class, X5). eo's `ComposedGetOptionLaws.getOptionInner` is 1.
+
+## D32. An open record's unbounded abstract member opens as the witness of each value's package
+
+**Decision.** A capability record (C0–C5) whose template's linearization leaves an abstract type
+member `X` — unbounded, first order, defined by no level — no longer refuses: the record's members
+are read over a witness named by the member, and the record is the package ∃X. members-over-X
+(`Shape.Existential`), which the solver opens per supplied value with a witness fresh to that
+value, exactly as it opens a wildcard input (ExistentialInputs). Two supplied values never share a
+witness, and one value's members share theirs. The witness itself is unobservable: a record whose
+members return only the witness contributes no input factor of its own. A *goal* of the record is a
+result construction — the implementation would pick the witness — and stays at the existential
+result boundary (`existential wildcard result construction and repackaging requires witness-choice
+analysis`). Bounded or higher-kinded members keep
+`capability record with abstract type member not read: C.X`, and so does any member the measured
+signature names through a path (`p.X`, `T#X`): the projection reads as an atom keyed by the path
+(TypeMembers), and the opened witness and that atom would have to be one — a sharing this reading
+does not yet agree on.
+
+**Derivation.** A value of C is the existential package ∃X. members-over-X (Mitchell–Plotkin 1988;
+Cardelli–Leray dot notation, both already the register's for parameter paths). Eliminating a
+*supplied* package is parametric in the witness: the body cannot inspect it, choose it, or compare
+two witnesses for equality, which is precisely a fresh rigid atom per value — the opening's
+soundness is the same argument that makes the wildcard fragment's opening sound. The *goal*
+direction packages a witness (the anonymous subclass the count realizes picks X), which is result
+construction, outside the supported fragment (existential-inputs boundary 1). The observable
+content of an input record is its members' results over the witness: `sub(c: Sub): Boolean` with
+`Sub extends Base { def b: Int; type X }` is Boolean^Int = 2^(2^32) — implementations are the
+functions from `c.b`'s value to the result, and the witness adds nothing.
+
+**Evidence.**
+
+- **Executable**: `CapabilitySpec.existentialRecords` (`run(p: Pair): Boolean` = 4 — the four
+  Boolean functions of consume's behavior at the value the body can supply; `solo(p: Source)` = 2 —
+  a record of one witness-returning member leaves the literals alone; `both(p, q)` = 2^4 — two
+  independent packages, never crossed; a goal and a `p.X` mention refused),
+  `CapabilitySpec.existentials` (the `Opt` goal at the result boundary),
+  `TypeMemberBoundarySpec.typesOnly` (`sub` = 2^(2^32)), `TypeMemberScopeSpec.boundedTemplates`
+  (bounded members keep the refusal).
+
+**Boundary.** A signature that names the member through a path stays refused; so do bounded and
+higher-kinded members; witnesses of two values never unify. Lifting the path case needs the two
+readings to agree on one atom for `p.X` — the next slice of the same feature.
 
 ## D33. A listed dependency namespace binds only the members its artifacts declare
 
@@ -1727,7 +1793,9 @@ universally quantified in the binder, so the rigid reading is the parametric one
 
 - **Executable**: `KindedIdentitySpec.kindOverloads` (the un-overridden `K[_, _]` overload refuses
   with the result-instantiation reason), `PolymorphicMemberSpec.boundedAndKinded` (`Kinded.m[G[_]]
-  (x: G[Int]): G[Int]` — the result instantiates G).
+  (x: G[Int]): G[Int]` — the result instantiates G), `TypeMemberSpec.boundedMember` (`def g(p: H,
+  x: p.F[Int]): p.F[Int]` = 1 — the higher-kinded abstract member `p.F` reads as the path's rigid
+  constructor applied at its arity, and the only `p.F[Int]` value the environment builds is `x`).
 - The cats-eo run: 291 rows reason-only, zero counts moved — the corpus's `G[_, _]` blocker
   (297 rows) dissolves into the per-member reasons behind it.
 

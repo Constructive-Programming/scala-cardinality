@@ -109,7 +109,7 @@ opaque types, nested definitions included.
 Sizes are polynomials over three tiers — `a·ε₀ + b·ω + n` — added componentwise, so two
 countable alternatives stay `2ω` (`Either[String, String]`) instead of collapsing into one
 `ω`, while products and powers stay deliberately coarse (`(String, String)` is `ω`).
-`Counter.definitions` reports the value space of each definition in a source;
+`Counter.source` sums the value spaces of the definitions in a source;
 `Counter.sourceSignature` sums what their members declare instead, so an object with two
 `String => String` methods and one `String` field is `2ε₀ + ω`.
 Scala 3 extension methods contribute too: each method's domain includes its receiver,

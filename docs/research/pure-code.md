@@ -62,16 +62,33 @@ member binds the name. Scala types each such term `Nothing`, and so does the ana
   abstract `k: Int => Nothing` no pure code implements, so `P` and `Q` count alike (1). The reading
   is decided at the record's or receiver's type arguments: `K2[A] { def k(x: A): Nothing = ??? }`
   read as `K2[Int]`, or extended as `K4 extends K2[Int]`, is `K1`.
-- **A constructor that may only throw leaves its construction unresolved.** Every constructor, a
-  subclass's included, runs the primary constructor of each class and trait of its linearization:
-  each parent's arguments, each strict `val` or `var` initializer and each statement of the body.
-  Where one of them only throws, whether an instance exists is not decided here, and the
-  declaration's count is refused (`construction not resolved: C`). The templates an instance
-  carries count too: an inner class's outer instance, a local class's enclosing receiver, a member
-  object's owning instance, and for a top-level definition the synthetic object of its file and
-  package. A `lazy val` or a method runs only when called, so it builds nothing. The measured
-  declaration's own body is excluded: it is the choice being counted. A constructor row keeps its
-  convention: it reads its parameters.
+- **A constructor that only throws builds no instance.** Every constructor, a subclass's included,
+  runs the primary constructor of each class and trait of its linearization: each parent's
+  arguments, each strict `val` or `var` initializer and each statement of the body (a 3.9.0 run:
+  `new IV { override val x = true }` still runs `IV`'s `val x = ???` and throws). Where one of
+  them only throws, no instance exists. So the template's record is empty (as an input it is
+  vacuous, 1; as a goal, 0), and its members are never called: their count is 1. That holds for
+  the templates an instance carries too: an inner class's outer instance, a local class's
+  enclosing receiver, and a member object's owning instance. A top-level definition lives in the
+  synthetic object of its file and package, built with every strict top-level `val` of them (a
+  3.9.0 run: calling a top-level `def` runs its file's throwing `val`, another file's not). A
+  class or object that a *static* object (one nested only in objects and packages) encloses is
+  built without it (a 3.9.0 run calls `O.C` while `O`'s initializer throws). A `lazy val` or a
+  method runs only when called, so it builds nothing. A name a constructor evaluates is read in
+  its own level's scope: the level's parameters, members and inherited members (never a
+  subclass's: a 3.9.0 run throws for a trait's `???` in a subclass that defines `???`), the
+  scopes around it, and the imports written before it (an export binds throughout its template).
+  A parent's arguments see no member, since no `this` exists yet. The measured declaration's own
+  body is excluded: it is the choice being counted. A constructor row keeps its convention: it
+  reads its parameters. An inline member of a static object or of a file's top level is the
+  exception: it is expanded where it is called, and the expansion builds the object only where it
+  selects one of its members (3.9.0 runs: `K.f(true)` returns while `K`'s initializer throws, and
+  prints no `K init`; `b && K.z` builds `K`). So it is counted as in a built owner whose own
+  members supply nothing — an object or a file declares no slot and has no open member, so none
+  of them is an input anyway: `object K { val z: Boolean = ???; inline def f(b: Boolean): Boolean
+  = !b }` has 4 implementations of `f` (an inline given `Int` of `K`, 2^32). A class's, a trait's
+  or a member object's inline member still needs the receiver its call is made on: 1. Rows nested
+  in such an inline body follow it (register D28).
 - **A throw's operand reads nothing that a result is built from.** A final implementation that
   reads a hidden capture only to build the exception it throws is not refused. The view rule (C6)
   still sees a re-entry inside the operand, because Scala evaluates the operand before throwing.
@@ -145,10 +162,9 @@ A source subclass is read as any source class:
   sealed-family reading is coarser (§4): it reads a non-final case-class leaf as its fields, so
   there a subclass in another file that overrides `getMessage` is a value it does not count.
 
-The **stored side** keeps its open-class convention for a throwable spelled in full
-(`java.lang.Throwable`, `scala.RuntimeException`): its values are those of any subclass, so the
-row is *unbounded by an open abstraction* (`open to implementations (java.lang.Throwable)`). A bare
-root-import name (`Throwable`) is not read: unresolved. It never claims a finite size.
+The **stored side** keeps its open-class convention. A throwable's values are those of any
+subclass, so the estimate gives no size: the row is *unbounded by an open abstraction*, with the
+reason `open to implementations (Throwable)`. It never claims a finite size.
 
 ## 4. Limits
 
@@ -226,7 +242,8 @@ root-import name (`Throwable`) is not read: unresolved. It never claims a finite
 - **Executable**: `PureCodeSpec` (vars, throws, emptiness, construction, throwables, positive and
   adversarial), `ThrowableSlotsSpec` (stored side), `ValueRowsSpec.valueReasons` and
   `sumDropsEmptySummand` (value rows),
-  `StdlibModelSpec.open`, `CapabilitySpec.unreadMembers`.
+  `StdlibModelSpec.open`, `KindedIdentitySpec.modelKeys`, `CapabilitySpec.unreadMembers`,
+  `MethodRefinementSpec.mutablePath`, `TypeMemberSpec.valuePaths`.
 - The no-side-effects assumption is the owner's model decision (v1 §2), not a theorem. Reading a
   `var` as its value remains a model decision. Related work on why the exclusion is load-bearing:
   - Pitts & Stark 1998, *Operational reasoning for functions with local state*, HOOTS (CUP)

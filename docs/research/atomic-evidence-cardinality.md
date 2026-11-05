@@ -1,4 +1,4 @@
-# Atomic equality evidence
+# Atomic equality and subtyping evidence
 
 The executable contract is `EvidenceTransportCardinalitySpec`. The frontend recognizes both
 infix and prefix spellings of Scala's `=:=` and `<:<`, subject to its existing name-resolution
@@ -18,19 +18,29 @@ product and arrow shapes using that equality, while retaining each term binding'
 Thus `x: A`, `y: B`, `ev: A =:= B` provide two choices for `B`, not one and not an infinite
 family. Multiple witnesses do not provide multiple copies of either input.
 
-An available subtype proof (`A <:< B`, or a binder's bound) is not read: a context that holds
-one is refused (`unsupported evidence relationship: only equality proofs between endpoints are
-read`). A proof the goal must build (a result or a constructor field of type `A =:= B`) is
-refused too (`unsupported evidence constraint: a proof as a goal`).
+An available atomic `A <:< B` adds a directed view of an existing `A` value as `B`, retaining
+the original provenance. The counter closes these views transitively. It does not identify
+the binders or grant a reverse coercion. Cycles of evidence transport preserve the original
+value rather than generating a productive opaque-callable cycle.
+
+Reflexive atomic proofs are constructible without an input witness. Proven proofs, including
+supplied equality, reflexivity and transitive subtype paths, normalize to the terminal shape
+when counting results or constructor fields. This erases proof choices, not the data fields
+alongside them.
 
 ## Supported fragment and limits
 
 - Endpoints must resolve to free atoms or rigid applications (`F[A]`, keyed nominally — see
   [higher-kinded binders](higher-kinded-binders.md)). Structural representation equality does not
   prove nominal Scala type equality: two case classes can have identical product shapes. Therefore
-  structural, concrete, dependent, and unresolved endpoints of written evidence remain `?`.
+  structural, concrete, dependent, and unresolved endpoints of written evidence remain `?`; a
+  binder's bound to a closed structural type is the one structural proof, read as an
+  elimination-only view or a construction.
 - Equality is propagated through the supported shape algebra, including arrows. An ordinary
   opaque callable remains opaque; equality evidence does not make it an identity function.
+- Nonreflexive subtype evidence supports atomic values and products only. Sums, callables,
+  variance/lifting and higher-order interactions remain `?`, even when an obvious coercion
+  could be written. This prevents the solver from silently omitting additional coercion paths.
 - A proof under a sum or returned by a callable is not an available assumption. Relationships
   that cannot be established from the actual context remain `?`. The counter does not merge
   two type binders merely because their evidence type appears in the result.

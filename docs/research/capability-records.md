@@ -19,11 +19,16 @@ written — on records and receivers alike; `canEqual` belongs to `scala.Equals`
 `canEqual(that: Any): Boolean` is an ordinary member (a free `Any => Boolean`, one Boolean since
 `Any` is terminal).
 
-**Abstract members of a record.** An unbounded abstract type member no level defines makes the
-record the package ∃X. members-over-X (`Shape.Existential`); the solver does not open packages, so
-a signature that holds or builds one is refused (`an existential or singleton input`, `… goal`).
-Bounded or higher-kinded members refuse when the record is read, and so does any member the
-measured signature names through a path (`p.X`).
+**Abstract members of a record** ([D32](code-cardinality-foundations.md)).
+An unbounded abstract type member no level defines does not refuse the record: the members are read
+over a witness named by the member, and the record is the package ∃X. members-over-X each value
+carries — an input opens it with a witness fresh per value (`Shape.Existential`, the same opening
+the wildcard inputs get), so `p`'s and `q`'s never mix, and the witness itself is unobservable. A
+goal of the record is a result construction — the implementation would pick the witness — and stays
+at the existential result boundary. Bounded or higher-kinded members refuse, and so does any member
+the measured signature names through a path (`p.X`): the projection is an atom keyed by the path
+(`TypeMembers`), and the opened witness and that atom would have to be
+one — a sharing this reading does not yet agree on.
 
 **C1/C2 — the member table.** A receiver's members are read over its supplied linearization, each
 level under the arguments its `extends` chain gives it. A concrete definition overrides an abstract
@@ -86,7 +91,11 @@ Only the template's own file may extend it when it is local, when it or an enclo
 private to a template, or when its own constructor is private (unqualified, `this`, or qualified
 by a template: its companion is in the file). There an overridable member is derived unless
 another template of the file (of the enclosing block, for a local one) defines its name — in its
-body, as a pattern binder or as a constructor parameter. Then it is refused, since this reading does not enumerate those subclasses. An ancestor's private constructor closes no public subclass, a
+body, as a pattern binder or as a constructor parameter — or a template of the file that may
+extend the receiver (naming it, a subclass of it or an alias of either among its parents) mixes in
+a parent written outside that scope whose supplied linearization defines the name, or that this
+reading cannot follow: `class D extends C with T2` overrides C's `m` with T2's wherever T2 is
+written. Then it is refused, since this reading does not enumerate those subclasses. An ancestor's private constructor closes no public subclass, a
 top-level `private` template is visible in its whole package, and a `private[p]` constructor is
 reached package-wide: those templates are open.
 
@@ -134,7 +143,9 @@ recursion-free implementation is among the upper reading's terms, and every term
 reading is recursion-free, so lower ≤ count ≤ upper (a member of P with an empty type makes the
 upper reading vacuous, but then no implementation uses it and the count is the lower reading): an
 upper reading of 0 is the count. Agreeing bounds would fix the count as well; deciding only 0 is a
-deliberately narrow choice, so the reasons stay there. A member of P whose binding is refused in the upper reading refuses the row.
+deliberately narrow choice (the corpus-coverage prune dropped the lower reading's 1), so the
+reasons stay there. A member of P whose binding is refused in the upper reading refuses the row. eo's `ComposedGetOptionLaws.getOptionInner` is 1: the record
+`CanGetOption[A, B]` has the None-returning implementation alone, with or without the law member.
 
 A precision regression the bounds record rather than repair (FOLLOWUPS 14b): eo's `Optic.to` and
 `Optic.from` printed 0 at `b5045b8`, derived independently — `andThen` can return only `rc.Out`,
@@ -257,13 +268,13 @@ number of binders or parameters per clause is always another slot.
 
 | Situation | Reason |
 |---|---|
-| Abstract type member in a record that does not open: bounded or higher-kinded ones, and any the measured signature names through a path (`p.X`, `T#X`) | `capability record with abstract type member not read: C.X` |
+| Abstract type member in a record that does not open: bounded or higher-kinded ones, and any the measured signature names through a path (`p.X`, `T#X`) — the opened witness and the path atom would have to be one ([D32](code-cardinality-foundations.md)) | `capability record with abstract type member not read: C.X` |
 | Self type | `self type not resolved: T` |
 | Hidden constructor state of an open class (X6: `class CNothing(n: Nothing)` has no instance), of a parameterized parent no class passes arguments to, or a free field a nearer `val` overrides | `open class with hidden constructor state: C.p` |
 | Final-class parameter no member observes injectively | `final class field not observable injectively: C.p` |
 | Non-public constructor or class, local or private template | `receiver fields constrained by …: C` / `capability record of a template only its scope instantiates: C` |
 | Member hidden at the use site | `capability record with members hidden at the use site: C` |
-| Pattern-defined member of an open receiver | `destructured member of an open receiver not read: C` |
+| Extension or pattern-defined member (a `var` is its value, register D26: an abstract one its getter, a concrete one derived) | `capability record with an extension member not read: C`, `destructured member of an open receiver not read: C` |
 | Trait parameters | `capability record with trait parameters not read: C` |
 | Recursive record (a member's type mentions the record) | `recursive type not read: C` (the type reading's own guard) |
 | Polymorphic open member not reduced | `polymorphic capability binder: M (…)` ([PB0–PB4](polymorphic-members-and-saturation.md)) |

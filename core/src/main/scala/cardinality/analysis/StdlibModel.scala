@@ -359,14 +359,6 @@ private[cardinality] object StdlibModel {
     name -> (t.fqn :: Option.when(t.scalaAlias)(s"scala.$name").toList)
   )
 
-  private val witnessedFqns: Set[String] = witnesses.values.flatten.toSet
-
-  /** The simple name of a witnessed type. */
-  def witnessName(name: String): Boolean = witnesses.contains(name)
-
-  /** A fully qualified spelling of a witnessed type, `_root_`-anchored or not. */
-  def witnessQualified(fqn: String): Boolean = witnessedFqns(fqn)
-
   /** The number of type arguments an entry the model reads takes, or why it does not hold them: an
     * unmodelled class is recorded by name alone, and an excluded entry's parameters are not read
     * (`scala.quoted.Type[T <: AnyKind]` takes a constructor as well).
@@ -415,15 +407,6 @@ private[cardinality] object StdlibModel {
     case Shape.Existential(_, opened)      => rigid(opened)
     case Shape.Singleton(_, Some(widened)) => rigid(widened)
     case _                                 => false
-  }
-
-  /** Why a stdlib parent the model does not summarize, or summarizes without its term members,
-    * leaves a template's members unknown.
-    */
-  def parentReason(entry: Entry): String = entry.reading match {
-    case Excluded(why)    => outside(entry, why)
-    case Unmodelled(open) => unmodelled(open, "parent", entry)
-    case _                => unmodelled(open = true, "parent", entry)
   }
 
   /** A stdlib parent the model knows declares no type member, with the term members a subclass must

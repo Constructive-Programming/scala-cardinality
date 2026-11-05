@@ -54,19 +54,30 @@ subtype belongs to every instantiation of `P`. The estimate checks both conditio
   twice (`C extends D1 with D2`, both sealed under `D`) is refused, because its values would be
   counted twice.
 - **Instantiation.** A subtype `C[Ȳ] extends P[ā]` must bind each of its parameters to exactly
-  one slot `aᵢ = Yⱼ`, or pin a covariant slot from below with `Nothing`. `P[t]` holds `C[u]` for
-  every `u` the slot's variance allows, so the summand `|C[t]|` is exact only when those `C[u]`
-  add nothing:
+  one slot `aᵢ = Yⱼ`, or pin a slot from below (`Nothing` into a covariant slot, `Any` into a
+  contravariant one). `P[t]` holds `C[u]` for every `u` the slot's variance allows, so the
+  summand `|C[t]|` is exact only when those `C[u]` add nothing:
   - an invariant slot holds `C[t]` alone;
   - a covariant slot holds `C[u]` for every `u <: t`. That union is `C[t]` when `C` is covariant
-    (`C[u] <: C[t]`); an invariant `C` is refused, whatever its fields hold;
+    (`C[u] <: C[t]`), or when every field of `C` holds a `u`-value only where a `t`-value stands
+    too: the parameter itself, tuples, unions, by-name and repeated ones, a function's result,
+    the covariant slots of a constructor of the file that the field's name denotes where it is
+    written, and the standard data constructors where no source binds their name. A field `f: A
+    => Boolean` of an invariant `E[A]` is refused: `E[u]`'s functions are no `E[t]` fields; so is
+    `xs: List[A]` when another file of the package says `type List[A] = A => Boolean`;
   - a contravariant slot holds `C[u]` for every `u >: t`: `Use(C[Any]("x"))` is a `Use` of
     `Use(p: P[Boolean])` with `P[-A]`, whatever `C`'s field says. Only a contravariant `C`
     (`C[u] <: C[t]`) is summed.
 
-  A bounded subtype parameter is refused: its bound would have to mean the slot's in the scope
-  each is read in. A bottom pin must be the standard library's `Nothing` where the clause is
-  written: with `type Nothing = Boolean`, `Z extends P[Nothing]` is a `P[Boolean]` only. The slot logic is `types/SealedSlots`, which the
+  A subtype parameter's bounds must be the slot's: `C[A <: Int] extends W[A]` is no member of
+  `W[Boolean]`. Spelled alike is not enough, since the two bounds are read in different scopes: in
+  `object O { type X = Nothing; final case class C[A <: X](a: A) extends P[A] }` with a top-level
+  `type X = Any; sealed trait P[A <: X]`, `C[Boolean]` is ill-formed and `P[Boolean]` holds no `C`.
+  So a bound means its slot's only when each parameter it names is the subtype parameter bound to
+  the slot parameter of that name, and every other name reads in the same scope: the subtype is
+  a statement beside the parent, with no import between them. A bottom pin must be the standard
+  library's `Nothing` or `Any` where the clause is written: with `type Nothing = Boolean`, `Z
+  extends P[Nothing]` is a `P[Boolean]` only. The slot logic is `types/SealedSlots`, which the
   method side's representation shares, bounds and variance included; each refusal names the
   subtype and only the parameter at fault (`sealed subtype binds a parameter to no slot of its
   parent: Fused (M0, of Optional)`).
@@ -102,9 +113,17 @@ subtype belongs to every instantiation of `P`. The estimate checks both conditio
   the reference wrote them, and each part is read where it was written. For example, `Miss[A](fst:
   Fst[A])` read for `Affine[(T, M0), B]` reads `Fst[(T, M0)]` = `T` in the reference's scope.
   This is what makes eo's `Optional.Fused` depend on its instantiation only.
-- **Only the first case is tried.** A match type reduces when its first case's pattern — a
-  binder or a tuple of binders — matches the scrutinee; otherwise it is stuck (a `?`, never a
-  number), even where Scala would pass the case over as provably disjoint.
+- **A case is passed over only when provably disjoint** (Scala 3 reference, *Match Types*; draft
+  spec ch. 3: a match type reduces to a case "if the scrutinee matches its pattern, and if it is
+  provably disjoint from every earlier pattern"). The estimate passes a case that does not match
+  only for tuples of different arities or with a disjoint element pair, two different literals,
+  or two different classes of which one is final (a tuple, a literal's class, a final standard
+  type; a function type is a trait none of them extends). `H[Any]` with `case Int => …; case _ =>
+  …` is stuck (scalac: "cannot be shown to be disjoint"), not the second case. A pattern spelled
+  as the scrutinee matches only where each of its names means one declaration as the match type
+  and the arguments read it: `F[Int]` written where `type Int = String`, against `F`'s `case Int`,
+  is stuck (Scala takes `case _`, since `String` is disjoint from `scala.Int`), never the spelling
+  match.
 - **Enum cases with their own `extends`.** A case `Y extends E[Int]` is an `E[Int]` only, so an
   enum's sum over every case is refused for it, directly and as a family's subtype: `enum case not
   summed: E.Y (…)`. A case bottom-pinned to the standard `Nothing` is a member of every
@@ -122,10 +141,11 @@ The reasons are:
 - a subtype whose clause may name another type of the parent's name: an object around it
   extends a parent, or exports through a path, the file does not declare;
 - a slot pinned to a fixed type, which is a GADT index (`extends W[Int]`, or an invariant
-  `W[Nothing]`), or bottom-pinned with a `Nothing` a source binds;
+  `W[Nothing]`), or bottom-pinned with a `Nothing` or `Any` a source binds;
 - a field that holds a parameter through a standard data constructor's name a source binds;
 - a subtype parameter that no slot binds exactly once (`Optional.Fused`'s `M0`);
-- a bounded subtype parameter, or one varying otherwise than its slot (above).
+- a subtype parameter bounded otherwise than its slot (or alike only in spelling), or varying
+  otherwise (above).
 
 Private constructors are not refused here. The estimate asks which values exist, not who may
 build them.
@@ -141,15 +161,19 @@ own definition outranks it in that namespace only: a `val W` beside `import to1.
 type lookup goes on outward. A renamed member is no longer imported under its own name, by the
 wildcard beside it either (`import ra.{W => V, *}` leaves `W` to the package). A path to a supplied package or object reads that namespace's member, and the solver's
 dependency graph links the member's key. Any other path is a reason that names the clause:
+- `not supplied` when no source declares the path;
+- `not followed` for a member reached through a value;
 - `<first> may be imported by w.*` when an earlier wildcard over an unsupplied namespace may bind
-  the path's first name (as `cats.syntax.all.*` may bind `org`). In that case the clause may still
-  name a supplied declaration, so the reason does not say it is not supplied;
-- `not supplied` otherwise: no source declares the path, or the member is one an object inherits
-  or exports, or one reached through a value, none of which is followed.
+  the path's first name (as `cats.syntax.all.*` may bind `org`; a listed stdlib namespace binds
+  only the terms `ListedNamespaces` lists, so `scala.jdk.CollectionConverters.*` binds no `org`).
+  In that case the clause may still name a supplied declaration, so the reason does not say it is
+  not supplied.
 
 Exports follow the same rule, and an export defines a member of its template, which outranks an
 import of the same name there and an outer definition of it (`import X.T; export Y.T` binds `Y.T`).
-This reverses the earlier "not followed" behaviour: `ReportSpec.crossSourceImported` now reads 2.
+A member an object inherits or exports is not followed: its reason says `inherited member not
+followed` or `exported member not followed`, not `not supplied`. This reverses the earlier "not followed" behaviour:
+`ReportSpec.crossSourceImported` now reads 2.
 
 ## A reference carries the reasons of what it reads
 
@@ -158,13 +182,14 @@ collects the non-parameter reasons of every definition it reads, transitively, o
 definition (`Taint`). The parameters a reference supplies are not collected. A reason holds even
 when the arithmetic would absorb it (`Zero(n: Nothing, q: Q)` with `Q(s: Schema)` reads `?`, not
 0). The method side's constructor-slot reading inherits this rule, so `AvroFailureException.<init>`
-is `?` because one case of `AvroFailure` holds a `Throwable`, which the estimate does not read.
+is `?` because one case of `AvroFailure` holds a `Throwable`, an open class the estimate leaves to
+its implementations (register D26).
 
 ## Context bounds are stored evidence
 
 Scala 3 desugars `class C[T: TC]` to `class C[T](using TC[T])`. The evidence is a field, so the
-estimate multiplies by `|TC[T]|`, once per bound; a named bound (`T: TC as tc`) is not read. An
-enum case declares its own bounds: scalac does not copy the enum's
+estimate multiplies by `|TC[T]|`, once per bound; a named bound `T: TC as tc` names the field and
+its type is still `TC[T]`. An enum case declares its own bounds: scalac does not copy the enum's
 bounds onto a case.
 
 ## Finite collections keep their element's tier
@@ -263,9 +288,12 @@ A row belongs to the first class any of its reasons is in, and all classes are r
 - **Recursion through a value's type member** (`x: q.X`) reads `recursion through a type member of
   a value: D`, even when it is positive. The solver's budget guard that widens a name still growing
   after twice its rounds marks it the same way; no fixture reaches it.
-- **Match patterns.** Only binders and tuples of binders are read; any other pattern (`case Int`,
-  `case _`) leaves the match type stuck (a `?`, never a number).
-- **Bounds.** A bounded subtype parameter is refused, even where its bound means the slot's.
+- **Match patterns by spelling.** A non-binder pattern matches a scrutinee written the same way,
+  and only where every name of it means one declaration as the pattern and the arguments read it;
+  a pattern that would match by subtyping (`case Any`), or one whose names mean different
+  declarations, is not recognised, and the match type is stuck there (a `?`, never a number).
+- **Bounds read apart.** A bounded subtype parameter is summed only beside its parent with no
+  import between, even when the subtype's scope binds the bound's names to the same declarations.
 - **The method side's own family reading** (`Representations`) still spells a renamed parent, a
   shadowed bottom pin and a shadowed data constructor by name; its constructor rows rest on the
   estimate's refusal, its other rows are lane types' (B0).

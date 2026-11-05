@@ -251,8 +251,7 @@ The agreed input-side existential fragment now opens unbounded wildcard packages
 as scoped rigid witnesses. Independent packages remain independent; fields of
 one package and validated singleton aliases preserve shared identity. Bounds,
 result witness choice/repackaging and fresh callable-produced packages remain
-explicit boundaries. (The existential-inputs note was retired when the solver stopped opening
-packages: an existential input is refused.)
+explicit boundaries. See [the model and examples](../research/existential-inputs.md).
 
 The structural review changes were also applied: binder-aware substitution lives
 in `TypeSubstitution`, singleton/intersection spellings share one extractor, and

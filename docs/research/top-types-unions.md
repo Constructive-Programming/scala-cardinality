@@ -69,7 +69,7 @@ is callable on `()`, 1. `xs: Any*` is not terminal: its length is observable.
 ## Rule O: a goal with one value has one implementation
 
 **Statement.** If the declared result resolves to a shape with exactly one value — `Unit`, a top
-type, a product of those, a function into one, or a closed type of value space 1
+type, a singleton type, a product of those, a function into one, or a closed type of value space 1
 (`Option[Nothing]`, `Nothing => Boolean`) — the count is 1 whatever else the environment leaves
 unresolved: unreadable captures, inherited declarations, parameter types.
 
@@ -180,19 +180,30 @@ Exact type equalities apply first, before any alternative is resolved (rule L):
   replaced by the argument as written at the use (`RB | Green.type`, `Or[Red, Blue] | Green.type`,
   `ORB | Green.type` with `type ORB = Or[Red, Blue]`, and `Or[Red, Blue]` alone all read as
   `Red | Blue (| Green.type)`); a type parameter passed as an argument stays a type parameter;
-- one spelling written twice in one scope is one alternative;
+- `T | Any = Any` — even when `T` is a foreign name (`Schema | Any` = 1); `T & Any = T`;
+- one class spelled twice, both unapplied, is one alternative (`Red | p.Red`; inside an opaque
+  type's scope, `Age | Boolean` with `opaque type Age = Boolean`);
+- `S | T = T` when `S`'s class is known to derive from `T`'s, both unapplied — so
+  `Fail | Missing` reads as `Fail` although `Missing` alone is unreadable;
 - `Nothing` and (null-free model) `Null` alternatives are empty.
 
 Then every remaining alternative is resolved; the first failure is the reason
-(`union <u>: <reason>`). Otherwise the union is the sum `Shape.Sum(A₁ … Aₙ)` exactly when:
+(`union <u>: <reason>`). Several alternatives of one free binder are that binder. Otherwise the
+union is the sum `Shape.Sum(A₁ … Aₙ)` exactly when:
 
-1. every alternative has a **runtime class**: a source class, trait or enum, after dealiasing; or
-   a tuple class, `TupleN` (`TupleXXL` past 22);
+1. every alternative has a **runtime class**: a source class, trait, enum or module, after
+   dealiasing; or a builtin from a fixed list — `String`, the boxed primitives, `BoxedUnit`,
+   `TupleN` (`TupleXXL` past 22), `Option`, `Either`;
 2. no class carries two alternatives (type arguments are erased: `Box[Boolean] | Box[Unit]` share
    `Box`; `(Int, Int) | (String, String)` share `Tuple2`);
-3. the classes are pairwise **disjoint**: of each pair, at least one is a tuple class (no source
-   class extends one, and two tuple classes share no value); two source declarations are refused;
-4. no class among them is a sealed family.
+3. the classes are pairwise **disjoint**: neither derives from the other, and one is final, both
+   are classes (single inheritance), or one is sealed (an enum: its cases) and each subclass it
+   enumerates is disjoint from the other;
+4. every sealed family among them has only subclasses this reading holds as declarations — the
+   sum adds the family's *shape*, which counts the subclasses it reads, so one it misses would
+   leave the sum short even when the other side proves the pair apart
+   (`sealed trait P; case object P1 extends P; enum E { case A extends E with P }` beside an
+   unrelated sealed `Q`: `P | Q` is refused, not read as 1 + 1).
 
 **Derivation.** The injections are the subsumptions `Aᵢ <: U`. The copairing `[f₁ … fₙ]` is
 `u match { case x: κ₁ => f₁(x) … }`: total, because the static union lists every case and Scala
@@ -212,6 +223,20 @@ stuck (Scala 3.9.0 compiler fixtures). The deliberate deviation: Scala also sepa
 from `Box[String]` through type arguments, but runtime discrimination is by erased class, so here
 one class admits one alternative.
 
+**Ancestry.** Ancestor sets come from the supplied declarations, each parent clause read where it
+is written. A parent that does not resolve leaves the set incomplete and the pair is refused —
+unless no supplied declaration, enum case or export selector carries its name: a dependency's
+classes cannot extend the sources that depend on it. The builtin classes listed above are final,
+or sealed in the standard library, so no source class extends one and none extends a source class.
+A sealed family's subclasses are read from its file: every template whose `extends` clause names
+the family, an alias leading to it or a renaming selector of it; an anonymous class, a given
+instance or an enum case among them, or a class the index does not hold, refuses that side's
+enumeration — the other side's may still prove the pair apart. A parent clause that names the
+family only in an argument (`type Id[X] = X; case class C() extends Id[S]`, which Scala 3.9.0 makes
+a child of `S`: a match on `S1` alone warns that it misses `C()`) refuses too, unless its head is a
+class of the sources that no alias or renaming spells: such a head cannot be dealiased to the
+family, any other may.
+
 ## Counts
 
 | Signature | Count | Why |
@@ -220,22 +245,34 @@ one class admits one alternative.
 | `def eqAny(x: Any, y: Any): Boolean` | 2 | no equality on `Any`, as on an unbounded `A` |
 | `def loop[A](a: A, f: Any => A, g: A => Any): A` | 2 | `a`, `f(())`; `f` is constant |
 | `trait Codec[A] { def encode(a: A): Any }` (`Schema` foreign) | 1 | rule O |
+| `def out(r: Red, b: Blue): Red \| Blue` (`Red(level: Boolean)`, `Blue()`, final) | 9 | 3 results per value of `r.level` |
+| `def in(u: Red \| Blue): Boolean` | 8 | 3 input values |
+| `def t(p: (Boolean, Boolean)): Green.type \| (Boolean, Boolean)` | 625 | `(1 + 4)^4` |
+| `def pick(): One \| Two` (two case classes) | 2 | single inheritance |
+| `def a(f: Fail): Fail \| Missing` | 4 | `Missing` absorbed: `2^2` |
+| `def a(r: Red): RB \| Green.type` (`type RB = Red \| Blue`) | 16 | the alias's alternatives: `4^2` |
 | `transparent inline def s(b: Boolean): S` (`S1(b: Boolean)` final, `S2` object) | ? | rule X: `S2` is typed `S2.type` at the call site |
 | `transparent inline def one(b: Boolean): 1` | 1 | singleton result: nothing narrower |
 | `transparent inline def mk(b: Boolean): Foo` (`Foo` has a subclass) | ? | rule X |
+| `def oe(x: Option[Boolean]): Option[Boolean] \| Either[Unit, Unit]` | 125 | `5^3` |
 | `case class AnyBox(x: Any)` | 1 | rule K |
 
 ## What stays `?`
 
 | Case | Reason |
 |---|---|
-| alternative with no runtime class (a type parameter, a builtin or top type, a literal) | `union alternatives require an overlap and discrimination proof: A \| Red — A has no runtime class …` |
+| type parameter or alias argument alternative | `union alternatives require an overlap and discrimination proof: A \| Red — A has no runtime class (type parameter or alias argument)` |
 | one class, two alternatives | `… — two alternatives share runtime class Box` |
-| two source declarations | `… — X and Y may overlap (ancestry not read)` |
-| sealed family | `… — sealed family P is not enumerated` |
+| overlap | `… — PQ derives from Q`; `… — a case of Color derives from Q` |
+| open classes | `… — X and Y may overlap (non-final class and open trait)` — defensive: the shape reading refuses an open trait or a plain class first (`abstract type or method-valued representation`), so no count reaches it; `TopTypesUnionSpec.openPair` pins the pair check directly |
+| top-like beside other alternatives | `… — union with top-like alternative AnyRef is not a sum` (boxing makes `Int` an `AnyRef`) |
+| ancestry not resolved | `… — ancestry of P1 not resolved: Mixin` |
+| sealed family with a subclass it does not hold (an enum case of another enum, an anonymous class, a given) | `… — sealed family P has a subclass this reading does not enumerate: …` (an anonymous instance in its file is usually refused first by the family reading: `sealed family has anonymous instances in its file`) |
+| sealed family a parent clause may reach through a parameterised alias | `… — sealed family S may be extended through Id[S], which this reading does not dealias` |
 | opaque alternative outside its scope, unresolved alternative | the alternative's own reason, `union <u>: …` |
-| singleton alternatives | the alternative's own reason |
-| callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md)); an open one keeps the union's own reason |
+| stable-value singleton alternatives | the alternative's own reason (no runtime class without ground equality analysis) |
+| literal alternatives beside a class (`1 \| Int`) | `two alternatives share runtime class …` (a union of literals alone is the set of its constants: [syntax-features.md](syntax-features.md)) |
+| callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md): `TopTypesUnionSpec.callableSum` 27); an open one keeps the union's own reason |
 | transparent result whose declared type is not a singleton | `transparent inline result: …` |
 | self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
 | a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |
@@ -245,7 +282,7 @@ one class admits one alternative.
 
 Not done here: `A <: Any` as a vacuous bound (the bounded-parameter work owns bounds), absorption
 of classes into `AnyRef` / `Matchable` / `AnyVal` (refused instead), wildcards in variant slots as
-`Any` / `Nothing`, intersections, and union aliases spelled infix
+`Any` / `Nothing`, intersections other than `T & Any`, and union aliases spelled infix
 (`Red Or Blue`) or reached through a parameter (`type Id[A] = A` applied to a union reads the union
 as written, which is the same sum).
 

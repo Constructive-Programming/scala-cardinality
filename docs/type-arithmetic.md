@@ -488,15 +488,16 @@ implements these rules.
 
 The current API and representation have important limits:
 
-- `Counter.definitions` gives one row per definition of a source, each read through
+- `Counter.type` counts a single parsed type, through
   [`typeIn`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Counter.scala).
-  A row reads the definition's **solved** value rather than a fresh evaluation of the same syntax,
-  so a recursive definition and a reference to it always agree.
+  `Counter.source` instead sums the contributions of every definition in a source, so it is not a
+  lookup of one chosen ADT, and a definition contributes its **solved** value rather than a fresh
+  evaluation of the same syntax — so a recursive definition and a reference to it always agree.
 - `Counter.sourceSignature` reports the other reading: the declared types of the members of a
-  source's definitions. Every typed field, term and method contributes the size of its declared
-  type, constructor and enum-case parameters included, so a module with two `String => String`
-  methods and one `String` field is `2ε₀ + ω`, while its row reports that the module itself is a
-  single value. Both readings return the same
+  definition (`Counter.defnSignature` for a single definition). Every typed field, term and method
+  contributes the size of its declared type, constructor and enum-case parameters included, so a
+  module with two `String => String` methods and one `String` field is `2ε₀ + ω`, while
+  `Counter.source` reports that the module itself is a single value. Both readings return the same
   `Size`; neither replaces the other.
 - [`Size`](https://github.com/constructive-programming/scala-cardinality/blob/main/core/src/main/scala/cardinality/capacity/Size.scala)
   is `a·ε₀ + b·ω + n`: contributions counted per tier and added componentwise, so
@@ -526,7 +527,7 @@ The current API and representation have important limits:
   top-level definitions, its implicit classes and objects, and the companion objects of its
   top-level types — not its other classes, traits, enums or objects) — and a reference anywhere else
   is refused (`opaque type read outside its scope: p.Ids.Id`), never read as one value. Forward
-  references and recursion within a single compilation unit are resolved: `Counter.definitions` solves
+  references and recursion within a single compilation unit are resolved: `Counter.source` solves
   the definitions as a system of equations by Kleene iteration from the empty type (§8), and
   abstract traits and sealed classes are folded from their concrete subtypes in the same unit.
   Cycles through recognized continuations — holes (`=> X`, `=> Option[X]`, `() => X`), strict
