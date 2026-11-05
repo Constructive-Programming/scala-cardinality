@@ -65,7 +65,9 @@ The stubs keep the guards the summary format was meant to keep:
   Scala 3.9.0 library's own subpackages, from any jar (a stub in `scala.collection.compat` would
   make that namespace partly supplied, so every lookup the model answers would doubt it), and the
   JDK classes the model holds (`java.lang.String`, `java.io.Serializable`, …). The rest of the
-  JDK (`java.*`, `javax.*` of `java.base`) renders like a jar (stub format `cardinality-stubs/4`;
+  JDK (`java.*`, `javax.*`) renders like a jar: `java.base` whole, every other module's packages
+  only where an analyzed source or a rendered stub names them (`java.awt` under
+  `import java.awt.*`; all modules at once would be 4069 stubs against 1668) (stub format `cardinality-stubs/4`;
   the plugin's cache key names the Java version), as does a library's namespace under `scala`
   (`scala.meta`).
 - **The classpath the JVM loads.** A class file on the classpath twice is read from the first

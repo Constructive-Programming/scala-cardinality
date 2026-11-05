@@ -319,9 +319,37 @@ class TastyStubsSpec extends Specification {
     (both.errors must beEmpty)
       .and(both.stubs must_== alone.stubs)
       .and(
-        alone.stubs.map(_._1).filterNot(_.startsWith("tasty/java.base/")) must
+        alone.stubs.map(_._1).filter(_.contains(".jar/")) must
           contain(contain("first.jar/")).forall
       )
+  }
+
+  // A JDK module other than `java.base` renders the packages a source names: under
+  // `import java.sql.*` a `ClientInfoStatus` (java.sql, a Java enum of four constants) is read
+  // through its stub, 2^4 maps to Boolean, and `java.awt.List` (java.desktop) is its rooted
+  // declaration, never `declaration not supplied` (register D37).
+  "a class of a JDK module other than java.base is a supplied declaration" in {
+    val code = """package j
+      |import java.sql.*
+      |def status(s: ClientInfoStatus): Boolean = ???
+      |object A { import java.awt.*; def list(l: List): Boolean = ??? }
+      |""".stripMargin
+    val jdk = TastyStubs.of(Nil, _ => false, Set("java.sql", "java.awt"), List(code))
+    def counts(environment: List[MethodAnalysis.Input]) =
+      MethodAnalysis
+        .analyze(
+          MethodAnalysis.Input("j/J.scala", dialects.Scala3(code).parse[Source].get) :: environment
+        )
+        .map(e => e.name -> e.count)
+        .toMap
+    val through = counts(jdk.inputs)
+    val unsupplied = counts(Nil)
+    (jdk.inputs.map(_.path) must contain("tasty/java.desktop/java/awt/List.scala"))
+      .and(through("j.status") must_== Inhabitation.Count.Finite(16))
+      .and(
+        through("j.A.list").toString must not(contain("declaration not supplied: java.awt.List"))
+      )
+      .and(unsupplied("j.A.list").toString must contain("declaration not supplied: java.awt.List"))
   }
 
   "a TASTy file declares its own package, not the directory a shaded jar moved it to" in {

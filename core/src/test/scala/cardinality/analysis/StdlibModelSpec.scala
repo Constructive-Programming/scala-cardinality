@@ -57,7 +57,7 @@ class StdlibModelSpec extends Specification {
       only fully qualified paths reach the model                    $relativePaths
       an unsupplied wildcard rebinds no model name                  $wildcardRefusal
       a supplied namespace answers instead                          $wildcardSupplied
-      a Java collection wildcard reads List by its rooted name      $javaWildcard
+      a JDK wildcard reads List by its rooted name, supplied or not  $javaWildcard
       listed stdlib namespaces shadow no model name                 $listedNamespaces
       dependency namespaces are listed from their artifacts         $dependencyNamespaces
       a listed namespace's member reads the model                   $namespaceMember
@@ -603,8 +603,13 @@ class StdlibModelSpec extends Specification {
   // `java.util.*` brings `java.util.List`, which outranks `scala.List`: `List` is that rooted name,
   // whose values are the sequences a Scala List holds (ω from an a). `F[List[A]]` there is
   // `F[java.util.List[A]]`, not the Scala one (0), and the rooted spelling is the same type (1).
-  // `java.awt.List` is a component the model does not read: refused by its rooted name.
+  // `java.awt.List` is a component the model does not read: with no declaration of it supplied, it
+  // is refused by its rooted name; with one (a dependency stub of `java.desktop`), it is read as
+  // that declaration, like any supplied class — a final class of one Boolean field: 2 values, so
+  // 2^2 maps to Boolean.
   def javaWildcard = {
+    val awt = "package java.awt\nfinal class List(val multiple: Boolean)"
+    val use = "import java.awt.*\nobject A { def l(a: List): Boolean = ??? }"
     val code = """import java.util.*
       |object W {
       |  def l[A](a: A): List[A] = ???
@@ -619,6 +624,11 @@ class StdlibModelSpec extends Specification {
           count("import java.awt.*\nobject A { def l[A](a: A): List[A] = ??? }", "A.l"),
           "java.awt.List"
         )
+      )
+      .and(
+        countIn("Use.scala" -> use, "tasty/java.desktop/java/awt/List.scala" -> awt)(
+          "A.l"
+        ) === Count.Finite(4)
       )
   }
 

@@ -28,79 +28,139 @@ object TastyStubs {
 
   final case class Result(inputs: List[MethodAnalysis.Input], errors: List[String])
 
-  /** The JDK's own classes, which the compiled signatures refer to (`java.lang.Object`, …). */
-  private def jdk: Path =
-    FileSystems.getFileSystem(URI.create("jrt:/")).getPath("modules", "java.base")
+  /** The JDK's own classes, which the compiled signatures refer to (`java.lang.Object`, …): every
+    * module of the running JDK, `java.base` first. `java.base` renders whole; another module
+    * (`java.desktop`'s `java.awt`, `java.sql`, …) renders only the packages a rendered stub or an
+    * analyzed source names (`referenced`): rendering every module costs about 2.4 times the stubs
+    * (4069 against 1668, 7 s) and the memory of all of them in every analysis.
+    */
+  private def jdk: List[Path] = {
+    val modules = FileSystems.getFileSystem(URI.create("jrt:/")).getPath("modules")
+    val all = Files.list(modules).toArray.toList.collect { case p: Path => p }
+    all.sortBy(p => (p.getFileName.toString != Base, p.getFileName.toString))
+  }
+
+  private val Base = "java.base"
+
+  // A rooted JDK package a text names: `java.awt` in `java.awt.List` or `import java.awt.*`.
+  private val JdkReference = """\b(?:java|javax)(?:\.[a-z_][a-z0-9_]*)+""".r
+
+  /** The `java.*` and `javax.*` packages some text names, with every prefix: the JDK packages an
+    * analyzed source may reach.
+    */
+  def referenced(texts: Iterable[String]): Set[String] =
+    texts.iterator
+      .flatMap(JdkReference.findAllIn)
+      .flatMap(name => name.split('.').inits.filter(_.size > 1).map(_.mkString(".")))
+      .toSet
 
   /** Renders the jars `classpath` lists that `rendered` selects (their classes in the `packages`
     * selected); the whole classpath (the selected jars' own dependencies and the Scala library)
-    * resolves their signatures.
+    * resolves their signatures. `sources` are the analyzed sources' texts, whose JDK references
+    * render beside `java.base`.
     */
   def of(
       classpath: List[Path],
       rendered: Path => Boolean,
-      packages: String => Boolean = _ => true
-  ): Result = parse(render(classpath, rendered, packages))
+      packages: String => Boolean = _ => true,
+      sources: Iterable[String] = Nil
+  ): Result = parse(render(classpath, rendered, packages, referenced(sources), withBase = true))
 
   /** Stub sources as text, by path: what `parse` reads and `StubFile` stores. */
   final case class Rendered(stubs: List[(String, String)], errors: List[String] = Nil)
 
   /** Renders the jars `selected` picks as `of` does, without parsing. */
   def render(classpath: List[Path], selected: Path => Boolean): Rendered =
-    render(classpath, selected, _ => true)
+    render(classpath, selected, _ => true, Set.empty, withBase = true)
+
+  /** The JDK packages outside `java.base` that `sources` name and `present` stubs do not declare,
+    * rendered: what a stub file rendered without the sources adds for them.
+    */
+  def jdkFor(sources: Iterable[String], present: List[MethodAnalysis.Input]): Result = {
+    val declared = present.map(_.path.split('/').drop(2).dropRight(1).mkString(".")).toSet
+    val wanted = referenced(sources) -- declared
+    if (wanted.isEmpty) Result(Nil, Nil)
+    else parse(render(Nil, _ => false, _ => true, wanted, withBase = false))
+  }
 
   private def render(
       classpath: List[Path],
       selected: Path => Boolean,
-      packages: String => Boolean
+      packages: String => Boolean,
+      named: Set[String],
+      withBase: Boolean
   ): Rendered = {
     // One read per jar: a jar with no classes has no entry, so entries cannot be zipped back.
-    val jdkEntries = ClasspathLoaders.read(List(jdk))
+    val modules = jdk.map(module => module -> ClasspathLoaders.read(List(module)))
+    val jdkEntries = modules.flatMap(_._2)
     val read = classpath.map(jar => jar -> ClasspathLoaders.read(List(readable(jar))))
     val visible = firstLoaded(jdkEntries ++ read.flatMap(_._2)).drop(jdkEntries.size).iterator
     val perJar = read.map((jar, es) => jar -> es.map(_ => visible.next()))
     given Context = Context.initialize(perJar.flatMap(_._2) ++ jdkEntries)
-    // The JDK is on every classpath: its `java.*` and `javax.*` classes render like a jar's.
-    val chosen = ((jdk -> jdkEntries) :: perJar.filter((jar, _) => selected(jar)))
-      .flatMap((jar, es) => es.map(jar -> _))
-    val declarations = StubDeclarations(javaClassfiles(chosen.map(_._2)))
+    val inJdk = modules.map(_._1).toSet
+    val (base, others) = modules.partition(_._1.getFileName.toString == Base)
+    // The packages of the other modules, by name: each renders once some text names it.
+    val elsewhere = others
+      .flatMap((module, es) => es.map(module -> _))
+      .flatMap((module, entry) =>
+        entry.listAllPackages().map(p => p.dotSeparatedName -> (module, entry))
+      )
+      .groupMap(_._1)(_._2)
+    // The JDK is on every classpath: `java.base` renders like a jar, the rest where it is named.
+    val first = (if (withBase) base else Nil) ++ perJar.filter((jar, _) => selected(jar))
+    val all = first.flatMap((jar, es) => es.map(jar -> _)) ++ elsewhere.values.flatten
+    val declarations = StubDeclarations(javaClassfiles(all.map(_._2)))
     // Each class is looked up on its own, as tasty-query's own lookup by entry does it, so a class
     // it cannot load (a shaded jar's missing inner class, the JDK's runtime-generated
     // `DirectMethodHandle$Holder`) costs that class alone, said once per entry.
-    val loaded = chosen.map((jar, entry) => (jar, symbolsOf(entry)))
-    val stubs =
-      loaded.flatMap {
-        case (jar, (symbols, _)) =>
-          val classes = symbols.collect {
-            case c: ClassSymbol
-                if (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
-                  !stdlibOwned(packageOf(c), Spell.objectName(c)) && packages(packageOf(c)) &&
-                  (jar != jdk || jdkPackage(packageOf(c))) =>
-              c
-          }
-          classes
-            .groupBy(c => (packageOf(c), sourceOf(c)))
-            .toList
-            .sortBy(_._1)
-            .map {
-              case ((pkg, source), cs) =>
-                val body = cs.sortBy(_.name.toString).flatMap { c =>
-                  try declarations.topLevel(c)
-                  catch { case NonFatal(e) => List(s"// not rendered: ${c.name}: ${e.getMessage}") }
-                }
-                val header = if (pkg.isEmpty) "" else s"package $pkg\n\n"
-                (s"$Prefix${jar.getFileName}/$source", header + body.mkString("\n\n") + "\n")
+    def pass(entries: List[(Path, ClasspathEntry)], keep: String => Boolean) = {
+      val loaded = entries.map((jar, entry) => (jar, symbolsOf(entry, keep)))
+      val stubs =
+        loaded.flatMap {
+          case (jar, (symbols, _)) =>
+            val classes = symbols.collect {
+              case c: ClassSymbol
+                  if (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
+                    !stdlibOwned(packageOf(c), Spell.objectName(c)) && packages(packageOf(c)) &&
+                    (!inJdk(jar) || jdkPackage(packageOf(c))) =>
+                c
             }
-      }
-    Rendered(
-      stubs,
+            classes
+              .groupBy(c => (packageOf(c), sourceOf(c)))
+              .toList
+              .sortBy(_._1)
+              .map {
+                case ((pkg, source), cs) =>
+                  val body = cs.sortBy(_.name.toString).flatMap { c =>
+                    try declarations.topLevel(c)
+                    catch {
+                      case NonFatal(e) => List(s"// not rendered: ${c.name}: ${e.getMessage}")
+                    }
+                  }
+                  val header = if (pkg.isEmpty) "" else s"package $pkg\n\n"
+                  (s"$Prefix${jar.getFileName}/$source", header + body.mkString("\n\n") + "\n")
+              }
+        }
       // The JDK's own failures are its runtime-generated classes (`DirectMethodHandle$Holder`),
       // never API: not worth a warning on every report.
-      loaded.collect {
-        case (jar, (_, failed @ first :: _)) if jar != jdk =>
+      val errors = loaded.collect {
+        case (jar, (_, failed @ first :: _)) if !inJdk(jar) =>
           s"${jar.getFileName}: ${failed.size} classes not read; the first: $first"
       }
-    )
+      (stubs, errors)
+    }
+    // Until no rendered stub names a package of another module not rendered yet.
+    @scala.annotation.tailrec
+    def closure(stubs: List[(String, String)], done: Set[String]): List[(String, String)] = {
+      val wanted = (named ++ referenced(stubs.map(_._2))).filter(elsewhere.contains) -- done
+      if (wanted.isEmpty) stubs
+      else {
+        val entries = wanted.toList.flatMap(elsewhere).distinct
+        closure(stubs ++ pass(entries, wanted)._1, done ++ wanted)
+      }
+    }
+    val (stubs, errors) = pass(first.flatMap((jar, es) => es.map(jar -> _)), _ => true)
+    Rendered(closure(stubs, Set.empty), errors)
   }
 
   /** The classpath as the JVM loads it: each class file (a package and binary name) is read from
@@ -136,8 +196,10 @@ object TastyStubs {
   }
 
   /** An entry's top-level symbols, and why each class that does not load fails. */
-  private def symbolsOf(entry: ClasspathEntry)(using Context): (List[Symbol], List[String]) = {
-    val found = entry.listAllPackages().flatMap { p =>
+  private def symbolsOf(entry: ClasspathEntry, keep: String => Boolean)(using
+      Context
+  ): (List[Symbol], List[String]) = {
+    val found = entry.listAllPackages().filter(p => keep(p.dotSeparatedName)).flatMap { p =>
       val pkg = ctx.findPackageFromRoot(
         if (p.dotSeparatedName.isEmpty) PackageFullName.emptyPackageName
         else PackageFullName(p.dotSeparatedName.split('.').toList.map(termName(_)))

@@ -67,7 +67,7 @@ object EoCheckout {
     val dependencies =
       if (classpath.isEmpty) Nil
       else {
-        val stubs = TastyStubs.of(classpath, _ => true)
+        val stubs = TastyStubs.of(classpath, _ => true, sources = inputs.map(_.tree.syntax))
         // An unparseable stub is left out: its names stay unsupplied, which only refuses more.
         stubs.errors.foreach(e => println(s"stub not parsed: $e"))
         stubs.inputs

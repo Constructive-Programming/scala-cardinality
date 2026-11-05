@@ -151,7 +151,8 @@ object Report {
           QueryResult(Report(Nil, errors), Some(snapshot.digest), None)
         else {
           val selected = targetRoots.flatMap(snapshot.roots)
-          val stubs = dependencies(request.classpath, request.stubs)
+          val stubs =
+            dependencies(request.classpath, request.stubs, snapshot.sources.map(_.text))
           val found = AnalysisQuery.run(
             AnalysisQuery.Request(
               parsed.collect { case Right(input) => input } ++ stubs.inputs,
@@ -236,7 +237,8 @@ object Report {
       case (_, Right(sources)) => sources.map(parse)
     }
     val inputs = parsed.collect { case Right(input) => input }
-    val environment = dependencies(classpath, stubs)
+    val texts = found.flatMap(_._2.toOption).flatten.map(_._2)
+    val environment = dependencies(classpath, stubs, texts)
     // One library for the whole run: every source is read against the others, so a reference can
     // leave its file.
     val library = Library.of((inputs ++ environment.inputs).map(_.tree))
@@ -259,13 +261,23 @@ object Report {
   // The dependency stubs `classpath` renders. Every jar and the JDK are rendered, except what the
   // stdlib model reads, so the Scala library alone yields only the JDK's. A classpath that cannot be
   // read is a warning: its names stay unsupplied, which only refuses more.
-  private def dependencies(classpath: Seq[Path], stubs: Option[Path]): TastyStubs.Result =
-    stubs.fold(rendered(classpath))(file => TastyStubs.parse(StubFile.read(file)))
+  // A stub file is rendered without the sources: the JDK packages outside `java.base` they name
+  // render beside it.
+  private def dependencies(
+      classpath: Seq[Path],
+      stubs: Option[Path],
+      sources: List[String]
+  ): TastyStubs.Result =
+    stubs.fold(rendered(classpath, sources)) { file =>
+      val read = TastyStubs.parse(StubFile.read(file))
+      val named = TastyStubs.jdkFor(sources, read.inputs)
+      TastyStubs.Result(read.inputs ++ named.inputs, read.errors ++ named.errors)
+    }
 
-  private def rendered(classpath: Seq[Path]): TastyStubs.Result =
+  private def rendered(classpath: Seq[Path], sources: List[String]): TastyStubs.Result =
     if (classpath.isEmpty) TastyStubs.Result(Nil, Nil)
     else
-      try TastyStubs.of(classpath.toList.distinct, _ => true)
+      try TastyStubs.of(classpath.toList.distinct, _ => true, sources = sources)
       catch {
         case scala.util.control.NonFatal(error) =>
           TastyStubs.Result(Nil, List(s"dependency classpath not read: $error"))

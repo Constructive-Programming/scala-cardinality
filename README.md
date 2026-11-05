@@ -282,7 +282,9 @@ files: each Scala 3, Scala 2 and Java class of a dependency joins the environmen
 bodies, and nothing is rendered that the stdlib model reads: `scala` and the Scala library's own
 subpackages (`scala.collection`, `scala.util`, …), and the JDK classes the model holds
 (`java.lang.String`, `java.util.List`, `java.io.Serializable`, …). The rest of the JDK's `java.*`
-and `javax.*` classes render like a dependency's, and a library's own namespace under `scala`
+and `javax.*` classes render like a dependency's (`java.base` whole, another module's packages,
+such as `java.awt`, where a source or a stub names them, so `import java.awt.*` makes `List` the
+rendered `java.awt.List`), and a library's own namespace under `scala`
 (`scala.meta`) is a dependency's too. When one class file is on
 the classpath twice, the first copy the JVM would load is read; a shaded copy (TASTy that still
 declares its original package) is not read at all. A Java enum is its constants and a Java interface the record of its methods; a Java

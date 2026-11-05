@@ -172,8 +172,10 @@ another declaration (47 in 21 packages: `java.util` `List`, `Map`, `Set`, `Itera
 `Enumeration`; `java.lang` its boxed scalars, `Iterable`, `StringBuilder`; `scala.collection` and
 `mutable` `Seq`, `IndexedSeq`, `Map`, `Set`, `Iterable`; `java.awt.List`, `java.sql.Array`, …).
 `import java.util.*` makes `List` mean `java.util.List`, which the model reads as a sequence under
-its own name; a rooted name the model does not read stays `?` as itself (`declaration not
-supplied: java.awt.List (wildcard import)`). A step the reading cannot follow (`… not resolved`)
+its own name; a rooted name the model does not read is its rooted declaration, read like any
+supplied class through the dependency stubs (`java.awt.List` from `java.desktop`'s rendered
+stubs), and `declaration not supplied: java.awt.List (wildcard import)` only when no stub
+declares it. A step the reading cannot follow (`… not resolved`)
 rebinds nothing. A relative
 spelling through a root import (`util.Either`, `Predef.String`) is the builtin too: no top-level
 package outside the sources is assumed to outrank it.

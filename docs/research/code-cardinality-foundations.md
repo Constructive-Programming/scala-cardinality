@@ -1903,7 +1903,9 @@ imports bind to another declaration (generated from `jimage list` and the jars' 
 `import java.util.*` makes `List` mean `java.util.List`, and a wildcard into a library package
 binds no other root name — on both sides. A rooted name whose values are a modelled type's counts
 as that type under its own identity (`StdlibModel`'s equivalent entries: the Java and mutable
-collections, the boxes, `Optional`); one the model does not read is refused by name
+collections, the boxes, `Optional`); one the model does not read is its rooted declaration, read
+like any supplied class through the dependency stubs, which render every JDK module's packages a
+source or stub names; only a declaration no stub supplies is refused by name
 (`declaration not supplied: java.awt.List`). The stored-value estimate still refuses a name an
 unsupplied non-library wildcard may bind (`unresolved type: Int (may be imported by zz.*)`): its
 namespace reading answers `Absent` both for a package no source supplies and for a supplied enum
@@ -1912,13 +1914,15 @@ an enum case `Boolean` was meant (`StoredScopesSpec.enumTerms`). A channel's rea
 implicit conversion a body may meet, a source name — is unchanged.
 
 **Evidence.** **Executable**: `StdlibModelSpec.wildcardRefusal`, `.relativePaths`,
-`.wildcardParent`, `.selfReachingParent`, `.javaWildcard` (still refused), `.listedHead`;
+`.wildcardParent`, `.selfReachingParent`, `.javaWildcard`, `.listedHead`;
 `GroundEnvironmentSpec.wildcard`, `.foreignWildcard`, `.nestedParentName`;
 `UnsuppliedWildcardSpec.doubtedBuiltins`, `.singletonMarker`; `TopTypesUnionSpec.foreignSelf`,
 `.packageObject`, `.chainedPackage`; `BinderBoundsSpec.rebindableTops`;
 `HigherKindedRefusalSpec.boxedNames` (java.lang's boxed names read by their rooted names: their
 scalars' counts, their own keys), `StdlibModelSpec.javaWildcard` (`java.util.List` a sequence,
-`java.awt.List` refused), `.finalUnmodelled` (`Integer`, `Optional`),
+`java.awt.List` refused unsupplied, 4 through a supplied declaration),
+`TastyStubsSpec` (a `java.sql` enum 16 and `java.awt.List` resolved through rendered JDK-module
+stubs), `.finalUnmodelled` (`Integer`, `Optional`),
 `NamespaceScopingSpec.unsuppliedWildcard` (the stored side under `scala.collection.mutable.*`); the Shadowed-builtin-names group of `GroundEnvironmentSpec` (declarations still shadow).
 Scala 3.9.0 fixtures r5, r8 and review-A7q/sc show a rebinding the assumption sets aside.
 
