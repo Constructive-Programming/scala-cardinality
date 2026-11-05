@@ -17,6 +17,7 @@ class OpaqueTypeScopeSpec extends Specification {
       resolve top-level definitions in the same source           $topLevelScope
       resolve the named top-level companion scope                $companionScope
       count the six Direct-like wrapper signatures               $directLikeSignatures
+      read an opaque type outside its scope as one value         $oneValue
       keep unrelated same-file objects opaque                   $unrelatedObject
       keep same-package definitions in other files opaque        $otherFile
       keep public aliases from leaking representations           $exportedAlias
@@ -41,11 +42,9 @@ class OpaqueTypeScopeSpec extends Specification {
   private def count(name: String, files: (String, String)*): Count =
     MethodAnalysis.analyze(inputs(files*)).find(_.name == name).get.count
 
-  private def hidden(value: Count) =
-    value must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("opaque representation is not visible")) must beTrue
-    }
+  // Outside its scope an opaque type is one value (rule F): its representation stays hidden, so
+  // nothing yields an `A` from it.
+  private def hidden(value: Count) = value === Count.Finite(0)
 
   def objectScope =
     count(
@@ -91,6 +90,17 @@ class OpaqueTypeScopeSpec extends Specification {
     )
     val methods = MethodAnalysis.analyze(source)
     (methods.size === 6).and(methods.map(_.count) === List.fill(6)(Count.Finite(1)))
+  }
+
+  // Outside `Ids`, `Id` is one value (rule F): `f` has 1 implementation (the two arguments are the
+  // same value), `g` 2^1 = 2, and `make` 1 though nothing outside builds an `Id`.
+  def oneValue = {
+    val code = "object Ids { opaque type Id = Int }\n" +
+      "object Op { def f(a: Ids.Id, b: Ids.Id): Ids.Id = a; def g(a: Ids.Id): Boolean = true; " +
+      "def make(i: Int): Ids.Id = ??? }"
+    (count("Op.f", "Op.scala" -> code) === Count.Finite(1))
+      .and(count("Op.g", "Op.scala" -> code) === Count.Finite(2))
+      .and(count("Op.make", "Op.scala" -> code) === Count.Finite(1))
   }
 
   def unrelatedObject =

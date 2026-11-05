@@ -202,8 +202,9 @@ private[capacity] object Inheritance {
   }
 
   // A type the parent's body declares under the name, read there: an abstract one is the
-  // template's own to choose; an opaque one is hidden outside its body; under type arguments, it
-  // is not read. Else an export of the body may define it, or its own parents pass it on.
+  // template's own to choose; an opaque one is hidden outside its body, where a reference reads
+  // it as one value (`Counter`), under type arguments too; any other is not read under them. Else
+  // an export of the body may define it, or its own parents pass it on.
   private def declaredType(members: Members, lookup: Lookup): Found[Binding] = {
     val name = lookup.name.value
     inherited(members).collectFirst(
@@ -211,7 +212,7 @@ private[capacity] object Inheritance {
     ) match {
       case Some(_: Decl.Type) => Found.Bound(Binding.Clause(Definition.Unbound.Member(name)))
       case Some(alias: Defn.Type) if Counter.isOpaqueAlias(alias) =>
-        Found.Bound(Binding.Clause(OpaqueScopes.outside(alias)))
+        Found.Bound(Binding.Elsewhere(members.inside, lookup.name))
       case Some(_) if members.params.nonEmpty =>
         Found.Bound(Binding.Clause(underArguments(lookup, members)))
       case Some(_) => Found.Bound(Binding.Elsewhere(members.inside, lookup.name))

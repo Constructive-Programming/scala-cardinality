@@ -66,6 +66,20 @@ not declare, unsafe casts and reflection. None of them is counted. The members o
 `Equals` (`productElement`, `canEqual`, …) are reflection and equality tests, so a trait extending
 `Product with Serializable` counts as one without those parents.
 
+Two conventions complete the model:
+
+- **Public constructors build the receiver.** The values a class's fields hold are what its public
+  constructors build: the largest space any one of them builds. A constructor counts where the
+  measured code may call it (a `private[pkg]` one inside `pkg`, a `private` one inside its class or
+  companion) and is ignored elsewhere. A class that is itself non-public (`private[pkg]`, nested in a private
+  object, local to a block) has no use site outside its scope, so its constructors count as
+  public. A class with no public constructor at all, built only by a factory such as
+  `NonEmpty.of`, stays `?` with `receiver has no public constructor`.
+- **An opaque type outside its scope is one value.** Where its representation is hidden, an
+  opaque type counts `1`, for data types and for methods alike: `final case class U(id: Ids.Id)`
+  is `1`, and `def f(a: Ids.Id, b: Ids.Id): Ids.Id` has one implementation. Inside its scope the
+  representation is read.
+
 The calculator does not check that a body actually obeys this assumption. A result describes
 the pure, total implementations of a signature and the values of a type. The full statement is
 the counting contract in [docs/plans/v1.md §2](docs/plans/v1.md). [AGENTS.md](AGENTS.md)
@@ -196,7 +210,7 @@ it, diff it, or post it as an artifact.
 ```
 scala-cardinality — 1 source, 10 definitions
   stored-value estimates: constructor inputs only; finite capacities are upper bounds
-  ?: unresolved, not a proof of infinity; opaque representations are not singletons
+  ?: unresolved, not a proof of infinity
   2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
@@ -344,8 +358,8 @@ Expansion uses the alias's declaration scope, retains receiver substitutions acr
 method binders, lets a nearer declaration or import shadow a farther binder, keeps a qualified
 selection distinct from a same-spelled method formal, and never equates distinct nominal types
 merely because their shapes agree. Closed, qualified, chained, and tuple aliases are supported.
-Recursive or opaque aliases, abstract type members, bounded or higher-kinded alias parameters, and
-type-lambda aliases remain guarded; expansion respects the configured type-depth limit, including
+Recursive aliases, abstract type members, bounded or higher-kinded alias parameters, and
+type-lambda aliases remain guarded, and an opaque alias outside its scope is one value; expansion respects the configured type-depth limit, including
 nested argument positions.
 
 The refreshed eo-core 0.16.0 run reads **480 signatures: 32 finite, 4 countably infinite,

@@ -141,7 +141,7 @@ object MethodAnalysis {
 
     val operators = new TypeOperators(resolve(_, _), constructorKinds.of(_, _))
     val boundedBinders: Map[String, (Frame, Type.Param)] = indexer.boundedBinders.toMap
-    private val representations = new Representations(indexer, accessible, packageGrant, this)
+    private val representations = new Representations(indexer, packageGrant, this)
     private lazy val records = new CapabilityRecords(this, new OverrideIdentity(this))
 
     def analyze(): List[Entry] = indexer.targets.toList.map(measure)
@@ -415,7 +415,14 @@ object MethodAnalysis {
     def accessible(tree: Tree, owner: Frame, from: Frame): Boolean = {
       inspect("accessibility")
       tree match {
-        case d: Stat.WithMods if d.mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected]) =>
+        case d: Stat.WithMods => reaches(d.mods, owner, from)
+        case _                => true
+      }
+    }
+
+    def reaches(mods: List[Mod], owner: Frame, from: Frame): Boolean =
+      mods match {
+        case _ if mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected]) =>
           // A `private[p]` naming an enclosing package publishes the declaration to every
           // scope inside `p`, subpackages included — a sibling file of that package reaches it
           // as its own file does. Any other qualifier (a class, `this`, `super`), a
@@ -423,12 +430,11 @@ object MethodAnalysis {
           // unqualified top-level `private`, which in Scala 3 means the enclosing file, keep
           // the enclosing-declaration rule: a reference they cannot reach stays a diagnostic
           // instead of becoming invented scope.
-          packageGrant(d.mods, owner.path)
+          packageGrant(mods, owner.path)
             .exists(prefix => from.chain.exists(_.path.startsWith(prefix))) ||
           from.chain.exists(_.id == owner.id)
         case _ => true
       }
-    }
 
     // The package a `private[p]` qualifier names, as a path prefix: the innermost segment of
     // the declaration's lexical chain that the qualifier spells and that some supplied package
@@ -493,7 +499,7 @@ object MethodAnalysis {
 
     // A source type resolves through its own declaration: an alias body, a case class's fields, or
     // a representation the model cannot read, under its declaring scope's binders. Its identity
-    // guards against a resolution cycle.
+    // guards against a resolution cycle. An opaque type outside its scope is one value.
     private def sourceType(
         name: String,
         arguments: Arguments,
@@ -503,33 +509,35 @@ object MethodAnalysis {
     ): Resolved = {
       val key = entry.key
       val args = arguments.shapes
-      OpaqueTypes.readable(context, entry).flatMap { _ =>
-        entry.tree match {
-          case alias: Defn.Type if TypeApplications.lambda(alias.body).nonEmpty =>
-            if (alias.tparamClause.values.isEmpty)
-              TypeApplications
-                .lambda(alias.body)
-                .get
-                .flatMap(
-                  MethodTypeLambdas(
-                    _,
-                    args,
-                    context.inScope(entry.owner, scope).enter(key),
-                    this
+      if (OpaqueTypes.hidden(entry, context.useSite)) Right(OpaqueTypes.single)
+      else
+        OpaqueTypes.readable(context, entry).flatMap { _ =>
+          entry.tree match {
+            case alias: Defn.Type if TypeApplications.lambda(alias.body).nonEmpty =>
+              if (alias.tparamClause.values.isEmpty)
+                TypeApplications
+                  .lambda(alias.body)
+                  .get
+                  .flatMap(
+                    MethodTypeLambdas(
+                      _,
+                      args,
+                      context.inScope(entry.owner, scope).enter(key),
+                      this
+                    )
                   )
+              else Left(s"type constructor used as a proper type: $name")
+            case tree if CapabilityRecords.applies(tree) =>
+              records.resolve(name, entry, arguments, context.inScope(entry.owner, scope))
+            case _ =>
+              val (parameters, bodies) = representations.of(entry, key, context.useSite)
+              bodies.flatMap(cases =>
+                parameterized(
+                  Applied(name, arguments, parameters, cases, entry, context, key, scope)
                 )
-            else Left(s"type constructor used as a proper type: $name")
-          case tree if CapabilityRecords.applies(tree) =>
-            records.resolve(name, entry, arguments, context.inScope(entry.owner, scope))
-          case _ =>
-            val (parameters, bodies) = representations.of(entry, key, context.useSite)
-            bodies.flatMap(cases =>
-              parameterized(
-                Applied(name, arguments, parameters, cases, entry, context, key, scope)
               )
-            )
+          }
         }
-      }
     }
 
     // One application of a source type: what it is applied to, and what its declaration says it

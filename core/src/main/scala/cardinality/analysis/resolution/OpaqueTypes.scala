@@ -3,20 +3,24 @@ package cardinality.analysis.resolution
 import scala.meta.{Defn, Mod, XtensionClassifiable}
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
+import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext}
 import cardinality.types.Trees
 
-/** Representation access follows the use site, never the scope of an exported transparent alias. */
+/** Representation access follows the use site, never the scope of an exported transparent alias.
+  * Outside its scope an opaque type counts one value (v1.md §2, opaque types): its representation
+  * is hidden, and the model reads it as `Unit` there.
+  */
 private[cardinality] object OpaqueTypes {
 
+  /** The one value an opaque type has where its representation is hidden. */
+  val single: Shape = Shape.Product(Nil)
+
   /** Whether the source declaration `entry` can be read from `context`: not one this reading is
-    * already inside (a cycle is not read), and not an opaque type hidden from the use site.
+    * already inside (a cycle is not read).
     */
   def readable(context: ResolutionContext, entry: TypeEntry): Either[String, Unit] =
-    if (context.visiting(entry.key))
-      Left(s"recursive type not read: ${entry.key}")
-    else if (hidden(entry, context.useSite))
-      Left(s"opaque representation is not visible at use site: ${entry.key}")
+    if (context.visiting(entry.key)) Left(s"recursive type not read: ${entry.key}")
     else Right(())
 
   def hidden(entry: TypeEntry, from: Frame): Boolean = entry.tree match {

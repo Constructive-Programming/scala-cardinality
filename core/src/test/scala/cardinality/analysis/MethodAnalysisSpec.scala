@@ -564,7 +564,8 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
     )
     val context = entry("def choose[A: Ordering](x: A, y: A): A = x", "choose")
     val capability = entry("def choose[A](x: A)(using ev: Unknown[A]): A = x", "choose")
-    (representation.count must beLike { case Count.Unresolved(_) => ok })
+    // Outside `Hidden`, `Id[A]` is one value (rule F): no `A` to return.
+    (representation.count === Count.Finite(0))
       .and(context.count must beLike { case Count.Unresolved(_) => ok })
       .and(capability.count must beLike { case Count.Unresolved(_) => ok })
   }

@@ -226,9 +226,10 @@ class HigherKindedBindingSpec extends Specification {
       "O.inside"
     ) === Count.Finite(1)
 
-  // Outside O the opaque type is not A, yet O's API relates them (`O.inside(x)` is an F[A]; exact
-  // count 1): a key that treats `O.W[A]` as unrelated would say 0. Before: 0. The monomorphic and
-  // given forms of the same API are refused alike.
+  // Outside O the opaque type is not A: its key is its own declaration's, as a class's is, and as a
+  // value it is one value (rule F). O's API is no member of the environment (a qualified member of
+  // another object is not, opaque or not), so nothing yields an F[A]: 0. The monomorphic and given
+  // forms of the same API read alike.
   def opaqueOutside = {
     val counts = entries("""
       object O { opaque type W[A] = A; def inside[F[_], A](x: F[W[A]]): F[A] = x }
@@ -240,12 +241,9 @@ class HigherKindedBindingSpec extends Specification {
       object G { opaque type U[A] = A; given flat[F[_], A]: (F[U[A]] =:= F[A]) = ??? }
       object H { def outside[F[_], A](x: F[G.U[A]]): F[A] = G.flat[F, A](x) }
     """)
-    def hidden(name: String, key: String) =
-      counts(name) must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons must contain(s"opaque representation is not visible at use site: $key")
-      }
-    hidden("T.outside", "O.W").and(hidden("Ctx.outside", "Ctx.M.V")).and(hidden("H.outside", "G.U"))
+    (counts("T.outside") === Count.Finite(0))
+      .and(counts("Ctx.outside") === Count.Finite(0))
+      .and(counts("H.outside") === Count.Finite(0))
   }
 
   def unionKey =
@@ -415,7 +413,8 @@ class HigherKindedBindingSpec extends Specification {
 
   // Scala 3.9.0 compiles `object MF`, the companion of the top-level alias `MF`, into the file's
   // package object, where the opaque `MFK` is `(X, F[A])`: `(x, fa)` and `m._1`. An object that
-  // accompanies no top-level type does not see it (E007 on `NotAlias.plain`).
+  // accompanies no top-level type does not see it (E007 on `NotAlias.plain`): there `MFK` is one
+  // value (rule F).
   def aliasCompanion = {
     val counts = entries("""
       opaque type MFK[F[_], X, A] = (X, F[A])
@@ -428,10 +427,7 @@ class HigherKindedBindingSpec extends Specification {
     """)
     (counts("MF.plain") === Count.Finite(1))
       .and(counts("MF.back") === Count.Finite(1))
-      .and(counts("NotAlias.plain") must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons must contain("opaque representation is not visible at use site: MFK")
-      })
+      .and(counts("NotAlias.plain") === Count.Finite(1))
   }
 
   // R4 -----------------------------------------------------------------------------------------

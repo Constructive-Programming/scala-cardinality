@@ -526,7 +526,7 @@ The current API and representation have important limits:
   declares it, or, for a top-level one, inside its file's synthetic package object (the block's
   top-level definitions, its implicit classes and objects, and the companion objects of its
   top-level types — not its other classes, traits, enums or objects) — and a reference anywhere else
-  is refused (`opaque type read outside its scope: p.Ids.Id`), never read as one value. Forward
+  is one value (v1.md §2, opaque types): `U(id: p.Ids.Id)` is 1. Forward
   references and recursion within a single compilation unit are resolved: `Counter.source` solves
   the definitions as a system of equations by Kleene iteration from the empty type (§8), and
   abstract traits and sealed classes are folded from their concrete subtypes in the same unit.

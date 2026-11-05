@@ -25,12 +25,12 @@ representation independence (Mitchell & Plotkin 1988): how a helper computes is 
 through readable types. For ground goals it is ground-scalar-types' Lemma O: a closed helper over
 transparent values is one of the functions the literal-built branches already enumerate.
 
-**Readability is the premise.** The rule never speaks where a concrete producer could matter: an
-opaque type outside its scope (`opaque representation is not visible at use site`), a class whose
-constructor is not public (inside it, `receiver fields constrained by a non-public constructor`;
-outside, its representation is not read), a callable whose transparent result the solver does not
-eliminate (`Elimination of an opaque … callable … is unsupported`), a name outside the sources
-(`declaration not supplied`) all stay `?` on their own.
+**Readability is the premise.** The rule never speaks where a concrete producer could matter: a
+class no public constructor builds (`receiver has no public constructor`), a callable whose
+transparent result the solver does not eliminate (`Elimination of an opaque … callable … is
+unsupported`), a name outside the sources (`declaration not supplied`) all stay `?` on their own.
+An opaque type outside its scope is one value, and a non-public class is built by its
+constructors as a public one (v1.md §2, modelling conventions; register D35).
 
 **Not covered: overridable members.** Cross-check X5 (fixture `ow`): a concrete member of an open
 class may be overridden in the same file, so it is a capability, not fixed code
@@ -173,8 +173,9 @@ fixtures, but without compiler metadata it is not syntax) and is not done.
 - `Optional`'s `Fused` leaf with a free `M0` (`sealed subtype Fused binds M0 to no slot of
   Optional`): the environment memo reads it as an existential summand, but no eo count can move
   (the summand's existential sits in result positions, which stay `?`), so the sound refusal stays.
-- `Slice`'s constructor visibility (`sealed subtype constructor not visible at use site: Slice`):
-  the refusal is exact; the polarity refinement frees no eo row (the fields are hidden too).
+- `Slice`'s `private[data]` constructor: callable inside `data`, where its fields are read; elsewhere
+  no constructor builds it (rule B, `receiver has no public constructor: …Slice`); the polarity
+  refinement frees no eo row (the fields are hidden too).
 - A package-level export of another file is not followed (a builtin it may rebind is refused).
 - Exported or imported term names that may hide a local capture, inherited members a parent outside
   the sources may declare under its name, the names an ancestor's export clauses define, and the

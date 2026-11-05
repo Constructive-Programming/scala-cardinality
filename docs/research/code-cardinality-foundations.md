@@ -508,7 +508,7 @@ its inhabitation is a fixpoint question; bounds referring back through bounds al
 bounds, are invalid programs, refused whether or not the binder is read and whatever the result
 (D12's one-valued goal presumes a program). A top or `Nothing` bound is a no-op only past every
 channel that may rebind the name (D12). An opaque type outside its
-scope is no key (its API may relate it to other types). Bounds to open traits wait for the
+scope is its own declaration's key (D35). Bounds to open traits wait for the
 capability records.
 
 ## D15. Sealed families are tagged sums; a number rests on everything it reads
@@ -818,8 +818,8 @@ class, an object's singleton kept, any other singleton refused). Details:
   `EnvironmentSoundnessSpec.varParameter`, `GroundEnvironmentSpec` (exports and inherited members
   through imports).
 
-**Boundary.** The premise is readability: opaque types outside their scope, classes with
-non-public constructors, opaque callables with transparent results and names outside the sources
+**Boundary.** The premise is readability: classes no public constructor builds (D35), opaque
+callables with transparent results and names outside the sources
 keep their own reasons, which is where a concrete producer could matter. The premise also needs
 the values: a capture the target cannot name (hidden by a member, an inherited member or its own
 parameter) that a member nothing overrides still holds is put back when the member is the capture
@@ -1545,6 +1545,8 @@ parent.
 
 ## D30. An opaque alias is its representation only where it is visible; a value row is min(1, |T|)
 
+*Superseded in part by D35:* a reference outside the scope is one value, no longer refused.
+
 **Decision.** (1) A reference to an opaque alias reads its representation's size where the
 representation is visible: inside the template that declares it, or, for a top-level alias, inside
 its file's synthetic package object — that package block's top-level definitions (a class nested in
@@ -1614,11 +1616,11 @@ a type rests on a function from an empty domain met inside a definition (`P(f: N
 the row is refused (`value not decided: P`), and so is a number read through an intersection or
 refinement (`value not decided: Int & String`), a template whose construction is not read, or a
 singleton type. A value of an unresolved type keeps its reasons (`Box[Json]` for a case class
-`Box`), and an opaque alias read outside its scope is refused here too. A construction step that
+`Box`), and an opaque alias read outside its scope is one value here too (D35). A construction step that
 does not throw is read as yielding a value of its type (concrete code obeys the model,
 D-env-concrete); one that throws only if a simple name is the root imports' is refused, whatever
-binds the name. An opaque alias inside a template is not visible in a subclass's body; a reference rebuilt without a position (a substituted
-slot) is refused even inside the scope.
+binds the name. An opaque alias inside a template is not visible in a subclass's body; a reference
+rebuilt without a position (a substituted slot) is one value even inside the scope (D35).
 
 ## D31. A count refused only by possible views is read between two bounds
 
@@ -1804,6 +1806,50 @@ context-bounded and view-binded binders. The instantiation search — enumeratin
 the environment can witness for the binder (`witness-kind analysis`) — is the feature's open half.
 
 
+
+## D35. Public constructors build the receiver; an opaque type outside its scope is one value
+
+**Decision.** Two modelling conventions the user decided (2026-11-05; [v1.md §2, "Modelling
+conventions"](../plans/v1.md)). (B) The values a receiver's fields hold together — and a final
+class's record, a sealed summand — are what its public constructors build: the largest space any
+one of them builds, not their sum. A constructor is public where the measured declaration may
+call it (`private[p]` inside `p`, `private` inside its class or companion), else ignored; a
+restriction on the class or trait itself, on a template around it, or a class local to a block is
+disregarded (such a class has no use site outside its scope), so its constructors are public. A
+public primary builds every field value; otherwise a public secondary builds at most
+`min(|its parameters|, |the fields|)`, read where both are closed, and the receiver is one value of
+the largest such space (`ConstrainedReceivers`). No public constructor refuses (`receiver has no
+public constructor: C`); a public secondary over a non-closed space refuses (`receiver space of its
+public secondary constructors not compared: C`). (F) Outside its scope an opaque type counts 1: the
+method side reads it as `Unit` (`OpaqueTypes.single`) and keys it as its own declaration
+(`NominalKeys`), the stored side as `UnitSize` (`Counter.hidden`). This supersedes D30 (1)'s
+refusal of a reference outside the scope, and the refusals `receiver fields constrained by …`,
+`sealed subtype (constructor) not visible at use site` and `opaque representation is not visible
+at use site`.
+
+**Derivation.** (B) Every secondary constructor ends in a call of the primary, so what a public
+secondary builds is a subset of the primary's space: with a public primary the largest space is the
+fields' own, the reading before this rule. A secondary is a pure function of its arguments, so it
+builds at most as many receivers as it has arguments, and at most the fields' space; a method of a
+receiver with closed fields is a function of the receiver's value alone (a closed value is
+eliminated by a uniform split, `ClosedSpaces`), so binding one value of that space
+(`Shape.Ground`) in place of the fields counts it. (F) is a convention, not a derivation: two
+values of an opaque type are identified, and an upper bound (`opaque type T[A] <: A`) is not read.
+
+**Evidence.**
+
+- **Executable**: `ReceiverConstructorsSpec` (two public constructors: 4; a private primary and a
+  public `this(u: Unit)`: 2; two public secondaries building 1 and 2 of 4: 4, not 16; a
+  `private[rc]` class and trait: 4; a factory-only class refused; a private sealed leaf summed: 8);
+  `SequenceEliminationSpec.scopedReceivers` (non-public and local classes read as public: 0, ω);
+  `OpaqueTypeScopeSpec.oneValue` (`f(a: Id, b: Id): Id` 1, `g(a: Id): Boolean` 2);
+  `StoredScopesSpec.opaqueMembers`, `opaqueTopLevel`, `opaqueLending`; `ReportSpec.crossSourceOpaque`.
+
+**Boundary.** Companion factories are not read, so a class built only by one stays `?`. A public
+secondary's space is compared only where it and the fields are closed. (F) gives counts the
+representation would not: `def get[A](t: Box[A]): A` outside `Box`'s scope is 0 even where
+`Box`'s companion offers an unwrapping member, as for any member of another object that is not in
+the environment.
 
 ## How to extend this register
 

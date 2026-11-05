@@ -194,10 +194,12 @@ final private[cardinality] class NominalKeys(
       )
 
   // An alias, opaque or not, is read through: a transparent one is the type it names, an opaque
-  // one only where it is visible. Outside its scope an opaque type is not a readable key: its API
-  // may relate it to other types (`inside: F[W[A]] => F[A]`), which no key records.
+  // one only where it is visible. Outside its scope an opaque type is its own identity, as a class
+  // is: the compiler keeps `W[A]` and `A` apart there.
   private def declared(entry: TypeEntry, application: Application): Keyed =
     entry.tree match {
+      case alias: Defn.Type if OpaqueTypes.hidden(entry, application.scope.useSite) =>
+        declaration(entry, alias.tparamClause.values, application)
       case alias: Defn.Type                         => expand(entry, alias, application)
       case d: (Defn.Class | Defn.Trait | Defn.Enum) =>
         declaration(entry, Counter.parameters(d), application)

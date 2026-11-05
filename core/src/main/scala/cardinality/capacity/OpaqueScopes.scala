@@ -9,7 +9,7 @@ import cardinality.types.Trees
 // template that declares it, or, for a top-level one, inside its file's synthetic package object —
 // the statements of its package block `MemberSyntax.wrappedInPackageObject` says Scala wraps, as the
 // method side's `OpaqueTypes` reads them (`StoredScopesSpec`'s `opaqueTopLevel`). Elsewhere, and for
-// a type rebuilt with no position, a reference is a reason.
+// a type rebuilt with no position, a reference is one value (v1.md §2, opaque types).
 private[capacity] object OpaqueScopes {
 
   /** Whether `alias`'s representation is visible where `reference` is written. */
@@ -24,9 +24,5 @@ private[capacity] object OpaqueScopes {
           )
       case _ => false
     }
-
-  /** Why a reference outside the alias's scope has no number. */
-  def outside(alias: Defn.Type): Definition.Unbound =
-    Definition.Unbound.Refusal(s"opaque type read outside its scope: ${Qualified.of(alias)}")
 
 }

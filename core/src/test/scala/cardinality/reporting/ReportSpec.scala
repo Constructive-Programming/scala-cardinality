@@ -502,11 +502,8 @@ class ReportSpec extends Specification {
       "User.scala" -> "package p\ncase class User(id: Id, active: Boolean)",
     )
     // An opaque row reads its representation (`Id` is 2^8). A reference from another file is
-    // outside the scope that defines it, where the representation is not visible: a reason, not the
-    // single value an abstract type would suggest (that reading made `User` 2).
-    (rowsOf(root).filter(_._1 == "p.User") === List(
-      ("p.User", Some(EffectiveOmega), List("opaque type read outside its scope: p.Id"))
-    ))
+    // outside the scope that defines it, where the opaque type is one value (rule F): `User` is 2.
+    (rowsOf(root).filter(_._1 == "p.User") === List(("p.User", Some(TinySize(2)), Nil)))
       .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
   }
 

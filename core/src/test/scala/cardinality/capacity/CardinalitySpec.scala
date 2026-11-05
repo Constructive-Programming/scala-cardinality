@@ -283,7 +283,7 @@ class CardinalitySpec extends Specification {
     ) === BooleanSize}
     opaque type is read only in its scope    ${src(
       "opaque type Id = Byte; case class User(id: Id)"
-    ) === EffectiveOmega} (a top-level class is outside: unresolved, not one value)
+    ) === TinySize(1)} (a top-level class is outside, where Id is one value)
     opaque type inside its scope            ${src(
       "object Ids { opaque type Id = Boolean; case class User(id: Id) }"
     ) === TinySize(3)} (Ids 1 + User 2)
