@@ -207,7 +207,7 @@ private[capacity] object Inheritance {
   // The statements of a parent's body a subclass inherits. A `private` (or `private[this]`) one is
   // not; a qualified-private one (`private[q]`) is, and Scala binds the name to it from anywhere —
   // a reference from outside `q` is an access error (Scala 3.9.0, E173), so in a valid program the
-  // binding stands (`StoredScopesSpec`'s `qualifiedPrivate`).
+  // binding stands.
   private def inherited(members: Members): List[Stat] =
     Walk.template(members.defn).filterNot {
       case member: Stat.WithMods => Overrides.unqualifiedPrivate(member.mods)

@@ -76,39 +76,20 @@ member binds the name. Scala types each such term `Nothing`, and so does the ana
   reads a hidden capture only to build the exception it throws is not refused. The view rule (C6)
   still sees a re-entry inside the operand, because Scala evaluates the operand before throwing.
 - **The stored side** never reads an initializer's value, so a throwing initializer changes no row.
-  A value row is `min(1, |T|)` for its declared type `T`, read as whether `T` has a value: a `val`,
-  `lazy val` or `var` of an empty declared type (`Nothing`, `Either[Nothing, Nothing]`, `Int =>
-  Nothing`, an alias of any) holds no value, 0; one of an inhabited type holds its one value, 1; one
-  with no declared type holds one, since the initializer is still never read; and one whose declared
-  type may be empty carries that type's reasons. Inhabitation is not the stored algebra's capacity.
-  The algebra counts a function from an empty domain 0, because it never runs
-  ([type-arithmetic.md](../type-arithmetic.md) §3), but the absurd function is a value of it: `val
-  f: Nothing => Int` holds one, 1, as the method side counts the same `val`. So a function type has
-  a value when its result type has one or a parameter type is empty, and none when every parameter
-  type has one and its result type none; a tuple when every element has one, a union when a branch
-  has one. A witness decides the rest without reading the whole type (`ValueRows`): a
-  standard-library type the library gives a value of whatever its arguments (the top and marker
-  types, `String`, `BigInt`, the comparisons, the throwables, the containers with an empty one),
-  spelled where no source binds the name; an enum with a parameterless case without `extends`; and a
-  sealed family whose case object is a member of every instantiation (eo's `PSVec[Json]` holds
-  `PSVec.Empty` whatever circe's `Json` is). Anything else reads the algebra: 0 with no reason is
-  empty unless the read met a function from an empty domain, and any other number with no reason is
-  inhabited unless it met an intersection or a refinement, which the algebra bounds from above (`Int
-  & String` is empty, its bound 2^32); each is refused (`value not decided: P holds a function from
-  an empty type`, `… holds an intersection or refinement`). A class's number counts what its
-  constructor stores, not whether one is built, so a template the read meets must also be built, by
-  the construction rule above: `final case class K() extends Base(???)` stores nothing (1) and is
-  never built, so `val k: K` is refused (`value not decided: K holds K, whose construction evaluates
-  a throw`) — and `val f: K => Nothing`, which holds the absurd function exactly when `K` is empty,
-  is refused too, never 0. The stored side resolves no term name there, so it refuses where a name
-  may be the root imports' `???`, and it refuses a private or protected constructor, a parent's
-  context argument left to implicit search, and a parent it does not read. A singleton type `p.type`
-  holds what `p` denotes: an object with no parents whose body throws nothing, 1; a value's
-  singleton (`val sn: n.type` for `val n: Nothing`) is refused, since the value's type is read where
-  the value is declared. This was adopted by the integrated review on a 2/3 vote: the dissent held
-  that a value row is documented as "one inhabitant, declared type not measured", so reading the
-  type is a model change. The majority's reasons: it reads only the declared type, the initializer
-  stays unread, and a value of an empty type is the one row the old reading overcounted.
+  A value row is `min(1, |T|)` for its declared type `T`, read as whether `T` has a value: one with
+  no declared type holds one, since the initializer is still never read; one whose declared type
+  carries reasons carries them; and one whose type the algebra reads as a nonzero number with no
+  reason holds its one value, 1. Inhabitation is not the stored algebra's capacity, so every other
+  reading is refused (`value not decided: T`): a zero (an empty type, or a function from one, which
+  the algebra counts 0 though the absurd function is a value), an intersection or refinement (an
+  upper bound: `Int & String` is empty, its bound 2^32), a singleton type, and a class whose
+  construction this reading does not read whole (`Builds`: a throw it may evaluate, a private
+  constructor, a parent it does not read) — a class's number counts what its constructor stores,
+  not whether one is built. This was adopted by the integrated review on a 2/3 vote: the dissent
+  held that a value row is documented as "one inhabitant, declared type not measured", so reading
+  the type is a model change. The majority's reasons: it reads only the declared type, the
+  initializer stays unread, and a value of an empty type is the one row the old reading
+  overcounted.
 
 The cases fit together. A throw is ignored as a behavior: it gives no value and implements nothing,
 so a member whose only body throws reads as if that body were absent. Where an override may give the
@@ -164,9 +145,10 @@ A source subclass is read as any source class:
   sealed-family reading is coarser (§4): it reads a non-final case-class leaf as its fields, so
   there a subclass in another file that overrides `getMessage` is a value it does not count.
 
-The **stored side** keeps its open-class convention. A throwable's values are those of any
-subclass, so the estimate gives no size: the row is *unbounded by an open abstraction*, with the
-reason `open to implementations (Throwable)`. It never claims a finite size.
+The **stored side** keeps its open-class convention for a throwable spelled in full
+(`java.lang.Throwable`, `scala.RuntimeException`): its values are those of any subclass, so the
+row is *unbounded by an open abstraction* (`open to implementations (java.lang.Throwable)`). A bare
+root-import name (`Throwable`) is not read: unresolved. It never claims a finite size.
 
 ## 4. Limits
 
@@ -242,8 +224,8 @@ reason `open to implementations (Throwable)`. It never claims a finite size.
 - **Tool output**: `javap -public` (OpenJDK 21) on the twelve throwables lists exactly the API
   above.
 - **Executable**: `PureCodeSpec` (vars, throws, emptiness, construction, throwables, positive and
-  adversarial), `ThrowableSlotsSpec` (stored side), `ValueRowsSpec.emptyValues`,
-  `valueReasons`, `valueWitnesses`, `unbuiltValues` and `singletonValues` (value rows),
+  adversarial), `ThrowableSlotsSpec` (stored side), `ValueRowsSpec.valueReasons` and
+  `sumDropsEmptySummand` (value rows),
   `StdlibModelSpec.open`,
   `KindedIdentitySpec.modelKeys`, `CapabilitySpec.unreadMembers`,
   `MethodRefinementSpec.mutablePath`, `TypeMemberSpec.valuePaths`.

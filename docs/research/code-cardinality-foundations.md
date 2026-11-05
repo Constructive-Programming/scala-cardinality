@@ -1181,8 +1181,8 @@ decision, v1 §2), and every reading obeys it.
    - subtyping adds only producers of types that are already inhabited;
    - a `null` message is read by the `T | Null` rule.
 
-   On the stored side a throwable is an open class: `open to implementations (Throwable)`, never a
-   size. Its stack trace (reflection), `initCause`, `addSuppressed`, `printStackTrace` (effects)
+   On the stored side a throwable spelled in full is an open class: `open to implementations
+   (java.lang.Throwable)`, never a size; a bare `Throwable` is not read. Its stack trace (reflection), `initCause`, `addSuppressed`, `printStackTrace` (effects)
    and `getSuppressed` are outside the model. Details: [code without side
    effects](pure-code.md).
 
@@ -1518,13 +1518,12 @@ names](stored-value-names.md).
   Src.*` bind `Boolean`, `q` and `Flag` in a subclass's body (`O.U(42).b: Int`, `OW.UW(42L).f:
   Long`), a self type's export alike; a `val` parameter and a case class's parameter are inherited
   (`OP.UP(42).x: Int`), a plain or private one is not (`OC.UC(()).x: Unit`).
-- **Executable**: `StoredScopesSpec` (positive and adversarial; `inheritedTerms` and
-  `inheritedExports` for the parameters and exports), with the expectations it moved:
-  `GroundEnvironmentSpec.shadowedPosition`, `constructorScope`, `symbolicDisagreement` (the lent
-  slot now agrees with the method side: 2^64, 2, 2^(2^16)), `StdlibModelSpec.constructorExempt`
-  (`In(b: Boolean)` in `trait Outer extends lib.Base`: refused, not 2), and the method side's
-  term-head wording (`NameLookupSoundnessSpec.unsuppliedObjectPath`,
-  `UnsuppliedWildcardSpec`: `inherited term member not resolved: c`).
+- **Executable**: `StoredScopesSpec` (`inheritedExports`, `unsuppliedParents`,
+  `unreadParents`), `StdlibModelSpec.constructorExempt` (`In(b: Boolean)` in `trait Outer extends
+  lib.Base`: refused, not 2), and the method side's term-head wording
+  (`NameLookupSoundnessSpec.unsuppliedObjectPath`, `UnsuppliedWildcardSpec`: `inherited term
+  member not resolved: c`). Since pruned to what the corpora exercise: the estimate reads no
+  inherited member, followed export or self type; each such name is refused with its parent.
 
 **Boundary.** Not a counting rule: it decides which declaration a name denotes. Members of a
 parent applied to type arguments, export clauses that read imports or name anything but a plain
@@ -1595,22 +1594,22 @@ documented as one inhabitant with its declared type unmeasured. Details: [type a
   rounded-up counts of at least 128: its 0 is emptiness and any other number inhabitation (sums,
   products, powers and least fixed points of inhabited parts are inhabited).
 - **Executable**: `StoredScopesSpec.opaqueMembers`, `opaqueTopLevel`, `opaqueLending`;
-  `ValueRowsSpec.emptyValues`, `valueReasons`, `valueWitnesses`, `unbuiltValues`,
-  `singletonValues`; `OpaqueTypeScopeSpec` (unchanged); moved expectations
-  `ReportSpec.crossSourceOpaque` and `CardinalitySpec` (a reference from another file or a
-  top-level class: refused, not one value), `ValueRowsSpec.valueReasons` (`vr.f`: 0 → 1).
+  `ValueRowsSpec.valueReasons`, `sumDropsEmptySummand`; `OpaqueTypeScopeSpec` (unchanged); moved
+  expectations `ReportSpec.crossSourceOpaque` and `CardinalitySpec` (a reference from another file
+  or a top-level class: refused, not one value). Since pruned to what the corpora exercise: a
+  value row is 1 only for a nonzero capacity read with no reason; every other reading is refused
+  (no witnesses, no 0).
 
 **Boundary.** A value row reads inhabitation, not the algebra's capacity: where the algebra's 0 for
 a type rests on a function from an empty domain met inside a definition (`P(f: Nothing => Int)`),
-the row is refused (`value not decided: P holds a function from an empty type`), and so is a number
-read through an intersection or refinement (`value not decided: Int & String holds an intersection
-or refinement`), a template whose construction is not read, or a singleton type. A value of an
-unresolved type no witness covers keeps its reasons (`Box[Json]` for a case class `Box`), and an
+the row is refused (`value not decided: P`), and so is a number read through an intersection or
+refinement (`value not decided: Int & String`), a template whose construction is not read, or a
+singleton type. A value of an unresolved type keeps its reasons (`Box[Json]` for a case class
+`Box`), and an
 opaque alias read outside its scope is refused here too. A construction step that does not throw is
 read as yielding a value of its type (concrete code obeys the model, D-env-concrete); one that
-throws only if a simple name is the root imports' is refused, whatever binds the name. The witness
-table is a small fixed list of standard-library names (`ValueRows.Witnessed`), each with the value
-it is witnessed by; a standard-library name a source binds is the source's. An opaque alias inside a
+throws only if a simple name is the root imports' is refused, whatever binds the name. An opaque
+alias inside a
 template is not visible in a subclass's body; a reference rebuilt without a position (a substituted
 slot) is refused even inside the scope.
 

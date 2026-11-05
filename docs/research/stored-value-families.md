@@ -141,19 +141,15 @@ own definition outranks it in that namespace only: a `val W` beside `import to1.
 type lookup goes on outward. A renamed member is no longer imported under its own name, by the
 wildcard beside it either (`import ra.{W => V, *}` leaves `W` to the package). A path to a supplied package or object reads that namespace's member, and the solver's
 dependency graph links the member's key. Any other path is a reason that names the clause:
-- `not supplied` when no source declares the path;
-- `not followed` for a member reached through a value;
 - `<first> may be imported by w.*` when an earlier wildcard over an unsupplied namespace may bind
-  the path's first name (as `cats.syntax.all.*` may bind `org`; a listed stdlib namespace binds
-  only the terms `ListedNamespaces` lists, so `scala.jdk.CollectionConverters.*` binds no `org`).
-  In that case the clause may still name a supplied declaration, so the reason does not say it is
-  not supplied.
+  the path's first name (as `cats.syntax.all.*` may bind `org`). In that case the clause may still
+  name a supplied declaration, so the reason does not say it is not supplied;
+- `not supplied` otherwise: no source declares the path, or the member is one an object inherits
+  or exports, or one reached through a value, none of which is followed.
 
 Exports follow the same rule, and an export defines a member of its template, which outranks an
 import of the same name there and an outer definition of it (`import X.T; export Y.T` binds `Y.T`).
-A member an object inherits or exports is not followed: its reason says `inherited member not
-followed` or `exported member not followed`, not `not supplied`. This reverses the earlier "not followed" behaviour:
-`ReportSpec.crossSourceImported` now reads 2.
+This reverses the earlier "not followed" behaviour: `ReportSpec.crossSourceImported` now reads 2.
 
 ## A reference carries the reasons of what it reads
 
@@ -162,14 +158,13 @@ collects the non-parameter reasons of every definition it reads, transitively, o
 definition (`Taint`). The parameters a reference supplies are not collected. A reason holds even
 when the arithmetic would absorb it (`Zero(n: Nothing, q: Q)` with `Q(s: Schema)` reads `?`, not
 0). The method side's constructor-slot reading inherits this rule, so `AvroFailureException.<init>`
-is `?` because one case of `AvroFailure` holds a `Throwable`, an open class the estimate leaves to
-its implementations (register D26).
+is `?` because one case of `AvroFailure` holds a `Throwable`, which the estimate does not read.
 
 ## Context bounds are stored evidence
 
 Scala 3 desugars `class C[T: TC]` to `class C[T](using TC[T])`. The evidence is a field, so the
-estimate multiplies by `|TC[T]|`, once per bound; a named bound `T: TC as tc` names the field and
-its type is still `TC[T]`. An enum case declares its own bounds: scalac does not copy the enum's
+estimate multiplies by `|TC[T]|`, once per bound; a named bound (`T: TC as tc`) is not read. An
+enum case declares its own bounds: scalac does not copy the enum's
 bounds onto a case.
 
 ## Finite collections keep their element's tier
