@@ -65,7 +65,7 @@ class ReportDependenciesSpec extends Specification {
     val file = Files.createTempFile("stubs", ".bin")
     val _ = Files.write(file, Array[Byte](0, 4, 'o', 'l', 'd', '!'))
     val read = StubFile.read(file)
-    (read.stubs must beEmpty).and(read.errors.mkString must contain("not cardinality-stubs/1"))
+    (read.stubs must beEmpty).and(read.errors.mkString must contain("not cardinality-stubs/2"))
   }
 
   "an empty classpath is the sources-only report" in {
@@ -81,6 +81,24 @@ class ReportDependenciesSpec extends Specification {
     val corrupt = Files.writeString(source.resolveSibling("corrupt.jar"), "not a jar")
     val report = Report.of(List(source), corrupt :: classpath)
     (report.errors must beEmpty).and(report.render must contain("dependency stub not read"))
+  }
+
+  // test-interface is a Java jar: `sbt.testing.Status` is an enum of 7 constants (Success, Error,
+  // Failure, Skipped, Ignored, Canceled, Pending), so 7^7 maps from it to itself.
+  "a Java jar supplies its declarations: an enum of seven constants, 7^7 implementations" in {
+    val root = Files.createTempDirectory("report-java-dependencies")
+    val main = Files.writeString(
+      root.resolve("Main.scala"),
+      """package t
+        |import sbt.testing.Status
+        |def step(s: Status): Status = ???
+        |""".stripMargin
+    )
+    val java = classpath :+ jarOf(classOf[sbt.testing.Status])
+    (count(Report.of(List(main), java), "t.step") must_== Count.Finite(823543))
+      .and(count(Report.of(List(main), classpath), "t.step") must beLike {
+        case u: Count.Unresolved => u.reasons.mkString must contain("not supplied")
+      })
   }
 
   "a selected query reads the same declarations" in {

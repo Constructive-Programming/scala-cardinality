@@ -219,11 +219,14 @@ is `ω + ω`, and a module with two `String => String` methods and one `String` 
 reached ω or beyond and which type names stopped it from being tighter.
 
 `cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
-`Compile / dependencyClasspath` from their compiled TASTy: each Scala 3 class of a dependency
-joins the environment as a signature stub (`cardinality.tasty.TastyStubs`), so a row over a
-dependency's type gets a number instead of `declaration not supplied`. Stubs are never measured
-or reported, supply no bodies, and nothing is rendered into `scala.*`, `java.*` or `javax.*`;
-Java and Scala 2 classes stay unsupplied. With stubs present, each target gets a fixed quota of
+`Compile / dependencyClasspath` from their compiled TASTy and Java `.class` files: each Scala 3
+and Java class of a dependency joins the environment as a signature stub
+(`cardinality.tasty.TastyStubs`), so a row over a dependency's type gets a number, or a specific
+`?`, instead of `declaration not supplied`. Stubs are never measured or reported, supply no
+bodies, and nothing is rendered into `scala.*`, `java.*` or `javax.*`; Scala 2 classes stay
+unsupplied. A Java enum is its constants and a Java interface the record of its methods; a Java
+class's constructor state, a sealed Java type's subclasses and a raw type are not read, so a
+reading through them refuses. With stubs present, each target gets a fixed quota of
 300,000 logical work steps. A stub that cannot be read is listed as `dependency stub not read`
 and refuses more, never differently. Choose the dependencies with `cardinalityDependencyClasspath`
 (`:= Nil` reads sources only); in the library, `Report.of(paths, classpath)` and
@@ -280,7 +283,8 @@ cats-eo checkout, it takes every production source of every module — the `v1.0
 thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that
 input order cannot move a result, that row identities stay unique, and that the production
 `Report.of` path renders the same report. An optional fourth argument names a classpath file (one
-jar per line): every Scala 3 class those jars declare is read from its TASTy and joins the
+jar per line): every Scala 3 and Java class those jars declare is read from its TASTy or class
+file and joins the
 environment as a signature stub - names and types, no bodies - never as a report row (see
 [`docs/plans/bounded-dependency-resolution.md`](docs/plans/bounded-dependency-resolution.md)). Its ledger, per-module inventory and blocker buckets
 are at [`docs/baselines/eo-checkout-2026-10-27-full.md`](docs/baselines/eo-checkout-2026-10-27-full.md).

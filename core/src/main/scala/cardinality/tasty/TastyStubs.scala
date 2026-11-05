@@ -6,6 +6,7 @@ import scala.util.control.NonFatal
 import cardinality.analysis.MethodAnalysis
 import java.net.URI
 import java.nio.file.{FileSystems, Files, Path}
+import tastyquery.Classpaths.ClasspathEntry
 import tastyquery.Contexts.*
 import tastyquery.Exceptions.UnknownClasspathEntry
 import tastyquery.SourceLanguage
@@ -16,10 +17,10 @@ import tastyquery.jdk.ClasspathLoaders
   * signature stubs: one parsed source per original source file of each rendered jar, under
   * `tasty/<jar>/<source path>`. The stubs are environment, never review targets.
   *
-  * Only Scala 3 (TASTy) classes outside the stdlib model's namespaces are rendered; Java and Scala
-  * 2 classes stay unsupplied, so a reference to them keeps its `declaration not supplied` reason.
-  * Every concrete body is the unresolved `Spell.Body`: the stubs supply identities and signatures,
-  * not implementations.
+  * Scala 3 (TASTy) and Java (`.class`) classes outside the stdlib model's namespaces are rendered;
+  * Scala 2 classes stay unsupplied, so a reference to them keeps its `declaration not supplied`
+  * reason. Every concrete body is the unresolved `Spell.Body`: the stubs supply identities and
+  * signatures, not implementations.
   */
 object TastyStubs {
 
@@ -57,8 +58,8 @@ object TastyStubs {
     // One read per jar: a jar with no classes has no entry, so entries cannot be zipped back.
     val perJar = classpath.map(jar => jar -> ClasspathLoaders.read(List(readable(jar))))
     given Context = Context.initialize(perJar.flatMap(_._2) ++ ClasspathLoaders.read(List(jdk)))
-    val declarations = StubDeclarations()
     val chosen = perJar.filter((jar, _) => selected(jar)).flatMap((jar, es) => es.map(jar -> _))
+    val declarations = StubDeclarations(javaClassfiles(chosen.map(_._2)))
     val stubs = chosen.flatMap { (jar, entry) =>
       // An entry with no packages (a resources-only jar) has no symbols to look up.
       val symbols =
@@ -66,7 +67,7 @@ object TastyStubs {
         catch { case _: UnknownClasspathEntry => Nil }
       val classes = symbols.collect {
         case c: ClassSymbol
-            if c.sourceLanguage == SourceLanguage.Scala3 &&
+            if c.sourceLanguage != SourceLanguage.Scala2 &&
               (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
               !stdlibOwned(packageOf(c)) && packages(packageOf(c)) =>
           c
@@ -86,6 +87,35 @@ object TastyStubs {
         }
     }
     Rendered(stubs)
+  }
+
+  /** A Java class's `.class` file facts, read from the rendered entries (a Java class's nested
+    * classes are files of the same package, `Outer$Inner`).
+    */
+  private def javaClassfiles(entries: List[ClasspathEntry]): ClassSymbol => JavaClassfile = {
+    val packages = entries
+      .flatMap(e =>
+        try e.listAllPackages()
+        catch { case NonFatal(_) => Nil }
+      )
+      .groupBy(_.dotSeparatedName)
+    def binaryName(c: ClassSymbol): String = c.owner match {
+      case o: ClassSymbol => binaryName(o) + "$" + Spell.objectName(c)
+      case _              => Spell.objectName(c)
+    }
+    def pkg(s: Symbol): String = s match {
+      case p: PackageSymbol => p.fullName.path.mkString(".")
+      case other            => pkg(other.owner)
+    }
+    c =>
+      packages
+        .getOrElse(pkg(c), Nil)
+        .iterator
+        .flatMap(_.getClassDataByBinaryName(binaryName(c)))
+        .find(_.hasClassFile)
+        .fold(JavaClassfile(Nil, sealedClass = true))(d =>
+          JavaClassfile.read(IArray.genericWrapArray(d.readClassFileBytes()).toArray)
+        )
   }
 
   /** The rendered stubs parsed: a stub that does not parse is left out, with an error naming it. */

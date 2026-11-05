@@ -6,6 +6,7 @@ import scala.meta.{dialects, Parsed, Source, Stat, XtensionSyntax}
 
 import tastyquery.Contexts.*
 import tastyquery.Names.*
+import tastyquery.SourceLanguage
 import tastyquery.Symbols.*
 import tastyquery.Types.*
 
@@ -100,14 +101,34 @@ final private[tasty] class StubTypes(enclosing: List[ClassSymbol])(using Context
     case t: Type         => apply(t) + "#"
   }
 
+  // Java's `Object` in a signature: Scala reads it as `Any` (each conforms to the other).
+  private def javaObject(t: Type): Boolean = t match {
+    case r: TypeRef => r.isFromJavaObject
+    case _          => false
+  }
+
+  // A Java signature has no higher kinds: a generic class named without arguments is raw.
+  private val javaSignature = enclosing.headOption.exists(_.sourceLanguage == SourceLanguage.Java)
+
   def apply(t: TypeMappable): String = t match {
-    case _: NothingType => "scala.Nothing"
-    case _: AnyKindType => "scala.AnyKind"
-    case t: TypeRef     =>
+    case t: TypeRef if javaObject(t) => "scala.Any"
+    case t: TypeRef                  =>
       t.optSymbol match {
-        case Some(c: ClassSymbol) if c.isModuleClass && !packageObject(c) => path(c) + ".type"
-        case _ => prefix(t.prefix) + tpe(t.name.toString)
+        case Some(c: ClassSymbol) if javaSignature && c.typeParams.nonEmpty =>
+          throw Unsupported(s"raw type ${c.displayFullName}")
+        case _ => constructor(t)
       }
+    case t => spelled(t)
+  }
+
+  private def constructor(t: TypeRef): String = t.optSymbol match {
+    case Some(c: ClassSymbol) if c.isModuleClass && !packageObject(c) => path(c) + ".type"
+    case _ => prefix(t.prefix) + tpe(t.name.toString)
+  }
+
+  private def spelled(t: TypeMappable): String = t match {
+    case _: NothingType              => "scala.Nothing"
+    case _: AnyKindType              => "scala.AnyKind"
     case t: (TermRef | TermParamRef) => prefix(t).stripSuffix(".") + ".type"
     case t: ThisType                 =>
       val c = thisClass(t)
@@ -191,8 +212,8 @@ final private[tasty] class StubTypes(enclosing: List[ClassSymbol])(using Context
 
   private def upper(t: Type): String = t match {
     case l: TypeLambda => if (named(l.resultType, "scala.Any")) "" else " <: " + apply(l.resultType)
-    case t if named(t, "scala.Any") => ""
-    case t                          => " <: " + apply(t)
+    case t if named(t, "scala.Any") || javaObject(t) => ""
+    case t                                           => " <: " + apply(t)
   }
 
   private val FunctionN = "scala\\.Function\\d+".r
@@ -211,7 +232,11 @@ final private[tasty] class StubTypes(enclosing: List[ClassSymbol])(using Context
       case TupleN()           => args.mkString("(", ", ", ")")
       case "scala.|" | "scala.&" if args.size == 2 =>
         s"(${args.head} ${fullName(t.tycon).drop(6)} ${args(1)})"
-      case _ => apply(t.tycon) + args.mkString("[", ", ", "]")
+      case _ =>
+        (t.tycon match {
+          case r: TypeRef => constructor(r)
+          case other      => apply(other)
+        }) + args.mkString("[", ", ", "]")
     }
   }
 

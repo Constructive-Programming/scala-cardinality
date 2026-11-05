@@ -5,16 +5,47 @@ import scala.util.control.NonFatal
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.*
 import tastyquery.Symbols.*
-import tastyquery.Trees
 import tastyquery.Types.*
+import tastyquery.{SourceLanguage, Trees}
 
 /** Renders a compiled class's declarations as a Scala 3 signature stub: every name, modifier,
   * parameter clause, parent and type the class declares, with each concrete body replaced by
   * `Spell.Body`. A declaration whose signature has no spelling here keeps its name with the
   * `Spell.Unread` type, so a reading through it refuses instead of missing it.
   */
-final private[tasty] class StubDeclarations(using Context) {
+final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassfile)(using
+    Context
+) {
   import Spell.*
+
+  private def java(s: TermOrTypeSymbol): Boolean = s.sourceLanguage == SourceLanguage.Java
+
+  // A Java class is open unless `final`: `open` says so, as its source would in Scala.
+  private def javaOpen(c: ClassSymbol): Boolean =
+    java(c) && c.openLevel != OpenLevel.Final && !c.isAbstractClass && !c.isModuleClass
+
+  // An enum's class; a Java enum's statics holder carries the enum flag too.
+  private def enumClass(c: ClassSymbol): Boolean = c.isEnum && !c.isModuleClass
+
+  private def javaEnum(c: ClassSymbol): Boolean = java(c) && enumClass(c)
+
+  // A Java enum's statics the Scala `enum` synthesizes itself, and its constants (its cases).
+  private def enumStatic(c: ClassSymbol, t: TermSymbol): Boolean =
+    c.companionClass.exists(e => javaEnum(e) && enumConstant(e, t))
+
+  private def enumConstant(e: ClassSymbol, t: TermSymbol): Boolean = {
+    val name = t.name.toString
+    classfile(e).enumConstants.contains(name) || name == "values" ||
+    (name == "valueOf" && attempt(t.signature.toString, "").contains("java.lang.String"))
+  }
+
+  /** A Java class keeps state its constructors set, which no stub can tie to their parameters: it
+    * is spelled as a constructor parameter that is no member, so a reading of its values refuses.
+    */
+  val HiddenState = s"(compiledStateNotRead: $Unread)"
+
+  private def hiddenState(c: ClassSymbol): Boolean =
+    java(c) && !c.isTrait && !c.isModuleClass && !enumClass(c)
 
   // Parents every class has, and the ones the compiler adds to case classes, objects and enums.
   private val universal = Set("java.lang.Object", "scala.Any", "scala.AnyRef", "scala.Matchable")
@@ -59,7 +90,8 @@ final private[tasty] class StubDeclarations(using Context) {
   }
 
   private def classModifiers(c: ClassSymbol): String =
-    if (c.isEnum) visibility(c.visibility) else levelModifiers(c)
+    if (enumClass(c)) visibility(c.visibility)
+    else levelModifiers(c) + (if (javaOpen(c)) "open " else "")
 
   private def levelModifiers(c: ClassSymbol): String = {
     val level = c.openLevel match {
@@ -78,7 +110,7 @@ final private[tasty] class StubDeclarations(using Context) {
   private def skipped(s: Symbol): Boolean = s match {
     case t: TermSymbol =>
       t.isSynthetic || t.isSetter || t.isModuleVal || t.name.toString.contains("$") ||
-      t.name.toString == "<init>" || (t.isParamAccessor && !t.isMethod)
+      t.name.toString.startsWith("<") || (t.isParamAccessor && !t.isMethod)
     case c: ClassSymbol      => c.isSynthetic || objectName(c).contains("$")
     case t: TypeMemberSymbol => t.isSynthetic || t.name.toString.contains("$")
     case _                   => true
@@ -140,7 +172,12 @@ final private[tasty] class StubDeclarations(using Context) {
 
   private def term(s: TermSymbol, enclosing: List[ClassSymbol]): String = {
     val types = StubTypes(enclosing)
-    val body = if (s.isAbstractMember) "" else " = " + Body
+    // Each constant of a Java enum implements the enum's abstract methods.
+    val implemented = s.owner match {
+      case o: ClassSymbol => javaEnum(o)
+      case _              => false
+    }
+    val body = if (s.isAbstractMember && !implemented) "" else " = " + Body
     val mods = termModifiers(s)
     val name = s.name.toString
     s.kind match {
@@ -223,7 +260,7 @@ final private[tasty] class StubDeclarations(using Context) {
     ordered(c)
       .filterNot(skipped)
       .flatMap {
-        case t: TermSymbol if c.isEnum || !t.isEnumCase =>
+        case t: TermSymbol if (c.isEnum || !t.isEnumCase) && !enumStatic(c, t) =>
           List(
             guarded(
               term(t, enclosing),
@@ -254,27 +291,29 @@ final private[tasty] class StubDeclarations(using Context) {
       types: StubTypes
   ): String = {
     val spelled = types(p)
-    val head = p match {
+    parentClass(p)
+      .collect {
+        case pc
+            if pc.owner.isPackage && packageOf(pc) == packageOf(c) &&
+              !outer.exists(_.declarations.exists(d => d.isType && d.name == pc.name)) =>
+          spelled.stripPrefix(path(pc.owner) + ".")
+      }
+      .getOrElse(spelled)
+  }
+
+  private def parentClass(p: Type): Option[ClassSymbol] =
+    (p match {
       case a: AppliedType => a.tycon
       case t              => t
+    }) match {
+      case r: TypeRef => r.optSymbol.collect { case pc: ClassSymbol => pc }
+      case _          => None
     }
-    head match {
-      case r: TypeRef =>
-        r.optSymbol
-          .collect {
-            case pc: ClassSymbol
-                if pc.owner.isPackage && packageOf(pc) == packageOf(c) &&
-                  !outer.exists(_.declarations.exists(d => d.isType && d.name == pc.name)) =>
-              spelled.stripPrefix(path(pc.owner) + ".")
-          }
-          .getOrElse(spelled)
-      case _ => spelled
-    }
-  }
 
   private def parents(c: ClassSymbol, outer: List[ClassSymbol], types: StubTypes): List[String] = {
     val dropped =
-      universal ++ (if (c.isCaseClass || c.isEnum || c.isModuleClass) synthesized else Set())
+      universal ++ (if (c.isCaseClass || c.isEnum || c.isModuleClass) synthesized else Set()) ++
+        (if (javaEnum(c)) Set("java.lang.Enum") else Set())
     def lists(t: Trees.TermTree): List[Int] = t match {
       case Trees.Apply(f, args) => lists(f) :+ args.size
       case _                    => Nil
@@ -284,28 +323,20 @@ final private[tasty] class StubDeclarations(using Context) {
       case _              => Nil
     }
     val declared = c.parents
-    val aligned = if (shapes.size == declared.size) shapes else declared.map(_ => Nil)
+    // A Java class has no template: a parent with hidden state takes its one argument.
+    def javaShape(p: Type): List[Int] =
+      if (parentClass(p).exists(pc => java(c) && hiddenState(pc))) List(1) else Nil
+    val aligned = if (shapes.size == declared.size) shapes else declared.map(javaShape)
     declared.zip(aligned).flatMap { (p, shape) =>
       if (dropped(types(p).takeWhile(_ != '['))) Nil
       else {
         // A context clause of the parent's constructor is filled by the compiler: not spelled.
-        val explicit = (p match {
-          case a: AppliedType => a.tycon
-          case t              => t
-        }) match {
-          case r: TypeRef =>
-            r.optSymbol
-              .collect { case pc: ClassSymbol => pc }
-              .toList
-              .flatMap(pc =>
-                primaryConstructor(pc).toList
-                  .flatMap(_.paramSymss.collect {
-                    case Left(ps) =>
-                      !ps.headOption.exists(x => x.isGivenOrUsing || x.isImplicit)
-                  })
-              )
-          case _ => Nil
-        }
+        val explicit = parentClass(p).toList.flatMap(pc =>
+          primaryConstructor(pc).toList
+            .flatMap(_.paramSymss.collect {
+              case Left(ps) => !ps.headOption.exists(x => x.isGivenOrUsing || x.isImplicit)
+            })
+        )
         val args = shape.zipWithIndex.collect {
           case (n, i) if explicit.lift(i).getOrElse(true) =>
             List.fill(n)(Body).mkString("(", ", ", ")")
@@ -316,7 +347,11 @@ final private[tasty] class StubDeclarations(using Context) {
   }
 
   private def enumCases(c: ClassSymbol, enclosing: List[ClassSymbol]): List[String] =
-    c.companionClass.toList.flatMap(ordered).flatMap {
+    if (java(c)) classfile(c).enumConstants.map(n => "case " + Spell.term(n))
+    else enumCases(c.companionClass.toList.flatMap(ordered), enclosing)
+
+  private def enumCases(declared: List[TermOrTypeSymbol], enclosing: List[ClassSymbol]) =
+    declared.flatMap {
       case t: TermSymbol if t.isEnumCase && !t.isSynthetic =>
         List("case " + Spell.term(t.name.toString))
       case k: ClassSymbol if k.isEnum && k.isCaseClass =>
@@ -338,17 +373,19 @@ final private[tasty] class StubDeclarations(using Context) {
   // ponytail: secondary constructors are not rendered; a class they build reads only its primary.
   // A trait's `<init>` carries its trait parameters.
   private def constructor(c: ClassSymbol, types: StubTypes): String =
-    primaryConstructor(c)
-      .fold("") { k =>
-        val access = k.visibility match {
-          case Visibility.Public => ""
-          case v                 => " " + visibility(v).trim
+    if (java(c)) if (hiddenState(c)) HiddenState else ""
+    else
+      primaryConstructor(c)
+        .fold("") { k =>
+          val access = k.visibility match {
+            case Visibility.Public => ""
+            case v                 => " " + visibility(v).trim
+          }
+          val clauses = k.paramSymss.collect { case Left(ps) => ps }
+          // A trait is written with its parameters only when it has some (`trait T(val x: Int)`).
+          if (c.isTrait && clauses.forall(_.isEmpty)) ""
+          else access + clauses.map(clause(_, types, Some(c))).mkString
         }
-        val clauses = k.paramSymss.collect { case Left(ps) => ps }
-        // A trait is written with its parameters only when it has some (`trait T(val x: Int)`).
-        if (c.isTrait && clauses.forall(_.isEmpty)) ""
-        else access + clauses.map(clause(_, types, Some(c))).mkString
-      }
 
   /** A class, object, trait or enum with its body. A fragment that has no spelling here (a parent,
     * the constructor, the type parameters, the self type) is not dropped: the class then extends
@@ -372,24 +409,29 @@ final private[tasty] class StubDeclarations(using Context) {
     )
     val ctor = spelled(constructor(c, types))
     val tparams = spelled(typeParams(c, types))
-    val complete = ext.nonEmpty && self.nonEmpty && ctor.nonEmpty && tparams.nonEmpty
+    // A sealed Java class's permitted subclasses are not read: its values are not read either. An
+    // enum is its constants, whatever subclasses their bodies compile to.
+    val complete = ext.nonEmpty && self.nonEmpty && ctor.nonEmpty && tparams.nonEmpty &&
+      !(java(c) && (hiddenState(c) || c.isTrait) && classfile(c).sealedClass)
     def extending(ps: List[String]) = if (ps.isEmpty) "" else " extends " + ps.mkString(", ")
     val unread = extending(List(Unread))
     val head =
       if (c.isModuleClass) s"${classModifiers(c)}object ${Spell.term(objectName(c))}"
       else {
-        val keyword = if (c.isEnum) "enum" else if (c.isTrait) "trait" else "class"
+        val keyword = if (enumClass(c)) "enum" else if (c.isTrait) "trait" else "class"
         s"${classModifiers(c)}$keyword ${tpe(c.name.toString)}${tparams.getOrElse("")}" +
           ctor.getOrElse("")
       }
-    val body = (if (c.isEnum) enumCases(c, outer) else Nil) ++ members(c, enclosing)
+    val body = (if (enumClass(c)) enumCases(c, outer) else Nil) ++ members(c, enclosing)
     val block = s" {${self.getOrElse("")}\n${body.map("  " + _).mkString("\n")}\n}"
     val text = head + (if (complete) extending(ext.getOrElse(Nil)) else unread) + block
-    if (parses(text)) text else head + unread
+    if (java(c) && c.isModuleClass && body.isEmpty) "" // a Java class without statics
+    else if (parses(text)) text
+    else head + unread
   }
 
   /** A top-level class or object; a package object's members stand at the package's top level. */
   def topLevel(c: ClassSymbol): List[String] =
-    if (packageObject(c)) members(c, List(c)) else List(classText(c, Nil))
+    if (packageObject(c)) members(c, List(c)) else List(classText(c, Nil)).filter(_.nonEmpty)
 
 }
