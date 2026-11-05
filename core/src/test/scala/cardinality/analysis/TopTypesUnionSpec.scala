@@ -178,7 +178,6 @@ class TopTypesUnionSpec extends Specification {
       "declaration not supplied: ext.Any (named import Any)"
     )
 
-
   def selfUnsuppliedParent =
     reasonContains(
       "trait Base extends ext.X\ntrait T { self: Base => def g(): Unit; def h(): Any }",

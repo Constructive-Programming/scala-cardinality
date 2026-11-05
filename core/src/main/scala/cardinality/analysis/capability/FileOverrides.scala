@@ -1,6 +1,6 @@
 package cardinality.analysis.capability
 
-import scala.meta.*
+import scala.meta.{Template, Term, Tree, XtensionCollectionLikeUI}
 
 import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.model.MemberSyntax
