@@ -65,14 +65,14 @@ class ReportDependenciesSpec extends Specification {
     val file = Files.createTempFile("stubs", ".bin")
     val _ = Files.write(file, Array[Byte](0, 4, 'o', 'l', 'd', '!'))
     val read = StubFile.read(file)
-    (read.stubs must beEmpty).and(read.errors.mkString must contain("not cardinality-stubs/2"))
+    (read.stubs must beEmpty).and(read.errors.mkString must contain("not cardinality-stubs/3"))
   }
 
   "an empty classpath is the sources-only report" in {
     Report.of(List(source), Nil).render must_== sourcesOnly.render
   }
 
-  "the Scala library alone renders no stub, so the report is unchanged" in {
+  "the Scala library alone renders only the JDK, which changes no row here" in {
     val library = classpath.filterNot(_ == jarOf(classOf[cats.kernel.Comparison]))
     Report.of(List(source), library).render must_== sourcesOnly.render
   }

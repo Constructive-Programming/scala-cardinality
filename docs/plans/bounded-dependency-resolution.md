@@ -57,9 +57,16 @@ The stubs keep the guards the summary format was meant to keep:
   undeclared type `_root_.SignatureNotRead`; an unparseable stub file is left out, its names
   unsupplied. Scala 2 classes are not rendered: their names stay unsupplied. Java classes are
   rendered from their `.class` files under the rules below.
-- **No partial stdlib namespace.** Nothing is rendered into `scala.*`, `java.*` or `javax.*`, from
-  any jar: the stdlib model answers those namespaces, and a stub there (`scala.collection.compat`)
-  would make one partly supplied, so every lookup the model answers would doubt it.
+- **No partial stdlib namespace.** Nothing is rendered that the stdlib model reads: `scala` and the
+  Scala 3.9.0 library's own subpackages, from any jar (a stub in `scala.collection.compat` would
+  make that namespace partly supplied, so every lookup the model answers would doubt it), and the
+  JDK classes the model holds (`java.lang.String`, `java.io.Serializable`, …). The rest of the
+  JDK (`java.*`, `javax.*` of `java.base`) renders like a jar (stub format `cardinality-stubs/3`;
+  the plugin's cache key names the Java version), as does a library's namespace under `scala`
+  (`scala.meta`).
+- **The classpath the JVM loads.** A class file on the classpath twice is read from the first
+  entry that has it, the JDK's first; a shaded copy, whose TASTy still declares the package it was
+  moved from, is not read. A class tasty-query cannot load costs that class alone.
 - **No rows.** Stub inputs (`tasty/<jar>/<source path>`) are environment: they are never measured
   and never reported.
 - **Known gaps** (each refuses or reads less, never a different number): type-lambda parameter

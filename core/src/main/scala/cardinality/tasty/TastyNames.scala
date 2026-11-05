@@ -1,8 +1,8 @@
 package cardinality.tasty
 
-import java.nio.charset.StandardCharsets.UTF_8
-
 import scala.util.control.NonFatal
+
+import java.nio.charset.StandardCharsets.UTF_8
 
 /** The names a TASTy file's name table holds, read from its header alone (tasty-query 1.9.0 keeps
   * its unpickler private). A file declares classes of its package, so the package's qualified name

@@ -261,8 +261,8 @@ object Report {
     )
   }
 
-  // The dependency stubs `classpath` renders. Every jar is rendered; nothing is rendered into the
-  // stdlib model's namespaces, so the Scala library alone yields none. A classpath that cannot be
+  // The dependency stubs `classpath` renders. Every jar and the JDK are rendered, except what the
+  // stdlib model reads, so the Scala library alone yields only the JDK's. A classpath that cannot be
   // read is a warning: its names stay unsupplied, which only refuses more.
   private def dependencies(classpath: Seq[Path], stubs: Option[Path]): TastyStubs.Result =
     stubs.fold(rendered(classpath))(file => TastyStubs.parse(StubFile.read(file)))

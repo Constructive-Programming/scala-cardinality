@@ -220,7 +220,8 @@ class TastyStubsSpec extends Specification {
       List(jarOf(classOf[Option[?]]), jarOf(classOf[scala.deriving.Mirror]), broken).distinct,
       _ == broken
     )
-    (rendered.stubs must beEmpty).and(rendered.errors.mkString must contain("broken.jar"))
+    (rendered.stubs.map(_._1).filter(_.contains("broken.jar")) must beEmpty)
+      .and(rendered.errors.mkString must contain("broken.jar"))
   }
 
   "a class two jars declare is read from the first, as the JVM loads it" in {
@@ -233,7 +234,10 @@ class TastyStubsSpec extends Specification {
     val both = TastyStubs.render(library ++ List(first, second), Set(first, second))
     (both.errors must beEmpty)
       .and(both.stubs must_== alone.stubs)
-      .and(alone.stubs.map(_._1) must contain(contain("first.jar/")).forall)
+      .and(
+        alone.stubs.map(_._1).filterNot(_.startsWith("tasty/java.base/")) must
+          contain(contain("first.jar/")).forall
+      )
   }
 
   "a TASTy file declares its own package, not the directory a shaded jar moved it to" in {

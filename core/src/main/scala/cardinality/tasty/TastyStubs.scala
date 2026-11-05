@@ -1,14 +1,15 @@
 package cardinality.tasty
 
 import scala.meta.Parsed
+import scala.reflect.NameTransformer
 import scala.util.control.NonFatal
 
-import cardinality.analysis.MethodAnalysis
+import cardinality.analysis.{MethodAnalysis, StdlibModel}
 import java.net.URI
 import java.nio.file.{FileSystems, Files, Path}
 import tastyquery.Classpaths.{ClassData, ClasspathEntry, PackageData}
 import tastyquery.Contexts.*
-import tastyquery.Exceptions.UnknownClasspathEntry
+import tastyquery.Names.*
 import tastyquery.SourceLanguage
 import tastyquery.Symbols.*
 import tastyquery.jdk.ClasspathLoaders
@@ -17,10 +18,10 @@ import tastyquery.jdk.ClasspathLoaders
   * signature stubs: one parsed source per original source file of each rendered jar, under
   * `tasty/<jar>/<source path>`. The stubs are environment, never review targets.
   *
-  * Scala 3 (TASTy) and Java (`.class`) classes outside the stdlib model's namespaces are rendered;
-  * Scala 2 classes stay unsupplied, so a reference to them keeps its `declaration not supplied`
-  * reason. Every concrete body is the unresolved `Spell.Body`: the stubs supply identities and
-  * signatures, not implementations.
+  * Scala 3 (TASTy) and Java (`.class`) classes the stdlib model does not read are rendered, the
+  * JDK's `java.*` and `javax.*` among them; Scala 2 classes stay unsupplied, so a reference to them
+  * keeps its `declaration not supplied` reason. Every concrete body is the unresolved `Spell.Body`:
+  * the stubs supply identities and signatures, not implementations.
   */
 object TastyStubs {
 
@@ -61,41 +62,48 @@ object TastyStubs {
     val visible = firstLoaded(jdkEntries ++ read.flatMap(_._2)).drop(jdkEntries.size).iterator
     val perJar = read.map((jar, es) => jar -> es.map(_ => visible.next()))
     given Context = Context.initialize(perJar.flatMap(_._2) ++ jdkEntries)
-    val chosen = perJar.filter((jar, _) => selected(jar)).flatMap((jar, es) => es.map(jar -> _))
+    // The JDK is on every classpath: its `java.*` and `javax.*` classes render like a jar's.
+    val chosen = ((jdk -> jdkEntries) :: perJar.filter((jar, _) => selected(jar)))
+      .flatMap((jar, es) => es.map(jar -> _))
     val declarations = StubDeclarations(javaClassfiles(chosen.map(_._2)))
-    // An entry with no packages (a resources-only jar) has no symbols to look up; one tasty-query
-    // cannot load (a shaded jar's missing inner class, a second stdlib) renders nothing, said once.
-    val loaded = chosen.map { (jar, entry) =>
-      jar -> (try Right(ctx.findSymbolsByClasspathEntry(entry).toList)
-      catch {
-        case _: UnknownClasspathEntry => Right(Nil)
-        case NonFatal(e)              => Left(s"${jar.getFileName}: ${e.getMessage}")
-      })
-    }
+    // Each class is looked up on its own, as tasty-query's own lookup by entry does it, so a class
+    // it cannot load (a shaded jar's missing inner class, the JDK's runtime-generated
+    // `DirectMethodHandle$Holder`) costs that class alone, said once per entry.
+    val loaded = chosen.map((jar, entry) => (jar, symbolsOf(entry)))
     val stubs =
-      loaded.collect { case (jar, Right(symbols)) => jar -> symbols }.flatMap { (jar, symbols) =>
-        val classes = symbols.collect {
-          case c: ClassSymbol
-              if c.sourceLanguage != SourceLanguage.Scala2 &&
-                (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
-                !stdlibOwned(packageOf(c)) && packages(packageOf(c)) =>
-            c
-        }
-        classes
-          .groupBy(c => (packageOf(c), sourceOf(c)))
-          .toList
-          .sortBy(_._1)
-          .map {
-            case ((pkg, source), cs) =>
-              val body = cs.sortBy(_.name.toString).flatMap { c =>
-                try declarations.topLevel(c)
-                catch { case NonFatal(e) => List(s"// not rendered: ${c.name}: ${e.getMessage}") }
-              }
-              val header = if (pkg.isEmpty) "" else s"package $pkg\n\n"
-              (s"$Prefix${jar.getFileName}/$source", header + body.mkString("\n\n") + "\n")
+      loaded.flatMap {
+        case (jar, (symbols, _)) =>
+          val classes = symbols.collect {
+            case c: ClassSymbol
+                if c.sourceLanguage != SourceLanguage.Scala2 &&
+                  (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
+                  !stdlibOwned(packageOf(c), Spell.objectName(c)) && packages(packageOf(c)) &&
+                  (jar != jdk || jdkPackage(packageOf(c))) =>
+              c
           }
+          classes
+            .groupBy(c => (packageOf(c), sourceOf(c)))
+            .toList
+            .sortBy(_._1)
+            .map {
+              case ((pkg, source), cs) =>
+                val body = cs.sortBy(_.name.toString).flatMap { c =>
+                  try declarations.topLevel(c)
+                  catch { case NonFatal(e) => List(s"// not rendered: ${c.name}: ${e.getMessage}") }
+                }
+                val header = if (pkg.isEmpty) "" else s"package $pkg\n\n"
+                (s"$Prefix${jar.getFileName}/$source", header + body.mkString("\n\n") + "\n")
+            }
       }
-    Rendered(stubs, loaded.collect { case (_, Left(error)) => error })
+    Rendered(
+      stubs,
+      // The JDK's own failures are its runtime-generated classes (`DirectMethodHandle$Holder`),
+      // never API: not worth a warning on every report.
+      loaded.collect {
+        case (jar, (_, failed @ first :: _)) if jar != jdk =>
+          s"${jar.getFileName}: ${failed.size} classes not read; the first: $first"
+      }
+    )
   }
 
   /** The classpath as the JVM loads it: each class file (a package and binary name) is read from
@@ -128,6 +136,23 @@ object TastyStubs {
         override def toString: String = entry.toString
       }
     }
+  }
+
+  /** An entry's top-level symbols, and why each class that does not load fails. */
+  private def symbolsOf(entry: ClasspathEntry)(using Context): (List[Symbol], List[String]) = {
+    val found = entry.listAllPackages().flatMap { p =>
+      val pkg = ctx.findPackageFromRoot(
+        if (p.dotSeparatedName.isEmpty) PackageFullName.emptyPackageName
+        else PackageFullName(p.dotSeparatedName.split('.').toList.map(termName(_)))
+      )
+      p.listAllClassDatas().map { c =>
+        val name = termName(NameTransformer.decode(c.binaryName))
+        try
+          Right(List(name, name.toTypeName, name.withObjectSuffix.toTypeName).flatMap(pkg.getDecl))
+        catch { case NonFatal(e) => Left(s"${c.binaryName}: ${e.getMessage}") }
+      }
+    }
+    (found.collect { case Right(s) => s }.flatten, found.collect { case Left(e) => e })
   }
 
   private def relocated(pkg: String, c: ClassData): Boolean =
@@ -191,14 +216,20 @@ object TastyStubs {
       link
     }
 
-  /** Namespaces the stdlib model answers: a stub there (`scala.collection.compat`, the Scala
+  /** Declarations the stdlib model answers: a stub there (`scala.collection.compat`, the Scala
     * library's own TASTy) would make the namespace partly supplied and doubt what the model reads.
     * Under `scala` that is the package itself and the subpackages the Scala 3.9.0 library declares;
-    * a library's own namespace beside them (`scala.meta`) is a dependency like any other.
+    * a library's own namespace beside them (`scala.meta`) is a dependency like any other. In the
+    * JDK it is only the classes the model's table holds (`java.lang.String`, `java.util.List`).
     */
-  private def stdlibOwned(pkg: String): Boolean =
-    pkg == "scala" || List("java", "javax").exists(r => pkg == r || pkg.startsWith(r + ".")) ||
-      ScalaPackages.exists(sub => pkg == s"scala.$sub" || pkg.startsWith(s"scala.$sub."))
+  private def stdlibOwned(pkg: String, name: String): Boolean =
+    pkg == "scala" ||
+      ScalaPackages.exists(sub => pkg == s"scala.$sub" || pkg.startsWith(s"scala.$sub.")) ||
+      StdlibModel.holds(s"$pkg.$name")
+
+  // The JDK's public API; `sun.*`, `jdk.internal.*` and `com.sun.*` are its implementation.
+  private def jdkPackage(pkg: String): Boolean =
+    List("java", "javax").exists(r => pkg == r || pkg.startsWith(r + "."))
 
   // `scala/*/` in scala-library 3.9.0 and scala3-library 3.9.0.
   private val ScalaPackages = List(

@@ -3,6 +3,7 @@ package cardinality.request
 import scala.meta.*
 
 import cardinality.analysis.{AnalysisWork, MethodAnalysis}
+import cardinality.tasty.TastyStubs
 
 import MethodAnalysis.{Entry, Input, Limits}
 
@@ -83,8 +84,10 @@ object AnalysisQuery {
       }
   }
 
+  // The submitted sources' trees; dependency stubs are the renderer's own output, bounded by the
+  // classes it renders (the JDK's alone are over a million nodes), not a request's size.
   private def inspectTrees(request: Request, work: AnalysisWork): Unit =
-    request.inputs.sortBy(_.path).foreach { input =>
+    request.inputs.filterNot(_.path.startsWith(TastyStubs.Prefix)).sortBy(_.path).foreach { input =>
       var pending = List((input.tree: scala.meta.Tree) -> 0)
       while (pending.nonEmpty) {
         val (tree, depth) = pending.head

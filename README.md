@@ -223,8 +223,13 @@ reached ω or beyond and which type names stopped it from being tighter.
 and Java class of a dependency joins the environment as a signature stub
 (`cardinality.tasty.TastyStubs`), so a row over a dependency's type gets a number, or a specific
 `?`, instead of `declaration not supplied`. Stubs are never measured or reported, supply no
-bodies, and nothing is rendered into `scala.*`, `java.*` or `javax.*`; Scala 2 classes stay
-unsupplied. A Java enum is its constants and a Java interface the record of its methods; a Java
+bodies, and nothing is rendered that the stdlib model reads: `scala` and the Scala library's own
+subpackages (`scala.collection`, `scala.util`, …), and the JDK classes the model holds
+(`java.lang.String`, `java.util.List`, `java.io.Serializable`, …). The rest of the JDK's `java.*`
+and `javax.*` classes render like a dependency's, and a library's own namespace under `scala`
+(`scala.meta`) is a dependency's too. Scala 2 classes stay unsupplied. When one class file is on
+the classpath twice, the first copy the JVM would load is read; a shaded copy (TASTy that still
+declares its original package) is not read at all. A Java enum is its constants and a Java interface the record of its methods; a Java
 class's constructor state, a sealed Java type's subclasses and a raw type are not read, so a
 reading through them refuses. With stubs present, each target gets a fixed quota of
 300,000 logical work steps. A stub that cannot be read is listed as `dependency stub not read`

@@ -236,9 +236,12 @@ final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassf
           .filterNot(_.pos.isUnknown)
           .fold((Int.MaxValue, 0))(t => (t.pos.startLine, t.pos.startColumn))
       catch { case NonFatal(_) => (Int.MaxValue, 0) }
-    def signature(d: Symbol): String = d match {
-      case t: TermSymbol => attempt(t.signature.toString, "")
-      case _             => ""
+    // A Java class has no positions, and a field may share its name and erased signature with a
+    // method (`Enum.name` and `name()`): the declared type breaks the tie.
+    def signature(d: Symbol): (String, Boolean, String) = d match {
+      case t: TermSymbol =>
+        (attempt(t.signature.toString, ""), t.isMethod, attempt(t.declaredType.toString, ""))
+      case _ => ("", false, "")
     }
     c.declarations.sortBy(d => (position(d), d.name.toString, signature(d)))
   }

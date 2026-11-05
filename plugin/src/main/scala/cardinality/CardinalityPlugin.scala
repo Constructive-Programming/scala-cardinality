@@ -151,7 +151,8 @@ object CardinalityPlugin extends AutoPlugin {
     cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
     // An sbt 2 cached task: keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub
     // format, its file is restored from the machine-wide cache instead of rendered again.
-    cardinalityStubFormat := StubFile.Format,
+    // The JDK's classes render too: another JDK is another rendering.
+    cardinalityStubFormat := s"${StubFile.Format} on Java ${sys.props("java.version")}",
     cardinalityDependencyStubs := {
       val converter = fileConverter.value
       val _ = cardinalityStubFormat.value

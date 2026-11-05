@@ -302,6 +302,14 @@ private[cardinality] object StdlibModel {
     * name, or a qualified one through the root imports' own prefixes or the entry's fully qualified
     * name, `_root_`-anchored or not.
     */
+  /** Whether the model reads the declaration of this fully qualified name: a table entry, a root or
+    * marker type, or a parent whose members it lists (`java.io.Serializable`).
+    */
+  def holds(fqn: String): Boolean =
+    byName.contains(fqn) || parents.contains(fqn) || witnesses.valuesIterator.exists(
+      _.contains(fqn)
+    )
+
   def entry(name: String): Option[Entry] =
     rooted(name).flatMap(path => spelled.get(path).flatMap(byName.get).orElse(byName.get(path)))
 
