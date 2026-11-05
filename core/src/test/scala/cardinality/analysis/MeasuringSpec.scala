@@ -47,6 +47,35 @@ class MeasuringSpec extends Specification {
       .and(render(Measuring.rows(inputs.reverse, workers = 3)) must_== sequential)
   }
 
+  // The steps measuring `Host.unit` spends, with `params` as Host's constructor parameters.
+  private def spent(params: String): Long = {
+    val code =
+      "package pr\nfinal case class Leaf(a: Mid, b: Mid, c: Option[Mid])\n" +
+        "final case class Mid(x: Boolean, y: Option[Boolean], z: Either[Boolean, Boolean])\n" +
+        (1 to 12).map(i => s"trait Rec$i { def m$i(x: Leaf): Leaf; def n$i: Leaf }\n").mkString +
+        "trait Rec extends " + (1 to 12).map(i => s"Rec$i").mkString(" with ") + "\n" +
+        s"class Host($params) { def unit(): Unit = () }"
+    val sources = List(input("r/R.scala", code))
+    val work = new AnalysisWork(Long.MaxValue, MethodAnalysis.Limits().maxTypeDepth)
+    val index = new MethodAnalysis.Index(sources, MethodAnalysis.Limits(), Some(work))
+    val target = index.selected(Set("r/R.scala"), Set("pr.Host.unit")).head
+    work.target(Measuring.TargetWork)
+    index.measure(target).count.render must_== "1"
+    work.consumed
+  }
+
+  // A receiver's record is read once per target: a second parameter of the same record type
+  // meets the readings of the first again (member function types are built once per member, and
+  // a target's readings and name lookups are kept), so it costs a fraction of the first: only the
+  // readings at its own reference (the record itself, a member's built function type) are new.
+  "a target reads a record met again from what it already read" in {
+    val none = spent("")
+    val one = spent("r: Rec") - none
+    val two = spent("r: Rec, s: Rec") - none
+    // Read afresh, the second record costs what the first does (20,945 steps each before).
+    (one must be_>(0L)).and(two - one must be_<(one * 2 / 3))
+  }
+
   "a library shared by every worker reads as one built per worker" in {
     val library = Library.of(inputs.map(_.tree))
     val sequential = render(MethodAnalysis.analyze(inputs))

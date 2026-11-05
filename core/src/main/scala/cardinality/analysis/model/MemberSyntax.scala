@@ -289,12 +289,22 @@ private[cardinality] object MemberSyntax {
     else
       Right(
         Callable(
-          Type.Function(Type.FuncParamClause(params.flatMap(_.decltpe)), result),
+          functions.synchronized(
+            functions.computeIfAbsent(
+              result,
+              _ => Type.Function(Type.FuncParamClause(params.flatMap(_.decltpe)), result)
+            )
+          ),
           member,
           groups.flatMap(_.tparamClause.values),
           rigid
         )
       )
   }
+
+  // One function type per member result, built once: a tree built around the member's types
+  // copies them, and a reading keyed by tree identity (`MethodAnalysis.Index.resolve`) would
+  // never meet the same copy twice. Trees compare by identity, so the result tree is the key.
+  private val functions = new java.util.WeakHashMap[Type, Type.Function]()
 
 }

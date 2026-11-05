@@ -147,6 +147,17 @@ object MethodAnalysis {
 
     private val indexer = new SourceIndex(inputs, work)
 
+    // The current target's readings, by the type tree read (its identity) and the context it is
+    // read in: a reading is a function of both, so one met again is not read again. Cleared per
+    // target, so what a target spends does not depend on the targets measured before it.
+    private val reads = scala.collection.mutable.HashMap.empty[(Type, ResolutionContext), Resolved]
+
+    // Likewise its name lookups, and each scope's binders.
+    private val names =
+      scala.collection.mutable.HashMap.empty[(String, Frame, Option[(String, Int)]), Found]
+
+    private val binders = scala.collection.mutable.HashMap.empty[Frame, Map[String, Resolved]]
+
     val operators = new TypeOperators(resolve(_, _), constructorKinds.of(_, _))
     val boundedBinders: Map[String, (Frame, Type.Param)] = indexer.boundedBinders.toMap
     private val representations = new Representations(indexer, packageGrant, this)
@@ -265,8 +276,12 @@ object MethodAnalysis {
     // Measuring one signature must not lose the report: scalameta's printers can throw on syntax
     // they cannot spell, and a signature the analysis cannot read is a diagnostic, not a crash.
     def measure(target: Target): Entry =
-      try measurement(target)
-      catch
+      try {
+        reads.clear()
+        names.clear()
+        binders.clear()
+        measurement(target)
+      } catch
         case error: AnalysisWork.Exhausted =>
           Entry.of(target, kindOf(target), Count.Unresolved(List(error.getMessage)))
         case NonFatal(error) =>
@@ -277,7 +292,7 @@ object MethodAnalysis {
           )
 
     def typeParameters(frame: Frame): Map[String, Resolved] =
-      SourceBindings.of(frame, inspect, operators)
+      binders.getOrElseUpdate(frame, SourceBindings.of(frame, inspect, operators))
 
     def resolve(
         tpe: Type,
@@ -289,13 +304,21 @@ object MethodAnalysis {
     def resolve(
         tpe: Type,
         context: ResolutionContext
-    ): Resolved =
+    ): Resolved = {
       // The reference's own position decides which import clauses have bound their names:
       // a clause binds from its position onward, so a read before it sees only the scope the
       // compiler would give that position. A transparent alias's body, reconstructed under
       // substitution, carries no position: inside the caller's own file the caller's position
       // decides; a reconstructed tree read under another file's scope binds no import.
-      expanding("resolve")(readType(tpe, context.referencing(tpe)))
+      val at = context.referencing(tpe)
+      reads.get(tpe -> at) match {
+        case Some(known) => known
+        case None        =>
+          val read = expanding("resolve")(readType(tpe, at))
+          reads.update(tpe -> at, read)
+          read
+      }
+    }
 
     // A simple name the template body inherits (or may inherit from an unread parent) is read as
     // that member before any other reading of the name, an alias projection's included.
@@ -411,20 +434,23 @@ object MethodAnalysis {
       val at = context.referencing(tpe)
       inheritedMembers.find(name, at) match {
         case Some(found) => found.fold(Found.Blocked(_), (entry, _) => Found.Entry(entry))
-        case None        =>
-          lookupIndex.resolveName(name, at.frame, at.at, accessible, inspect, inheritedMembers)
+        case None        => named(name, at.frame, at.at)
       }
     }
 
     def resolveName(name: String, context: ResolutionContext): Found =
-      lookupIndex.resolveName(
-        name,
-        context.frame,
-        context.at,
-        accessible,
-        inspect,
-        inheritedMembers
-      )
+      named(name, context.frame, context.at)
+
+    // What a name means where it is written: a function of the name, the scope and the position.
+    private def named(name: String, frame: Frame, at: Option[(String, Int)]): Found =
+      names.get((name, frame, at)) match {
+        case Some(known) => known
+        case None        =>
+          val found =
+            lookupIndex.resolveName(name, frame, at, accessible, inspect, inheritedMembers)
+          names.update((name, frame, at), found)
+          found
+      }
 
     def lookup(name: String, frame: Frame): List[TypeEntry] = {
       inspect("lookup")
