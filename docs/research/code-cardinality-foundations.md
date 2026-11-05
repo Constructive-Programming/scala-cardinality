@@ -910,7 +910,7 @@ records](capability-records.md).
 pattern-defined members (a `var` reads as its value: D26), members hidden at the use site, hidden
 state of an open class or of a parameterized parent no class passes arguments to (no instance may
 exist: X6), unexposed or non-injectively exposed final fields, non-public or scoped constructors,
-recursive records (the type reading's structural-proof guard) are refused with their reasons, and
+recursive records (the type reading's cycle guard) are refused with their reasons, and
 polymorphic open members are read by D24; a member's type is read at the record's arguments, its
 template's aliases included (`type T = A` is the record's argument, never the template's binder or a
 member binder that shadows it), its proper parameters remembering their arguments as written so a

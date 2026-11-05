@@ -129,7 +129,7 @@ either, so the meeting is refused.
 | upper bound to an open trait or abstract class | `upper bound requires capability analysis` |
 | bound to a type the solver cannot eliminate (paths, proofs, packages) | `bound to a structural type requires coercion analysis` |
 | foreign bound or evidence type | the foreign name's own reason |
-| a bound whose structure holds its binder again (`A <: P[A]`, `[B <: Option[A], A <: B]`) | `recursive bound requires a structural proof` |
+| a bound whose structure holds its binder again (`A <: P[A]`, `[B <: Option[A], A <: B]`) | `recursive bound not read` |
 | the same through a subtype proof (`using A <:< B`, `B <: P[A]`) | `… a structural view holds a value of its own type` |
 | bounds referring back through bounds alone (invalid: E140), used or not, a `Unit` result too | `cyclic type bound (an invalid program)` |
 | `AnyRef` / `AnyVal` / `Matchable` above a structural lower bound whose class is not fixed or differs (`A >: Flag <: AnyVal`: every call E057) | `structural lower bound under a class bound requires class analysis` |

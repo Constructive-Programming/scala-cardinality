@@ -276,7 +276,7 @@ number of binders or parameters per clause is always another slot.
 | Member hidden at the use site | `capability record with members hidden at the use site: C` |
 | Extension or pattern-defined member (a `var` is its value, register D26: an abstract one its getter, a concrete one derived) | `capability record with an extension member not read: C`, `destructured member of an open receiver not read: C` |
 | Trait parameters | `capability record with trait parameters not read: C` |
-| Recursive record (a member's type mentions the record) | `recursive type requires a structural proof: C` (the type reading's own guard) |
+| Recursive record (a member's type mentions the record) | `recursive type not read: C` (the type reading's own guard) |
 | Polymorphic open member not reduced | `polymorphic capability binder: M (…)` ([PB0–PB4](polymorphic-members-and-saturation.md)) |
 | Possible view | `overridable member may re-enter the measured declaration: C.m` |
 | Record member that may be the declaration on its receiver | `capability record member may be the measured declaration on its receiver: C.m` |

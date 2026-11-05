@@ -276,7 +276,7 @@ private[cardinality] object MethodProjections {
       val (entry, declared) = declaration
       val key = entry.key
       val parameters = declared.tparamClause.values
-      if (context.visiting(key)) Left(s"recursive type requires a structural proof: $key")
+      if (context.visiting(key)) Left(s"recursive type not read: $key")
       else
         TypeApplications
           .checkApplication(name, parameters, args.size)

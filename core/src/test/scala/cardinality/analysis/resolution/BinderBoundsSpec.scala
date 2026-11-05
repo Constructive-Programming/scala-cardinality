@@ -140,7 +140,7 @@ class BinderBoundsSpec extends Specification {
       }
     """)
     def recursive(name: String, bound: String) =
-      refused(counts, name, s"recursive bound requires a structural proof: $bound")
+      refused(counts, name, s"recursive bound not read: $bound")
     recursive("R.fbound", "A <: P[A]")
       .and(recursive("R.toBool", "A <: P[A]"))
       .and(recursive("R.toInt", "A <: P[A]"))

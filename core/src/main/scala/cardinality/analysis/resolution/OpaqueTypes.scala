@@ -10,12 +10,11 @@ import cardinality.types.Trees
 private[cardinality] object OpaqueTypes {
 
   /** Whether the source declaration `entry` can be read from `context`: not one this reading is
-    * already inside (a cycle needs a structural proof), and not an opaque type hidden from the use
-    * site.
+    * already inside (a cycle is not read), and not an opaque type hidden from the use site.
     */
   def readable(context: ResolutionContext, entry: TypeEntry): Either[String, Unit] =
     if (context.visiting(entry.key))
-      Left(s"recursive type requires a structural proof: ${entry.key}")
+      Left(s"recursive type not read: ${entry.key}")
     else if (hidden(entry, context.useSite))
       Left(s"opaque representation is not visible at use site: ${entry.key}")
     else Right(())

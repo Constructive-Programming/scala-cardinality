@@ -671,7 +671,7 @@ class CapabilitySpec extends Specification {
       object U { def rec[A](t: Rec[A]): A = ??? }
     """)
     refused(found("Inf2.x"), "overridable member's result type is inferred: y")
-      .and(refused(found("U.rec"), "recursive type requires a structural proof: Rec"))
+      .and(refused(found("U.rec"), "recursive type not read: Rec"))
   }
 
   // Only the final get observes H's hidden x: refused (the true count is 4: t.get, !t.get, true,

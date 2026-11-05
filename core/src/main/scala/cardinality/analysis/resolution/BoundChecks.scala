@@ -32,7 +32,7 @@ private[cardinality] object BoundChecks {
     val edges = subtypeEdges(declared, evidence)
     declared.flatMap { (id, bounds) =>
       val syntax = bounds.parameter.syntax
-      if (recursive(id)) Some(id -> s"recursive bound requires a structural proof: $syntax")
+      if (recursive(id)) Some(id -> s"recursive bound not read: $syntax")
       else
         Option
           .when(!classesHold(id, bounds, declared, edges))(
