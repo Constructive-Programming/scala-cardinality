@@ -50,7 +50,10 @@ private[cardinality] object TypeApplications {
     * declared type of its own.
     */
   def boundNames(patterns: List[Pat]): List[String] =
-    patterns.flatMap(_.collect { case Pat.Var(name) => name.value })
+    patterns.flatMap(_.collect {
+      case Pat.Var(name)      => name.value
+      case Pat.Repeated(name) => name.value
+    })
 
   /** A value class: its first parent is `AnyVal`. */
   def valueClass(c: Defn.Class): Boolean =
@@ -76,11 +79,9 @@ private[cardinality] object TypeApplications {
     case _            => tpe.syntax
   }
 
-  /** A type lambda; a constructor placeholder (`F[_]`'s anonymous form) is refused. */
   def lambda(tpe: Type): Option[Either[String, Type.Lambda]] = tpe match {
-    case lambda: Type.Lambda     => Some(Right(lambda))
-    case _: Type.AnonymousLambda => Some(Left(s"constructor placeholder: ${tpe.syntax}"))
-    case _                       => None
+    case lambda: Type.Lambda => Some(Right(lambda))
+    case _                   => TypePlaceholders.lambda(tpe)
   }
 
   /** A binder a polymorphic function type cannot take: any bound, or a kind of its own. */

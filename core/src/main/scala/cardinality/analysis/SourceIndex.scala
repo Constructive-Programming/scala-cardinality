@@ -137,7 +137,11 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     * nested in an instance or a block is a value of the family no named subtype enumerates.
     */
   private[cardinality] def unnamedInstances(file: String, family: String): Option[String] =
-    if (throughAlias(file, family))
+    if (givenTargets.contains((file, family)))
+      Some(s"sealed family has a given instance outside the fragment: $family")
+    else if (anonymousTargets.contains((file, family)))
+      Some(s"sealed family has anonymous instances in its file: $family")
+    else if (throughAlias(file, family))
       Some(s"sealed family is extended through an alias: $family")
     else
       innerChildren
@@ -199,6 +203,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
         owner.path :+ name,
         Some(owner),
         opening.stats,
+        typeParams = opening.tparams,
         params = opening.params,
         local = opening.local,
         parents = opening.parents,
@@ -264,10 +269,16 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def indexImport(frame: Frame, clause: Import): Unit =
     clause.importers.foreach { importer =>
-      SourceIndex.importPath(importer.ref).map(ImportBinding.of(importer, _)).foreach { binding =>
-        if (binding.named.nonEmpty || binding.wildcards.nonEmpty || binding.givens.nonEmpty)
-          imports += ((frame.id, binding))
-      }
+      val binding = SourceIndex
+        .importPath(importer.ref)
+        .fold(ImportBinding.unfollowed(importer))(
+          ImportBinding.of(importer, _)
+        )
+      if (
+        binding.named.nonEmpty || binding.wildcards.nonEmpty || binding.givens.nonEmpty ||
+        binding.unfollowed.nonEmpty
+      )
+        imports += ((frame.id, binding))
     }
 
   private def indexExport(frame: Frame, clause: Export): Unit =
@@ -695,8 +706,9 @@ object SourceIndex {
 
   /** The name an explicit selector binds: its own, or a rename's new one. */
   def boundName(importee: Importee): Option[String] = importee match {
-    case e: Importee.Name => Some(e.name.value)
-    case _                => None
+    case e: Importee.Name   => Some(e.name.value)
+    case e: Importee.Rename => Some(e.rename.value)
+    case _                  => None
   }
 
   /** The names an importer's wildcard leaves out: an unimport (`N as _`) and the original of a

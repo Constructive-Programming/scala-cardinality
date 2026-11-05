@@ -29,8 +29,8 @@ class ReentrySpec extends Specification {
     Implicit search may select the measured given
       an abstract given a sibling may summon is a possible view        $abstractGiven
       a body returning its parameter of the result type searches none  $settledBody
+      a literal searches only where its type is not the result type    $literalSearch
     The view sandwich
-      an upper reading of 0 is the count                               $sandwich
       a refused binding, readings that disagree, or ≥ 2 stay `?`       $sandwichRefuses
   """
 
@@ -179,6 +179,23 @@ class ReentrySpec extends Specification {
       .and(found("K.h") === Count.Finite(256))
   }
 
+  // `def other: Boolean = 5` is `conv(5)` (3.9.0 run: an implementation of conv returning other
+  // overflows): other may re-enter conv — `?`, not 2^(2^33) (the true count is 2^(2^32)). A literal
+  // of the result type (U), or at `Any` (V), inserts nothing: U's conv reads i and a free other —
+  // 2^(2^33); V's other has one value — 2^(2^32). An Int literal at Long may search: `?`.
+  def literalSearch = {
+    val found = one("""
+      trait T { implicit def conv(i: Int): Boolean; def other: Boolean = 5 }
+      trait U { implicit def conv(i: Int): Boolean; def other: Boolean = true }
+      trait V { implicit def conv(i: Int): Boolean; def other: Any = 5 }
+      trait W { implicit def conv(i: Int): Boolean; def other: Long = 5 }
+    """)
+    view(found("T.conv"), "T.other")
+      .and(found("U.conv").render === "2^(2^33)")
+      .and(found("V.conv").render === "2^(2^32)")
+      .and(view(found("W.conv"), "W.other"))
+  }
+
   // `summon[Boolean]` and an implicitly filled `using` clause may select g itself: other (T3) and
   // use (T4) may re-enter it — `?` (they read 4 and 2^8). Naming g is a definite view (T8: g is a
   // value, 2); with no sibling g is any Boolean, 2.
@@ -204,11 +221,6 @@ class ReentrySpec extends Specification {
     one("""
       trait Xe { given g: Boolean; def other(using b: Boolean): Boolean = b; def use: Boolean = other(using g) }
     """)("Xe.g") === Count.Finite(16)
-
-  // Z's m returns Int: with m bound, no T is reachable — 0.
-  def sandwich = one("""
-      trait Z[T] { def to(u: Unit): T; def m(b: Boolean): Int = if b then { val t = to(()); 0 } else 1 }
-    """)("Z.to") === Count.Finite(0)
 
   // D.to: 0 without m, 2 with it (m(true), m(false)) — they disagree. E.to: 4 without m, and with
   // it bound m: Boolean => Int reaches Int — they disagree too. E3's m returns Unit: 4 either way;

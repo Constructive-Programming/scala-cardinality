@@ -14,6 +14,7 @@ class OpaqueTypeScopeSpec extends Specification {
     Opaque representation visibility
       resolve generic wraps in the defining object              $objectScope
       retain visibility in nested defining-object scopes        $nestedScope
+      resolve top-level definitions in the same source           $topLevelScope
       resolve the named top-level companion scope                $companionScope
       count the six Direct-like wrapper signatures               $directLikeSignatures
       keep unrelated same-file objects opaque                   $unrelatedObject
@@ -25,6 +26,8 @@ class OpaqueTypeScopeSpec extends Specification {
       count both constructor capture and input without shadowing $nonShadowing
       count just the input when no constructor capture exists     $inputOnly
       keep representations hidden through constructor fields     $productBoundary
+      keep inherited declarations hidden from an external caller $inheritedBoundary
+      preserve failed inherited opaque argument substitutions    $inheritedArgumentBoundary
       keep type-lambda aliases hidden outside their scope         $lambdaBoundary
       read a higher-kinded opaque type inside its scope           $higherKindedBoundary
       compile the visibility rules with Scala, not just parsing  $compiledVisibility
@@ -56,6 +59,13 @@ class OpaqueTypeScopeSpec extends Specification {
       "Owner.Nested.get",
       "Owner.scala" ->
         "object Owner { opaque type T[A] = A; object Nested { def get[A](a: T[A]): A = ??? } }"
+    ) === Count.Finite(1)
+
+  def topLevelScope =
+    count(
+      "wrap",
+      "Top.scala" ->
+        "opaque type T[A] = A; def wrap[A](a: A): T[A] = ???"
     ) === Count.Finite(1)
 
   def companionScope =
@@ -161,6 +171,29 @@ class OpaqueTypeScopeSpec extends Specification {
         "Owner.scala" ->
           ("object Owner { opaque type T[A] = A }; case class Box[A](value: Owner.T[A]); " +
             "def get[A](box: Box[A]): A = ???")
+      )
+    )
+
+  def inheritedBoundary =
+    hidden(
+      count(
+        "sample.Child.get",
+        "Type.scala" ->
+          "package sample; opaque type T[A] = A; trait Parent[A] { val value: T[A] }",
+        "Use.scala" ->
+          "package sample; class Child[A] extends Parent[A] { def get: A = ??? }"
+      )
+    )
+
+  def inheritedArgumentBoundary =
+    hidden(
+      count(
+        "Child.get",
+        "Types.scala" ->
+          """opaque type T[A] <: A = A
+        |trait Parent[X] { val value: X }
+        |abstract class Child[A] extends Parent[T[A]] { def get: A = value }
+        |""".stripMargin
       )
     )
 

@@ -13,10 +13,13 @@ private[cardinality] object Walk {
   // Trees are parsed and reprinted under Scala 3 dialect rules.
   private given scala3: Dialect = dialects.Scala3
 
-  final private[cardinality] case class Introduced(definitions: List[Definition]) {
+  final private[cardinality] case class Introduced(
+      contributes: Size,
+      definitions: List[Definition]
+  ) {
 
-    /** Adds the nested definitions of this definition's body; `solve` is false for an object's
-      * body, which its enclosing body already solved.
+    /** Adds nested definitions and their inhabitants from the body of this definition; `solve` is
+      * false for an object's body, which its enclosing body already solved.
       */
     def inside(
         scope: Scope,
@@ -24,13 +27,17 @@ private[cardinality] object Walk {
         stats: List[Stat],
         solve: Boolean = true
     ): Introduced = {
-      Introduced(definitions ++ of(stats, scope, prefix, top = false, solve).definitions)
+      val body = of(stats, scope, prefix, top = false, solve)
+      copy(
+        contributes = contributes + body.contributes,
+        definitions = definitions ++ body.definitions
+      )
     }
 
   }
 
   private[cardinality] object Introduced {
-    val none: Introduced = Introduced(Nil)
+    val none: Introduced = Introduced(NothingSize, Nil)
   }
 
   /** One file's statements in one package, with what that file adds to every read of them — the
@@ -59,7 +66,10 @@ private[cardinality] object Walk {
     val clauses = Imports.before(stats)
     stats.foldLeft(Introduced.none) { (acc, st) =>
       val introduced = statement(body.within(Layer(imports = clauses(st))), prefix, top)(st)
-      Introduced(acc.definitions ++ introduced.definitions)
+      Introduced(
+        contributes = acc.contributes + introduced.contributes,
+        definitions = acc.definitions ++ introduced.definitions
+      )
     }
   }
 
@@ -112,7 +122,7 @@ private[cardinality] object Walk {
 
   // Solving reads no row's reasons: a row re-reads its own syntax once the body is solved. Every
   // equation reads with the binders of the place it was written and with its own statement's view,
-  // whoever reads it.
+  // and knows itself (`Scope.readingItself`), whoever reads it.
   private def system(bodies: List[Body], base: Scope): Scope = {
     val stats = bodies.flatMap(_.stats)
     val views = bodies.flatMap(b => Namespaces.views(b.modules, b.viewAt))
@@ -196,12 +206,19 @@ private[cardinality] object Walk {
   private def within(named: Named, view: Scope => Scope): Named =
     named.viewed(view)
 
-  // An equation that reads with `site`'s binders.
-  private def mark(named: Named, site: List[Binder]): Named =
-    named.copy(
-      equation = sc => named.equation(Scope.bindersLens.replace(site)(sc)),
+  // An equation that reads with `site`'s binders and knows itself, so a reference to it with its
+  // own parameters inside its own equation is a recursion — and the same spelling anywhere else is
+  // not.
+  private def mark(named: Named, site: List[Binder]): Named = {
+    lazy val self: Named = named.copy(
+      equation = sc =>
+        named.equation(
+          Scope.selfLens.replace(Some(Itself.of(self)))(Scope.bindersLens.replace(site)(sc))
+        ),
       read = sc => named.read(Scope.bindersLens.replace(site)(sc))
     )
+    self
+  }
 
   /** Each package body of a source (`unit`), flattened to the path an editor shows (`package a`
     * then `package b` is `a.b`), with what the file adds to reads inside it: chained clauses open
@@ -307,7 +324,7 @@ private[cardinality] object Walk {
   }
 
   /** The scope a definition's body reads in, entered as the walk enters it — an object through its
-    * view, a concrete class with its own value bound, any of them with its binders — with `solve`
+    * view, a class or enum with its own value bound, any of them with its binders — with `solve`
     * standing in for solving the body's statements.
     */
   private[cardinality] def bodyScope(scope: Scope, d: Defn)(
@@ -318,6 +335,9 @@ private[cardinality] object Walk {
       case o: Defn.Object => moduleView(scope, o).getOrElse(solve(template(d), declared(scope, d)))
       case c: Defn.Class if Counter.isConcreteClass(c) =>
         solve(template(d), declared(own, d).updated(named(d), sizeOf(own)(d)))
+      case e: Defn.Enum =>
+        val body = EnumCompanions.bodyScope(Inheritance.enter(own, e), e)
+        solve(template(d), body.updated(named(d), sizeOf(own)(d)))
       case _ => solve(template(d), declared(scope, d))
     }
   }
@@ -329,9 +349,22 @@ private[cardinality] object Walk {
       case Bound.Module(prefix, _) => Namespaces.Module(named(d), prefix, d).view(scope)
     }
 
-  // A class, trait or enum as a parent; `around` is the scope the definition is written in.
-  private[cardinality] def members(d: Defn, owner: TypeName, around: () => Scope): Members =
-    new Members(owner, d, around)
+  // The type members a body declares: what a qualified reference can resolve to. A member with a
+  // body reads as written, in the body that declares it; an abstract one is supplied by
+  // implementors. `around` is the scope the definition is written in.
+  private[cardinality] def members(d: Defn, owner: TypeName, around: () => Scope): Members = {
+    val stats = template(d)
+    new Members(
+      owner,
+      Counter.parameterNames(d),
+      stats.collect {
+        case t: Defn.Type if !t.mods.exists(_.is[Mod.Opaque]) => TypeName.of(t.name.value) -> t.body
+      }.toMap,
+      stats.collect { case t: Decl.Type => TypeName.of(t.name.value) }.toSet,
+      d,
+      around,
+    )
+  }
 
   /** The term names a definition's body binds: its constructor parameters, with their declared
     * types, its self alias (`self: Prism =>`, of the type it declares; `self =>` is `this`, of no
@@ -371,6 +404,7 @@ private[cardinality] object Walk {
         )
       case v: Defn.Val => values(v.pats, v.decltpe.orElse(constructed(v.rhs)))
       case v: Defn.Var => values(v.pats, v.decltpe)
+      case v: Decl.Val => values(v.pats, Some(v.decltpe))
       case d: Defn.Def => List(TypeName.of(d.name.value) -> Bound.Value(None))
       case d: Decl.Def => List(TypeName.of(d.name.value) -> Bound.Value(None))
       case g: Defn.GivenAlias if g.name.value.nonEmpty =>
@@ -379,7 +413,8 @@ private[cardinality] object Walk {
     }.toMap
 
   // The names a `val` binds. A single variable has the declared or constructed type; every
-  // variable of a tuple, extractor or typed pattern is a value whose type is not read here.
+  // variable of a tuple, extractor or typed pattern is a value whose type is not read here (a typed
+  // one, `(p: Prism, n)`, has the type it is ascribed).
   private def values(pats: List[Pat], known: Option[Type]): List[(TypeName, Bound)] =
     pats.flatMap {
       case Pat.Var(name) => List(TypeName.of(name.value) -> Bound.Value(known))
@@ -387,8 +422,9 @@ private[cardinality] object Walk {
     }
 
   private def variables(pattern: Tree): List[(TypeName, Bound)] = pattern match {
-    case Pat.Var(name) => List(TypeName.of(name.value) -> Bound.Value(None))
-    case other         => other.children.flatMap(variables)
+    case Pat.Typed(Pat.Var(name), tpe) => List(TypeName.of(name.value) -> Bound.Value(Some(tpe)))
+    case Pat.Var(name)                 => List(TypeName.of(name.value) -> Bound.Value(None))
+    case other                         => other.children.flatMap(variables)
   }
 
   // The class `new C(...)` constructs, without a refinement: the value's type, read syntactically.
@@ -433,7 +469,9 @@ private[cardinality] object Walk {
   private[cardinality] def opening(scope: Scope, path: List[String]): Scope =
     Scope.openedLens.modify(path.map(TypeName.of) :: _)(scope)
 
-  // One definition: the row a report reads, and what its own body introduces.
+  // One definition: the row a report reads, what it contributes to its body, and what its own
+  // body introduces. A row may show more than the contribution — an alias names another type's
+  // values, an opaque type hides them, an abstract type has none of its own.
   private def defnWalk(scope: Scope, prefix: List[String], top: Boolean): Defn => Introduced = {
     case d: Defn.Class if Counter.isAbstractClass(d) => openRow(scope, prefix, d)
     case d: Defn.Class                               =>
@@ -451,7 +489,7 @@ private[cardinality] object Walk {
     // companion's value is its own and the type keeps the name.
     case d: Defn.Object =>
       measured(scope, d) { s =>
-        val row = introduced(prefix, d, Definition.Kind.Object, Nil, Some(UnitSize))
+        val row = introduced(prefix, d, Definition.Kind.Object, Nil, Some(UnitSize), UnitSize)
         moduleView(s, d) match {
           case Some(view) => row.inside(view, prefix :+ named(d).value, template(d), solve = false)
           case None       => row.inside(declared(s, d), prefix :+ named(d).value, template(d))
@@ -468,17 +506,18 @@ private[cardinality] object Walk {
           d,
           Definition.Kind.Opaque,
           s.unbound,
-          Some(represented)
+          Some(represented),
+          Counter.defnIn(s)(d)
         )
       }
     // A constructor alias names a *function* on types: the row is a shape, not a question.
     case d: Defn.Type if d.body.isInstanceOf[Type.Lambda] =>
-      Introduced(List(row(prefix, d, Definition.Kind.Constructor, None)))
+      Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Constructor, None)))
     // A reference to the alias holds the aliased type's values; the alias itself adds none.
     case d: Defn.Type =>
       measured(scope, d) { s =>
         val aliased = sizeOf(s)(d)
-        introduced(prefix, d, Definition.Kind.Alias, s.unbound, Some(aliased))
+        introduced(prefix, d, Definition.Kind.Alias, s.unbound, Some(aliased), NothingSize)
       }
     // An enum case is counted by its enum; it has no body of its own.
     case _: Defn.EnumCase | _: Defn.RepeatedEnumCase => Introduced.none
@@ -487,7 +526,7 @@ private[cardinality] object Walk {
     case d @ (_: Defn.Val | _: Defn.Var) if top =>
       measured(scope, d) { s =>
         val size = Counter.defnIn(s)(d)
-        introduced(prefix, d, Definition.Kind.Value, s.unbound, Some(size))
+        introduced(prefix, d, Definition.Kind.Value, s.unbound, Some(size), size)
       }
     // scalameta's `Defn` is not sealed and hides `Defn.Quasi` as `private[meta]`, so an
     // exhaustive match is impossible. Every other member — nested values, methods, givens —
@@ -505,13 +544,16 @@ private[cardinality] object Walk {
       case Some(family) =>
         measured(scope, d) { s =>
           family.equation(s)
-          introduced(prefix, d, Definition.Kind.Abstract, s.unbound, s.size(name))
+          introduced(prefix, d, Definition.Kind.Abstract, s.unbound, s.size(name), NothingSize)
         }
       case _ if scope.unsummed(name).isDefined =>
         val reason = List(Scope.unsummedReason(name, scope.unsummed(name)))
-        Introduced(List(row(prefix, d, Definition.Kind.Abstract, None, reason)))
+        Introduced(NothingSize, List(row(prefix, d, Definition.Kind.Abstract, None, reason)))
       case _ =>
-        Introduced(List(row(prefix, d, Definition.Kind.Abstract, scope.resolve(name))))
+        Introduced(
+          NothingSize,
+          List(row(prefix, d, Definition.Kind.Abstract, scope.resolve(name))),
+        )
     }
   }
 
@@ -530,27 +572,30 @@ private[cardinality] object Walk {
       scope.size(named(other)).getOrElse(measured)
   }
 
-  // Measures one definition with a scope that records only its own reasons, noting a lazy cycle
-  // the solver could not complete.
+  // Measures one definition with a scope that records only its own reasons, reading as the
+  // definition's own equation does — so a reference to itself is its recursion — and noting a
+  // lazy cycle the solver could not complete.
   private def measured(scope: Scope, d: Defn)(f: Scope => Introduced): Introduced = {
-    val s = Counter.signature(d)(scope).measured
+    val own = Scope.selfLens.replace(scope.definition(named(d)).map(Itself.of))(scope)
+    val s = Counter.signature(d)(own).measured
     s.blocking(named(d)).foreach(s.noteBlocked(named(d), _, s.definition(named(d))))
     f(s)
   }
 
-  // A definition as its source sees it: the row a report lists it as, carrying the definition's own
-  // reasons, kept apart from its siblings'.
+  // A definition as its source sees it: the row a report lists it as, and the cardinality it
+  // contributes. The row carries the definition's own reasons, kept apart from its siblings'.
   private def introduced(
       prefix: List[String],
       d: Defn,
       kind: Definition.Kind,
       unbound: List[Definition.Unbound],
       size: Option[Size],
+      contributes: Size,
   ): Introduced =
-    Introduced(List(row(prefix, d, kind, size, unbound)))
+    Introduced(contributes, List(row(prefix, d, kind, size, unbound)))
 
-  // A concrete class or enum: measured with its binders in scope, its solved size bound in its
-  // body; the body's own definitions are introduced beneath the updated scope.
+  // A concrete class or enum: measured with its binders in scope, contributing the solved size
+  // to its body; the body's own definitions are introduced beneath the updated scope.
   private def sizedRow(scope: Scope, prefix: List[String])(
       d: Defn.Class | Defn.Enum
   )(withSize: (Scope, Size) => Scope): Introduced =
@@ -559,7 +604,7 @@ private[cardinality] object Walk {
       val kind = d match
         case _: Defn.Class => Definition.Kind.Class
         case _: Defn.Enum  => Definition.Kind.Enum
-      introduced(prefix, d, kind, s.unbound, Some(size))
+      introduced(prefix, d, kind, s.unbound, Some(size), size)
         .inside(withSize(s, size), instances(prefix, d), template(d))
     }
 
@@ -614,6 +659,12 @@ private[cardinality] object Walk {
     case m: Member                => TypeName.of(m.name.value)
     case other                    => TypeName.of(Spelling.of(other))
   }
+
+  // What a body holds together: what `Counter.source` reports for a source is this walk over its
+  // top-level statements, and what `stat` reports for a package statement is the same walk over
+  // the statements the package contains.
+  def body(stats: List[Stat], scope: Scope): Size =
+    of(stats, scope, Nil, top = true).contributes
 
   // The equations a body defines: one per named type, plus one per sealed parent the body
   // provides subtypes for. Each equation recomputes its cardinality from a scope, so the

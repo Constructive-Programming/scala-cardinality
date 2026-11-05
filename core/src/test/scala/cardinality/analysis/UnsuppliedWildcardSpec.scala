@@ -23,14 +23,18 @@ class UnsuppliedWildcardSpec extends Specification {
     A wildcard over a namespace no source supplies
       refuses a package member of another file it may shadow           $packageMember
       refuses a member of a record its field type names               $recordField
+      refuses the type a projection reads its member from             $projection
       refuses a prefix it may rebind, and a name under that prefix    $rebindsPrefix
       refuses the first name of a named import or a qualified type    $rebindsHead
       shadows an outer scope's supplied wildcard                       $shadowsOuterWildcard
       refuses a builtin a wildcard behind a doubted prefix may bind    $doubtedBuiltins
+      refuses Singleton for the marker where a wildcard may bind it    $singletonMarker
     Selectors and prefixes the reading does not follow
       a `given` selector may bind a path's first name                  $givenSelectors
       a supplied wildcard binding a value, an enum case                $valuesAndCases
+      an import whose prefix is no path                                $unfollowedPrefixes
       a package the sources spell only as a prefix is open             $prefixPackages
+      a parameter whose declared type is in doubt keeps that reason    $doubtedParameter
     Term heads a supplied clause binds (probes/a7fix2/spec)
       an object's inherited members, by kind, and an unsupplied parent $inheritedHeads
       the aliases an object's export clauses define                    $exportedHeads
@@ -103,6 +107,18 @@ class UnsuppliedWildcardSpec extends Specification {
     (found("p.V.get") === Count.Finite(4))
       .and(refused(found("p.V.wget"), "unresolved type: Two (may be imported by zzz.*)"))
       .and(refused(found("p.WBox.<init>"), "unresolved type: Two (may be imported by zzz.*)"))
+  }
+
+  // A projection `H#M` reads `H` where it is written, as any type name: `H#M` = Boolean (4) beside
+  // no wildcard, unread under `zzz.*` (probes/a7/proj).
+  def projection = {
+    val found = counts(
+      "p/H.scala" -> "package p\ntrait H { type M = Boolean }",
+      "p/U.scala" -> "package p\nimport zzz.*\nobject U { def pick(x: H#M): H#M = x }",
+      "p/V.scala" -> "package p\nobject V { def pick(x: H#M): H#M = x }"
+    )
+    refused(found("p.U.pick"), "unresolved type: H (may be imported by zzz.*)")
+      .and(found("p.V.pick") === Count.Finite(4))
   }
 
   // `compose` is package `p.compose` unless `zzz` declares a term `compose`, which the wildcard
@@ -192,6 +208,46 @@ class UnsuppliedWildcardSpec extends Specification {
     ).and(found("p.R.f") === Count.Finite(4))
   }
 
+  // `O.type & Singleton` is `O.type` only where `Singleton` is `scala.Singleton`: a `zzz` declaring
+  // `type Singleton = Nothing` makes it empty (scalac: probes/review-A7q/sc), and `quotes.reflect`
+  // declares its own `Singleton` (probes/review-A7/r4/m.scala). Without either wildcard: 1.
+  def singletonMarker = {
+    val single = "def single(o: O.type): O.type & Singleton = o"
+    val found = counts(
+      "s/S.scala" ->
+        s"""|package s
+            |import scala.quoted.*
+            |object O
+            |object Plain { $single }
+            |object W {
+            |  import zzz.*
+            |  $single
+            |}
+            |object Q {
+            |  def outer(using Quotes): Unit = {
+            |    import quotes.reflect.*
+            |    $single
+            |    ()
+            |  }
+            |}""".stripMargin
+    )
+    (found("s.Plain.single") === Count.Finite(1))
+      .and(
+        refused(
+          found("s.W.single"),
+          "declaration not supplied: Singleton (not declared in " +
+            "the sources or stdlib-model/1, may be bound through zzz, which is not supplied " +
+            "(wildcard import of zzz))"
+        )
+      )
+      .and(
+        refused(
+          found("s.Q.outer.single"),
+          "declaration not supplied: quotes.reflect.Singleton (wildcard import)"
+        )
+      )
+  }
+
   // A `given` selector binds the given instances of its prefix, terms of any name: `zzz.given` may
   // bind `compose` (scalac: probes/review-A7/r11 binds a given `zzz.compose` over package
   // `p.compose`), a supplied `Lib.given` binds Lib's given `compose` — a value, not followed —
@@ -239,6 +295,35 @@ class UnsuppliedWildcardSpec extends Specification {
       .and(found("p.W.pick") === Count.Finite(1))
   }
 
+  // `import Outer3.this.o.Two` names a member of a value (scalac: r12 binds `o.Two`, an `Int`, over
+  // the package's `Two`), and its wildcard twin may bind any name. A selector naming another member
+  // binds nothing else (probes/a7fix2/spec/outer5 compiles `val w: Two = true`): 4.
+  def unfollowedPrefixes = {
+    val found = counts(
+      two,
+      "p/O.scala" ->
+        """|package p
+           |final class Lib { type Two = Int; type Other = Unit }
+           |final class Outer3(val o: Lib) {
+           |  import Outer3.this.o.Two
+           |  def pick(x: Two): Two = x
+           |}
+           |final class Outer4(val o: Lib) {
+           |  import Outer4.this.o.*
+           |  def pick(x: Two): Two = x
+           |}
+           |final class Outer5(val o: Lib) {
+           |  import Outer5.this.o.Other
+           |  def pick(x: Two): Two = x
+           |}""".stripMargin
+    )
+    refused(found("p.Outer3.pick"), "path through a value not followed: Outer3.this.o")
+      .and(
+        refused(found("p.Outer4.pick"), "unresolved type: Two (may be imported by Outer4.this.o.*)")
+      )
+      .and(found("p.Outer5.pick") === Count.Finite(4))
+  }
+
   // A package no file declares a member in — `zzz`, spelled only by `package zzz.inner` — holds
   // whatever a dependency declares there (scalac: r14/jar binds a `zzz.Two` from another unit):
   // its wildcard may bind `Two`. With a member declared in `zzz` itself it is read as complete: 4.
@@ -273,6 +358,19 @@ class UnsuppliedWildcardSpec extends Specification {
             |}""".stripMargin
     )
     (found("s.U.pick") === Count.Finite(4)).and(found("s.U.path") === Count.Finite(4))
+  }
+
+  // A parameter's declared type the lookup refuses leaves its path `rc.Out` refused for that reason
+  // alone (review-A7-quality/q): the path is not read again as a name.
+  def doubtedParameter = {
+    val found = counts(
+      "q/RC.scala" -> "package q\npackage compose\ntrait RC[F] { type Out[S, C] }",
+      "q/V.scala" ->
+        "package q\nimport zzz.*\nimport compose.*\ntrait V[S] { def andThen[C, F](using rc: RC[F]): rc.Out[S, C] }"
+    )
+    found("q.V.andThen") === Count.Unresolved(
+      List("unresolved type: RC (may be imported by compose.*: compose may be imported by zzz.*)")
+    )
   }
 
   // Term heads (`TermMembers`): every fixture compiles with Scala 3.9.0 (probes/a7fix2/spec, with

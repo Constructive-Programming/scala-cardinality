@@ -21,15 +21,35 @@ final private[cardinality] case class Exposure(
     .flatMap(stat => Walk.typeNames(List(stat)) ++ Walk.termsOf(List(stat)).keySet)
     .toSet
 
+  private lazy val givens: Set[TypeName] = stats.collect {
+    case g: Defn.Given if g.name.value.nonEmpty      => TypeName.of(g.name.value)
+    case g: Defn.GivenAlias if g.name.value.nonEmpty => TypeName.of(g.name.value)
+    case g: Decl.Given if g.name.value.nonEmpty      => TypeName.of(g.name.value)
+  }.toSet
+
   /** Why a wildcard does not read a name the body defines; None where it imports it. */
   def withheld(name: TypeName, wildcard: Wildcard): Option[String] =
     Option.when(restricted(name))(s"${Namespaces.mayBind(wildcard)}, a private member not followed")
+
+  /** The same for a package's export clause over the object `module`. */
+  def withheldMember(name: TypeName, module: TypeName): Option[String] =
+    Option.when(restricted(name))(s"exported from ${module.value}, a private member not followed")
+
+  /** Whether a wildcard over the namespace imports a term the body defines that is not withheld. */
+  def imports(name: TypeName, wildcard: Wildcard): Boolean = wildcard.givens || !givens(name)
+
+  /** Whether the body defines a given of that name, which a plain wildcard does not import. */
+  def isGiven(name: TypeName): Boolean = givens(name)
 
   /** Why a wildcard over the namespace may bind a name its body does not define; None where it
     * binds nothing else.
     */
   def unread(wildcard: Wildcard): Option[String] =
     passedOn.map(member => s"${Namespaces.mayBind(wildcard)}, $member not followed")
+
+  /** The same for a package's export clause over the object `module`. */
+  def unreadMember(module: TypeName): Option[String] =
+    passedOn.map(member => s"may be exported from ${module.value}, $member not followed")
 
   private def passedOn: Option[String] = Exposure.passedOn(inherits, exports)
 

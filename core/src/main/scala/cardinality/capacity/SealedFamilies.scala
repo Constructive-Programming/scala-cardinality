@@ -242,7 +242,6 @@ private[cardinality] object SealedFamilies {
       status: Denotes,
       renamed: Set[String]
   ): String = tree match {
-    // `ConstructorPositions` matches these two against the method side's own words.
     case _: Term.NewAnonymous => "an anonymous instance in its file"
     case _: Defn.Given        => "a given instance in its file"
     case c: Defn.EnumCase     => s"an enum case extends it: ${c.name.value}"
@@ -257,7 +256,9 @@ private[cardinality] object SealedFamilies {
       s"a subtype extends it through a qualified name: ${Walk.named(d).value}"
     case d: Defn if status == Denotes.Unknown =>
       s"a subtype whose clause may name another $parent: ${Walk.named(d).value}"
-    case other => s"a template the estimate does not read: ${other.productPrefix}"
+    case d: Defn       => s"a subtype outside its body and objects: ${Walk.named(d).value}"
+    case p: Pkg.Object => s"a package object extends it: ${p.name.value}"
+    case other         => s"a template the estimate does not read: ${other.productPrefix}"
   }
 
   private def inits(tree: Tree): List[Init] = tree match {
@@ -274,9 +275,13 @@ private[cardinality] object SealedFamilies {
       parent: SealedSlots.Parent,
       site: Stat => Option[Scope => Scope]
   ): Either[String, Found] = {
-    def bound(s: Defn.Object | Defn.Class | Defn.Trait, intermediate: Boolean) =
+    def bound(
+        s: Defn.Object | Defn.Class | Defn.Trait | Defn.Enum,
+        intermediate: Boolean,
+        library: List[(Defn, String)] = Nil
+    ) =
       SealedSlots
-        .instantiation(parent, SealedSlots.subtype(s, _ => None))
+        .instantiation(parent, SealedSlots.subtype(s, denoted(s)))
         .map { i =>
           // The view the subtype's own statement reads in; the family's where the system has none.
           def at(outside: Scope): Scope = site(s).fold(outside)(_(outside))
@@ -285,7 +290,9 @@ private[cardinality] object SealedFamilies {
             module = s.isInstanceOf[Defn.Object],
             bindings = i.bindings.map((c, p) => TypeName.of(c) -> TypeName.of(p)),
             standard = outside =>
-              unstandard(at(outside), "it", i).map(why => s"a subtype $why: ${key.value}"),
+              unstandard(at(outside), "it", i)
+                .map(why => s"a subtype $why: ${key.value}")
+                .orElse(rebound(library, site, outside).map(open(key, _))),
             built = outside => Builds.unread(s, at(outside)),
           )
           Found(child, intermediate)
@@ -295,8 +302,9 @@ private[cardinality] object SealedFamilies {
       case c: Defn.Class if Counter.isConcreteClass(c) =>
         if (c.mods.exists(_.is[Mod.Final])) bound(c, intermediate = false)
         else if (c.mods.exists(_.is[Mod.Case]))
-          caseLeaf(c, key).toLeft(()).flatMap(_ => bound(c, intermediate = false))
+          caseLeaf(c, key).flatMap(library => bound(c, intermediate = false, library))
         else Left(s"a subtype open to extension: ${key.value}")
+      case e: Defn.Enum                                        => bound(e, intermediate = false)
       case t: (Defn.Class | Defn.Trait) if Counter.isSealed(t) => bound(t, intermediate = true)
       case _ => Left(s"an abstract subtype open to extension: ${key.value}")
     }
@@ -306,13 +314,41 @@ private[cardinality] object SealedFamilies {
     s"a subtype open to extension: ${key.value} ($why)"
 
   // A case class subtype no `final` closes: open when a subclass may override a member it has
-  // (`Overrides.openLeaf`); closed otherwise.
-  private def caseLeaf(c: Defn.Class, key: TypeName): Option[String] = {
+  // (`Overrides.openLeaf`); closed otherwise, with the library parents of its ancestry that have
+  // nothing to override, which `rebound` checks where the system reads each clause.
+  private def caseLeaf(c: Defn.Class, key: TypeName): Either[String, List[(Defn, String)]] = {
     val parents = new FileParents(c)
+    val ancestry = Overrides.ancestry[Defn](c, parents)
     Overrides
-      .openLeaf(c, c, Overrides.ancestry[Defn](c, parents), parents)
+      .openLeaf(c, c, ancestry, parents)
       .map(open(key, _))
+      .toLeft(ancestry.collect {
+        case Overrides.Clause(owner, name, Overrides.Parent.Library(listed)) if listed.isEmpty =>
+          owner -> name
+      })
   }
+
+  // A library parent read as the stdlib's with nothing to override (`Product`) is the stdlib's only
+  // where no source binds its name at the clause naming it — an import, a declaration of the
+  // package in another file. Where the clause's view is not one the system reads, it may be.
+  private def rebound(
+      library: List[(Defn, String)],
+      site: Stat => Option[Scope => Scope],
+      outside: Scope
+  ): Option[String] =
+    library.collectFirst {
+      case (owner, name) if site(owner).forall(_(outside).binds(TypeName.of(name))) =>
+        s"parent not read: $name"
+    }
+
+  /** The constructor a subtype's field names: the declaration of the file that name denotes where
+    * the subtype `d` is written (`ParentNames`), if any.
+    */
+  def denoted(d: Tree): String => Option[List[Variance]] =
+    SealedSlots.declaredIn(
+      d,
+      (declared, name) => ParentNames.denotes(d, declared, name) == Denotes.Parent
+    )
 
   /** Why a subtype is no member of every instantiation of `parent` where its clause is read
     * (`site`): a bottom pin, or a data constructor a field holds a parameter through, that is not
@@ -360,7 +396,7 @@ private[cardinality] object SealedFamilies {
             if (child.built(outside).exists(Builds.buildsNothing)) NothingSize
             else {
               unbuilt(outside, child)
-              summand(sc, child)
+              summand(sc, params, child)
             }
           }
         }
@@ -384,7 +420,7 @@ private[cardinality] object SealedFamilies {
     if (child.module && outside.readingValue)
       child.built(outside).foreach(why => outside.note(Overcount.Unread(why)))
 
-  private def summand(sc: Scope, child: Child): Size =
+  private def summand(sc: Scope, params: List[TypeName], child: Child): Size =
     if (child.module) UnitSize
     else if (child.bindings.isEmpty) sc.solved(sc, child.name).getOrElse(unread(sc, child))
     else
@@ -392,7 +428,10 @@ private[cardinality] object SealedFamilies {
         val frame = child.bindings.map((c, p) => c -> Counter.typeIn(sc)(Type.Name(p.value))).toMap
         val placeholders = child.bindings.collect { case (c, p) if sc.unfixed(p) => c }.toSet
         val arguments = child.bindings.flatMap((c, p) => sc.argument(p).map(c -> _)).toMap
-        named.equation(sc.origin(child.name, named).instantiating(frame, placeholders, arguments))
+        val own = params.map(p => child.bindings.collectFirst { case (c, `p`) => c })
+        val summing = Scope.selfLens.get(sc).map(self => Itself(self.named, own)).toList
+        val read = sc.origin(child.name, named).instantiating(frame, placeholders, arguments)
+        named.equation(Scope.summingLens.modify(summing ++ _)(read))
       }
 
 }

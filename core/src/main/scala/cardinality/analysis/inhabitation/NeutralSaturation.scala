@@ -36,6 +36,8 @@ private[cardinality] object NeutralSaturation {
     */
   enum Neutral {
     case Variable(path: List[String])
+    case Constant(id: String)
+    case Tuple(parts: List[Neutral])
     case Call(callee: Callee, arguments: List[Neutral])
   }
 
@@ -58,38 +60,53 @@ private[cardinality] object NeutralSaturation {
     case _                 => false
   }
 
+  // The reason an eliminable callable keeps where its arguments are higher-order or packages.
+  private def opaque(output: Shape): String = output match {
+    case _: Ground => "Elimination of an opaque callable's transparent ground result is unsupported"
+    case _         => "Elimination of an opaque sum-producing callable is unsupported"
+  }
+
   // Why an argument space is not enumerated.
   private enum Refusal {
-    case Unbounded, Unenumerated
+    case HigherOrder, Unbounded, Unenumerated
   }
 
   private def reason(refusal: Refusal, path: Path): String = refusal match {
+    case Refusal.HigherOrder  => opaque(path.output)
     case Refusal.Unbounded    => s"sum elimination over an unbounded argument space: ${path.name}"
     case Refusal.Unenumerated =>
       s"sum elimination over an argument space not enumerated: ${path.name}"
   }
 
-  /** Every neutral the first-order `values` and the callables' `paths` make available, eliminated
-    * or not yet, and the refusals.
+  /** The planning one goal does. `lowers` gives the structural types a goal of a type may also be
+    * built as, and `polymorphic` whether a polymorphic input may build a type: neither is a neutral
+    * this enumerates.
     */
-  def plan(values: List[(List[String], Shape)], paths: List[Path]): Plan = {
-    val terms = new Terms(values, paths.filterNot(p => eliminable(p.output)))
-    val graph = new Graph(paths)
-    val readings = paths.filter(p => eliminable(p.output)).map { path =>
-      val arguments =
-        if (graph.unbounded(path)) Left(Refusal.Unbounded)
-        else Traversals.sequence(path.parameters.map(terms.of(_, Set.empty))).map(tuples)
-      path -> arguments
+  final class Planner(lowers: Shape => List[Shape], polymorphic: Shape => Boolean) {
+
+    /** Every neutral the first-order `values` and the callables' `paths` make available, eliminated
+      * or not yet, and the refusals.
+      */
+    def plan(values: List[(List[String], Shape)], paths: List[Path]): Plan = {
+      val terms = new Terms(values, paths.filterNot(p => eliminable(p.output)), lowers, polymorphic)
+      val graph = new Graph(paths)
+      val readings = paths.filter(p => eliminable(p.output)).map { path =>
+        val arguments =
+          if (graph.unbounded(path)) Left(Refusal.Unbounded)
+          else Traversals.sequence(path.parameters.map(terms.of(_, Set.empty))).map(tuples)
+        path -> arguments
+      }
+      Plan(
+        readings.collect {
+          case (path, Right(found)) =>
+            found.map(args => Neutral.Call(path.callee, args) -> path.output)
+        }.flatten,
+        readings.collect {
+          case (path, Left(refusal)) => path.callee -> reason(refusal, path)
+        }.toMap
+      )
     }
-    Plan(
-      readings.collect {
-        case (path, Right(found)) =>
-          found.map(args => Neutral.Call(path.callee, args) -> path.output)
-      }.flatten,
-      readings.collect {
-        case (path, Left(refusal)) => path.callee -> reason(refusal, path)
-      }.toMap
-    )
+
   }
 
   private def tuples(arguments: List[List[Neutral]]): List[List[Neutral]] =
@@ -105,33 +122,41 @@ private[cardinality] object NeutralSaturation {
   // has no term at all (a cycle with no base builds nothing).
   final private class Terms(
       values: List[(List[String], Shape)],
-      producers: List[Path]
+      producers: List[Path],
+      lowers: Shape => List[Shape],
+      polymorphic: Shape => Boolean
   ) {
     private val known = mutable.Map.empty[Shape, Either[Refusal, List[Neutral]]]
     private val cyclic = mutable.Set.empty[Shape]
 
     def of(shape: Shape, open: Set[Shape]): Either[Refusal, List[Neutral]] = shape match {
+      case Product(fields) =>
+        Traversals.sequence(fields.map(of(_, open))).map(tuples(_).map(Neutral.Tuple(_)))
+      case Singleton(id, _)                    => Right(List(Neutral.Constant(id)))
       case _: Atom | _: Applied if open(shape) =>
         cyclic += shape
         Right(Nil)
-      case _: Atom | _: Applied => known.getOrElse(shape, atomic(shape, open))
-      case _                    => Left(Refusal.Unenumerated)
+      case _: Atom | _: Applied                   => known.getOrElse(shape, atomic(shape, open))
+      case _: Function | _: Existential | _: Poly => Left(Refusal.HigherOrder)
+      case _                                      => Left(Refusal.Unenumerated)
     }
 
     // Only a reading made outside every cycle is final: one inside reads its ancestor as empty.
-    private def atomic(shape: Shape, open: Set[Shape]): Either[Refusal, List[Neutral]] = {
-      val variables = values.collect { case (path, `shape`) => Neutral.Variable(path) }
-      val applications = producers.filter(_.output == shape).map { producer =>
-        Traversals
-          .sequence(producer.parameters.map(of(_, open + shape)))
-          .map(tuples(_).map(Neutral.Call(producer.callee, _)))
+    private def atomic(shape: Shape, open: Set[Shape]): Either[Refusal, List[Neutral]] =
+      if (lowers(shape).nonEmpty || polymorphic(shape)) Left(Refusal.Unenumerated)
+      else {
+        val variables = values.collect { case (path, `shape`) => Neutral.Variable(path) }
+        val applications = producers.filter(_.output == shape).map { producer =>
+          Traversals
+            .sequence(producer.parameters.map(of(_, open + shape)))
+            .map(tuples(_).map(Neutral.Call(producer.callee, _)))
+        }
+        val found = Traversals.sequence(applications).map(variables ++ _.flatten).flatMap { terms =>
+          Either.cond(terms.isEmpty || !cyclic(shape), terms, Refusal.Unbounded)
+        }
+        if (open.isEmpty) known.update(shape, found)
+        found
       }
-      val found = Traversals.sequence(applications).map(variables ++ _.flatten).flatMap { terms =>
-        Either.cond(terms.isEmpty || !cyclic(shape), terms, Refusal.Unbounded)
-      }
-      if (open.isEmpty) known.update(shape, found)
-      found
-    }
 
   }
 
@@ -160,6 +185,7 @@ private[cardinality] object NeutralSaturation {
     private def reached(shape: Shape): List[Shape] = shape match {
       case _: Atom | _: Applied => List(shape)
       case Function(_, result)  => reached(result)
+      case Existential(_, body) => reached(body)
       case _: Product | _: Sum  => Shape.children(shape).flatMap(reached)
       case _                    => Nil
     }

@@ -1,7 +1,11 @@
 package cardinality.analysis
 
+import scala.meta.*
+
 import cardinality.analysis.inhabitation.*
+import cardinality.capacity.{BooleanSize, Counter}
 import org.specs2.Specification
+import org.specs2.matcher.MatchResult
 
 /** Named tuples, literal types, context function types and compile-time evidence
   * (docs/research/syntax-features.md). Every fixture is valid Scala 3.9.0 except where a name
@@ -14,15 +18,29 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
     Named tuples are the products of their fields
       fields are read as a tuple's                                   $namedFields
       a named tuple inside a type-lambda alias                       $namedAlias
+      a match type is stuck on a named tuple                         $namedStuck
+      names are part of a rigid argument's key                       $namedKeys
       a named tuple and its tuple share a runtime class              $namedUnion
       a dependent function's named parameter is not a field          $dependentFunction
     Literal types have one value
       a literal goal has one implementation                          $literalGoals
+      a literal input adds nothing a body cannot write               $literalInputs
+      literals inside products and sums                              $literalContainers
+      a union of literals holds its distinct constants               $literalUnions
+      a literal domain or codomain is a closed space                 $literalCallables
+      a call instantiated with a literal widens it to its class      $literalCalls
+      a literal is its own key, by class and constant                $literalKeys
       a floating zero is not read, its sign being lost               $floatingZero
     Context functions are functions whose binders are givens
       an input applies like a function                               $contextInputs
       a result builds a literal with named binders                   $contextResults
+      a whole-body binder hides outer evidence of its type           $contextShadowing
+      a binder of an unrelated type hides nothing                    $contextUnrelated
       a nested context function wraps only its part                  $contextNested
+      local definitions read the enclosing method's binders          $contextLocals
+      a binder behind a reading that stops is refused                $contextUnread
+      a call returning a context function is applied                 $contextCalls
+      an ascription to a context function is applied                 $contextAscription
     Compile-time and type-revealing evidence is refused
       an inline method counts unless its expansion reads its call    $inlineMethods
       a definition inside an inline method is expanded with it       $inlineNested
@@ -58,6 +76,51 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |object M { def map[I, X, A, B](fa: G[I][X, A], f: A => B): G[I][X, B] = ??? }
       |""".stripMargin)("M.map") === Count.Finite(1)
 
+  // Scala 3.9.0 reduces neither `case (a, b)` nor `case Int` on `(x: Int, y: String)` and proves
+  // neither disjoint (fixtures m1, m4): stuck, never the projection's 1, concrete fields included
+  // (nothing is left to substitute), and so is a named tuple a nested tuple pattern meets. The tuple
+  // twin reduces. The stored-value side reads the same match: `Fst[(x: Boolean, y: Int)]` is stuck
+  // on its match type, never a Boolean bound to a named field; its positional twin is a Boolean.
+  def namedStuck = {
+    val code = """type Fst[T] = T match { case (a, b) => a }
+      |type Fst2[T] = T match { case ((a, b), c) => a }
+      |type NamedFst = Fst[(x: Boolean, y: Int)]
+      |type PlainFst = Fst[(Boolean, Int)]
+      |object S {
+      |  def stuck[A, B](p: (x: A, y: B)): Fst[(x: A, y: B)] = ???
+      |  def stuckConcrete(p: (x: Boolean, y: Int)): Fst[(x: Boolean, y: Int)] = ???
+      |  def nested(p: ((x: Int, y: Int), Unit)): Fst2[((x: Int, y: Int), Unit)] = ???
+      |  def reduces[A, B](p: (A, B)): Fst[(A, B)] = p._1
+      |}""".stripMargin
+    val found = rows(code)
+    val stored = Counter
+      .definitions(dialects.Scala3(code).parse[Source].get)
+      .map(d => d.name -> (d.size, d.unbound.map(_.render)))
+      .toMap
+    val stuck = "match type stuck on a named tuple"
+    refused(found("S.stuck"), s"$stuck: (x: A, y: B) (Scala reduces no case on it)")
+      .and(refused(found("S.stuckConcrete"), s"$stuck: (x: Boolean, y: Int)"))
+      .and(refused(found("S.nested"), s"$stuck: (x: Int, y: Int)"))
+      .and(found("S.reduces") === Count.Finite(1))
+      .and(stored("NamedFst")._2 === List("a match type"))
+      .and(stored("PlainFst") === (Some(BooleanSize), Nil))
+  }
+
+  // `(x: A, y: A)` is the opaque `NamedTuple[("x", "y"), (A, A)]`: not `(A, A)`, nor `(y: A, x: A)`,
+  // so a rigid F relates none of them (0); the same names, spelled either way, are one type (1).
+  def namedKeys = {
+    val found = rows("""object K {
+      |  def plain[F[_], A](x: F[(x: A, y: A)]): F[(A, A)] = ???
+      |  def same[F[_], A](x: F[(x: A, y: A)]): F[(x: A, y: A)] = x
+      |  def swapped[F[_], A](x: F[(x: A, y: A)]): F[(y: A, x: A)] = ???
+      |  def spelled[F[_], A](x: F[(x: A, y: A)]): F[scala.NamedTuple.NamedTuple[("x", "y"), (A, A)]] = x
+      |}""".stripMargin)
+    (found("K.plain") === Count.Finite(0))
+      .and(found("K.same") === Count.Finite(1))
+      .and(found("K.swapped") === Count.Finite(0))
+      .and(found("K.spelled") === Count.Finite(1))
+  }
+
   // A named tuple's runtime class is its tuple's, so no class test separates the alternatives.
   def namedUnion =
     refused(
@@ -79,6 +142,131 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |}""".stripMargin)
     List("one", "str", "ch", "half", "long", "yes", "neg").map(n => found(s"L.$n")).distinct ===
       List(Count.Finite(1))
+  }
+
+  // litIn: a alone (1); litBool: true or false (2); litToInt, lit2: any Int on a one-point domain
+  // (2^32) — never the 2^(2^37) a splittable Int input would give.
+  def literalInputs = {
+    val found = rows("""object L {
+      |  def litIn[A](x: 1, a: A): A = a
+      |  def litBool(x: true): Boolean = x
+      |  def litToInt(x: 3): Int = x
+      |  def lit2(x: 1, y: 1): Int = x
+      |}""".stripMargin)
+    (found("L.litIn") === Count.Finite(1))
+      .and(found("L.litBool") === Count.Finite(2))
+      .and(found("L.litToInt") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("L.lit2") === Count.Finite(BigInt(2).pow(32)))
+  }
+
+  // (1, "a") has one value; Option[1] two (None, Some(1)); Either[1, 2] two.
+  def literalContainers = {
+    val found = rows("""object C {
+      |  def t(x: (1, "a")): (1, "a") = x
+      |  def opt: Option[1] = None
+      |  def e: Either[1, 2] = Left(1)
+      |}""".stripMargin)
+    (found("C.t") === Count.Finite(1))
+      .and(found("C.opt") === Count.Finite(2))
+      .and(found("C.e") === Count.Finite(2))
+  }
+
+  // `1 | 2` is {1, 2}, split by literal patterns: 2^2 Booleans of it (4), and two goals; `1 | 1`
+  // is one constant (2 Booleans); `1 | "a" | true` three. `1 | Boolean` is {1, true, false}: the
+  // literal's class (`Integer`) is not Boolean's, so a class test splits it and 2^3 Booleans of it
+  // remain (8). `1 | Int` is Int, which this reading leaves to the union rule (refused). Constants
+  // of two classes are two values even where cooperative equality makes `1 == 1L` and `'a' == 97`
+  // (fixture a5-gate-review eq: `case 1` matches `1L`): a class test tells them apart (4 each).
+  def literalUnions = {
+    val found = rows("""object U {
+      |  def u(x: 1 | 2): Boolean = true
+      |  def goal: 1 | 2 = 1
+      |  def once(x: 1 | 1): Boolean = true
+      |  def mixed: 1 | "a" | true = 1
+      |  def litBool(x: 1 | Boolean): Boolean = true
+      |  def wide(x: 1 | Int): Boolean = true
+      |  def lng(x: 1 | 1L): Boolean = true
+      |  def chi(x: 'a' | 97): Boolean = true
+      |}""".stripMargin)
+    (found("U.u") === Count.Finite(4))
+      .and(found("U.goal") === Count.Finite(2))
+      .and(found("U.once") === Count.Finite(2))
+      .and(found("U.mixed") === Count.Finite(3))
+      .and(found("U.litBool") === Count.Finite(8))
+      .and(refused(found("U.wide"), "union alternatives require an overlap"))
+      .and(found("U.lng") === Count.Finite(4))
+      .and(found("U.chi") === Count.Finite(4))
+  }
+
+  // A literal is one point and a union of literals one per constant, as `Unit` and a two-case sum
+  // are: fnIn g is one of 2 functions, then a Boolean of it (2^2 = 4, as `Unit => Boolean`); k1 and
+  // r: 2^2 functions g, 2 Booleans each (2^4 = 16); litFn: every Int of g's 2^32 values
+  // ((2^32)^(2^32) = 2^(2^37), as `Unit => Int`).
+  def literalCallables = {
+    val found = rows("""object F {
+      |  def fnIn(g: 1 => Boolean): Boolean = ???
+      |  def fnInU(g: Unit => Boolean): Boolean = ???
+      |  def k1(g: (true | false) => Boolean): Boolean = ???
+      |  def r(g: Boolean => (1 | 2)): Boolean = ???
+      |  def litFn(g: 1 => Int): Int = ???
+      |}""".stripMargin)
+    (found("F.fnIn") === Count.Finite(4))
+      .and(found("F.fnInU") === Count.Finite(4))
+      .and(found("F.k1") === Count.Finite(16))
+      .and(found("F.r") === Count.Finite(16))
+      .and(found("F.litFn") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))))
+  }
+
+  // Fixture review-A5 r2 inf3/inf5: Scala widens `idc[1](1)` to Int (`def t: 1 = call2(true)` finds
+  // an Int), so call2 is every Int of a Boolean, (2^32)^2 = 2^64, never the literal's 1; through an
+  // alias likewise; call3 a Boolean of a Boolean (4). A union of literals and a value's singleton
+  // widen to types this reading does not compute (refused); `Option[1]` is kept (None or Some(1)
+  // per Boolean: 2^2 = 4).
+  def literalCalls = {
+    val found = rows("""object L {
+      |  def idc[T](t: T): T = t
+      |  def opt[T](t: T): Option[T] = Some(t)
+      |  type One = 1
+      |  def call2(x: Boolean) = idc[1](1)
+      |  def call3(x: Boolean) = idc[true](true)
+      |  def call4(x: Boolean) = idc[1 | 2](1)
+      |  def call5(x: Boolean) = opt[1](1)
+      |  def call6(x: Boolean) = idc[x.type](x)
+      |  def call8(x: Boolean) = idc[One](1)
+      |}""".stripMargin)
+    val widened = "inferred result type not resolved: singleton result of a call of idc"
+    (found("L.call2") === Count.Finite(BigInt(2).pow(64)))
+      .and(found("L.call3") === Count.Finite(4))
+      .and(refused(found("L.call4"), widened))
+      .and(found("L.call5") === Count.Finite(4))
+      .and(refused(found("L.call6"), widened))
+      .and(found("L.call8") === Count.Finite(BigInt(2).pow(64)))
+  }
+
+  // F[1] and F[2], F[1L], F[-1] are unrelated types under a rigid F (0); F[1] is itself (1). A
+  // floating literal is its value at its own width: `1.0` and `1.00` are one Double (1), `1.0f` a
+  // Float (0); `0x10` is the Int 16 (1), and 'a' a Char, never the Int 97 (0).
+  def literalKeys = {
+    val found = rows("""object K {
+      |  def k[F[_]](x: F[1]): F[2] = ???
+      |  def same[F[_]](x: F[1]): F[1] = x
+      |  def long[F[_]](x: F[1]): F[1L] = ???
+      |  def str[F[_]](x: F["a"]): F["b"] = ???
+      |  def neg[F[_]](x: F[-1]): F[1] = ???
+      |  def dbl[F[_]](x: F[1.0]): F[1.00] = x
+      |  def flt[F[_]](x: F[1.0]): F[1.0f] = ???
+      |  def hex[F[_]](x: F[0x10]): F[16] = x
+      |  def chr[F[_]](x: F['a']): F[97] = ???
+      |}""".stripMargin)
+    (found("K.k") === Count.Finite(0))
+      .and(found("K.same") === Count.Finite(1))
+      .and(found("K.long") === Count.Finite(0))
+      .and(found("K.str") === Count.Finite(0))
+      .and(found("K.neg") === Count.Finite(0))
+      .and(found("K.dbl") === Count.Finite(1))
+      .and(found("K.flt") === Count.Finite(0))
+      .and(found("K.hex") === Count.Finite(1))
+      .and(found("K.chr") === Count.Finite(0))
   }
 
   // scalameta reads `-0.0` as `0.0`, and the two are different types: the zero is not read.
@@ -107,12 +295,115 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       .and(found("R.unit") === Count.Finite(1))
   }
 
+  // Fixture cf: `g(using 1)(using 2)` prints 2, the binder hiding the outer anonymous evidence,
+  // so g has 1 implementation, never the 2 a plain function would give (h); the reading refuses.
+  // An alias of an alias applied to a context function wraps the body too (fixture p6 prints the
+  // binder's 5).
+  def contextShadowing = {
+    val found = rows("""type L[B] = B
+      |type K[A] = L[A]
+      |object S {
+      |  def g[A](using A): A ?=> A = summon[A]
+      |  def h[A](using A): A => A = y => summon[A]
+      |  def curried[A](using A): A ?=> A ?=> A = summon[A]
+      |  def nested[A](using A): K[A ?=> A] = summon[A]
+      |}""".stripMargin)
+    refused(found("S.g"), "overlaps context function binder A")
+      .and(found("S.h") === Count.Finite(2))
+      .and(refused(found("S.curried"), "overlaps context function binder A"))
+      .and(refused(found("S.nested"), "overlaps context function binder A"))
+  }
+
+  // A binder of type B does not answer `summon[A]`: the outer evidence is the one A (1).
+  def contextUnrelated =
+    rows("object U { def u[A, B](using A): B ?=> A = summon[A] }")("U.u") === Count.Finite(1)
+
   // Fixture cf3: the tuple's first component is wrapped, yet `val o = summon[A]` before it reaches
   // the outer evidence (`hoisted` prints 1): binder or outer value there, the outer one after (2).
   def contextNested =
     rows("object N { def nested[A](using A): (A ?=> A, A) = (summon[A], summon[A]) }")(
       "N.nested"
     ) === Count.Finite(2)
+
+  // Fixture cf3 `local`: a local definition of a wrapped body reads the binder (1; the reading gave
+  // 0 before). Through an alias as well; an unrelated binder leaves the capture alone (1).
+  def contextLocals = {
+    val found = rows("""type K[A] = A ?=> A
+      |object L {
+      |  def f[A]: A ?=> A = { def g: A = summon[A]; g }
+      |  def viaAlias[A]: K[A] = { def l: A = summon[A]; l }
+      |  def f2[A](a: A): Int ?=> A = { def g2: A = a; g2 }
+      |  def outer[A](using A): A ?=> A = { def l2: A = summon[A]; l2 }
+      |}""".stripMargin)
+    (found("L.f.g") === Count.Finite(1))
+      .and(found("L.viaAlias.l") === Count.Finite(1))
+      .and(found("L.f2.g2") === Count.Finite(1))
+      .and(refused(found("L.outer.l2"), "overlaps context function binder A"))
+  }
+
+  // Where the reading of an enclosing result stops — a match type that may reduce to a context
+  // function, `ContextFunction1` by name, an applied inherited alias, a path, a name not supplied
+  // or not declared at all — a local definition's environment is unknown. Beside `plain`'s `Int`
+  // result, lp reads b and the captured i: every Boolean of a Boolean and an Int, 2^(2·2^32) =
+  // 2^(2^33).
+  def contextUnread = {
+    val found = rows("""import ext.J
+      |type M[T] = T match { case Int => Int ?=> Int }
+      |trait P2 { type KA[X] = X ?=> X }
+      |trait Holder { type T = Int ?=> Int }
+      |object O {
+      |  def viaPath(h: Holder): h.T = { def lv(b: Boolean): Boolean = b; ??? }
+      |  def viaMatch(x: Int): M[Int] = { def lm(b: Boolean): Boolean = b; ??? }
+      |  def byName: ContextFunction1[Int, Int] = { def ln(b: Boolean): Boolean = b; ??? }
+      |  def foreign(i: Int): J = { def lf(b: Boolean): Boolean = b; ??? }
+      |  def absent(i: Int): ext.Unknown = { def la(b: Boolean): Boolean = b; ??? }
+      |  def plain(i: Int): Int = { def lp(b: Boolean): Boolean = b; i }
+      |}
+      |final class C2 extends P2 { def h2[Y]: KA[Y] = { def lka: Y = summon[Y]; lka } }
+      |""".stripMargin)
+    refused(found("O.viaMatch.lm"), "context function behind a match type not read: M[Int]")
+      .and(refused(found("O.byName.ln"), "context function spelled by name: ContextFunction1"))
+      .and(refused(found("O.foreign.lf"), "declaration not supplied: ext.J"))
+      .and(refused(found("O.absent.la"), "declaration not supplied: ext.Unknown"))
+      .and(found("O.plain.lp") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 33))))
+      .and(refused(found("C2.h2.lka"), "context function behind an inherited alias not read: KA"))
+      .and(refused(found("O.viaPath.lv"), "context function result through a path not read: h.T"))
+  }
+
+  // Without an expected type Scala applies the returned context function to a given it finds, so
+  // t2's type is A, not `A ?=> A`. An explicit type argument is read as written (fixture a5-fix1
+  // r9: viaCtx prints `false`, applied where it is defined): `id[Boolean => Boolean](f)` is that
+  // function, every Boolean of f's 4 values and a Boolean (2^8), `id[Boolean ?=> Boolean](g)` is
+  // applied.
+  def contextCalls = {
+    val found = rows("""object T {
+      |  given Boolean = true
+      |  def ctx[A](a: A): A ?=> A = a
+      |  def t2[A](a: A)(using A) = ctx[A](a)
+      |  def id[X](x: X): X = x
+      |  def viaFn(f: Boolean => Boolean) = id[Boolean => Boolean](f)
+      |  def viaCtx(g: Boolean ?=> Boolean) = id[Boolean ?=> Boolean](g)
+      |}""".stripMargin)
+    val applied = "whose context function result is applied"
+    refused(found("T.t2"), applied)
+      .and(found("T.viaFn") === Count.Finite(256))
+      .and(refused(found("T.viaCtx"), s"call of id, $applied"))
+  }
+
+  // Fixture review-A5 inf/i3: `def asc = (k: Boolean ?=> Boolean)` compiles to `boolean asc()` and
+  // prints `false` with no given at the use site: Scala applied k where asc is defined, so asc is
+  // a Boolean, never the 4 of `Boolean => Boolean`. A plain function ascription is that function.
+  def contextAscription = {
+    val found = rows("""object A {
+      |  given Boolean = true
+      |  val k: Boolean ?=> Boolean = !summon[Boolean]
+      |  val k2: Boolean => Boolean = b => !b
+      |  def asc = (k: Boolean ?=> Boolean)
+      |  def asc2 = (k2: Boolean => Boolean)
+      |}""".stripMargin)
+    refused(found("A.asc"), "ascription, whose context function result is applied")
+      .and(found("A.asc2") === Count.Finite(4))
+  }
 
   // Fixture a5-fix1 r3: `f[Int](1, 2)` prints 1, and 7 under a call-site `given Int = 7`: the
   // `summonFrom` of the local g is expanded with f, so g's parametric 4 (a or b, of x or y) is

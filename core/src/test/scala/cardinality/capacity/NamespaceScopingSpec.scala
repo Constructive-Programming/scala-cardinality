@@ -24,17 +24,21 @@ class NamespaceScopingSpec extends Specification {
       an explicitly imported or bound constructor name is not the standard one  $modelledShadowing
 
     Term bindings and type bindings are Scala's
+      a package value, a pattern variable and a self alias are first names  $termBindings
       a class member's owner binds as any type name does          $ownerShadowing
       an abstract type member shadows an outer type               $abstractMember
       a generic definition named without arguments has no value space  $typeConstructor
+      a match type's case body reads where the match type is written  $matchTypeContext
 
     Families and cycles say why they have no number
+      a family with a subtype outside the body is not summed      $partialFamily
       a lazy field through an alias closes a lazy cycle           $lazyAlias
       packages are solved in the order their reads need           $packageOrder
 
     A refused constructor slot has no number
       a ground slot the estimate refuses is the row's reason       $groundSlot
       a slot over a type parameter refused for a declaration is `?`  $declarationSlot
+      a refusal names its clause, and an unreduced match type once  $refusalReasons
     """
 
   private val x = "x/X.scala" -> "package x\nfinal case class Obj(b: Boolean)"
@@ -158,6 +162,28 @@ class NamespaceScopingSpec extends Specification {
       .and(rows("final case class Plain(o: Option[Boolean])")(("Plain", Class)) === "3")
   }
 
+  // `x` under `package a; package b` is the inner package's `val x: Foo` (Foo's `T = Boolean`, 2),
+  // not package `a`'s object (Unit). `val (p, n) = …` binds `p` with no type read here: `p.X` is
+  // its own reason, never the object `p`'s Unit. `self: Prism =>` binds `self` to a `Prism`, whose
+  // `X = Boolean` (2), not the object `self`'s Unit. scalac accepts `true` for each. The method side's
+  // lookup refuses a path through the value `x` rather than read package `a`'s object (1), and the
+  // constructor counts the estimate's 2.
+  def termBindings = {
+    val pkg = List(
+      "A.scala" -> "package a\nobject x { type T = Unit }",
+      "B.scala" -> "package a.b\nfinal class Foo { type T = Boolean }\nval x: Foo = new Foo",
+      "C.scala" -> "package a\npackage b\ntype Y = x.T\nfinal case class UsesT(t: x.T)",
+    )
+    val local = rows(
+      "object p { type X = Unit }\nfinal class Prism { type X = Boolean }\nfinal class H { val (p, n) = (new Prism, 1); type Y = p.X }\nobject self { type X = Unit }\nclass Pr { type X = Boolean }\ntrait T { self: Pr => type Y = self.X }"
+    )
+    (rowsOf(pkg*)(("a.b.Y", Alias)) === "2")
+      .and(rowsOf(pkg*)(("a.b.UsesT", Class)) === "2")
+      .and(constructor("a.b.UsesT.<init>", pkg*) === Count.Finite(2))
+      .and(local(("H#Y", Alias)) === "unresolved[p.X]")
+      .and(local(("T#Y", Alias)) === "2")
+  }
+
   // `p: Prism` reads `p.X` through whatever `Prism` binds where `p` is: `O`'s alias `Prism =
   // Other`, which has no members of its own here, or `Holder`'s type parameter `Prism <: Other` —
   // never the package's class `Prism` (`X = Unit`, 1). Both are `?`.
@@ -180,7 +206,7 @@ class NamespaceScopingSpec extends Specification {
       .and(found(("O.UV", Class)) === "open[V]")
   }
 
-  // `O.Pair2` and `O.One` are type constructors: |Pair2[Nothing]| = 0, |Pair2[Boolean]|
+  // `O.Pair2`, `O.One` and `Pair3` are type constructors: |Pair2[Nothing]| = 0, |Pair2[Boolean]|
   // = 4, so no one number is theirs (before: the template's placeholder ω, and 1).
   def typeConstructor = {
     val found = rows(
@@ -188,6 +214,41 @@ class NamespaceScopingSpec extends Specification {
     )
     (found(("Qual", Alias)) === "unresolved[type constructor: O.Pair2]")
       .and(found(("Qual1", Alias)) === "unresolved[type constructor: O.One]")
+      .and(found(("Bare", Alias)) === "unresolved[type constructor: Pair3]")
+  }
+
+  // `O.M[Int]` takes `case Int => Span`, and that `Span` is bound where `M` is written: `O.Span(b:
+  // Boolean)`, 2 — never the reader's `Span(u: Unit)` (1). Inside `P.Inner[Span]`, `M[Int]` is
+  // `P.Span` too, never `Inner`'s type parameter. scalac accepts `O.Span(true)` and `P.Span(true)`.
+  def matchTypeContext = {
+    val code =
+      "final case class Span(u: Unit)\nobject O { final case class Span(b: Boolean); type M[X] = X match { case Int => Span } }\ntype Y = O.M[Int]\nfinal case class UsesY(y: O.M[Int])\nobject P { final case class Span(b: Boolean); type M[X] = X match { case Int => Span }; final class Inner[Span](val s: Span) { type Z = M[Int] } }"
+    val found = rows(code)
+    (found(("Y", Alias)) === "2")
+      .and(found(("UsesY", Class)) === "2")
+      .and(found(("P.Inner#Z", Alias)) === "2")
+      .and(constructor("UsesY.<init>", "M.scala" -> code) === Count.Finite(2))
+  }
+
+  // `P`'s subtypes are `D` (1) and the companion's `C(b: Boolean)` (2): 3, summed across the
+  // companion. `A`'s are `X` (1) and the sealed `B`, whose own sum is `C(b: Boolean)` (2): 3. `Q`
+  // has an anonymous instance in its file, a value no subtype enumerates: not summed, nor its
+  // readers or constructor rows — whose method side names that cause once, in its own words.
+  def partialFamily = {
+    val code =
+      "sealed trait P\ncase object D extends P\nobject P { final case class C(b: Boolean) extends P }\nfinal case class UsesP(p: P)\nsealed trait A\ncase object X extends A\nsealed trait B extends A\nfinal case class C(b: Boolean) extends B\nfinal case class UsesA(a: A)\nsealed trait Q\ncase object Q1 extends Q\nobject Make { val q: Q = new Q {} }\nfinal case class UsesQ(q: Q)"
+    val found = rows(code)
+    val anonymous = "sealed family not summed: Q (an anonymous instance in its file)"
+    (found(("P", Abstract)) === "3")
+      .and(found(("UsesP", Class)) === "3")
+      .and(found(("UsesA", Class)) === "3")
+      .and(found(("UsesQ", Class)) === s"unresolved[$anonymous]")
+      .and(constructor("UsesP.<init>", "S.scala" -> code) === Count.Finite(3))
+      .and(
+        constructor("UsesQ.<init>", "S.scala" -> code) === Count.Unresolved(
+          List("sealed family has anonymous instances in its file: Q")
+        )
+      )
   }
 
   // `tail: Thunk` with `type Thunk = () => Cell` is a lazy field: `Cell(s: S)` and `S` form a lazy
@@ -264,5 +325,23 @@ class NamespaceScopingSpec extends Specification {
           "sealed family not summed: Fam (a subtype open to extension: Fam.Open)"
         )
     }
+
+  // The refusal of an imported `Int` names the path the import binds (the method side's reason; the
+  // estimate's refusal of the same name is not repeated); a stuck match type slot is named once, by
+  // the shape model's inert reason.
+  def refusalReasons = {
+    val g = "G.scala" ->
+      "package g\ntype Fst[T] = T match { case (a, b) => a }\nfinal case class G(x: Fst[Int])"
+    (constructor(
+      "i.N.<init>",
+      "N.scala" -> "package i\nimport zz.Int\nfinal case class N(n: Int)"
+    ) ===
+      Count.Unresolved(List("declaration not supplied: zz.Int (named import Int)")))
+      .and(
+        constructor("g.G.<init>", g) === Count.Unresolved(
+          List("inert match type: scrutinee is not a proven tuple (concrete substitution required)")
+        )
+      )
+  }
 
 }

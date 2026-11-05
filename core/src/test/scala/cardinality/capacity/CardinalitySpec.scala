@@ -9,8 +9,8 @@ import org.specs2.Specification
 // abstract traits/classes and type aliases add nothing on their own.
 class CardinalitySpec extends Specification {
 
-  private def tpe(code: String): Size = Rows.sizeOf(code)
-  private def src(code: String): Size = Rows.held(code)
+  private def tpe(code: String): Size = Counter.`type`(dialects.Scala3(code).parse[Type].get)
+  private def src(code: String): Size = Counter.source(dialects.Scala3(code).parse[Source].get)
 
   def is = s2"""
   Primitives
@@ -39,6 +39,10 @@ class CardinalitySpec extends Specification {
     (Byte, Boolean)                          ${tpe("(Byte, Boolean)") === FiniteSize(9)}
     (Boolean, Nothing)                       ${tpe("(Boolean, Nothing)") === NothingSize}
     EmptyTuple                               ${tpe("EmptyTuple") === UnitSize}
+    Boolean *: Boolean *: EmptyTuple         ${tpe("Boolean *: Boolean *: EmptyTuple") === TinySize(
+      4
+    )}
+    (a: Boolean, b: Boolean) named tuple     ${tpe("(a: Boolean, b: Boolean)") === TinySize(4)}
 
   Sums
     Option[Boolean]                          ${tpe("Option[Boolean]") === TinySize(3)}
@@ -74,6 +78,9 @@ class CardinalitySpec extends Specification {
     Set[Boolean]                             ${tpe("Set[Boolean]") === TinySize(4)}
     Set[Byte]                                ${tpe("Set[Byte]") === FiniteSize(256)}
     Map[Boolean, Boolean]                    ${tpe("Map[Boolean, Boolean]") === TinySize(9)}
+    PartialFunction[Boolean, Boolean]        ${tpe(
+      "PartialFunction[Boolean, Boolean]"
+    ) === TinySize(9)}
 
   Unbounded collections
     List[Boolean]                            ${tpe("List[Boolean]") === EffectiveOmega}

@@ -23,17 +23,23 @@ class StdlibModelSpec extends Specification {
       tuple spellings keep one override identity                    $tupleIdentity
       FunctionN and arrow spellings keep one override identity      $functionIdentity
       Either spellings are one evidence identity                    $eitherIdentity
+    Singleton terms
+      None and Nil singletons have their one value                  $singletonTerms
+      an unresolved path's singleton is the one value it names      $unresolvedSingleton
+      an inaccessible source module's singleton stays refused       $inaccessibleSingleton
     Sequences
       List, Vector, Seq, IndexedSeq and ArraySeq introduce Nil/Cons  $introduction
       an Array of a concrete element is a sequence                  $arrays
       an Array of a class or of an empty type is a sequence         $classArrays
       an Array of a type parameter needs its ClassTag               $abstractArray
+      an Array of a singleton needs its widened type's ClassTag     $singletonArrays
       an override over List keeps its identity                      $fromList
     Excluded and open declarations
       single-pass and equality-built types are outside the model     $excluded
       compile-time reflection is outside the model                  $quoted
       Java collections name their FQN; throwables are data           $open
       a final class the model does not read is not called open      $finalUnmodelled
+      an unapplied entry is an operator, applied where it is read   $unapplied
       a union does not discriminate a model sequence's class        $unionClass
     Absent declarations
       a named import names the path it binds                         $namedImport
@@ -179,6 +185,28 @@ class StdlibModelSpec extends Specification {
       .reduce(_.and(_))
   }
 
+  // A singleton type's only value is its path's (draft specification ch. 3): `None.type` is
+  // inhabited by `None` alone, so a goal of it is 1 — the implementation returning the value. The
+  // table gives the library's two parameterless root-imported objects a canonical identity, so
+  // both spellings of one object are that one value. A path outside the sources is read the same
+  // way (D-terminal): the written `.type` is a stable path, the sources typecheck, and the one
+  // value it names is the implementation. A source module the use site may not reach keeps its
+  // refusal: the reading would need the module's member environment, not just its existence.
+  def singletonTerms = {
+    val code = "object N { def nn: None.type = ???; def nil: Nil.type = ??? }"
+    (count(code, "N.nn") === Count.Finite(1))
+      .and(count(code, "N.nil") === Count.Finite(1))
+      .and(count("object N { def q: scala.None.type = ??? }", "N.q") === Count.Finite(1))
+  }
+
+  def unresolvedSingleton =
+    count("object N { def wide: far.away.Unsupplied.type = ??? }", "N.wide") === Count.Finite(1)
+
+  def inaccessibleSingleton = {
+    val code = "object O { private object H }\nobject N { def out: O.H.type = ??? }"
+    refused(count(code, "N.out"), "inaccessible or ambiguous singleton path: O.H")
+  }
+
   // Nil only without an element; with one, every length; List[Nothing] has only Nil.
   def introduction = {
     val code = """import scala.collection.immutable.ArraySeq
@@ -246,6 +274,32 @@ class StdlibModelSpec extends Specification {
         )
       )
       .reduce(_.and(_))
+  }
+
+  private val rigidArray = "Array of an abstract element type is not read"
+
+  // Review fixtures arr11–arr13 (Scala 3.9.0): `x.type` for `x: A` (or a field `a: A`) has no
+  // ClassTag — `new Array[x.type](0)`, `Array.empty` and `Array(x)` are E172 — so no total program
+  // returns `Array[x.type]` and `opt` can only be None (true counts 0 and 1): refused, never ω. A
+  // singleton of a class type, of a String and an object's singleton type have one: ω (every
+  // length of the one value).
+  def singletonArrays = {
+    val code = """final case class Box[A](a: A)
+      |object O
+      |final class C[A](val a: A) { def u: Array[a.type] = ??? }
+      |object T {
+      |  def single[A](x: A): Array[x.type] = ???
+      |  def opt[A](x: A): Option[Array[x.type]] = ???
+      |  def boxed[A](x: Box[A]): Array[x.type] = ???
+      |  def text(x: String): Array[x.type] = ???
+      |  def module(): Array[O.type] = ???
+      |}""".stripMargin
+    refused(count(code, "T.single"), rigidArray)
+      .and(refused(count(code, "T.opt"), rigidArray))
+      .and(refused(count(code, "C.u"), rigidArray))
+      .and(count(code, "T.boxed") === Count.Countable)
+      .and(count(code, "T.text") === Count.Countable)
+      .and(count(code, "T.module") === Count.Countable)
   }
 
   // `forList` implements the trait's `fromList` (List keys alike in both): ω by sequence
@@ -316,6 +370,29 @@ class StdlibModelSpec extends Specification {
     refused(count(code, "O.boxed"), "stdlib type with unmodelled members: java.lang.Integer")
       .and(clean(count(code, "O.boxed"), "open stdlib type"))
       .and(refused(count(code, "O.eq"), "open stdlib type with unmodelled members: scala.Equals"))
+  }
+
+  // An unapplied entry in a higher-kinded position is an operator (D14), applied in its own scope:
+  // `Box[Either]` holds an `Either[Unit, Unit]` (2 values: 2^2 functions to Boolean), `One[Option]`
+  // an `Option[Boolean]` (3^3 functions to itself). Read where a proper type is expected — no
+  // Scala program — it names its type lambda.
+  def unapplied = {
+    val code = """final case class Box[F[_, _]](v: F[Unit, Unit])
+      |final case class One[F[_]](v: F[Boolean])
+      |object U {
+      |  def box(b: Box[Either]): Boolean = ???
+      |  def opt(o: One[Option]): Option[Boolean] = ???
+      |  def proper(x: Option): Boolean = ???
+      |}""".stripMargin
+    (count(code, "U.box") === Count.Finite(4))
+      .and(count(code, "U.opt") === Count.Finite(27))
+      .and(
+        refused(
+          count(code, "U.proper"),
+          "higher-kinded argument: scala.Option (type constructor [A] =>> 1 + A, " +
+            "needs higher-kinded instantiation)"
+        )
+      )
   }
 
   // `Vector[Int] | String` would be a sum only with Vector's runtime class, which A2's table does

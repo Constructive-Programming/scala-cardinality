@@ -31,12 +31,15 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       stop type-resolution cycles with an unresolved diagnostic   $recursive
       do not project a second constructor parameter list          $hiddenField
       do not construct through a private constructor              $privateConstructor
+      do not project an abstract case class as a product          $abstractCase
       count a module's concrete producers as no implementation    $concreteProducers
       count a declared slot as a supplied value                   $declaredSlot
       let a declared callable be applied repeatedly               $declaredCallable
+      count an inherited declared slot                            $inheritedSlot
       ignore a concrete method whose value the scope already has  $concreteMethod
       read an enum the source set defines                         $sourceEnum
       read a sealed family as the sum it enumerates               $sealedSum
+      read a sealed family's covariant pin and mirror binders     $sealedFamilyWithBinder
       read an empty sealed enumeration as no values               $sealedEmpty
       refuse a sealed family an open subtype keeps growing         $sealedOpenSubtype
       refuse a sealed family an open abstract intermediate         $sealedOpenIntermediate
@@ -159,6 +162,23 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       .get
       .count must beLike { case Count.Unresolved(_) => ok }
 
+  // The class's own rows count as any abstract class's: its constructor builds nothing from no
+  // parameters (1), and its declared `value` has no `A` to delegate to (0).
+  def abstractCase = {
+    val found = MethodAnalysis
+      .analyze(
+        inputs(
+          "Example.scala" ->
+            "abstract case class Holder[A]() { val value: A }\ndef extract[A](h: Holder[A]): A = h.value"
+        )
+      )
+      .map(entry => entry.name -> entry.count)
+      .toMap
+    (found("extract") must beLike { case Count.Unresolved(_) => ok })
+      .and(found("Holder.<init>") === Count.Finite(1))
+      .and(found("Holder.value") === Count.Finite(0))
+  }
+
   def declaredSlot =
     // `seed` is not implemented here: the caller supplies it, so it is a value this scope has.
     entry("abstract class Env[A] { def seed: A\ndef pick(): A = seed }", "Env.pick").count === Count
@@ -171,6 +191,13 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "abstract class Env[A] { def step(a: A): A\ndef pick(x: A): A = step(x) }",
       "Env.pick"
     ).count === Count.Countable
+
+  def inheritedSlot =
+    entry(
+      "trait Base[A] { val seed: A }\nabstract class Env[A] extends Base[A] " +
+        "{ def pick(x: A): A = x }",
+      "Env.pick"
+    ).count === Count.Finite(2)
 
   def concreteMethod =
     // A total parametric method no instance replaces is a specific inhabitant of its type, and what
@@ -353,6 +380,26 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
          |case object False extends Bool
          |def bit(b: Bool): Boolean = ???""".stripMargin
     entry(code, "bit").count === Count.Finite(4)
+  }
+
+  def sealedFamilyWithBinder = {
+    // The mirror pattern eo's carriers use: the child's binder pins the parent's slot by the
+    // same name, and `Nothing` pins a covariant slot bottom-up — `Missing` belongs to every
+    // `Opt[A]`. The family resolves; an `A` has no producer, which is the reviewed `CanGet.get`
+    // zero. Sum-domain branching stays deferred exactly as it does for enums — the sealed
+    // family and its enum twin answer alike.
+    val code =
+      """sealed trait Opt[+A]
+         |case class Have[A](value: A) extends Opt[A]
+         |case object Missing extends Opt[Nothing]
+         |def use[A](o: Opt[A]): A = ???""".stripMargin
+    val sealedResult = entry(code, "use").count
+    val enumTwin =
+      entry(
+        "enum Opt[+A] { case Have(value: A); case Missing }\ndef use[A](o: Opt[A]): A = ???",
+        "use"
+      ).count
+    (sealedResult === Count.Finite(0)).and(sealedResult === enumTwin)
   }
 
   def sealedEmpty = {

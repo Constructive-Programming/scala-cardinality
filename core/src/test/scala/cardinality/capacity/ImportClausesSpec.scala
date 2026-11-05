@@ -16,6 +16,7 @@ class ImportClausesSpec extends Specification {
     Explicit imports are followed into the supplied sources
       an import names the member of the path it reads             $importsFollowed
       a clause the sources do not supply stays its reason          $importsRefused
+      an import of an inherited member says so                    $inheritedImport
       an export outranks an import or an outer definition          $exportsOutrank
       an export's path reads with the imports before it           $exportPaths
       a renamed member leaves its importer's wildcard             $renamedHidden
@@ -79,14 +80,14 @@ class ImportClausesSpec extends Specification {
         found(("d2.Use", Class)) ===
           "unresolved[Widget (imported from a.Widget, a may be imported by zz.*)]"
       )
-      .and(found(("e.H#Y", Alias)) === "unresolved[T (imported from x.T, not supplied)]")
+      .and(found(("e.H#Y", Alias)) === "unresolved[T (imported from x.T, not followed)]")
   }
 
   // `ListedNamespaces`, shared with the method side: `scala.jdk.CollectionConverters` declares its
   // conversion classes and `scala.quoted` six types (scala-library 3.9.0), none a root spelling, so
-  // `Int` stays the base type (its capacity, ≤2^32) under both; `Expr` is unresolved. `zz.*`,
-  // which no source supplies, may bind `Int` too (Scala 3.9.0 binds a wildcard's name over a root
-  // import).
+  // `Int` stays the base type (its capacity, ≤2^32) under both, while `Expr` is the library's
+  // declaration, not supplied. `zz.*`, which no source supplies, may bind `Int` too (Scala 3.9.0
+  // binds a wildcard's name over a root import).
   def listedWildcards = {
     val found = rowsOf(
       "l/A.scala" -> "package l\nimport scala.jdk.CollectionConverters.*\nfinal case class Framed(id: Int)",
@@ -96,20 +97,23 @@ class ImportClausesSpec extends Specification {
     (found(("l.Framed", Class)) === "≤2^32")
       .and(found(("l2.I", Class)) === "≤2^32")
       .and(
-        found(("l2.E", Class)) === "unresolved[Expr]"
+        found(
+          ("l2.E", Class)
+        ) === "unresolved[Expr (imported from scala.quoted.Expr, not supplied)]"
       )
       .and(found(("l3.Z", Class)) === "unresolved[Int (may be imported by zz.*)]")
   }
 
   // Two wildcards of one body that both bind a name are E049 (scalac 3.9.0, probes/a7/prec/neg/n3),
   // so a supplied member keeps the name whatever order the clauses are written in: `q.T` = Boolean,
-  // 2. A wildcard written before `import q.*` may bind `q` itself.
+  // 2. A wildcard written before `import q.*` may bind `q` itself; `_root_.q.*` it cannot rebind.
   def sameBodyWildcards = {
     val q = "q/T.scala" -> "package q\ntype T = Boolean"
     val found = rowsOf(
       q,
       "a/U.scala" -> "package a\nimport q.*\nimport zz.*\nfinal case class U(t: T)",
-      "b/U.scala" -> "package b\nimport zz.*\nimport q.*\nfinal case class U(t: T)"
+      "b/U.scala" -> "package b\nimport zz.*\nimport q.*\nfinal case class U(t: T)",
+      "c/U.scala" -> "package c\nimport zz.*\nimport _root_.q.*\nfinal case class U(t: T)"
     )
     (found(("a.U", Class)) === "2")
       .and(
@@ -117,6 +121,7 @@ class ImportClausesSpec extends Specification {
           ("b.U", Class)
         ) === "unresolved[T (may be imported by q.*: q may be imported by zz.*)]"
       )
+      .and(found(("c.U", Class)) === "2")
   }
 
   // A `given` selector binds its prefix's given instances, terms of any name: `zz.given` may bind
@@ -239,7 +244,7 @@ class ImportClausesSpec extends Specification {
   // A body's `val W` outranks `import to1.W` for the term only: the type `W` is still `to1.W` (2,
   // not the package's other `to2.W`, 1). An import of a member that is only a term (`object W`)
   // binds no type: `W` is the package's `tb.W` (2), not `not supplied`. An import of an object's
-  // exported member is not supplied.
+  // exported member says that is what it does not follow.
   def namespaces = {
     val found = rowsOf(
       "to1/A.scala" -> "package to1\nfinal case class W(b: Boolean)",
@@ -255,8 +260,15 @@ class ImportClausesSpec extends Specification {
       .and(found(("tb.C", Class)) === "2")
       .and(
         found(("ie2.C", Class)) ===
-          "unresolved[U (imported from ie.Impl.U, not supplied)]"
+          "unresolved[U (imported from ie.Impl.U, exported member not followed)]"
       )
   }
+
+  // `Impl` and `U` are both supplied; `Impl` inherits `U` from `Holder`, which the estimate does not
+  // follow: the reason says that, not that no source supplies it.
+  def inheritedImport =
+    rows(
+      "trait Holder { type W; final case class U(w: W, b: Boolean) }\nobject Impl extends Holder { type W = Boolean }\nobject Use { import Impl.U; final case class X(u: U) }"
+    )(("Use.X", Class)) === "unresolved[U (imported from Impl.U, inherited member not followed)]"
 
 }

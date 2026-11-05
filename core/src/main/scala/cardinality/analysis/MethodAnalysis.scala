@@ -310,8 +310,9 @@ object MethodAnalysis {
       val frame = context.frame
       val variables = context.variables
       tpe match {
-        case SingletonIntersections(_) => Left(s"unsupported type: ${Spelling.of(tpe)}")
-        case n: Type.Name if variables.contains(n.value) => variables(n.value)
+        case SingletonIntersections(syntax) =>
+          SingletonIntersections.resolve(syntax, context, this)
+        case n: Type.Name if variables.contains(n.value) => proper(n.value, variables(n.value))
         case TypeSubstitution.Union(_, _)                => unions.resolve(tpe, context)
         case MethodProjections(projected) if MethodProjections.accepts(projected, context, this) =>
           MethodProjections.resolve(projected, context, this, sourceNames)
@@ -335,20 +336,41 @@ object MethodAnalysis {
             args <- Traversals.sequence(f.paramClause.values.map(context.read(_, this)))
             result <- context.read(f.res, this)
           } yield Shape.Function(args, result)
+        case wildcard: Type.Wildcard => Left(TypePlaceholders.existential(wildcard))
+        case _: Type.AnonymousParam  =>
+          Left("constructor placeholder has no enclosing constructor application")
         case _: Type.AnonymousLambda =>
           Left("unapplied constructor placeholder used as a proper type")
+        case f: Type.PolyFunction => MethodTypeLambdas.resolve(f, context, this)
+        case _: Type.Lambda       =>
+          Left("unapplied type lambda used as a proper type")
         case t: Type.Apply if unions.aliased(t, context) => unions.resolve(t, context)
         case t: Type.Apply                               =>
           applications.resolve(t.tpe, t.argClause.values, context)
         case t: Type.ApplyInfix =>
           applications.resolve(t.op, List(t.lhs, t.rhs), context)
-        case n: Type.Name   => lexicalType(n.value, Arguments.none, context)
+        case n: Type.Name    => lexicalType(n.value, Arguments.none, context)
+        case p: Type.Project =>
+          RefinedMembers
+            .resolve(p.qual, p.name.value, context, this, projection = true)
+            .flatMap(SingletonIntersections.validate(_, context.useSite, this))
         case r: Type.Refine => members.refinement(r, context)
         case s: Type.Select if RefinedMembers.pathType(s.qual, frame).nonEmpty =>
-          Left(s"unsupported type: ${Spelling.of(tpe)}")
+          RefinedMembers.pathType(s.qual, frame).get.flatMap { (declared, owner) =>
+            val declaredContext = context.inScope(owner, typeParameters(owner))
+            RefinedMembers
+              .resolve(declared, s.name.value, declaredContext, this)
+              .flatMap(SingletonIntersections.validate(_, context.useSite, this))
+          }
         case s: Type.Select => namedType(s.syntax, Arguments.none, context)
         case _              => Left(s"unsupported type: ${Spelling.of(tpe)}")
       }
+    }
+
+    // A higher-kinded name read where a value type is expected is a kind error, not a value.
+    private def proper(name: String, bound: Resolved): Resolved = bound.flatMap {
+      case _: Shape.Constructor => Left(s"higher-kinded parameter used as a proper type: $name")
+      case shape                => Right(shape)
     }
 
     def inheritsName(tpe: Type, name: String, context: ResolutionContext): Boolean =
@@ -480,10 +502,23 @@ object MethodAnalysis {
         scope: Map[String, Resolved]
     ): Resolved = {
       val key = entry.key
+      val args = arguments.shapes
       OpaqueTypes.readable(context, entry).flatMap { _ =>
         entry.tree match {
           case alias: Defn.Type if TypeApplications.lambda(alias.body).nonEmpty =>
-            Left(s"type lambda alias not read: $name")
+            if (alias.tparamClause.values.isEmpty)
+              TypeApplications
+                .lambda(alias.body)
+                .get
+                .flatMap(
+                  MethodTypeLambdas(
+                    _,
+                    args,
+                    context.inScope(entry.owner, scope).enter(key),
+                    this
+                  )
+                )
+            else Left(s"type constructor used as a proper type: $name")
           case tree if CapabilityRecords.applies(tree) =>
             records.resolve(name, entry, arguments, context.inScope(entry.owner, scope))
           case _ =>

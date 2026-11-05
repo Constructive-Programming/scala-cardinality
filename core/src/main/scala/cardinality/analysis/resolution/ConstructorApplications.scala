@@ -108,7 +108,7 @@ final private[cardinality] class ConstructorApplications(
     callees.of(callee, calleeContext).flatMap {
       case Callee.Lambda(lambda, scope) => applyLambda(lambda, scope, arguments, context)
       case Callee.Bound(operator: Operator.Rigid, name) =>
-        keys.rigid(operator, arguments, context)
+        keys.rigid(operator, name, arguments, context)
       case Callee.Bound(Operator.Closure(tpe, scope), _) =>
         applyCallee(tpe, scope, arguments, context)
       case Callee.Named(named, scope) => applyNamed(named, scope, arguments, context)

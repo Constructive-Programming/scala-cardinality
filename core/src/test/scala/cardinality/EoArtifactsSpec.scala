@@ -22,6 +22,7 @@ class EoArtifactsSpec extends Specification with AfterAll {
       a list keeps its separator out of its items            $list
       a refinement's `; ` stays in its reason                 $refinementFields
       a table reads back the fields it was written from      $roundTrip
+      a literal's spaces survive into its row's fields       $literalFields
 
     Definitions table
       a row carries identity, size, class and reasons         $definitionRow
@@ -88,6 +89,23 @@ class EoArtifactsSpec extends Specification with AfterAll {
     Tsv.rows(Tsv.table(List("module", "x", "y"), rows)) === List(
       Map("module" -> "core", "x" -> "a b", "y" -> ""),
       Map("module" -> "avro", "x" -> "c d", "y" -> "e; f")
+    )
+  }
+
+  // Overloads that differ only in a literal's spaces (both erase to `String`, so the second needs
+  // its own target name) keep two identities through the TSV.
+  def literalFields = {
+    val code = "package l\nimport scala.annotation.targetName\nobject O {\n" +
+      "  def f(x: \"a  b\" & Int): Int = 1\n" +
+      "  @targetName(\"f2\") def f(x: \"a b\" & Int): Int = 2\n}\n"
+    val written = MethodAnalysis
+      .analyze(List(MethodAnalysis.Input("l/O.scala", parse(code))))
+      .map(entry => EoCheckout.row(entry, ""))
+    Tsv
+      .rows(Tsv.table(EoCheckout.MethodColumns, written))
+      .map(row => (row("signature"), row("unresolved_reasons"))) === List(
+      ("f(x: \"a  b\" & Int): Int", "unsupported intersection relationship: \"a  b\" & Int"),
+      ("f(x: \"a b\" & Int): Int", "unsupported intersection relationship: \"a b\" & Int")
     )
   }
 

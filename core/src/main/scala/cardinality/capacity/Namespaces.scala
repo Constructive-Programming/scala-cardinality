@@ -154,6 +154,7 @@ private[cardinality] object Namespaces {
       own.aliases.map((n, body) => m.key(n) -> body),
       own.arms.map((n, arms) => m.key(n) -> arms),
       own.parents.map((n, children) => m.key(n) -> children.map(m.key)),
+      own.reads.map((n, held) => m.key(n) -> held),
     )
     m.nested.foldLeft(rekeyed)((acc, n) => acc ++ moduleShapes(n, names(n.defn), solved))
   }
@@ -282,7 +283,15 @@ private[cardinality] object Namespaces {
             )
           )
         )
-      case _: Stdlib => None
+      case Stdlib(path) =>
+        listed(path, _.typeBinding(name.value, rootSpelled(name))).map {
+          case ListedNamespaces.Binding.Member(fqn) =>
+            Found.Reason(
+              Definition.Unbound.Imported(name.value, s"imported from $fqn, not supplied")
+            )
+          case ListedNamespaces.Binding.Unlisted =>
+            Found.Reason(Definition.Unbound.Imported(name.value, mayBind(wildcard)))
+        }
       case _ => Some(Found.Reason(Definition.Unbound.Imported(name.value, mayBind(wildcard))))
     }
 
@@ -295,12 +304,26 @@ private[cardinality] object Namespaces {
         exposure.withheld(name, wildcard) match {
           case Some(why) => Some(Unknown(Some(why)))
           case None      =>
-            namespace.step(name).orElse(exposure.unread(wildcard).map(why => Unknown(Some(why))))
+            namespace.step(name) match {
+              // A `given` selector binds a given instance of the namespace: a value.
+              case Some(value: Value) if exposure.imports(name, wildcard) => Some(value)
+              case Some(_: Value)                                         => None
+              case Some(_) if wildcard.givens                             => None
+              case Some(found)                                            => Some(found)
+              case None => exposure.unread(wildcard).map(why => Unknown(Some(why)))
+            }
         }
+      // A package open to dependencies holds its supplied subpackages, and may hold any other name.
+      case Package(path, library) if library.isPackage(path :+ name) && !wildcard.givens =>
+        Some(Package(path :+ name, library))
       // A wildcard over a namespace that is itself in doubt passes on the clause it rests on.
       case Unknown(Some(why)) => Some(Unknown(Some(why)))
-      case _: Stdlib          => None
-      case _                  => Some(Unknown(Some(mayBind(wildcard))))
+      case Stdlib(path)       =>
+        listed(path, _.termBinding(name.value)).map {
+          case ListedNamespaces.Binding.Member(_) => Stdlib(path :+ name.value)
+          case ListedNamespaces.Binding.Unlisted  => Unknown(Some(mayBind(wildcard)))
+        }
+      case _ => Some(Unknown(Some(mayBind(wildcard))))
     }
 
     /** How an explicit clause over this namespace binds the type it names: the member a supplied
@@ -346,8 +369,11 @@ private[cardinality] object Namespaces {
     }
 
     /** Whether a wildcard (or `given` selector) over this namespace may bind a term name. */
-    def bindsTerm(name: TypeName, wildcard: Wildcard): Boolean =
-      !supplied || head(name, wildcard).nonEmpty
+    def bindsTerm(name: TypeName, wildcard: Wildcard): Boolean = this match {
+      case _ if supplied => head(name, wildcard).nonEmpty
+      case Stdlib(path)  => listed(path, _.termBinding(name.value)).nonEmpty
+      case _             => true
+    }
 
     /** What `member` read through this namespace is. */
     def located(member: TypeName): Option[Located] = this match {
@@ -356,19 +382,39 @@ private[cardinality] object Namespaces {
           .pkg(path)
           .map(Located.Member(member, _))
           .orElse(library.pendingMember(path, member).map(Located.Pending(_)))
-      case Obj(prefix, in, _)  => Some(Located.Member(key(prefix, member), in))
-      case _: Value            => Some(Located.Unread(None))
-      case Unknown(provenance) => Some(Located.Unread(provenance))
-      case _: Stdlib | Absent  => None
+      case Obj(prefix, in, _)        => Some(Located.Member(key(prefix, member), in))
+      case Value(Some(declared), in) => Some(Located.Instance(declared, in))
+      case Value(None, _)            => Some(Located.Unread(None))
+      case Unknown(provenance)       => Some(Located.Unread(provenance))
+      case _: Stdlib | Absent        => None
     }
 
   }
+
+  // How a wildcard over a library path binds a name: by the listed namespace there — or, for a
+  // namespace the table does not list, as any namespace no source supplies, which may bind it.
+  private def listed(
+      path: List[String],
+      binding: ListedNamespaces.Namespace => Option[ListedNamespaces.Binding]
+  ): Option[ListedNamespaces.Binding] =
+    ListedNamespaces.at(path).fold(Some(ListedNamespaces.Binding.Unlisted))(binding)
+
+  // A name the root imports bind and the estimate reads: no listed namespace declares one.
+  private def rootSpelled(name: TypeName): Boolean =
+    BaseTypes.get(name.value).nonEmpty || BaseTypes.throwables.contains(name.value) ||
+      StandardConstructors.modelled(name.value)
 
   // Why an explicit clause's path names nothing the estimate reads: a value's member, or one an
   // object inherits or exports, is not followed; a path whose first name is in doubt (a wildcard
   // over an unsupplied namespace may bind it) passes the doubt on — the clause may well name a
   // supplied declaration; any other path names no supplied source.
   private def unfollowed(selector: Selector, path: Target): String = path match {
+    case _: Target.Value                           => selector.because("not followed")
+    case Target.Obj(_, _, Exposure(_, true, true)) =>
+      selector.because("inherited or exported member not followed")
+    case Target.Obj(_, _, Exposure(_, true, _)) => selector.because("inherited member not followed")
+    case Target.Obj(_, _, Exposure(_, false, true)) =>
+      selector.because("exported member not followed")
     case Target.Unknown(Some(why)) =>
       selector.because(s"${selector.path.headOption.fold("")(_.value)} $why")
     case _ => selector.because("not supplied")
@@ -398,6 +444,12 @@ private[cardinality] object Namespaces {
   def target(scope: Scope, names: List[TypeName]): Target = stdlib(
     names,
     names match {
+      case `root` :: first :: rest =>
+        val library = scope.library
+        val start =
+          if (library.isPackage(List(first))) Target.Package(List(first), library)
+          else Target.Absent
+        rest.foldLeft(start)(_.select(_))
       case first :: rest if first != root => rest.foldLeft(head(scope, first))(_.select(_))
       case _                              => Target.Absent
     }
@@ -444,7 +496,7 @@ private[cardinality] object Namespaces {
   // files, else what its export clauses and package object's parents pass on.
   private def packageHead(scope: Scope, path: List[TypeName], first: TypeName): Target =
     Target.Package(path, scope.library).select(first) match {
-      case Target.Absent => scope.library.head(path).getOrElse(Target.Absent)
+      case Target.Absent => scope.library.head(path, first, scope).getOrElse(Target.Absent)
       case found         => found
     }
 
@@ -457,7 +509,8 @@ private[cardinality] object Namespaces {
           case Target.Absent => Target.Unknown(Some(unfollowed(selector, path)))
           case found         => found
         }
-      case other => Target.Unknown(Some(unfollowed(selector, other)))
+      case library: Target.Stdlib => library.select(selector.member)
+      case other                  => Target.Unknown(Some(unfollowed(selector, other)))
     }
 
   // The first wildcard, latest first, whose namespace has a term of that name — or that names a
@@ -477,6 +530,9 @@ private[cardinality] object Namespaces {
       * still not define the key — the qualifier resolved, the member did not.
       */
     case Member(key: TypeName, in: Scope)
+
+    /** A value whose type is known, read where the value is bound: its class's member. */
+    case Instance(declared: Type, in: Scope)
 
     /** A value whose type is not known, a path through a value, or a name a clause binds: not
       * followed, so the reference is its own reason (with the clause, if one binds it).
@@ -538,5 +594,9 @@ private[cardinality] object Namespaces {
       (throwable.scalaAlias && select.qual.syntax.stripPrefix("_root_.") == "scala")
     }
   }
+
+  /** `java.lang.String`, the one base type `java.lang` spells the way the algebra models it. */
+  def javaString(select: Type.Select): Boolean =
+    Set("java.lang.String", "_root_.java.lang.String")(select.syntax)
 
 }

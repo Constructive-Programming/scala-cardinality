@@ -176,14 +176,20 @@ private[cardinality] object MemberSyntax {
       rigid: (String, Kind) => Shape
   ): Either[String, Observation] = {
     val (applied, value) = stat match {
-      case d: Decl.Def => (Some(d.decltpe), None)
-      case d: Defn.Def => (d.decltpe, None)
-      case v: Decl.Val => (None, Some(v.decltpe))
-      case v: Defn.Val => (None, v.decltpe)
-      case _           => (None, None)
+      case d: Decl.Def                                        => (Some(d.decltpe), None)
+      case d: Defn.Def                                        => (d.decltpe, None)
+      case g: Defn.GivenAlias if g.paramClauseGroups.nonEmpty => (Some(g.decltpe), None)
+      case g: Defn.GivenAlias                                 => (None, Some(g.decltpe))
+      case g: Decl.Given                                      => (None, Some(g.decltpe))
+      case v: Decl.Val                                        => (None, Some(v.decltpe))
+      case v: Defn.Val                                        => (None, v.decltpe)
+      case v: Decl.Var                                        => (None, Some(v.decltpe))
+      case v: Defn.Var                                        => (None, v.decltpe)
+      case p: Term.Param                                      => (None, p.decltpe)
+      case _                                                  => (None, None)
     }
     applied
-      .map(res => Right(Observation.Applied(callable(member, groups(stat), res, rigid), res)))
+      .map(res => callable(name, member, groups(stat), res, rigid).map(Observation.Applied(_, res)))
       .orElse(value.map(tpe => Right(Observation.Value(tpe))))
       .getOrElse(Left(s"overridable member's result type is inferred: $name"))
   }
@@ -223,11 +229,13 @@ private[cardinality] object MemberSyntax {
   def implicitModifier(mods: List[Mod]): Boolean = mods.exists(_.is[Mod.Implicit])
 
   /** Whether a top-level statement of a file is compiled into the file's package object
-    * (`f$package`), where every top-level opaque type of the file is transparent: an implicit
+    * (`f$package`), where every top-level opaque type of the file is transparent: any statement but
+    * a class, trait, enum or object definition or a nested package — save an implicit class or
     * object (Scala 3 wraps "implicit classes and objects") and an object that accompanies a type
     * alias (an opaque or plain one, such as `object MF` beside `type MF[F[_]] = [X, A] =>> MFK[F,
-    * X, A]`, compiled to `f$package$MF`). Any other statement is not read as wrapped here, so the
-    * representation stays hidden from it.
+    * X, A]`, compiled to `f$package$MF`). Scala 3.9.0 lets `implicit class R(f: Flag)`, `implicit
+    * object IO` and a `given … with` body read `Flag`'s representation (`StoredScopesSpec`'s
+    * `opaqueTopLevel` and `opaqueLending`).
     */
   def wrappedInPackageObject(stat: Tree): Boolean = stat match {
     case module: Defn.Object =>
@@ -235,7 +243,9 @@ private[cardinality] object MemberSyntax {
         case alias: Defn.Type => alias.name.value == module.name.value
         case _                => false
       })
-    case _ => false
+    case c: Defn.Class                                  => implicitModifier(c.mods)
+    case _: (Defn.Trait | Defn.Enum | Pkg | Pkg.Object) => false
+    case _                                              => true
   }
 
   /** A member implicit search may select: a given, or an `implicit` definition, object or class. */
@@ -244,6 +254,10 @@ private[cardinality] object MemberSyntax {
     case d: Stat.WithMods                               => implicitModifier(d.mods)
     case _                                              => false
   }
+
+  /** An abstract `inline` (or `transparent inline`) member: a deferred inline method or value. */
+  def deferredInline(stat: Tree): Boolean =
+    (stat.is[Decl.Def] || stat.is[Decl.Val]) && inlined(stat)
 
   /** Whether a definition is `inline`: its body is expanded at each call site. */
   def inlined(tree: Tree): Boolean = modifiers(tree).exists(_.is[Mod.Inline])
@@ -256,18 +270,25 @@ private[cardinality] object MemberSyntax {
   /** A modifier that hides a declaration from some scope. */
   def restricted(mod: Mod): Boolean = mod.is[Mod.Private] || mod.is[Mod.Protected]
 
-  // A member's callable: its uncurried parameter types to its result.
+  // A member's callable: its uncurried parameter types to its result, or why it has none.
   private def callable(
+      name: String,
       member: String,
       groups: List[Member.ParamClauseGroup],
       result: Type,
       rigid: (String, Kind) => Shape
-  ): Callable =
-    Callable(
-      Type.Function(Type.FuncParamClause(parameters(groups).flatMap(_.decltpe)), result),
-      member,
-      groups.flatMap(_.tparamClause.values),
-      rigid
-    )
+  ): Either[String, Callable] = {
+    val params = parameters(groups)
+    if (!params.forall(_.decltpe.isDefined)) Left(s"missing callable parameter type: $name")
+    else
+      Right(
+        Callable(
+          Type.Function(Type.FuncParamClause(params.flatMap(_.decltpe)), result),
+          member,
+          groups.flatMap(_.tparamClause.values),
+          rigid
+        )
+      )
+  }
 
 }

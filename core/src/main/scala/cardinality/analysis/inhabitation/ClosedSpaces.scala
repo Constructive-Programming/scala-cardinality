@@ -1,13 +1,16 @@
 package cardinality.analysis.inhabitation
 
+import cardinality.analysis.resolution.LiteralTypes
 import cardinality.capacity.{EffectiveOmega, FinitePart, NothingSize, Size, UnitSize}
 
 import Inhabitation.Shape
 import Shape.*
 
-/** Closed shapes hold no atom (a rigid application is one), evidence, existential or singleton. A
-  * closed value only yields closed values, each a literal the empty environment builds, so
-  * eliminating one is a uniform split: one branch without the value, raised to its value space.
+/** Closed shapes hold no atom (a rigid application is one), evidence, existential or singleton
+  * other than a literal type's. A closed value only yields closed values, each a literal the empty
+  * environment builds, so eliminating one is a uniform split: one branch without the value, raised
+  * to its value space. A literal type is one point, like `Unit` (its constant is a literal,
+  * `1 => B` carries what `Unit => B` does), and a union of literals the sum of its constants.
   * Products multiply, sums add, a function space is its codomain raised to its domain, a sequence
   * is ω (1 if its element is empty); an infinite operand saturates at 0, 1 or ω (register D2).
   */
@@ -15,6 +18,7 @@ private[cardinality] object ClosedSpaces {
 
   def closed(shape: Shape): Boolean =
     !Shape.exists(shape) {
+      case Singleton(id, None) if LiteralTypes.literal(id)       => false
       case _: Singleton | _: Evidence | _: Existential | _: Poly => true
       case other                                                 => atomic(other)
     }
@@ -68,12 +72,13 @@ private[cardinality] object ClosedSpaces {
     import algebra.*
     def product(factors: Iterable[C]) = factors.foldLeft(one)(times)
     node match {
-      case Ground(_, size) => ground(size)
-      case Product(_)      => product(kids)
-      case Sum(_)          => kids.foldLeft(zero)(plus)
-      case Function(_, _)  => power(kids.last, product(kids.init))
-      case Repeated(_)     => if (empty(kids.head)) one else omega
-      case open            => unclosed(open)
+      case Ground(_, size)                                 => ground(size)
+      case Singleton(id, None) if LiteralTypes.literal(id) => one
+      case Product(_)                                      => product(kids)
+      case Sum(_)                                          => kids.foldLeft(zero)(plus)
+      case Function(_, _)                                  => power(kids.last, product(kids.init))
+      case Repeated(_)                                     => if (empty(kids.head)) one else omega
+      case open                                            => unclosed(open)
     }
   }
 

@@ -21,24 +21,36 @@ class StoredValueSoundnessSpec extends Specification {
     Sealed families are tagged sums
       children in the companion, recursion included              $companionFamily
       a parameterised family instantiates through its slots       $parameterisedFamily
+      an instantiation is its own least fixed point               $instantiationFixedPoint
       sealed intermediates are summed once                        $intermediates
+      a match type in a subtype reduces on the parent's arguments $matchThroughFamily
 
     A family that is not closed is refused, and says why
+      unpinned, pinned or bounded subtype parameters               $notUniform
+      a bound reads alike only beside its parent                   $boundScope
       a subtype through an alias, or reached twice                 $aliasesAndOverlap
       a subtype through a renamed import                           $renamedParent
       a parent name an object rebinds names another type          $rebinding
+      a subtype varies as the slot it binds, or is refused        $slotVariance
       a bottom pin is the standard library's Nothing              $shadowedBottom
+      a data constructor is the standard library's                $shadowedData
       an enum case pinned to one instantiation is refused         $enumCases
 
     Recursion and match types the model does not count stay unknown
       recursion through a function's domain has no count          $negativeRecursion
       a constructor's slots are its declaration's, never its name $constructorSlots
+      a case is passed over only when provably disjoint           $matchDisjointness
+      literals and tuple elements are told apart                  $matchLiterals
+      a pattern matches by spelling only where both mean alike    $matchScopes
+      a cycle through a value's type member has no count          $unseenCycle
 
     Reasons, evidence, containers, members, match types and marks
       a reference carries the reasons of what it reads            $taint
       context bounds are constructor inputs                       $contextBounds
+      a named context bound is the bound's evidence               $namedBound
       a finite collection keeps its element's tier                $containers
       an enclosing template's abstract member is a parameter      $abstractMember
+      a match type stuck on its own parameters is theirs           $stuckMatch
       a floating-point stand-in survives sums and products        $lossy
       every class of reasons renders, unresolved first             $reasonClasses
     """
@@ -92,6 +104,47 @@ class StoredValueSoundnessSpec extends Specification {
       .and(found(("Flip", Abstract)) === "instantiation[A, B]")
   }
 
+  // An instantiation solves its own recursion from 0: |L[Nothing]| = μX. 1 + 0·X = 1,
+  // |L[Unit]| = μX. 1 + X = ω, |T[Nothing]| = μX. 0 + X·X = 0 (the template's ω would not do).
+  // Through `&`, read as `min`, |M[Boolean]| = μX. 1 + min(X, 2) grows 1, 2, 3 and settles: the
+  // widened ω is no bound the equation keeps (it falls to 3), so a reason, never ω. `Ev[A]` read
+  // again inside `Od[A]` inside `Ev[A]` has no joint fixed point solved: a reason that says so.
+  def instantiationFixedPoint = {
+    val code =
+      """|sealed trait L[+A]
+         |case object Nil0 extends L[Nothing]
+         |final case class Cons[+A](h: A, t: L[A]) extends L[A]
+         |final case class LN(l: L[Nothing])
+         |final case class LU(l: L[Unit])
+         |enum T[A] { case Leaf(a: A); case Node(l: T[A], r: T[A]) }
+         |final case class TN(t: T[Nothing])
+         |sealed trait M[A]
+         |final case class Stop[A]() extends M[A]
+         |final case class Go[A](next: M[A] & Two[A]) extends M[A]
+         |sealed trait Two[A]
+         |final case class T1[A]() extends Two[A]
+         |final case class T2[A]() extends Two[A]
+         |final case class UM(m: M[Boolean])
+         |sealed trait Ev[+A]
+         |object Ev { final case class Even[A](o: Od[A]) extends Ev[A]; case object EZ extends Ev[Nothing] }
+         |sealed trait Od[+A]
+         |object Od { final case class Odd[A](e: Ev[A]) extends Od[A] }
+         |final case class UE(e: Ev[Boolean])
+         |""".stripMargin
+    val found = rows(code)
+    def refusedWith(name: String, reason: String) =
+      constructor(name, "A.scala" -> code) must beLike {
+        case Count.Unresolved(reasons) => reasons.exists(_.contains(reason)) must beTrue
+      }
+    (found(("LN", Class)) === "1")
+      .and(found(("LU", Class)) === "ω")
+      .and(found(("TN", Class)) === "0")
+      .and(found(("UM", Class)) === "unresolved[recursive instantiation not settled: M]")
+      .and(found(("UE", Class)) === "unresolved[recursive instantiation not solved: Ev]")
+      .and(refusedWith("UM.<init>", "recursive instantiation not settled: M"))
+      .and(refusedWith("UE.<init>", "recursive instantiation not solved: Ev"))
+  }
+
   // |E| = |Z| + |O| with the sealed intermediate O = μX. |S| + 1 = μX. X + 1 = ω: ω + 1.
   // |Pair[Boolean, Unit]| = |Both| + |Sub| = 2·1 + |Left0[Boolean, Unit]| = 2 + 2 = 4.
   def intermediates = {
@@ -114,11 +167,123 @@ class StoredValueSoundnessSpec extends Specification {
     (found(("UE", Class)) === "ω + 1").and(found(("UP", Class)) === "4")
   }
 
+  // `Miss[A](fst: Fst[A])` read for `Af[(Boolean, Boolean), Nothing]` reduces `Fst` on the tuple
+  // as the reference wrote it, in the reference's scope: 2 at the top level, 1 inside `Inner`,
+  // where `Boolean` is `Unit` (`Hit` holds a `Nothing`). `Pin[X]` holds |X| + |Boolean|·1 values:
+  // a function of X, and |Pin[Unit]| = 3. `Fused` (eo's shape) depends on its parameters only.
+  // `Fst[Int]` matches no case: a reason of its own.
+  def matchThroughFamily = {
+    val found = rows(
+      """|type Fst[T] = T match { case (f, s) => f }
+         |type Snd[T] = T match { case (f, s) => s }
+         |sealed trait Af[A, +B]
+         |object Af {
+         |  final case class Miss[A](fst: Fst[A]) extends Af[A, Nothing]
+         |  final case class Hit[A, +B](snd: Snd[A], b: B) extends Af[A, B]
+         |}
+         |object Inner {
+         |  type Boolean = Unit
+         |  final case class UsesAf(a: Af[(Boolean, Boolean), Nothing])
+         |}
+         |final case class UsesAf2(a: Af[(Boolean, Boolean), Nothing])
+         |final class Fused[S, T, A, B, M0](keep: S => Af[(T, M0), A], restore: (M0, B) => T)
+         |final case class Pin[X](a: Af[(X, Boolean), Unit])
+         |final case class UsePin(p: Pin[Unit])
+         |final case class Stuck(a: Af[Int, Unit])
+         |""".stripMargin
+    )
+    (found(("UsesAf2", Class)) === "2")
+      .and(found(("Inner.UsesAf", Class)) === "1")
+      .and(found(("Pin", Class)) === "instantiation[X]")
+      .and(found(("UsePin", Class)) === "3")
+      .and(parameters(found(("Fused", Class))) === Set("S", "T", "A", "B", "M0"))
+      .and(found(("Stuck", Class)) === "unresolved[a match type]")
+  }
+
   private def refused(code: String): String = rows(code)(("Use", Class))
 
   // The parameters an instantiation-dependent row waits for, in any order.
+  private def parameters(verdict: String): Set[String] =
+    if (!verdict.startsWith("instantiation[")) Set(verdict)
+    else verdict.stripPrefix("instantiation[").stripSuffix("]").split(", ").toSet
+
   private def notSummed(family: String, why: String) =
     s"unresolved[sealed family not summed: $family ($why)]"
+
+  // `Fused[S, M0] extends W[S]` leaves M0 to range over every type; `IntW extends W[Int]` (and an
+  // invariant `Nothing`) pins a slot, a GADT index: |W[Boolean]| holds no `IntW`; `C[A <: Int]` is
+  // a member of `W[t]` only for `t <: Int`, so `W[Boolean]` holds none (the sum would say 2). Each
+  // reason names the subtype and only the parameter at fault.
+  def notUniform =
+    (refused(
+      "sealed abstract class W[S]\nobject W { final class Fused[S, M0](keep: S => M0) extends W[S] }\nfinal case class Use(w: W[Boolean])"
+    ) === notSummed(
+      "W",
+      "sealed subtype binds a parameter to no slot of its parent: Fused (M0, of W)"
+    ))
+      .and(
+        refused(
+          "sealed trait W[A, B]\nfinal case class Twice[A](a: A) extends W[A, A]\nfinal case class Use(w: W[Boolean, Unit])"
+        ) === notSummed(
+          "W",
+          "sealed subtype binds a parameter to several slots of its parent: Twice (A, of W)"
+        )
+      )
+      .and(
+        refused(
+          "sealed trait W[A]\nfinal case class IntW(i: Int) extends W[Int]\nfinal case class Use(w: W[Boolean])"
+        ) === notSummed(
+          "W",
+          "sealed subtype leaves a parameter of its parent unpinned: IntW (Int, of W)"
+        )
+      )
+      .and(
+        refused(
+          "sealed trait W[A]\ncase object Z extends W[Nothing]\nfinal case class Use(w: W[Boolean])"
+        ) === notSummed(
+          "W",
+          "sealed subtype leaves a parameter of its parent unpinned: Z (Nothing, of W)"
+        )
+      )
+      .and(
+        refused(
+          "sealed trait W[A]\nfinal case class C[A <: Int](a: A) extends W[A]\nfinal case class Use(w: W[Boolean])"
+        ) === notSummed(
+          "W",
+          "sealed subtype parameter is bounded otherwise than its slot: C.A (of W)"
+        )
+      )
+      .and(
+        rows(
+          "sealed trait W[A <: Int]\nfinal case class C[A <: Int](a: A) extends W[A]\nfinal case class Use(w: W[Int])"
+        )(("Use", Class)) === "≤2^32"
+      )
+
+  // A bound spelled as its slot's means what the slot's does only where both read alike: `O.C[A <:
+  // X]` reads `O.X = Nothing`, so `C[Boolean]` is ill-formed and P[Boolean] holds nothing (scalac:
+  // `O.C[Boolean](true)` is E057) — refused, not 2. An F-bound naming the parameter its own slot
+  // binds reads alike everywhere: |Q[Boolean, Boolean]| = |D[Boolean, Boolean]| = 2·2 = 4; one
+  // naming another slot's parameter does not.
+  def boundScope =
+    (refused(
+      "type X = Any\nsealed trait P[A <: X]\nobject O {\n  type X = Nothing\n  final case class C[A <: X](a: A) extends P[A]\n}\nfinal case class Use(p: P[Boolean])"
+    ) === notSummed(
+      "P",
+      "sealed subtype parameter is bounded otherwise than its slot: C.A (of P)"
+    ))
+      .and(
+        rows(
+          "sealed trait Q[A <: B, B]\nfinal case class D[A <: B, B](a: A, b: B) extends Q[A, B]\nfinal case class Use(q: Q[Boolean, Boolean])"
+        )(("Use", Class)) === "4"
+      )
+      .and(
+        refused(
+          "sealed trait Q[A <: B, B, C]\nfinal case class D[A <: B, B <: C, C](a: A) extends Q[A, C, B]\nfinal case class Use(q: Q[Boolean, Boolean, Boolean])"
+        ) === notSummed(
+          "Q",
+          "sealed subtype parameter is bounded otherwise than its slot: D.A (of Q)"
+        )
+      )
 
   // `X extends WA` with `type WA = W` is a subtype the parent's name does not spell (the sum would
   // say 1, the truth is 1 + 2); so is `new WA {}`. `Both` reaches `D` through `D1` and `D2`: a
@@ -155,7 +320,7 @@ class StoredValueSoundnessSpec extends Specification {
       .and(constructor("x2.Use.<init>", clauses) must beLike { case Count.Unresolved(_) => ok })
   }
 
-  // An object's parent binds the parent's name inside it (scalac: `val y: P = O.Z`
+  // An object's parent or export binds the parent's name inside it (scalac: `val y: P = O.Z`
   // fails, `val x: Base.P = O.Z` compiles): the top-level `P` has the one subtype `A`, so |Use| =
   // 1 (the sum said 2). `Base#P`'s subtype sits in `O`, outside its body: refused. A parent the
   // file does not declare may bind it: refused. A same-file parent without a `P` changes nothing.
@@ -163,12 +328,15 @@ class StoredValueSoundnessSpec extends Specification {
     val inherited =
       "sealed trait P\ncase object A extends P\ntrait Base { sealed trait P }\nobject O extends Base { case object Z extends P }\nfinal case class Use(p: P)"
     val found = rows(inherited)
+    val exported = rows(
+      "sealed trait P\ncase object A extends P\nobject Other { sealed trait P }\nobject O { export Other.P; case object Z extends P }\nfinal case class Use(p: P)"
+    )
     (found(("Use", Class)) === "1")
       .and(
-        found(("Base#P", Abstract)) ===
-          notSummed("P", "a template the estimate does not read: Defn.Object")
+        found(("Base#P", Abstract)) === notSummed("P", "a subtype outside its body and objects: Z")
       )
       .and(constructor("Use.<init>", "A.scala" -> inherited) === Count.Finite(1))
+      .and(exported(("Use", Class)) === "1")
       .and(
         refused(
           "sealed trait P\ncase object A extends P\nobject O extends zz.Base { case object Z extends P }\nfinal case class Use(p: P)"
@@ -181,6 +349,46 @@ class StoredValueSoundnessSpec extends Specification {
       )
   }
 
+  // `P[-A]` holds `C[u]` for every `u >: t`: `Use(C[Any]("x"))` is a `Use` whatever `C`'s field
+  // says, so |Use| ≥ |String| (the sum said 2) — refused unless `C` is contravariant, when `C[u] <:
+  // C[t]` and |Q[Boolean]| = |D[Boolean]| = 2^2 = 4. A covariant slot holds `E[u]` for `u <: t`,
+  // whose `u => Boolean` is no field of `E[t]`: refused; `Have[A]` holds its `A` as data (|S[Boolean]|
+  // = 1 + 2·|List[Boolean]|).
+  def slotVariance = {
+    val code =
+      """|sealed trait Q[-A]
+         |final case class D[-A](f: A => Boolean) extends Q[A]
+         |final case class UseQ(q: Q[Boolean])
+         |sealed trait R[+A]
+         |final case class E[A](f: A => Boolean) extends R[A]
+         |final case class UseR(r: R[Boolean])
+         |sealed trait S[+A]
+         |final case class Have[A](value: A, more: List[A]) extends S[A]
+         |case object Missing extends S[Nothing]
+         |final case class UseS(s: S[Boolean])
+         |""".stripMargin
+    val found = rows(code)
+    (refused(
+      "sealed trait P[-A]\nfinal case class C[A](a: A) extends P[A]\nfinal case class Use(p: P[Boolean])"
+    ) ===
+      notSummed(
+        "P",
+        "sealed subtype parameter of a contravariant slot is not contravariant: C.A (of P)"
+      ))
+      .and(found(("UseQ", Class)) === "4")
+      .and(
+        found(("UseR", Class)) ===
+          notSummed(
+            "R",
+            "sealed subtype parameter of a covariant slot is not covariant: E.A (of R)"
+          )
+      )
+      .and(found(("UseS", Class)) === "ω + 1")
+      .and(constructor("UseR.<init>", "A.scala" -> code) must beLike {
+        case Count.Unresolved(_) => ok
+      })
+  }
+
   // With `type Nothing = Boolean`, `Z extends P[Nothing]` is a `P[Boolean]` only (scalac: `val no:
   // P[Unit] = Z` fails): |Use| = |C[Unit]| = 1, not 2. The pin is read where `Z` is written.
   def shadowedBottom =
@@ -188,8 +396,27 @@ class StoredValueSoundnessSpec extends Specification {
       "type Nothing = Boolean\nsealed trait P[+A]\ncase object Z extends P[Nothing]\nfinal case class C[+A](a: A) extends P[A]\nfinal case class Use(p: P[Unit])"
     ) === notSummed("P", "a subtype pins it with Nothing, which a source binds: Z")
 
+  // `List` is the standard library's data constructor only where no source binds it: with `type
+  // List[A] = A => Boolean` in another file of the package, `E[A](xs: List[A])` is the refused
+  // `E[A](f: A => Boolean)` (scalac: `val x: R[Boolean] = E[Nothing](_ => true)` compiles), not 4.
+  // A covariant `Box` the file declares holds data wherever its name denotes it.
+  def shadowedData = {
+    val shadowed = rowsOf(
+      "p/L.scala" -> "package p\ntype List[A] = A => Boolean",
+      "p/R.scala" -> "package p\nsealed trait R[+A]\nfinal case class E[A](xs: List[A]) extends R[A]\nfinal case class UseR(r: R[Boolean])",
+    )
+    (shadowed(("p.UseR", Class)) ===
+      notSummed("R", "a subtype holds a parameter of it through List, which a source binds: E"))
+      .and(
+        rows(
+          "final case class Box[+A](a: A)\nsealed trait R[+A]\nfinal case class E[A](b: Box[A]) extends R[A]\ncase object N extends R[Nothing]\nfinal case class UseR(r: R[Boolean])"
+        )(("UseR", Class)) === "3"
+      )
+  }
+
   // `case Y extends E[Int]` is an `E[Int]` only (scalac: `val y: P[Boolean] = E.Y` fails): |E
-  // [Boolean]| = |X[Boolean]| = 2, which a sum over every case says is 3. A bottom pin is a member of every instantiation: |H[Boolean]| = 1 + 2.
+  // [Boolean]| = |X[Boolean]| = 2, which a sum over every case says is 3 — directly, and as a sealed
+  // family's subtype. A bottom pin is a member of every instantiation: |H[Boolean]| = 1 + 2.
   def enumCases = {
     val gadt =
       "enum E[A] {\n  case X(a: A)\n  case Y extends E[Int]\n}\nfinal case class Use(e: E[Boolean])"
@@ -199,6 +426,11 @@ class StoredValueSoundnessSpec extends Specification {
     (refused(gadt) === reason)
       .and(
         refused(
+          "sealed trait P[A]\nenum E[A] extends P[A] {\n  case X(a: A)\n  case Y extends E[Int]\n}\nfinal case class Use(p: P[Boolean])"
+        ) === reason
+      )
+      .and(
+        refused(
           "enum H[+A] { case N extends H[Nothing]; case V(a: A) }\nfinal case class Use(h: H[Boolean])"
         ) ===
           "3"
@@ -206,8 +438,8 @@ class StoredValueSoundnessSpec extends Specification {
   }
 
   // `MC(f: M => Boolean)` from 0 reads 0 (the empty domain), yet `MC(_ => true)` is a closed value,
-  // and X ≅ 2^X has no solution: no count, directly or through another
-  // definition's domain (`Pred[K]`). A recursion through a function's result is counted.
+  // and X ≅ 2^X has no solution: no count, directly, through a generic family (`N[A]`) or through
+  // another definition's domain (`Pred[K]`). A recursion through a function's result is counted.
   def negativeRecursion = {
     val code =
       """|sealed trait M
@@ -229,6 +461,7 @@ class StoredValueSoundnessSpec extends Specification {
         .map(n => s"recursion through a function's domain: $n")
         .mkString("unresolved[", ", ", "]")
     (found(("UseM", Class)) === negative("M", "MC"))
+      .and(found(("UseN", Class)) === negative("N"))
       .and(found(("UseK", Class)) === negative("K", "KC"))
       .and(found(("Res", Class)) === "ω")
       .and(constructor("UseN.<init>", "A.scala" -> code) must beLike {
@@ -267,9 +500,103 @@ class StoredValueSoundnessSpec extends Specification {
       )
   }
 
+  // Scala passes over a case only where the scrutinee is provably disjoint from its pattern:
+  // `H[Any]` is stuck on `case Int` (scalac: "cannot be shown to be disjoint"), directly and through
+  // a family's subtype (the spelling-only reading said 1); `String`, a tuple and a function are
+  // disjoint from `Int` and reach `case _` (1), and `H[Int]` is `Boolean` (2).
+  def matchDisjointness = {
+    val found = rows(
+      """|type H[T] = T match {
+         |  case Int => Boolean
+         |  case _ => Unit
+         |}
+         |sealed trait P[A]
+         |final case class C[A](h: H[A]) extends P[A]
+         |final case class UAny(h: H[Any])
+         |final case class UFamily(p: P[Any])
+         |final case class UString(h: H[String])
+         |final case class UTuple(h: H[(Int, Int)])
+         |final case class UFunction(h: H[String => String])
+         |final case class UInt(h: H[Int])
+         |""".stripMargin
+    )
+    (found(("UAny", Class)) === "unresolved[a match type]")
+      .and(found(("UFamily", Class)) === "unresolved[a match type]")
+      .and(
+        List("UString", "UTuple", "UFunction").map(n => found((n, Class))) === List("1", "1", "1")
+      )
+      .and(found(("UInt", Class)) === "2")
+  }
+
+  // `x: q.X` reads class `C`'s member through the value `q`, which the solver reads over an earlier
+  // solve of the body and never iterates from 0: with `X = D => Boolean`, D ≅ 2^D has no count
+  // (scalac: `D(c)(_ => true)` and `D(c)(_ => false)` are values; the old reading said ω); with
+  // `X = D` there is no value at all and with `X = Option[D]` there are ω, neither of which the
+  // earlier solve's ω placeholder says: each is a reason, never the number.
+  def unseenCycle = {
+    val negative = rows(
+      "final class C { type X = D => Boolean }\nfinal case class D(q: C)(x: q.X)\nfinal case class UseD(d: D)"
+    )
+    val hidden = "unresolved[recursion through a type member of a value: D]"
+    (negative(("UseD", Class)) === "unresolved[recursion through a function's domain: D]")
+      .and(
+        rows("final class C { type X = D }\nfinal case class D(q: C)(x: q.X)")(
+          ("D", Class)
+        ) === hidden
+      )
+      .and(
+        rows("final class C { type X = Option[D] }\nfinal case class D(q: C)(x: q.X)")(
+          ("D", Class)
+        ) === hidden
+      )
+  }
+
+  // A literal pattern matches the same literal and is disjoint from another (`K[2]` = Unit, 1;
+  // `K[1]` = Boolean, 2) but not from its own class (`K[Int]` is stuck); a tuple pattern is
+  // disjoint from a tuple when one element pair is (`(Int, Boolean)` vs `(Int, String)`: 1); a
+  // literal is disjoint from another final class (`"a"` vs `Int`: 1).
+  def matchLiterals = {
+    val found = rows(
+      """|type K[T] = T match {
+         |  case 1 => Boolean
+         |  case _ => Unit
+         |}
+         |type E[T] = T match {
+         |  case (Int, Boolean) => Boolean
+         |  case _ => Unit
+         |}
+         |type S[T] = T match {
+         |  case Int => Boolean
+         |  case _ => Unit
+         |}
+         |final case class K2(k: K[2])
+         |final case class K1(k: K[1])
+         |final case class KI(k: K[Int])
+         |final case class ET(e: E[(Int, String)])
+         |final case class SL(s: S["a"])
+         |""".stripMargin
+    )
+    (List("K2", "K1", "ET", "SL").map(n => found((n, Class))) === List("1", "2", "1", "1"))
+      .and(found(("KI", Class)) === "unresolved[a match type]")
+  }
+
+  // A pattern spelled as the argument matches only where every name of it means one declaration
+  // as the pattern and the argument read it: `F[Int]` written where `type Int = String` is `F`'s
+  // `case _` (String is disjoint from scala.Int; scalac warns that `true` is discarded as Unit), and
+  // so is `H.F[Int]` against `H`'s own `Int`: 1, never the 2 a spelling match said — stuck, `?`.
+  def matchScopes =
+    (rows(
+      "type F[X] = X match {\n  case Int => Boolean\n  case _ => Unit\n}\nobject O { type Int = String; final case class C(f: F[Int]) }"
+    )(("O.C", Class)) === "unresolved[a match type]")
+      .and(
+        rows(
+          "object H {\n  type Int = String\n  type F[X] = X match {\n    case Int => Boolean\n    case _ => Unit\n  }\n}\nfinal case class C(f: H.F[Int])"
+        )(("C", Class)) === "unresolved[a match type]"
+      )
+
   // Every reader of a definition resting on an unknown name rests on it too — through a generic
   // instantiation, a field, an `Either`, two hops, and a product with an empty factor (0·? is not
-  // claimed as 0); a bare `Throwable` is unresolved. A reference that
+  // claimed as 0); a `Throwable` is an open class, left to its implementations. A reference that
   // supplies a definition's parameters owes none of them: |Gen[Boolean]| = 2; `Gen[B]` waits for
   // B; an open member keeps the reader open.
   def taint = {
@@ -281,7 +608,7 @@ class StoredValueSoundnessSpec extends Specification {
     (found(("b.Bar", Class)) === "unresolved[Schema]")
       .and(found(("b.Local", Class)) === "unresolved[Schema]")
       .and(found(("b.Nested", Class)) === "unresolved[Schema]")
-      .and(found(("b.Res", Alias)) === "unresolved[Throwable]")
+      .and(found(("b.Res", Alias)) === "open[Throwable]")
       .and(found(("b.Res2", Alias)) === "unresolved[Schema]")
       .and(found(("b.Zero", Class)) === "unresolved[Schema]")
       .and(found(("b.G1", Class)) === "2")
@@ -311,6 +638,12 @@ class StoredValueSoundnessSpec extends Specification {
       .and(found(("UsesTwo", Class)) === "4")
       .and(constructor("UsesTwo.<init>", "A.scala" -> code) === Count.Finite(4))
   }
+
+  // `T: Ord as o` names the evidence `o`; the field is still an `Ord[T]`: |U3| = 1·|Ord[Unit]| = 2.
+  def namedBound =
+    rows(
+      "sealed trait Ord[A]\nfinal case class ByBool[A](f: A => Boolean) extends Ord[A]\nfinal case class C3[T: Ord as o](t: T)\nfinal case class U3(c: C3[Unit])"
+    )(("U3", Class)) === "2"
 
   // |C[A]| ≥ |A| (the one-element collections): over an ε₀-tier element (`String => String`,
   // `Any`) a List, Array, Set, Vector, a Map's keys or values, or a repeated parameter is ε₀; over
@@ -344,6 +677,25 @@ class StoredValueSoundnessSpec extends Specification {
   def abstractMember =
     rows("sealed abstract class Opt[T] { type M; type X = (T, M) }")(("Opt#X", Alias)) ===
       "instantiation[T, member M]"
+
+  // `Fst[T]` and `Miss[A](fst: Fst[A])` are stuck on their own parameters: each instantiation
+  // reduces them (`Fst[(Boolean, Int)]` = 2). `Deep[T] = Fst[Fst[T]]` too; applied to a concrete
+  // tuple it would need the inner match reduced to syntax first, which is not modelled: a reason.
+  def stuckMatch = {
+    val found = rows(
+      """|type Fst[T] = T match { case (f, s) => f }
+         |final class Miss[A](val fst: Fst[A])
+         |type Reduced = Fst[(Boolean, Int)]
+         |type Deep[T] = Fst[Fst[T]]
+         |final case class UD(d: Deep[((Boolean, Unit), Unit)])
+         |""".stripMargin
+    )
+    (found(("Fst", Alias)) === "instantiation[T]")
+      .and(found(("Miss", Class)) === "instantiation[A]")
+      .and(found(("Reduced", Alias)) === "2")
+      .and(found(("Deep", Alias)) === "instantiation[T]")
+      .and(found(("UD", Class)) === "unresolved[a match type]")
+  }
 
   // |Double| stands in as at most 2^64 (lossy): 2^64 + 2^64 rounds to 2^65, 2^64·2^32 to 2^96,
   // both bounds, both still marked.

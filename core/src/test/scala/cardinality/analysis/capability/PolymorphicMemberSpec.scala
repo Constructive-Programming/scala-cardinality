@@ -26,9 +26,11 @@ class PolymorphicMemberSpec extends Specification {
       ∀C. C is empty: a supplied one is absurd, a goal one has none $absurd
       a tuple generator's domain is its product; a tuple parameter spreads $tupleGenerators
       a template alias is read at the record's own arguments       $templateAliases
+      a path no binder reaches is an ordinary producer (PB0)        $monomorphicPaths
       records of unrelated traits are distinct evidence             $unrelatedEvidence
     Instantiation at the goal (PB2–PB4)
       a binder the goal fixes counts 0 or 1                         $resultDetermined
+      more than one instantiated term is refused, never counted     $quotient
       a result no goal meets is irrelevant                          $irrelevant
       a binder the result does not fix is refused                   $undetermined
       an algebra premise (Monoid-like evidence) is never reduced    $algebra
@@ -36,7 +38,11 @@ class PolymorphicMemberSpec extends Specification {
       bounded and higher-kinded binders keep their reasons          $boundedAndKinded
       a context-bound binder is bounded                              $contextBound
       a bare-binder result that grows every goal exhausts the budget $growingChain
+      a bare-binder result's compound instantiations are not searched $compoundInstantiation
     Deferred inline members (no term of a body that is not inline)
+      one inhabited under every instantiation is dropped            $deferredInline
+      one whose type may be empty is refused                        $deferredInlineEmpty
+      an inline body calls the override of each expansion           $deferredInlineExpansion
   """
 
   private def counts(code: String): Map[String, Count] =
@@ -108,6 +114,64 @@ class PolymorphicMemberSpec extends Specification {
   // only F[B]); the budget refusal is the documented limit, never a number.
   def growingChain =
     refused(bounds("bounds.U.cyc"), "Inhabitation state budget exceeded")
+
+  private val inl = counts("""package inl
+    |trait T { inline def f[M](x: M): Boolean }
+    |trait U { def f[M](x: M): Boolean }
+    |trait T2 { inline def g(b: Boolean): Boolean }
+    |trait T3[A] { inline def get: A }
+    |trait T4[A] {
+    |  inline def pick[M](f: A => M): M
+    |  def m: A = ???
+    |}
+    |trait T5 {
+    |  inline def choose[M](x: M, y: M): M
+    |  def m[B](a: B, b: B): B = ???
+    |}
+    |trait N[A] { inline def neg: A => Nothing }
+    |trait V { inline val flag: Boolean }
+    |object W {
+    |  def t[A](c: T, a: A): Boolean = true
+    |  def u[A](c: U, a: A): Boolean = true
+    |  def t2(c: T2): Boolean = true
+    |  def t3[A](c: T3[A]): A = ???
+    |  def t4[A](c: T4[A]): A = ???
+    |  def n[A](c: N[A], a: A): Boolean = true
+    |  def v(c: V): Boolean = true
+    |  inline def i[A](c: T, a: A): Boolean = true
+    |}
+    |""".stripMargin)
+
+  // scalac rejects `c.f(a)`, `c.g(true)`, `c.flag`, `this.choose(a, b)` in a body that is not inline
+  // (probes/review-B4/inlc, inlc2, inl2c), so the members add nothing; their types (Boolean,
+  // Boolean ⇒ Boolean, a tag) are built from nothing, so every receiver has an instance: t, t2, v
+  // are true/false (2), T5.m is a or b (2). The ordinary twin `u` reads f ≅ Boolean: 4.
+  // `V2.m` reads its own receiver's deferred `flag` (built from nothing, dropped): true or false — 2.
+  def deferredInline =
+    (inl("inl.W.t") === Count.Finite(2))
+      .and(inl("inl.W.u") === Count.Finite(4))
+      .and(inl("inl.W.t2") === Count.Finite(2))
+      .and(inl("inl.T5.m") === Count.Finite(2))
+      .and(inl("inl.W.v") === Count.Finite(2))
+      .and(paths("paths.V2.m") === Count.Finite(2))
+
+  // get: A and pick ≅ A have no value from nothing, and neg: A ⇒ Nothing beside a: A has none at all
+  // (n's true count is 1: no instance of N[A] exists when an A does). Whether such a member is
+  // implementable together with the rest is not decided, so each is refused (t3, t4, T4.m, V3.m —
+  // its own receiver's `inline val a: A` — true 0).
+  def deferredInlineEmpty = {
+    val reason = "deferred inline member whose type may be empty: "
+    refused(inl("inl.W.t3"), reason + "inl.T3.get")
+      .and(refused(inl("inl.W.t4"), reason + "inl.T4.pick"))
+      .and(refused(inl("inl.T4.m"), reason + "inl.T4.pick"))
+      .and(refused(inl("inl.W.n"), reason + "inl.N.neg"))
+      .and(refused(paths("paths.V3.m"), reason + "paths.V3.a"))
+  }
+
+  // An inline body may call c.f: each expansion calls the override of the receiver's static type
+  // there (probes/b4fix/inl b.scala), which this reading does not see.
+  def deferredInlineExpansion =
+    refused(inl("inl.W.i"), "deferred inline member resolved at each expansion: inl.T.f")
 
   private val poly2 = counts("""package poly2
     |trait Fold[S, A] { def foldMap[M](f: A => M)(s: S): M }
@@ -244,6 +308,32 @@ class PolymorphicMemberSpec extends Specification {
     |  def any[A](m: Maker): A = m.create[A]()
     |}
     |""".stripMargin)
+
+  // `f(a)._2: A` mentions no binder: a free endomap, a, f(a)._2, … — ω. Its Boolean twin is cased
+  // like any callable's, but an A argument may also come from `f(a)._1` at M := A, an instantiation
+  // the argument enumeration does not read, and M := Boolean meets the goal: refused (true 4 —
+  // `f(a)._1` is the identity — f(a)._2's two cases, a Boolean each).
+  def monomorphicPaths =
+    (paths("paths.U.g") === Count.Countable)
+      .and(
+        refused(
+          paths("paths.U.h"),
+          "polymorphic capability binder: M (free-theorem quotient not modelled for paths.Mixed4.f)"
+        )
+      )
+      .and(
+        refused(paths("paths.U.h"), "sum elimination over an argument space not enumerated: c#0")
+      )
+
+  // `run[(B, B)](swap, (b1, b2))._1` is b1 for even numerals and b2 for odd ones, a term no
+  // instantiation of `run` at a goal represents; `zero` (true 0: no A from a numeral alone) is
+  // refused for the same reason, and `par` never gets a number.
+  def compoundInstantiation =
+    refused(
+      paths("paths.U.zero"),
+      "polymorphic capability binder: M (instantiations at compound types not searched for " +
+        "paths.Church.run)"
+    ).and(paths("paths.U.par") must beLike { case Count.Unresolved(_) => ok })
 
   private val poly4 = counts("""package poly4
     |trait Seeded[F[_]] {

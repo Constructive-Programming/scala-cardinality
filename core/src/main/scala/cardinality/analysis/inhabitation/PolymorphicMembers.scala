@@ -27,8 +27,10 @@ import Shape.*
   * Anything else stays polymorphic (`Shape.Poly`). The solver instantiates such an input only where
   * matching its result against a goal fixes every binder (PB2): where no result is a bare binder,
   * every normal form applies it at those instantiations, so the naive count bounds the true one
-  * from above (quotienting only merges) and only 0 or 1 is reported. A member whose result meets no
-  * goal is irrelevant there (PB3); one whose binders the goal does not fix keeps a reason (PB4).
+  * from above (quotienting only merges) and only 0 or 1 is reported; a bare-binder result may be
+  * instantiated at a compound type and eliminated, so beside one no finite count is (`uncovered`).
+  * A member whose result meets no goal is irrelevant there (PB3); one whose binders the goal does
+  * not fix keeps a reason (PB4).
   */
 private[cardinality] object PolymorphicMembers {
 
@@ -183,6 +185,9 @@ private[cardinality] object PolymorphicMembers {
     /** Its result meets the goal under no instantiation: it heads no rule here (PB3). */
     case Irrelevant
 
+    /** The path mentions none of the member's binders: an ordinary producer (PB0). */
+    case Monomorphic
+
     /** The goal fixes every binder: an application at those types, whose count is exact only at 0
       * or 1 (PB2).
       */
@@ -192,17 +197,28 @@ private[cardinality] object PolymorphicMembers {
     case Refused(reason: String)
   }
 
+  /** Why goal-fixed instantiations do not cover a member: a path whose result is one of its binders
+    * may be instantiated at a compound type and eliminated afterwards, which matching at goals
+    * never searches (PB2's boundary).
+    */
+  def uncovered(poly: Poly): Option[String] =
+    GoalSolver.producerPaths
+      .get(poly.body)(Nil)
+      .flatMap(producer => poly.binders.find(b => producer.output == Atom(b.id)))
+      .headOption
+      .map(reason(_, "instantiations at compound types not searched for"))
+
   /** Whether a producer path of a member mentions none of its binders. */
   def monomorphic(binders: List[Binder], producer: Producer): Boolean =
     mentioned(binders, producer).isEmpty
 
   /** What one producer path of a polymorphic member — its parameters and output, binders free —
-    * offers `target`. A path whose output is eliminated rather than matched (a sum) is relevant to
-    * every goal and fixed by none; one that mentions no binder is not read here.
+    * offers `target`. A path whose output is eliminated rather than matched (a sum, a ground value,
+    * a sequence, an existential) is relevant to every goal and fixed by none.
     */
   def offer(binders: List[Binder], producer: Producer, target: Shape): Offer =
     mentioned(binders, producer) match {
-      case Nil => Offer.Refused("polymorphic capability: a path that mentions no binder")
+      case Nil                                       => Offer.Monomorphic
       case named :: _ if eliminated(producer.output) => Offer.Refused(undetermined(named))
       case bound                                     => instantiated(bound, producer, target)
     }
@@ -226,8 +242,9 @@ private[cardinality] object PolymorphicMembers {
 
   // A result the solver eliminates by cases rather than matches against a goal.
   private def eliminated(output: Shape): Boolean = output match {
-    case Sum(alternatives) => alternatives.nonEmpty
-    case _                 => false
+    case Sum(alternatives)                                  => alternatives.nonEmpty
+    case _: Ground | _: Repeated | _: Existential | _: Poly => true
+    case _                                                  => false
   }
 
   // First-order matching: the binders in `pattern` are variables, every other node must agree.
@@ -239,6 +256,7 @@ private[cardinality] object PolymorphicMembers {
     pattern match {
       case Atom(id) if bound(id)           => Some(Map(id -> target))
       case _ if free(pattern, bound)       => Option.when(pattern == target)(Map.empty)
+      case _: (Existential | Poly)         => None
       case _ if !sameNode(pattern, target) => None
       case _                               =>
         val pairs = Shape.children(pattern).zip(Shape.children(target))

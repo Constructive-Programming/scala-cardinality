@@ -9,8 +9,8 @@ import cardinality.types.Spelling
   * bind with the path each reaches, the prefixes its wildcard opens, and the names that wildcard
   * leaves out — an unimport (`N as _`) and the original of a rename, which Scala binds only under
   * its new name. A `given` selector (`p.given`, `p.{given T}`) binds the given instances of its
-  * prefix, terms of any name (`givens`). An importer whose prefix is no path (`import
-  * Outer.this.o.*`) is not indexed, so `unfollowed` stays empty.
+  * prefix, terms of any name (`givens`); an importer whose prefix is no path (`import
+  * Outer.this.o.*`) binds the members of a value, which lookup does not follow (`unfollowed`).
   */
 final private[cardinality] case class ImportBinding(
     start: Int,
@@ -41,6 +41,27 @@ private[cardinality] object ImportBinding {
     val wildcards = importer.importees.collect { case _: Importee.Wildcard => path }
     val givens = Option.when(ScopeTerms.opensGivens(importer))(path).toList
     apply(importer.pos.start, named, wildcards, SourceIndex.hiddenNames(importer), givens)
+  }
+
+  /** An importer whose prefix is no path: the names it may bind, to members lookup does not read.
+    */
+  def unfollowed(importer: Importer): ImportBinding = {
+    val any = importer.importees.exists(_.is[Importee.Wildcard])
+    val names = importer.importees.flatMap(SourceIndex.boundName).toSet
+    apply(
+      importer.pos.start,
+      Nil,
+      Nil,
+      SourceIndex.hiddenNames(importer),
+      unfollowed = Option.when(any || names.nonEmpty || ScopeTerms.opensGivens(importer))(
+        Unfollowed(
+          Spelling.of(importer.ref),
+          names,
+          any,
+          ScopeTerms.opensGivens(importer)
+        )
+      )
+    )
   }
 
   /** An importer whose prefix is no path, as written: the names its explicit selectors bind, and

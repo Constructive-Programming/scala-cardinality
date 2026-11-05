@@ -11,12 +11,20 @@ class GivenSignatureSpec extends Specification {
   private def sig(code: String): Size =
     Counter.sourceSignature(dialects.Scala3(code).parse[Source].get)
 
+  private def definition(code: String): Size =
+    Counter.defnSignature(
+      dialects.Scala3(code).parse[Source].get.stats.collectFirst { case d: Defn => d }.get
+    )
+
   def is = s2"""
     a named alias supplies its declared type ${sig(
       "given flag: Boolean = true"
     ) === BooleanSize}
     an anonymous alias supplies its declared type ${sig(
       "given Boolean = true"
+    ) === BooleanSize}
+    the definition entry point counts a given alias ${definition(
+      "given flag: Boolean = true"
     ) === BooleanSize}
     a given with a unit result contributes one ${sig(
       "given Unit = ()"

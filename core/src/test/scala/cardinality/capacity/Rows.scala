@@ -31,24 +31,6 @@ private[capacity] object Rows {
   def rows(code: String): Map[(String, Definition.Kind), String] =
     table(Counter.definitions(dialects.Scala3(code).parse[Source].get))
 
-  /** A type's size, as the row of an alias to it reads it. */
-  def sizeOf(tpe: String): Size =
-    Counter.definitions(dialects.Scala3(s"type Measured_ = $tpe").parse[Source].get).head.size.get
-
-  /** What a source's classes, enums, modules and top-level values hold together: their rows summed.
-    */
-  def held(code: String): Size =
-    Counter
-      .definitions(dialects.Scala3(code).parse[Source].get)
-      .filter(d => Held(d.kind))
-      .flatMap(_.size)
-      .foldLeft(NothingSize: Size)(_ + _)
-
-  private val Held = {
-    import Definition.Kind.*
-    Set(Class, Enum, Object, Value)
-  }
-
   /** The rows of a source set laid out as files, read as the report reads them. */
   def rowsOf(files: (String, String)*): Map[(String, Definition.Kind), String] = {
     val root = Files.createTempDirectory("cardinality")

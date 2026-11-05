@@ -3,7 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.EffectiveOmega
+import cardinality.capacity.{ByteSize, EffectiveOmega}
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -19,7 +19,10 @@ class GroundEnvironmentSpec extends Specification {
   def is = s2"""
     Inherited closed declarations
       a fixed receiver implements what it inherits                   $fixedReceiver
+      a field is the member it implements                            $fieldAlias
+      one member reached along several parents is one value          $restated
       an open template's overridable implementation is a capability  $openImplemented
+      an overload is a second member; another shape is refused      $overloaded
       an unimplemented declaration of an open template is supplied   $supplied
       nested templates sharing a parent judge it for each receiver   $nestedReceivers
       an open declaration reached from two parents is one member     $openRestated
@@ -41,7 +44,7 @@ class GroundEnvironmentSpec extends Specification {
       a wildcard import of a supplied value is refused               $valueImport
       a name no builtin spells keeps lookup's own reason             $notBuiltin
       aliases, enum bodies, explicit exports and unread steps        $moreChannels
-      a wildcard over an object with parents refuses the builtin      $shadowedPosition
+      a constructor position reads the inherited member on both sides $shadowedPosition
       constructor parameters do not see the template's members       $constructorScope
       a foreign wildcard refuses a builtin beside a supplied one     $foreignWildcard
     Name precedence
@@ -49,12 +52,16 @@ class GroundEnvironmentSpec extends Specification {
       an explicit import wins over another file's package member     $explicitImport
     Constructor readings
       an unreadable infinite position takes the size algebra's tier   $fallbackTier
+      a representation budget breach names its limit                 $budget
       floating point positions count equals classes exactly          $floats
       an enclosing template's parameters are captures                $outerCaptures
+      a singleton beside a value takes the estimate's reading        $singletonPositions
+      a symbolic value space agrees only with a wide estimate        $symbolicDisagreement
     Anonymous evidence
       two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
       ground evidence endpoints keep the evidence reason             $evidence
+      an empty-domain function position has two conventions          $emptyDomain
       an unsupplied wildcard import refuses the builtin              $wildcard
   """
 
@@ -98,6 +105,51 @@ class GroundEnvironmentSpec extends Specification {
         ) === Count.Finite(2)
       )
 
+  // `HasB.b` and the field are one value: f ranges over functions of C(true) / C(false).
+  def fieldAlias =
+    (count(
+      "trait HasB { def b: Boolean }\nfinal case class C(b: Boolean) extends HasB { def f: Boolean = true }",
+      "C.f"
+    ) === Count.Finite(4))
+      .and(
+        count(
+          "trait HasN { def n: Int }\nfinal case class C(n: Int) extends HasN { def f: Boolean = true }",
+          "C.f"
+        ) === intPredicate
+      )
+      .and(
+        count(
+          "abstract class P { val n: Int }\nfinal class C(val n: Int) extends P { def f: Boolean = true }",
+          "C.f"
+        ) === intPredicate
+      )
+
+  def restated =
+    (count(
+      "trait A { def n: Boolean }\ntrait B { def n: Boolean }\ntrait C extends A with B { def f: Boolean = true }",
+      "C.f"
+    ) === Count.Finite(4))
+      .and(
+        count(
+          "trait A { def n: Boolean }\ntrait B extends A { def n: Boolean }\n" +
+            "trait C extends B { def f: Boolean = true }",
+          "C.f"
+        ) === Count.Finite(4)
+      )
+      .and(
+        count(
+          "trait A { def n: Boolean }\ntrait B extends A { def n: Boolean; def f: Boolean = true }",
+          "B.f"
+        ) === Count.Finite(4)
+      )
+      .and(
+        count(
+          "trait A { val n: Boolean }\ntrait B extends A { val n: Boolean }\n" +
+            "trait C extends B { def f: Boolean = n }",
+          "C.f"
+        ) === Count.Finite(4)
+      )
+
   // A subclass of the open Q may override pick with either literal (capabilities C5), so pick is a
   // supplied Boolean: other is true, false, pick or !pick — 4.
   def openImplemented =
@@ -106,6 +158,33 @@ class GroundEnvironmentSpec extends Specification {
         "class Q extends P { def pick: Boolean = true; def other: Boolean = true }",
       "Q.other"
     ) === Count.Finite(4)
+
+  // Two overloads are two supplied functions: 2^(|Int => Int| · |Long => Int|) = 2^(2^(2^37 + 2^69)).
+  // A parameterless `def` and a `val` of one name and type are one member: n, !n, true, false — 4.
+  // Read at another type (`Any` against `Boolean`) the one member's readings differ: refused.
+  def overloaded =
+    (count(
+      "trait A { def g(x: Int): Int }\ntrait B { def g(x: Long): Int }\n" +
+        "trait C extends A with B { def f: Boolean = true }",
+      "C.f"
+    ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + BigInt(2).pow(69)))))
+      .and(
+        count(
+          "trait A { def n: Boolean }\ntrait B { val n: Boolean }\n" +
+            "trait C extends A with B { def f: Boolean = n }",
+          "C.f"
+        ) === Count.Finite(4)
+      )
+      .and(
+        unresolvedOn(
+          count(
+            "trait A { def n: Any }\ntrait B { val n: Boolean }\n" +
+              "trait C extends A with B { def f: Boolean = n }",
+            "C.f"
+          ),
+          "inherited declaration identity not resolved: n"
+        )
+      )
 
   // Two receivers, two members: Outer.this.k and Inner.this.n are independent, 2^(2·2).
   def supplied =
@@ -393,28 +472,37 @@ class GroundEnvironmentSpec extends Specification {
         s"package q\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Frame): Frame = x }"
     )("q.Z.f") === Count.Unresolved(List("path through a value not followed: o"))
 
-  // Through `import O.*` the estimate refuses `Int` itself: a wildcard over an object with parents
-  // may bind a member it does not read.
+  // `Int` is `Long` inside `O`, so P's value space is 2^64: the method side reads the inherited
+  // member, and so does the estimate it is checked against (register D29 — it used to read the
+  // builtin's 2^32, and the disagreement was refused). Through `import O.*` the estimate refuses the
+  // name itself: a wildcard over an object with parents may bind a member it does not read.
   def shadowedPosition = {
     val base = "package w12\ntrait Base { type Int = Long }\n"
-    unresolvedOn(
-      counts(
-        "a.scala" -> s"${base}object O extends Base\nimport O.*\nfinal case class P(x: Int)"
-      )(
-        "w12.P.<init>"
-      ),
-      "unresolved type: Int (may be imported by O.*, an inherited member not followed)"
+    (counts("a.scala" -> s"${base}object O extends Base { final case class P(x: Int) }")(
+      "w12.O.P.<init>"
+    ) === Count.Finite(BigInt(2).pow(64))).and(
+      unresolvedOn(
+        counts(
+          "a.scala" -> s"${base}object O extends Base\nimport O.*\nfinal case class P(x: Int)"
+        )(
+          "w12.P.<init>"
+        ),
+        "unresolved type: Int (may be imported by O.*, an inherited member not followed)"
+      )
     )
   }
 
   // `new Sub(3)` compiles: a primary constructor's parameters are read outside the template's
-  // members (2^32).
+  // members (2^32). A case class nested in a template that inherits `Int` reads the member on both
+  // sides: `Base.Int = Boolean`, so 2 (the estimate read the builtin's 2^32 before register D29,
+  // and the disagreement was refused).
   def constructorScope = {
     val rows = counts(
       "a.scala" ->
         s"package cp\n${base}class Sub(val x: Int) extends Base\nobject O extends Base { final case class P(x: Int) }"
     )
-    rows("cp.Sub.<init>") === Count.Finite(BigInt(2).pow(32))
+    (rows("cp.Sub.<init>") === Count.Finite(BigInt(2).pow(32)))
+      .and(rows("cp.O.P.<init>") === Count.Finite(2))
   }
 
   // A namespace no supplied term heads is foreign: `org.foo` may declare `Int` (a wildcard import
@@ -495,6 +583,15 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("xx.f") === Count.Finite(4))
   }
 
+  // Package `a`'s object `x` and package `a.b`'s `val x: Foo`: inside `package a; package b` the
+  // nearer `val` is `x` (scalac reads `x.T` as Foo's).
+  private val valPath = List(
+    "A.scala" -> "package a\nobject x { type T = (Int => Int) => Int; type S = String }",
+    "B.scala" -> "package a.b\nfinal class Foo { type T = Byte; type S = Byte }\nval x: Foo = new Foo",
+    "C.scala" ->
+      "package a\npackage b\nfinal case class UsesT(t: x.T)\nfinal case class UsesS(s: x.S)"
+  )
+
   // Two packages declaring `C` keep the estimate from reading the positions; the answer is the one a
   // single package gets: ω^ω is ε₀ in the size algebra, 2^ω is ω.
   def fallbackTier = {
@@ -510,6 +607,16 @@ class GroundEnvironmentSpec extends Specification {
       .and(colliding("ka.R4.<init>").render === "ε₀")
       .and(colliding("ka.B.<init>").render === "ω")
   }
+
+  def budget =
+    unresolvedOn(
+      count(
+        "case class T(f: ((((((((((Int => Int) => Int) => Int) => Int) => Int) => Int) => Int) => " +
+          "Int) => Int) => Int))",
+        "T.<init>"
+      ),
+      "symbolic form: power tower higher than 8"
+    )
 
   // Exact equals classes on the method side; the stored-value row keeps its lossy capacity.
   def floats =
@@ -531,6 +638,63 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("OuterB.InnerB.<init>") === Count.Finite(9))
   }
 
+  // Each `W` position is read in its own package, as the estimate binds `C`: |Inner.type|·|C| (2^8 —
+  // a capacity —, 2). The shape model would count the functions of the position instead. A position
+  // the estimate declines (an unsupplied `Missing`) is `?` with the estimate's reason.
+  def singletonPositions = {
+    val rows = counts(
+      "kg.scala" ->
+        ("package kg\nfinal case class C(n: Byte)\nobject Inner\nfinal case class W(p: (Inner.type, C))\n" +
+          "final case class V(p: C)\nfinal case class M(p: (Inner.type, Missing))"),
+      "kb.scala" ->
+        "package kb\nfinal case class C(n: Boolean)\nobject Inner\nfinal case class W(p: (Inner.type, C))",
+      "kh.scala" -> "package kh\nfinal case class C(n: Byte)"
+    )
+    (rows("kg.W.<init>") === Count.Bounded(ByteSize))
+      .and(rows("kb.W.<init>") === Count.Finite(2))
+      .and(rows("kg.V.<init>") === Count.Finite(256))
+      .and(
+        rows("kg.M.<init>") ===
+          Count.Unresolved(List(s"declaration not supplied: Missing (${StdlibModel.undeclared})"))
+      )
+  }
+
+  // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
+  // at an infinite tier: they agree. Both read `q.X` through the parameter `q: Other` (`X = Byte`,
+  // 2^8), not the object `q` (a symbolic space): they agree, at the estimate's 2^8. Where the method
+  // side reads `Int` as the member `O` inherits (`Char => Boolean`, 2^(2^16)) and the estimate as the
+  // builtin (2^32), the symbolic space is wider than any literal: they cannot be one type. A path
+  // through `a.b`'s `val x: Foo` is no longer read through package `a`'s object: 2^8, as scalac
+  // (printed as the estimate's bound, `≤2^8`).
+  def symbolicDisagreement =
+    (count(
+      "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
+        "final case class Outer(i: O.Inner)",
+      "Outer.<init>"
+    ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + 5))))
+      .and(
+        count(
+          "package d2\nobject q { type X = (Int => Int) => Int }\nfinal class Other { type X = Byte }\n" +
+            "final case class Dep(q: Other)(val x: q.X)",
+          "d2.Dep.<init>"
+        ).render === "2^8"
+      )
+      .and(
+        count("final case class P(p: Char => Boolean)", "P.<init>") === Count.Symbolic(
+          pow(2, 65536)
+        )
+      )
+      // The inherited `Int = Char => Boolean` on both sides: 2^(2^16) (a disagreement with the
+      // builtin's 2^32 before register D29).
+      .and(
+        count(
+          "package w12s\ntrait Base { type Int = Char => Boolean }\n" +
+            "object O extends Base { final case class P(x: Int) }",
+          "w12s.O.P.<init>"
+        ) === Count.Symbolic(pow(2, 65536))
+      )
+      .and(counts(valPath*)("a.b.UsesT.<init>").render === "≤2^8")
+
   // `summon[Int]` is ambiguous between two anonymous `Int`s (3.9.0: E172), so a body reaches
   // neither: the true count of `f` is 2^32 (a literal), not 2^(2^37) (one Int read) or 2^(2^64). One
   // anonymous Int is reachable: `g` reads it, (2^32)^(2^32), and `k` beside `x`, 2^(2^32 · 2^32).
@@ -551,6 +715,15 @@ class GroundEnvironmentSpec extends Specification {
     unresolvedOn(count("def f[A](ev: A =:= Int, a: A): Int = 0", "f"), reason)
       .and(unresolvedOn(count("def g(ev: Int =:= Int): Int = 0", "g"), reason))
   }
+
+  // The stored-value algebra counts `Nothing => B` as 0 (it can never run); the method side counts
+  // its one function, so a supplied one does not make a context absurd. The constructor position
+  // has two readings and is refused.
+  def emptyDomain =
+    unresolvedOn(
+      count("final case class Y(f: Nothing => String)", "Y.<init>"),
+      "constructor position readings disagree: f (value space 1, estimate 0)"
+    ).and(count("def f(g: Nothing => String): Int = 0", "f") === Count.Finite(BigInt(2).pow(32)))
 
   // If org.foo declared `type Int = Unit` the count would be 1, not 2^(2^32): the builtin is refused
   // (the stdlib model lists no `org.foo`).

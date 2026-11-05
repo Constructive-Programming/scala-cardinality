@@ -6,7 +6,7 @@ import scala.meta.*
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex}
-import cardinality.types.{Overrides, Spelling, TypeApplications}
+import cardinality.types.{ListedNamespaces, Overrides, Spelling, TypeApplications}
 
 import MethodAnalysis.Frame
 
@@ -42,21 +42,39 @@ private[expansion] enum Meaning {
   /** Supplied methods a call may select: every overload of the name in its scope. */
   case Methods(definitions: List[Definition])
 
-  /** A supplied object. */
+  /** A supplied object, or the companion of a case class or enum (its synthetic members). */
   case Module(frame: Frame)
+  case Companion(tree: Tree)
   case Package(path: List[String], supplied: Boolean)
 
   /** A library object of the table (`Some`, `NonFatal`, …). */
   case Library(name: String)
 
-  /** A member the reading lists without a definition to read — a library member or a universal one
-    * — that takes at most `arity` argument clauses and returns `result`.
+  /** A member the reading lists without a definition to read — a library function or member, a
+    * synthetic companion member, a universal one — that takes at most `arity` argument clauses and
+    * returns `result`.
     */
   case Call(name: String, result: Receiver, arity: Int)
 
-  /** A member of `scala.compiletime`, by its full name. */
+  /** A member of `scala.compiletime` or `scala.quoted`, by its full name. */
   case CompileTime(fqn: String)
   case Refused(what: String)
+
+  /** How a reason names what the meaning denotes. */
+  def phrase: String = this match {
+    case Value(tpe, _, via) =>
+      via.orElse(tpe.map(t => s"a value of ${Spelling.of(t)}")).getOrElse("a value")
+    case Instance(_)     => "a value"
+    case Methods(ds)     => s"the result of ${ds.headOption.fold("a method")(_.name)}"
+    case Module(frame)   => s"object ${frame.path.mkString(".")}"
+    case Companion(tree) =>
+      s"the companion of ${MemberSyntax.templateName(tree).getOrElse("a class")}"
+    case Package(path, _) => s"package ${path.mkString(".")}"
+    case Library(name)    => s"scala.$name"
+    case Call(name, _, _) => s"the function $name"
+    case CompileTime(fqn) => fqn
+    case Refused(what)    => what
+  }
 
   /** The refusal a meaning reads as, when it is one. */
   def refusal: Option[String] = this match {
@@ -114,7 +132,9 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       .map(parameter(_, scope, expanded))
       .orElse(selfAlias(name, scope))
       .orElse(memberOf(scope, name))
+      .orElse(selfTyped(name, scope))
       .orElse(own(scope.stats, name, scope))
+      .orElse(Option.when(ScopeTerms.exported(scope.stats).forall(_(name)))(exported(name)))
       .orElse(imported(name, scope, at))
       .orElse(packaged(name, scope))
 
@@ -138,18 +158,28 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
     else value
   }
 
-  // A template's self alias is the template itself.
+  private def exported(name: String): Meaning =
+    Meaning.Refused(s"reads $name, which an export clause may define (not followed)")
+
+  // A template's self alias is the template itself; a typed self brings members this reading
+  // does not list.
   private def selfAlias(name: String, scope: Frame): Option[Meaning] =
     self(scope).collect {
       case Self(Term.Name(alias), _) if alias == name => Meaning.Instance(thisOf(scope))
     }
 
+  private def selfTyped(name: String, scope: Frame): Option[Meaning] =
+    self(scope).flatMap(_.decltpe).map { tpe =>
+      Meaning.Refused(s"reads $name, which the self type ${Spelling.of(tpe)} may declare")
+    }
+
   private def self(scope: Frame): Option[Self] =
     scope.tree.flatMap(TypeApplications.template).flatMap(_.body.selfOpt)
 
-  /** `this` of a template, open: a class may extend it. */
-  private def thisOf(template: Frame): Receiver =
-    Receiver.Open(Receiver.Template(template), "this")
+  /** `this` of a template (spelled `via`), open when a class may extend it. */
+  def thisOf(template: Frame, via: String = "this"): Receiver =
+    if (closed(template)) Receiver.Template(template)
+    else Receiver.Open(Receiver.Template(template), via)
 
   // Expansions select a member on the receiver's class at the call site (fixtures review-A6 h3,
   // h7): an inline override there is expanded, so a member a subclass may override is refused on
@@ -193,15 +223,22 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
     * sources is refused where the member is read.
     */
   private def overridable(template: Frame, name: String): Boolean =
-    !closed(template) && levels(template).forall { above =>
-      val definitions = (template :: above).flatMap(definitionsOf(_, name))
-      if (definitions.isEmpty)
-        !(LibraryInlines.universal(name) || LibraryInlines.references(name))
-      else definitions.exists(Overrides.overridable)
-    }
+    !closed(template) && (levels(template) match {
+      case Left(_)      => true
+      case Right(above) =>
+        val definitions = (template :: above).flatMap(definitionsOf(_, name))
+        if (definitions.isEmpty)
+          !(LibraryInlines.universal(name) || LibraryInlines.references(name))
+        else definitions.exists(Overrides.overridable)
+    })
 
   private def definitionsOf(level: Frame, name: String): List[Tree] =
-    level.stats.filter(MemberSyntax.defined(_).contains(name)) ++ level.params.filter(p =>
+    level.stats.flatMap {
+      case e: Defn.ExtensionGroup => ScopeTerms.extensionMethods(e).filter(_.name.value == name)
+      case stat if MemberSyntax.defined(stat).contains(name)      => List(stat)
+      case stat if MemberSyntax.templateName(stat).contains(name) => List(stat)
+      case _                                                      => Nil
+    } ++ level.params.filter(p =>
       p.name.value == name && FinalImplementations.field(p, name, level)
     )
 
@@ -215,14 +252,23 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       case Left(reason) =>
         Some(Meaning.Refused(s"reads $name, whose template is not read: $reason"))
       case Right(above) =>
-        val found = declared(template, name) ++ above.flatMap(inherited(_, name))
+        val found = fields(template, name, _ => true) ++ declared(template, name) ++
+          above.flatMap(level => fields(level, name, field(level)) ++ inherited(level, name))
         val frames = (template :: above).map(withoutFunctionParents(_, name))
         InheritedTerms.foreign(frames, name, resolver) match {
-          case Some(parent) =>
+          case Some(parent) if !implicitParents(parent.parent) =>
             Some(Meaning.Refused(s"reads $name, which ${parent.parent} may declare (not supplied)"))
+          case Some(_) =>
+            Some(
+              if (found.nonEmpty) combine(found)
+              else call(name, LibraryInlines.inheritedClauses(name))
+            )
           case None => Option.when(found.nonEmpty)(combine(found))
         }
     }
+
+  // `Any`'s, `Product`'s, `Equals`' and `scala.reflect.Enum`'s members: no inline member.
+  private val implicitParents = Set("Any", "Product", "Equals", "scala.reflect.Enum")
 
   // A function type or `scala.Conversion` among a template's parents declares only the library
   // table's function members (`apply`, `andThen`, …): it binds no other name.
@@ -231,8 +277,24 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
     else frame.copy(parents = frame.parents.filterNot(functionParent(_, frame)))
 
   // A parent clause is read in the scope around the template, which its own parents do not reach.
-  private def functionParent(init: Init, from: Frame): Boolean =
-    resolver.outsideParent(init, from).exists(outside => LibraryInlines.functionClass(outside.path))
+  private def functionParent(init: Init, from: Frame): Boolean = init.tpe match {
+    case _: (Type.Function | Type.ContextFunction) => true
+    case _                                         =>
+      resolver.outsideParent(init, from).exists { outside =>
+        LibraryInlines.functionClass(outside.path) && outside.shadow.isEmpty &&
+        resolver.rootShadow(outside.path, at(from.parent.getOrElse(from), init.pos.start)).isEmpty
+      }
+  }
+
+  private def fields(level: Frame, name: String, kept: Term.Param => Boolean): List[Meaning] =
+    level.params
+      .filter(param => param.name.value == name && kept(param))
+      .map(param => Meaning.Value(param.decltpe, level))
+
+  // A parameter a subclass inherits: a field, not private.
+  private def field(level: Frame)(param: Term.Param): Boolean =
+    FinalImplementations.field(param, param.name.value, level) &&
+      !Overrides.unqualifiedPrivate(param.mods)
 
   private def inherited(level: Frame, name: String): List[Meaning] =
     declared(level.copy(stats = level.stats.filterNot(ScopeTerms.privateMember)), name)
@@ -246,12 +308,44 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       case d @ (_: Defn.Def | _: Decl.Def | _: Defn.GivenAlias)
           if MemberSyntax.names(d).contains(name) =>
         List(method(d, MemberSyntax.groups(d), scope))
-      case v @ Valued(_, declared, _) if MemberSyntax.defined(v).contains(name) =>
-        List(Meaning.Value(declared, scope))
+      case v @ Valued(_, _, _) if MemberSyntax.defined(v).contains(name) =>
+        List(valueOf(v, scope))
       case o: Defn.Object if o.name.value == name => List(module(scope, name))
-      case _                                      => Nil
+      case c: Defn.Class if c.name.value == name && c.mods.exists(_.is[Mod.Case]) =>
+        List(Meaning.Companion(c))
+      case e: Defn.Enum if e.name.value == name  => List(Meaning.Companion(e))
+      case g: Defn.Given if g.name.value == name => List(Meaning.Value(None, scope))
+      case e: Defn.ExtensionGroup                =>
+        val group = SourceIndex.extensionFrame(e, scope)
+        ScopeTerms.extensionMethods(e).filter(_.name.value == name).map { d =>
+          method(d, MemberSyntax.groups(d), group)
+        }
+      case _ => Nil
     }
 
+  // A value's declared type; a value whose type is inferred from a context function literal is
+  // one implicit search applies wherever it is read, which this reading does not follow.
+  private def valueOf(v: Stat, scope: Frame): Meaning = v match {
+    case Valued(pats, None, Some(rhs)) if contextLiteral(rhs) => inferredContext(pats)
+    case Valued(_, declared, _)                               => Meaning.Value(declared, scope)
+    case _                                                    => Meaning.Value(None, scope)
+  }
+
+  private def inferredContext(pats: List[Pat]): Meaning =
+    Meaning.Refused(
+      s"reads ${TypeApplications.boundNames(pats).mkString(", ")}, a context function literal " +
+        "implicit search applies where it is read"
+    )
+
+  // Whether a term is a context function literal, whose inferred type is a context function.
+  private def contextLiteral(term: Term): Boolean = term match {
+    case _: Term.ContextFunction => true
+    case b: Term.Block => b.stats.lastOption.collect { case t: Term => t }.exists(contextLiteral)
+    case _             => false
+  }
+
+  // An object explicitly declared beside a case class is its companion: both its members and the
+  // synthetic ones.
   private def combine(found: List[Meaning]): Meaning = {
     val methods = found.collect { case Meaning.Methods(ds) => ds }.flatten
     if (methods.nonEmpty) Meaning.Methods(methods)
@@ -290,7 +384,7 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       case i: Import if i.pos.start < at => i.importers.map(_ -> i.pos.start)
     }.flatten
     importers.iterator
-      .flatMap((importer, start) => selected(importer, name).map(absolute(_, scope, start)))
+      .flatMap((importer, start) => selected(importer, name).map(qualified(_, name, scope, start)))
       .nextOption()
       .orElse(
         importers.iterator
@@ -303,7 +397,8 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
   private def selected(importer: Importer, name: String): Option[List[String]] =
     importer.importees
       .collectFirst {
-        case Importee.Name(n) if n.value == name => n.value
+        case Importee.Name(n) if n.value == name           => n.value
+        case Importee.Rename(from, to) if to.value == name => from.value
       }
       .flatMap(member => SourceIndex.importPath(importer.ref).map(_ :+ member))
 
@@ -314,7 +409,12 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       scope: Frame,
       start: Int
   ): Option[Meaning] = {
-    if (!ScopeTerms.opensAll(importer)) None
+    val hidden = importer.importees.exists {
+      case Importee.Unimport(n)  => n.value == name
+      case Importee.Rename(n, _) => n.value == name
+      case _                     => false
+    }
+    if (!ScopeTerms.opensAll(importer) || hidden) None
     else
       SourceIndex.importPath(importer.ref) match {
         case None =>
@@ -325,10 +425,21 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
 
   private def openedBy(path: List[String], name: String, scope: Frame, at: Int): Option[Meaning] =
     absolute(path, scope, at) match {
+      case Meaning.Package(List("scala", "compiletime"), _) =>
+        Option.when(LibraryInlines.compileTimeMembers(name))(
+          Meaning.CompileTime(s"scala.compiletime.$name")
+        )
       case Meaning.Package(full, true) if !LibraryInlines.libraryPackage(full) =>
         packageMember(full, name, None)
-      case Meaning.Module(frame) => member(frame, name)
-      case _                     =>
+      case Meaning.Module(frame) =>
+        member(frame, name).orElse(Some(companionOf(frame, name)).collect {
+          case c: Meaning.Call => c
+        })
+      case Meaning.Companion(tree) =>
+        Some(synthetic(tree, name)).collect { case c: Meaning.Call => c }
+      case compileTime: Meaning.CompileTime          => Some(compileTime)
+      case _ if listedWithout(path, name, scope, at) => None
+      case _                                         =>
         Some(
           Meaning.Refused(
             s"reads $name, which the wildcard import ${path.mkString(".")}.* may bind"
@@ -336,14 +447,32 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
         )
     }
 
+  // A library namespace whose members the stdlib model lists binds no other name, when its first
+  // segment is the library's root package.
+  private def listedWithout(path: List[String], name: String, scope: Frame, at: Int): Boolean =
+    ListedNamespaces.of(path).exists(_.termBinding(name).isEmpty) &&
+      path.headOption.exists(head =>
+        named(head, scope, at) == Meaning.Package(List(head), supplied = false)
+      )
+
   // A path written in an import or a selection, its first segment read where the clause is.
   private def absolute(path: List[String], scope: Frame, at: Int): Meaning = path match {
-    case head :: rest => from(named(head, scope, at), rest)
-    case Nil          => Meaning.Refused("reads an empty path")
+    case SourceIndex.Root :: rest => from(Meaning.Package(Nil, supplied = true), rest)
+    case head :: rest             => from(named(head, scope, at), rest)
+    case Nil                      => Meaning.Refused("reads an empty path")
   }
 
   private def from(start: Meaning, rest: List[String]): Meaning =
     rest.foldLeft(start)((meaning, segment) => select(meaning, segment))
+
+  // A dotted import target: its prefix read as a path, then the member it names.
+  private def qualified(path: List[String], name: String, scope: Frame, at: Int): Meaning =
+    absolute(path, scope, at) match {
+      case Meaning.Refused(_) =>
+        val spelled = path.dropWhile(_ == SourceIndex.Root).mkString(".")
+        Meaning.Refused(s"reads $name, a declaration not supplied: $spelled (import of $name)")
+      case found => found
+    }
 
   // Another file of the package defines the name, or the package holds a subpackage of it.
   private def packaged(name: String, scope: Frame): Option[Meaning] =
@@ -372,9 +501,11 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
         if (resolver.namespace(List(name))) Meaning.Package(List(name), supplied = true)
         else
           LibraryInlines.root(name) match {
-            case Some(LibraryInlines.Root.Module(module)) => Meaning.Library(module)
-            case Some(LibraryInlines.Root.Package(path))  => Meaning.Package(path, supplied = false)
-            case None                                     =>
+            case Some(LibraryInlines.Root.Module(module))  => Meaning.Library(module)
+            case Some(LibraryInlines.Root.Function(arity)) => call(name, arity)
+            case Some(LibraryInlines.Root.Package(path)) => Meaning.Package(path, supplied = false)
+            case Some(LibraryInlines.Root.Refused(what)) => Meaning.Refused(what)
+            case None                                    =>
               Meaning.Refused(
                 s"reads $name, which is declared neither in the sources nor in the library table"
               )
@@ -389,19 +520,43 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
   /** A member of what `meaning` denotes, selected by a path or an expression. */
   def select(meaning: Meaning, name: String): Meaning = meaning match {
     case Meaning.Package(path, supplied) => inPackage(path, name, supplied)
-    case Meaning.Module(frame)           =>
-      member(frame, name).getOrElse(
-        Meaning.Refused(s"selects $name of object ${frame.path.mkString(".")}, which declares none")
+    case Meaning.Module(frame)           => member(frame, name).getOrElse(companionOf(frame, name))
+    case Meaning.Companion(tree)         => synthetic(tree, name)
+    case Meaning.Library(module)         =>
+      LibraryInlines.module(module) match {
+        case Some(members) if members(name) || LibraryInlines.universal(name) =>
+          call(
+            name,
+            LibraryInlines.moduleClauses(module, name),
+            LibraryInlines.moduleResult(module, name)
+          )
+        case _ =>
+          Meaning.Refused(s"selects $name of scala.$module, which the library table does not list")
+      }
+    case value: Meaning.Value         => selectOn(receiverOf(value), name)
+    case Meaning.Instance(receiver)   => selectOn(receiver, name)
+    case Meaning.Methods(definitions) =>
+      Meaning.Refused(
+        s"selects $name on the result of ${definitions.headOption.fold("a method")(_.name)}, not read"
       )
-    case value: Meaning.Value       => selectOn(receiverOf(value), name)
-    case Meaning.Instance(receiver) => selectOn(receiver, name)
-    case refused: Meaning.Refused   => refused
-    case _                          => Meaning.Refused(s"selects $name, not read")
+    case c: Meaning.Call          => selectOn(unapplied(c), name)
+    case _: Meaning.CompileTime   => meaning
+    case refused: Meaning.Refused => refused
   }
 
-  // A call this reading lists, whose result it does not read.
-  private def call(name: String, arity: Int): Meaning.Call =
-    Meaning.Call(name, Receiver.Unread(s"the result of $name"), arity)
+  /** What a reference to a call evaluates to unapplied: a parameterless member's result, otherwise
+    * the function itself.
+    */
+  def unapplied(call: Meaning.Call): Receiver =
+    if (call.arity == 0) call.result else Receiver.Unread(call.phrase)
+
+  // A call this reading lists, returning a library class when the table names it.
+  private def call(name: String, arity: Int, result: Option[String] = None): Meaning.Call =
+    Meaning.Call(
+      name,
+      result.fold(Receiver.Unread(s"the result of $name"))(Receiver.Library(_)),
+      arity
+    )
 
   /** The receiver a value denotes: its declared type's, open when an expansion may narrow it. */
   def receiverOf(value: Meaning.Value): Receiver = {
@@ -420,6 +575,7 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
           Option
             .when(supplied)(packageMember(path, name, None))
             .flatten
+            .orElse(LibraryInlines.libraryModule(full).map(Meaning.Library(_)))
             .getOrElse(
               Meaning.Refused(
                 s"reads ${full.mkString(".")}, which the sources and the library table do not declare"
@@ -428,9 +584,45 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       }
   }
 
+  // The members a case class's or enum's companion has without being written: its constructors
+  // and extractors, and an enum's cases, each taking its constructor's clauses.
+  private def synthetic(tree: Tree, name: String): Meaning = tree match {
+    case e: Defn.Enum if ScopeTerms.enumCases(e).contains(name) => call(name, caseClauses(e, name))
+    case _: Defn.Enum if enumMembers.contains(name)             => call(name, enumMembers(name))
+    case c: Defn.Class if name == "apply"    => call(name, c.ctor.paramClauses.size)
+    case _: Defn.Class if name == "unapply"  => call(name, 1)
+    case _ if LibraryInlines.universal(name) => call(name, LibraryInlines.inheritedClauses(name))
+    case _ => Meaning.Refused(s"selects $name of a companion, which this reading does not list")
+  }
+
+  private val enumMembers = Map("values" -> 0, "valueOf" -> 1, "fromOrdinal" -> 1)
+
+  private def caseClauses(e: Defn.Enum, name: String): Int =
+    e.templ.body.stats
+      .collectFirst {
+        case c: Defn.EnumCase if c.name.value == name => c.ctor.paramClauses.size
+      }
+      .getOrElse(0)
+
+  // A member an explicit companion object does not declare may be one of its class's synthetic
+  // ones.
+  private def companionOf(module: Frame, name: String): Meaning =
+    module.parent
+      .flatMap(owner =>
+        owner.stats.collectFirst {
+          case c: Defn.Class if module.path.lastOption.contains(c.name.value) => synthetic(c, name)
+          case e: Defn.Enum if module.path.lastOption.contains(e.name.value)  => synthetic(e, name)
+        }
+      )
+      .getOrElse(
+        Meaning.Refused(
+          s"selects $name of object ${module.path.mkString(".")}, which declares none"
+        )
+      )
+
   /** A member of an instance. */
   def selectOn(receiver: Receiver, name: String): Meaning = receiver match {
-    case _ if LibraryInlines.universal(name) => call(name, 0)
+    case _ if LibraryInlines.universal(name) => call(name, LibraryInlines.inheritedClauses(name))
     case Receiver.Open(inner, via)           =>
       narrowedMember(selectOn(inner, name), overrider(inner, name), name, via)
     case Receiver.Template(frame) =>
@@ -445,11 +637,17 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       if (LibraryInlines.members(key).exists(_(name)))
         Meaning.Call(
           name,
-          Receiver.Unread(s"the result of $name on $key, which depends on its arguments"),
-          LibraryInlines.clauses(name)
+          LibraryInlines
+            .result(key, name)
+            .fold(Receiver.Unread(s"the result of $name on $key, which depends on its arguments"))(
+              Receiver.Library(_)
+            ),
+          LibraryInlines.clauses(key, name)
         )
       else Meaning.Refused(s"selects $name on $key, which the library table does not list")
-    case _ => Meaning.Refused(s"selects $name on a value whose type is not read")
+    case Receiver.Variable    => Meaning.Refused(s"selects $name on a value of an abstract type")
+    case Receiver.Unread(why) =>
+      Meaning.Refused(s"selects $name on a value whose type is not read: $why")
   }
 
   /** The receiver a declared type denotes, read in `scope`; `variables` are type parameters bound
@@ -465,7 +663,10 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       seen: Set[String]
   ): Receiver =
     tpe match {
-      case f: Type.Function => Receiver.Library(s"Function${f.paramClause.values.size}")
+      case Type.ByName(inner)      => classOf(inner, scope, variables, seen)
+      case Type.Annotate(inner, _) => classOf(inner, scope, variables, seen)
+      case f: Type.Function        => Receiver.Library(s"Function${f.paramClause.values.size}")
+      case f: Type.ContextFunction => Receiver.Library(s"Function${f.paramClause.values.size}")
       case Type.Tuple(args) if args.forall(!_.is[Type.TypedParam]) =>
         Receiver.Library(s"Tuple${args.size}")
       case a: Type.Apply => classOf(a.tpe, scope, variables, seen)
@@ -496,6 +697,8 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
         entry.tree match {
           case _: (Defn.Class | Defn.Trait | Defn.Enum) =>
             entry.self.map(Receiver.Template(_)).getOrElse(Receiver.Unread(entry.key))
+          case _: Defn.Type if OpaqueTypes.hidden(entry, scope) =>
+            Receiver.Unread(s"opaque type ${entry.key} outside its scope")
           case alias: Defn.Type if !seen(entry.key) =>
             classOf(
               alias.body,
@@ -503,7 +706,8 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
               variables ++ alias.tparamClause.values.map(_.name.value),
               seen + entry.key
             )
-          case _ => Receiver.Unread(entry.key)
+          case _: Decl.Type => Receiver.Variable
+          case _            => Receiver.Unread(entry.key)
         }
       case Found.Absent =>
         resolver.builtin(named.syntax, context).fold(Receiver.Unread(_), Receiver.Library(_))

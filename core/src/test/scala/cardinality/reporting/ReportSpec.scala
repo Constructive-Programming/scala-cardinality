@@ -23,11 +23,16 @@ class ReportSpec extends Specification {
       unresolved names are the reason           $unresolved
       a definition resolves inside its body     $enclosing
       a forward reference resolves through the body  $forward
+      entry points size one node at a time      $entryPoints
       package objects qualify their members     $packageObjects
       enum bodies contribute their cases        $enumBodies
       a companion object keeps its own value    $companions
+      a source counts its top-level values       $sourceTotals
       signatures carry their parameters         $signatures
       an applied user type substitutes arguments  $appliedType
+      a parameterised recursion keeps its fixed point  $parameterisedRecursion
+      a match type reduces on a known scrutinee  $matchType
+      a match type that does not reduce stays unread  $matchTypeStuck
       a higher-kinded parameter names its arity  $higherKinded
       the top and the bottom of the lattice   $latticeEnds
 
@@ -50,6 +55,8 @@ class ReportSpec extends Specification {
       an open abstraction has no bound            $openAbstraction
       a type constructor is a shape, not a gap    $constructorRow
       a named member resolves                     $memberByName
+      an instance-qualified member resolves       $memberByValue
+      an abstract member is open                  $memberAbstract
       a member the sources do not give reads as written  $memberUnknown
       a refinement is read as the type it refines $refinementRow
       an open abstraction reads as one in a report  $openRow
@@ -185,8 +192,33 @@ class ReportSpec extends Specification {
       .and(found.flatMap(_.unbound.map(_.render)) === Nil)
   }
 
+  def entryPoints = {
+    val source = dialects.Scala3("case class Pair(a: Boolean, b: Boolean)").parse[Source].get
+    val pair = source.stats.collectFirst { case definition: Defn.Class => definition }.get
+    val packageClause = dialects.Scala3("package p { case class X(a: Boolean) }").parse[Stat].get
+    val packageObject =
+      dialects.Scala3("package object p { case class X(a: Boolean) }").parse[Stat].get
+    (Counter.stat(pair) === TinySize(4))
+      .and(Counter.defn(pair) === TinySize(4))
+      .and(Counter.ctor(pair.ctor) === TinySize(4))
+      .and(Counter.param(pair.ctor.paramClauses.head.values.head) === BooleanSize)
+      .and(Counter.stat(packageClause) === BooleanSize)
+      .and(Counter.stat(packageObject) === BooleanSize)
+  }
+
   def packageObjects =
     definitions("package object p { case class X(a: Boolean) }").map(_.name) === List("p.X")
+
+  def sourceTotals = {
+    val source = dialects
+      .Scala3("val flag: Boolean = true\ncase class Pair(a: Boolean, b: Boolean)")
+      .parse[Source]
+      .get
+    (Counter.source(source) === TinySize(5))
+      .and(
+        Counter.source(dialects.Scala3("val flag: Boolean = true").parse[Source].get) === UnitSize
+      )
+  }
 
   def signatures = {
     val found = definitions("case class Pair[A, B](a: A, b: B)")
@@ -365,6 +397,18 @@ class ReportSpec extends Specification {
       )
   }
 
+  def parameterisedRecursion = {
+    val found = definitions(
+      "case class Node[A](value: A, next: Option[Node[A]])",
+    )
+    // `Node[A]` inside `Node`'s own equation is the definition's own parameters: it borrows the
+    // fixed point the solver gives the name, so the parameterised recursion keeps its ω reading
+    // and reports the parameter, not the name.
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Node", Some(EffectiveOmega), List("A"))
+    )
+  }
+
   private def rowsOf(root: Path): List[(String, Option[Size], List[String])] =
     Report.of(List(root)).definitions.map(d => (d.name, d.size, d.unbound.map(_.render)))
 
@@ -466,6 +510,47 @@ class ReportSpec extends Specification {
       .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
   }
 
+  def matchType = {
+    val found = definitions(
+      """|type Fst[T] = T match { case (f, s) => f }
+         |type Snd[T] = T match { case (f, s) => s }
+         |type Pick[T] = T match
+         |  case Int => Boolean
+         |  case x => x
+         |type Two = Fst[(Boolean, Boolean)]
+         |type Second = Snd[(Int, Boolean)]
+         |type ANumber = Pick[Int]
+         |type Other = Pick[String => String]
+         |""".stripMargin,
+    )
+    // A match type reduces on the argument's syntax: `Fst[(Boolean, Boolean)]` is `Boolean` because
+    // the case pattern is that tuple and its body is the first binder. A concrete pattern matches
+    // by spelling and falls through to the binder case when it does not. The definitions' own rows
+    // are stuck only on their parameter `T`: each instantiation decides them.
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Fst", Some(EffectiveOmega), List("T")),
+      ("Snd", Some(EffectiveOmega), List("T")),
+      ("Pick", Some(EffectiveOmega), List("T")),
+      ("Two", Some(BooleanSize), Nil),
+      ("Second", Some(BooleanSize), Nil),
+      ("ANumber", Some(BooleanSize), Nil),
+      ("Other", Some(EffectiveEpsilon0), Nil),
+    )
+  }
+
+  def matchTypeStuck = {
+    val found = definitions(
+      """|type Fst[T] = T match { case (f, s) => f }
+         |type Stuck = Fst[String]
+         |""".stripMargin,
+    )
+    // No case matches a `String` scrutinee: the match type stays unreduced, which a report names
+    // rather than guessing what it might be worth. The scrutinee is a modelled space, so the
+    // unreduced match type is the row's only reason.
+    found.find(_.name == "Stuck").map(d => (d.size, d.unbound.map(_.render))) ===
+      Some((Some(EffectiveOmega), List("a match type")))
+  }
+
   def openAbstraction = {
     val found = definitions(
       """|trait Open
@@ -514,6 +599,38 @@ class ReportSpec extends Specification {
       ("Foo#B", Some(EffectiveOmega), List("A")),
       ("C", Some(BooleanSize), Nil),
     )
+  }
+
+  def memberByValue = {
+    val found = definitions(
+      """|trait Foo[A] { type B = A }
+         |class D(x: Foo[Boolean]) { type Y = x.B }
+         |""".stripMargin,
+    )
+    // An instance-qualified member reads the value's declared type, which is what makes `x.B` a
+    // member of `Foo[Boolean]`.
+    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("Foo", None, Nil),
+      ("Foo#B", Some(EffectiveOmega), List("A")),
+      ("D", Some(EffectiveOmega), List("Foo")),
+      ("D#Y", Some(BooleanSize), Nil),
+    )
+  }
+
+  def memberAbstract = {
+    val found = definitions(
+      """|trait O { type Z }
+         |class C(x: O) { type Y = x.Z }
+         |""".stripMargin,
+    )
+    // A member a body declares abstract is supplied by whoever implements it: unbounded, which the
+    // row says, rather than an unknown name.
+    (found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
+      ("O", None, Nil),
+      ("C", Some(EffectiveOmega), List("O")),
+      ("C#Y", Some(EffectiveOmega), List("x.Z")),
+    ))
+      .and(found.find(_.name == "C#Y").exists(d => Definition.gap(d).contains(Definition.Gap.Open)))
   }
 
   def memberUnknown = {

@@ -17,9 +17,16 @@ class OwnersAndRecordsSpec extends Specification {
 
   def is = s2"""
     Inline members of a never-built owner
+      a static object's, a given object's or a file's inline member    $staticInline
+      a class's, a member object's or a plain def keeps one call      $builtOwners
     Captures a member holds
+      a readable field or own member that is the capture, or of type 1 $heldAlias
+      any other reading, a wider type or an overridden field, refuses  $heldOtherwise
       a local definition around the target holds what it reads        $heldLocally
     Case-class leaves of sealed families
+      an overridable member of the leaf or a parent opens the family   $openLeaf
+      an extension, a parent's field, an overload or a later clause too $openLeafMembers
+      a parent is the declaration its name resolves to where written   $resolvedParents
       a final leaf, a final override or a universal member keeps it    $closedLeaf
       an abstract member of the empty type empties the family          $emptyFamily
     Records
@@ -27,6 +34,9 @@ class OwnersAndRecordsSpec extends Specification {
       a private constructor or a later clause gives its own reason     $caseRefusals
       a match-type field reduces on the record's tuple argument        $matchField
     Members no subclass overrides
+      a given or a final member an inline body selects is fixed        $fixedSelection
+      a deferred given is abstract: every class extending it gives one $deferredGiven
+      a `deferred` nothing imports is no compiletime one               $deferredBare
   """
 
   private def one(code: String): Map[String, Count] =
@@ -37,6 +47,124 @@ class OwnersAndRecordsSpec extends Specification {
 
   private def refused(count: Count, reason: String): Result =
     count must beLike { case Count.Unresolved(reasons) => reasons must contain(reason) }
+
+  // Each owner's body throws, yet an expansion builds none (3.9.0 runs: no `K init`, nor `G init`
+  // for a `given … with` object): each inline member is counted as in a built owner — !b among b's
+  // functions: 4; b && c: 16; pick[A]: y or x, 2; an inline given Int: 2^32; nest's h reads c and
+  // the capture b: 16. Before: 1 each. r reads the owner's z, which supplies nothing (an object
+  // declares no slot): b's functions, 4 — never 1, nor 16 as with z a free Boolean.
+  def staticInline = {
+    val found = one("""
+      object K {
+        val z: Boolean = ???
+        inline def f(b: Boolean): Boolean = !b
+        inline def two(b: Boolean, c: Boolean): Boolean = b && c
+        inline def pick[A](x: A, y: A): A = y
+        extension (b: Boolean) inline def flip: Boolean = !b
+        inline given g: Int = 7
+        inline def nest(b: Boolean): Boolean = { def h(c: Boolean): Boolean = !c; h(b) }
+      }
+      object Outer { object M { val z: Int = ???; inline def f(b: Boolean): Boolean = b } }
+      val topZ: Boolean = ???
+      inline def topF(b: Boolean): Boolean = !b
+      object R { val z: Boolean = ???; inline def r(b: Boolean): Boolean = b && z }
+      trait Base
+      given G: Base with { val z: Int = ???; inline def f(b: Boolean): Boolean = b }
+    """)
+    val flip = found.collectFirst { case (name, count) if name.endsWith(".flip") => count }
+    List("K.f" -> 4, "K.two" -> 16, "K.pick" -> 2, "K.nest" -> 4)
+      .map((name, n) => found(name) === Count.Finite(n))
+      .reduce(_ and _)
+      .and(flip must beSome(Count.Finite(4)))
+      .and(found("K.g") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("K.nest.h") === Count.Finite(16))
+      .and(found("Outer.M.f") === Count.Finite(4))
+      .and(found("topF") === Count.Finite(4))
+      .and(found("R.r") === Count.Finite(4))
+      .and(found("G.f") === Count.Finite(4))
+  }
+
+  // A class or trait owner is the receiver every call needs, and a member object of one is built
+  // with it: never built, no call returns — 1. A def that is not inline needs its owner too.
+  def builtOwners = {
+    val found = one("""
+      class C { val z: Boolean = ???; inline def f(b: Boolean): Boolean = b; object N { inline def f(b: Boolean): Boolean = b } }
+      object K { val z: Boolean = ???; def g(b: Boolean): Boolean = !b }
+    """)
+    (found("C.f") === Count.Finite(1))
+      .and(found("C.N.f") === Count.Finite(1))
+      .and(found("K.g") === Count.Finite(1))
+  }
+
+  // Inside each anonymous or local class the capture n (or b, or a1) is hidden — by the inherited
+  // field n, an own member n, or m's own parameter — yet a field the template reads passed exactly
+  // it, or a member that is it, holds it: m reads b and n — 16 (it read 4). mk3 and viaField: a1,
+  // a2 and the held outer a1 — 3 (they read 2). lit passes true: n is unreachable and the field
+  // constant — 4. A holder typed Any (a field, a binder given Any, a member) shows nothing of the
+  // capture (D-top): m reads b alone — 4; wide's m reads a1 and a2 — 2.
+  def heldAlias = {
+    val found = one("""
+      class P(val n: Boolean) { def m(b: Boolean): Boolean = b }
+      class Q(val k: Boolean) { def m(b: Boolean): Boolean = b }
+      trait T { def m(b: Boolean): Boolean }
+      trait U[A] { def m(a1: A): A }
+      class F[A](val f: A) { def m(a1: A): A = a1 }
+      object O {
+        def mk(n: Boolean): P = new P(n) { override def m(b: Boolean): Boolean = !b }
+        def otherName(n: Boolean): Q = new Q(n) { def n(u: Unit): Unit = u; override def m(b: Boolean): Boolean = !b }
+        def byParam(b: Boolean): Q = new Q(b) { override def m(b: Boolean): Boolean = !b }
+        def ownAlias(b: Boolean): T = new T { def seed: Boolean = b; def m(b: Boolean): Boolean = !b }
+        def viaLocal(n: Boolean): Boolean = { final class Impl extends P(n) { def g(y: Boolean): Boolean = y }; true }
+        def lit(n: Boolean): P = new P(true) { override def m(b: Boolean): Boolean = b }
+        def mk3[A](a1: A, a2: A): U[A] = new U[A] { def seed: A = a1; def m(a1: A): A = a1 }
+        def viaField[A](a1: A, a2: A): F[A] = new F[A](a1) { override def m(a1: A): A = a1 }
+        def wideField(n: Boolean): PA = new PA(n) { override def m(b: Boolean): Boolean = !b }
+        def wideArg(n: Boolean): PT[Any] = new PT[Any](n) { override def m(b: Boolean): Boolean = !b }
+        def wideAlias(b: Boolean): T = new T { def seed: Any = b; def m(b: Boolean): Boolean = !b }
+        def wide[A](a1: A, a2: A): U[A] = new U[A] { def seed: Any = a1; def m(a1: A): A = a1 }
+      }
+      class PA(val n: Any) { def m(b: Boolean): Boolean = b }
+      class PT[X](val n: X) { def m(b: Boolean): Boolean = b }
+    """)
+    List("mk", "otherName", "byParam", "ownAlias")
+      .map(name => found(s"O.$name.<new#1>.m") === Count.Finite(16))
+      .reduce(_ and _)
+      .and(
+        List("wideField", "wideArg", "wideAlias")
+          .map(name => found(s"O.$name.<new#1>.m") === Count.Finite(4))
+          .reduce(_ and _)
+      )
+      .and(found("O.wide.<new#1>.m") === Count.Finite(2))
+      .and(found("O.viaLocal.Impl.g") === Count.Finite(16))
+      .and(found("O.lit.<new#1>.m") === Count.Finite(4))
+      .and(found("O.mk3.<new#1>.m") === Count.Finite(3))
+      .and(found("O.viaField.<new#1>.m") === Count.Finite(3))
+  }
+
+  // neg's field holds !n, a function of the hidden n the reading does not invert; H's private h
+  // is read by peek and holds the hidden n: both refuse (neg read 4). overField's template
+  // overrides the field, so this.n is the constant — but P's constructor read the argument it was
+  // given (a strict val of P computed from n keeps it: 3.9.0 run), so it refuses (it read 16).
+  // some's field is an Option[Boolean] holding the capture: a wider type than the capture's, not
+  // read — refused.
+  def heldOtherwise = {
+    val found = one("""
+      class P(val n: Boolean) { def m(b: Boolean): Boolean = b }
+      class PO(val n: Option[Boolean]) { def m(b: Boolean): Boolean = b }
+      abstract class H(h: Boolean) { def peek: Boolean = h; def m(b: Boolean): Boolean }
+      object O {
+        def neg(n: Boolean): P = new P(!n) { override def m(b: Boolean): Boolean = !b }
+        def hidden(b: Boolean): H = new H(b) { def m(b: Boolean): Boolean = !b }
+        def overField(n: Boolean): P = new P(n) { override val n: Boolean = true; override def m(b: Boolean): Boolean = !b }
+        def some(n: Some[Boolean]): PO = new PO(n) { override def m(b: Boolean): Boolean = !b }
+      }
+    """)
+    val held = "local capture held by a member that hides it"
+    refused(found("O.neg.<new#1>.m"), s"$held: n")
+      .and(refused(found("O.hidden.<new#1>.m"), s"$held: b"))
+      .and(refused(found("O.overField.<new#1>.m"), s"$held: n"))
+      .and(refused(found("O.some.<new#1>.m"), s"$held: n"))
+  }
 
   // A local definition around the target — a method, a lazy value, a given, defined before or
   // after it, in the target's block or an outer one — that is exactly the hidden b puts it back: the
@@ -81,6 +209,33 @@ class OwnersAndRecordsSpec extends Specification {
       )
   }
 
+  // A subclass of S1 (any file) may override m, or S.d, or an exception's getCause: values of the
+  // family differ beyond the 3 the fields give, so g is refused (it read 2^3 = 8).
+  def openLeaf = {
+    val found = one("""
+      sealed trait S
+      case class S1(code: Boolean) extends S { def m: Int = 1 }
+      case object S2 extends S
+      sealed trait P { def d: Int = 1 }
+      case class P1(code: Boolean) extends P
+      case object P2 extends P
+      sealed trait X
+      case class X1(code: Boolean) extends RuntimeException("fixed") with X
+      case object X2 extends X
+      object Use { def s(v: S): Boolean = ???; def p(v: P): Boolean = ???; def x(v: X): Boolean = ??? }
+    """)
+    refused(found("Use.s"), "sealed family leaf may be extended: S1 (overridable member m)")
+      .and(
+        refused(found("Use.p"), "sealed family leaf may be extended: P1 (overridable member P.d)")
+      )
+      .and(
+        refused(
+          found("Use.x"),
+          "sealed family leaf may be extended: X1 (overridable member RuntimeException.getCause)"
+        )
+      )
+  }
+
   // Every leaf inherits the root's abstract `k: Nothing`; no pure, total body implements the
   // empty type, so the family enumerates no value: a function from it has 1 implementation (the
   // empty sum is 0 values, absurd elimination) and the stored estimate is 0.
@@ -92,6 +247,90 @@ class OwnersAndRecordsSpec extends Specification {
       object Use { def f(r: Root): Int = ??? }
     """)
     found("Use.f") === Count.Finite(1)
+  }
+
+  // A subclass may override the leaf's extension foo, its parent's `val` field d (3.9.0 warns but
+  // compiles), L.foo (the leaf's second-clause foo is a parameter, no member), the parent's
+  // d(s: String) (a final overload d(i: Int) fixes nothing), PP.d (GP's private d is no member of
+  // PP's subclasses) and an overload of `==`: 3.9.0 runs observe each override, so every family is
+  // refused (each read 8).
+  def openLeafMembers = {
+    val found = one("""
+      sealed trait E
+      case class E1(x: Boolean) extends E { extension (y: Boolean) def foo: Boolean = x }
+      case object E2 extends E
+      sealed trait L { def foo: Boolean = true }
+      case class L1(x: Boolean)(foo: Unit) extends L
+      case object L2 extends L
+      class FP(val d: Int)
+      sealed trait F
+      case class F1(code: Boolean) extends FP(1) with F
+      case object F2 extends F
+      trait OP { def d(s: String): Int = 2 }
+      sealed trait O
+      case class O1(code: Boolean) extends OP with O { final def d(i: Int): Int = 1 }
+      case object O2 extends O
+      trait GP { private def d: Int = 1 }
+      trait PP extends GP { def d: Int = 2 }
+      sealed trait R
+      case class R1(code: Boolean) extends PP with R
+      case object R2 extends R
+      sealed trait Y
+      case class Y1(code: Boolean) extends Y { def ==(i: Int): Boolean = true }
+      case object Y2 extends Y
+      object Use {
+        def e(v: E): Boolean = ???; def l(v: L): Boolean = ???; def f(v: F): Boolean = ???
+        def o(v: O): Boolean = ???; def r(v: R): Boolean = ???; def y(v: Y): Boolean = ???
+      }
+    """)
+    val open = "sealed family leaf may be extended"
+    refused(found("Use.e"), s"$open: E1 (overridable member foo)")
+      .and(refused(found("Use.l"), s"$open: L1 (overridable member L.foo)"))
+      .and(refused(found("Use.f"), s"$open: F1 (overridable member FP.d)"))
+      .and(refused(found("Use.o"), s"$open: O1 (overridable member OP.d)"))
+      .and(refused(found("Use.r"), s"$open: R1 (overridable member PP.d)"))
+      .and(refused(found("Use.y"), s"$open: Y1 (overridable member ==)"))
+  }
+
+  // A parent is what its name denotes where the clause is written, as the lookup reads it (imports,
+  // enclosing scopes): another package's `Exception` no import brings is not the one S1 extends,
+  // whose getCause a subclass may override; an imported source trait named `Product` is no marker,
+  // and its describe may be overridden (3.9.0 runs observe both overrides). Both refuse (they read
+  // 8 and 3 with the parent read by its simple name). W's AnyVal leaf has nothing to override: 3.
+  def resolvedParents = {
+    val found = one("""
+      package other { trait Exception; trait Product { def describe: Boolean = true } }
+      package fam {
+        sealed trait S
+        case class S1(code: Boolean) extends Exception with S
+        case object S2 extends S
+        object V { def g(s: S): Boolean = ??? }
+      }
+      package st {
+        import other.Product
+        sealed trait SP
+        case class L(x: Boolean) extends Product with SP
+        case object K extends SP
+        object U { def g(s: SP): Boolean = ??? }
+      }
+      package w {
+        sealed trait W extends Any
+        case class C(x: Boolean) extends AnyVal with W
+        case object K2 extends W
+        object UseW { def g(w: W): Boolean = ??? }
+      }
+    """)
+    refused(
+      found("fam.V.g"),
+      "sealed family leaf may be extended: S1 (overridable member Exception.getCause)"
+    )
+      .and(
+        refused(
+          found("st.U.g"),
+          "sealed family leaf may be extended: L (overridable member Product.describe)"
+        )
+      )
+      .and(found("w.UseW.g") === Count.Finite(8))
   }
 
   // A final leaf, a final override of the parent's member (in the leaf, or in a parent between it
@@ -185,5 +424,65 @@ class OwnersAndRecordsSpec extends Specification {
       .and(found("V.m7") === Count.Finite(2))
       .and(found("V.m8") must not(beEqualTo(Count.Finite(4))))
   }
+
+  // No subclass overrides a given (E164) or a final member: f's expansion selects T's g and U's g
+  // on every call site — g, 2 (T.f read `?`). V's g is open: a call site's subclass may override
+  // it inline.
+  def fixedSelection = {
+    val found = one("""
+      trait T { given g: Boolean = true; inline def f: Boolean = g }
+      trait U { final def g: Boolean = true; inline def f: Boolean = g }
+      trait V { def g: Boolean = true; inline def f: Boolean = g }
+    """)
+    (found("T.f") === Count.Finite(2))
+      .and(found("U.f") === Count.Finite(2))
+      .and(
+        refused(
+          found("V.f"),
+          "inline method: selects g on this, which a call site may type as a subclass of V that " +
+            "overrides g inline"
+        )
+      )
+  }
+
+  // `given g: Boolean = deferred` is supplied by each class extending T (3.9.0 run: two classes
+  // with different givens in scope print false and true): other reads a free Boolean g — g, !g,
+  // true, false: 4 (it read 2). TI.f's expansion selects g, which a subclass gives: refused. A
+  // `deferred` another declaration binds — a member of V, X's imported in TX's object, a local
+  // `compiletime` object's selected in TL — is no abstract given.
+  def deferredGiven = {
+    val found = one("""
+      import scala.compiletime.deferred
+      trait T { given g: Boolean = deferred; def other: Boolean = g }
+      trait TI { given g: Boolean = deferred; inline def f: Boolean = g }
+      trait Q { given g: Boolean = scala.compiletime.deferred; def other: Boolean = g }
+      trait V { val deferred: Boolean = true; given g: Boolean = deferred; def other: Boolean = g }
+      object X { val deferred: Boolean = true }
+      object TXs { import X.deferred; trait TX { given g: Boolean = deferred; def other: Boolean = g } }
+      object compiletime { val deferred: Boolean = true }
+      trait TL { given g: Boolean = compiletime.deferred; def other: Boolean = g }
+    """)
+    val other = "given alias of a deferred not resolved to scala.compiletime"
+    (found("T.other") === Count.Finite(4))
+      .and(found("Q.other") === Count.Finite(4))
+      .and(
+        refused(
+          found("TI.f"),
+          "inline method: selects g on this, which a call site may type as a subclass of TI that " +
+            "overrides g inline"
+        )
+      )
+      .and(refused(found("V.other"), s"$other: V.g"))
+      .and(refused(found("TXs.TX.other"), s"$other: TXs.TX.g"))
+      .and(refused(found("TL.other"), s"$other: TL.g"))
+  }
+
+  // A bare `deferred` no import binds (scalac rejects it, E006): this reading does not take it for
+  // scala.compiletime's.
+  def deferredBare =
+    refused(
+      one("trait TB { given g: Boolean = deferred; def other: Boolean = g }")("TB.other"),
+      "given alias of a deferred not resolved to scala.compiletime: TB.g"
+    )
 
 }

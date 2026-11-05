@@ -6,8 +6,8 @@ import cardinality.analysis.MethodAnalysis
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// Elimination of supplied sum- and ground-valued callables (design/capabilities.md C10); a root
-// whose rules carry reasons has no count, whatever cycle it reaches. Every
+// Elimination of supplied sum- and ground-valued callables (design/capabilities.md C10) and the
+// restricted ω-saturation (C11 as SYNTHESIS D-capabilities and crosscheck X3 restrict it). Every
 // fixture is valid Scala 3.9.0 (compiled with scalac: probes/b4/spec sums1, c11, probes/b4fix/spec
 // sat, low and keys, probes/b4fix2/spec c11 and named; the c11 fixture extends research/xprobe/c11).
 // Each count is derived in the comment above its check.
@@ -27,10 +27,15 @@ class NeutralSaturationSpec extends Specification {
       a producer cycle feeds the arguments                          $unbounded
       the cases feed back the callable's own argument               $payloadCycle
       a ground argument space is not enumerated                     $literals
+      a higher-order argument keeps the opaque reason               $higherOrder
       a sum argument space is not enumerated                        $sumArgument
+      an argument type a lower bound builds is not enumerated       $lowerBoundArgument
+      an argument type a polymorphic member builds is not enumerated $polymorphicArgument
       a record's callable is named by its field                     $recordField
       a callable is named by its source name, whatever it spells    $sourceNames
-    Reasons elsewhere leave no count
+    ω with reasons elsewhere (C11, restricted by X3)
+      a reason-free cycle beside a reasoned producer is ω           $reasonedCycle
+      the same below a split and below a product                    $vouchedBelow
       a branch absurd only through a reasoned rule is never ω       $branchAbsurd
       a sibling that may truly be empty is never ω                  $siblingZero
       a context absurd through a reasoned rule is never ω           $reasonedAbsurd
@@ -114,6 +119,12 @@ class NeutralSaturationSpec extends Specification {
       "sum elimination over an argument space not enumerated: g"
     )
 
+  def higherOrder =
+    refused(
+      sums("sums1.U.higher"),
+      "Elimination of an opaque sum-producing callable is unsupported"
+    )
+
   // `x` and `y` are named so that the old string keys of q(x, c) and q(a, y) were one string —
   // `(input/<scope>:a,input/<scope>:b,input/<scope>:c)` — and one neutral went unsplit
   // (2^(2^15)). Four A values make 16 neutrals q(·, ·), each Boolean answered per case: 2^(2^16),
@@ -150,6 +161,18 @@ class NeutralSaturationSpec extends Specification {
   // p's arguments are the Option[A] terms None and Some(a), built, not neutral: 16 in truth, refused.
   def sumArgument =
     refused(sat("sat.U.optArg"), "sum elimination over an argument space not enumerated: p")
+
+  // B's values are built through its lower bound (None, Some(a); (a, a)): 16 and 4 in truth.
+  def lowerBoundArgument =
+    refused(sat("sat.U.lowOption"), "sum elimination over an argument space not enumerated: p")
+      .and(
+        refused(sat("sat.U.lowPair"), "sum elimination over an argument space not enumerated: p")
+      )
+
+  // wrap at M := A builds an F[A], p(wrap(a)): 4 in truth, but an instantiation is no neutral this
+  // enumerates.
+  def polymorphicArgument =
+    refused(sat("sat.U.built"), "sum elimination over an argument space not enumerated: p")
 
   // pick's Some(a) reaches mend's S, which pick takes again; the reason names the callable as the
   // record field it is read from: `inner`'s first field.
@@ -223,6 +246,13 @@ class NeutralSaturationSpec extends Specification {
   // h's application carries a reason, but b, step(b), … is a reason-free cycle in a context nothing
   // makes absurd: ω.
   def reasonedCycle = c11("c11.T.reasonedCycle") === Count.Countable
+
+  // The vouched path runs through a split (Left: b, step(b), … beside h(…); Right: its own b — ω ·
+  // ≥ 1) and through a product (the B field cycles, the C field is c) with h's reasoned rule at
+  // every B goal: ω both.
+  def vouchedBelow =
+    (c11("c11.T.branchCycleReasoned") === Count.Countable)
+      .and(c11("c11.T.pairCycleReasoned") === Count.Countable)
 
   // k(h(step)) may make the context absurd (true count 1), and only a reasoned rule says so.
   def reasonedAbsurd =

@@ -59,6 +59,8 @@ final private[cardinality] class TypeMembers(
           }
       }
     case Type.Select(qualifier, name) =>
+      if (System.getenv("DBG") != null && name.value == "F")
+        println(s"DBG typeMember Select qualifier=$qualifier path=${path(qualifier, context)}")
       path(qualifier, context).map(_.flatMap(meaning(_, name.value, context)))
     case _ => None
   }
@@ -143,33 +145,65 @@ final private[cardinality] class TypeMembers(
     else
       candidates(path, name, context).flatMap { found =>
         found
+          .sortBy(!_.own)
           .collectFirst(Function.unlift(c => definition(c.stat).map(_ -> c.scope)))
           .map((body, scope) => Right(Meaning.Alias(body, scope.enter(key))))
-          .getOrElse(
-            abstractMeaning(path, name, found.collect { case Candidate(d: Decl.Type, _) => d })
-          )
+          .getOrElse(undefined(path, name, found))
       }
   }
 
-  // The declarations of the member along the path, each with the scope its body is read in: each
-  // level of the template's linearization, where `this` is the path. A private one is not inherited.
+  // A member no level defines: a class some level declares (never overridden), or abstract.
+  private def undefined(
+      path: MemberPath,
+      name: String,
+      found: List[Candidate]
+  ): Either[String, Meaning] =
+    found.map(_.stat).find(!memberTree(_)) match {
+      case Some(other) => Left(nonMember(path.spell(name), other))
+      case None        =>
+        val declared = found.collect { case Candidate(d: Decl.Type, _, _) => d }
+        abstractMeaning(path, name, declared)
+    }
+
+  // The declarations of the member along the path, each with the scope its body is read in: the
+  // refinement's first, where `this` is the refined value, then each level of the template's
+  // linearization, where `this` is the path. A private one is not inherited: it is a candidate only
+  // where `this` is read from inside its own template.
   private def candidates(
       path: MemberPath,
       name: String,
       context: ResolutionContext
   ): Either[String, List[Candidate]] = {
-    path.template.fold(Right(Nil)) { (template, _) =>
+    val refined = path.refinement.filter(r => declares(r.stat, name)).map { r =>
+      val scope = r.scope.refining(path).copy(visiting = r.scope.visiting ++ context.visiting)
+      Candidate(r.stat, scope, own = false)
+    }
+    path.template.fold(Right(refined)) { (template, _) =>
       levels(path).map { found =>
-        found.flatMap { (frame, env) =>
+        refined ++ found.flatMap { (frame, env) =>
           lookup.declaredIn(frame, name).flatMap { entry =>
+            val own = privateOwn(path, entry, frame, context)
             Option
-              .when(frame.id == template.id || publicAt(entry, context.useSite))(entry.tree)
-              .collect { case stat: Stat => Candidate(stat, context.inScope(frame, env).as(path)) }
+              .when(own || frame.id == template.id || publicAt(entry, context.useSite))(entry.tree)
+              .collect {
+                case stat: Stat =>
+                  Candidate(stat, context.inScope(frame, env).as(path), own)
+              }
           }
         }
       }
     }
   }
+
+  // A private declaration of a parent, read from inside that parent's own body.
+  private def privateOwn(
+      path: MemberPath,
+      entry: TypeEntry,
+      frame: Frame,
+      context: ResolutionContext
+  ): Boolean =
+    path.isSelf && path.template.exists(_._1.id != frame.id) && hidden(entry.tree) &&
+      inherited.visible(entry.tree, entry.owner, context.frame)
 
   private def publicAt(entry: TypeEntry, at: Frame): Boolean =
     inherited.visible(entry.tree, entry.owner, at)
@@ -182,7 +216,7 @@ final private[cardinality] class TypeMembers(
   ): Either[String, Meaning] = {
     val member = path.spell(name)
     if (declared.isEmpty)
-      Left(s"unavailable type member: $member")
+      Left(unsupplied(path, name).getOrElse(s"unavailable type member: $member"))
     else
       declared.find(!trivial(_)) match {
         case Some(d) => Left(s"bounded abstract type member $member (${Spelling.of(d.bounds)})")
@@ -215,6 +249,13 @@ final private[cardinality] class TypeMembers(
     path.template.flatMap { (template, _) =>
       val owner = template.path.last
       closures(template).collectFirst {
+        case Closure.Final =>
+          s"abstract type member $name of final template $owner is never instantiated"
+        case Closure.PrivateConstructor(None) =>
+          s"abstract type member $name of $owner is fixed: its constructor is private"
+        case Closure.PrivateConstructor(Some(ancestor)) =>
+          s"abstract type member $name of $owner is fixed: the constructor of $ancestor is private"
+        case Closure.Hidden(why) => s"abstract type member $name of $owner is fixed: $why"
         case Closure.Sealed if !path.isSelf && !resolver.openFamily(template) =>
           s"abstract type member $name of ${path.label} is fixed by the cases of sealed $owner"
       }
@@ -226,6 +267,8 @@ final private[cardinality] class TypeMembers(
       levels(MemberPath.self(template, resolver.typeParameters(template))).toOption.toList.flatten
         .map(_._1)
     )
+
+  private def overridable(template: Frame): Boolean = closures(template).isEmpty
 
   // The template and its supplied parents, each with the arguments the path gives it, memoized per
   // path and arguments: `this` of a capability record is the template's own path at the record's
@@ -251,6 +294,16 @@ final private[cardinality] class TypeMembers(
       context: ResolutionContext
   ): Option[Either[String, MemberPath]] =
     qualifier match {
+      case Term.This(Name.Anonymous()) =>
+        context.refinedThis
+          .orElse(innermost(context).map(selfPath(_, context)))
+          .map(Right(_))
+      case Term.This(name) =>
+        context.frame.chain
+          .find(frame => isTemplate(frame) && frame.path.lastOption.contains(name.value))
+          .map(t => Right(selfPath(t, context)))
+      case Term.Name(name) if context.refinedThis.exists(declaresValue(_, name)) =>
+        context.refinedThis.map(p => Left(s"path through member $name of refined ${p.label}"))
       case Term.Name(name) =>
         val chain = context.frame.chain.map(_.id)
         val bound = RefinedMembers.declaring(name, context.frame).map(f => chain.indexOf(f.id))
@@ -260,6 +313,9 @@ final private[cardinality] class TypeMembers(
           .orElse(binding(name, context))
       case _ => None
     }
+
+  private def declaresValue(path: MemberPath, name: String): Boolean =
+    levels(path).exists(_.exists((frame, _) => RefinedMembers.declaresValue(name, frame)))
 
   // `outer =>` names `this` of its template.
   private def selfAlias(name: String, context: ResolutionContext): Option[Frame] =
@@ -278,8 +334,9 @@ final private[cardinality] class TypeMembers(
     RefinedMembers.pathType(Term.Name(name), context.frame).flatMap {
       case Left(reason)             => Some(Left(reason))
       case Right((declared, owner)) =>
-        if (isTemplate(owner)) Some(Left(s"path through the field $name not followed"))
-        else valuePath(name, Value(s"${owner.id}:$name", declared, owner), context)
+        val local = Value(s"${owner.id}:$name", declared, owner, owner, Map.empty)
+        val found = if (isTemplate(owner)) field(name, local, context) else Right(local)
+        found.fold(reason => Some(Left(reason)), value => valuePath(name, value, context))
     }
 
   private def valuePath(
@@ -287,16 +344,46 @@ final private[cardinality] class TypeMembers(
       value: Value,
       context: ResolutionContext
   ): Option[Either[String, MemberPath]] = {
-    val scope = context.inScope(value.level, resolver.typeParameters(value.level))
-    declaredPath(Named(value.key, name), value.declared, scope)
-      .map(_.map(path => path.copy(fixed = path.fixed.orElse(fixedValue(name, value)))))
+    val scope = context.inScope(value.level, resolver.typeParameters(value.level) ++ value.env)
+    declaredPath(Named(value.key, name), value.declared, value.receiver.fold(scope)(scope.as))
+      .map(_.map(path => path.copy(fixed = path.fixed.orElse(fixedValue(name, value, context)))))
+  }
+
+  // A template's field is a member of `this` as the reference reads it — the receiver whose
+  // inherited body is being read, when one is — so two receivers never share it, and its type is
+  // the first declaration along that receiver (a subclass may narrow it). A field no subclass
+  // overrides (private, final, a plain parameter) is the declaring template's own.
+  private def field(name: String, declared: Value, context: ResolutionContext) = {
+    val owner = declared.level
+    val receiver = selfPath(owner, context)
+    val own = declared.copy(key = s"${receiver.key}.$name", receiver = Some(receiver))
+    if (!openField(owner, name)) Right(own.copy(key = s"${receiver.key}.${owner.id}:$name"))
+    else
+      levels(receiver).toOption
+        .flatMap(_.collectFirst(Function.unlift { (frame, env) =>
+          RefinedMembers
+            .declaredValue(name, frame)
+            .map(_.map { tpe =>
+              own.copy(declared = tpe, level = frame, env = env)
+            })
+        }))
+        .getOrElse(Right(own))
+        .map(_.copy(template = receiver.template.fold(owner)(_._1)))
   }
 
   // Whoever supplies a path may pick its abstract members only where the path's value is theirs: a
-  // method's parameter (the caller passes any subclass, refined). A local value is fixed by its own
-  // definition: its members admit no values but its own.
-  private def fixedValue(name: String, value: Value): Option[String] =
-    Option.when(value.level.params.forall(_.name.value != name))(s"$name is a local value")
+  // method's or the measured constructor's parameter (the caller passes any subclass, refined), or
+  // a `val` an overriding subclass may narrow — a field, neither final nor private, of a template a
+  // subclass may extend anywhere. A local value, a constructor parameter that is no field, or a
+  // member of a closed template is fixed by its own definition: its members admit no values but
+  // its own.
+  private def fixedValue(name: String, value: Value, context: ResolutionContext): Option[String] =
+    if (!isTemplate(value.level) || context.useSite.id == value.level.id)
+      Option.when(value.level.params.forall(_.name.value != name))(s"$name is a local value")
+    else
+      Option.unless(overridable(value.template) && openField(value.level, name))(
+        s"$name is not overridable in ${value.template.path.last}"
+      )
 
   /** The type a stable input is read as. A type-only refinement pins members of the input's path,
     * which a reading of the path follows, and asks nothing else of the value: it is read as its
@@ -308,22 +395,63 @@ final private[cardinality] class TypeMembers(
   def stableInput(tpe: Type, context: ResolutionContext): Either[String, Type] = tpe match {
     case r: Type.Refine if r.body.stats.forall(typeMember) =>
       r.tpe match {
-        case None       => Left(notShown(r, "no base"))
+        case None       => unshown(r.body.stats).toLeft(tpe)
         case Some(base) =>
-          declaredPath(Named(s"input:${r.syntax}", Spelling.of(r)), r, context)
-            .fold(Left(notShown(r, s"${Spelling.of(base)} is not a supplied template")))(
-              _.map(_ => base)
-            )
+          declaredPath(Named(s"input:${r.syntax}", Spelling.of(r)), r, context) match {
+            case Some(found) => found.map(_ => base)
+            case None        =>
+              Left(
+                resolver
+                  .resolve(base, context)
+                  .fold(
+                    identity,
+                    _ => notShown(r, s"${Spelling.of(base)} is not a supplied template")
+                  )
+              )
+          }
       }
     case _ => Right(tpe)
   }
 
-  /** A refinement read as a value type outside a stable input: its constraints are not erased. */
-  def refinement(r: Type.Refine, @annotation.unused context: ResolutionContext): Resolved =
-    Left(s"refined representation unavailable (constraints not erased): ${Spelling.of(r)}")
+  /** A refinement read as a value type outside a stable input. A structural type that only pins
+    * type members asks nothing of its values: every value has it, and no term member tells two
+    * apart — where its bounds admit some type. A term member no base declares is selected through
+    * reflection, which the model excludes; one its base declares only narrows it, a constraint this
+    * reading does not erase.
+    */
+  def refinement(r: Type.Refine, context: ResolutionContext): Resolved = {
+    val terms = r.body.stats.filterNot(typeMember)
+    r.tpe match {
+      case None if terms.isEmpty => unshown(r.body.stats).toLeft(Shape.Product(Nil))
+      case Some(base) if terms.forall(stat => baseDeclares(base, stat, context)) =>
+        Left(
+          s"refined representation unavailable (constraints not erased): ${Spelling.of(r)}"
+        )
+      case _ =>
+        Left(s"structural refinement with term members: ${Spelling.of(r)}")
+    }
+  }
 
-  /** Whether a type declares or inherits a type member: it may, as far as this reading tells. */
-  def declaresMember(owner: Type, name: String, context: ResolutionContext): Boolean = true
+  /** Whether a type declares or inherits a type member; one this reading has no template for may.
+    */
+  def declaresMember(owner: Type, name: String, context: ResolutionContext): Boolean =
+    declaredPath(Named(s"owner:${owner.syntax}", Spelling.of(owner)), owner, context) match {
+      case Some(Right(path)) => declarationsOf(path, name).nonEmpty
+      case _                 => true
+    }
+
+  // Whether a base declares every term a refinement statement narrows; a base that is no supplied
+  // template may, as far as this reading knows.
+  private def baseDeclares(base: Type, stat: Stat, context: ResolutionContext): Boolean =
+    declaredPath(Named(s"base:${base.syntax}", Spelling.of(base)), base, context) match {
+      case Some(Right(path)) =>
+        levels(path).forall(found =>
+          FinalImplementations
+            .names(stat)
+            .forall(name => found.exists((frame, _) => RefinedMembers.declaresValue(name, frame)))
+        )
+      case _ => true
+    }
 
   // Why no value of a supplied base may have a refinement's members, if none may: the base cannot
   // be extended freely, or already declares a refined member in a way the refinement may contradict
@@ -332,7 +460,14 @@ final private[cardinality] class TypeMembers(
     val closed = base.template.flatMap { (template, _) =>
       val owner = template.path.last
       val unsupplied = inherited.unsuppliedAncestors(template).map(Closure.Unsupplied(_))
-      (closures(template) ++ unsupplied).headOption.map(_ => s"$owner is not extended freely")
+      (closures(template) ++ unsupplied).headOption.map {
+        case Closure.Final                        => s"$owner is final"
+        case Closure.PrivateConstructor(ancestor) =>
+          s"${ancestor.getOrElse(owner)} has a private constructor"
+        case Closure.Sealed             => s"$owner is sealed"
+        case Closure.Hidden(why)        => why
+        case Closure.Unsupplied(parent) => s"unsupplied parent $parent"
+      }
     }
     closed
       .orElse(levels(base).left.toOption)
@@ -369,14 +504,16 @@ final private[cardinality] class TypeMembers(
     if (scope.visiting(step)) Some(Left(s"recursive path type: ${at.label}"))
     else
       declared match {
+        case Type.Singleton(ref)                               => path(ref, scope.enter(step))
         case r: Type.Refine if r.body.stats.forall(typeMember) =>
           val refined = r.body.stats.map(MemberPath.Refined(_, scope.enter(step)))
           (unshown(r.body.stats), r.tpe) match {
+            case (Some(reason), _)  => Some(Left(reason))
+            case (None, None)       => Some(Right(at.path(None).copy(refinement = refined)))
             case (None, Some(base)) =>
               declaredPath(at, base, scope.enter(step)).map(_.flatMap { p =>
                 refinable(r, p).toLeft(p.copy(refinement = refined ++ p.refinement))
               })
-            case _ => Some(Left(notShown(r, "refined members not read")))
           }
         case _ => named(at, declared, scope.enter(step))
       }
@@ -392,8 +529,9 @@ final private[cardinality] class TypeMembers(
         // A declared type the lookup refuses leaves the path refused for that reason: no other
         // reading of the path is more specific.
         resolver.declaration(callee, TypeApplications.spelled(callee), scope) match {
-          case Found.Entry(entry) => template(at, entry, args, scope)
-          case _                  => None
+          case Found.Entry(entry)       => template(at, entry, args, scope)
+          case Found.Blocked(reason, _) => Some(Left(reason))
+          case _                        => None
         }
       case _ => None
     }
@@ -410,6 +548,15 @@ final private[cardinality] class TypeMembers(
         bound(entry.name, d.tparamClause.values, args, scope)
           .map(env => at.path(Some(frame -> (resolver.typeParameters(frame) ++ env))))
       )
+    case (alias: Defn.Type, _)
+        if !alias.mods.exists(_.is[Mod.Opaque]) && TypeApplications.lambda(alias.body).isEmpty =>
+      bound(entry.name, alias.tparamClause.values, args, scope).toOption.flatMap { env =>
+        declaredPath(
+          at,
+          alias.body,
+          scope.inScope(entry.owner, resolver.typeParameters(entry.owner) ++ env)
+        )
+      }
     case _ => None
   }
 
@@ -461,8 +608,9 @@ private[cardinality] object TypeMembers {
 
   private type Levels = Either[String, List[(Frame, Map[String, Resolved])]]
 
-  // A declaration of the member at one level, and the scope its body is read in.
-  final private case class Candidate(stat: Stat, scope: ResolutionContext)
+  // A declaration of the member at one level, the scope its body is read in, and whether it is a
+  // private member read from inside its own template.
+  final private case class Candidate(stat: Stat, scope: ResolutionContext, own: Boolean)
 
   // A binding's path identity and how a reason names it.
   final private case class Named(key: String, label: String) {
@@ -472,8 +620,16 @@ private[cardinality] object TypeMembers {
 
   }
 
-  // A value a path starts from: its key, and its declared type at the scope that declares it.
-  final private case class Value(key: String, declared: Type, level: Frame)
+  // A value a path starts from: its key, its declared type at the level that declares it (read
+  // under that level's arguments, with `this` the receiver), and the template whose member it is.
+  final private case class Value(
+      key: String,
+      declared: Type,
+      level: Frame,
+      template: Frame,
+      env: Map[String, Resolved],
+      receiver: Option[MemberPath] = None
+  )
 
   // A declaration a member reading follows: an abstract type, or a first-order transparent alias.
   private def memberTree(tree: Tree): Boolean = tree match {
@@ -500,27 +656,52 @@ private[cardinality] object TypeMembers {
     * `Nothing` or `Any`), or a member it does not follow.
     */
   def unshown(stats: List[Stat]): Option[String] = stats.collectFirst {
+    case d: Decl.Type if d.tparamClause.values.nonEmpty =>
+      s"higher-kinded refined member: ${d.name.value}"
+    case d: Decl.Type if twoSided(d) =>
+      s"abstract refined member has non-exact bounds: ${Spelling.of(d)}"
     case d: Defn.Type if !alias(d) => s"higher-kinded or opaque refined member: ${d.name.value}"
   }
 
   /** Whether some instance gives every abstract member a type: with one bound or none each, Nothing
     * meets every upper bound and Any every lower one; two bounds may admit nothing.
     */
-  def instantiable(stats: List[Stat]): Boolean = true
+  def instantiable(stats: List[Stat]): Boolean = !stats.exists {
+    case d: Decl.Type => twoSided(d)
+    case _            => false
+  }
+
+  private def twoSided(d: Decl.Type): Boolean =
+    d.bounds.lo.nonEmpty && d.bounds.hi.nonEmpty && definition(d).isEmpty
 
   // Whether a refined member may contradict a declaration of the base: one that fixes the member
   // meets anything but an unbounded abstract member; a one-sided bound (`<: U`, met by Nothing;
   // `>: L`, met by Any) meets an alias, a class, or a bound on the other side.
-  private def clashes(refined: Stat, existing: Stat): Boolean =
-    definition(refined).isEmpty || !trivialStat(existing)
+  private def clashes(refined: Stat, existing: Stat): Boolean = (refined, existing) match {
+    case (r, e) if definition(r).nonEmpty                                        => !trivialStat(e)
+    case (r: Decl.Type, _) if trivial(r)                                         => false
+    case (r: Decl.Type, e: Decl.Type) if trivialStat(e) || definition(e).isEmpty =>
+      e.tparamClause.values.nonEmpty || opposite(r, e)
+    case _ => true
+  }
 
   // A one-sided refined bound against a declared bound on the other side.
+  private def opposite(refined: Decl.Type, existing: Decl.Type): Boolean =
+    (refined.bounds.hi.nonEmpty && existing.bounds.lo.nonEmpty) ||
+      (refined.bounds.lo.nonEmpty && existing.bounds.hi.nonEmpty)
+
+  private def nonMember(member: String, stat: Stat): String = stat match {
+    case _: Defn.Type => s"type member alias not followed: $member"
+    case _            => s"type member is a class: $member"
+  }
+
   private def notShown(r: Type.Refine, why: String): String =
     s"refinement not shown satisfiable: ${Spelling.of(r)} ($why)"
 
   private def declares(stat: Stat, name: String): Boolean = declaredName(stat).contains(name)
 
   private def declaredName(stat: Stat): Option[String] = stat match {
+    case d: Decl.Type => Some(d.name.value)
     case d: Defn.Type => Some(d.name.value)
     case _            => None
   }
@@ -533,6 +714,26 @@ private[cardinality] object TypeMembers {
       .map(tpe => s"self type not resolved: ${Spelling.of(tpe)}")
 
   private def isTemplate(frame: Frame): Boolean = frame.isTemplate
+
+  // A field a subclass may override: a `val` parameter or member that is neither final nor private.
+  private def openField(owner: Frame, name: String): Boolean =
+    owner.params.find(_.name.value == name) match {
+      case Some(p) => p.mods.exists(_.is[Mod.ValParam]) && open(p.mods)
+      case None    =>
+        owner.stats.exists {
+          case d: Defn.Val => TypeApplications.boundNames(d.pats).contains(name) && open(d.mods)
+          case d: Decl.Val => TypeApplications.binds(name, d.pats) && open(d.mods)
+          case _           => false
+        }
+    }
+
+  private def open(mods: List[Mod]): Boolean =
+    !mods.exists(m => m.is[Mod.Final] || m.is[Mod.Private])
+
+  private def hidden(tree: Tree): Boolean = tree match {
+    case d: Stat.WithMods => d.mods.exists(_.is[Mod.Private])
+    case _                => false
+  }
 
   private def trivial(d: Decl.Type): Boolean = d.bounds.lo.isEmpty && d.bounds.hi.isEmpty
 

@@ -13,22 +13,30 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
 
   def is = s2"""
     Anonymous contextual parameters
+      keep two anonymous parameters apart                          $anonymousApart
+      keep anonymous parameters of two owners apart                $anonymousOwners
+      count unrelated anonymous evidence once each                 $anonymousDistinct
       refuse same-typed evidence a search cannot tell apart        $anonymousAmbiguous
       read an extension's clauses at its method's level            $anonymousExtension
+      refuse evidence a nearer or same-level value shadows         $anonymousShadowed
       refuse evidence a later given of the block shadows           $anonymousLaterGiven
       leave a shallower given out of the question                  $anonymousOuterGiven
+      refuse evidence an implicit, import or unread parent may beat $anonymousUnseen
       refuse evidence a named import or an export may beat         $anonymousNamedImports
       refuse an inherited given as an overlap, not an ambiguity    $anonymousInherited
       refuse evidence of a type related to another's               $anonymousRelated
       count evidence of distinct final classes that share a shape   $anonymousSameShape
+      tell tuples apart by arity, not when a component relates     $anonymousTuples
       count named evidence of one type by name                     $namedEvidence
     Inherited declarations
       substitute through two levels of inheritance                 $twoLevels
       read a diamond's shared parent once                          $diamond
       keep an unrelated instantiation empty                        $unrelatedInstantiation
       refuse a parent reached with two instantiations              $conflictingInstantiations
+      give each receiver its own copy of a shared parent           $twoReceivers
       read a parent that is an inherited member class              $memberClassParent
       read an inherited declaration a final template implements    $finalImplementation
+      read inherited vals and givens a final template implements   $finalValues
       leave an abstract final class's declarations open            $abstractFinal
       keep a capture a final implementation reads past a shadow    $hiddenCapture
       keep abstract overloads as separate capabilities             $overloads
@@ -42,15 +50,59 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       key an override through an inherited name as the member $inheritedOverride
     Templates and families
       read a `var` as the value it holds                           $varParameter
+      refuse a self type this reading does not enumerate           $selfType
       refuse an enum case pinned to one instantiation              $enumPin
       read enum cases that bind or bottom-pin the parameters       $enumBinds
       read enum cases that take parameters through `extends`       $enumBindsByExtends
+      refuse a sealed family with anonymous instances              $sealedAnonymous
       refuse a sealed family extended through an alias             $sealedAlias
       refuse a sealed family with an inner or local child          $sealedInner
       refuse a sealed family with a child in any block             $sealedBlockChild
       read a sealed family whose children live in an object        $sealedInObject
       read a family an alias names but nothing extends through it  $sealedAliasUnused
   """
+
+  // Every anonymous `using` parameter has the empty name; keyed by name, the second replaced the
+  // first. `anon2`: f(x), f(g(f(x))), … — ω, as for named f and g. `lost`: x, or the value in
+  // `Some(a)` of the first evidence — 2; the `B` evidence is unrelated to the goal.
+  def anonymousApart = {
+    val found = counts("Anon.scala" -> """object T {
+      |  def anon2[A, B](x: A)(using A => B, B => A): B = ???
+      |  def lost[A, B](x: A)(using Option[A], B): A = ???
+      |}""".stripMargin)
+    (found("T.anon2") === Count.Countable).and(found("T.lost") === Count.Finite(2))
+  }
+
+  // Two owners of one chain — a method and its local def or class, an extension and its method —
+  // each with an anonymous parameter at index 0: keyed by index alone, the inner one replaced the
+  // outer. `summon[A]` selects the outer evidence (B is unrelated), the only value of A: 1 each.
+  // With `A => B` outside and `B => A` inside: f(x), f(g(f(x))), … — ω.
+  def anonymousOwners = {
+    val found = counts("Owners.scala" -> """object O {
+      |  def outer[A](using A): Unit = { def inner[B](using B): A = ???; () }
+      |  def two[A, C](x: C)(using A): Unit = { def inner[B](y: B)(using B): A = ???; () }
+      |}
+      |object Ext { extension [A](using A)(u: Unit) def pick[B](using B): A = ??? }
+      |object Loc {
+      |  def anon[A, B](using A => B): Unit = {
+      |    class In { def f(using B => A)(x: A): B = ??? }
+      |    ()
+      |  }
+      |  def local[A, B](using A => B): Unit = { def g(using B => A)(x: A): B = ???; () }
+      |}
+      |object X { extension [A, B](using A => B)(x: A) def go(using B => A): B = ??? }
+      |""".stripMargin)
+    (found("O.outer.inner") === Count.Finite(1))
+      .and(found("O.two.inner") === Count.Finite(1))
+      .and(found("Ext.<extension@5>.pick") === Count.Finite(1))
+      .and(found("Loc.anon.In.f") === Count.Countable)
+      .and(found("Loc.local.g") === Count.Countable)
+      .and(found("X.<extension@13>.go") === Count.Countable)
+  }
+
+  // `summon[A]` and `summon[B]` each select their own parameter: two unrelated binders. One pair.
+  def anonymousDistinct =
+    count("object T { def both[A, B](using A, B): (A, B) = ??? }", "T.both") === Count.Finite(1)
 
   // Two candidates of one type at one level make `summon[Option[A]]` an ambiguity error, so the
   // anonymous one is unreachable: the exact count is 1 (`x`), and the reading refuses rather than
@@ -76,6 +128,18 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       "ambiguous anonymous evidence: Option[A]"
     )
 
+  // A class's anonymous evidence competes with the method's own (nested deeper, it wins every
+  // search) and with a given of its own body (same level: ambiguous). Neither is counted.
+  def anonymousShadowed = {
+    val found = counts("Shadowed.scala" -> """class C[A](using Option[A]) {
+      |  given Option[A] = None
+      |  def f(x: A): A = ???
+      |}
+      |class D[A](using Option[A]) { def f(x: A)(using Option[A]): A = ??? }""".stripMargin)
+    refused(found("C.f"), "ambiguous anonymous evidence: Option[A]")
+      .and(refused(found("D.f"), "anonymous evidence selection not resolved: Option[A]"))
+  }
+
   // A block's given is in scope before its own position: `inner`'s `summon[A]` selects the given
   // written after it (3.9.0, run: `outer[String](using "evidence")("param")` prints `param`), so
   // the outer evidence is unreachable — exact 1 (a2); reading only earlier statements said 2.
@@ -97,6 +161,19 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       "object T { given Unit = (); def f[A](x: A)(using Option[A]): A = ??? }",
       "T.f"
     ) === Count.Finite(2)
+
+  // An implicit value of the parameter's type in the class body is a same-level competitor; a
+  // `given` import, or a parent outside the source set, brings candidates of unread types.
+  def anonymousUnseen = {
+    val found = counts("Unseen.scala" -> """import lib.Base
+      |object Helpers { given Unit = () }
+      |class G[A](using Option[A]) { implicit val other: Option[A] = None; def f(x: A): A = ??? }
+      |class H[A](using Option[A]) { import Helpers.given; def f(x: A): A = ??? }
+      |class E[A](using Option[A]) extends Base { def f(x: A): A = ??? }""".stripMargin)
+    refused(found("G.f"), "ambiguous anonymous evidence: Option[A]")
+      .and(refused(found("H.f"), "(overlaps import Helpers.given)"))
+      .and(refused(found("E.f"), "(overlaps unsupplied parent Base)"))
+  }
 
   // `import H.s` and `export H.s` bring the given `s` into the class body (3.9.0: E172 against the
   // class's `x$1` for both), so the anonymous evidence is unreachable — exact 1 (x, since s is
@@ -135,12 +212,23 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
 
   // `A => B <: Nothing => B` (functions are contravariant in the argument), so a search for
   // `Nothing => B` finds both and the second may lose it: refused. `A => B` and `B => A`, with
-  // unrelated binders on either side, are not related.
+  // unrelated binders on either side, are not related, and count ω as in `anonymousApart`.
   def anonymousRelated =
     refused(
       count("object T { def f[A, B](x: A)(using A => B, Nothing => B): B = ??? }", "T.f"),
       "anonymous evidence selection not resolved: Nothing => B"
     )
+
+  // `(A, B)` and `(A, B, B)` differ in arity: each search selects its own, and A has x and the two
+  // first components — 3. `(A, Nothing) <: (A, B)`: related, refused.
+  def anonymousTuples = {
+    val found = counts("Tup.scala" -> """object Tup {
+      |  def arity[A, B](x: A)(using (A, B), (A, B, B)): A = ???
+      |  def related[A, B](x: A)(using (A, B), (A, Nothing)): A = ???
+      |}""".stripMargin)
+    (found("Tup.arity") === Count.Finite(3))
+      .and(refused(found("Tup.related"), "anonymous evidence selection not resolved: (A, B)"))
+  }
 
   // `P1[A]` and `P2[A]` are unrelated final classes with one shape: each `summon` selects its own
   // evidence (a 3.9.0 run prints `p2` for `summon[P2[A]].a`), so x, p1.a and p2.a — 3. They were
@@ -203,6 +291,22 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       "inherited parent instantiated twice"
     )
 
+  // `seed` (Inner.this) and `Outer.this.seed` are two receivers' slots: 2, as for the declared
+  // members of `enclosingMember`. With `Inner2 extends P[(A, A)]`: Outer2.this.seed and the two
+  // components of Inner2's seed — 3; the two instantiations belong to two receivers, so nothing is
+  // instantiated twice. The `val` twin binds the same two slots as `Inner`.
+  def twoReceivers = {
+    val found = counts("Shared.scala" -> """trait P[X] { def seed: X }
+      |trait Outer[A] extends P[A] { trait Inner extends P[A] { def go: A = ??? } }
+      |trait Outer2[A] extends P[A] { trait Inner2 extends P[(A, A)] { def go: A = ??? } }
+      |trait PV[X] { val seed: X }
+      |trait OuterV[A] extends PV[A] { trait InnerV extends PV[A] { def go: A = ??? } }
+      |""".stripMargin)
+    (found("Outer.Inner.go") === Count.Finite(2))
+      .and(found("Outer2.Inner2.go") === Count.Finite(3))
+      .and(found("OuterV.InnerV.go") === Count.Finite(2))
+  }
+
   // `A1` is a member class `Outer2` inherits from `Outer`; `B extends A1[Y]` reads its `seed: Y` —
   // 1 (it was skipped as a parent outside the source set: 0). Through `OuterG[T]`, `T := U`: 1.
   def memberClassParent = {
@@ -228,6 +332,34 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       .and(found("D2.other") === Count.Finite(1))
       .and(found("D2.get") === Count.Finite(1))
       .and(found("O3.other") === Count.Finite(2))
+  }
+
+  // An inherited `val` or `given` a final template implements is that member too: `get = a`, so
+  // `other` has one value (each read 2), and `pick.other` only `a`. `OB.flag = true` is no second
+  // Boolean: true, false — 2 (read 4). The open twin `OpenV` can be overridden: a and get — 2.
+  def finalValues = {
+    val found = counts("FinalVal.scala" -> """trait PV[A] { val get: A }
+      |final class FV[A](a: A) extends PV[A] { val get: A = a; def other: A = ??? }
+      |final class FP[A](val get: A) extends PV[A] { def other: A = ??? }
+      |final case class FC[A](get: A) extends PV[A] { def other: A = ??? }
+      |trait PG[A] { given g: A }
+      |final class FG[A](a: A) extends PG[A] { given g: A = a; def other: A = ??? }
+      |trait PD[A] { def get: A }
+      |object GivenInst { given pick[A](using a: A): PD[A] with { def get: A = a; def other: A = ??? } }
+      |class OpenV[A](a: A) extends PV[A] { val get: A = a; def other: A = ??? }
+      |""".stripMargin)
+    (found("FV.other") === Count.Finite(1))
+      .and(found("FP.other") === Count.Finite(1))
+      .and(found("FC.other") === Count.Finite(1))
+      .and(
+        count(
+          "trait PB { val flag: Boolean }\nobject OB extends PB { val flag: Boolean = true; def other: Boolean = ??? }",
+          "OB.other"
+        ) === Count.Finite(2)
+      )
+      .and(found("FG.other") === Count.Finite(1))
+      .and(found("GivenInst.pick.other") === Count.Finite(1))
+      .and(found("OpenV.other") === Count.Finite(2))
   }
 
   // `abstract final` is legal and implements nothing: `P.f(x: A)` is open (its own `f(x: Int)` is
@@ -436,6 +568,18 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       .and(found("VarParam.<init>") === Count.Finite(4))
   }
 
+  // `self.get` is a value of `A` the reading does not enumerate (the true count is 1). A self
+  // alias without a type adds nothing; a constructor's own self type is not yet a `this`.
+  def selfType = {
+    val found = counts("Self.scala" -> """trait Cap[A] { def get: A }
+      |trait SelfT[A] { self: Cap[A] => def again: A = ??? }
+      |trait Alias[A] { outer => def same(a: A): A = ??? }
+      |class SelfC[A](val a: A) { self: Cap[A] => }""".stripMargin)
+    refused(found("SelfT.again"), "self type not resolved: Cap[A]")
+      .and(found("Alias.same") === Count.Finite(1))
+      .and(found("SelfC.<init>") === Count.Finite(1))
+  }
+
   // `I2: G2[Unit]` is no value of `G2[A]` for an abstract A, so the enum is not the sum of all its
   // cases at every instantiation — as the sealed twin says. `Lc(a: A)` takes its own A (Scala
   // gives the case the enum's parameter its fields mention) and pins the enum's to Int.
@@ -479,6 +623,22 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |enum H[A, B] { case Kh(a: A) extends H[A, B] }
       |object Use { def g[A](): G[A] = ???; def h[A, B](a: A): H[A, B] = ??? }""".stripMargin)
     (found("Use.g") === Count.Finite(2)).and(found("Use.h") === Count.Finite(1))
+  }
+
+  // `Arb` is only ever `new Arb[T] {…}`: read as the sum of its named subtypes it was empty (0
+  // and 1); `W` has `W1` and an anonymous instance (read as 1). Both refused.
+  def sealedAnonymous = {
+    val found = counts("Anon.scala" -> """sealed abstract class Arb[T] { def arbitrary: T }
+      |object Arb { def apply[T](g: T): Arb[T] = new Arb[T] { def arbitrary: T = g } }
+      |object Use { def mk[T](x: T): Arb[T] = ???; def read[T](a: Arb[T]): Option[T] = ??? }
+      |sealed trait W
+      |case object W1 extends W
+      |object Extra { val extra: W = new W {} }
+      |object UseW { def makeW(): W = ??? }""".stripMargin)
+    val reason = "sealed family has anonymous instances in its file"
+    refused(found("Use.mk"), s"$reason: Arb")
+      .and(refused(found("Use.read"), s"$reason: Arb"))
+      .and(refused(found("UseW.makeW"), s"$reason: W"))
   }
 
   // Children are registered by the parent name their clause spells: `new SA {}` through `type SA =

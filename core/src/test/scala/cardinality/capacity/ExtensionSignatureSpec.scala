@@ -9,10 +9,16 @@ class ExtensionSignatureSpec extends Specification {
   private def sig(code: String): Size =
     Counter.sourceSignature(dialects.Scala3(code).parse[Source].get)
 
+  private def definition(code: String): Size =
+    Counter.defnSignature(
+      dialects.Scala3(code).parse[Source].get.stats.collectFirst { case d: Defn => d }.get
+    )
+
   private val single = "extension (b: Boolean) def flip: Boolean = !b"
 
   def is = s2"""
     a single extension includes its receiver ${sig(single) === TinySize(4)}
+    the definition entry point counts extensions ${definition(single) === TinySize(4)}
     method arguments multiply the receiver domain ${sig(
       "extension (b: Boolean) def choose(x: Boolean)(y: Boolean): Boolean = x"
     ) === FiniteSize(8)}

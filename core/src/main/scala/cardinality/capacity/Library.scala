@@ -48,10 +48,11 @@ final class Library private[cardinality] (
 
   /** How a bare name binds as a member of a package the read's clauses open, innermost first: a
     * definition of its files, under its own name in the package's scope; the reason a package of a
-    * cycle the library is still solving gives; or the reason what the package holds beyond its
-    * files' own definitions (`PackageMembers`) may bind the name.
+    * cycle the library is still solving gives; or what the package holds beyond its files' own
+    * definitions (`PackageMembers`) — an exported alias, read in the package's scope (the read's
+    * own, `reading`, while the package is being solved), or the reason it may bind the name.
     */
-  private[cardinality] def member(name: TypeName, world: World): Option[Binding] =
+  private[cardinality] def member(name: TypeName, world: World, reading: Scope): Option[Binding] =
     opened(world.opened).iterator
       .flatMap { path =>
         solvedAt(path)
@@ -62,17 +63,21 @@ final class Library private[cardinality] (
             Option
               .unless(declared.get(path).exists(_(name)))(packageMembers.get(path))
               .flatten
-              .flatMap(_.bind(name, path))
+              .flatMap(_.bind(name, path, solvedAt(path).getOrElse(reading)))
           )
       }
       .nextOption()
 
   /** What a path's first name the package's files define no term or subpackage of names as a member
     * of the package — through its export clauses or its package object's parents (see
-    * `PackageMembers.head`).
+    * `PackageMembers.head`), read as `member` reads a type.
     */
-  private[cardinality] def head(path: List[TypeName]): Option[Namespaces.Target] =
-    packageMembers.get(path).flatMap(_.head(path))
+  private[cardinality] def head(
+      path: List[TypeName],
+      first: TypeName,
+      reading: Scope
+  ): Option[Namespaces.Target] =
+    packageMembers.get(path).flatMap(_.head(first, path, solvedAt(path).getOrElse(reading)))
 
   /** The reason a member of one package has no value yet: a package of a cycle the library is still
     * solving defines it.

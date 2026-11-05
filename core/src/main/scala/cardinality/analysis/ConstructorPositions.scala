@@ -6,10 +6,10 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
 import cardinality.analysis.model.{ContextBounds, ContextualEvidence, ResolutionContext}
 import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes}
-import cardinality.capacity.{Definition, Size}
+import cardinality.capacity.{Definition, FinitePart, Size}
 import cardinality.types.{Spelling, TypeSubstitution}
 
-import Inhabitation.Count
+import Inhabitation.{Count, Shape}
 import MethodAnalysis.{Frame, Resolved, Target}
 
 /** How a constructor's positions are counted: the product of their value spaces.
@@ -113,7 +113,7 @@ final private[cardinality] class ConstructorPositions(
       val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), written)
       val shaped = resolveIn(tpe, owner)
       declined(tpe, reading, shaped.isLeft).getOrElse(
-        readPosition(label(param, tpe), shaped, slot.flatMap(_ => reading.toOption))
+        readPosition(label(param, tpe), shaped, unread, slot.flatMap(_ => reading.toOption))
       )
   }
 
@@ -138,7 +138,7 @@ final private[cardinality] class ConstructorPositions(
         if (unreadByShape) reasons.filterNot(ConstructorPositions.namesDeclaration) else reasons
       Option
         .when(ground || reasons.exists(ConstructorPositions.declarationRefusal))(
-          kept.flatMap(ConstructorPositions.render(_))
+          kept.flatMap(ConstructorPositions.render(tpe, _))
         )
         .filter(_.nonEmpty)
         .map(Declined(_))
@@ -147,28 +147,83 @@ final private[cardinality] class ConstructorPositions(
   private def readPosition(
       name: String,
       shaped: Resolved,
+      unread: Option[String],
       estimate: Option[Size]
   ): Position = {
+    // A value space the estimate is not asked about, or cannot read.
+    def unestimated = Refused(
+      unread.fold(s"constructor position has no value-space reading: $name")(why =>
+        s"constructor position reads $why: $name"
+      )
+    )
     shaped match {
       case Right(shape) if ClosedSpaces.closed(shape) =>
         Natural
           .attempt(ClosedSpaces.space(shape))
-          .fold(Refused(_), closedPosition(name, _, estimate))
+          .fold(Refused(_), closedPosition(name, shape, _, estimate))
       case Right(shape) if ClosedSpaces.mixed(shape) =>
         Refused(s"constructor position mixes type parameters with transparent ground values: $name")
+      // No type parameter, so a value space: the shape model would count the functions of the
+      // position's own value instead.
+      case Right(shape) if ClosedSpaces.valued(shape) => estimate.fold(unestimated)(Estimated(_))
       // The estimate reads the builtin the method side refused: it would rest on the same name.
       case Left(reason) if ShadowedBuiltins.shadows(reason) => Refused(reason)
+      case Left(_) if unread.nonEmpty                       => unestimated
       // A type parameter's slot: the shape model reads an alias's top as `()` itself.
       case _ => estimate.fold(Shaped)(Estimated(_))
     }
   }
 
-  private def closedPosition(name: String, space: Card, estimate: Option[Size]): Position =
+  private def closedPosition(
+      name: String,
+      shape: Shape,
+      space: Card,
+      estimate: Option[Size]
+  ): Position =
     space match {
       case Card.Omega =>
-        estimate.fold[Position](Refused(s"constructor position not estimated: $name"))(Estimated(_))
-      case _: Card.Exact => Exact(space)
+        estimate match {
+          case None                           => Estimated(ClosedSpaces.estimate(shape))
+          case Some(size) if size.hasInfinite => Estimated(size)
+          case Some(size)                     => disagree(name, space, size)
+        }
+      case Card.Exact(value) =>
+        estimate.filterNot(agrees(value, shape, _)).fold(Exact(space))(disagree(name, space, _))
     }
+
+  // A literal agrees when the size algebra reads the method side's type as the estimate reads its
+  // own: the same count up to 127, where both are exact, and the same capacity width above it, where
+  // both round alike. A literal merely within the estimate's capacity is not enough: a position the
+  // method side reads through another declaration (`x.T` through another package's object `x` where
+  // the estimate reads a nearer package's `val x`) can hold fewer values than the type the estimate
+  // names. A symbolic value is at least 2^65536, so it fits only a capacity that wide, or an infinite
+  // estimate, which may saturate a power that large.
+  private def agrees(value: Natural, shape: Shape, size: Size): Boolean = value match {
+    case Natural.Lit(_) =>
+      val image = ClosedSpaces.estimate(shape)
+      !size.hasInfinite && !image.hasInfinite && sameWidth(image.finite, size.finite)
+    case _ => size.hasInfinite || size.finite.bits >= Natural.MaxLiteralBits
+  }
+
+  private def sameWidth(image: FinitePart, estimate: FinitePart): Boolean =
+    (image, estimate) match {
+      case (FinitePart.Exact(a), FinitePart.Exact(b))          => a == b
+      case (_: FinitePart.Exact, _) | (_, _: FinitePart.Exact) => false
+      case _                                                   => image.bits == estimate.bits
+    }
+
+  // A finite estimate above 127 is a capacity, and readings are compared by its width (`agrees`),
+  // so the reason names the width: `≤2^32` would read as agreeing with a value space of 2.
+  private def disagree(name: String, space: Card, size: Size): Position = {
+    val estimate = size.finite match {
+      case FinitePart.Capacity(bits) if !size.hasInfinite => s"a capacity of width $bits bits"
+      case _                                              => size.render
+    }
+    Refused(
+      s"constructor position readings disagree: $name (value space ${Count.of(space).render}, " +
+        s"estimate $estimate)"
+    )
+  }
 
 }
 
@@ -186,10 +241,14 @@ private object ConstructorPositions {
     case _                                                             => false
   }
 
-  def render(reason: Definition.Unbound): Option[String] = reason match {
+  def render(tpe: Type, reason: Definition.Unbound): Option[String] = reason match {
+    case Definition.Unbound.Unknown(name)              => Some(s"unresolved type: $name")
     case Definition.Unbound.Imported(name, provenance) =>
       Some(s"unresolved type: $name ($provenance)")
-    case Definition.Unbound.Open(name)    => Some(s"open to implementations: $name")
+    case Definition.Unbound.Open(name)             => Some(s"open to implementations: $name")
+    case Definition.Unbound.Syntax("a match type") =>
+      Some(s"unreduced match type: ${Spelling.of(tpe)}")
+    case Definition.Unbound.Syntax(what)  => Some(what)
     case Definition.Unbound.Refusal(what) => Some(what)
     case _                                => None
   }

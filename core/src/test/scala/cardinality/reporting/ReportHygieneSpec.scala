@@ -27,7 +27,10 @@ class ReportHygieneSpec extends Specification with AfterAll {
       comments between tokens are layout                    $comments
       a literal keeps its own spaces                        $literal
       a line break between statements in braces reads `;`   $statementBreaks
+      a line break inside an expression is layout           $expressionBreaks
+      an operator at a line start is infix only before space $leadingOperators
       an operator at a line end continues only an operand   $trailingOperators
+      a braceless match reads in the braces it stands for   $bracelessMatch
       text the tokenizer refuses keeps its characters       $untokenizable
       a character Scala does not have keeps its spaces      $invalidCharacter
       spelling is idempotent                                $idempotent
@@ -37,11 +40,14 @@ class ReportHygieneSpec extends Specification with AfterAll {
       so does one behind aliases of aliases                 $nestedAliases
       a source name shaped like a placeholder is its own    $placeholderName
       so is one that only starts like a placeholder         $placeholderPrefix
+      a literal type reads as written in rows and reasons   $literalRows
       a refinement reads one way however it is laid out     $refinementLayouts
       an operator name stays apart from its result's colon  $operatorNames
       a signature drops its layout and trailing comma       $signatureLayout
       curried clauses read one way however laid out         $curriedClauses
+      a braceless match type result reads as valid Scala    $bracelessResult
       a literal shaped like a placeholder is the literal    $placeholderLiteral
+      every reason spells a refinement as the row does      $refinedReasons
       so does one whose result is inferred                  $inferredResult
 
     Blocker categories
@@ -125,6 +131,23 @@ class ReportHygieneSpec extends Specification with AfterAll {
         ) === "f(x: Int = { val a = 1; a }): Int"
       )
 
+  // A line that ends in an infix operator, or starts with one, continues its expression; inside
+  // parentheses or brackets a line break is never a separator; nor before `}` or after `;`.
+  def expressionBreaks =
+    (Spelling.flat("{\n  a +\n    b\n}") === "{ a + b }")
+      .and(Spelling.flat("{\n  a\n    + b\n}") === "{ a + b }")
+      .and(Spelling.flat("{ f(a,\n  b)\n  g[A,\n  B] }") === "{ f(a, b); g[A, B] }")
+      .and(Spelling.flat("{ type X = Int;\n  type Y = Int\n}") === "{ type X = Int; type Y = Int }")
+
+  // Scala 3 reads an operator at a line start as infix only with whitespace and an operand after it
+  // and no blank line before it: `-bar` begins a statement (`{ foo; -bar }` is -2 where `foo` is 1
+  // and `bar` 2, `{ foo - bar }` is -1).
+  def leadingOperators =
+    (Spelling.flat("{\n  foo\n  -bar\n}") === "{ foo; -bar }")
+      .and(Spelling.flat("{\n  foo\n  - bar\n}") === "{ foo - bar }")
+      .and(Spelling.flat("{\n  foo\n\n  - bar\n}") === "{ foo; - bar }")
+      .and(Spelling.flat("{ foo -bar }") === "{ foo -bar }")
+
   // A line that ends in an operator name continues into an operand, never into a definition or a
   // case.
   def trailingOperators =
@@ -135,6 +158,21 @@ class ReportHygieneSpec extends Specification with AfterAll {
           "T match { case Int => ~>; case _ => Int }"
       )
       .and(Spelling.flat("{\n  a +:\n    b\n}") === "{ a +: b }")
+
+  // A braceless `match` opens an indentation region; on one line its cases need the braces it
+  // stands for (scalac 3.9.0 rejects `T match case Int => String case _ => Boolean`, E040). The
+  // region ends at a line indented less than its cases, or at a bracket closing around it.
+  def bracelessMatch =
+    (Spelling.flat("T match\n  case Int => String\n  case _ => Boolean") ===
+      "T match { case Int => String; case _ => Boolean }")
+      .and(
+        Spelling.flat("Two {\n  type F[X] = X match\n    case Int => String\n  type G = Int\n}") ===
+          "Two { type F[X] = X match { case Int => String }; type G = Int }"
+      )
+      .and(
+        Spelling.flat("F[T match\n  case Int => String]") === "F[T match { case Int => String }]"
+      )
+      .and(Spelling.flat("T match { case Int => String }") === "T match { case Int => String }")
 
   def untokenizable = Spelling.flat("the bound's\n  capabilities") === "the bound's capabilities"
 
@@ -230,6 +268,28 @@ class ReportHygieneSpec extends Specification with AfterAll {
     )
   }
 
+  // Two overloads that differ only in a literal's spaces (a target name keeps their erasures apart)
+  // are two rows, each naming its own type. A literal type is read, so the reason that quotes it is
+  // an intersection's, which stays refused.
+  def literalRows = {
+    val found = entries(
+      """|package l
+         |import scala.annotation.targetName
+         |object O {
+         |  def f(x: "a  b" & Int): Int = 1
+         |  @targetName("f2") def f(x: "a b" & Int): Int = 2
+         |}
+         |""".stripMargin
+    )
+    (found.map(_.signature) === List("f(x: \"a  b\" & Int): Int", "f(x: \"a b\" & Int): Int"))
+      .and(
+        found.map(reasons) === List(
+          List("unsupported intersection relationship: \"a  b\" & Int"),
+          List("unsupported intersection relationship: \"a b\" & Int")
+        )
+      )
+  }
+
   // The same refinement written with `;`, with line breaks, or reached through an alias that
   // scalameta prints over lines reads one way in signatures and reasons.
   def refinementLayouts = {
@@ -314,6 +374,16 @@ class ReportHygieneSpec extends Specification with AfterAll {
       )
   }
 
+  // A braceless match type result reads with the braces its region stands for, which scalac 3.9.0
+  // accepts on one line.
+  def bracelessResult = {
+    val found = entries(
+      "package m\nobject M:\n  def f[T](t: T): T match\n    case Int => String\n" +
+        "    case _ => Boolean\n  = ???\n"
+    ).find(_.name == "m.M.f").get
+    found.signature === "f[T](t: T): T match { case Int => String; case _ => Boolean }"
+  }
+
   // A literal type's text is what the source wrote, even shaped like a placeholder: restored, it
   // would quote another type (`"Int"`, the first frozen leaf's spelling).
   def placeholderLiteral = {
@@ -330,6 +400,33 @@ class ReportHygieneSpec extends Specification with AfterAll {
       "refined representation unavailable (constraints not erased): " +
         "Optic[Int] { type X = \"$cardinalityProjection1\" }"
     )
+  }
+
+  // A union's and a self type's reasons spell a refinement with its `;`, as the signature does.
+  def refinedReasons = {
+    val found = entries(
+      """|package s
+         |import ext.Ext
+         |trait T { self: Ext {
+         |    type X = Int
+         |    type Y = Int
+         |  } => def g(): Boolean }
+         |object O {
+         |  def u(x: Ext {
+         |    type X = Int
+         |    type Y = Int
+         |  } | Boolean): Boolean = true
+         |}
+         |""".stripMargin
+    ).map(entry => entry.name -> entry).toMap
+    val refined = "Ext { type X = Int; type Y = Int }"
+    (reasons(found("s.T.g")) must contain(s"self type not resolved: $refined"))
+      .and(
+        reasons(found("s.O.u")) must contain(
+          s"union ($refined | Boolean): refined representation unavailable " +
+            s"(constraints not erased): $refined"
+        )
+      )
   }
 
   def inferredResult = {

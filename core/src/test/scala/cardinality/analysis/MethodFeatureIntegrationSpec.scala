@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
+import cardinality.capacity.*
 import cardinality.types.*
 import org.specs2.Specification
 
@@ -12,17 +13,45 @@ class MethodFeatureIntegrationSpec extends Specification {
 
   def is = s2"""
     Cross-feature shape traversal
+      eliminate repeated inputs behind singleton widening        $singletonSequenceInput
+      eliminate repeated inputs inside introduced singleton arrows $singletonSequenceArrow
+      construct an accessible sequence singleton uniquely         $singletonSequenceResult
       normalize equality inside sequence introduction            $equalitySequence
       normalize equality inside singleton representations         $equalitySingleton
+      read an accessible singleton proof with its provenance      $singletonProof
+      validate evidence even for singleton repeated goals         $invalidEvidence
+      validate private singleton aliases inside repeated types    $privateRepeatedAlias
     Syntax-preserving aliases and polymorphic binders
+      keep a polymorphic identity binder distinct from alias args $polyAliasShadowing
+      substitute free outer types inside polymorphic bodies       $polyAliasOuter
       protect nested type-lambda binders during alias substitution $lambdaAliasShadowing
+      substitute fixed match patterns for stored-value analysis    $fixedMatchPattern
+      reject private singleton leaks through refined members       $privateRefinedMember
+      avoid capture by user binders resembling internal tokens     $internalTokenShadowing
       preserve nominal projected member names during substitution $projectedMemberName
       preserve refinement member scope during substitution         $refinementMemberScope
   """
 
   private val a = Atom("A")
   private val b = Atom("B")
+  private val unit = Product(Nil)
   private val equality = Evidence(a, b, true)
+
+  // The sequence a singleton widens to is its binding's own: eliminated by length. Empty, it leaves
+  // no A (0); beside a seed, one element already gives two answers, so every length does (ω).
+  def singletonSequenceInput = {
+    val xs = Binding("xs", Singleton("xs", Some(Repeated(a))))
+    (Inhabitation.count(List(xs), a) === Count.Finite(0))
+      .and(Inhabitation.count(List(xs, Binding("seed", a)), a) === Count.Countable)
+  }
+
+  // A goal function's parameters are its body's environment: `(xs: xs.type) => A` is 0, as above.
+  def singletonSequenceArrow =
+    Inhabitation.count(Nil, Function(List(Singleton("xs", Some(Repeated(a)))), a)) ===
+      Count.Finite(0)
+
+  def singletonSequenceResult =
+    Inhabitation.count(Nil, Singleton("xs", Some(Repeated(a)))) === Count.Finite(1)
 
   def equalitySequence =
     Inhabitation.count(
@@ -33,7 +62,41 @@ class MethodFeatureIntegrationSpec extends Specification {
   def equalitySingleton =
     EvidenceAnalysis
       .context(List(equality))
-      .flatMap(_(Singleton("x", Some(b)))) === Right(Singleton("x", Some(a)))
+      .flatMap(_.rewrite(Singleton("x", Some(b)))) === Right(Singleton("x", Some(a)))
+
+  def singletonProof =
+    Inhabitation.count(
+      List(Binding("evidence", Singleton("ev", Some(equality))), Binding("value", a)),
+      b
+    ) === Count.Finite(1)
+
+  def invalidEvidence =
+    Inhabitation.count(
+      List(Binding("xs", Repeated(a)), Binding("bad", Evidence(unit, a, true))),
+      unit
+    ) must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("free-atom or rigid-application endpoints")) must beTrue
+    }
+
+  def privateRepeatedAlias = {
+    val source = dialects
+      .Scala3(
+        """object Owner { private object Hidden; type Leak = Hidden.type }
+        |def consume[A](xs: Owner.Leak*): Boolean = true
+        |""".stripMargin
+      )
+      .parse[Source]
+      .get
+    MethodAnalysis
+      .analyze(List(MethodAnalysis.Input("Integration.scala", source)))
+      .find(_.name == "consume")
+      .get
+      .count must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("singleton")) must beTrue
+    }
+  }
 
   private def methodCount(code: String): Count = {
     val source = dialects.Scala3(code).parse[Source].get
@@ -44,10 +107,53 @@ class MethodFeatureIntegrationSpec extends Specification {
       .count
   }
 
+  def polyAliasShadowing =
+    methodCount("type Id[A] = [A] => A => A; def f: Id[(Boolean, Boolean)] = ???") ===
+      Count.Finite(1)
+
+  def polyAliasOuter =
+    methodCount("type Outer[A] = [B] => A => A; def f[A](x: A): Outer[A] = ???") must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("outside the closed identity fragment")) must beTrue
+    }
+
   def lambdaAliasShadowing =
     methodCount(
       "type Nested[A] = (([A] =>> (A, A))[Boolean], A); def f: Nested[Unit] = ???"
     ) === Count.Finite(4)
+
+  def fixedMatchPattern = {
+    val source = dialects
+      .Scala3(
+        """type F[A, B] = A match {
+        |  case B => Boolean
+        |  case _ => Unit
+        |}
+        |case class Result(value: F[Boolean, Boolean])
+        |""".stripMargin
+      )
+      .parse[Source]
+      .get
+    Counter.definitions(source).find(_.name == "Result").get.size === Some(TinySize(2))
+  }
+
+  def privateRefinedMember =
+    methodCount(
+      "object Owner { private object Hidden; type R = Any { type X = Hidden.type } }; " +
+        "def f: Owner.R#X = ???"
+    ) must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("singleton")) must beTrue
+    }
+
+  def internalTokenShadowing =
+    methodCount(
+      "type Outer[A] = [`$cardinalityProjection1`] => A => A; " +
+        "def f[A](x: A): Outer[A] = ???"
+    ) must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("outside the closed identity fragment")) must beTrue
+    }
 
   def projectedMemberName = {
     val source = dialects.Scala3("Owner#B").parse[Type].get

@@ -93,6 +93,7 @@ private[cardinality] object TargetViews {
     def constructed(constructs: Constructs, at: Int): Set[Int]
 
     /** Whether a literal has the declared result type as it is, so no conversion is searched. */
+    def conforms(literal: Lit, result: Type): Boolean
 
     /** The enclosing template a bare name not of this receiver is a member of. */
     def enclosing(name: String): Option[String]
@@ -163,8 +164,8 @@ private[cardinality] object TargetViews {
       case other              => walk.loose(other, bound)
     }
     val literal = body.tree match {
-      case _: Lit => body.result.isEmpty
-      case _      => false
+      case lit: Lit => body.result.forall(scope.conforms(lit, _))
+      case _        => false
     }
     walk.reads.copy(searches = !literal && !body.settled)
   }
@@ -257,7 +258,7 @@ private[cardinality] object TargetViews {
 
     private def evaluate(term: Tree, strict: Boolean, bound: Bound): Unit = term match {
       case name: Term.Name                    => named(name.value, Applied.bare, strict, bound)
-      case _: Term.This                       => escapes = true
+      case here: Term.This                    => thisRef(here, bound)
       case select: Term.Select                => selection(select, Applied.bare, strict, bound)
       case Term.ApplyType.After_4_6_0(fun, _) => evaluate(fun, strict, bound)
       case apply: Term.Apply                  => application(apply, strict, bound)
@@ -267,6 +268,7 @@ private[cardinality] object TargetViews {
         evaluate(arg, strict && qualifier(arg, s"unary_${op.value}", Applied.bare, bound), bound)
       case Term.Tuple(args)                      => args.foreach(evaluate(_, typed(strict), bound))
       case Term.Ascribe(expr, _)                 => evaluate(expr, typed(strict), bound)
+      case Term.Annotate(expr, _)                => evaluate(expr, strict, bound)
       case Term.If.After_4_4_0(cond, yes, no, _) =>
         evaluate(cond, typed(strict), bound)
         evaluate(yes, strict = false, bound)
@@ -299,12 +301,21 @@ private[cardinality] object TargetViews {
       possible ++= scope.named(name)
     }
 
-    // `this` or the template's self alias; any `T.this` escapes.
-    private def receiver(term: Term, bound: Bound): Boolean =
+    private def thisRef(here: Term.This, bound: Bound): Unit =
+      receiver(here, bound) match {
+        case Some(Left(template)) => reach(template, "")
+        case _                    => escapes = true
+      }
+
+    // `this`, the template's own `T.this` or its self alias (Right), or an enclosing template's
+    // `Outer.this` (Left).
+    private def receiver(term: Term, bound: Bound): Option[Either[String, Unit]] =
       term match {
-        case Term.This(_: Name.Anonymous)                             => true
-        case Term.Name(alias) if self.aliases(alias) && !bound(alias) => true
-        case _                                                        => false
+        case Term.This(_: Name.Anonymous)                             => Some(Right(()))
+        case Term.This(name) if self.template(name.value)             => Some(Right(()))
+        case Term.This(name)                                          => Some(Left(name.value))
+        case Term.Name(alias) if self.aliases(alias) && !bound(alias) => Some(Right(()))
+        case _                                                        => None
       }
 
     // A position with an expected type: evaluated only if no by-name conversion may wrap it.
@@ -322,8 +333,9 @@ private[cardinality] object TargetViews {
       val name = select.name.value
       (select.qual, receiver(select.qual, bound)) match {
         case (Term.Super(owner, _), _) => parent(owner, name, applied)
-        case (_, true)                 => scope.own(name, applied).foreach(record(_, strict))
-        case (qual, false)             =>
+        case (_, Some(Right(_)))       => scope.own(name, applied).foreach(record(_, strict))
+        case (_, Some(Left(template))) => reach(template, name)
+        case (qual, None)              =>
           chain(qual, bound).flatMap(scope.selected(_, name, applied)) match {
             case Some(resolution) => record(resolution, strict)
             case None => evaluate(qual, strict && qualifier(qual, name, applied, bound), bound)
@@ -351,7 +363,7 @@ private[cardinality] object TargetViews {
     private def chain(term: Term, bound: Bound): Option[List[String]] = term match {
       case Term.Name(name) if !bound(name) && !self.aliases(name) => Some(List(name))
       case Term.Select(qualifier, Term.Name(name))                =>
-        if (receiver(qualifier, bound)) Some(List(name))
+        if (receiver(qualifier, bound).contains(Right(()))) Some(List(name))
         else chain(qualifier, bound).map(_ :+ name)
       case _ => None
     }
@@ -393,8 +405,12 @@ private[cardinality] object TargetViews {
           Constructs.Named(tpe, name, imports.open || imports.names(name), creator = true)
         )
       (head match {
-        case Term.Name("copy") if !bound("copy")              => Some(Constructs.Unfollowed)
-        case Term.Select(_, Term.Name("copy"))                => Some(Constructs.Unfollowed)
+        case Term.Name("copy") if !bound("copy")  => Some(Constructs.Own)
+        case Term.Select(qual, Term.Name("copy")) =>
+          Some(
+            if (receiver(qual, bound).contains(Right(()))) Constructs.Own
+            else Constructs.Unfollowed
+          )
         case Term.Select(Term.Name(name), Term.Name("apply")) => named(Type.Name(name), name)
         case Term.Name(name)                                  => named(Type.Name(name), name)
         case Term.Select(path: Term.Ref, Term.Name(name)) if chain(path, bound).nonEmpty =>
@@ -432,8 +448,10 @@ private[cardinality] object TargetViews {
       val (callee, operands) = if (rightAssociative) (rhs, List(lhs)) else (List(lhs), rhs)
       val applied = Applied(1, operands.size)
       callee.foreach { term =>
-        if (receiver(term, bound)) scope.own(op, applied).foreach(record(_, strict))
-        else evaluate(term, strict && qualifier(term, op, applied, bound), bound)
+        receiver(term, bound) match {
+          case Some(Right(_)) => scope.own(op, applied).foreach(record(_, strict))
+          case _ => evaluate(term, strict && qualifier(term, op, applied, bound), bound)
+        }
       }
       val eager = !rightAssociative && universal(op) && !scope.deferredOperand(op)
       operands.foreach(evaluate(_, strict && eager, bound))
@@ -484,7 +502,7 @@ private[cardinality] object TargetViews {
             elsewhere(name)
           }
         case Type.Name(name) => possible ++= scope.named(name)
-        case _: Term.This    => escapes = true
+        case here: Term.This => thisRef(here, bound)
         case init: Init      =>
           spelled(init.tpe) match {
             case Some(Left(name)) if bound(name) => ()
@@ -539,6 +557,9 @@ private[cardinality] object TargetViews {
   /** The class a construction builds, as the walk spells it. */
   enum Constructs {
 
+    /** The class of the body's own level: `this(…)`, `copy(…)` on `this`. */
+    case Own
+
     /** A class named by `tpe`, whose simple name is `name`: `imported` when a block import around
       * it may bind the name, `creator` for a creator application, which builds nothing unless the
       * name is a supplied class's (it may be a method's or an object's `apply`).
@@ -556,6 +577,7 @@ private[cardinality] object TargetViews {
       case Type.Name(name)                   => Named(tpe, name, imported, creator = false)
       case Type.Select(_, Type.Name(name))   => Named(tpe, name, imported, creator = false)
       case Type.Apply.After_4_6_0(callee, _) => of(callee, imported)
+      case Type.Singleton(_: Term.This)      => Own
       case _                                 => Unfollowed
     }
 
@@ -575,11 +597,15 @@ private[cardinality] object TargetViews {
     case _ => false
   }
 
-  /** The type a lambda's body has when the lambda is returned at a function type `expected`; none
-    * for any other type, at which the body is read as not evaluated.
+  /** The type a lambda's body has when the lambda is returned at `expected`: `Some(None)` for an
+    * inferred type, `None` when the lambda is converted to a type that is no function — a SAM or
+    * another record, observable without applying it.
     */
-  def functionResult(expected: Option[Type]): Option[Option[Type]] = expected.collect {
-    case f: Type.Function => Some(f.res)
+  def functionResult(expected: Option[Type]): Option[Option[Type]] = expected match {
+    case None                          => Some(None)
+    case Some(f: Type.Function)        => Some(Some(f.res))
+    case Some(f: Type.ContextFunction) => Some(Some(f.res))
+    case Some(_)                       => None
   }
 
 }

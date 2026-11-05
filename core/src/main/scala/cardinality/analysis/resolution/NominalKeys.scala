@@ -1,11 +1,30 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{dialects, Defn, Dialect, Tree, Type}
+import scala.meta.{
+  dialects,
+  Decl,
+  Defn,
+  Dialect,
+  Lit,
+  Tree,
+  Type,
+  XtensionClassifiable,
+  XtensionSyntax
+}
 
 import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.analysis.model.{Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
-import cardinality.types.{Kind, Spelling, Traversals, TypeApplications}
+import cardinality.capacity.Counter
+import cardinality.types.{
+  Kind,
+  Kinds,
+  NamedTuples,
+  Spelling,
+  Traversals,
+  TypeApplications,
+  TypeSubstitution
+}
 
 import MethodAnalysis.{Resolved, TypeEntry}
 
@@ -40,10 +59,22 @@ final private[cardinality] class NominalKeys(
   // renumbered, so a finished key never collides with one being built.
   private var lambdas = 0
 
-  /** A rigid binder applied to arguments: an uninterpreted application over their keys. */
-  def rigid(operator: Operator.Rigid, args: List[Type], context: ResolutionContext): Keyed =
-    arguments(args, operator.kind.holes, context)
-      .map(keys => Shape.rigid(operator.id, keys.map(KeyNumbering.renumbered)))
+  /** A rigid binder applied to arguments: an uninterpreted application over their keys. Scala 3.9.0
+    * rejects an abstract constructor applied to a wildcard (E043, an unreducible application), so
+    * such an application is no type and is never counted.
+    */
+  def rigid(
+      operator: Operator.Rigid,
+      name: Type.Name,
+      args: List[Type],
+      context: ResolutionContext
+  ): Keyed =
+    if (args.exists(_.is[Type.Wildcard]))
+      Left(s"unreducible application of a higher-kinded binder to a wildcard: ${name.value}")
+    else if (args.size != operator.kind.arity) Left(s"type argument arity: ${name.value}")
+    else
+      arguments(args, operator.kind.holes, context)
+        .map(keys => Shape.rigid(operator.id, keys.map(KeyNumbering.renumbered)))
 
   private def keyOf(tpe: Type, kind: Kind, context: ResolutionContext): Keyed = kind match {
     case Kind.Proper       => read(tpe, context)
@@ -54,49 +85,97 @@ final private[cardinality] class NominalKeys(
     Traversals.sequence(args.zip(kinds).map(keyOf(_, _, context)))
 
   private def read(tpe: Type, context: ResolutionContext): Keyed =
-    tpe match {
-      case n: Type.Name if context.variables.contains(n.value) =>
-        variable(n.value, context.variables(n.value))
-      // Tuple and arrow syntax spell `scala.TupleN` / `scala.FunctionN` themselves: no name to
-      // shadow.
-      case Type.Tuple(args) => builtin(s"scala.Tuple${args.size}", written(tpe, args, context))
-      case f: Type.Function =>
-        val arity = f.paramClause.values.size
-        builtin(s"scala.Function$arity", written(tpe, f.paramClause.values :+ f.res, context))
-      case a: Type.Apply                 => applied(written(a.tpe, a.argClause.values, context))
-      case _: Type.Name | _: Type.Select => applied(written(tpe, Nil, context))
-      case other                         => unestablished(other)
-    }
+    if (context.visiting.size >= resolver.limits.maxTypeDepth)
+      Left("type resolution budget exhausted")
+    else
+      tpe match {
+        case n: Type.Name if context.variables.contains(n.value) =>
+          variable(n.value, context.variables(n.value))
+        // Tuple and arrow syntax spell `scala.TupleN` / `scala.FunctionN` themselves: no name to
+        // shadow. Named tuple syntax spells `NamedTuple[(names), (types)]`, its names literal types.
+        case NamedTuples(fields) => namedTuple(fields, context)
+        case Type.Tuple(args)    => builtin(s"scala.Tuple${args.size}", written(tpe, args, context))
+        case lit: Lit            => LiteralTypes.key(lit)
+        case f: Type.Function    =>
+          val arity = f.paramClause.values.size
+          builtin(s"scala.Function$arity", written(tpe, f.paramClause.values :+ f.res, context))
+        case union if TypeSubstitution.unionAlternatives(union).size > 1 =>
+          alternatives(union, context)
+        case a: Type.Apply => applied(written(a.tpe, a.argClause.values, context))
+        case a: Type.ApplyInfix if a.op.value != "&" =>
+          applied(written(a.op, List(a.lhs, a.rhs), context))
+        case _: Type.Name | _: Type.Select            => applied(written(tpe, Nil, context))
+        case _: Type.Lambda | _: Type.AnonymousLambda =>
+          Left(s"type constructor used as a proper type: ${Spelling.of(tpe)}")
+        case other => unestablished(other)
+      }
 
-  // A substituted argument keeps the identity it was read with: a binder or a rigid application.
-  // A structural substitution has lost it.
+  // A substituted argument keeps the identity it was read with: a binder, a rigid application or a
+  // ground scalar. A structural substitution has lost it.
   private def variable(name: String, bound: Resolved): Keyed =
     bound.flatMap {
       case key @ (_: Shape.Atom | _: Shape.Applied) => Right(key)
+      case Shape.Ground(ground, _) => Right(nominal(BuiltinTypes.groundKey(ground), Nil))
+      case LiteralTypes.Keyed(key) => Right(key)
+      case _: Shape.Constructor    => Left(s"higher-kinded parameter used as a proper type: $name")
       case _ => Left(s"nominal identity of substituted argument not tracked: $name")
+    }
+
+  // `A | A` is `A`; distinct alternatives need an overlap proof.
+  private def alternatives(union: Type, context: ResolutionContext): Keyed =
+    Traversals.sequence(TypeSubstitution.unionAlternatives(union).map(read(_, context))).flatMap {
+      keys =>
+        keys.distinct match {
+          case List(single) => Right(single)
+          case _            => unestablished(union)
+        }
     }
 
   private def applied(application: Application): Keyed =
     callees.of(application.callee, application.scope).flatMap {
-      case Callee.Bound(operator: Operator.Rigid, _) =>
-        rigid(operator, application.args, application.context)
+      case Callee.Lambda(lambda, scope) =>
+        keyLambda(lambda, scope, application.args, application.context)
+      case Callee.Bound(operator: Operator.Rigid, name) =>
+        rigid(operator, name, application.args, application.context)
+      case Callee.Bound(Operator.Closure(tpe, scope), _) =>
+        applied(application.copy(callee = tpe, scope = scope))
       case Callee.Named(_, _) => named(application)
-      case _                  => unestablished(application.callee)
     }
+
+  private def keyLambda(
+      lambda: Type.Lambda,
+      scope: ResolutionContext,
+      args: List[Type],
+      context: ResolutionContext
+  ): Keyed =
+    for {
+      _ <- MethodTypeLambdas.checked(lambda, args.size)
+      body <- TypeSubstitution.lambdaBody
+        .getOption(lambda)
+        .toRight("type lambda has a non-type body")
+      bindings <- callees.bindAll(lambda.tparamClause.values, args, context)
+      key <- read(body, scope.bind(bindings).enter(s"lambda:${lambda.pos.start}:${lambda.syntax}"))
+    } yield key
 
   private def named(application: Application): Keyed = {
     import application.{callee, scope, spelled}
-    member(application).getOrElse(
-      resolver.declaration(callee, spelled, scope) match {
-        // An inherited member is read under its parent's instantiation, which a key does not
-        // carry: `P[Int]#T` and `P[Long]#T` are different types.
-        case Found.Entry(_) if resolver.inheritsName(callee, spelled, scope) =>
-          Left(s"nominal identity of inherited type member not established: $spelled")
-        case Found.Entry(entry) => declared(entry, application)
-        case Found.Absent       => builtins.denoted(spelled, scope).flatMap(builtin(_, application))
-        case failed: Found.Failed => Left(failed.reason)
-      }
-    )
+    member(application).getOrElse(callee match {
+      case s: Type.Select if RefinedMembers.pathType(s.qual, scope.frame).nonEmpty =>
+        Left(s"nominal identity of path type not established: ${Spelling.of(s)}")
+      case _ =>
+        resolver.declaration(callee, spelled, scope) match {
+          // An inherited member is read under its parent's instantiation, which a key does not
+          // carry: `P[Int]#T` and `P[Long]#T` are different types.
+          case Found.Entry(_) if resolver.inheritsName(callee, spelled, scope) =>
+            Left(s"nominal identity of inherited type member not established: $spelled")
+          case Found.Entry(entry) => declared(entry, application)
+          case Found.Absent => builtins.denoted(spelled, scope).flatMap(builtin(_, application))
+          // An import binds the name to its target: a builtin or model entry is keyed as one.
+          case Found.Foreign(path, binding) =>
+            builtins.importedKey(path, binding, scope).flatMap(builtin(_, application))
+          case failed: Found.Failed => Left(failed.reason)
+        }
+    })
   }
 
   // A type member is its path's: an alias the key of its body where it is declared, an abstract
@@ -119,38 +198,76 @@ final private[cardinality] class NominalKeys(
   // may relate it to other types (`inside: F[W[A]] => F[A]`), which no key records.
   private def declared(entry: TypeEntry, application: Application): Keyed =
     entry.tree match {
-      case alias: Defn.Type => expand(entry, alias, application)
-      case other            => unestablished(other)
+      case alias: Defn.Type                         => expand(entry, alias, application)
+      case d: (Defn.Class | Defn.Trait | Defn.Enum) =>
+        declaration(entry, Counter.parameters(d), application)
+      case _: Decl.Type =>
+        Left(s"nominal identity of abstract type member not established: ${application.spelled}")
+      case other => unestablished(other)
     }
 
-  // A transparent alias is the type it names, read where it is declared.
-  private def expand(entry: TypeEntry, alias: Defn.Type, application: Application): Keyed =
+  // A transparent alias is the type it names, read where it is declared; a type-lambda alias
+  // without parameters of its own applies its lambda there.
+  private def expand(entry: TypeEntry, alias: Defn.Type, application: Application): Keyed = {
+    import application.{args, context}
     TypeApplications.lambda(alias.body) match {
-      case None    => callees.opening(entry, alias, application).flatMap(read(alias.body, _))
-      case Some(_) => Left(s"type constructor used as a proper type: ${application.spelled}")
+      case Some(lambda) if alias.tparamClause.values.isEmpty && args.nonEmpty =>
+        for {
+          scope <- callees.opening(entry, alias, application.copy(args = Nil))
+          body <- lambda
+          key <- keyLambda(body, scope, args, context)
+        } yield key
+      case Some(_) =>
+        OpaqueTypes
+          .readable(application.scope, entry)
+          .flatMap(_ => Left(s"type constructor used as a proper type: ${application.spelled}"))
+      case None => callees.opening(entry, alias, application).flatMap(read(alias.body, _))
     }
+  }
+
+  // A class, trait or enum is its own identity, applied to its arguments' keys.
+  private def declaration(
+      entry: TypeEntry,
+      parameters: List[Type.Param],
+      application: Application
+  ): Keyed =
+    if (parameters.size != application.args.size) Left(s"type argument arity: ${entry.name}")
+    else
+      arguments(application.args, parameters.map(Kinds.of), application.context)
+        .map(nominal(TypeIdentities.key(entry), _))
 
   // A builtin or model declaration, by its canonical key, applied to its arguments' keys.
   private def builtin(canonical: String, application: Application): Keyed = {
     val args = application.args
-    BuiltinTypes
-      .arity(canonical)
-      .flatMap(_ =>
+    BuiltinTypes.arity(canonical).flatMap { arity =>
+      if (args.size != arity)
+        Left(s"type argument arity: ${application.spelled.stripPrefix("_root_.")}")
+      else
         arguments(args, args.map(_ => Kind.Proper), application.context).map(nominal(canonical, _))
-      )
+    }
   }
 
   // An operator's key is its η-long lambda: applied to fresh parameters, abstracted over them.
-  private def operator(tpe: Type, kind: Kind.Arrow, context: ResolutionContext): Keyed = {
-    lambdas -= 1
-    val id = lambdas
-    val names = kind.holes.indices.map(index => s"<parameter $id $index>").toList
-    val parameters = names.zipWithIndex.map { (name, index) =>
-      name -> Right(Shape.Applied(Head.Bound(id, index), Nil))
+  // Operators whose holes are themselves higher-kinded are not keyed.
+  private def operator(tpe: Type, kind: Kind.Arrow, context: ResolutionContext): Keyed =
+    if (kind.holes.exists(_ != Kind.Proper)) unestablished(tpe)
+    else {
+      lambdas -= 1
+      val id = lambdas
+      val names = kind.holes.indices.map(index => s"<parameter $id $index>").toList
+      val parameters = names.zipWithIndex.map { (name, index) =>
+        name -> Right(Shape.Applied(Head.Bound(id, index), Nil))
+      }
+      applied(Application(tpe, context, names.map(Type.Name(_)), context.bind(parameters)))
+        .map(body => Shape.Applied(Head.Lambda(id, kind.arity), List(body)))
     }
-    applied(Application(tpe, context, names.map(Type.Name(_)), context.bind(parameters)))
-      .map(body => Shape.Applied(Head.Lambda(id, kind.arity), List(body)))
-  }
+
+  private def namedTuple(fields: List[(String, Type)], context: ResolutionContext): Keyed =
+    Traversals.sequence(fields.map((_, field) => read(field, context))).map { values =>
+      val tuple = s"scala.Tuple${values.size}"
+      val names = fields.map((name, _) => LiteralTypes.name(name))
+      nominal("scala.NamedTuple.NamedTuple", List(nominal(tuple, names), nominal(tuple, values)))
+    }
 
   private def nominal(declaration: String, args: List[Shape]): Shape =
     Shape.Applied(Head.Nominal(declaration), args)

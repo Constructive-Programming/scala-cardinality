@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.types.{Kind, Spelling, TypeApplications}
+import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
 
 /** What a higher-kinded name is bound to: a rigid binder, or a constructor written at some scope
   * and applied later — a closure over the scope it was written in, so applying it reads the
@@ -100,14 +100,42 @@ final private[cardinality] class TypeOperators(
         case arrow       => operand(argument, arrow, context)
       }
 
-  /** A declaration's parameters bound to the arguments it is applied to, once their number agrees.
+  /** A declaration's parameters bound to the arguments it is applied to, once their number and
+    * kinds agree.
     */
   def applied(name: String, parameters: List[Type.Param])(
       args: List[Shape]
   ): Either[String, List[(String, Resolved)]] =
-    TypeApplications
-      .checkApplication(name, parameters, args.size)
-      .map(_ => parameters.map(_.name.value).zip(args.map(Right(_))))
+    for {
+      _ <- TypeApplications.checkApplication(name, parameters, args.size)
+      _ <- kinded(name, parameters, args)
+    } yield parameters.map(_.name.value).zip(args.map(Right(_)))
+
+  /** Whether resolved arguments have the kinds their declared parameters take: a constructor for a
+    * higher-kinded parameter, a type for a proper one.
+    */
+  def kinded(name: String, parameters: List[Type.Param], args: List[Shape]): Either[String, Unit] =
+    parameters
+      .zip(args)
+      .collectFirst {
+        case (parameter, argument)
+            if proper(parameter) == argument.isInstanceOf[Shape.Constructor] =>
+          s"kind mismatch: ${parameter.name.value} of $name has kind ${kindOf(argument)}, " +
+            s"expected ${Kinds.of(parameter).render}"
+      }
+      .toLeft(())
+
+  private def proper(parameter: Type.Param): Boolean = Kinds.of(parameter) == Kind.Proper
+
+  // A rigid binder's kind is declared; a closure's is the one its position expected, unrecorded.
+  private def kindOf(argument: Shape): String = argument match {
+    case Shape.Constructor(token) =>
+      table(token) match {
+        case Operator.Rigid(_, kind) => kind.render
+        case _: Operator.Closure     => "(…) → *"
+      }
+    case _ => Kind.Proper.render
+  }
 
   /** The operator a bound name applies, or why it applies none. */
   def applicable(name: Type.Name, context: ResolutionContext): Either[String, Operator] =

@@ -1,5 +1,7 @@
 package cardinality.capacity
 
+import scala.meta.*
+
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -12,8 +14,8 @@ import org.specs2.execute.Result
 // which is why the larger examples below name a capacity such as 2^16 rather than a number.
 class ArticleCardinalitySpec extends Specification {
 
-  private def tpe(code: String): Size = Rows.sizeOf(code)
-  private def src(code: String): Size = Rows.held(code)
+  private def tpe(code: String): Size = Counter.`type`(dialects.Scala3(code).parse[Type].get)
+  private def src(code: String): Size = Counter.source(dialects.Scala3(code).parse[Source].get)
 
   // What each pending target would need before its rule can be asserted instead.
   private val needsParametricity =

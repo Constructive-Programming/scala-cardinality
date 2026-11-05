@@ -2,6 +2,7 @@ package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
+import org.specs2.matcher.MatchResult
 
 /** Environment completeness: concrete code outside the target, mutable state, names exports and
   * imports bind and by-name parameters (inferred results: `InferredResultsSpec`). Every fixture is
@@ -37,6 +38,7 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       a given selector binds no type name                            $givenSelector
       an unimport and a rename leave the builtin                     $unimport
       an unimport under a foreign wildcard leaves the builtin        $foreignUnimport
+      a clause whose prefix is no path refuses the builtin           $nonPathImport
       a wildcard import reads the members an object inherits         $inheritedThroughImport
       a protected member an object inherits is not imported          $protectedThroughImport
       an inherited member under type arguments is refused            $argumentsThroughImport
@@ -44,10 +46,15 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
     Mutable state
       a var holds the value it was given                             $variables
       a var implements an inherited declaration in any template      $variableImplementations
+      an abstract var is a declared slot                             $abstractVariable
     Local captures
       a member of the scope hides an enclosing method's parameter    $hiddenCapture
       a capture an outer template keeps stays reachable              $qualifiedCapture
+      an export that hides a local capture is refused                $exportedCapture
+      an inner import or inherited member hides a local capture      $ambiguousCapture
       an extension method hides a local capture                      $extensionCapture
+      every variable a pattern definition binds hides a capture      $patternCapture
+      a pattern-bound value is no method and no object               $patternDefinitions
     Parameters
       a by-name parameter reads as its value                         $byName
   """
@@ -321,6 +328,17 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
     (found("P.g") === Count.Finite(4)).and(found("P2.g2") === Count.Finite(4))
   }
 
+  // `this.x` is no path lookup reads: `Unit` may be `x`'s `Boolean` (2), so the terminal-goal rule
+  // (1) does not apply.
+  def nonPathImport =
+    refused(
+      count(
+        "class NP { object x { type Unit = Boolean }; import this.x.Unit; def y(): Unit = ??? }",
+        "NP.y"
+      ),
+      "imported environment not resolved: import this.x.Unit"
+    )
+
   // `T` is `Base.T = Boolean` through `import O.*` and `O.T` (4), beating the other file's `T = Int`.
   def inheritedThroughImport = {
     val found = counts(
@@ -392,6 +410,15 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
     (found("ImplO.pick") === Count.Finite(2)).and(found("ImplP.pick") === Count.Finite(3))
   }
 
+  // An abstract var is an abstract getter (and a Unit setter): x or cur (2), in the trait and in an
+  // abstract class that inherits it unimplemented. `pick` is final: an overridable one would be a
+  // capability A => A of `Open`, and `other` would range over x, cur, pick(x), pick(pick(x)), … (ω).
+  def abstractVariable = {
+    val found = rows("""trait T[A] { var cur: A; final def pick(x: A): A = x }
+      |abstract class Open[A] extends T[A] { def other(x: A): A = x }""".stripMargin)
+    (found("T.pick") === Count.Finite(2)).and(found("Open.other") === Count.Finite(2))
+  }
+
   // Inside `C`, `seed` is `C.seed`, and a local class has no path to `outer`'s parameter — but the
   // sibling class `E` reads it, and `C` may build one: `new E().k()` is outer's seed (3.9.0 run
   // prints it). So `g` and `seed` read other and seed (2), which this reading refuses rather than
@@ -424,6 +451,42 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       "Outer.C.g"
     ) === Count.Finite(2)
 
+  // Inside `D`, `seed` is the exported `A.seed`; the parameter is hidden. The reading refuses
+  // rather than reads which exported names are terms (true count 2).
+  def exportedCapture =
+    refused(
+      count(
+        "object A { def seed: Boolean = true }\nobject Out {\n  def outer(seed: Boolean): Int = {\n" +
+          "    final class D { export A.seed; def h(): Boolean = seed }\n    0\n  }\n}",
+        "Out.outer.D.h"
+      ),
+      "local capture hidden by an export: seed"
+    )
+
+  // Scala 3.9.0 reports `seed` ambiguous (E049) in `C`, between the import and `run`'s parameter,
+  // and in `D`, between `Base.seed` and the parameter: neither class reaches the parameter, so `h`
+  // has no X (0); the import is refused rather than read. A wildcard export of `A` may define
+  // `seed` too.
+  def ambiguousCapture = {
+    val found = rows("""object Imp { val seed: Int = 0 }
+      |trait Base { def seed: Int = 0 }
+      |object A { def seed: Boolean = true }
+      |object Out {
+      |  def run[X](seed: X): Int = {
+      |    final class C { import Imp.seed; def g(): X = ??? }
+      |    final class D extends Base { def h(): X = ??? }
+      |    0
+      |  }
+      |  def outer(seed: Boolean): Int = {
+      |    final class W { export A.*; def h(): Boolean = seed }
+      |    0
+      |  }
+      |}""".stripMargin)
+    refused(found("Out.run.C.g"), "local capture may be hidden by an import: seed")
+      .and(found("Out.run.D.h") === Count.Finite(0))
+      .and(refused(found("Out.outer.W.h"), "local capture may be hidden by an export: seed"))
+  }
+
   // Inside `C`, `seed` is the extension method (scalac reads it as `Int => X`): only `other` (1).
   def extensionCapture =
     count(
@@ -435,6 +498,48 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
         |}""".stripMargin,
       "Out.run.C.g"
     ) === Count.Finite(1)
+
+  // Inside each class `seed` is the member a pattern binds (scalac compiles `def g(): A = seed`
+  // there, and reports the parameter unreachable in `Sub`, E049), which holds `other`; a method's
+  // parameter has no qualified path: other only (1) — a tuple, a `var`, a binder, an inherited
+  // tuple.
+  def patternCapture = {
+    val found = rows("""object H {
+      |  def outer[A](seed: A, other: A): Unit = {
+      |    final class C { val (seed, z) = (other, other); def g(): A = other }
+      |    final class V { var (seed, z) = (other, other); def g(): A = other }
+      |    final class W { val seed @ _ = other; def g(): A = other }
+      |    class Base { val (seed, z) = (other, other) }
+      |    final class Sub extends Base { def g(): A = other }
+      |    ()
+      |  }
+      |}""".stripMargin)
+    List("C", "V", "W", "Sub").map(c => found(s"H.outer.$c.g") === Count.Finite(1)).reduce(_ and _)
+  }
+
+  // `Inner.f` is the pattern's function value (scalac types `g` a Boolean, true 2), never `Outer.f:
+  // Int`; `x` is a value holding `Other`, so `x.T` is `Other.T = Int` (scalac accepts `f(1)`; true
+  // 2^(2^32)), never the object `x`'s Boolean. Both are refused. A pattern member implementing an
+  // inherited declaration is that concrete value: other only (1).
+  def patternDefinitions = {
+    val found = rows(
+      """object Outer {
+      |  def f(x: Int): Int = x
+      |  object Inner { val (f, z) = ((x: Int) => true, 1); def g = f(1) }
+      |}
+      |object x { type T = Boolean }
+      |object Other { type T = Int }
+      |object PInner { val (x, y) = (Other, Other); def f(t: x.T): Boolean = true }
+      |trait P[A] { val seed: A }
+      |final class C[A](other: A) extends P[A] { val (seed, z) = (other, other); def g(): A = seed }""".stripMargin
+    )
+    refused(
+      found("Outer.Inner.g"),
+      "inferred result type not resolved: call of f, not one declared"
+    )
+      .and(refused(found("PInner.f"), "unavailable stable path type: x"))
+      .and(found("C.g") === Count.Finite(1))
+  }
 
   // Evaluation count and timing are not observable in the model: x (1); x or y (2).
   def byName =

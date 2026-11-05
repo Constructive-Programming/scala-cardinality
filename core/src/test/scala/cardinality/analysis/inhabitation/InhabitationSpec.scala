@@ -15,6 +15,7 @@ class InhabitationSpec extends Specification {
   private val x = Binding("x", a)
   private val y = Binding("y", a)
   private val int = Ground("Int", Card.exact(BigInt(2).pow(32)))
+  private val long = Ground("Long", Card.exact(BigInt(2).pow(64)))
   private val string = Ground("String", Card.Omega)
 
   private def fn(id: String, args: List[Shape], out: Shape) =
@@ -72,6 +73,25 @@ class InhabitationSpec extends Specification {
       count(List(x, Binding("pair", Product(List(unit, a)))), a) mustEqual Finite(2)
     }
 
+    "retain exact arithmetic and bound its representation, not its magnitude" in {
+      count(List(x, y), Product(List.fill(100)(a))) mustEqual Finite(BigInt(2).pow(100))
+      count(List(x, y), Product(List.fill(65537)(a))) mustEqual Symbolic(
+        NaturalSyntax.pow(2, 65537)
+      )
+      // 1,100 Long inputs: |Int|^(2^70400) = 2^(2^70405) is still a two-level tower.
+      count(List.tabulate(1100)(i => Binding(s"l$i", long)), int) mustEqual
+        Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 70405)))
+      // Each closed arrow adds a level: seven fit the tower budget, eight exceed it.
+      def tower(levels: Int): Shape =
+        (1 to levels).foldLeft(int: Shape)((acc, _) => Function(List(acc), int))
+      count(List(Binding("g", tower(7))), int) must beAnInstanceOf[Symbolic]
+      count(List(Binding("g", tower(8))), int) must beLike {
+        case Unresolved(reasons) =>
+          reasons.exists(_.contains("arithmetic budget exceeded (symbolic form: power tower")) must
+            beTrue
+      }
+    }
+
     "split transparent ground values uniformly" in {
       count(List(Binding("x", int)), int) mustEqual Symbolic(
         NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))
@@ -89,6 +109,33 @@ class InhabitationSpec extends Specification {
 
     // A sum result is cased once per argument (capabilities C10), and a ground result is a closed
     // sum of literals, eliminated the same way: the goal is a function of g's values.
+    "eliminate a sum or ground result of a supplied callable by its cases" in {
+      def refused(value: Count, reason: String) = value must beLike {
+        case Unresolved(reasons) => reasons.exists(_.contains(reason)) must beTrue
+      }
+      // An Int function of g(x): (2^32)^(2^32). A choice of x or y per pair (g(x), g(y)): 2^(2^64).
+      // `opaque()`'s `B` case has no `A`: 0.
+      count(List(fn("opaque", Nil, Sum(List(a, b)))), a) mustEqual Finite(0)
+      count(List(fn("g", List(a), int), x), int) mustEqual
+        Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37)))
+      count(List(fn("g", List(a), int), x, y), a) mustEqual
+        Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 64)))
+      // Case analysis of g's result cannot prove the context absurd, so the absurdity check of a
+      // goal that never applies g carries no reason.
+      count(List(fn("g", List(a), int), x), Singleton("s", None)) mustEqual Finite(1)
+      count(List(fn("g", List(int), a)), a) mustEqual Finite(BigInt(2).pow(32))
+      // p(s) and, under the binder, p(a): None, Some(s), Some(a) per pair of values — 3^(2^64);
+      // a functional argument over a ground domain is not certified.
+      count(
+        List(Binding("s", a), fn("p", List(a), int)),
+        Function(List(a), Sum(List(unit, a)))
+      ) mustEqual
+        Symbolic(NaturalSyntax.pow(3, NaturalSyntax.pow(2, 64)))
+      refused(
+        count(List(fn("h", List(Function(List(int), a)), a)), a),
+        "Higher-order application is unsupported"
+      )
+    }
 
     "expose unsupported operations and resource limits" in {
       count(List(fn("higher", List(Function(List(a), b)), b)), b) must

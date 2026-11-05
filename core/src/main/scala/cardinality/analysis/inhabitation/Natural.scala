@@ -4,19 +4,21 @@ import scala.annotation.tailrec
 
 /** An exact natural number, kept symbolic once it outgrows a literal.
   *
-  * A count up to `MaxLiteralBits` bits is a `Lit`, always: a value that fits is never a power or a
-  * product, so two equal small counts are equal values. Above that bound the number is a monomial:
-  * a literal coefficient times powers of distinct literal roots. Every symbolic node is at least 2,
-  * so zero and one are exactly `Lit(0)` and `Lit(1)`, which is what the solver's 0 / 1 / ≥ 2
-  * saturation needs.
+  * A count up to `MaxLiteralBits` bits is a `Lit`, always: a value that fits is never a power, a
+  * product or a sum, so two equal small counts are equal values. Above that bound the number is a
+  * sum of monomials, each an odd-or-unabsorbable literal coefficient times powers of distinct bases
+  * (2, other literal roots, or symbolic sums). Every symbolic node is at least 2 — sums and
+  * products of positives and powers of bases ≥ 2 never fall below — so zero and one are exactly
+  * `Lit(0)` and `Lit(1)`, which is what the solver's 0 / 1 / ≥ 2 saturation needs.
   *
   * The form is canonical for the values the solver builds: literal bases are reduced to their
   * power-of-two part and an odd root, equal bases merge, coefficients absorb into equal literal
-  * bases, and factors are sorted. An odd base wider than `RootBits` is taken as its own root.
+  * bases, like terms of a sum merge, and factors and terms are sorted. It does not distribute, and
+  * an odd base wider than `RootBits` is taken as its own root, so two equal values written through
+  * such bases may differ in form; nothing the counter builds reaches that case.
   *
   * Representation, not magnitude, is bounded: a literal wider than `MaxLiteralBits`, more than
-  * `MaxNodes` nodes, a power tower higher than `MaxHeight`, or a form the solver never builds (a
-  * sum of symbolic terms, a symbolic product as an operand) is refused with `Exceeded`.
+  * `MaxNodes` nodes or a power tower higher than `MaxHeight` is refused with `Exceeded`.
   */
 sealed trait Natural
 
@@ -31,6 +33,7 @@ object Natural {
   final case class Lit(value: BigInt) extends Natural
   final case class Pow(base: Natural, exponent: Natural) extends Natural
   final case class Prod(factors: List[Natural]) extends Natural
+  final case class Sum(terms: List[Natural]) extends Natural
 
   final class Exceeded(limit: String)
       extends RuntimeException(s"Inhabitation arithmetic budget exceeded (symbolic form: $limit)")
@@ -62,13 +65,21 @@ object Natural {
     def render: String = a match {
       case Lit(value)          => literalText(value)
       case Pow(base, exponent) => s"${operand(base)}^${operand(exponent)}"
-      case Prod(factors)       => factors.map(_.render).mkString("·")
+      case Prod(factors)       =>
+        factors
+          .map {
+            case sum: Sum => s"(${sum.render})"
+            case factor   => factor.render
+          }
+          .mkString("·")
+      case Sum(terms) => terms.map(_.render).mkString(" + ")
     }
 
     def nodes: Int = a match {
       case Lit(_)              => 1
       case Pow(base, exponent) => 1 + base.nodes + exponent.nodes
       case Prod(factors)       => 1 + factors.map(_.nodes).sum
+      case Sum(terms)          => 1 + terms.map(_.nodes).sum
     }
 
     /** The depth of the power tower: a literal exponent is one level. */
@@ -76,11 +87,12 @@ object Natural {
       case Lit(_)              => 0
       case Pow(base, exponent) => base.height.max(exponent.height + 1)
       case Prod(factors)       => factors.map(_.height).max
+      case Sum(terms)          => terms.map(_.height).max
     }
 
   }
 
-  /** Structural order of the forms the solver sorts: literals, and powers by base then exponent. */
+  /** Structural total order: literals, powers, products, sums; then by their parts. */
   given order: Ordering[Natural] = new Ordering[Natural] {
 
     def compare(a: Natural, b: Natural): Int = (a, b) match {
@@ -88,9 +100,27 @@ object Natural {
       case (Pow(b1, e1), Pow(b2, e2)) =>
         val byBase = compare(b1, b2)
         if (byBase != 0) byBase else compare(e1, e2)
-      case _ => throw new Exceeded("an unordered mix of forms")
+      case (Prod(x), Prod(y)) => lexicographic(x, y)
+      case (Sum(x), Sum(y))   => lexicographic(x, y)
+      case _                  => rank(a).compare(rank(b))
     }
 
+  }
+
+  @tailrec private def lexicographic(x: List[Natural], y: List[Natural]): Int = (x, y) match {
+    case (Nil, Nil)           => 0
+    case (Nil, _)             => -1
+    case (_, Nil)             => 1
+    case (h1 :: t1, h2 :: t2) =>
+      val byHead = order.compare(h1, h2)
+      if (byHead != 0) byHead else lexicographic(t1, t2)
+  }
+
+  private def rank(n: Natural): Int = n match {
+    case _: Lit  => 0
+    case _: Pow  => 1
+    case _: Prod => 2
+    case _: Sum  => 3
   }
 
   private def operand(n: Natural): String = {
@@ -98,9 +128,18 @@ object Natural {
     if (text.forall(_.isDigit)) text else s"($text)"
   }
 
-  // Exact and short: a power of two from 2^8 up as its exponent.
+  // Exact and short: a literal too wide to read in digits keeps them only for a part that has no
+  // shorter exact spelling here.
   private def literalText(value: BigInt): String =
-    if (value >= 256 && value.bitCount == 1) s"2^${value.bitLength - 1}" else value.toString
+    if (value >= 256 && value.bitCount == 1) s"2^${value.bitLength - 1}"
+    else if (value.bitLength <= 100) value.toString
+    else {
+      // The normal form's own root policy, so a rendered literal spells the factors `roots` finds.
+      val (twos, odd) = roots(value).partition(_._1 == 2)
+      (odd.map((root, multiplicity) =>
+        if (multiplicity == 1) root.toString else s"${operand(Lit(root))}^$multiplicity"
+      ) ++ twos.map((_, power) => literalText(BigInt(2).pow(power.toInt)))).mkString("·")
+    }
 
   private def checked(n: Natural): Natural =
     if (n.nodes > MaxNodes) throw new Exceeded(s"more than $MaxNodes nodes")
@@ -117,11 +156,12 @@ object Natural {
   private def mono(n: Natural): Mono = n match {
     case Lit(value)          => Mono(value, Nil)
     case Pow(base, exponent) => Mono(1, List(base -> exponent))
-    case _: Prod             => throw new Exceeded("a symbolic product as an operand")
+    case Prod(factors)       => factors.map(mono).reduce(_.times(_))
+    case sum: Sum            => Mono(1, List(sum -> One))
   }
 
   private def literal(value: BigInt): Natural =
-    if (fits(value)) Lit(value) else throw new Exceeded(s"literal wider than $MaxLiteralBits bits")
+    if (fits(value)) Lit(value) else symbolic(value, Nil)
 
   // Two literals combine as integers; only a symbolic operand takes the normal-form path.
   private def combine(a: Natural, b: Natural)(exact: (BigInt, BigInt) => BigInt)(
@@ -132,15 +172,41 @@ object Natural {
   }
 
   private def plus(a: Natural, b: Natural): Natural = combine(a, b)(_ + _) {
-    if (a == Zero) b else throw new Exceeded("a sum of symbolic terms")
+    if (a == Zero) b
+    else if (b == Zero) a
+    else
+      merged(terms(a) ++ terms(b)) match {
+        case List(single) => single
+        case many         => Sum(many.sorted(using order.reverse))
+      }
+  }
+
+  private def terms(n: Natural): List[Natural] = n match {
+    case Sum(parts) => parts
+    case other      => List(other)
+  }
+
+  // Like terms (equal powers) add their coefficients; a merged coefficient may itself absorb into
+  // a power and meet another term, so merge until nothing collides.
+  @tailrec private def merged(parts: List[Natural]): List[Natural] = {
+    val next = parts
+      .map(mono)
+      .groupMapReduce(_.powers)(_.coefficient)(_ + _)
+      .toList
+      .map((powers, coefficient) => build(Mono(coefficient, powers)))
+    if (next.size == parts.size) next else merged(next)
   }
 
   private def times(a: Natural, b: Natural): Natural = combine(a, b)(_ * _) {
-    if (a == One) b else build(mono(a).times(mono(b)))
+    if (a == Zero || b == Zero) Zero
+    else if (a == One) b
+    else if (b == One) a
+    else build(mono(a).times(mono(b)))
   }
 
   private def power(a: Natural, exponent: Natural): Natural =
-    if (exponent == One || a == Zero || a == One) a
+    if (exponent == Zero) One
+    else if (exponent == One || a == Zero || a == One) a
     else
       (a, exponent) match {
         case (Lit(base), Lit(e)) => literalPower(base, e).fold(raised(mono(a), exponent))(Lit(_))
@@ -219,7 +285,14 @@ object Natural {
   private def symbolic(coefficient: BigInt, powers: List[(Natural, Natural)]): Natural = {
     val (rest, absorbed) = absorb(coefficient, powers)
     if (fits(rest)) assemble(rest, absorbed)
-    else throw new Exceeded(s"literal wider than $MaxLiteralBits bits")
+    else {
+      // An oversized coefficient keeps only what a power of two can carry exactly.
+      val twos = rest.lowestSetBit
+      val odd = rest >> twos
+      if (!fits(odd)) throw new Exceeded(s"literal wider than $MaxLiteralBits bits")
+      val (left, merged) = absorb(odd, merge(absorbed :+ ((Lit(2): Natural) -> Lit(twos))))
+      assemble(left, merged)
+    }
   }
 
   // Pull every factor of a literal base out of the coefficient into that base's exponent.

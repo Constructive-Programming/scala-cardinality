@@ -17,13 +17,21 @@ class TypeMemberBoundarySpec extends Specification {
 
   def is = s2"""
     Paths
+      an outer `O.this` or self alias stays the enclosing instance  $outerThis
       a parameter hides an enclosing template's self alias          $selfShadow
       a value fixed by its own definition is no choice              $localValue
     Members
+      a member some level declares as a class is no atom            $classMember
+      a value class or a private constructor fixes its members      $unsubclassable
+      a parent's private alias is that parent's own                 $privateAlias
+      a type-only template with no constructor input is one value  $typesOnly
+      a type projection of an abstract member has no path           $projection
     Refinements
+      a refinement no value of its base may have is refused         $unsatisfiable
       the compiler rejects the refused refinements                  $refinementFacts
     Stuck projections
       a member scrutinee is spelled by its path                     $spelledMember
+      a bound mentioning the scrutinee refuses                      $boundedScrutinee
       a type pattern before `case _` still needs a proof            $typePattern
     Gate G1
       a `var` of an intermediate parent implements a `def`          $varImplements
@@ -48,6 +56,30 @@ class TypeMemberBoundarySpec extends Specification {
     found must beLike {
       case Count.Unresolved(reasons) => reasons.exists(_.contains(reason)) must beTrue
     }
+
+  // `O.this.X` and `outer.X` in P name the enclosing O's member, never the receiver C's, though C
+  // extends O (scalac: Found O.this.X, Required C.this.X): only y has C.this.X — 1 (reading P's
+  // `O.this` as C's `this` gave 2). The lexical `X` and a nested template's own `I.this` agree.
+  def outerThis = {
+    def pick(declared: String, self: String = "") = entries(s"""
+      trait O:
+        $self
+        type X
+        trait P:
+          def get: $declared
+        trait C extends P with O:
+          def pick(y: C.this.X): C.this.X = ???
+      trait N:
+        type X
+        trait I extends N:
+          def f(x: I.this.X, y: N.this.X): I.this.X = ???
+    """)
+    val viaThis = pick("O.this.X")
+    (viaThis("O.C.pick") === Count.Finite(1))
+      .and(pick("outer.X", "outer =>")("O.C.pick") === Count.Finite(1))
+      .and(pick("X")("O.C.pick") === Count.Finite(1))
+      .and(viaThis("N.I.f") === Count.Finite(1))
+  }
 
   // The parameter `self: R` hides T's self alias, so `self.X` is R's member (scalac rejects `= x`:
   // Found self.X, Required T.this.X): only y — 1, as with the parameter renamed.
@@ -77,6 +109,159 @@ class TypeMemberBoundarySpec extends Specification {
       """)("outer.inner"),
       "abstract type member p#X is fixed: p is a local value"
     )
+
+  // A class member cannot be overridden (scalac: "class definitions cannot be overridden"), so
+  // C.this.X is always the class: never a free atom (it read 0 for `new X(true)`, 2 for `a, b`).
+  // The class read by its own name is the class: X has no field — 1.
+  def classMember = {
+    val found = entries("""
+      trait T:
+        type X
+      class C extends T:
+        class X
+        def viaThis(a: this.X, b: this.X): this.X = ???
+        def viaName(a: X, b: X): X = ???
+      class D extends T:
+        final class X(val n: Boolean)
+        def fresh: this.X = ???
+    """)
+    refused(found("C.viaThis"), "type member is a class: C.this#X")
+      .and(found("C.viaName") === Count.Finite(1))
+      .and(refused(found("D.fresh"), "type member is a class: D.this#X"))
+  }
+
+  // A value class is final ("cannot extend final class V") and a private constructor admits no
+  // subclass outside C and its companion (E173): X is never picked, f never applied — vacuously 1,
+  // where the atom gave 2^(2^32) and 2. Refused, as for an explicit `final class`.
+  def unsubclassable = {
+    val found = entries("""
+      class V(val n: Int) extends AnyVal:
+        type X
+        def f(x: X, y: X): X = ???
+      class C private ():
+        type X
+        def f(x: X, y: X): X = ???
+      object C:
+        def make: C = new C()
+    """)
+    refused(found("V.f"), "abstract type member X of final template V is never instantiated")
+      .and(
+        refused(found("C.f"), "abstract type member X of C is fixed: its constructor is private")
+      )
+  }
+
+  // P's `private type X = Boolean` is not inherited: P's get is a Boolean (scalac: Found Boolean,
+  // Required C.this.X), and C's X is Q's. same: y — 1; pick: true, false, get, !get — 4 (it read 2,
+  // 2 with get as C.this.X). C2's own `to(x: X)` is another overload than P2's `to(x: Boolean)`:
+  // to(true), to(false) — 2.
+  def privateAlias = {
+    val found = entries("""
+      trait Q:
+        type X
+      abstract class P:
+        private type X = Boolean
+        def get: X
+      abstract class C extends P with Q:
+        final def pick(y: X): Boolean = ???
+        def same(y: X): X = ???
+      abstract class P2[A]:
+        private type X = Boolean
+        def to(x: X): A
+      abstract class C2[A] extends P2[A] with Q:
+        def to(x: X): A
+    """)
+    (found("C.pick") === Count.Finite(4))
+      .and(found("C.same") === Count.Finite(1))
+      .and(found("C2.to") === Count.Finite(2))
+  }
+
+  // A trait with no term member has the empty record: h — 1 (the result is one value), k — the 4
+  // functions of b. Every template a parameter, parent, self type or constructor modifier may give
+  // a term member — or no instance at all (`CNothing(n: Nothing)`, CROSSCHECK X6) — keeps the
+  // abstract-representation reason.
+  def typesOnly = {
+    val found = entries("""
+      trait T
+      def h(t: T, u: T): T = ???
+      def k(t: T, b: Boolean): Boolean = ???
+      class CNothing(n: Nothing)
+      def nothing(c: CNothing): Boolean = ???
+      abstract class Abs(n: Nothing)
+      def abs(c: Abs): Boolean = ???
+      class Priv private ()
+      def priv(c: Priv): Boolean = ???
+      trait Base:
+        def b: Int
+      trait Sub extends Base:
+        type X
+      def sub(c: Sub): Boolean = ???
+      trait Selfy:
+        self: Base =>
+        type X
+      def selfy(c: Selfy): Boolean = ???
+    """)
+    // Each keeps the capability record's own reason (CNothing has no instance — X6 — and its
+    // hidden parameter is what the record cannot witness). Sub's unbounded X opens as the witness
+    // of the package each value carries: the record's observable content is `b`'s Int, and sub's
+    // implementations are the functions from it to Boolean — 2^(2^32); the witness is unobservable
+    // and adds nothing.
+    val reasons = List(
+      "open class with hidden constructor state: CNothing.n",
+      "open class with hidden constructor state: Abs.n",
+      "capability record of a template only its scope instantiates: Priv",
+      "self type not resolved: Base"
+    )
+    val open = List("nothing", "abs", "priv", "selfy")
+      .zip(reasons)
+      .map((name, reason) => found(name) === Count.Unresolved(List(reason)))
+    (found("h") === Count.Finite(1))
+      .and(found("k") === Count.Finite(4))
+      .and(found("sub") === Count.Symbolic(pow(2, BigInt("4294967296"))))
+      .and(found("CNothing.<init>") === Count.Finite(0))
+      .and(open.reduce(_ and _))
+  }
+
+  def projection =
+    refused(
+      entries("trait P:\n  type X\ndef h(x: P#X, y: P#X): P#X = ???")("h"),
+      "type projection of abstract member P#X: no stable path"
+    )
+
+  // Each parameter type has no value (scalac rejects true, false, new F, and every subclass or
+  // instance of the bad bounds — `refinementFacts`): every implementation is vacuously one, where
+  // reading the base gave 16, 4, ω, 4, 4. Refused, as is `String <: X <: Int` across L and its
+  // refinement. A refinement an open template may satisfy stays its base: p.X = A — 2; `X <: Tuple`
+  // is met by Nothing, so p is an R (one value) beside b — 4.
+  def unsatisfiable = {
+    val found = entries("""
+      final class F:
+        type X = Int
+      trait T:
+        type X = Int
+      trait R:
+        type X
+      def onBoolean(p: Boolean { type X }, b: Boolean): Boolean = ???
+      def onFinal(p: F { type X = String }, b: Boolean): Boolean = ???
+      def onFinalPath(p: F { type X = String }, s: String): p.X = ???
+      def conflict(p: T { type X = String }, s: String): p.X = ???
+      def structural(p: { type X >: Int <: String }, b: Boolean): Boolean = ???
+      def based(p: R { type X >: Int <: String }, b: Boolean): Boolean = ???
+      def open[A](p: R { type X = A }, a: A, x: p.X): A = ???
+      trait L:
+        type X >: String
+      def upper(p: R { type X <: Tuple }, b: Boolean): Boolean = ???
+      def clash(p: L { type X <: Int }, b: Boolean): Boolean = ???
+    """)
+    refused(found("onBoolean"), "Boolean { type X } (Boolean is not a supplied template)")
+      .and(refused(found("onFinal"), "F { type X = String } (F is final)"))
+      .and(refused(found("onFinalPath"), "(F is final)"))
+      .and(refused(found("conflict"), "T { type X = String } (T already defines X)"))
+      .and(refused(found("structural"), "non-exact bounds: type X >: Int <: String"))
+      .and(refused(found("based"), "non-exact bounds: type X >: Int <: String"))
+      .and(found("open") === Count.Finite(2))
+      .and(found("upper") === Count.Finite(4))
+      .and(refused(found("clash"), "L { type X <: Int } (L already defines X)"))
+  }
 
   def refinementFacts =
     (typeChecks("val c: Boolean { type X } = false") must beFalse)
@@ -115,6 +300,13 @@ class TypeMemberBoundarySpec extends Specification {
           def pick(x: Fst[X], y: Fst[X], z: Fst3[X]): Fst[X] = ???
       """)("M.pick"),
       "stuck match types on M.this#X have no common reducing instantiation: arities 2, 3"
+    )
+
+  // U <: T constrains T's instantiations: the projection's freedom is not the atom's.
+  def boundedScrutinee =
+    refused(
+      entries(projections + "def b1[T, U <: T](x: Fst[T], u: U): Fst[T] = ???")("b1"),
+      "stuck match types on T meet a bound that mentions it"
     )
 
   // `case Int` before `case _` needs a disjointness proof the reading does not have (MT2 reduces

@@ -31,13 +31,17 @@ class CapabilitySpec extends Specification {
       givens and member objects are final                           $givens
       universal members of `Any` are no capabilities                $universalReceiver
       an inherited overload is its own member                       $inheritedOverload
+      a trait's parameterized parent's fields are its state         $parentState
       a package-private constructor is reached package-wide         $packageConstructor
       a constructor `val` of another class of the file overrides    $fileFieldOverride
+      a parent's constructor `val` is an overridable member         $parentField
       a member is overridden by the levels before it in linearization $diamond
       a body `var` implements an inherited declaration              $varImplemented
+      a file-closed template's subclass mixing in an outside override $fileMixins
     Override identity as seen from the receiver (C9)
       a grandparent's declaration is matched through the chain      $multiLevel
       an imported parent's declaration is matched by its binding (B1) $importedParent
+      a covariant result is the same slot, a parameter another     $covariant
       another arity is an overload                                  $arity
       a binder spelled `foreign` keys no foreign declaration        $tentativeKeys
     Records of source types (C0–C4)
@@ -47,14 +51,21 @@ class CapabilitySpec extends Specification {
       a refined restatement is read at its nearest declaration      $refinedMember
       a final class is its observable constructor arguments         $finalRecord
       a composed-getter law reads its records                       $laws
+      a `val` and a parameterless `def` of one name are one member  $oneSlot
       only `Any`'s members are universal (`canEqual` is not)        $universalRecord
+      a parameterized parent's public fields are a trait's fields   $parentFields
+      a passed parent's field is still overridable                  $passedParentField
     Records the reading refuses
       a member hidden at the use site                               $hiddenMember
       a field no member observes injectively                        $unexposedField
       hidden constructor state of an open class (X6)                $unwitnessed
       a `final abstract` class has no value                         $noInstance
+      abstract type members and self types                          $existentials
+      an unbounded record witness opens per value                   $existentialRecords
       a member that may be the measured declaration on its receiver $selfView
+      trait parameters, extension and pattern members; a var's value $unreadMembers
       an inferred overridable result and a recursive record         $inferredAndRecursive
+      hidden state of a trait's parameterized parent                $parentHidden
   """
 
   private def counts(files: (String, String)*): Map[String, Count] =
@@ -204,6 +215,20 @@ class CapabilitySpec extends Specification {
       "b.scala" -> "package p.impl\nimport p.api.Src\nabstract class Impl[A](a: A) extends Src[A] { def get: A = a }"
     )("p.impl.Impl.get") === Count.Finite(2)
 
+  // Parameters match: `get(b: Boolean): Boolean` overrides `get(b: Boolean): Boolean | Unit` (SLS
+  // 5.1.3), one slot: b, !b, true, false — 4 (read as an overload, a free Boolean => Boolean | Unit
+  // would join). OvlU2's get(b: Int) is an overload: it reads b (2^32 values) and the inherited free
+  // get at true and at false (3 values each): 2^(9 · 2^32) = 2^38654705664.
+  def covariant = {
+    val found = one("""
+      trait BaseU { def get(b: Boolean): Boolean | Unit }
+      abstract class CovU2 extends BaseU { def get(b: Boolean): Boolean }
+      abstract class OvlU2 extends BaseU { def get(b: Int): Boolean }
+    """)
+    (found("CovU2.get") === Count.Finite(4))
+      .and(found("OvlU2.get") === Count.Symbolic(pow(2, BigInt("38654705664"))))
+  }
+
   // Two parameters cannot be one: Two.get is a supplied (A, A) => A — a, get(a, a), … ω.
   def arity =
     one("""
@@ -332,6 +357,59 @@ class CapabilitySpec extends Specification {
     one("final abstract class Never\nobject U { def never(): Never = ??? }")("U.never") ===
       Count.Finite(0)
 
+  // A goal of Opt is a result construction: the implementation picks the witness the package
+  // carries, which this model does not choose (existential-inputs boundary 1). A Selfy value
+  // also has CanGet's members, which this reading does not enumerate: refused.
+  def existentials = {
+    val found = one("""
+      trait CanGet[S, A] { def get(s: S): A }
+      trait Opt[S, A] { type X; def to(s: S): (X, A) }
+      trait Selfy { self: CanGet[Int, Int] => def x: Int }
+      object U {
+        def opt[S, A](s: S, a: A): Opt[S, A] = ???
+        def selfy(s: Selfy): Int = s.x
+      }
+    """)
+    refused(
+      found("U.opt"),
+      "existential wildcard result construction and repackaging requires witness-choice analysis"
+    ).and(refused(found("U.selfy"), "self type not resolved: CanGet[Int, Int]"))
+  }
+
+  // An unbounded abstract type member of an open record is the witness of the package each value
+  // carries (∃X. members-over-X): an input opens it — the members read over a witness fresh per
+  // value, so p's and q's never mix. The witness itself is unobservable (r3's record of one value
+  // alone leaves the literals alone), but consume's behavior at the value the body can supply is
+  // one observable bit, so run's implementations are the four Boolean functions of it. both: two
+  // independent packages, never crossed: 2^4. A goal of the record is a result construction:
+  // refused. touch spells p.X, so the record's witness and the path atom would have to be one:
+  // refused.
+  def existentialRecords = {
+    val found = one("""
+      trait Pair { type X; def value: X; def consume(x: X): Boolean }
+      trait Source { type X; def value: X }
+      object U {
+        def run(p: Pair): Boolean = ???
+        def solo(p: Source): Boolean = ???
+        def both(p: Pair, q: Pair): Boolean = ???
+        def make(): Pair = ???
+        def touch(p: Pair, x: p.X): Boolean = ???
+      }
+    """)
+    (found("U.run") === Count.Finite(4))
+      .and(found("U.solo") === Count.Finite(2))
+      .and(found("U.both") === Count.Finite(16))
+      .and(
+        refused(
+          found("U.make"),
+          "existential wildcard result construction and repackaging requires witness-choice analysis"
+        )
+      )
+      .and(
+        refused(found("U.touch"), "capability record with abstract type member not read: Pair.X")
+      )
+  }
+
   // A subclass may mix Wrap and Pick: `other` may be this, and other.pick re-enter Wrap.pick. Two
   // unrelated classes share no instance: D's t is a capability of C.t, never C.t itself — a, d.b,
   // d.t, 3. A trait may be mixed into a subclass of D, so C2's d may be this: refused.
@@ -445,6 +523,19 @@ class CapabilitySpec extends Specification {
       .and(found("Ovl2.other") === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(32) + 3))))
   }
 
+  // U's instances pass P any p: a free Boolean beside b — functions of (b, p), 16 (it read 4). A
+  // hidden parameter observed only through a final member is refused.
+  def parentState = {
+    val found = one("""
+      class P(val p: Boolean)
+      trait U extends P { def target(b: Boolean): Boolean }
+      class H(x: Boolean) { final def get: Boolean = x }
+      trait V extends H { def target(b: Boolean): Boolean }
+    """)
+    (found("U.target") === Count.Finite(16))
+      .and(refused(found("V.target"), "open class with hidden constructor state: H.x"))
+  }
+
   // A `private[v7]` constructor is reached by every file of v7: X overrides m — functions of (b, m),
   // 16 (it read 4, m derived).
   def packageConstructor =
@@ -467,6 +558,67 @@ class CapabilitySpec extends Specification {
       "member of a template only its file extends may be overridden there: O.Loc.y"
     )
 
+  // R passes P its argument, but a subclass may override the field (scalac 3.9.0 only warns, and the
+  // override is what `p` reads): p is a free Boolean — functions of (b, p), 16 (it read 4). C's own
+  // `val x` overrides P2's x: one Boolean, 16 (it read 2^8, x twice). T's `val p` override hides
+  // the argument Q's p would hold: refused.
+  def parentField = {
+    val found = one("""
+      class P(val p: Boolean)
+      abstract class R extends P(true) { def target(b: Boolean): Boolean }
+      abstract class P2 { def x: Boolean = true }
+      abstract class C(override val x: Boolean) extends P2 { def target(b: Boolean): Boolean }
+      class Q(val q: Boolean)
+      trait T extends Q { override val q: Boolean = true; def target(b: Boolean): Boolean }
+    """)
+    (found("R.target") === Count.Finite(16))
+      .and(found("C.target") === Count.Finite(16))
+      .and(refused(found("T.target"), "open class with hidden constructor state: Q.q"))
+  }
+
+  // r.p is any Boolean (a subclass of R may override it): r.p, !r.p, true, false — 4 (it read 2).
+  // C's record is (x, p), both free: f, 2^(2^2) = 16; mk: 4 · 4 pairs from b's 2 values, 16.
+  def passedParentField = {
+    val found = one("""
+      class P(val p: Boolean)
+      abstract class R extends P(true)
+      class C(val x: Boolean) extends P(x)
+      object Use {
+        def g(r: R): Boolean = r.p
+        def f(c: C): Boolean = c.x
+        def mk(b: Boolean): C = new C(b)
+      }
+    """)
+    (found("Use.g") === Count.Finite(4))
+      .and(found("Use.f") === Count.Finite(16))
+      .and(found("Use.mk") === Count.Finite(16))
+  }
+
+  // A val restating a parameterless def, or a constructor val implementing one, is one member: the
+  // record is one Boolean — c.m: m, !m, true, false; mk: b, !b, true, false — 4 each (they read 16).
+  // C.target reads b and the one m: 16 (it was refused, the identity unresolved).
+  def oneSlot = {
+    val restated = one("""
+      trait P { def m: Boolean }
+      trait C extends P { val m: Boolean }
+      object Use { def f(c: C): Boolean = c.m; def mk(b: Boolean): C = new C { val m = b } }
+    """)
+    val receiver = one("""
+      trait P { def m: Boolean }
+      trait C extends P { val m: Boolean; def target(b: Boolean): Boolean }
+    """)
+    val field = one("""
+      trait P { def x: Boolean }
+      class C(val x: Boolean) extends P
+      object Use { def f(c: C): Boolean = c.x; def mk(b: Boolean): C = new C(b) }
+    """)
+    (restated("Use.f") === Count.Finite(4))
+      .and(restated("Use.mk") === Count.Finite(4))
+      .and(receiver("C.target") === Count.Finite(16))
+      .and(field("Use.f") === Count.Finite(4))
+      .and(field("Use.mk") === Count.Finite(4))
+  }
+
   // canEqual is scala.Equals', not Any's: a free Any => Boolean, which observes nothing of its
   // argument (Any is terminal), so one Boolean — true, false, c(x), !c(x): 4, as `(x: A, c: Any =>
   // Boolean)` gives (it read 2).
@@ -475,6 +627,41 @@ class CapabilitySpec extends Specification {
       trait Eq2[A] { def x: A; def canEqual(that: Any): Boolean }
       object U { def eq2[A](e: Eq2[A]): Boolean = ??? }
     """)("U.eq2") === Count.Finite(4)
+
+  // Every T is `new P(v) with T` for some v: t.p is a free Boolean — 4 (it read 2).
+  def parentFields =
+    one("""
+      class P(val p: Boolean)
+      trait T extends P
+      object Use { def g(t: T): Boolean = t.p }
+    """)("Use.g") === Count.Finite(4)
+
+  // Trait parameters, an extension member and a pattern-defined member of an open receiver are
+  // observations this reading does not take apart: each refused with its reason. An abstract `var`
+  // is its getter (D-pure: the model has no mutation, the setter is an effect): Mut is (v, x), and
+  // an A is t.v or t.x — 2.
+  def unreadMembers = {
+    val found = one("""
+      trait TP[A](val seed: A) { def x: A }
+      trait Plain[A](hidden: A) { def x: A }
+      trait Mut[A] { var v: A; def x: A }
+      trait Ext[A] { def x: A; extension (a: A) def twice: A }
+      class Destr[A](a: A) { val (p, q) = (a, a); def pick(): A = a }
+      object U {
+        def tp[A](t: TP[A]): A = ???
+        def pl[A](t: Plain[A]): A = ???
+        def mut[A](t: Mut[A]): A = ???
+        def ext[A](t: Ext[A]): A = ???
+      }
+    """)
+    // A `val` trait parameter is a public field: the record is the pair (seed, x), both A, so the
+    // goal returns one of the two A-members - two implementations (the projections).
+    (found("U.tp") === Count.Finite(2))
+      .and(refused(found("U.pl"), "open class with hidden constructor state: Plain.hidden"))
+      .and(found("U.mut") === Count.Finite(2))
+      .and(refused(found("U.ext"), "capability record with an extension member not read: Ext"))
+      .and(refused(found("Destr.pick"), "destructured member of an open receiver not read: Destr"))
+  }
 
   // y's result is inferred, and y is open: its type is unknown. Rec's records nest without end.
   def inferredAndRecursive = {
@@ -485,6 +672,20 @@ class CapabilitySpec extends Specification {
     """)
     refused(found("Inf2.x"), "overridable member's result type is inferred: y")
       .and(refused(found("U.rec"), "recursive type not read: Rec"))
+  }
+
+  // Only the final get observes H's hidden x: refused (the true count is 4: t.get, !t.get, true,
+  // false), never 2.
+  def parentHidden = {
+    val found = one("""
+      class H(x: Boolean) { final def get: Boolean = x }
+      trait PT(x: Boolean) { final def get: Boolean = x }
+      trait T extends H
+      trait T2 extends PT
+      object Use { def f(t: T): Boolean = t.get; def f2(t: T2): Boolean = t.get }
+    """)
+    refused(found("Use.f"), "open class with hidden constructor state: H.x")
+      .and(refused(found("Use.f2"), "open class with hidden constructor state: PT.x"))
   }
 
   // L(R) = R, B, C, A (R extends C with B): B's final m overrides A's, although a breadth-first walk
@@ -531,6 +732,36 @@ class CapabilitySpec extends Specification {
       trait B extends A { var x: Boolean = true }
       trait R extends B { def target(b: Boolean): Boolean }
     """)("R.target") === Count.Finite(4)
+
+  // D extends the file-closed C and mixes in T2, written outside C's scope, whose m overrides C's:
+  // the instances are C (m = true) and D (m = false), so m varies (true count 16) — refused, as for
+  // a pattern-defined override (F) and for T2 in another file. Never 4.
+  def fileMixins = {
+    val local = one("""
+      trait P { def m: Boolean }
+      trait T2 extends P { override def m: Boolean = false }
+      object O {
+        def make(): Boolean = {
+          class C extends P { def m: Boolean = true; def target(b: Boolean): Boolean = b }
+          class D extends C with T2
+          (new D).target(true)
+        }
+        private class E { def m: Boolean = true; def target(b: Boolean): Boolean = b }
+        private class F extends E { override val (m, _) = (false, 0) }
+      }
+    """)
+    val files = counts(
+      "a.scala" -> "trait P { def m: Boolean }\ntrait T2 extends P { override def m: Boolean = false }",
+      "b.scala" -> """object O {
+        private class C extends P { def m: Boolean = true; def target(b: Boolean): Boolean = b }
+        private class D extends C with T2
+      }"""
+    )
+    val reason = "member of a template only its file extends may be overridden there: "
+    refused(local("O.make.C.target"), reason + "O.make.C.m")
+      .and(refused(local("O.E.target"), reason + "O.E.m"))
+      .and(refused(files("O.C.target"), reason + "O.C.m"))
+  }
 
   // Impl.get takes an Option[foreign[Int]], Base.get a foreign[Int]: an overload whatever the
   // binder is called, so Impl.get reaches the solver's own limit, as the F-named twin does (it

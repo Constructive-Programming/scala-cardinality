@@ -23,15 +23,23 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       an unmatched inherited given leaves the identity unresolved     $givenIdentity
       an anonymous given is the member of its synthesized name        $anonymousGivens
       a synthesized name is the one 3.9.0 gives                       $synthesizedNames
+      an inline given alias is read by the inline-method rule         $inlineGivens
     Member values
       a value is a nullary signature of its type                      $memberValues
       a pattern's names are not typed by syntax                       $patternValues
       a local value is no row                                         $localValues
+      each name of a declaration is a slot of the others              $siblingDeclarations
+      a value implementing a declaration is not its own slot          $ownSlot
+      an abstract var is a declaration of its type                    $abstractVar
     Anonymous classes
+      a member is a final class's, with the enclosing captures        $anonymousMembers
       each anonymous class of a body is a row of its own              $anonymousOrdinals
       an inherited concrete member is no capability of it             $anonymousFinal
       hidden parent state a body may not reach is refused             $hiddenState
       a level passing the argument or a body import is not followed   $passedLevels
+      a value's or a given's context binders reach its members        $valueBinders
+      an untyped value takes an overridden declaration's binders      $overriddenBinders
+      a context-function literal binds its own clause once            $contextLiterals
     Constructors
       an enum's parameterized case has the case-class constructor     $enumCases
       an enum case is typed where its enum is declared                $enumScope
@@ -74,6 +82,24 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     // The declaration has no A to delegate to: 0. The alias implements it in an open class, so
     // the inherited declaration is the alias itself, not a slot: only a, 1 (2 if it counted itself).
     (found("Pick.pick") === "0").and(found("Picked.pick") === "1")
+  }
+
+  // An inline given alias is a row read like an inline method (register D27): its body uses no
+  // compile-time operation, so it counts as its given twin — a Boolean, 2; a Boolean from b
+  // (negation, identity, the two literals), 4 — while one that summons is refused. Fixture
+  // `$S/probes/b5-land/giv.scala` (3.9.0).
+  def inlineGivens = {
+    val code =
+      """|import scala.compiletime.summonInline
+         |object G {
+         |  inline given g: Boolean = true
+         |  inline given h(using b: Boolean): Boolean = !b
+         |  inline given k[A](using a: A): A = summonInline[A]
+         |}""".stripMargin
+    val found = rows(code)
+    (found("G.g").render === "2")
+      .and(found("G.h").render === "4")
+      .and(refused(found("G.k"), "inline method: uses scala.compiletime.summonInline"))
   }
 
   def localGiven = {
@@ -129,27 +155,61 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("O.<given@9>") === "2")
   }
 
-  // Each name as 3.9.0's `-Xprint:typer` prints it (fixtures `$S/probes/b5-fix2/gname`). A type
-  // other than a name or an application of names is not spelled, so that given's name is not known.
+  // Each name as 3.9.0's `-Xprint:typer` prints it (fixtures `$S/probes/b5-fix2/gname`). The parser
+  // drops the bound of `Ord[? <: String]` (3.9.0: given_Ord_String), so that name is not known.
   def synthesizedNames = {
     val source = dialects
       .Scala3("""|object N {
                  |  given Int = 1
                  |  given Ord[Int] = o
+                 |  given [T](using Ord[T]): Ord[List[T]] = o
                  |  given (Int, String) = p
+                 |  given Ord[(Int, (Long, Short))] = o
+                 |  given (String => Int) = f
+                 |  given ((Int, Long) => String) = f
+                 |  given (() => Int) = f
+                 |  given (Int ?=> String) = f
+                 |  given Ord[Long => String] = o
+                 |  given scala.collection.immutable.Seq[Char] = s
+                 |  given Two[Int, Ord[String]] = t
+                 |  given Ord[Short] & Show[Short] = o
+                 |  given (Boolean | Char) = b
+                 |  given Ord[?] = o
                  |  given Ord[? <: String] = o
+                 |  given Ord[Int Two Long] = o
+                 |  given Ord[[X] =>> Ord[X]] = o
+                 |  given M.x.type = M.x
+                 |  given Ord[M.type] = o
+                 |  given 3 = 3
                  |  given Ord[Char] with {}
                  |  given Ord[Int] with Show[Int] with {}
                  |}""".stripMargin)
       .parse[Source]
       .get
     val givens = source.collect { case g: (Defn.GivenAlias | Defn.Given) => g }
-    (givens.filter(GivenNames.unknown).map(_.pos.text) ===
-      List("given (Int, String) = p", "given Ord[? <: String] = o"))
+    (givens.filter(GivenNames.unknown).map(_.pos.text) === List("given Ord[? <: String] = o"))
       .and(
         givens.flatMap(GivenNames.of) === List(
           "given_Int",
           "given_Ord_Int",
+          "given_Ord_List",
+          "given_Int_String",
+          "given_Ord_Int_Long_Short",
+          "given_String_to_Int",
+          "given_Int_Long_to_String",
+          "given_Int",
+          "given_Int_to_String",
+          "given_Ord_Function",
+          "given_Seq_Char",
+          "given_Two_Int_Ord",
+          "given_&_Ord_Show",
+          "given_|_Boolean_Char",
+          "given_Ord_",
+          "given_Ord_Two",
+          "given_Ord_Ord",
+          "given_x_type",
+          "given_Ord_M_type",
+          "given_",
           "given_Ord_Char",
           "given_Ord_Int_Show_Int"
         )
@@ -189,6 +249,32 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
   def localValues =
     rows("object Vals { def local(x: Int): Int = { val y = x; y } }").keySet === Set("Vals.local")
 
+  def siblingDeclarations = {
+    val found = rendered("trait Decls[A] { val one: A; val two, three: A }")
+    // Each name has the other two as slots of A: 2.
+    (found("Decls.one") === "2").and(found("Decls.two") === "2").and(found("Decls.three") === "2")
+  }
+
+  def ownSlot = {
+    val found = rendered(
+      """|trait HasDefault[A] { val default: A }
+         |class Default[A](a: A) extends HasDefault[A] { val default: A = a }
+         |trait HasSeed[A] { def seed: A }
+         |class Seeded[A](a: A) extends HasSeed[A] { val seed: A = a }
+         |class Twins[A](a: A) { val m1, m2: A = a }
+         |""".stripMargin
+    )
+    // Each open class's value implements the inherited declaration: a alone, 1. Of two names of
+    // one definition, the other is an open member: a or m2, 2.
+    (found("Default.default") === "1")
+      .and(found("Seeded.seed") === "1")
+      .and(found("Twins.m1") === "2")
+      .and(found("Twins.m2") === "2")
+  }
+
+  // The declaration's own name is no slot; nothing else of Boolean is in scope: 2.
+  def abstractVar = rendered("trait V { var flag: Boolean }")("V.flag") === "2"
+
   private val anonymous = getter + """
     |abstract class Base[A] { def seed: A; def other: A = seed }
     |trait HasPlate[A] { val plate: A }
@@ -200,6 +286,15 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     |  def based[A](a: A, b: A): Base[A] = new Base[A] { def seed: A = a }
     |  val first: Getter[Int, Int] = new Getter[Int, Int] { def get(s: Int): Int = s }
     |}""".stripMargin
+
+  def anonymousMembers = {
+    val found = rendered(anonymous)
+    // f(s): 1, not 2 (the implemented Getter.get is no slot). Int => Int: 2^(32·2^32) = 2^(2^37).
+    // An anonymous class whose only member is a value is a scope too: a alone, 1.
+    (found("Anon.mk.<new#1>.get") === "1")
+      .and(found("Anon.first.<new#1>.get") === "2^(2^37)")
+      .and(found("Anon.held.<new#1>.plate") === "1")
+  }
 
   def anonymousOrdinals = {
     val found = rendered(anonymous)
@@ -254,6 +349,67 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     val reason = "open class with hidden constructor state: Hide.h"
     refused(found("Passed.mid.<new#1>.seed"), reason)
       .and(refused(found("Passed.imported.<new#1>.seed"), reason))
+  }
+
+  def valueBinders = {
+    val found = rendered(
+      getter + """
+        |object Ctx {
+        |  given lifted: (Boolean ?=> Getter[Unit, Boolean]) =
+        |    new Getter[Unit, Boolean] { def get(s: Unit): Boolean = summon[Boolean] }
+        |  val held: Boolean ?=> Getter[Unit, Boolean] =
+        |    new Getter[Unit, Boolean] { def get(s: Unit): Boolean = summon[Boolean] }
+        |  val plain: Getter[Unit, Boolean] = new Getter[Unit, Boolean] { def get(s: Unit): Boolean = true }
+        |}""".stripMargin
+    )
+    // The context binder is a Boolean the member reads: Boolean => Boolean, 4; without one, 2.
+    (found("Ctx.lifted.<new#1>.get") === "4")
+      .and(found("Ctx.held.<new#1>.get") === "4")
+      .and(found("Ctx.plain.<new#1>.get") === "2")
+  }
+
+  def overriddenBinders = {
+    val found = rendered(
+      getter + """
+        |trait Holder { val held: Boolean ?=> Getter[Unit, Boolean] }
+        |object Untyped extends Holder {
+        |  val held = new Getter[Unit, Boolean] { def get(s: Unit): Boolean = summon[Boolean] }
+        |}""".stripMargin
+    )
+    // The expected type is the declaration's: its binder is in scope, 4; the value's type is that
+    // declaration's, 4 too.
+    (found("Untyped.held.<new#1>.get") === "4").and(found("Untyped.held") === "4")
+  }
+
+  private val literals = getter + """
+    |object Literal {
+    |  def one[A]: A ?=> Getter[Unit, A] = (x: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = x }
+    |  def anon[A]: A ?=> Getter[Unit, A] =
+    |    (_: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
+    |  def local[A]: A ?=> A = (x: A) ?=> { def g: A = x; g }
+    |  def named2[A]: (A, A) ?=> Getter[Unit, A] =
+    |    (x: A, y: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = y }
+    |  def two[A]: (A, A) ?=> Getter[Unit, A] =
+    |    (_: A, _: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
+    |  val held: Boolean ?=> Getter[Unit, Boolean] =
+    |    (b: Boolean) ?=> new Getter[Unit, Boolean] { def get(s: Unit): Boolean = b }
+    |  given lifted: (Boolean ?=> Getter[Unit, Boolean]) =
+    |    (b: Boolean) ?=> new Getter[Unit, Boolean] { def get(s: Unit): Boolean = b }
+    |}""".stripMargin
+
+  // A right-hand side that already is a context-function literal is not wrapped again (Scala 3
+  // reference, context functions): its parameters are the clause's binders, once — givens in its
+  // body, named or not. One A: 1; x or y: 2; one Boolean: Boolean => Boolean, 4. Two anonymous
+  // binders of one type are ambiguous for summon.
+  def contextLiterals = {
+    val found = rows(literals)
+    (found("Literal.one.<lambda#1>.<new#1>.get").render === "1")
+      .and(found("Literal.anon.<lambda#1>.<new#1>.get").render === "1")
+      .and(found("Literal.local.<lambda#1>.g").render === "1")
+      .and(found("Literal.named2.<lambda#1>.<new#1>.get").render === "2")
+      .and(found("Literal.held.<lambda#1>.<new#1>.get").render === "4")
+      .and(found("Literal.lifted.<lambda#1>.<new#1>.get").render === "4")
+      .and(refused(found("Literal.two.<lambda#1>.<new#1>.get"), "ambiguous anonymous evidence"))
   }
 
   def enumCases = {

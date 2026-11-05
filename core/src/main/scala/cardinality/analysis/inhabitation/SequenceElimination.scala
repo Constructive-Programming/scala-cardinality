@@ -16,9 +16,11 @@ import Inhabitation.{Binding, Count, Shape}
   *     `kᵢ ≥ 1` (the valuation that told them apart repeats an element `i` already has), so every
   *     longer length along `i` has its own choice — infinitely many families, which finite programs
   *     bound by ℵ₀ (register D2): `ω`;
-  *   - otherwise `?`.
+  *   - otherwise `?`. Two answers at length 0 alone decide nothing: an element type with no
+  *     instance (`A => Nothing` beside an `a: A`) makes every longer environment absurd.
   *
-  * Lengths 0 to 2 of at most three sequences are counted (27 environments), each by the solver.
+  * Lengths 0 to 2 of at most three sequences are counted (27 environments), each by the whole
+  * solver, so an element that is itself a sequence is eliminated the same way.
   */
 private[cardinality] object SequenceElimination {
 
@@ -46,13 +48,22 @@ private[cardinality] object SequenceElimination {
       variant(vectors.head) match {
         case Count.Finite(zero) if zero == 0 => Count.Finite(0)
         case unresolved: Count.Unresolved    => unresolved
-        case _                               =>
+        case empty                           =>
           vectors.tail.iterator
             .map(variant)
-            .collectFirst { case several if atLeastTwo(several) => Count.Countable }
-            .getOrElse(Count.Unresolved(List("sequence elimination: undecided up to length 2")))
+            .collectFirst {
+              case unresolved: Count.Unresolved   => unresolved
+              case several if atLeastTwo(several) => Count.Countable
+            }
+            .getOrElse(Count.Unresolved(List(undecided(atLeastTwo(empty)))))
       }
     }
+
+  private def undecided(emptyChoice: Boolean): String =
+    if (emptyChoice)
+      "sequence elimination: two answers only for empty sequences up to length 2 " +
+        "(a longer environment may be absurd)"
+    else "sequence elimination: goal unique up to length 2 but not structurally singleton"
 
   // The fresh elements standing for one sequence at one length.
   private def elements(sequence: RepeatedArguments.Sequence, length: Int): List[Binding] =
@@ -68,9 +79,10 @@ private[cardinality] object SequenceElimination {
     )
 
   private def atLeastTwo(count: Count): Boolean = count match {
-    case Count.Finite(value)                 => value >= 2
-    case Count.Symbolic(_) | Count.Countable => true
-    case _                                   => false
+    case Count.Finite(value)                    => value >= 2
+    case Count.Symbolic(_)                      => true
+    case Count.Countable                        => true
+    case Count.Bounded(_) | Count.Unresolved(_) => false
   }
 
 }

@@ -22,7 +22,7 @@ class NamespaceSpec extends Specification {
       a sealed trait's companion does not stand in for its sum    $sealedCompanion
       a case-object child still counts once                       $caseObjectChild
       a case-object child is the module, whatever type shares its name  $caseObjectNamedLikeType
-      a companion row counts its own one value      $companionTotal
+      a companion counts its own one value in a source total      $companionTotal
 
     Objects and packages are namespaces
       a class nested in an object resolves, in the file and across packages  $nestedMember
@@ -45,8 +45,10 @@ class NamespaceSpec extends Specification {
 
     Class members and module members are apart
       an instance path reads the class, a module path the object  $membersByOwner
+      a class member reads in the class's own body                $classMemberScope
 
     A qualifier's first name is the innermost term binding
+      a value, a parameter or an inner object shadows an outer object  $qualifierBindings
       a value with no known type is not followed                  $untypedValue
 
     A qualified reference resolves through its qualifier
@@ -76,6 +78,7 @@ class NamespaceSpec extends Specification {
       a slot never lends a size resting on an unknown name        $slotReasons
       a slot reads a type defined in several packages in its own  $slotOwnPackage
       a local class's slot reads the block around it              $slotLocal
+      a sibling parameter's path reads its declared type          $slotParameterPath
       a refused slot names what the estimate stopped at           $slotRefusal
     """
 
@@ -111,12 +114,13 @@ class NamespaceSpec extends Specification {
     (found(("Light", Abstract)) === "2").and(found(("UsesLight", Class)) === "2")
   }
 
-  // The class holds its 2 values and its module its own 1. Before, the module read the class's
-  // value from the name they share.
-  def companionTotal = {
-    val found = rows("case class Spot(on: Boolean)\nobject Spot")
-    (found(("Spot", Class)) === "2").and(found(("Spot", Definition.Kind.Object)) === "1")
-  }
+  // A source holds its class's 2 values and its module's 1: 3. Before, the module read the class's
+  // value from the name they share and the source summed 2 + 2.
+  def companionTotal =
+    Counter.source(
+      dialects.Scala3("case class Spot(on: Boolean)\nobject Spot").parse[Source].get
+    ) ===
+      TinySize(3)
 
   // |Span| = 2^32 · 2^32 = 2^64, non-empty, so |List[Span]| = ω and |(Boolean, List[Span])| = 2 · ω
   // = ω, read through the object in the file and through the package path from another package.
@@ -209,15 +213,16 @@ class NamespaceSpec extends Specification {
   }
 
   // `data` is a subpackage of the opened `dev` under chained clauses; from the root, `dev.data`
-  // names it. Under a single `package dev.app2` clause, `data`
+  // and `_root_.dev.data` name the same package. Under a single `package dev.app2` clause, `data`
   // names nothing: the reference is its own reason.
   def packagePaths = {
     val found = rowsOf(
       "D.scala" -> "package dev.data\nfinal case class Vec(x: Boolean)\nobject Scanner { final case class Span(start: Int, end: Int) }",
-      "E.scala" -> "package dev\npackage app\ntype V1 = data.Vec\ntype V3 = data.Scanner.Span",
+      "E.scala" -> "package dev\npackage app\ntype V1 = data.Vec\ntype V2 = _root_.dev.data.Vec\ntype V3 = data.Scanner.Span",
       "F.scala" -> "package dev.app2\ntype V4 = data.Vec\ntype V5 = dev.data.Vec",
     )
     (found(("dev.app.V1", Alias)) === "2")
+      .and(found(("dev.app.V2", Alias)) === "2")
       .and(found(("dev.app.V3", Alias)) === "≤2^64")
       .and(found(("dev.app2.V4", Alias)) === "unresolved[data.Vec]")
       .and(found(("dev.app2.V5", Alias)) === "2")
@@ -232,8 +237,10 @@ class NamespaceSpec extends Specification {
       ("C", Alias)
     ) === "unresolved[Shape.Circle]"
 
-  // `Other.W` is the object's member, Unit: 1 — not the class's `W = Boolean`. Before, the
-  // companion overwrote the class's members, and `Other.W` read the class's 2.
+  // `p.X` is the class's member: (Array[Byte], (Array[Byte], Int, Int)) = ω · (ω · 2^32 · 2^32) =
+  // ω. `Other.W` is the object's member, Unit: 1 — not the class's `W = Boolean`. Before, the
+  // companion overwrote the class's members (then `X = p.X` captured itself: 0), and `Other.W`
+  // read the class's 2.
   def membersByOwner = {
     val found = rows(
       """|final class Prism[A](val steps: List[A]) { type X = (Array[Byte], (Array[Byte], Int, Int)) }
@@ -243,7 +250,7 @@ class NamespaceSpec extends Specification {
          |object Other { type W = Unit }
          |""".stripMargin
     )
-    found(("Other#V", Alias)) === "1"
+    (found(("Holder#X", Alias)) === "ω").and(found(("Other#V", Alias)) === "1")
   }
 
   // `b.Bytes` is `a.Bytes` = Array[Byte] = ω. Read by its last segment it named itself, and the
@@ -265,7 +272,7 @@ class NamespaceSpec extends Specification {
     rows("trait Foo[A] { type B = A }\nfinal case class D(y: Foo.B)")(("D", Class)) ===
       "unresolved[Foo.B]"
 
-  // `scala.Int` = 2^32, `scala.Option[Boolean]` = 1 + 2 = 3, an immutable
+  // `scala.Int` = 2^32, `scala.Option[Boolean]` = 1 + 2 = 3, `java.lang.String` = ω, an immutable
   // `List[Boolean]` = ω; `java.util.List` is a mutable Java list the algebra does not model.
   def standardSpellings = {
     val found = rows(
@@ -278,6 +285,7 @@ class NamespaceSpec extends Specification {
     )
     (found(("I", Alias)) === "≤2^32")
       .and(found(("O", Alias)) === "3")
+      .and(found(("S", Alias)) === "ω")
       .and(found(("L", Alias)) === "ω")
       .and(found(("J", Alias)) === "unresolved[java.util.List]")
   }
@@ -386,6 +394,16 @@ class NamespaceSpec extends Specification {
     val param = box.ctor.paramClauses.head.values.head.decltpe.get
     (constructor("l.F.g.Out.<init>", files*) === Count.Finite(2))
       .and(Reading.of(tree).read(param, param) === Left(List(Definition.Unbound.Parameter("A"))))
+  }
+
+  // In `Dep(q: Other)(val x: q.X)`, `q` is the first clause's parameter, of type `Other`, whose `X`
+  // is `Int` (2^32) — not the package's object `q` (`X = Boolean`). The method side reads the
+  // parameter's path too (members M1), so the constructor's two readings agree: 2^32.
+  def slotParameterPath = {
+    val code =
+      "package u\nobject q { type X = Boolean }\nfinal class Other { type X = Int }\nfinal case class Dep(q: Other)(val x: q.X)"
+    (constructor("u.Dep.<init>", "S.scala" -> code).render === "2^32")
+      .and(rowsOf("S.scala" -> code)(("u.Dep", Class)) === "≤2^32")
   }
 
   // `Failure`'s `Failed` case holds a `Widget` nobody supplied: the estimate refuses the slot, and
@@ -500,6 +518,52 @@ class NamespaceSpec extends Specification {
       "y/B.scala" -> "package y\nimport zz.Widget\nfinal case class UsesWidget(w: Widget)",
     )(("y.UsesWidget", Class)) === widget
 
+  // `p.X` reads `Prism`'s `X = Span` in Prism's body, where `Span` is `Prism.Span(b: Boolean)` —
+  // 2 — never the top-level `Span(u: Unit)` the reader sees (1). Likewise `Prism3`'s `X = W` is
+  // its own `W = Boolean` (2), not `Holder3`'s `W = Unit`. scalac accepts `val check: Y =
+  // p.Span(true)` and `val check: Y = true`. The method side now reads `UsesY`'s slot through the
+  // path `p` as Prism's own `Span` (members M1: Prism's alias read in Prism's body, 2), so the
+  // readings agree; its environment (`p: Prism`, a class with a term member) stays unresolved.
+  def classMemberScope = {
+    val code =
+      """|final case class Span(u: Unit)
+         |final class Prism(val n: Int) { final case class Span(b: Boolean); type X = Span }
+         |final class Holder(val p: Prism) { type Y = p.X; final case class UsesY(y: p.X) }
+         |final class Prism3(val n: Int) { type W = Boolean; type X = W }
+         |final class Holder3(val p: Prism3) { type W = Unit; type Y = p.X }
+         |""".stripMargin
+    val found = rows(code)
+    (found(("Holder#Y", Alias)) === "2")
+      .and(found(("Holder3#Y", Alias)) === "2")
+      // The final Prism is the record of its public field (capabilities C4), so the constructor
+      // reads its one parameter, p.X = p.Span: 2.
+      .and(constructor("Holder.UsesY.<init>", "M.scala" -> code) === Count.Finite(2))
+  }
+
+  // The first name of `p.X` is the innermost term: `Inner`'s `val p = new Prism2` (its `X = Unit`,
+  // 1) over the class parameter `p: Prism` (`X = Boolean`); `Inner2`'s object `p` (`X = Unit`) over
+  // the same parameter; `H`'s `val q = new Prism2` over package `p`'s object `q` (`X = Boolean`);
+  // `Holder`'s `val p = new Other` (`X = Int`, 2^32) over the file's object `p`. scalac accepts
+  // `val check: X = ()` in each Unit case.
+  def qualifierBindings = {
+    val nested = rows(
+      """|final class Prism(val n: Int) { type X = Boolean }
+         |final class Prism2(val n: Int) { type X = Unit }
+         |final class Outer(val p: Prism) { object Inner { val p = new Prism2(1); type X = p.X } }
+         |final class Outer2(val p: Prism) { object Inner2 { object p { type X = Unit }; type X = p.X } }
+         |""".stripMargin
+    )
+    val files = rowsOf(
+      "F1.scala" -> "package p\nobject q { type X = Boolean }",
+      "F2.scala" -> "package p\nfinal class Prism2(val n: Int) { type X = Unit }\nfinal class H(val n: Int) { val q = new Prism2(1); type Y = q.X }",
+      "C.scala" -> "package t\nobject p { type X = Boolean }\nfinal class Other { type X = Int }\nfinal class Holder { val p = new Other; type Y = p.X }",
+    )
+    (nested(("Outer#Inner.X", Alias)) === "1")
+      .and(nested(("Outer2#Inner2.X", Alias)) === "1")
+      .and(files(("p.H#Y", Alias)) === "1")
+      .and(files(("t.Holder#Y", Alias)) === "≤2^32")
+  }
+
   // `val p = make()` has no type the estimate reads, and it shadows the object `p`: the reference
   // is its own reason, never the object's Boolean.
   def untypedValue =
@@ -520,7 +584,8 @@ class NamespaceSpec extends Specification {
 
   // `Q[A]` and `Q2[B]` are alpha-equivalent: each holds `O.P` instantiated at its own parameter,
   // and `P` holds an unsupplied `Schema`. Neither is P's own recursion, so neither borrows P's
-  // solved placeholder: both depend on their parameter and name Schema.
+  // solved placeholder: both depend on their parameter and name Schema. `Chain[A]`'s reference to
+  // itself inside its own equation is its recursion: Chain = 1 + Chain, least fixed point ω.
   def selfInstantiation = {
     val found = rows(
       """|import zz.Schema
@@ -535,6 +600,7 @@ class NamespaceSpec extends Specification {
     (found(("Q", Class)) === s"unresolved[A, $schema]")
       .and(found(("Q2", Class)) === s"unresolved[B, $schema]")
       .and(found(("T", Class)) === s"unresolved[A, $schema]")
+      .and(found(("Chain", Class)) === "ω")
   }
 
   // `K`'s and `K2`'s `X = Q.Outer[Unit]` read `Outer` at `Unit`, whose `In` holds the class's own
@@ -603,8 +669,8 @@ class NamespaceSpec extends Specification {
     )
     def cycle(names: String*) = names.map(n => s"lazy cycle not completed: $n").mkString(", ")
     (found(("O.Cell", Class)) === s"unresolved[${cycle("Cell", "S")}]")
-      .and(found(("S", Class)) === s"unresolved[${cycle("S")}]")
-      .and(found(("UsesCell", Class)) === s"unresolved[${cycle("S")}]")
+      .and(found(("S", Class)) === s"unresolved[${cycle("S", "O.Cell")}]")
+      .and(found(("UsesCell", Class)) === s"unresolved[${cycle("O.Cell", "S")}]")
       .and(found(("S2", Class)) === s"unresolved[${cycle("S2", "Cell2")}]")
       .and(found(("Cell2", Class)) === s"unresolved[${cycle("Cell2", "S2")}]")
       .and(found(("UsesSt", Class)) === "ω")

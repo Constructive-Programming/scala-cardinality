@@ -24,7 +24,8 @@ private[cardinality] object ExistentialInputs {
       scala.collection.mutable.Map.empty[(String, String, Int, Int), String]
 
     /** The arguments of one application, each read by `resolve` at the kind its parameter takes,
-      * except a wildcard, which is a witness of the package the application becomes.
+      * except a wildcard at a proper position, which is a witness of the package the application
+      * becomes. A wildcard where a constructor is expected stands for an unknown constructor.
       */
     def arguments(
         callee: Type,
@@ -36,6 +37,13 @@ private[cardinality] object ExistentialInputs {
       val prepared = kinded.zipWithIndex.map {
         case ((tpe, kind), index) =>
           tpe match {
+            case wildcard: Type.Wildcard if kind != Kind.Proper =>
+              Left(
+                s"existential type constructor requires witness-kind analysis: ${Spelling.of(wildcard)}"
+              )
+            case wildcard: Type.Wildcard
+                if wildcard.bounds.lo.nonEmpty || wildcard.bounds.hi.nonEmpty =>
+              Left(TypePlaceholders.existential(wildcard))
             case wildcard: Type.Wildcard =>
               val key = (frame.id, TypeApplications.name(callee), wildcard.pos.start, index)
               val name = templates.getOrElseUpdate(key, s"$$existentialTemplate${templates.size}")
@@ -48,6 +56,12 @@ private[cardinality] object ExistentialInputs {
     }
 
   }
+
+  val resultBoundary =
+    "existential wildcard result construction and repackaging requires witness-choice analysis"
+
+  val callableBoundary =
+    "existential callable result elimination requires scoped witness-generation analysis"
 
   final private case class RewriteEnv(
       replacements: Map[String, Shape],
