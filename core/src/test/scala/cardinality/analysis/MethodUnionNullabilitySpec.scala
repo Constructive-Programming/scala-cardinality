@@ -49,7 +49,8 @@ class MethodUnionNullabilitySpec extends Specification {
         reasons.exists(_.contains("overlap and discrimination proof")) must beTrue
     }
 
-  // Two classes, neither deriving from the other: no value is both, so the union is their sum.
+  // Two non-final case classes, neither deriving from the other: single inheritance means no value
+  // is both, so the union is their sum.
   def nominal =
     entry("case class One()\ncase class Two()\ndef pick(): One | Two = One()").count === Count
       .Finite(2)

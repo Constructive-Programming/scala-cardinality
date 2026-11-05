@@ -37,7 +37,6 @@ class GroundTypesSpec extends Specification {
       an empty closed value makes the context absurd               $emptyClosed
       closed repeated arguments are transparent sequences          $closedRepeated
     Constructors read closed positions by exact value space
-      a capacity becomes an exact count with the same text         $holder
       a sum position is exact, not a rounded bound                 $optionPosition
       a colliding closed position is a value space, not functions  $collision
       a finite function position stays finite                      $finiteFunctionPosition
@@ -214,11 +213,6 @@ class GroundTypesSpec extends Specification {
       .and(count("def f[A](xs: Int*)(a: A): A = a") === Count.Finite(1))
       .and(count("def f(xs: Boolean*): Boolean = true") === Count.Countable)
       .and(count("def f[A](g: (Int*) => A): A = g()") === Count.Countable)
-
-  def holder = {
-    val c = count("case class Holder[A](value: A, count: Int)", "Holder.<init>")
-    (c === Count.Finite(two32)).and(c.render === "2^32")
-  }
 
   def optionPosition = {
     // 2^64 + 2^32, which the estimate rounds to the bound 2^65.

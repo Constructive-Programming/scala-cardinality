@@ -72,7 +72,6 @@ class TopTypesUnionSpec extends Specification {
       a result adds its alternatives                                 $sumOut
       an input multiplies its branches                               $sumIn
       a module singleton and a tuple are disjoint                    $singletonTuple
-      non-final case classes are disjoint by single inheritance      $classes
       nested unions flatten                                          $nested
       a union alias reads as the same sum                            $alias
       a union alias nested in a union flattens                       $aliasNested
@@ -505,10 +504,6 @@ class TopTypesUnionSpec extends Specification {
       "case object Green\ndef t(p: (Boolean, Boolean)): Green.type | (Boolean, Boolean) = Green",
       "t"
     ) === Count.Finite(625)
-
-  def classes =
-    count("case class One()\ncase class Two()\ndef pick(): One | Two = One()", "pick") ===
-      Count.Finite(2)
 
   // 2 + 1 + 2 results; r.level × f → 4 branches → 5^4.
   def nested =
