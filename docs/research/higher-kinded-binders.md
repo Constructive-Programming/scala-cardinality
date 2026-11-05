@@ -134,8 +134,8 @@ either, so the meeting is refused.
 | bounds referring back through bounds alone (invalid: E140), used or not, a `Unit` result too | `cyclic type bound (an invalid program)` |
 | `AnyRef` / `AnyVal` / `Matchable` above a structural lower bound whose class is not fixed or differs (`A >: Flag <: AnyVal`: every call E057) | `structural lower bound under a class bound requires class analysis` |
 | a view bound `A <% T` (invalid: removed in Scala 3), used or not, a `Unit` result too | `view bound is not Scala 3 (an invalid program)` |
-| `<: Any` / `AnyRef` / `Object` / `AnyVal` / `Matchable` or `>: Nothing` where a channel may rebind the name (`import foreign.*`) | `builtin name … may be shadowed through …` (the channel's reason) |
-| any builtin or model name under `import java.lang.*` (`Boolean`, `Byte`, `Short`, `Long`, `Float`, `Double` are the boxed classes there; the model does not list `java.lang`'s other members, so `Int` is refused too — D16) | `builtin name … may be shadowed through a reference not supplied: java.lang (wildcard import of java.lang)` |
+| `<: Any` / `AnyRef` / `Object` / `AnyVal` / `Matchable` or `>: Nothing` where a declaration or a library channel may rebind the name (an unsupplied `import foreign.*` does not: D37) | `builtin name … may be shadowed …` (the channel's reason) |
+| `Boolean`, `Byte`, `Short`, `Long`, `Float`, `Double` under `import java.lang.*`: the boxed classes there (`ListedNamespaces` lists them; `Int` is no member of `java.lang` and stays `scala.Int`) | `declaration not supplied: java.lang.Boolean (wildcard import)` |
 | a subtype proof beside a callable or a sum value | `unsupported subtype evidence interaction` (contravariant uses are not read) |
 | a callable producing a structurally bounded value | `… a callable produces a value its bound views as a structural type` |
 | two values a structural bound views producing their own type | `… values a bound views as a structural type may be the same case` |

@@ -87,16 +87,10 @@ class KindedIdentitySpec extends Specification {
       .and(inherits("C4.m", "H (the result instantiates the binder)", "K"))
   }
 
-  private def refused(found: Count, fragment: String) =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
-
   // A rigid `F` tells its arguments apart by the declarations they name (hkt R2), every spelling of a
   // model entry one key: `List` and `scala.collection.immutable.List` (also through a named
-  // import) are one type, `Option[Int]` and `Either[Unit, Int]` two, though both are `1 + Int`. An
-  // excluded or unmodelled entry's parameters are not held (`scala.quoted.Type` takes any kind), so
-  // its key is refused with the entry's reason; a throwable is a read entry, its own key (x).
+  // import) are one type, `Option[Int]` and `Either[Unit, Int]` two, though both are `1 + Int`. A
+  // `Map` (lawful key equality) and a throwable are read entries, their own keys (x).
   def modelKeys = {
     val code = """object K {
       |  def list[F[_]](x: F[List[Int]]): F[scala.collection.immutable.List[Int]] = x
@@ -112,9 +106,7 @@ class KindedIdentitySpec extends Specification {
     (counts("K.list") === Count.Finite(1))
       .and(counts("K.seq") === Count.Finite(1))
       .and(counts("K.sum") === Count.Finite(0))
-      .and(
-        refused(counts("K.map"), "outside the counting model: scala.collection.immutable.Map")
-      )
+      .and(counts("K.map") === Count.Finite(1))
       .and(counts("K.throwable") === Count.Finite(1))
       .and(imported === Count.Finite(1))
   }

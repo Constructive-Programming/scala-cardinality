@@ -177,14 +177,15 @@ that tier.
   wildcard-imported object inherits or exports, a package object's parents, or export clauses.
   With `trait Base { type Int = Boolean }`, `Int` is `Boolean` in each of those (Scala 3.9.0
   rejects `val w: Int = 3` there), so the builtin is refused, `builtin name Int may be shadowed by
-  a declaration: w8.Base.Int (wildcard import of O)`, until those members are resolved where they are declared. A step the walk cannot follow is
-  refused too when it may lead into the sources (`import o.*` of a supplied value: `… shadowed
-  through a reference not resolved: o`). The walk runs only for a name a supplied type, enum case or
+  a declaration: w8.Base.Int (wildcard import of O)`, until those members are resolved where they are declared. A step the walk cannot follow binds
+  no builtin (register D37); one into a supplied value is refused by lookup itself
+  (`import o.*`: `path through a value not followed: o`). The walk runs only for a name a supplied type, enum case or
   export spells, so it never runs on eo 1.0.0. A primary constructor's parameters are read outside
   the template's members (`class Sub(x: Int) extends Base` reads `scala.Int`).
-- Ground names under a wildcard import of a foreign namespace (`import org.foo.*`) are refused
-  (`builtin name Int may be shadowed through a reference not supplied: org.foo …`): `org.foo` may
-  declare `type Int = Unit`. The stdlib namespaces the model lists declare no root name
+- Ground names under a wildcard import of a foreign namespace (`import org.foo.*`) keep their
+  reading: `org.foo` could declare `type Int = Unit`, which the never-shadowed assumption sets
+  aside (v1.md §2, register D37); under a library wildcard (`import java.util.*`) they
+  are refused (`builtin name Int may be shadowed through a reference not supplied: java.util …`). The stdlib namespaces the model lists declare no root name
   ([stdlib-model.md](stdlib-model.md)), so on eo 1.0.0 `AvroWalk.normalisedName` (ω) keeps its
   count under `import scala.jdk.CollectionConverters.*`.
 - Two anonymous `using` parameters of one ground type are ambiguous for `summon`, so neither is

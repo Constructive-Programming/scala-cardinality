@@ -29,6 +29,22 @@ in code, tests and docs:
   Divergence, a `null` the type does not declare, unsafe casts, reflection and unrestricted
   runtime type or equality tests are outside the model too.
 
+Three further idealizations stand beside it (v1.md §2):
+
+- **Key equality is lawful; a single-pass read is replayable.** A `Map` or `Set` is its abstract
+  value (a finite partial function, a finite subset), counted over closed arguments; an
+  `Iterator`, `IterableOnce`, `ByteBuffer` or `InputStream` is the sequence it yields. Never refuse
+  one for equality-building or single-pass reading; a key over a type parameter is still refused.
+- **Builtin names are never shadowed by what is not supplied.** An unsupplied wildcard, parent,
+  self type or any unresolved reference rebinds no root-import name (`Int`, `Option`, `Any`, …). An
+  explicit, resolved declaration or import still shadows it. A JDK or standard-library wildcard
+  binds the names it declares by their rooted names (`import java.util.*`: `List` is
+  `java.util.List`), and rooted names with the same values count the same (Java and mutable
+  collections, boxes, `Optional`) while keeping their own identity as type arguments.
+- **A top type is read by its polarity.** `Any` (and `AnyRef`, `Object`, `Matchable`, `AnyVal`)
+  is one value where negative (a parameter) and ε₀ where positive (a result). Polarity flips only
+  through function domains; `Set` elements and `Map` keys keep their container's polarity.
+
 The analyzer does not certify that a body obeys the assumption. A `0` means "no pure, total,
 parametric implementation", not "no Scala body compiles".
 

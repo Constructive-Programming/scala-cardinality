@@ -170,17 +170,12 @@ class GroundTypesSpec extends Specification {
       .and(count("def f[A](s: String, g: String => A): A = g(s)") === Count.Countable)
 
   // `Predef.String` is relative to the root import of `scala.Predef`: a top-level package `Predef`
-  // outside the sources outranks it (Scala 3.9.0 fixture), and could declare a `String` that yields
-  // an A. Only the fully qualified spellings are the builtin.
+  // outside the sources would outrank it (Scala 3.9.0 fixture), but none is assumed (the
+  // never-shadowed assumption), so it is the builtin like the fully qualified spellings: a alone.
   def qualified =
     (count("def f(x: scala.Int): Int = x") === count("def f(x: Int): Int = x"))
       .and(count("def f[A](x: java.lang.String, a: A, b: A): A = a") === Count.Countable)
-      .and(
-        unresolvedOn(
-          count("def f[A](x: Predef.String, a: A): A = a"),
-          "builtin name Predef.String may be shadowed by a top-level package outside the sources: Predef"
-        )
-      )
+      .and(count("def f[A](x: Predef.String, a: A): A = a") === Count.Finite(1))
       .and(count("def f[A](x: scala.Predef.String, a: A): A = a") === Count.Finite(1))
 
   def closedBooleans =

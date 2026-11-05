@@ -220,9 +220,10 @@ class HigherKindedRefusalSpec extends Specification {
 
   // Under `import java.lang.*`, `Boolean` is java.lang.Boolean (3.9.0 accepts `val b: Boolean =
   // null` there and rejects `F[Boolean]` as an `F[scala.Boolean]`): exact count 0, not the 1 the
-  // two scala keys gave. A wildcard of a namespace the sources do not supply and the stdlib model
-  // does not list may bind any builtin name (D16), so `Int` is refused too (true 1: java.lang has
-  // no `Int`, but the model does not list its members). A renaming import binds no bare name.
+  // two scala keys gave. The wildcard binds them by their rooted names (`ListedNamespaces`), whose
+  // values are the scalars' (v1.md §2): `plain` is a Boolean endomorphism, 4, while the keys stay
+  // apart, so `boo`, `lng` and `dbl` are 0. It binds no other builtin name (java.lang has no
+  // `Int`), so `int` is x alone (1). A renaming import binds no bare name.
   def boxedNames = {
     val counts = entries("""
       package boxed {
@@ -243,18 +244,11 @@ class HigherKindedRefusalSpec extends Specification {
       "import java.lang.{Boolean => JB}\nobject T { def boo[F[_]](x: F[Boolean]): F[scala.Boolean] = x }",
       "T.boo"
     )
-    def boxed(name: String, builtin: String, prefix: String) =
-      refused(
-        counts,
-        name,
-        s"builtin name $builtin may be shadowed through a reference not supplied: $prefix " +
-          s"(wildcard import of $prefix)"
-      )
-    boxed("boxed.T.plain", "Boolean", "java.lang")
-      .and(boxed("boxed.T.boo", "Boolean", "java.lang"))
-      .and(boxed("boxed.T.lng", "Long", "java.lang"))
-      .and(boxed("boxed.T.int", "Int", "java.lang"))
-      .and(boxed("rooted.T.dbl", "Double", "_root_.java.lang"))
+    (counts("boxed.T.plain") === Count.Finite(4))
+      .and(counts("boxed.T.boo") === Count.Finite(0))
+      .and(counts("boxed.T.lng") === Count.Finite(0))
+      .and(counts("boxed.T.int") === Count.Finite(1))
+      .and(counts("rooted.T.dbl") === Count.Finite(0))
       .and(renamed === Count.Finite(1))
   }
 

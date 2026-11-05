@@ -1,7 +1,8 @@
 # Top types, one-valued goals and unions
 
-The method-side solver reads `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` as the
-**terminal type** `1`, counts a goal with exactly one value as one implementation in every
+The method-side solver reads `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` **by polarity**
+(Rule P below, superseding Rule T's reading of a positive position): the terminal type `1` where
+negative, ε₀ where positive. It counts a goal with exactly one value as one implementation in every
 environment, and reads a union `A₁ | … | Aₙ` as the tagged sum `A₁ + … + Aₙ` only where a class
 test is its eliminator. This page states the rules, their derivations, the counts they produce and
 where they stop. The stored-value side keeps its own reading of `Any` (everything, ε₀) and `Null`
@@ -32,7 +33,30 @@ the `2^32` constants and never a function of `a.hashCode`. A source override of 
 (`override def equals(that: Any): Boolean`) is counted like any method: `that` carries no
 information, so its implementations ignore it, which is exact in the model.
 
-## Rule T: the top types are terminal
+## Rule P: a top type is read by its polarity (supersedes Rule T where positive)
+
+**Statement** (the owner's idealization, v1.md §2, register D38). A top type in a negative
+position — a method parameter, a capture, the result of a function the body is given — is `1`:
+the body observes nothing of it, as Rule T derives. In a positive position — the method's result,
+a value the body builds, the parameter of a function the body is given — it is ε₀, the size
+algebra's tier for "any value" (the stored-value side's reading of `Any`), which absorbs ω and
+itself (`2^ε₀ = ε₀`). Polarity flips through a function's parameters and nowhere else: a product,
+a sum, a sequence, an existential or polymorphic body keeps it, and so do a `Set`'s elements and a
+`Map`'s keys, which are contents though the model reads the container as the function it
+tabulates (`TopTypes.keyed` undoes that domain's flip). A rigid constructor's arguments are keys,
+not values, and are not read. A constructor slot is a parameter of the constructor: negative.
+
+**Counts** (`TopTypesUnionSpec.polarity`, `StdlibModelSpec.keyed`): `def p(x: Any): Boolean` 2;
+`def r(b: Boolean): Any` ε₀; `def call[R](f: Any => R): R` ε₀ (the body builds f's argument);
+`Set[Any]` as a parameter 2 values (empty or not: `Set[Any] => Boolean` is 4), as a result
+`2^ε₀ = ε₀`; `Map[Any, Boolean]` as a parameter 3 values (8 Booleans of it), as a result `3^ε₀ = ε₀`;
+`case class AnyBox(x: Any)` 1, `final case class TC(f: Any => Boolean)` ε₀. A one-valued goal is
+judged after polarity, so an `Any` result is no longer terminal: an unreadable name beside it now
+refuses the count (`def encode(a: A): Any` beside an unsupplied `Schema`). A supplied `g: A => Any`
+yields a negative top the solver does not enumerate as an argument space where its result is
+eliminated, so `def loop[A](a: A, f: Any => A, g: A => Any): A` is refused (it was 2).
+
+## Rule T: the top types are terminal (negative positions)
 
 **Statement.** Where a top spelling reaches the builtin — no binder, declaration, import, export,
 inherited member or wildcard-imported member gives it another meaning, and no channel around the
@@ -91,11 +115,10 @@ another meaning may hide behind a name:
   supplied declaration provides (`import ext.*`, `export ext.defs.*`), or the outer clause of a
   chained `package a; package b` when no supplied unit declares a member of `a` (the clause opens
   all of `a`'s members, wherever they are written). Scala 3.9.0 compiles
-  `def g(): Unit = false` in each case when the outside declaration is `type Unit = Boolean`, so
-  the rows keep their other reasons plus `builtin names may be shadowed through a reference not
-  supplied: <step> (<channel>)` (`… not resolved …` for a step this reading cannot follow). The top
-  names themselves are refused there the same way (`builtin name Any may be shadowed through …`),
-  and so is every other builtin and stdlib-model name ([stdlib-model.md](stdlib-model.md));
+  `def g(): Unit = false` in each case when the outside declaration is `type Unit = Boolean`; the
+  never-shadowed assumption (v1.md §2, register D37) sets that case aside, so the top
+  names and every other builtin and stdlib-model name keep their reading there, unless the channel
+  leads into the standard library or the JDK ([stdlib-model.md](stdlib-model.md));
 - a `transparent inline` result must also pass rule X.
 
 Constructor rows are value spaces, not goals, and are untouched.
@@ -274,7 +297,7 @@ family, any other may.
 | literal alternatives beside a class (`1 \| Int`) | `two alternatives share runtime class …` (a union of literals alone is the set of its constants: [syntax-features.md](syntax-features.md)) |
 | callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md): `TopTypesUnionSpec.callableSum` 27); an open one keeps the union's own reason |
 | transparent result whose declared type is not a singleton | `transparent inline result: …` |
-| self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
+| self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | the builtin (never-shadowed assumption); through the standard library or the JDK, `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
 | a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |
 | an `inline` method whose body uses a compile-time operation or another channel to the call site | `inline method: <what failed>` ([syntax-features.md](syntax-features.md)) |
 | `Any` shadowed (alias, binder, import, inherited member) | the shadowing declaration's reading or refusal, unchanged |

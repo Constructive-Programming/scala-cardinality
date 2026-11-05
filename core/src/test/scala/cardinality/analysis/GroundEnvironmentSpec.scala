@@ -353,9 +353,10 @@ class GroundEnvironmentSpec extends Specification {
     rows("f") === Count.Finite(4)
   }
 
-  // A bare parent name found in no scope is the stdlib's; a supplied type of the same simple name
-  // doubts it only where a bare name could denote that type - a package's type, not one nested in
-  // an object (izumi's `CollectionCompat.IterableOnce`), which only its container's name reaches.
+  // A bare parent name found in no scope is the stdlib's. A supplied type of the same simple name
+  // that lookup does not reach never rebinds it (the never-shadowed assumption): neither one nested
+  // in an object (izumi's `CollectionCompat.IterableOnce`) nor another package's top-level alias,
+  // which Scala 3.9.0 does not make visible in `pv` either. `length` is then any Int (2^32).
   def nestedParentName = {
     val parent = "sealed trait V[+B] extends IterableOnce[B]\n" +
       "object V { case object E extends V[Nothing] { def length: Int = 0 } }"
@@ -368,7 +369,7 @@ class GroundEnvironmentSpec extends Specification {
       "v.scala" -> s"package pv\n$parent"
     )
     (nested("nv.V.E.length") === Count.Finite(BigInt(2).pow(32)))
-      .and(packaged("pv.V.E.length") must beLike { case _: Count.Unresolved => ok })
+      .and(packaged("pv.V.E.length") === Count.Finite(BigInt(2).pow(32)))
   }
 
   def packageObject = {
@@ -431,7 +432,9 @@ class GroundEnvironmentSpec extends Specification {
     )
 
   // An enum's class case is in scope in its body; an explicit export forwards the member (`ex.f`
-  // reads `O.Int = Boolean`: 4); a refined self type is a step the walk cannot follow. A parent the
+  // reads `O.Int = Boolean`: 4); a refined self type is a step the walk cannot follow, which no
+  // longer refuses the builtin (the never-shadowed assumption) but is refused by the
+  // inherited-member reading, which does not read the refinement either. A parent the
   // inherited-member reading does not have — an alias of the parent, or an import outside the
   // sources (`bp` assumes an unsupplied `nowhere`) — may declare `Int`, and is refused there before
   // any builtin reading (true counts 4).
@@ -452,7 +455,7 @@ class GroundEnvironmentSpec extends Specification {
       .and(
         unresolvedOn(
           rows("rs.Sub.f"),
-          "shadowed through a reference not resolved: Base { type X = Unit } (self type of rs.Sub)"
+          "self type not resolved: Base { type X = Unit }"
         )
       )
       .and(
@@ -505,16 +508,15 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("cp.O.P.<init>") === Count.Finite(2))
   }
 
-  // A namespace no supplied term heads is foreign: `org.foo` may declare `Int` (a wildcard import
-  // outranks the root import), so the builtin is refused, even beside a supplied `type Int`.
+  // A namespace no supplied term heads is foreign. A wildcard import outranks the root import, but
+  // one over a namespace the sources do not supply never rebinds a builtin name (the
+  // never-shadowed assumption), and the supplied `Base.Int` is not in scope in `C`: `Int` is
+  // scala.Int and f picks a or b per Int, 2^(2^32).
   def foreignWildcard =
-    unresolvedOn(
-      count(
-        s"package fw\n${base}import org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
-        "fw.C.f"
-      ),
-      "builtin name Int may be shadowed through a reference not supplied: org.foo (wildcard import of org.foo)"
-    )
+    count(
+      s"package fw\n${base}import org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
+      "fw.C.f"
+    ) === intPredicate
 
   // C has one `g`: two abstract members with the same signature merge (f = g ∘ h, h: Bool => Int,
   // so |Int|^|Bool| = 2^64, not (2·2^32)^2). Overloads stay two members. A restatement two levels
@@ -725,15 +727,12 @@ class GroundEnvironmentSpec extends Specification {
       "constructor position readings disagree: f (value space 1, estimate 0)"
     ).and(count("def f(g: Nothing => String): Int = 0", "f") === Count.Finite(BigInt(2).pow(32)))
 
-  // If org.foo declared `type Int = Unit` the count would be 1, not 2^(2^32): the builtin is refused
-  // (the stdlib model lists no `org.foo`).
+  // An unsupplied `org.foo` is assumed not to declare `Int` (the never-shadowed assumption; were it
+  // `type Int = Unit` the count would be 1): `Int` is scala.Int, 2^(2^32).
   def wildcard =
-    unresolvedOn(
-      count(
-        "package imp\nimport org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
-        "imp.C.f"
-      ),
-      "builtin name Int may be shadowed through a reference not supplied: org.foo"
-    )
+    count(
+      "package imp\nimport org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
+      "imp.C.f"
+    ) === intPredicate
 
 }

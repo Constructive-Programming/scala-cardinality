@@ -455,13 +455,13 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       .and(found("T.plain") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))))
   }
 
-  // Every expansion of a Unit or Any goal yields its one value.
+  // Every expansion of a Unit goal yields its one value; an Any result is positive, ε₀ (v1.md §2).
   def inlineTerminal = {
     val found = rows("""object T {
       |  inline def unit[A](x: A): Unit = ()
       |  inline def top(x: Any): Any = x
       |}""".stripMargin)
-    (found("T.unit") === Count.Finite(1)).and(found("T.top") === Count.Finite(1))
+    (found("T.unit") === Count.Finite(1)).and(found("T.top").render === "ε₀")
   }
 
   // A transparent result's call site sees the expansion's type: an `Any` field may be narrowed to

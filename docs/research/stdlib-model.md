@@ -37,12 +37,14 @@ goal of `E.A.type` is 1.
 | product | `Tuple1`…`Tuple22` (≡ tuple syntax), `EmptyTuple`, `Some[A]` ≡ `A`, `Left[A, B]` ≡ `A`, `Right[A, B]` ≡ `B`, `NamedTuple.NamedTuple[N, V]` ≡ `V` | `Product` |
 | sum | `Option[A]` = `1 + A`, `Either[L, R]` = `L + R` | `Sum` |
 | function | `Function0`…`Function22` ≡ the arrow they spell | `Function` |
-| finite sequence | `List`, `Vector`, `IndexedSeq`, `Seq`, `immutable.ArraySeq`, `Array[E]` | `Repeated(E)` |
+| finite sequence | `List`, `Vector`, `IndexedSeq`, `Seq`, `immutable.ArraySeq`, `Array[E]`; the single-pass `Iterator`, `IterableOnce`, `java.util.Iterator` (reading is no effect, v1.md §2) | `Repeated(E)` |
+| byte sequence | `java.nio.ByteBuffer`, `java.io.InputStream`: the bytes they yield (single-pass, as above) | `Repeated(Byte)` |
+| finite map, finite set | `Map[K, V]`, `Set[E]` under lawful key equality (v1.md §2): the finite partial function or finite subset, read over closed arguments as the function it tabulates, a top among the keys keeping the container's polarity (top-types-unions.md Rule P); over an open argument, refused | `Function(K, 1 + V)`, `Function(E, 2)`; refused: `<fqn> over an open type is not read (…)` |
+| same value space, other name | `scala.collection.{Seq, IndexedSeq, Iterable}`, `immutable.Iterable`, `mutable.{Seq, IndexedSeq, Iterable, Buffer, ArrayBuffer, ListBuffer}`, `java.lang.Iterable`, `java.util.{Collection, List, ArrayList, LinkedList, Vector}`, `java.util.stream.Stream` (sequences); `collection.Map`, `mutable.Map`, `concurrent.Map`, `java.util.{Map, HashMap, LinkedHashMap, TreeMap}`, `java.util.concurrent.{ConcurrentMap, ConcurrentHashMap}` (maps); `collection.Set`, `mutable.Set`, `java.util.{Set, HashSet, LinkedHashSet, TreeSet}` (sets); `java.lang.{Boolean, Byte, Short, Character, Integer, Long, Float, Double}` (their scalars); `java.util.Optional` (`Option`); `java.util.function.Function` (`Function1`) — mutability is a `var` read as a `val`, order and representation are not observed | the modelled type's shape, under its own name as a rigid constructor's argument |
 | type constructor | any of the above unapplied: in a higher-kinded position (`Box[Either]`) an operator of the higher-kinded reading, applied where it is read; read as a proper type (no Scala program) | operator ([higher-kinded binders](higher-kinded-binders.md) R3); refused: `higher-kinded argument: scala.util.Either (type constructor [L, R] =>> L + R, needs higher-kinded instantiation)` |
-| excluded (final) | `Iterator`, `IterableOnce`, `java.util.Iterator`, `java.nio.ByteBuffer`, `java.io.InputStream` (a read changes them); `Map`, `Set` (built and read by key equality); `WeakReference`, `ReferenceQueue`; `scala.quoted.{Quotes, Expr, Type, …}`; `scala.reflect.{ClassTag, Manifest, TypeTest, Typeable}`, `scala.deriving.Mirror{, .Product, .Sum, .Singleton, .Of, .ProductOf, .SumOf}` (type-revealing evidence, [syntax-features.md](syntax-features.md)) | refused: `outside the counting model: <fqn> (<why>)` |
+| excluded (final) | `WeakReference`, `ReferenceQueue`; `scala.quoted.{Quotes, Expr, Type, …}`; `scala.reflect.{ClassTag, Manifest, TypeTest, Typeable}`, `scala.deriving.Mirror{, .Product, .Sum, .Singleton, .Of, .ProductOf, .SumOf}` (type-revealing evidence, [syntax-features.md](syntax-features.md)) | refused: `outside the counting model: <fqn> (<why>)` |
 | transparent, open | the throwables (`Throwable` … `NumberFormatException`, `java.util.NoSuchElementException`): built from any message, observed through `getMessage`, `getLocalizedMessage`, `getCause` ([code without side effects](pure-code.md), register D26) | `Ground(<fqn>, ω)` |
-| unmodelled, open | `Product`, `Equals`, `CharSequence`, `java.util.{List, Map, Set, Collection, ArrayList, HashMap}`, `ConcurrentHashMap` | refused: `open stdlib type with unmodelled members: <fqn>` |
-| unmodelled, final | `java.lang.Integer` | refused: `stdlib type with unmodelled members: <fqn>` |
+| unmodelled, open | `Product`, `Equals`, `CharSequence` | refused: `open stdlib type with unmodelled members: <fqn>` |
 
 **Products and sums.** `TupleN`, `Some`, `Left` and `Right` are `final case class`es with a public
 total constructor and public fields, so their values are exactly the products of their fields;
@@ -73,7 +75,25 @@ other, and an array of an empty type is only the empty one. `scala.Seq` admits a
 goal an infinite sequence needs an element, and with one the finite sequences already give ω; as an
 input, a total program inspects a finite prefix and its length tests (`lengthCompare`), so two
 programs that agree on every finite sequence agree on infinite ones too (continuity): counting over
-finite inputs is exact.
+finite inputs is exact. The single-pass `Iterator` and `IterableOnce` are read the same way:
+reading one is an effect, which the model excludes, so a total program observes the sequence it
+yields as it would a replayable one; a `ByteBuffer` or an `InputStream` is the sequence of its
+bytes (a buffer's position and capacity are more state of the same countable value).
+
+**Finite maps and sets.** Under the lawful-equality assumption (v1.md §2) a `Map[K, V]` is its
+abstract value, a finite partial function `K ⇀ V`, and a `Set[E]` a finite subset of `E`: iteration
+order and the hash structure are not observed. Over closed arguments
+([ground-scalar-types.md](ground-scalar-types.md)) the value space is `(|V| + 1)^|K|` and `2^|E|`
+for a finite key, and ω for an infinite one (countably many finite maps; the empty one alone when
+`V` is empty) — exactly the closed space of the function it tabulates, `K => 1 + V` and
+`E => Boolean`, whose power saturates at ω over an infinite domain (register D2). So the model
+reads it as that function, and the solver splits a supplied one and builds a goal of one like any
+closed value; a rigid constructor's argument keeps the `Map` / `Set` key (`F[Set[Int]]` is not
+`F[List[Int]]`). Over an open argument (`Set[A]`) it is refused: the keys are compared by an
+equality no parametric program has. A top type among the keys tells many values apart
+(`Set(1, "a")` is not `Set(1)`), so it is read by the container's polarity
+([top-types-unions.md](top-types-unions.md) Rule P): one value in a parameter's `Set[Any]` (2
+sets), ε₀ in a result's (2^ε₀).
 
 **Closed sequences are transparent data.** A sequence of closed elements (`Array[Byte]`,
 `List[Int]`, `Array[Any]` — `Any` is `1` on the method side, register D12) is a closed value like
@@ -139,13 +159,30 @@ qualified ones, and named imports of a model path (`import java.util.List` reads
 `java.util.List`, never a Scala sequence).
 
 **Wildcard refusal.** A wildcard import of a namespace the sources do not supply may declare any
-name. A `scala.Dynamic` parent is registered in the same table as a marker that declares no member
+name — but under the never-shadowed assumption (v1.md §2) it declares none the root imports bind:
+`Int`, `String`, `Option`, `Map` and every other builtin or model spelling keep their reading under
+`import lib.*`, an unsupplied parent or self type, or a package clause no supplied unit declares
+members of. What still rebinds one is a declaration a channel reaches (a supplied member, an enum
+case, an export selector, a listed namespace's member such as `quotes.reflect.Singleton`). A
+wildcard into the standard library or the JDK (`scala.*`, `java.*`, `javax.*`, a `scala`
+subpackage spelled relative to the root import) binds the root names its package declares by
+their full rooted names: `ListedNamespaces` lists, for every JDK 25 `java.*` / `javax.*` package
+and every scala-library 3.9.0 package, the types whose simple name the root imports bind to
+another declaration (47 in 21 packages: `java.util` `List`, `Map`, `Set`, `Iterator`, `Vector`,
+`Enumeration`; `java.lang` its boxed scalars, `Iterable`, `StringBuilder`; `scala.collection` and
+`mutable` `Seq`, `IndexedSeq`, `Map`, `Set`, `Iterable`; `java.awt.List`, `java.sql.Array`, …).
+`import java.util.*` makes `List` mean `java.util.List`, which the model reads as a sequence under
+its own name; a rooted name the model does not read stays `?` as itself (`declaration not
+supplied: java.awt.List (wildcard import)`). A step the reading cannot follow (`… not resolved`)
+rebinds nothing. A relative
+spelling through a root import (`util.Either`, `Predef.String`) is the builtin too: no top-level
+package outside the sources is assumed to outrank it.
+
+A `scala.Dynamic` parent is registered in the same table as a marker that declares no member
 a count reads: the structural calls its subclasses enable (`selectDynamic`, `applyDynamic`, …)
 are compile-time-generated members outside the model, and a run over sources that use them logs a
-notice saying so — the assumption is that no counted implementation calls a structural member. — `import java.util.*` brings `java.util.List` over `scala.List`. Every builtin and model
-name is refused there (`builtin name List may be shadowed through a reference not
-supplied: java.util (wildcard import of java.util)`), as is any other channel to undeclared names (an unsupplied
-parent, self type or package clause). A `_root_`-anchored path is exempt. One table,
+notice saying so — the assumption is that no counted implementation calls a structural member. — `import java.util.*` brings `java.util.List` over `scala.List`, read by that rooted name.
+A `_root_`-anchored path is exempt. One table,
 `ListedNamespaces`, which the stored-value estimate reads too, lists the stdlib namespaces whose
 wildcards both readings know, with what each declares: `scala.quoted.*` (the types `Expr`,
 `ExprMap`, `FromExpr`, `Quotes`, `ToExpr`, `Type`; the terms `Expr`, `Exprs`, `FromExpr`,
@@ -202,14 +239,12 @@ reference that one of them and an inner or same-scope wildcard both bind, so whe
 compiles the
 wildcard does not bind it — a fact about the reference, not the whole-program argument that a
 rebinding would not typecheck elsewhere, which no rule adopts. A name the sources do not declare is
-left to the root imports' reading, which refuses it through the same wildcard — a wildcard whose
-prefix's first name is itself in doubt included: that reading asks the lookup about the prefix
-(`import zzz.{Boolean as _, *}; import compose.*` refuses `Boolean`, which `zzz.compose.*` may bind:
-`builtin name Boolean may be shadowed through a reference not supplied: compose (wildcard import of
-compose: compose may be imported by zzz.*)`, fixtures r8 and r5). So does the `Singleton` marker of
-`O.type & Singleton`: it is `scala.Singleton` only where the lookup finds no declaration of the name
-and no channel may rebind it (under `import zzz.*` a `zzz.Singleton = Nothing` empties the type;
-under `quotes.reflect.*` it is reflect's own).
+left to the root imports' reading, which no unsupplied wildcard rebinds — a wildcard whose prefix's
+first name is itself in doubt included (`import zzz.{Boolean as _, *}; import compose.*` keeps
+`scala.Boolean`, though scalac binds `zzz.compose.Boolean` when it exists, fixtures r8 and r5: the
+never-shadowed assumption). So does the `Singleton` marker of `O.type & Singleton`: it is
+`scala.Singleton` unless the lookup finds a declaration of the name (under `quotes.reflect.*` it is
+reflect's own; under `import zzz.*` a `zzz.Singleton = Nothing` is assumed away).
 
 The same reading covers every clause that may bind a name besides a wildcard over a path:
 
@@ -353,7 +388,7 @@ either, since the table holds no parameters for them — `scala.quoted.Type` tak
 unapplied constructor read as a proper type; an `Array` of a type parameter or of a singleton of
 one, even as an input (the reading has no polarity); the members of a class only its own scope
 builds (a non-public constructor or class, a non-public enclosing template, a block) until its
-factories are read; `Map`/`Set` though the stored-value side keeps its mathematical estimate; names
+factories are read; `Map`/`Set` over an open argument; names
 under an unsupplied wildcard (a `given` selector, a package spelled only as a prefix and an
 importer whose prefix is no path included), and the source names and paths' first names it may
 bind; a definition in another block of the reading file's package on the stored side and in the

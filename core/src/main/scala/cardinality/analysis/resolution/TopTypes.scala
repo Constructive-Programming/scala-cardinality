@@ -2,7 +2,7 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
-import cardinality.analysis.inhabitation.{ClosedSpaces, Inhabitation, Natural}
+import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
 import cardinality.analysis.model.*
 import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.{TypeApplications, TypeSubstitution, Universe}
@@ -47,7 +47,39 @@ private[cardinality] object TopTypes {
   /** The bare names an import or an export could put another meaning behind. */
   val names: Set[String] = spellings.keySet.filterNot(_.contains('.'))
 
-  val terminal: Shape = Shape.Product(Nil)
+  /** A top type before its position is known: one value, which `polarized` keeps in a negative
+    * position (a parametric body observes nothing of it) and raises to ε₀ in a positive one (v1.md
+    * §2). Its own ground, so a key of a finite map or set tells it from `Unit`.
+    */
+  val terminal: Shape = Shape.Ground("Any", Card.one)
+
+  // A top among the keys of a finite map or set, read as the function the container tabulates:
+  // its domain flips the polarity once more, which the flipped name undoes, so a key keeps the
+  // container's polarity, as a sequence's element does.
+  private val Flipped = "Any (key)"
+
+  /** Whether a ground is a top type's, in either orientation. */
+  def top(name: String): Boolean = name == "Any" || name == Flipped
+
+  /** A key shape of a finite map or set, its tops flipped (see `Flipped`). */
+  def keyed(key: Shape): Shape = key match {
+    case Shape.Ground("Any", size)   => Shape.Ground(Flipped, size)
+    case Shape.Ground(Flipped, size) => Shape.Ground("Any", size)
+    case other                       => Shape.rebuild(other, Shape.children(other))(keyed)
+  }
+
+  /** A shape with its tops read by position: one value where negative, ε₀ where positive. Polarity
+    * flips through a function's parameters and nowhere else (a product, sum, sequence, existential
+    * or polymorphic body keeps it); a rigid application's arguments are keys, not values.
+    */
+  def polarized(shape: Shape, positive: Boolean): Shape = shape match {
+    case Shape.Ground(name, _) if top(name) =>
+      Shape.Ground(name, if (positive == (name == "Any")) Card.Epsilon0 else Card.one)
+    case Shape.Function(parameters, result) =>
+      Shape.Function(parameters.map(polarized(_, !positive)), polarized(result, positive))
+    case _: (Shape.Applied | Shape.Evidence | Shape.Singleton) => shape
+    case other => Shape.rebuild(other, Shape.children(other))(polarized(_, positive))
+  }
 
   /** The top type a builtin spelling denotes. */
   def named(name: String): Option[Kind] = spellings.get(name.stripPrefix("scala."))

@@ -1,6 +1,7 @@
 package cardinality.analysis
 
-import cardinality.analysis.inhabitation.{Card, Inhabitation}
+import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation}
+import cardinality.analysis.resolution.TopTypes
 import cardinality.capacity.BaseTypes
 import cardinality.types.ListedNamespaces
 
@@ -18,17 +19,23 @@ import Inhabitation.Shape
   * `Repeated` shape loses nothing. `Seq` also admits an infinite `LazyList`, which changes no
   * count: a total program reads a finite prefix of it (continuity), and a goal of one needs an
   * element, with which the finite sequences already give ω. An array is built only with its
-  * element's `ClassTag`, so one over a type parameter is refused. An excluded entry is outside the
-  * counting model for good: reading an `Iterator` or a `ByteBuffer` changes it, a `Map` or `Set` is
-  * built and read by testing keys for equality, `scala.quoted` is compile-time reflection, and a
-  * `ClassTag`, `TypeTest` or `Mirror` reveals the type it is evidence for. A throwable is data
-  * (register D26): its pure members read strings and throwables, and its constructors build
-  * infinitely many values they tell apart, so it is an ω transparent value, as `String` is; so is
-  * an arbitrary-precision number (`BigInt`, `BigDecimal`): countably many finite values, each a
-  * literal of a total equality. An unmodelled entry is a class or interface whose members the model
-  * does not hold (`Product`, `java.util.List`, the final `Integer`). The table answers where
-  * Scala's root imports would, after every binding of the sources, and lists the parents whose
-  * members it knows (Scala 3.9.0).
+  * element's `ClassTag`, so one over a type parameter is refused. Reading is no effect (the
+  * no-side-effects assumption), so a single-pass `Iterator` or `IterableOnce` is the sequence it
+  * yields, and an `InputStream` or `ByteBuffer` the bytes it yields. Key equality is lawful (the
+  * lawful-equality assumption), so a `Map` or `Set` is its abstract value: the finite partial
+  * function or finite subset it holds, read over closed arguments as the total function it
+  * tabulates (`K => Option[V]`, `E => Boolean`, the same value space: an infinite domain saturates
+  * at ω, like the finite maps). Over an open argument its keys are tested for an equality no
+  * parametric program has, so it is refused. An excluded entry is outside the counting model for
+  * good: `scala.quoted` is compile-time reflection, and a `ClassTag`, `TypeTest` or `Mirror`
+  * reveals the type it is evidence for. A throwable is data (register D26): its pure members read
+  * strings and throwables, and its constructors build infinitely many values they tell apart, so it
+  * is an ω transparent value, as `String` is; so is an arbitrary-precision number (`BigInt`,
+  * `BigDecimal`): countably many finite values, each a literal of a total equality. An unmodelled
+  * entry is a class or interface whose members the model does not hold (`Product`,
+  * `java.lang.CharSequence`). The table
+  * answers where Scala's root imports would, after every binding of the sources, and lists the
+  * parents whose members it knows (Scala 3.9.0).
   */
 private[cardinality] object StdlibModel {
 
@@ -49,13 +56,16 @@ private[cardinality] object StdlibModel {
     /** A finite sequence of its argument; an array needs its element's class to be built. */
     case Sequence(tagged: Boolean)
 
+    /** A finite map or set under lawful key equality: over closed arguments, the total function it
+      * tabulates.
+      */
+    case Tabulated(shape: List[Shape] => Shape)
+
     /** Outside the counting model, for the reason given. */
     case Excluded(why: String)
 
-    /** A class or interface whose members the model does not hold; open when a subclass outside the
-      * library may extend it.
-      */
-    case Unmodelled(open: Boolean)
+    /** An open class or interface whose members the model does not hold. */
+    case Unmodelled
 
     /** A throwable (register D26) or an arbitrary-precision number: an ω transparent value. */
     case Transparent
@@ -107,12 +117,98 @@ private[cardinality] object StdlibModel {
   private def excluded(why: String)(fqn: String, arity: Int): Entry =
     Entry(fqn, numbered("T", arity), Excluded(why), "")
 
-  private def unmodelled(open: Boolean)(fqn: String): Entry = Entry(fqn, Nil, Unmodelled(open), "")
+  private def unmodelled(fqn: String): Entry = Entry(fqn, Nil, Unmodelled, "")
+
+  // The declarations outside the model's own whose values are a sequence, a finite map or set, or
+  // a scalar the model already reads (JDK 25 and scala-library 3.9.0).
+  private object Equivalent {
+
+    val sequences: List[String] = List(
+      "scala.collection.Seq",
+      "scala.collection.IndexedSeq",
+      "scala.collection.Iterable",
+      "scala.collection.immutable.Iterable",
+      "scala.collection.mutable.Seq",
+      "scala.collection.mutable.IndexedSeq",
+      "scala.collection.mutable.Iterable",
+      "scala.collection.mutable.Buffer",
+      "scala.collection.mutable.ArrayBuffer",
+      "scala.collection.mutable.ListBuffer",
+      "java.lang.Iterable",
+      "java.util.Collection",
+      "java.util.List",
+      "java.util.ArrayList",
+      "java.util.LinkedList",
+      "java.util.Vector",
+      "java.util.stream.Stream"
+    )
+
+    val maps: List[String] = List(
+      "scala.collection.Map",
+      "scala.collection.mutable.Map",
+      "scala.collection.concurrent.Map",
+      "java.util.Map",
+      "java.util.HashMap",
+      "java.util.LinkedHashMap",
+      "java.util.TreeMap",
+      "java.util.concurrent.ConcurrentMap",
+      "java.util.concurrent.ConcurrentHashMap"
+    )
+
+    val sets: List[String] = List(
+      "scala.collection.Set",
+      "scala.collection.mutable.Set",
+      "java.util.Set",
+      "java.util.HashSet",
+      "java.util.LinkedHashSet",
+      "java.util.TreeSet"
+    )
+
+    val boxed: List[(String, String)] = List(
+      "java.lang.Boolean" -> "Boolean",
+      "java.lang.Byte" -> "Byte",
+      "java.lang.Short" -> "Short",
+      "java.lang.Character" -> "Char",
+      "java.lang.Integer" -> "Int",
+      "java.lang.Long" -> "Long",
+      "java.lang.Float" -> "Float",
+      "java.lang.Double" -> "Double"
+    )
+
+  }
+
+  private val finiteMap = "scala.collection.immutable.Map"
+  private val finiteSet = "scala.collection.immutable.Set"
+
+  // A finite partial function from its key, read as the function it tabulates.
+  private def map(fqn: String): Entry =
+    Entry(
+      fqn,
+      List("K", "V"),
+      Tabulated(types => Shape.Function(List(types.head), Shape.Sum(List(unit, types(1))))),
+      "K => 1 + V"
+    )
+
+  // A finite subset of its element, read as its indicator function.
+  private def set(fqn: String): Entry =
+    Entry(
+      fqn,
+      List("E"),
+      Tabulated(types => Shape.Function(types, Shape.Sum(List(unit, unit)))),
+      "E => 2"
+    )
+
+  // A boxed scalar: the scalar it boxes (`null` is outside the model).
+  private def boxed(fqn: String, scalar: String): Entry =
+    Entry(fqn, Nil, Structural(_ => BuiltinTypes.scalarShape(scalar)), scalar)
 
   private def transparent(fqn: String): Entry = Entry(fqn, Nil, Transparent, "ω")
 
-  private val SinglePass = "single-pass: reading it changes it"
-  private val Equality = "built and read by testing keys for equality"
+  // The bytes a single-pass stream or buffer yields.
+  private def bytes(fqn: String): Entry =
+    Entry(fqn, Nil, Structural(_ => Shape.Repeated(BuiltinTypes.byte)), "Σₙ Byteⁿ")
+
+  private val unit = Shape.Product(Nil)
   private val Reflection = "compile-time reflection"
   private val Revealing = "type-revealing evidence: it tells instantiations apart at run time"
   private val Collected = "garbage-collector state"
@@ -182,34 +278,39 @@ private[cardinality] object StdlibModel {
       "scala.collection.immutable.IndexedSeq",
       "scala.collection.immutable.Seq",
       "scala.collection.immutable.ArraySeq",
-      "scala.Array"
-    ).map(sequence) ++ List(
-      excluded(SinglePass)("scala.collection.Iterator", 1),
-      excluded(SinglePass)("scala.collection.IterableOnce", 1),
-      excluded(SinglePass)("java.util.Iterator", 1),
-      excluded(SinglePass)("java.nio.ByteBuffer", 0),
-      excluded(SinglePass)("java.io.InputStream", 0),
-      excluded(Equality)("scala.collection.immutable.Map", 2),
-      excluded(Equality)("scala.collection.immutable.Set", 1),
-      excluded(Collected)("java.lang.ref.WeakReference", 1),
-      excluded(Collected)("java.lang.ref.ReferenceQueue", 1)
-    ) ++ ListedNamespaces.quoted.map((name, arity) =>
-      excluded(Reflection)(s"scala.quoted.$name", arity)
-    ) ++
+      "scala.Array",
+      "scala.collection.Iterator",
+      "scala.collection.IterableOnce",
+      "java.util.Iterator"
+    ).map(sequence) ++
+      // Declarations of other packages that hold the same value space (v1.md §2): mutability is a
+      // `var` read as a `val`, and ordering or representation is not observed — each keeps its own
+      // name, so a rigid constructor's argument still tells them apart.
+      Equivalent.sequences.map(sequence) ++ (finiteMap :: Equivalent.maps).map(map) ++
+      (finiteSet :: Equivalent.sets).map(set) ++ Equivalent.boxed.map(boxed) ++ List(
+        Entry(
+          "java.util.Optional",
+          List("A"),
+          Structural(types => Shape.Sum(Shape.Product(Nil) :: types)),
+          "1 + A"
+        ),
+        Entry(
+          "java.util.function.Function",
+          List("T", "R"),
+          Structural(types => Shape.Function(types.init, types.last)),
+          "T => R"
+        )
+      ) ++ List(
+        bytes("java.nio.ByteBuffer"),
+        bytes("java.io.InputStream"),
+        excluded(Collected)("java.lang.ref.WeakReference", 1),
+        excluded(Collected)("java.lang.ref.ReferenceQueue", 1)
+      ) ++ ListedNamespaces.quoted.map((name, arity) =>
+        excluded(Reflection)(s"scala.quoted.$name", arity)
+      ) ++
       Revealed.map((fqn, arity) => excluded(Revealing)(fqn, arity)) ++
       (Exceptions.map(_._1) ++ Numbers).map(transparent) ++
-      List(
-        "scala.Product",
-        "scala.Equals",
-        "java.lang.CharSequence",
-        "java.util.List",
-        "java.util.Map",
-        "java.util.Set",
-        "java.util.Collection",
-        "java.util.ArrayList",
-        "java.util.HashMap",
-        "java.util.concurrent.ConcurrentHashMap"
-      ).map(unmodelled(open = true)) :+ unmodelled(open = false)("java.lang.Integer")
+      List("scala.Product", "scala.Equals", "java.lang.CharSequence").map(unmodelled)
 
   private val byName: Map[String, Entry] = entries.map(entry => entry.fqn -> entry).toMap
 
@@ -250,6 +351,7 @@ private[cardinality] object StdlibModel {
       ("Seq", "scala.collection.immutable.Seq", Root.ScalaPackage),
       ("Iterator", "scala.collection.Iterator", Root.ScalaPackage),
       ("IterableOnce", "scala.collection.IterableOnce", Root.ScalaPackage),
+      ("Iterable", "scala.collection.Iterable", Root.ScalaPackage),
       ("Map", "scala.collection.immutable.Map", Root.Predef),
       ("Set", "scala.collection.immutable.Set", Root.Predef),
       ("Integer", "java.lang.Integer", Root.JavaLang),
@@ -371,7 +473,7 @@ private[cardinality] object StdlibModel {
     * (`scala.quoted.Type[T <: AnyKind]` takes a constructor as well).
     */
   def arity(entry: Entry): Either[String, Int] = entry.reading match {
-    case _: (Structural | Sequence) | Transparent => Right(entry.parameters.size)
+    case _: (Structural | Sequence | Tabulated) | Transparent => Right(entry.parameters.size)
     // The reason the reading refuses an entry it does not read, whatever the arguments.
     case _ => read(entry, Nil).map(_ => entry.parameters.size)
   }
@@ -379,13 +481,13 @@ private[cardinality] object StdlibModel {
   private def outside(entry: Entry, why: String): String =
     s"outside the counting model: ${entry.fqn} ($why)"
 
-  private def unmodelled(open: Boolean, what: String, entry: Entry): String =
-    s"${if (open) "open " else ""}stdlib $what with unmodelled members: ${entry.fqn}"
+  private def unmodelled(entry: Entry): String =
+    s"open stdlib type with unmodelled members: ${entry.fqn}"
 
   /** What a model spelling applied to these arguments denotes, or why it is not counted. */
   def read(entry: Entry, args: List[Shape]): Either[String, Shape] = entry.reading match {
     case Excluded(why)                                  => Left(outside(entry, why))
-    case Unmodelled(open)                               => Left(unmodelled(open, "type", entry))
+    case Unmodelled                                     => Left(unmodelled(entry))
     case _ if args.isEmpty && entry.parameters.nonEmpty =>
       Left(
         s"higher-kinded argument: ${entry.fqn} (type constructor ${entry.lambda}, " +
@@ -393,8 +495,15 @@ private[cardinality] object StdlibModel {
       )
     case _ if args.size != entry.parameters.size =>
       Left(s"type argument arity: ${entry.fqn} takes ${entry.parameters.size}, given ${args.size}")
-    case Structural(shape) => Right(shape(args))
-    case Transparent       => Right(Shape.Ground(entry.fqn, Card.Omega))
+    case Structural(shape)                                 => Right(shape(args))
+    case Tabulated(_) if !args.forall(ClosedSpaces.closed) =>
+      Left(
+        s"${entry.fqn} over an open type is not read (its keys are tested for an equality no " +
+          "parametric program has)"
+      )
+    // A key is content, as a sequence's element is: its tops keep the container's polarity.
+    case Tabulated(shape) => Right(shape(TopTypes.keyed(args.head) :: args.tail))
+    case Transparent      => Right(Shape.Ground(entry.fqn, Card.Omega))
     // `new Array[E](0)` needs a `ClassTag[E]`, which Scala 3.9.0 synthesizes for every element type
     // but a type parameter, an abstract type member or a singleton of one — `Nothing`, `Null`, an
     // object, a singleton of a class type, an opaque type and `F[A]` included (fixtures) — so only

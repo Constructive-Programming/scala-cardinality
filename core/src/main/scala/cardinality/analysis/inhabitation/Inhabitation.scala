@@ -1,5 +1,6 @@
 package cardinality.analysis.inhabitation
 
+import cardinality.analysis.resolution.TopTypes
 import cardinality.capacity.{FinitePart, Size}
 import cardinality.types.Traversals
 import dev.constructive.eo.data.PSVec
@@ -192,6 +193,7 @@ object Inhabitation {
       case Card.Exact(Natural.Lit(value)) => Finite(value)
       case Card.Exact(value)              => Symbolic(value)
       case Card.Omega                     => Countable
+      case Card.Epsilon0                  => Bounded(cardinality.capacity.EffectiveEpsilon0)
     }
 
     /** The count a constructor admits: the product of its positions' value spaces. Exact spaces
@@ -218,10 +220,11 @@ object Inhabitation {
 
     // The solver answers with an exact count, ω or a reason, never with an estimate's bound.
     private def cardOf(count: Count): Card = count match {
-      case Finite(value)              => Card.exact(value)
-      case Symbolic(value)            => Card.Exact(value)
-      case Countable                  => Card.Omega
-      case Bounded(_) | Unresolved(_) =>
+      case Finite(value)                                                     => Card.exact(value)
+      case Symbolic(value)                                                   => Card.Exact(value)
+      case Countable                                                         => Card.Omega
+      case Bounded(space) if space == cardinality.capacity.EffectiveEpsilon0 => Card.Epsilon0
+      case Bounded(_) | Unresolved(_)                                        =>
         throw new IllegalArgumentException(s"a solver count has no exact card: $count")
     }
 
@@ -255,7 +258,10 @@ object Inhabitation {
   ): Count =
     try
       inspect("solver preparation")
-      RepeatedArguments.prepare(bindings, result) match {
+      RepeatedArguments.prepare(
+        bindings.map(binding => binding.copy(shape = TopTypes.polarized(binding.shape, false))),
+        TopTypes.polarized(result, true)
+      ) match {
         case Left(count)                                                  => count
         case Right(RepeatedArguments.Prepared.Direct(normalized, target)) =>
           new GoalSolver(maxStates, inspect, maxDepth).run(normalized, target)

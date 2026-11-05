@@ -224,10 +224,9 @@ class BinderBoundsSpec extends Specification {
   // bound a no-op: x, On, Off (3); x, true, false (3). A trait is an AnyRef through a parent that is
   // one (`Sub` has no cases: x alone; `Explicit`: x or E1); one extending only a universal trait is
   // not (`U1 <: U0 <: Any`). Without a lower bound: a or b.
-  // Under a wildcard over a namespace no source supplies, a top name may mean that namespace's
-  // member (D12), so `<: AnyRef` or `<: Any` is a bound to read, and reading it refuses with the
-  // channel: `ok` would be |Flag → Flag| = 4 if the import gave `type AnyRef = Flag`, not 3. With
-  // no such wildcard the twins are the class bound and the no-op: x, On, Off (3).
+  // A wildcard over a namespace no source supplies never rebinds a builtin name (the never-shadowed
+  // assumption), so `<: AnyRef` and `<: Any` under `import foreign.*` are the root imports' tops,
+  // as without the wildcard: the twins are the class bound and the no-op, x, On, Off (3).
   def rebindableTops = {
     val code = flag + """
       object W {
@@ -242,12 +241,9 @@ class BinderBoundsSpec extends Specification {
       }
     """
     val counts = entries(code)
-    def channel(name: String) =
-      s"builtin name $name may be shadowed through a reference not supplied: foreign " +
-        "(wildcard import of foreign)"
-    refused(counts, "W.ok", channel("AnyRef"))
-      .and(refused(counts, "W.obj", channel("Object")))
-      .and(refused(counts, "W.top", channel("Any")))
+    (counts("W.ok") === Count.Finite(3))
+      .and(counts("W.obj") === Count.Finite(3))
+      .and(counts("W.top") === Count.Finite(3))
       .and(counts("K.ok") === Count.Finite(3))
       .and(counts("K.top") === Count.Finite(3))
   }

@@ -586,10 +586,12 @@ final private[cardinality] class Measurement(
       .flatMap(TransparentResults.narrowed)
 
   // A goal with one value has one implementation whatever the environment holds, so nothing left
-  // unresolved around it can change the count — unless an import clause may rebind a builtin
-  // name, or a channel around the result reaches declarations the sources do not supply, which
-  // may give any name the result spells another meaning. A type parameter clause that is no Scala
-  // program makes the signature none either: it has no implementation to count.
+  // unresolved around it can change the count — unless a channel around the result reaches
+  // declarations the sources do not supply, which may give a name the result spells another
+  // meaning. A builtin spelling (`Unit`, `scala.Any`) is never rebound that way (the never-shadowed
+  // assumption): only a declaration the builtin reading reaches shadows it, and it refused above.
+  // A type parameter clause that is no Scala program makes the signature none either: it has no
+  // implementation to count.
   private def count(
       result: Resolved,
       inferred: Either[String, InferredResults.Inferred],
@@ -599,8 +601,10 @@ final private[cardinality] class Measurement(
     case _ if capabilities.neverCalled => Count.Finite(1)
     case Right(shape)
         if !target.constructor && !rebound && bounded.invalid.isEmpty &&
-          TopTypes.terminalGoal(shape) =>
-      inferred.toOption.flatMap(r => resolver.unreadChannel(r.context.referencing(r.tpe))) match {
+          TopTypes.terminalGoal(TopTypes.polarized(shape, true)) =>
+      inferred.toOption
+        .filterNot(r => BuiltinTypes.canonical(r.tpe.syntax).nonEmpty)
+        .flatMap(r => resolver.unreadChannel(r.context.referencing(r.tpe))) match {
         case None         => Count.Finite(1)
         case Some(reason) => measured(result, bounds, List(reason))
       }
