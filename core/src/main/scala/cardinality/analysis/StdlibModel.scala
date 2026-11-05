@@ -33,9 +33,8 @@ import Inhabitation.Shape
   * is an ω transparent value, as `String` is; so is an arbitrary-precision number (`BigInt`,
   * `BigDecimal`): countably many finite values, each a literal of a total equality. An unmodelled
   * entry is a class or interface whose members the model does not hold (`Product`,
-  * `java.lang.CharSequence`). The table
-  * answers where Scala's root imports would, after every binding of the sources, and lists the
-  * parents whose members it knows (Scala 3.9.0).
+  * `java.lang.CharSequence`). The table answers where Scala's root imports would, after every
+  * binding of the sources, and lists the parents whose members it knows (Scala 3.9.0).
   */
 private[cardinality] object StdlibModel {
 

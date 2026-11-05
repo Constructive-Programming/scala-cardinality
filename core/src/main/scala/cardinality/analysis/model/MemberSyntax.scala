@@ -144,9 +144,9 @@ private[cardinality] object MemberSyntax {
 
   /** A member restating one of `Any`'s overridable members — `toString`, `hashCode`, `equals(Any)`:
     * runtime printing, hashing and equality, outside the model (capabilities C0) — or one of
-    * `Product`'s and `Equals`' (`productArity`, `productElement(n)`, `canEqual(Any)`, …): reflection
-    * over a value's fields and an equality test, outside it too (v1.md §2). `isAny` tells whether a
-    * parameter type is `Any` where the member is written.
+    * `Product`'s and `Equals`' (`productArity`, `productElement(n)`, `canEqual(Any)`, …):
+    * reflection over a value's fields and an equality test, outside it too (v1.md §2). `isAny`
+    * tells whether a parameter type is `Any` where the member is written.
     */
   def universal(stat: Tree)(isAny: Type => Boolean): Boolean = stat match {
     case d: (Decl.Def | Defn.Def) if d.paramClauseGroups.forall(_.tparamClause.values.isEmpty) =>
