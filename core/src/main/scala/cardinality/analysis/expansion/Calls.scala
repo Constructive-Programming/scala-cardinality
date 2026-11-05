@@ -34,36 +34,6 @@ private[expansion] object Chain {
 
 }
 
-/** `a op b`, `op a` or `a op`: its operands, the one whose member the operator is (the right one of
-  * an operator ending in `:`), the member's name, and the explicit type arguments.
-  */
-final private[expansion] case class Operator(
-    operands: List[Term],
-    receiver: Option[Term],
-    name: String,
-    targs: List[Type],
-    infix: Boolean
-)
-
-private[expansion] object Operator {
-
-  def apply(term: Term.ApplyInfix | Term.ApplyUnary | Term.SelectPostfix): Operator = term match {
-    case i: Term.ApplyInfix =>
-      val right = i.op.value.endsWith(":")
-      Operator(
-        i.lhs :: i.argClause.values,
-        if (right) i.argClause.values.headOption else Some(i.lhs),
-        i.op.value,
-        i.targClause.values,
-        infix = true
-      )
-    case u: Term.ApplyUnary =>
-      Operator(List(u.arg), Some(u.arg), s"unary_${u.op.value}", Nil, false)
-    case s: Term.SelectPostfix => Operator(List(s.qual), Some(s.qual), s.name.value, Nil, false)
-  }
-
-}
-
 /** How written argument clauses meet a callee's declared ones, each flagged contextual (`true`). */
 private[expansion] object Clauses {
 

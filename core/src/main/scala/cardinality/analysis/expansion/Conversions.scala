@@ -3,30 +3,27 @@ package cardinality.analysis.expansion
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
-import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
+import cardinality.analysis.model.MemberSyntax
 import cardinality.analysis.resolution.Found
 import cardinality.analysis.{Resolver, SourceIndex}
 import cardinality.types.{Spelling, TypeApplications}
 
-/** The implicit conversions and extensions of the sources an inline body may meet (register D27).
+/** The implicit conversions of the sources an inline body may meet (register D27).
   *
   * The compiler inserts a conversion around an expression whose type does not conform, and tries a
-  * conversion or an extension when no member of a selected name accepts the arguments (reference,
-  * *Implicit Conversions*, *Extension Methods*; fixture a6 fb). A conversion is a given or an
-  * implicit value whose type is `scala.Conversion` or a supplied class extending it — however the
-  * type is spelled: through an alias, a renaming import — an implicit object extending it, an
-  * implicit method of one value clause, or an implicit class. It is inline when it is an inline
-  * given or method, or when the `apply` it runs is. Scala looks for them where the body is written
-  * and in the implicit scope of the types involved; this reading does not type the arguments, so it
-  * keeps every declaration that may be found from the body: one the body or a method around it
-  * declares, one of an enclosing scope (a package the body is in included) or of a template the
-  * body's templates inherit, one an import of the body's scopes names, every member of an object
-  * that holds a type or is a companion (some type's implicit scope), of a class or trait (an object
-  * may inherit it), of a given instance, and of a package that declares an opaque type (its
-  * top-level wrapper is the opaque type's implicit scope), and what an export clause defines again
-  * in a scope found so (an export defines aliases, register D11). A definition local to another
-  * method is visible nowhere else. A class outside the sources is not read as a conversion (its
-  * parents are not supplied; the view rule's assumption, register D20).
+  * conversion when no member of a selected name accepts the arguments (reference, *Implicit
+  * Conversions*; fixture a6 fb). A conversion is a given or an implicit value whose type is
+  * `scala.Conversion` or a supplied class extending it — however the type is spelled: through an
+  * alias, a renaming import — or an implicit method of one value clause. It is inline when it is an
+  * inline given or method, or when the `apply` it runs is. Scala looks for them where the body is
+  * written and in the implicit scope of the types involved; this reading does not type the
+  * arguments, so it keeps every declaration that may be found from the body: one the body or a
+  * method around it declares, one of an enclosing scope (a package the body is in included) or of a
+  * template the body's templates inherit, one an import of the body's scopes names, every member of
+  * an object that holds a type or is a companion (some type's implicit scope), and of a package
+  * that declares an opaque type (its top-level wrapper is the opaque type's implicit scope). A
+  * definition local to another method is visible nowhere else. A class outside the sources is not
+  * read as a conversion (its parents are not supplied; the view rule's assumption, register D20).
   */
 final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms) {
 
@@ -36,34 +33,6 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private lazy val conversions: List[Candidate] =
     resolver.memberScopes.flatMap(scope => scope.stats.flatMap(conversion(_, scope)))
 
-  private lazy val extensions: List[Extension] =
-    resolver.memberScopes.flatMap(scope => extensionsIn(scope.stats, scope))
-
-  // Export clauses, with the scope each defines its aliases in.
-  private lazy val exports: List[(Frame, List[Importer])] =
-    resolver.memberScopes.flatMap(scope =>
-      scope.stats.collect { case e: Export => scope -> e.importers }
-    )
-
-  // The extensions an expansion would not run as one function of its values were they selected:
-  // inline ones, and those that take a contextual clause.
-  private def extensionsIn(stats: List[Stat], scope: Frame): List[Extension] =
-    stats
-      .collect { case e: Defn.ExtensionGroup => e }
-      .flatMap(group =>
-        ScopeTerms
-          .extensionMethods(group)
-          .filter(contextualExtension(group, _))
-          .map(Extension(group, _, scope))
-      )
-
-  private def contextualExtension(
-      group: Defn.ExtensionGroup,
-      method: Defn.Def | Decl.Def
-  ): Boolean =
-    MemberSyntax.inline(method) ||
-      (group.paramClauseGroup.toList.flatMap(_.paramClauses) ++
-        MemberSyntax.groups(method).flatMap(_.paramClauses)).exists(MemberSyntax.contextual)
 
   /** The first inline conversion a body read in `frame` may meet. */
   def inlineConversion(frame: Frame): Option[Candidate] = candidates(frame).find(_.inline)
@@ -71,13 +40,6 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   /** The first conversion that may answer an applied selection read in `frame`. */
   def conversion(frame: Frame): Option[Candidate] = candidates(frame).nextOption()
 
-  /** The extensions of the name, inline or contextual, a selection in `frame` may meet, each with
-    * the scope declaring it; unknown when one is local to a method around the body (no scope this
-    * reading resolves it in).
-    */
-  def extensionsOf(name: String, frame: Frame): Extensions =
-    if (extensionsIn(local(frame), frame).exists(_.name == name)) Extensions.Unknown
-    else Extensions.Known(extensions.filter(e => e.name == name && visible(e.scope, frame)))
 
   // The body's own conversions and those of the methods around it, then the visible ones.
   private def candidates(frame: Frame): Iterator[Candidate] =
@@ -95,14 +57,12 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private def conversion(stat: Stat, scope: Frame): Option[Candidate] = stat match {
     case g: Defn.GivenAlias if converts(g.decltpe, scope) =>
       Some(candidate(g.name, g.decltpe, MemberSyntax.inline(g), scope))
-    case g: Decl.Given if converts(g.decltpe, scope) =>
-      Some(candidate(g.name, g.decltpe, expanded = false, scope))
+
     case g: Defn.Given =>
       g.templ.inits
         .find(init => converts(init.tpe, scope))
         .map(init => candidate(g.name, init.tpe, instanceApply(g.templ, scope), scope))
-    case o: Defn.Object if implicitConversionObject(o, scope) =>
-      Some(Candidate(o.name.value, instanceApply(o.templ, scope), scope))
+
     case Implicit(pats, tpe) if converts(tpe, scope) =>
       Some(
         Candidate(TypeApplications.boundNames(pats).mkString(", "), inlineApply(tpe, scope), scope)
@@ -110,8 +70,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
     case d: Defn.Def
         if MemberSyntax.implicitModifier(d.mods) && oneValueClause(d.paramClauseGroups) =>
       Some(Candidate(d.name.value, MemberSyntax.inline(d), scope))
-    case c: Defn.Class if MemberSyntax.implicitModifier(c.mods) =>
-      Some(Candidate(c.name.value, inline = false, scope))
+
     case _ => None
   }
 
@@ -137,8 +96,6 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
 
   }
 
-  private def implicitConversionObject(o: Defn.Object, scope: Frame): Boolean =
-    MemberSyntax.implicitModifier(o.mods) && o.templ.inits.exists(i => converts(i.tpe, scope))
 
   private def oneValueClause(groups: List[Member.ParamClauseGroup]): Boolean =
     groups.flatMap(_.paramClauses).filterNot(MemberSyntax.contextual).map(_.values.size) == List(1)
@@ -161,15 +118,9 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
     named(tpe).exists { name =>
       terms.typeDeclaration(name, scope) match {
         case (Found.Entry(entry), _) => declaresConversion(entry, seen)
-        // A wildcard over a namespace no source supplies may bind the name: the supplied
-        // declaration it hides is read; the alternative, a declaration outside the sources, is not
-        // read as a conversion, as no class outside the sources is (above).
-        case (Found.Blocked(_, Some(entry)), _) => declaresConversion(entry, seen)
-        case (Found.Absent, context)            =>
-          LibraryInlines.conversionClass(name.syntax) &&
-          resolver.rootShadow(name.syntax, context).isEmpty
-        case (Found.Foreign(path, _), _) => LibraryInlines.conversionClass(path)
-        case (_: Found.Blocked, _)       => true
+        case (Found.Absent, _)       => LibraryInlines.conversionClass(name.syntax)
+        // Any other binding of the name may be a conversion.
+        case _ => true
       }
     }
 
@@ -205,18 +156,12 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       }
     )
 
-  private def visible(scope: Frame, frame: Frame): Boolean = reached(scope, frame, Set.empty)
 
   /** Whether a member of `scope` may be found from a body read in `frame`: the scope encloses it,
-    * an import around it names the scope, the scope is some type's implicit scope, or an export
-    * clause defines the member again in a scope found so. Reachability is the least answer, so a
-    * scope already asked on the way (`asked`, an export cycle) adds nothing.
+    * an import around it names the scope, or the scope is some type's implicit scope.
     */
-  private def reached(scope: Frame, frame: Frame, asked: Set[String]): Boolean =
-    enclosing(scope, frame) || imported(scope, frame) || implicitScope(scope) ||
-      exports.exists((owner, importers) =>
-        !asked(owner.id) && names(importers, scope) && reached(owner, frame, asked + scope.id)
-      )
+  private def visible(scope: Frame, frame: Frame): Boolean =
+    enclosing(scope, frame) || imported(scope, frame) || implicitScope(scope)
 
   private def enclosing(scope: Frame, frame: Frame): Boolean =
     frame.chain.exists(around =>
@@ -241,8 +186,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
 
   private def implicitScope(scope: Frame): Boolean = scope.tree match {
     case Some(_: Defn.Object) => holdsType(scope) || companion(scope)
-    case Some(_: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Given)) => true
-    case _ => resolver.isPackage(scope) && scope.stats.exists(opaque)
+    case _                    => resolver.isPackage(scope) && scope.stats.exists(opaque)
   }
 
   private def holdsType(scope: Frame): Boolean =
@@ -267,24 +211,3 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
 
 }
 
-/** The extensions of a name a selection may meet: those known, or unknown ones. */
-private[expansion] enum Extensions {
-  case Unknown
-  case Known(extensions: List[Extension])
-
-  /** Whether some extension may answer. */
-  def any: Boolean = this match {
-    case Unknown           => true
-    case Known(extensions) => extensions.nonEmpty
-  }
-
-}
-
-/** An inline or contextual extension method, its group and the scope declaring the group. */
-final private[expansion] case class Extension(
-    group: Defn.ExtensionGroup,
-    method: Defn.Def | Decl.Def,
-    scope: Frame
-) {
-  def name: String = method.name.value
-}

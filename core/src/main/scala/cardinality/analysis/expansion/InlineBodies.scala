@@ -7,7 +7,6 @@ import scala.util.control.NonFatal
 import cardinality.analysis.MethodAnalysis.{Frame, Target}
 import cardinality.analysis.Resolver
 import cardinality.analysis.model.MemberSyntax
-import cardinality.types.Spelling
 
 /** Which inline methods count as methods (register D27).
   *
@@ -30,8 +29,7 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
 
   private val terms = new BodyTerms(resolver)
   private val conversions = new Conversions(resolver, terms)
-  private val walk = new BodyWalk(terms, verdict, fallback, resolver)
-  private val restated = new RestatedExtensions(terms, resolver)
+  private val walk = new BodyWalk(terms, verdict, fallback)
 
   // Verdicts by definition. A call back into a definition still being read (a cycle of inline
   // calls) adds nothing the walk does not reach anyway, so it passes for now; the cycle is one
@@ -114,59 +112,37 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
       case None       => Some("is an abstract inline declaration, with no body to check")
       case Some(body) =>
         implemented(definition)
-          .orElse(contextResult(definition.tree))
           .orElse(walk.body(body, definition.frame, defaults(definition.tree)))
           .orElse(inserted(definition))
     }
 
-  // A body typed against a result that holds a context function may bind a lambda's parameter
-  // to one, which implicit search then applies where it is read.
-  private def contextResult(tree: Tree): Option[String] =
-    MemberSyntax
-      .result(tree)
-      .filter(walk.contextual)
-      .map(tpe =>
-        s"declares the result ${Spelling.of(tpe)}, which holds a context function type implicit " +
-          "search may apply"
-      )
-
   // The compiler may insert an implicit conversion wherever a body's expression does not conform
-  // to its expected type, which this reading does not type: one the sources declare inline, or
-  // one a channel to declarations outside them may bring, would be expanded at each call site.
+  // to its expected type, which this reading does not type: one the sources declare inline would
+  // be expanded at each call site, and any other is not placed.
   private def inserted(definition: Definition): Option[String] =
     if (Unconverted.returnsOwnParameter(definition, terms)) None
     else
-      conversions
-        .inlineConversion(definition.frame)
-        .map(c => s"may expand the inline conversion ${c.label}, which this check does not place")
-        .orElse(
-          resolver
-            .unreadChannel(terms.at(definition.frame, definition.tree.pos.start))
-            .map(channel =>
-              s"may expand an implicit conversion from outside the sources ($channel)"
-            )
-        )
+      Some(
+        conversions
+          .inlineConversion(definition.frame)
+          .fold("may expand an implicit conversion this check does not place")(c =>
+            s"may expand the inline conversion ${c.label}, which this check does not place"
+          )
+      )
 
   /** Why an applied selection of `name` read in `frame` may run code the member reading did not
     * resolve: Scala tries an extension or a conversion when no member of the name accepts the
-    * arguments, which this reading does not type — unless every extension restates the member
-    * (`RestatedExtensions`).
+    * arguments, which this reading does not type.
     */
-  private def fallback(applied: RestatedExtensions.Applied, frame: Frame): Option[String] = {
-    val name = applied.name
-    conversions
-      .conversion(frame)
-      .map(c =>
-        s"applies $name, whose arguments this reading does not type: if no member accepts them, " +
-          s"the implicit conversion ${c.label} may answer"
-      )
-      .orElse {
-        val extensions = conversions.extensionsOf(name, frame)
-        Option.when(extensions.any && !applied.call.exists(restated.answered(_, extensions)))(
-          s"applies $name, which an extension of that name may answer when no member applies"
+  private def fallback(name: String, frame: Frame): Option[String] =
+    Some(
+      conversions
+        .conversion(frame)
+        .fold(s"applies $name, which an extension or a conversion may answer")(c =>
+          s"applies $name, whose arguments this reading does not type: if no member accepts " +
+            s"them, the implicit conversion ${c.label} may answer"
         )
-      }
-  }
+    )
 
   private def defaults(tree: Tree): List[Term] =
     MemberSyntax.parameters(MemberSyntax.groups(tree)).flatMap(_.default)
