@@ -18,7 +18,6 @@ class HigherKindedRefusalSpec extends Specification {
       a wrong arity is not counted                                  $arity
       a builtin applied at a wrong arity says so in both readings   $builtinArity
       a kind mismatch is not counted                                $kindMismatch
-      a higher-kinded name read as a type                           $properUse
       a wildcard under a rigid binder is not counted                $wildcard
     Unreadable identities
       a nested wildcard has no key                                  $nestedWildcard
@@ -26,7 +25,6 @@ class HigherKindedRefusalSpec extends Specification {
       a bounded higher-kinded binder                                $boundedHk
       abstract members, paths and inherited members key as members  $members
       a structural bound beside a proof                             $coercionBound
-      a higher-kinded name or a lambda where a type is expected     $constructorsAsTypes
       java.lang's boxed names under its wildcard import             $boxedNames
   """
 
@@ -75,13 +73,6 @@ class HigherKindedRefusalSpec extends Specification {
       .and(refused(counts, "T.keyed", "type argument arity: Either"))
       .and(refused(counts, "T.ground", "type argument arity: Int"))
   }
-
-  def properUse =
-    unresolved(
-      "object T { def f[F[_]](x: F): Int = ??? }",
-      "T.f",
-      "higher-kinded parameter used as a proper type: F"
-    )
 
   // Scala 3.9.0 rejects an abstract constructor applied to a wildcard (E043), for a method's binder
   // and a class's alike. Before: counted 1.
@@ -149,15 +140,6 @@ class HigherKindedRefusalSpec extends Specification {
       "R.c",
       "bound to a structural type requires coercion analysis: A <: (B =:= C)"
     )
-
-  def constructorsAsTypes = {
-    val counts = entries("""
-      object S { def k[F[_], A](x: F[A]): F[F] = ??? }
-      object L { def l[A](x: [y] =>> y): A = ??? }
-    """)
-    refused(counts, "S.k", "higher-kinded parameter used as a proper type: F")
-      .and(refused(counts, "L.l", "unapplied type lambda used as a proper type"))
-  }
 
   // Under `import java.lang.*`, `Boolean` is java.lang.Boolean (3.9.0 accepts `val b: Boolean =
   // null` there and rejects `F[Boolean]` as an `F[scala.Boolean]`): exact count 0, not the 1 the

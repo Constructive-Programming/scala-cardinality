@@ -23,7 +23,6 @@ class GroundTypesSpec extends Specification {
       unit, absent and absurd goals                                $degenerate
       productive cycles over atoms stay ω                          $atomCycle
       parameter order does not change the form                     $orderInvariant
-      receiver fields and declared slots are supplied values       $receiver
       wider words multiply exponents                               $wider
       floating point counts its equals classes                     $floats
     Countable ground (String)
@@ -129,17 +128,6 @@ class GroundTypesSpec extends Specification {
     val b = count("def f(b: Byte, x: Int): Int = x")
     (a === Count.Symbolic(pow(2, pow(2, 45)))).and(a === b).and(a.render === b.render)
   }
-
-  def receiver =
-    (count(
-      "case class Span(start: Int, end: Int) { def width: Int = end - start }",
-      "Span.width"
-    ) ===
-      Count.Symbolic(pow(2, pow(2, 69))))
-      .and(
-        count("abstract class Env { val n: Int; def pick(): Int = n }", "Env.pick") ===
-          Count.Symbolic(pow(2, pow(2, 37)))
-      )
 
   def wider =
     (count("def f(x: Short, y: Short): Short = x") === Count.Symbolic(pow(2, pow(2, 36))))

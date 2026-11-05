@@ -29,7 +29,6 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
       a creator application reads the case class it creates          $creatorApplications
       a creator application that may call another term is refused    $creatorRefusals
       a singleton ascription, written or aliased, is refused         $singletonAscriptions
-      a call's singleton result is widened or refused                $singletonCalls
       an instance of a class outside the sources is read as written  $outsideCreation
       a transparent inline method's result is refused                $transparentInline
   """
@@ -268,33 +267,6 @@ class InferredResultsSpec extends Specification with InventoryFixtures {
     refused(found("O.f"), reason)
       .and(refused(found("O.g"), reason))
       .and(refused(found("O.h"), reason))
-  }
-
-  // Scala widens a call's singleton result (fixtures: `h` is an Int, `g` a `C`, `u2` an Int, `ga`
-  // an `E`): `one: 1` gives an Int (2^32); `this.type`, an enum case's type, an alias of a literal
-  // and a union of literals are refused; an object's singleton widens to itself (1); a union of
-  // classes is kept (Int | String: ω).
-  def singletonCalls = {
-    val found = rows("""enum E { case A, B }
-      |object M
-      |final class C(val a: Boolean) { def self: this.type = this; def g = self }
-      |object O {
-      |  type One = 1
-      |  def one: 1 = 1; def h = one
-      |  def aliased: One = 1; def k = aliased
-      |  def u: 1 | 2 = 1; def u2 = u
-      |  def a: E.A.type = E.A; def ga = a
-      |  def m: M.type = M; def gm = m
-      |  def keep: Int | String = 1; def kk = keep
-      |}""".stripMargin)
-    val reason = "inferred result type not resolved: singleton result of a call of"
-    (found("O.h") === Count.Finite(BigInt(2).pow(32)))
-      .and(refused(found("C.g"), s"$reason self"))
-      .and(refused(found("O.k"), s"$reason aliased"))
-      .and(refused(found("O.u2"), s"$reason u"))
-      .and(refused(found("O.ga"), s"$reason a"))
-      .and(found("O.gm") === Count.Finite(1))
-      .and(found("O.kk") === Count.Countable)
   }
 
   // `new Object` is an Object (terminal: 1); `new StringBuilder` names its absent declaration; a

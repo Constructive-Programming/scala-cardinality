@@ -58,11 +58,7 @@ final private[cardinality] class BodyScopes(
       case n: Term.NewAnonymous => anonymous(input, frame, n)
       case b: Term.Block        => scope(input, frame, Opening(b, "block", b.stats), Nil)
       case f: Term.FunctionTerm => lambda(input, frame, f)
-      case f: Term.PolyFunction =>
-        within(input, frame, Opening(f, "lambda", Nil, tparams = f.tparamClause.values), f.body)
       case c: Case          => within(input, frame, arm(c, frame), c.body, c.cond.toList)
-      case f: Term.For      => comprehension(input, frame, f, f.enumsBlock.enums, f.body)
-      case f: Term.ForYield => comprehension(input, frame, f, f.enumsBlock.enums, f.body)
       case other            => other.children.foreach(walk(input, _, frame))
     }
 
@@ -98,24 +94,6 @@ final private[cardinality] class BodyScopes(
     val nested = open(input, frame, opening)
     index(input, nested)
     terms.foreach(walk(input, _, nested))
-  }
-
-  // Every pattern of a comprehension is in scope from its enumerator on; reading them all in one
-  // scope only adds reasons, never a value.
-  private def comprehension(
-      input: String,
-      frame: Frame,
-      node: Term,
-      enums: List[Enumerator],
-      body: Term
-  ): Unit = {
-    val patterns = enums.collect {
-      case g: Enumerator.Generator     => g.pat
-      case g: Enumerator.CaseGenerator => g.pat
-      case v: Enumerator.Val           => v.pat
-    }
-    val reasons = patterns.flatMap(refusals("for-comprehension", _, Spelling.of(_), frame))
-    scope(input, frame, Opening(node, "for", Nil, refusals = reasons), enums :+ body)
   }
 
   private def arm(c: Case, frame: Frame): Opening = {
@@ -194,11 +172,8 @@ private[cardinality] object BodyScopes {
   // identifier pattern (an object's), whose type may extend the scrutinee's with arguments of its
   // own; a binder, a wildcard or a literal adds nothing (3.9.0 fixtures `$S/probes/b5-fix2/refine`).
   private def refining(pat: Pat): Boolean = pat match {
-    case _: (Pat.Wildcard | Pat.SeqWildcard | Pat.Var | Pat.Repeated | Lit) => false
-    case b: Pat.Bind                                                        => refining(b.rhs)
-    case a: Pat.Alternative => refining(a.lhs) || refining(a.rhs)
-    case t: Pat.Tuple       => t.args.exists(refining)
-    case _                  => true
+      case _: (Pat.Wildcard | Pat.SeqWildcard | Pat.Var | Pat.Repeated | Lit) => false
+    case _                                                                  => true
   }
 
 }

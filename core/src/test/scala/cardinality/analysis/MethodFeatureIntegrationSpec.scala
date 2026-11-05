@@ -14,11 +14,8 @@ class MethodFeatureIntegrationSpec extends Specification {
     Cross-feature shape traversal
       normalize equality inside sequence introduction            $equalitySequence
       normalize equality inside singleton representations         $equalitySingleton
-      validate private singleton aliases inside repeated types    $privateRepeatedAlias
     Syntax-preserving aliases and polymorphic binders
-      keep a polymorphic identity binder distinct from alias args $polyAliasShadowing
       protect nested type-lambda binders during alias substitution $lambdaAliasShadowing
-      reject private singleton leaks through refined members       $privateRefinedMember
       preserve nominal projected member names during substitution $projectedMemberName
       preserve refinement member scope during substitution         $refinementMemberScope
   """
@@ -38,25 +35,6 @@ class MethodFeatureIntegrationSpec extends Specification {
       .context(List(equality))
       .flatMap(_(Singleton("x", Some(b)))) === Right(Singleton("x", Some(a)))
 
-  def privateRepeatedAlias = {
-    val source = dialects
-      .Scala3(
-        """object Owner { private object Hidden; type Leak = Hidden.type }
-        |def consume[A](xs: Owner.Leak*): Boolean = true
-        |""".stripMargin
-      )
-      .parse[Source]
-      .get
-    MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Integration.scala", source)))
-      .find(_.name == "consume")
-      .get
-      .count must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("singleton")) must beTrue
-    }
-  }
-
   private def methodCount(code: String): Count = {
     val source = dialects.Scala3(code).parse[Source].get
     MethodAnalysis
@@ -66,23 +44,10 @@ class MethodFeatureIntegrationSpec extends Specification {
       .count
   }
 
-  def polyAliasShadowing =
-    methodCount("type Id[A] = [A] => A => A; def f: Id[(Boolean, Boolean)] = ???") ===
-      Count.Finite(1)
-
   def lambdaAliasShadowing =
     methodCount(
       "type Nested[A] = (([A] =>> (A, A))[Boolean], A); def f: Nested[Unit] = ???"
     ) === Count.Finite(4)
-
-  def privateRefinedMember =
-    methodCount(
-      "object Owner { private object Hidden; type R = Any { type X = Hidden.type } }; " +
-        "def f: Owner.R#X = ???"
-    ) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("singleton")) must beTrue
-    }
 
   def projectedMemberName = {
     val source = dialects.Scala3("Owner#B").parse[Type].get

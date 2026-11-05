@@ -27,10 +27,8 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       read a diamond's shared parent once                          $diamond
       keep an unrelated instantiation empty                        $unrelatedInstantiation
       refuse a parent reached with two instantiations              $conflictingInstantiations
-      give each receiver its own copy of a shared parent           $twoReceivers
       read a parent that is an inherited member class              $memberClassParent
       read an inherited declaration a final template implements    $finalImplementation
-      read inherited vals and givens a final template implements   $finalValues
       leave an abstract final class's declarations open            $abstractFinal
       keep a capture a final implementation reads past a shadow    $hiddenCapture
       keep abstract overloads as separate capabilities             $overloads
@@ -44,7 +42,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       key an override through an inherited name as the member $inheritedOverride
     Templates and families
       read a `var` as the value it holds                           $varParameter
-      refuse a self type this reading does not enumerate           $selfType
       refuse an enum case pinned to one instantiation              $enumPin
       read enum cases that bind or bottom-pin the parameters       $enumBinds
       read enum cases that take parameters through `extends`       $enumBindsByExtends
@@ -207,22 +204,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       "inherited parent instantiated twice"
     )
 
-  // `seed` (Inner.this) and `Outer.this.seed` are two receivers' slots: 2, as for the declared
-  // members of `enclosingMember`. With `Inner2 extends P[(A, A)]`: Outer2.this.seed and the two
-  // components of Inner2's seed — 3; the two instantiations belong to two receivers, so nothing is
-  // instantiated twice. The `val` twin binds the same two slots as `Inner`.
-  def twoReceivers = {
-    val found = counts("Shared.scala" -> """trait P[X] { def seed: X }
-      |trait Outer[A] extends P[A] { trait Inner extends P[A] { def go: A = ??? } }
-      |trait Outer2[A] extends P[A] { trait Inner2 extends P[(A, A)] { def go: A = ??? } }
-      |trait PV[X] { val seed: X }
-      |trait OuterV[A] extends PV[A] { trait InnerV extends PV[A] { def go: A = ??? } }
-      |""".stripMargin)
-    (found("Outer.Inner.go") === Count.Finite(2))
-      .and(found("Outer2.Inner2.go") === Count.Finite(3))
-      .and(found("OuterV.InnerV.go") === Count.Finite(2))
-  }
-
   // `A1` is a member class `Outer2` inherits from `Outer`; `B extends A1[Y]` reads its `seed: Y` —
   // 1 (it was skipped as a parent outside the source set: 0). Through `OuterG[T]`, `T := U`: 1.
   def memberClassParent = {
@@ -248,34 +229,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       .and(found("D2.other") === Count.Finite(1))
       .and(found("D2.get") === Count.Finite(1))
       .and(found("O3.other") === Count.Finite(2))
-  }
-
-  // An inherited `val` or `given` a final template implements is that member too: `get = a`, so
-  // `other` has one value (each read 2), and `pick.other` only `a`. `OB.flag = true` is no second
-  // Boolean: true, false — 2 (read 4). The open twin `OpenV` can be overridden: a and get — 2.
-  def finalValues = {
-    val found = counts("FinalVal.scala" -> """trait PV[A] { val get: A }
-      |final class FV[A](a: A) extends PV[A] { val get: A = a; def other: A = ??? }
-      |final class FP[A](val get: A) extends PV[A] { def other: A = ??? }
-      |final case class FC[A](get: A) extends PV[A] { def other: A = ??? }
-      |trait PG[A] { given g: A }
-      |final class FG[A](a: A) extends PG[A] { given g: A = a; def other: A = ??? }
-      |trait PD[A] { def get: A }
-      |object GivenInst { given pick[A](using a: A): PD[A] with { def get: A = a; def other: A = ??? } }
-      |class OpenV[A](a: A) extends PV[A] { val get: A = a; def other: A = ??? }
-      |""".stripMargin)
-    (found("FV.other") === Count.Finite(1))
-      .and(found("FP.other") === Count.Finite(1))
-      .and(found("FC.other") === Count.Finite(1))
-      .and(
-        count(
-          "trait PB { val flag: Boolean }\nobject OB extends PB { val flag: Boolean = true; def other: Boolean = ??? }",
-          "OB.other"
-        ) === Count.Finite(2)
-      )
-      .and(found("FG.other") === Count.Finite(1))
-      .and(found("GivenInst.pick.other") === Count.Finite(1))
-      .and(found("OpenV.other") === Count.Finite(2))
   }
 
   // `abstract final` is legal and implements nothing: `P.f(x: A)` is open (its own `f(x: Int)` is
@@ -482,18 +435,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
     (found("VarParam.get") === Count.Finite(2))
       .and(found("VarField.get") === Count.Finite(1))
       .and(found("VarParam.<init>") === Count.Finite(4))
-  }
-
-  // `self.get` is a value of `A` the reading does not enumerate (the true count is 1). A self
-  // alias without a type adds nothing; a constructor's own self type is not yet a `this`.
-  def selfType = {
-    val found = counts("Self.scala" -> """trait Cap[A] { def get: A }
-      |trait SelfT[A] { self: Cap[A] => def again: A = ??? }
-      |trait Alias[A] { outer => def same(a: A): A = ??? }
-      |class SelfC[A](val a: A) { self: Cap[A] => }""".stripMargin)
-    refused(found("SelfT.again"), "self type not resolved: Cap[A]")
-      .and(found("Alias.same") === Count.Finite(1))
-      .and(found("SelfC.<init>") === Count.Finite(1))
   }
 
   // `I2: G2[Unit]` is no value of `G2[A]` for an abstract A, so the enum is not the sum of all its

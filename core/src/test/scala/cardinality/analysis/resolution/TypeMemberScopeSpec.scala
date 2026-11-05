@@ -19,9 +19,7 @@ class TypeMemberScopeSpec extends Specification {
     Refinement bodies
       `this` and the refined value's own members are the value's   $refinedThis
       a name neither the refinement nor its base declares is outer  $refinedOuter
-      a projection through `this` or an owner's member is refused   $refinedProjection
     Fields in member aliases
-      a field is the receiver's, at its most derived type           $receiverField
     Templates only some scope may extend
       private, local and final abstract templates fix their members $closedScopes
       an ancestor's private constructor fixes a member               $ancestorConstructor
@@ -95,46 +93,7 @@ class TypeMemberScopeSpec extends Specification {
       .and(refused(found("A.valMember"), "path through member q of refined p"))
   }
 
-  // In a projection `R#X` the refined value has no path: R#X is R#Y = Unit (scalac accepts `: Unit
-  // = x`), and Q#X is P's Y. Read in the enclosing scope both gave Boolean — refused instead.
-  def refinedProjection = {
-    val found = entries(members + """
-      trait P:
-        type Y = Unit
-      trait Q extends P:
-        type X = Y
-      object A:
-        type Y = Boolean
-        type R = T { type Y = Unit; type X = this.Y }
-        def proj(x: R#X, y: R#X): R#X = ???
-        def projQ(x: Q#X, y: Q#X): Q#X = ???
-    """)
-    (found("A.proj") === refusal("refined member X refers to its own value: this.Y"))
-      .and(found("A.projQ") === refusal("refined member X refers to its owner's member Y"))
-  }
-
   private val withField = "trait U { type Y }\nabstract class T { val p: U; type X = p.Y }\n"
-
-  // X = p.Y is read on the receiver's p: In.this.p.Y and T.this.p.Y are two types (scalac: Found
-  // T.this.X, Required In.this.X), so In.f has x only — 1 (one key for both read 2). G narrows p
-  // (`facts`): X = Boolean — 16 (read through T's `val p: U` it was 2). F is final and fixes p
-  // (`= u`): no caller supplies its X — refused (true count 1), as the same type spelled p.Y is.
-  def receiverField = {
-    val found = entries(withField + """
-      abstract class O extends T:
-        abstract class In extends T:
-          def f(x: X, y: O.this.X): X
-      abstract class G extends T:
-        val p: U { type Y = Boolean }
-        def f(x: X, y: X): X
-      final class F(u: U) extends T:
-        val p: U = u
-        def f(x: X, y: X): X = ???
-    """)
-    (found("O.In.f") === Count.Finite(1))
-      .and(found("G.f") === Count.Finite(16))
-      .and(refused(found("F.f"), "abstract type member p#Y is fixed: p is not overridable in F"))
-  }
 
   // Only O may extend P, R or Q's T (scalac: "can only be accessed from object O"), only m's body
   // may extend L, and nothing extends FA: no subclass picks X, so each f is vacuously one, where

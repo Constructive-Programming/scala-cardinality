@@ -37,13 +37,11 @@ class ReportHygieneSpec extends Specification with AfterAll {
       so does one behind aliases of aliases                 $nestedAliases
       a source name shaped like a placeholder is its own    $placeholderName
       so is one that only starts like a placeholder         $placeholderPrefix
-      a literal type reads as written in rows and reasons   $literalRows
       a refinement reads one way however it is laid out     $refinementLayouts
       an operator name stays apart from its result's colon  $operatorNames
       a signature drops its layout and trailing comma       $signatureLayout
       curried clauses read one way however laid out         $curriedClauses
       a literal shaped like a placeholder is the literal    $placeholderLiteral
-      every reason spells a refinement as the row does      $refinedReasons
       so does one whose result is inferred                  $inferredResult
 
     Blocker categories
@@ -232,28 +230,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
     )
   }
 
-  // Two overloads that differ only in a literal's spaces (a target name keeps their erasures apart)
-  // are two rows, each naming its own type. A literal type is read, so the reason that quotes it is
-  // an intersection's, which stays refused.
-  def literalRows = {
-    val found = entries(
-      """|package l
-         |import scala.annotation.targetName
-         |object O {
-         |  def f(x: "a  b" & Int): Int = 1
-         |  @targetName("f2") def f(x: "a b" & Int): Int = 2
-         |}
-         |""".stripMargin
-    )
-    (found.map(_.signature) === List("f(x: \"a  b\" & Int): Int", "f(x: \"a b\" & Int): Int"))
-      .and(
-        found.map(reasons) === List(
-          List("unsupported intersection relationship: \"a  b\" & Int"),
-          List("unsupported intersection relationship: \"a b\" & Int")
-        )
-      )
-  }
-
   // The same refinement written with `;`, with line breaks, or reached through an alias that
   // scalameta prints over lines reads one way in signatures and reasons.
   def refinementLayouts = {
@@ -354,33 +330,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
       "refined representation unavailable (constraints not erased): " +
         "Optic[Int] { type X = \"$cardinalityProjection1\" }"
     )
-  }
-
-  // A union's and a self type's reasons spell a refinement with its `;`, as the signature does.
-  def refinedReasons = {
-    val found = entries(
-      """|package s
-         |import ext.Ext
-         |trait T { self: Ext {
-         |    type X = Int
-         |    type Y = Int
-         |  } => def g(): Boolean }
-         |object O {
-         |  def u(x: Ext {
-         |    type X = Int
-         |    type Y = Int
-         |  } | Boolean): Boolean = true
-         |}
-         |""".stripMargin
-    ).map(entry => entry.name -> entry).toMap
-    val refined = "Ext { type X = Int; type Y = Int }"
-    (reasons(found("s.T.g")) must contain(s"self type not resolved: $refined"))
-      .and(
-        reasons(found("s.O.u")) must contain(
-          s"union ($refined | Boolean): refined representation unavailable " +
-            s"(constraints not erased): $refined"
-        )
-      )
   }
 
   def inferredResult = {

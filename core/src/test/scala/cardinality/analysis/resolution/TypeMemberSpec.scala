@@ -20,7 +20,6 @@ class TypeMemberSpec extends Specification {
       two paths never share a member                             $distinctPaths
       a refinement pins a parameter's member                     $refinementPins
       a type-only structural value has one value                 $structural
-      a bounded or higher-kinded member stays a diagnostic       $boundedMember
       a member no one may pick stays a diagnostic                $fixedMember
       the compiler keeps paths apart and aliases together         $pathFacts
     Members of the receiver
@@ -122,25 +121,6 @@ class TypeMemberSpec extends Specification {
     (found("s") === Count.Finite(4))
       .and(found("t") === Count.Finite(2))
       .and(refused(found("u"), "structural refinement with term members"))
-  }
-
-  def boundedMember = {
-    val found = entries("""
-      trait B:
-        type X <: Tuple
-      def f(p: B, x: p.X): p.X = ???
-      trait H:
-        type F[_]
-      def g(p: H, x: p.F[Int]): p.F[Int] = ???
-      trait P:
-        type X
-      def h(x: P#X, y: P#X): P#X = ???
-    """)
-    refused(found("f"), "bounded abstract type member p#X (<: Tuple)")
-      // g's higher-kinned member is the rigid constructor p's package binds: p.F[Int] is an
-      // uninterpreted application, and the only p.F[Int] value the environment builds is x — 1.
-      .and(found("g") === Count.Finite(1))
-      .and(refused(found("h"), "type projection of abstract member P#X: no stable path"))
   }
 
   // A final class or object never instantiates its member (`memberfixture.Never` compiles), so x

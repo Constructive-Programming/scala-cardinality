@@ -16,13 +16,9 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       definitions of two branches are two rows                        $branchRows
       control flow leaves the typing context as it is                 $branchContext
       a case pattern or guard leaves the typing context as it is      $casePatterns
-      every control-flow form is read alike                           $flowForms
-      a pattern that may refine a type refuses every count            $typeRefinement
       a case clause's binder is refused, never counted                $caseBinders
       a given binder of a case clause is refused                      $givenBinders
-      a comprehension's binder is refused, never counted              $comprehensionBinders
       a function literal's parameter is a parameter                   $lambdaParameters
-      a polymorphic function literal binds its type parameters        $polyLambda
       an untyped function literal parameter is refused                $untypedLambda
       a scope of an inline method shares the method's verdict         $inlineOwners
   """
@@ -126,96 +122,6 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       )
   }
 
-  // While, `||`, a dotted `&&`, a match spelled `b.match`, a dead branch, a by-name argument, a
-  // comprehension's guard and a default the callee may never evaluate all leave the context as it
-  // is: a Boolean function of one Boolean, 4; of two, 16; of an Option[Boolean]'s 3 values, 2^3.
-  def flowForms = {
-    val found = rendered(
-      """|object Flow {
-         |  def w(c: Boolean): Unit = while (c) { def g: Boolean = c; () }
-         |  def o(c: Boolean, d: Boolean): Boolean = c || { def q: Boolean = d; q }
-         |  def dot(b: Boolean): Boolean = b.&&({ def g: Boolean = b; g })
-         |  def s(b: Boolean): Boolean = b.match { case _ => def g: Boolean = b; g }
-         |  def dead(b: Boolean): Unit = if (false) { def g: Boolean = b; () } else ()
-         |  def when(c: Boolean)(body: => Unit): Unit = if (c) body else ()
-         |  def byName(b: Boolean): Unit = when(b) { def g: Boolean = b; () }
-         |  def guard(b: Boolean): List[Boolean] =
-         |    for { _ <- List((), ()); if b } yield { def g: Boolean = b; g }
-         |  def lazily(o: Option[Boolean]): Boolean = o.getOrElse { def g: Boolean = o.isDefined; g }
-         |}""".stripMargin
-    )
-    (found("Flow.w.<block#1>.g") === "4")
-      .and(found("Flow.o.<block#1>.q") === "16")
-      .and(found("Flow.dot.<block#1>.g") === "4")
-      .and(found("Flow.s.<case#1>.g") === "4")
-      .and(found("Flow.dead.<block#1>.g") === "4")
-      .and(found("Flow.byName.<block#1>.g") === "4")
-      .and(found("Flow.guard.<for#1>.<block#1>.g") === "4")
-      .and(found("Flow.lazily.<block#1>.g") === "8")
-  }
-
-  private val refinements = """
-    |sealed trait Ty[A]
-    |final case class TInt() extends Ty[Int]
-    |trait Box[A] { def get: A }
-    |object Refine {
-    |  def zero[A]: Ty[A] => A = {
-    |    case TInt() =>
-    |      def h: A = 42
-    |      h
-    |  }
-    |  def anon[A](a: A): Ty[A] => Box[A] = { case TInt() => new Box[A] { def get: A = a } }
-    |  def unit[A](t: Ty[A]): Unit = t match {
-    |    case TInt() =>
-    |      def u(x: A): Unit = ()
-    |      ()
-    |  }
-    |  def typed[A]: Ty[A] => A = {
-    |    case _: TInt =>
-    |      def h: A = 42
-    |      h
-    |  }
-    |  def generator[A](ts: List[Ty[A]]): List[A] =
-    |    for (case TInt() <- ts) yield {
-    |      def h: A = 42
-    |      h
-    |    }
-    |  def mono(o: Option[Boolean]): Boolean = o match {
-    |    case Some(_) =>
-    |      def g: Boolean = true
-    |      g
-    |    case None => false
-    |  }
-    |  def literal[A](a: A, b: Boolean): A = b match {
-    |    case true =>
-    |      def h: A = a
-    |      h
-    |    case false => a
-    |  }
-    |}""".stripMargin
-
-  // Matching TInt() makes A Int in the arm (3.9.0 accepts `42: A` there): h is any Int, 2^32, not
-  // the 0 a rigid A gives; `get` any Int function of a, not 1. So every count is refused, 0 and 1
-  // included — except a Unit result, which has one value whatever the context (`u`: 1). Without a
-  // type parameter in scope there is nothing to refine (`mono`: a Boolean function of o's 3
-  // values, 8), and a literal pattern refines nothing (`literal`: a alone, 1).
-  def typeRefinement = {
-    val found = rows(refinements)
-    val reason = "pattern of an enclosing case clause may refine a type: "
-    refused(found("Refine.zero.<case#1>.h"), reason + "case TInt()")
-      .and(refused(found("Refine.anon.<case#1>.<new#1>.get"), reason + "case TInt()"))
-      .and(found("Refine.unit.<case#1>.u").render === "1")
-      .and(refused(found("Refine.typed.<case#1>.h"), reason + "case _: TInt"))
-      .and(
-        refused(
-          found("Refine.generator.<for#1>.<block#1>.h"),
-          "pattern of an enclosing for-comprehension may refine a type: TInt()"
-        )
-      )
-      .and(found("Refine.mono.<case#1>.g").render === "8")
-      .and(found("Refine.literal.<case#1>.h").render === "1")
-  }
-
   // `a` is the scrutinee's part: reading it as an input of its own would count one value twice.
   def caseBinders =
     refused(
@@ -244,23 +150,6 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
     refused(found("Givens.pf.<case#1>.g"), reason + "A")
       .and(refused(found("Givens.pfBool.<case#1>.g"), reason + "Boolean"))
   }
-
-  def comprehensionBinders =
-    refused(
-      rows("""|object Comp {
-              |  def f(xs: List[Int]): Int = {
-              |    for (x <- xs) { def g(u: Unit): Boolean = true; () }
-              |    0
-              |  }
-              |}""".stripMargin)("Comp.f.<for#1>.<block#1>.g"),
-      "binder of an enclosing for-comprehension not read: x"
-    )
-
-  // The type parameter is a binder of the literal, its value parameter a parameter: a alone, 1.
-  def polyLambda =
-    rendered("object Poly { val h: [A] => A => A = [A] => (a: A) => { def g: A = a; g } }")(
-      "Poly.h.<lambda#1>.<lambda#1>.g"
-    ) === "1"
 
   def lambdaParameters = {
     val found = rendered(

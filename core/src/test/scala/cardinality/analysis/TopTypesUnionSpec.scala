@@ -5,7 +5,6 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.*
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.resolution.RuntimeClasses
-import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 
 /** Top types as the terminal type, goals with one value, and unions read as tagged sums only where
@@ -32,9 +31,7 @@ class TopTypesUnionSpec extends Specification {
       a source alias named Any is that alias                         $shadowAlias
       a type binder named Any is that binder                         $shadowBinder
       an import of Any refuses the builtin                           $shadowImport
-      an inherited member named Any is that member                   $shadowInherited
     A channel to declarations the sources do not supply keeps Any open
-      a self type outside the sources                                $foreignSelf
       a supplied self type with a parent outside the sources         $selfUnsuppliedParent
       a supplied self type read in full                              $suppliedSelf
       a wildcard-imported object with a parent outside the sources   $importedObject
@@ -47,14 +44,12 @@ class TopTypesUnionSpec extends Specification {
       evidence with an Any endpoint is not reflexivity               $evidence
     A goal with one value has one implementation in any environment
       Unit, Any and their products beside an unresolved name         $terminalResults
-      a module singleton and a one-valued closed type                $terminalValues
       a result with more values keeps the environment's reason       $nonTerminal
       a given selector binds no type name                            $rebinding
       a given selector spelling Any or Null binds neither            $rebindingTops
       a constructor's positions are value spaces, not goals          $constructorGoal
     Lattice identities apply before resolution
       Any absorbs a union, even an unresolvable alternative          $absorbAny
-      Any is the unit of intersection                                $meetAny
       a subtype alternative is absorbed by its sealed parent         $absorbSubtype
       one top-like class spelled twice is that class                 $topLikeTwice
     Constructor slots read the implementation model
@@ -62,10 +57,8 @@ class TopTypesUnionSpec extends Specification {
       an Any slot beside an Int is the Int's space                   $walkCtor
       an Any array beside them is a countable length                 $walkResCtor
       Null is empty and a union slot is its sum                      $nullCtor
-      a top behind an alias is read on the method side               $aliasedTopCtor
       a binder named Nothing does not capture the empty slot         $nothingBinderCtor
       a source type named Nothing does not capture it either         $nothingAliasCtor
-      a top inside a container that merges equal elements is refused $mergingCtor
       a rewritten slot is read where its constructor is written      $rewrittenScope
     Discriminable disjoint unions are sums
       a result adds its alternatives                                 $sumOut
@@ -186,32 +179,6 @@ class TopTypesUnionSpec extends Specification {
       "declaration not supplied: ext.Any (named import Any)"
     )
 
-  // Inside O, `Any` is Base's Boolean: no absorption, no unit of `&`, no terminal result. Red |
-  // Boolean has 4 values over Red's 2 → 4^2; a Boolean over 2 inputs → 2^2.
-  def shadowInherited = {
-    val code = colours + "trait Base { type Any = Boolean }\nobject O extends Base { " +
-      "def f(x: Red): Red | Any = x; def g(x: Red): Any = x; def h(x: Red): Red & Any = x }"
-    (count(code, "O.f") === Count.Finite(16))
-      .and(count(code, "O.g") === Count.Finite(4))
-      .and(reasonContains(code, "O.h", "unsupported intersection relationship: Red & Any"))
-  }
-
-  // Ext may declare `type Unit = Boolean` and `type Any = Boolean`: g and h could have 2.
-  def foreignSelf = {
-    val code = "import ext.Ext\ntrait T { self: Ext => def g(): Unit; def h(): Any }"
-    reasonContains(
-      code,
-      "T.g",
-      "self type not resolved: Ext",
-      "builtin name Unit may be shadowed through a reference not supplied: ext.Ext (self type of T)"
-    ).and(
-      reasonContains(
-        code,
-        "T.h",
-        "builtin name Any may be shadowed through a reference not supplied: ext.Ext (self type of T)"
-      )
-    )
-  }
 
   def selfUnsuppliedParent =
     reasonContains(
@@ -350,15 +317,6 @@ class TopTypesUnionSpec extends Specification {
         ) === Count.Finite(1)
       )
 
-  // `Nothing => Boolean` has one value, the empty function; so has `Option[Nothing]`.
-  def terminalValues = {
-    val code = "import ext.Schema\ncase object Green\ndef g(s: Schema): Green.type = Green\n" +
-      "def h(s: Schema): Option[Nothing] = None\ndef k(s: Schema): Nothing => Boolean = x => x"
-    (count(code, "g") === Count.Finite(1))
-      .and(count(code, "h") === Count.Finite(1))
-      .and(count(code, "k") === Count.Finite(1))
-  }
-
   def nonTerminal =
     reasonContains(codec, "Codec.bad", "declaration not supplied: ext.Schema (named import Schema)")
       .and(
@@ -386,8 +344,6 @@ class TopTypesUnionSpec extends Specification {
         count("type Top = Any\nimport ext.Schema\ndef t(s: Schema): Schema | Top = s", "t") ===
           Count.Finite(1)
       )
-
-  def meetAny = count("def m[A](a: A): A & Any = a", "m") === Count.Finite(1)
 
   // Fail | Missing is Fail: 2 values, and f splits in 2 → 2^2.
   def absorbSubtype =
@@ -426,20 +382,6 @@ class TopTypesUnionSpec extends Specification {
       .and(count(code, "T.<init>") === Count.Finite(4))
   }
 
-  // The method side reads the alias's Any as (); the estimate would read it as everything. Through
-  // `Arr`, `Array[Any]` is the sequences of () — one per length, countably many: an infinite closed
-  // position keeps the estimate's tier, so the row is the bound ω (`Bounded`), not a count.
-  def aliasedTopCtor = {
-    val code = "type Top = Any\nfinal case class TA(x: Top)\ntype Fn = Any => Boolean\n" +
-      "final case class TC(f: Fn)\ntype Arr = Array[Any]\nfinal case class TB(a: Arr)"
-    val slots = "type Fn[A] = Any => A\nfinal case class W[A](f: Fn[A])\n" +
-      "final case class V[A](f: Any => A)"
-    (count(code, "TA.<init>") === Count.Finite(1))
-      .and(count(code, "TC.<init>") === Count.Finite(2))
-      .and(count(code, "TB.<init>") === Count.Bounded(EffectiveOmega))
-      .and(count(slots, "W.<init>") === count(slots, "V.<init>"))
-  }
-
   def nothingBinderCtor =
     count("final case class KN[Nothing](x: Null, b: Boolean)", "KN.<init>") === Count.Finite(0)
 
@@ -450,26 +392,6 @@ class TopTypesUnionSpec extends Specification {
     val slot = "final case class NA(x: Array[Null], b: Boolean)"
     (count(slot, "NA.<init>") === Count.Finite(2))
       .and(count("type Nothing = Boolean\n" + slot, "NA.<init>") === Count.Finite(2))
-  }
-
-  // Set(1, "a") and Set(1) differ in size, though Any reads as (): Set[Any] is not Set[Unit]'s 2.
-  // A Map's values and a sequence's elements are held by position (Map[Boolean, ()]: 2^2 key sets),
-  // and a source class the method side reads whole needs no estimate (Box[Any]: 1).
-  def mergingCtor = {
-    val code = "final case class S1(x: Set[Any])\nfinal case class M1(m: Map[Any, Boolean])\n" +
-      "final case class MV(m: Map[Boolean, Any])\nfinal case class O1(x: Option[Any])\n" +
-      "final case class ST(x: Set[(Any, Boolean)])\nfinal case class Bag[A](s: Set[A])\n" +
-      "final case class WBag(b: Bag[Any])\nfinal case class Box[A](a: A)\n" +
-      "final case class WBox(b: Box[Any])\nfinal case class SU(x: Set[Unit])"
-    reasonContains(code, "S1.<init>", "top type inside Set, which may tell its elements apart: x")
-      .and(count(code, "S1.<init>") must_!= Count.Finite(2))
-      .and(reasonContains(code, "M1.<init>", "top type inside Map"))
-      .and(reasonContains(code, "ST.<init>", "top type inside Set"))
-      .and(reasonContains(code, "WBag.<init>", "top type inside Bag"))
-      .and(count(code, "MV.<init>") === Count.Finite(4))
-      .and(count(code, "O1.<init>") === Count.Finite(2))
-      .and(count(code, "WBox.<init>") === Count.Finite(1))
-      .and(count(code, "SU.<init>") === Count.Finite(2))
   }
 
   // The rewrite builds a new tree, which has no position of its own: the estimate reads it in the

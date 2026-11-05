@@ -24,7 +24,6 @@ class TypeMemberBoundarySpec extends Specification {
       a member some level declares as a class is no atom            $classMember
       a value class or a private constructor fixes its members      $unsubclassable
       a parent's private alias is that parent's own                 $privateAlias
-      a type projection of an abstract member has no path           $projection
     Refinements
       a refinement no value of its base may have is refused         $unsatisfiable
       the compiler rejects the refused refinements                  $refinementFacts
@@ -173,12 +172,6 @@ class TypeMemberBoundarySpec extends Specification {
       .and(found("C.same") === Count.Finite(1))
       .and(found("C2.to") === Count.Finite(2))
   }
-
-  def projection =
-    refused(
-      entries("trait P:\n  type X\ndef h(x: P#X, y: P#X): P#X = ???")("h"),
-      "type projection of abstract member P#X: no stable path"
-    )
 
   // Each parameter type has no value (scalac rejects true, false, new F, and every subclass or
   // instance of the bad bounds — `refinementFacts`): every implementation is vacuously one, where

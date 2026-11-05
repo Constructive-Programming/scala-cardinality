@@ -13,23 +13,13 @@ class PolyLambdaCardinalitySpec extends Specification {
   def is = s2"""
     Type lambda beta reduction
       applies a direct lambda to caller arguments                 $direct
-      applies an alias lambda to a structural constructor         $alias
       does not capture a caller binder of the same spelling       $capture
       keeps nested lambda shadowing lexical                      $shadowing
       measures constructor fields through beta reduction          $constructor
       refuses an external constructor inside the lambda           $external
       refuses constrained lambda binders                         $bounds
-      refuses unapplied lambdas and wrong arity                    $arity
-      resolves an alias body in its declaration's scope            $aliasScope
     Closed polymorphic identity
-      introduces the unique total parametric identity             $identity
-      application adds no choices or opaque iteration             $application
-      does not supply an arbitrary missing result                  $missing
-      keeps poly binder shadowing separate from outer binders      $polyShadowing
-      leaves other rank-polymorphic functions unresolved           $rankN
-      reads a nested context function as a function               $evidence
       retains unknown external dependencies                       $dependency
-      refuses incomplete environments beside an identity result    $environment
   """
 
   private def count(code: String, name: String = "use"): Count =
@@ -47,9 +37,6 @@ class PolyLambdaCardinalitySpec extends Specification {
   def direct =
     count("def use[A](x: A, y: A): ([x] =>> (x, x))[A] = ???") === Count.Finite(4)
 
-  def alias =
-    count("type F = [x] =>> Option[x]; def use[A](x: A): F[A] = ???") === Count.Finite(2)
-
   def capture =
     count("def use[A, B](x: A, y: B): ([B] =>> B)[A] = ???") === Count.Finite(1)
 
@@ -66,63 +53,7 @@ class PolyLambdaCardinalitySpec extends Specification {
   def bounds =
     unresolved("def use[A](x: A): ([x <: A] =>> x)[A] = ???", "constrained type lambda")
 
-  def arity =
-    unresolved("def use: [x] =>> x = ???", "unapplied type lambda").and(
-      unresolved("def use[A](x: A): ([x] =>> x)[A, A] = ???", "type lambda argument arity")
-    )
-
-  def aliasScope =
-    count(
-      "class Env[A](seed: A) { type F = [x] =>> (A, x); " +
-        "def use[A](x: A): F[A] = ??? }",
-      "Env.use"
-    ) === Count.Finite(1)
-
-  def identity =
-    count("def use: [a] => a => a = ???") === Count.Finite(1)
-
-  def application =
-    count("def use[A](id: [a] => a => a, x: A, y: A): A = id[A](x)") === Count.Finite(2)
-
-  def missing =
-    count("def use[A](id: [a] => a => a): A = ???") === Count.Finite(0)
-
-  def polyShadowing =
-    count("def use[A](id: [A] => A => A, x: A): A = id[A](x)") === Count.Finite(1)
-
-  def rankN =
-    unresolved(
-      "def use[A](f: [a] => (a, a) => a, x: A): A = ???",
-      "outside the closed identity fragment"
-    )
-
-  // The context function reads as a function: no reason is about it, and the names no source
-  // declares still refuse. With nothing undeclared, `[b] => b => b ?=> b` is outside the closed
-  // identity fragment (a rank-n function), not a context function the reading stops at.
-  def evidence = {
-    val undeclared = count("def use: [b] => b => Type[b] ?=> Expr[Any] = ???")
-    val declared = count("def use: [b] => b => b ?=> b = ???")
-    unresolved("def use: [b] => b => Type[b] ?=> Expr[Any] = ???", "declaration not supplied: Type")
-      .and(
-        List(undeclared, declared)
-          .flatMap(reasons)
-          .exists(_.contains("context function")) must beFalse
-      )
-      .and(reasons(declared).exists(_.contains("outside the closed identity fragment")) must beTrue)
-  }
-
-  private def reasons(count: Count): List[String] = count match {
-    case Count.Unresolved(found) => found
-    case _                       => Nil
-  }
-
   def dependency =
     unresolved("def use: [a] => a => External[a] = ???", "External")
-
-  // The identity alone has one implementation in every environment, the unresolved one included;
-  // beside a Boolean the environment decides again.
-  def environment =
-    (count("def use(x: External): [a] => a => a = ???") === Count.Finite(1))
-      .and(unresolved("def use(x: External): ([a] => a => a, Boolean) = ???", "External"))
 
 }

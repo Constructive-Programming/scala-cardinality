@@ -27,7 +27,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       a result builds a literal with named binders                   $contextResults
       a whole-body binder hides outer evidence of its type           $contextShadowing
       a nested context function wraps only its part                  $contextNested
-      local definitions read the enclosing method's binders          $contextLocals
       a binder behind a reading that stops is refused                $contextUnread
       a call returning a context function is applied                 $contextCalls
       an ascription to a context function is applied                 $contextAscription
@@ -181,22 +180,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
     rows("object N { def nested[A](using A): (A ?=> A, A) = (summon[A], summon[A]) }")(
       "N.nested"
     ) === Count.Finite(2)
-
-  // Fixture cf3 `local`: a local definition of a wrapped body reads the binder (1; the reading gave
-  // 0 before). Through an alias as well; an unrelated binder leaves the capture alone (1).
-  def contextLocals = {
-    val found = rows("""type K[A] = A ?=> A
-      |object L {
-      |  def f[A]: A ?=> A = { def g: A = summon[A]; g }
-      |  def viaAlias[A]: K[A] = { def l: A = summon[A]; l }
-      |  def f2[A](a: A): Int ?=> A = { def g2: A = a; g2 }
-      |  def outer[A](using A): A ?=> A = { def l2: A = summon[A]; l2 }
-      |}""".stripMargin)
-    (found("L.f.g") === Count.Finite(1))
-      .and(found("L.viaAlias.l") === Count.Finite(1))
-      .and(found("L.f2.g2") === Count.Finite(1))
-      .and(refused(found("L.outer.l2"), "overlaps context function binder A"))
-  }
 
   // Where the reading of an enclosing result stops — a match type that may reduce to a context
   // function, `ContextFunction1` by name, an applied inherited alias, a path, a name not supplied

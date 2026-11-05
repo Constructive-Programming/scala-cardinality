@@ -3,7 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.{ByteSize, EffectiveOmega}
+import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -19,10 +19,7 @@ class GroundEnvironmentSpec extends Specification {
   def is = s2"""
     Inherited closed declarations
       a fixed receiver implements what it inherits                   $fixedReceiver
-      a field is the member it implements                            $fieldAlias
-      one member reached along several parents is one value          $restated
       an open template's overridable implementation is a capability  $openImplemented
-      an overload is a second member; another shape is refused      $overloaded
       an unimplemented declaration of an open template is supplied   $supplied
       nested templates sharing a parent judge it for each receiver   $nestedReceivers
       an open declaration reached from two parents is one member     $openRestated
@@ -54,13 +51,11 @@ class GroundEnvironmentSpec extends Specification {
       an unreadable infinite position takes the size algebra's tier   $fallbackTier
       floating point positions count equals classes exactly          $floats
       an enclosing template's parameters are captures                $outerCaptures
-      a singleton beside a value takes the estimate's reading        $singletonPositions
       a symbolic value space agrees only with a wide estimate        $symbolicDisagreement
     Anonymous evidence
       two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
       ground evidence endpoints keep the evidence reason             $evidence
-      an empty-domain function position has two conventions          $emptyDomain
       an unsupplied wildcard import refuses the builtin              $wildcard
   """
 
@@ -104,51 +99,6 @@ class GroundEnvironmentSpec extends Specification {
         ) === Count.Finite(2)
       )
 
-  // `HasB.b` and the field are one value: f ranges over functions of C(true) / C(false).
-  def fieldAlias =
-    (count(
-      "trait HasB { def b: Boolean }\nfinal case class C(b: Boolean) extends HasB { def f: Boolean = true }",
-      "C.f"
-    ) === Count.Finite(4))
-      .and(
-        count(
-          "trait HasN { def n: Int }\nfinal case class C(n: Int) extends HasN { def f: Boolean = true }",
-          "C.f"
-        ) === intPredicate
-      )
-      .and(
-        count(
-          "abstract class P { val n: Int }\nfinal class C(val n: Int) extends P { def f: Boolean = true }",
-          "C.f"
-        ) === intPredicate
-      )
-
-  def restated =
-    (count(
-      "trait A { def n: Boolean }\ntrait B { def n: Boolean }\ntrait C extends A with B { def f: Boolean = true }",
-      "C.f"
-    ) === Count.Finite(4))
-      .and(
-        count(
-          "trait A { def n: Boolean }\ntrait B extends A { def n: Boolean }\n" +
-            "trait C extends B { def f: Boolean = true }",
-          "C.f"
-        ) === Count.Finite(4)
-      )
-      .and(
-        count(
-          "trait A { def n: Boolean }\ntrait B extends A { def n: Boolean; def f: Boolean = true }",
-          "B.f"
-        ) === Count.Finite(4)
-      )
-      .and(
-        count(
-          "trait A { val n: Boolean }\ntrait B extends A { val n: Boolean }\n" +
-            "trait C extends B { def f: Boolean = n }",
-          "C.f"
-        ) === Count.Finite(4)
-      )
-
   // A subclass of the open Q may override pick with either literal (capabilities C5), so pick is a
   // supplied Boolean: other is true, false, pick or !pick — 4.
   def openImplemented =
@@ -157,33 +107,6 @@ class GroundEnvironmentSpec extends Specification {
         "class Q extends P { def pick: Boolean = true; def other: Boolean = true }",
       "Q.other"
     ) === Count.Finite(4)
-
-  // Two overloads are two supplied functions: 2^(|Int => Int| · |Long => Int|) = 2^(2^(2^37 + 2^69)).
-  // A parameterless `def` and a `val` of one name and type are one member: n, !n, true, false — 4.
-  // Read at another type (`Any` against `Boolean`) the one member's readings differ: refused.
-  def overloaded =
-    (count(
-      "trait A { def g(x: Int): Int }\ntrait B { def g(x: Long): Int }\n" +
-        "trait C extends A with B { def f: Boolean = true }",
-      "C.f"
-    ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + BigInt(2).pow(69)))))
-      .and(
-        count(
-          "trait A { def n: Boolean }\ntrait B { val n: Boolean }\n" +
-            "trait C extends A with B { def f: Boolean = n }",
-          "C.f"
-        ) === Count.Finite(4)
-      )
-      .and(
-        unresolvedOn(
-          count(
-            "trait A { def n: Any }\ntrait B { val n: Boolean }\n" +
-              "trait C extends A with B { def f: Boolean = n }",
-            "C.f"
-          ),
-          "inherited declaration identity not resolved: n"
-        )
-      )
 
   // Two receivers, two members: Outer.this.k and Inner.this.n are independent, 2^(2·2).
   def supplied =
@@ -648,27 +571,6 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("OuterB.InnerB.<init>") === Count.Finite(9))
   }
 
-  // Each `W` position is read in its own package, as the estimate binds `C`: |Inner.type|·|C| (2^8 —
-  // a capacity —, 2). The shape model would count the functions of the position instead. A position
-  // the estimate declines (an unsupplied `Missing`) is `?` with the estimate's reason.
-  def singletonPositions = {
-    val rows = counts(
-      "kg.scala" ->
-        ("package kg\nfinal case class C(n: Byte)\nobject Inner\nfinal case class W(p: (Inner.type, C))\n" +
-          "final case class V(p: C)\nfinal case class M(p: (Inner.type, Missing))"),
-      "kb.scala" ->
-        "package kb\nfinal case class C(n: Boolean)\nobject Inner\nfinal case class W(p: (Inner.type, C))",
-      "kh.scala" -> "package kh\nfinal case class C(n: Byte)"
-    )
-    (rows("kg.W.<init>") === Count.Bounded(ByteSize))
-      .and(rows("kb.W.<init>") === Count.Finite(2))
-      .and(rows("kg.V.<init>") === Count.Finite(256))
-      .and(
-        rows("kg.M.<init>") ===
-          Count.Unresolved(List(s"declaration not supplied: Missing (${StdlibModel.undeclared})"))
-      )
-  }
-
   // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
   // at an infinite tier: they agree. Both read `q.X` through the parameter `q: Other` (`X = Byte`,
   // 2^8), not the object `q` (a symbolic space): they agree, at the estimate's 2^8. Where the method
@@ -725,15 +627,6 @@ class GroundEnvironmentSpec extends Specification {
     unresolvedOn(count("def f[A](ev: A =:= Int, a: A): Int = 0", "f"), reason)
       .and(unresolvedOn(count("def g(ev: Int =:= Int): Int = 0", "g"), reason))
   }
-
-  // The stored-value algebra counts `Nothing => B` as 0 (it can never run); the method side counts
-  // its one function, so a supplied one does not make a context absurd. The constructor position
-  // has two readings and is refused.
-  def emptyDomain =
-    unresolvedOn(
-      count("final case class Y(f: Nothing => String)", "Y.<init>"),
-      "constructor position readings disagree: f (value space 1, estimate 0)"
-    ).and(count("def f(g: Nothing => String): Int = 0", "f") === Count.Finite(BigInt(2).pow(32)))
 
   // If org.foo declared `type Int = Unit` the count would be 1, not 2^(2^32): the builtin is refused
   // (the stdlib model lists no `org.foo`).

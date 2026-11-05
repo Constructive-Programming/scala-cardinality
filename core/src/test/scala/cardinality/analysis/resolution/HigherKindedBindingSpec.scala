@@ -47,14 +47,12 @@ class HigherKindedBindingSpec extends Specification {
       an equality that keeps unfolding is refused                   $unfolding
       operators are keyed by their eta-long lambda                  $operatorKeys
       an export of a vocabulary name is not trusted                 $exportedVocabulary
-      inherited substitution keeps nominal identity                 $inherited
       a constructor field of F[Unit]                                $unfold
     Constructor arguments (R3)
       a rigid binder passed to a case class                         $boxRigid
       a builtin constructor passed to a case class                  $boxOption
       an explicit type lambda is applied                            $boxLambda
       a lambda binder shadows a method binder                       $hygiene
-      a lambda alias reads its names where it is declared           $closureScope
       a curried type-lambda alias is applied                        $curried
       an unapplied constructor passed but never applied             $phantom
       a higher-kinded transparent alias takes a builtin constructor $pairAlias
@@ -289,22 +287,6 @@ class HigherKindedBindingSpec extends Specification {
       .and(counts("T.swapped") === Count.Finite(0))
   }
 
-  // A parent instantiated at a binder keeps its key; one instantiated at `Option[B]` was read as a
-  // shape, which has lost the nominal identity `G[Option[B]]` needs (exact count 0).
-  def inherited = {
-    val counts = entries("""
-      trait Base[F[_], A] { val seed: F[A] }
-      trait Same[G[_], B] extends Base[G, B] { def get: G[B] }
-      trait Other[G[_], B] extends Base[G, Option[B]] { def get: G[B] }
-    """)
-    (counts("Same.get") === Count.Finite(1)).and(
-      counts("Other.get") must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons must contain("nominal identity of substituted argument not tracked: A")
-      }
-    )
-  }
-
   // `Function1`, `Tuple2` and `=:=` are read as builtins wherever no source declares them, so an
   // export that puts another type behind them — an alias of `foo.Function1`, which the sources do
   // not supply — leaves the reading unknown (before: counted).
@@ -339,14 +321,6 @@ class HigherKindedBindingSpec extends Specification {
   def hygiene =
     count(box + "object T { def f[X, A](a: A): Box[[X] =>> X, A] = ??? }", "T.f") ===
       Count.Finite(1)
-
-  // WithFlag's `Flag` is the top-level Boolean, not Use's Unit: (A, Boolean) has 2 values.
-  def closureScope =
-    count(
-      box + "type WithFlag = [X] =>> (X, Flag)\ntype Flag = Boolean\n" +
-        "object Use { type Flag = Unit; def f[A](a: A): Box[WithFlag, A] = ??? }",
-      "Use.f"
-    ) === Count.Finite(2)
 
   def curried =
     count(
@@ -522,19 +496,6 @@ class HigherKindedBindingSpec extends Specification {
       "T.f",
       "anonymous evidence selection not resolved"
     )
-
-  // R5, B1 -------------------------------------------------------------------------------------
-  def upper = {
-    val counts = entries("""
-      object T {
-        def ub[A <: B, B](a: A): B = a
-        def ub2[A <: B, B](a: A, b: B): B = b
-      }
-    """)
-    (counts("T.ub") === Count.Finite(1)).and(counts("T.ub2") === Count.Finite(2))
-  }
-
-  def lower = count("object T { def f[A >: B, B](b: B): A = b }", "T.f") === Count.Finite(1)
 
   def extremes = {
     val counts = entries("""

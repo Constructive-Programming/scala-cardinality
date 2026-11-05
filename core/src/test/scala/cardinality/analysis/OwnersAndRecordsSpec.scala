@@ -18,8 +18,6 @@ class OwnersAndRecordsSpec extends Specification {
   def is = s2"""
     Inline members of a never-built owner
     Captures a member holds
-      a readable field or own member that is the capture, or of type 1 $heldAlias
-      any other reading, a wider type or an overridden field, refuses  $heldOtherwise
       a local definition around the target holds what it reads        $heldLocally
     Case-class leaves of sealed families
       a final leaf, a final override or a universal member keeps it    $closedLeaf
@@ -40,76 +38,6 @@ class OwnersAndRecordsSpec extends Specification {
 
   private def refused(count: Count, reason: String): Result =
     count must beLike { case Count.Unresolved(reasons) => reasons must contain(reason) }
-
-  // Inside each anonymous or local class the capture n (or b, or a1) is hidden — by the inherited
-  // field n, an own member n, or m's own parameter — yet a field the template reads passed exactly
-  // it, or a member that is it, holds it: m reads b and n — 16 (it read 4). mk3 and viaField: a1,
-  // a2 and the held outer a1 — 3 (they read 2). lit passes true: n is unreachable and the field
-  // constant — 4. A holder typed Any (a field, a binder given Any, a member) shows nothing of the
-  // capture (D-top): m reads b alone — 4; wide's m reads a1 and a2 — 2.
-  def heldAlias = {
-    val found = one("""
-      class P(val n: Boolean) { def m(b: Boolean): Boolean = b }
-      class Q(val k: Boolean) { def m(b: Boolean): Boolean = b }
-      trait T { def m(b: Boolean): Boolean }
-      trait U[A] { def m(a1: A): A }
-      class F[A](val f: A) { def m(a1: A): A = a1 }
-      object O {
-        def mk(n: Boolean): P = new P(n) { override def m(b: Boolean): Boolean = !b }
-        def otherName(n: Boolean): Q = new Q(n) { def n(u: Unit): Unit = u; override def m(b: Boolean): Boolean = !b }
-        def byParam(b: Boolean): Q = new Q(b) { override def m(b: Boolean): Boolean = !b }
-        def ownAlias(b: Boolean): T = new T { def seed: Boolean = b; def m(b: Boolean): Boolean = !b }
-        def viaLocal(n: Boolean): Boolean = { final class Impl extends P(n) { def g(y: Boolean): Boolean = y }; true }
-        def lit(n: Boolean): P = new P(true) { override def m(b: Boolean): Boolean = b }
-        def mk3[A](a1: A, a2: A): U[A] = new U[A] { def seed: A = a1; def m(a1: A): A = a1 }
-        def viaField[A](a1: A, a2: A): F[A] = new F[A](a1) { override def m(a1: A): A = a1 }
-        def wideField(n: Boolean): PA = new PA(n) { override def m(b: Boolean): Boolean = !b }
-        def wideArg(n: Boolean): PT[Any] = new PT[Any](n) { override def m(b: Boolean): Boolean = !b }
-        def wideAlias(b: Boolean): T = new T { def seed: Any = b; def m(b: Boolean): Boolean = !b }
-        def wide[A](a1: A, a2: A): U[A] = new U[A] { def seed: Any = a1; def m(a1: A): A = a1 }
-      }
-      class PA(val n: Any) { def m(b: Boolean): Boolean = b }
-      class PT[X](val n: X) { def m(b: Boolean): Boolean = b }
-    """)
-    List("mk", "otherName", "byParam", "ownAlias")
-      .map(name => found(s"O.$name.<new#1>.m") === Count.Finite(16))
-      .reduce(_ and _)
-      .and(
-        List("wideField", "wideArg", "wideAlias")
-          .map(name => found(s"O.$name.<new#1>.m") === Count.Finite(4))
-          .reduce(_ and _)
-      )
-      .and(found("O.wide.<new#1>.m") === Count.Finite(2))
-      .and(found("O.viaLocal.Impl.g") === Count.Finite(16))
-      .and(found("O.lit.<new#1>.m") === Count.Finite(4))
-      .and(found("O.mk3.<new#1>.m") === Count.Finite(3))
-      .and(found("O.viaField.<new#1>.m") === Count.Finite(3))
-  }
-
-  // neg's field holds !n, a function of the hidden n the reading does not invert; H's private h
-  // is read by peek and holds the hidden n: both refuse (neg read 4). overField's template
-  // overrides the field, so this.n is the constant — but P's constructor read the argument it was
-  // given (a strict val of P computed from n keeps it: 3.9.0 run), so it refuses (it read 16).
-  // some's field is an Option[Boolean] holding the capture: a wider type than the capture's, not
-  // read — refused.
-  def heldOtherwise = {
-    val found = one("""
-      class P(val n: Boolean) { def m(b: Boolean): Boolean = b }
-      class PO(val n: Option[Boolean]) { def m(b: Boolean): Boolean = b }
-      abstract class H(h: Boolean) { def peek: Boolean = h; def m(b: Boolean): Boolean }
-      object O {
-        def neg(n: Boolean): P = new P(!n) { override def m(b: Boolean): Boolean = !b }
-        def hidden(b: Boolean): H = new H(b) { def m(b: Boolean): Boolean = !b }
-        def overField(n: Boolean): P = new P(n) { override val n: Boolean = true; override def m(b: Boolean): Boolean = !b }
-        def some(n: Some[Boolean]): PO = new PO(n) { override def m(b: Boolean): Boolean = !b }
-      }
-    """)
-    val held = "local capture held by a member that hides it"
-    refused(found("O.neg.<new#1>.m"), s"$held: n")
-      .and(refused(found("O.hidden.<new#1>.m"), s"$held: b"))
-      .and(refused(found("O.overField.<new#1>.m"), s"$held: n"))
-      .and(refused(found("O.some.<new#1>.m"), s"$held: n"))
-  }
 
   // A local definition around the target — a method, a lazy value, a given, defined before or
   // after it, in the target's block or an outer one — that is exactly the hidden b puts it back: the

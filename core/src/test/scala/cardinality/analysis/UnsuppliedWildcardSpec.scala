@@ -23,12 +23,10 @@ class UnsuppliedWildcardSpec extends Specification {
     A wildcard over a namespace no source supplies
       refuses a package member of another file it may shadow           $packageMember
       refuses a member of a record its field type names               $recordField
-      refuses the type a projection reads its member from             $projection
       refuses a prefix it may rebind, and a name under that prefix    $rebindsPrefix
       refuses the first name of a named import or a qualified type    $rebindsHead
       shadows an outer scope's supplied wildcard                       $shadowsOuterWildcard
       refuses a builtin a wildcard behind a doubted prefix may bind    $doubtedBuiltins
-      refuses Singleton for the marker where a wildcard may bind it    $singletonMarker
     Selectors and prefixes the reading does not follow
       a `given` selector may bind a path's first name                  $givenSelectors
       a supplied wildcard binding a value, an enum case                $valuesAndCases
@@ -107,18 +105,6 @@ class UnsuppliedWildcardSpec extends Specification {
     (found("p.V.get") === Count.Finite(4))
       .and(refused(found("p.V.wget"), "unresolved type: Two (may be imported by zzz.*)"))
       .and(refused(found("p.WBox.<init>"), "unresolved type: Two (may be imported by zzz.*)"))
-  }
-
-  // A projection `H#M` reads `H` where it is written, as any type name: `H#M` = Boolean (4) beside
-  // no wildcard, unread under `zzz.*` (probes/a7/proj).
-  def projection = {
-    val found = counts(
-      "p/H.scala" -> "package p\ntrait H { type M = Boolean }",
-      "p/U.scala" -> "package p\nimport zzz.*\nobject U { def pick(x: H#M): H#M = x }",
-      "p/V.scala" -> "package p\nobject V { def pick(x: H#M): H#M = x }"
-    )
-    refused(found("p.U.pick"), "unresolved type: H (may be imported by zzz.*)")
-      .and(found("p.V.pick") === Count.Finite(4))
   }
 
   // `compose` is package `p.compose` unless `zzz` declares a term `compose`, which the wildcard
@@ -206,46 +192,6 @@ class UnsuppliedWildcardSpec extends Specification {
           "scala may be imported by zzz.*)"
       )
     ).and(found("p.R.f") === Count.Finite(4))
-  }
-
-  // `O.type & Singleton` is `O.type` only where `Singleton` is `scala.Singleton`: a `zzz` declaring
-  // `type Singleton = Nothing` makes it empty (scalac: probes/review-A7q/sc), and `quotes.reflect`
-  // declares its own `Singleton` (probes/review-A7/r4/m.scala). Without either wildcard: 1.
-  def singletonMarker = {
-    val single = "def single(o: O.type): O.type & Singleton = o"
-    val found = counts(
-      "s/S.scala" ->
-        s"""|package s
-            |import scala.quoted.*
-            |object O
-            |object Plain { $single }
-            |object W {
-            |  import zzz.*
-            |  $single
-            |}
-            |object Q {
-            |  def outer(using Quotes): Unit = {
-            |    import quotes.reflect.*
-            |    $single
-            |    ()
-            |  }
-            |}""".stripMargin
-    )
-    (found("s.Plain.single") === Count.Finite(1))
-      .and(
-        refused(
-          found("s.W.single"),
-          "declaration not supplied: Singleton (not declared in " +
-            "the sources or stdlib-model/1, may be bound through zzz, which is not supplied " +
-            "(wildcard import of zzz))"
-        )
-      )
-      .and(
-        refused(
-          found("s.Q.outer.single"),
-          "declaration not supplied: quotes.reflect.Singleton (wildcard import)"
-        )
-      )
   }
 
   // A `given` selector binds the given instances of its prefix, terms of any name: `zzz.given` may

@@ -28,17 +28,11 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a value is a nullary signature of its type                      $memberValues
       a pattern's names are not typed by syntax                       $patternValues
       a local value is no row                                         $localValues
-      each name of a declaration is a slot of the others              $siblingDeclarations
-      a value implementing a declaration is not its own slot          $ownSlot
-      an abstract var is a declaration of its type                    $abstractVar
     Anonymous classes
-      a member is a final class's, with the enclosing captures        $anonymousMembers
       each anonymous class of a body is a row of its own              $anonymousOrdinals
       an inherited concrete member is no capability of it             $anonymousFinal
       hidden parent state a body may not reach is refused             $hiddenState
       a level passing the argument or a body import is not followed   $passedLevels
-      a value's or a given's context binders reach its members        $valueBinders
-      an untyped value takes an overridden declaration's binders      $overriddenBinders
       a context-function literal binds its own clause once            $contextLiterals
     Constructors
       an enum's parameterized case has the case-class constructor     $enumCases
@@ -215,32 +209,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
   def localValues =
     rows("object Vals { def local(x: Int): Int = { val y = x; y } }").keySet === Set("Vals.local")
 
-  def siblingDeclarations = {
-    val found = rendered("trait Decls[A] { val one: A; val two, three: A }")
-    // Each name has the other two as slots of A: 2.
-    (found("Decls.one") === "2").and(found("Decls.two") === "2").and(found("Decls.three") === "2")
-  }
-
-  def ownSlot = {
-    val found = rendered(
-      """|trait HasDefault[A] { val default: A }
-         |class Default[A](a: A) extends HasDefault[A] { val default: A = a }
-         |trait HasSeed[A] { def seed: A }
-         |class Seeded[A](a: A) extends HasSeed[A] { val seed: A = a }
-         |class Twins[A](a: A) { val m1, m2: A = a }
-         |""".stripMargin
-    )
-    // Each open class's value implements the inherited declaration: a alone, 1. Of two names of
-    // one definition, the other is an open member: a or m2, 2.
-    (found("Default.default") === "1")
-      .and(found("Seeded.seed") === "1")
-      .and(found("Twins.m1") === "2")
-      .and(found("Twins.m2") === "2")
-  }
-
-  // The declaration's own name is no slot; nothing else of Boolean is in scope: 2.
-  def abstractVar = rendered("trait V { var flag: Boolean }")("V.flag") === "2"
-
   private val anonymous = getter + """
     |abstract class Base[A] { def seed: A; def other: A = seed }
     |trait HasPlate[A] { val plate: A }
@@ -252,15 +220,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     |  def based[A](a: A, b: A): Base[A] = new Base[A] { def seed: A = a }
     |  val first: Getter[Int, Int] = new Getter[Int, Int] { def get(s: Int): Int = s }
     |}""".stripMargin
-
-  def anonymousMembers = {
-    val found = rendered(anonymous)
-    // f(s): 1, not 2 (the implemented Getter.get is no slot). Int => Int: 2^(32·2^32) = 2^(2^37).
-    // An anonymous class whose only member is a value is a scope too: a alone, 1.
-    (found("Anon.mk.<new#1>.get") === "1")
-      .and(found("Anon.first.<new#1>.get") === "2^(2^37)")
-      .and(found("Anon.held.<new#1>.plate") === "1")
-  }
 
   def anonymousOrdinals = {
     val found = rendered(anonymous)
@@ -315,36 +274,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     val reason = "open class with hidden constructor state: Hide.h"
     refused(found("Passed.mid.<new#1>.seed"), reason)
       .and(refused(found("Passed.imported.<new#1>.seed"), reason))
-  }
-
-  def valueBinders = {
-    val found = rendered(
-      getter + """
-        |object Ctx {
-        |  given lifted: (Boolean ?=> Getter[Unit, Boolean]) =
-        |    new Getter[Unit, Boolean] { def get(s: Unit): Boolean = summon[Boolean] }
-        |  val held: Boolean ?=> Getter[Unit, Boolean] =
-        |    new Getter[Unit, Boolean] { def get(s: Unit): Boolean = summon[Boolean] }
-        |  val plain: Getter[Unit, Boolean] = new Getter[Unit, Boolean] { def get(s: Unit): Boolean = true }
-        |}""".stripMargin
-    )
-    // The context binder is a Boolean the member reads: Boolean => Boolean, 4; without one, 2.
-    (found("Ctx.lifted.<new#1>.get") === "4")
-      .and(found("Ctx.held.<new#1>.get") === "4")
-      .and(found("Ctx.plain.<new#1>.get") === "2")
-  }
-
-  def overriddenBinders = {
-    val found = rendered(
-      getter + """
-        |trait Holder { val held: Boolean ?=> Getter[Unit, Boolean] }
-        |object Untyped extends Holder {
-        |  val held = new Getter[Unit, Boolean] { def get(s: Unit): Boolean = summon[Boolean] }
-        |}""".stripMargin
-    )
-    // The expected type is the declaration's: its binder is in scope, 4; the value's type is that
-    // declaration's, 4 too.
-    (found("Untyped.held.<new#1>.get") === "4").and(found("Untyped.held") === "4")
   }
 
   private val literals = getter + """

@@ -171,11 +171,7 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   does a slot over a type parameter refused for a declaration of the sources the reading could
   not read whole (an import not supplied, a family not summed, a cycle not solved). The row
   names what the reading stopped at — with the clause a name comes from — beside the shape
-  model's own reasons, each once. Where the method side reads a closed slot's exact value space
-  itself ([ground-scalar-types.md](ground-scalar-types.md) §Constructors), that space stands only
-  when the size algebra reads it as this reading does; a slot the method side reads through
-  another declaration (`O2.U(o: Obj)` under `export Src.*`, `UsesT(t: x.T)` through a package
-  val, `Dep(q: Other)(x: q.X)`) is refused as `constructor position readings disagree`.
+  model's own reasons, each once.
 
 ## No number, and why
 

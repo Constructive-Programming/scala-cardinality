@@ -72,22 +72,9 @@ parameter it stands for would be — inside the class, beside its binder — so 
 `(using Tag[A])` give one number (D11 reads a position where it is written; the evidence is built,
 not parsed, so it borrows its binder's place).
 
-**R5 — subtype bounds.** `A <: U` / `A >: L` are ambient proofs `A <:< U` / `L <:< A`: always
-available, never values (`summon[A <:< U]` compiles; a proof's only behaviour is the upcast).
-The solver reads no subtype proof, so a bound that says something about the binder is refused
-when the count reaches it (`unsupported evidence relationship: only equality proofs between
-endpoints are read`). `A <: Any`
-and `A >: Nothing` say nothing — where the name is the builtin's as the shape reading reads it: a
-channel that may rebind it (for a top name, a wildcard over a namespace no source supplies, D12)
-leaves a bound to read, refused with that channel. `AnyRef`, `AnyVal` and `Matchable` above say
-nothing of the binder's values (the contract excludes the runtime type tests `Matchable` permits),
-read past the same channels, but they are not top types: a structural lower bound below one — on
-the binder itself, or on a binder a bound or a proof puts below it — must be an instance of that
-class, read from its declaration (a class or enum is an `AnyRef` unless it extends `AnyVal`, a
-trait without parents is an `AnyRef`, tuples and functions are, value builtins are `AnyVal`s).
-Otherwise the binder is refused: Scala 3.9.0 accepts `[A >: Flag <: AnyVal]` and rejects every
-call (E057). A bounded binder's evidence is never provably unrelated to another candidate.
-Subtyping with bounded quantification is undecidable in full F<: (Pierce 1994).
+**R5 — subtype bounds.** A bound other than a top or a bottom (`A <: U`, `A >: L`) is an
+ambient proof `A <:< U` / `L <:< A` that this reading does not read: the signature is refused
+(`ambient proofs of bounded binders not read`).
 
 Bounds that refer back to their binder are never read. Where the compiler follows bounds alone
 back to the binder — a binder an upper bound names, itself or as a union or intersection

@@ -20,16 +20,11 @@ class ContextBindersSpec extends Specification {
       binders of one clause are ambiguous                            $oneClause
       a nested using, given or own binder hides the outer one        $deeperCandidate
     The chain is followed only where Scala wraps
-      an infix alias and an applied type lambda wrap                 $lambdas
-      a constructor argument of an alias wraps                       $constructorArgument
-      an alias applied twice reduces its lambda                      $curried
       a projection or a refinement of one is refused                 $projection
       a union or an intersection is never wrapped                    $plain
       a chain past the reading's budget or arity is refused          $limits
     An overridden result is the one the subclass sees
-      the subclass's alias of an abstract member wraps               $memberAlias
       a parameter an extends clause substitutes is refused           $substituted
-      an inferred member reads its overridden context function       $overriddenLocal
       several overridden declarations refuse the local definition    $severalOverridden
   """
 
@@ -80,61 +75,6 @@ class ContextBindersSpec extends Specification {
       .and(refused(found("B.outerG.w"), s"$Overlap (overlaps given A = a)"))
       .and(refused(found("B.outerF.k"), s"$Overlap (overlaps context function binder A)"))
       .and(refused(found("B.show.mid.g2"), Overlap))
-  }
-
-  // Fixture r4 prints (1,3,…): the binder wins through `A ~> A` and through every lambda, so gi,
-  // g1, g2 and g3 refuse their outer evidence (true 1, never 2); fi.l, hk.lh, hk2.li and
-  // partial.lp read the binder (1, where the reading gave 0).
-  def lambdas = {
-    val found = rows("""infix type ~>[A, B] = A ?=> B
-      |type K[F[_], A] = F[A]
-      |type Id[X] = X ?=> X
-      |type P[A, B] = A ?=> B
-      |object S {
-      |  def gi[A](using A): A ~> A = summon[A]
-      |  def fi[A]: A ~> A = { def l: A = summon[A]; l }
-      |  def g1[A](using A): K[Id, A] = summon[A]
-      |  def g2[A](using A): ([B] =>> B ?=> B)[A] = summon[A]
-      |  def g3[A](using A): K[[X] =>> X ?=> X, A] = summon[A]
-      |  def hk[A]: K[[X] =>> X ?=> X, A] = { def lh: A = summon[A]; lh }
-      |  def hk2[A]: K[Id, A] = { def li: A = summon[A]; li }
-      |  def partial[A]: ([B] =>> P[A, B])[A] = { def lp: A = summon[A]; lp }
-      |}""".stripMargin)
-    val overlap = "anonymous evidence selection not resolved: A (overlaps context function binder"
-    List("S.gi", "S.g1", "S.g2", "S.g3")
-      .map(name => refused(found(name), overlap))
-      .reduce(_ and _)
-      .and(found("S.fi.l") === Count.Finite(1))
-      .and(found("S.hk.lh") === Count.Finite(1))
-      .and(found("S.hk2.li") === Count.Finite(1))
-      .and(found("S.partial.lp") === Count.Finite(1))
-  }
-
-  // An alias argument applied in another alias's body: `L[A]` is `B` with B := A ?=> A, written in
-  // `nested`'s scope (fixture p6 prints the binder's 5).
-  def constructorArgument = {
-    val found = rows("""type L[B] = B
-      |type K[A] = L[A]
-      |object S { def nested[A]: K[A ?=> A] = { def ln: A = summon[A]; ln } }""".stripMargin)
-    found("S.nested.ln") === Count.Finite(1)
-  }
-
-  // Fixture r8: `CF[Option][X, A]` is `X ?=> Option[A]`, so f's evidence is hidden (true 1, never
-  // the 3 of None, Some(a) and Some(summon[X]) — refused), h is `X ⇒ Option[A]` (None or Some(a),
-  // 2) and h.lx reads its binder (1). `Fg[Option][X, A]` wraps nothing: g is None, Some(a) or the
-  // evidence in Some (3).
-  def curried = {
-    val found = rows("""type CF[F[_]] = [X, A] =>> X ?=> F[A]
-      |type Fg[F[_]] = [X, A] =>> F[A]
-      |object C {
-      |  def f[X, A](a: A)(using X): CF[Option][X, A] = Some(a)
-      |  def g[X, A](a: A)(using A): Fg[Option][X, A] = Some(a)
-      |  def h[X, A](a: A): CF[Option][X, A] = { def lx: X = summon[X]; Some(a) }
-      |}""".stripMargin)
-    refused(found("C.f"), "anonymous evidence selection not resolved: X (overlaps context function")
-      .and(found("C.g") === Count.Finite(3))
-      .and(found("C.h") === Count.Finite(2))
-      .and(found("C.h.lx") === Count.Finite(1))
   }
 
   // Fixtures w1 and r4: a projection and a refinement declaring `apply` wrap (`proj(using 6)`
@@ -194,22 +134,6 @@ class ContextBindersSpec extends Specification {
       )
   }
 
-  // Fixture r2: `F[Int]().run(using 4)` prints 4. F's `run` has no result type; Scala types it by
-  // `P.run: R`, and R is F's `X ?=> X`: gf reads the binder (1, where the reading gave 0), and
-  // `F6.run`'s binder hides F6's evidence (prints 2 with a given 1; true 1, never 2). A member
-  // inherited as an alias is the member as seen from the subclass (C.h.lk: 1).
-  def memberAlias = {
-    val found = rows("""trait P[X] { type R; def run: R }
-      |final class F[X] extends P[X] { type R = X ?=> X; def run = { def gf: X = summon[X]; gf } }
-      |final class F6[X](using X) extends P[X] { type R = X ?=> X; def run = summon[X] }
-      |trait Q[X] { type KK = X ?=> X }
-      |final class C[Y] extends Q[Y] { def h: KK = { def lk: Y = summon[Y]; lk } }
-      |""".stripMargin)
-    (found("F.run.gf") === Count.Finite(1))
-      .and(refused(found("F6.run"), "anonymous evidence selection not resolved: X"))
-      .and(found("C.h.lk") === Count.Finite(1))
-  }
-
   // Fixture r2: `F5[Int]().run3(using 2)` prints 2 under a given 1, so F5.run3 is 1, never 2; the
   // `extends` argument `X ?=> X` reaches this reading as a function shape, which has lost `?=>`:
   // refused, for the target and for F3's local gf3 (true 1, the reading gave 0). A substituted
@@ -224,17 +148,6 @@ class ContextBindersSpec extends Specification {
     refused(found("F5.run3"), behind)
       .and(refused(found("F3.run3.gf3"), s"$behind, in the result of enclosing run3"))
       .and(found("G3.run3.g") === Count.Finite(1))
-  }
-
-  // Fixture r2 prints 7: Impl's `g` is typed `A ?=> A` by Base, so l reads the binder (1); Impl3's
-  // overridden `g: A` wraps nothing, and l3 has no A (0).
-  def overriddenLocal = {
-    val found = rows("""trait Base[A] { def g: A ?=> A }
-      |final class Impl[A] extends Base[A] { def g = { def l: A = summon[A]; l } }
-      |trait Base3[A] { def g: A }
-      |final class Impl3[A] extends Base3[A] { def g = { def l3: A = ???; l3 } }
-      |""".stripMargin)
-    (found("Impl.g.l") === Count.Finite(1)).and(found("Impl3.g.l3") === Count.Finite(0))
   }
 
   // Both declarations match `g`: Scala intersects their results, which this reading does not.

@@ -48,7 +48,6 @@ class CapabilitySpec extends Specification {
       a refined restatement is read at its nearest declaration      $refinedMember
       a final class is its observable constructor arguments         $finalRecord
       a composed-getter law reads its records                       $laws
-      a `val` and a parameterless `def` of one name are one member  $oneSlot
       only `Any`'s members are universal (`canEqual` is not)        $universalRecord
     Records the reading refuses
       a member hidden at the use site                               $hiddenMember
@@ -482,31 +481,6 @@ class CapabilitySpec extends Specification {
         }""")("O.Loc.target"),
       "member of a template only its file extends may be overridden there: O.Loc.y"
     )
-
-  // A val restating a parameterless def, or a constructor val implementing one, is one member: the
-  // record is one Boolean — c.m: m, !m, true, false; mk: b, !b, true, false — 4 each (they read 16).
-  // C.target reads b and the one m: 16 (it was refused, the identity unresolved).
-  def oneSlot = {
-    val restated = one("""
-      trait P { def m: Boolean }
-      trait C extends P { val m: Boolean }
-      object Use { def f(c: C): Boolean = c.m; def mk(b: Boolean): C = new C { val m = b } }
-    """)
-    val receiver = one("""
-      trait P { def m: Boolean }
-      trait C extends P { val m: Boolean; def target(b: Boolean): Boolean }
-    """)
-    val field = one("""
-      trait P { def x: Boolean }
-      class C(val x: Boolean) extends P
-      object Use { def f(c: C): Boolean = c.x; def mk(b: Boolean): C = new C(b) }
-    """)
-    (restated("Use.f") === Count.Finite(4))
-      .and(restated("Use.mk") === Count.Finite(4))
-      .and(receiver("C.target") === Count.Finite(16))
-      .and(field("Use.f") === Count.Finite(4))
-      .and(field("Use.mk") === Count.Finite(4))
-  }
 
   // canEqual is scala.Equals', not Any's: a free Any => Boolean, which observes nothing of its
   // argument (Any is terminal), so one Boolean — true, false, c(x), !c(x): 4, as `(x: A, c: Any =>

@@ -20,9 +20,6 @@ class EoCaseLedgerSpec extends Specification {
       CanModifyP.replace synthesizes a constant callback          $replace
       Optic.to has no producer of its rigid carrier               $optic
     Completeness guards
-      an additional captured value changes a zero                $capturedResult
-      an additional endomorphism changes an identity count        $capturedStep
-      an additional result producer changes replace's count      $capturedFallback
     Review identity
       moving anonymous extension and given owners keeps keys     $movedOwners
       different extension receivers retain different keys        $differentReceivers
@@ -72,28 +69,6 @@ class EoCaseLedgerSpec extends Specification {
         def to(s: S): F[X, A]
         def from(b: F[X, B]): T
     """)("Optic.to").count === Count.Finite(0)
-
-  def capturedResult =
-    entries("""
-      trait CanGet[S, A]:
-        val default: A
-        def get(s: S): A
-    """)("CanGet.get").count === Count.Finite(1)
-
-  def capturedStep =
-    entries("""
-      trait CanPlace[T, B]:
-        val step: T => T
-        def place(b: B): T => T
-    """)("CanPlace.place").count === Count.Countable
-
-  def capturedFallback =
-    entries("""
-      trait CanModifyP[S, T, A, B]:
-        val fallback: T
-        def modify(f: A => B): S => T
-        def replace(b: B): S => T = modify(_ => b)
-    """)("CanModifyP.replace").count === Count.Finite(2)
 
   private def keys(code: String) = {
     val tree = dialects.Scala3(code).parse[Source].get

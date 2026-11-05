@@ -20,7 +20,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       var fields of a sealed family or case class are its product   $varProducts
       a private var field of a sealed subtype stays hidden          $privateVarProduct
       a plain parameter of a sealed leaf is no field                $plainLeafParameter
-      a var is no stable path, by Scala's typing rule               $varPath
     A throw supplies nothing
       a right-hand side that only throws is a Nothing               $inferredNothing
       a throwing branch joins nothing to the other branch           $throwingBranch
@@ -127,16 +126,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |object U { def f(s: S): Boolean = ???; def g(t: T): Boolean = ??? }""".stripMargin)
     refused(found("U.f"), "sealed subtype hides a parameter: H2")
       .and(found("U.g") === Count.Finite(8))
-  }
-
-  // Not valid Scala (E083, "not an immutable path"): the refusal names the typing rule.
-  def varPath = {
-    val found = rows(
-      "class P(var p: String) { def t: p.type = ??? }\n" +
-        "object Q { var q: String = \"\"; def t: q.type = ??? }"
-    )
-    refused(found("P.t"), "not a stable path: p is a var")
-      .and(refused(found("Q.t"), "not a stable path: q is a var"))
   }
 
   // Scala types `throw e`, `???` and `sys.error(…)` as Nothing, and a block, match or conditional

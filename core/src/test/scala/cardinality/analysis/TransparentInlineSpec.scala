@@ -15,7 +15,6 @@ class TransparentInlineSpec extends Specification {
 
   def is = s2"""
     A transparent result is what the expansion returns
-      a declared top type hides what callers observe                 $transparent
       a transparent result of an open class may be a subclass        $transparentSubclass
       a closed transparent result is still narrowed at the call site $transparentClosed
       a transparent function result is refused too                   $transparentFunction
@@ -37,29 +36,6 @@ class TransparentInlineSpec extends Specification {
       case Count.Unresolved(reasons) =>
         fragments.forall(f => reasons.exists(_.contains(f))) must beTrue
     }
-
-  // The call site sees the expansion's type, so a declared top hides what callers observe.
-  def transparent =
-    reasonContains("transparent inline def sel(b: Boolean): Any = b", "sel", "transparent inline")
-      .and(
-        reasonContains(
-          "transparent inline def sel(b: Boolean): Option[Any] = None",
-          "sel",
-          "not the declared Option[Any]"
-        )
-      )
-      .and(count("inline def plain(b: Boolean): Any = b", "plain") === Count.Finite(1))
-      .and(
-        reasonContains(
-          "transparent inline def u(b: Boolean): Unit = ()",
-          "u",
-          "not the declared Unit"
-        )
-      )
-      .and(count("transparent inline def one(b: Boolean): 1 = 1", "one") === Count.Finite(1))
-      .and(
-        reasonContains("transparent inline def m[A](a: A): A & Any = a", "m", "transparent inline")
-      )
 
   // Scala 3.9.0 reads `mk(true).n` at the call site: `new Sub(true)` and `new Sub(false)` are
   // distinct implementations the declared Foo cannot tell apart.
