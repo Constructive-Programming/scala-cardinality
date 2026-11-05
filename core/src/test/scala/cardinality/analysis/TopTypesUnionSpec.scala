@@ -206,10 +206,14 @@ class TopTypesUnionSpec extends Specification {
 
   // Only the length of `xs` is observable: finitely describable predicates on it are ω many. A
   // repeated parameter is a possibly empty list (Σ_{n≥0} Xⁿ): `f()` is a call, so `first` has no
-  // total implementation, 0.
+  // total implementation, 0; the same over a List. With a default beside them every length has
+  // an A: `default` at 0, one of n + 1 values at n, ω.
   def repeated =
     (count("def f(xs: Any*): Boolean = true", "f") === Count.Countable)
       .and(count("def first[A](xs: A*): A = xs.head", "first") === Count.Finite(0))
+      .and(count("def first[A](xs: List[A]): A = xs.head", "first") === Count.Finite(0))
+      .and(count("def f[A](default: A, xs: A*): A = default", "f") === Count.Countable)
+      .and(count("def f[A](default: A, xs: List[A]): A = default", "f") === Count.Countable)
 
   // `that` carries nothing: equals reads n (2) and that (1), 2^2.
   def equalsOverride =
