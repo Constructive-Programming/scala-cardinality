@@ -1,9 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.{BooleanSize, Counter}
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
 
@@ -18,7 +15,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
     Named tuples are the products of their fields
       fields are read as a tuple's                                   $namedFields
       a named tuple inside a type-lambda alias                       $namedAlias
-      a match type is stuck on a named tuple                         $namedStuck
       names are part of a rigid argument's key                       $namedKeys
       a named tuple and its tuple share a runtime class              $namedUnion
       a dependent function's named parameter is not a field          $dependentFunction
@@ -76,36 +72,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
     rows("""type G[I] = [X, A] =>> (context: X, values: I => A)
       |object M { def map[I, X, A, B](fa: G[I][X, A], f: A => B): G[I][X, B] = ??? }
       |""".stripMargin)("M.map") === Count.Finite(1)
-
-  // Scala 3.9.0 reduces neither `case (a, b)` nor `case Int` on `(x: Int, y: String)` and proves
-  // neither disjoint (fixtures m1, m4): stuck, never the projection's 1, concrete fields included
-  // (nothing is left to substitute), and so is a named tuple a nested tuple pattern meets. The tuple
-  // twin reduces. The stored-value side reads the same match: `Fst[(x: Boolean, y: Int)]` is stuck
-  // on its match type, never a Boolean bound to a named field; its positional twin is a Boolean.
-  def namedStuck = {
-    val code = """type Fst[T] = T match { case (a, b) => a }
-      |type Fst2[T] = T match { case ((a, b), c) => a }
-      |type NamedFst = Fst[(x: Boolean, y: Int)]
-      |type PlainFst = Fst[(Boolean, Int)]
-      |object S {
-      |  def stuck[A, B](p: (x: A, y: B)): Fst[(x: A, y: B)] = ???
-      |  def stuckConcrete(p: (x: Boolean, y: Int)): Fst[(x: Boolean, y: Int)] = ???
-      |  def nested(p: ((x: Int, y: Int), Unit)): Fst2[((x: Int, y: Int), Unit)] = ???
-      |  def reduces[A, B](p: (A, B)): Fst[(A, B)] = p._1
-      |}""".stripMargin
-    val found = rows(code)
-    val stored = Counter
-      .definitions(dialects.Scala3(code).parse[Source].get)
-      .map(d => d.name -> (d.size, d.unbound.map(_.render)))
-      .toMap
-    val stuck = "match type stuck on a named tuple"
-    refused(found("S.stuck"), s"$stuck: (x: A, y: B) (Scala reduces no case on it)")
-      .and(refused(found("S.stuckConcrete"), s"$stuck: (x: Boolean, y: Int)"))
-      .and(refused(found("S.nested"), s"$stuck: (x: Int, y: Int)"))
-      .and(found("S.reduces") === Count.Finite(1))
-      .and(stored("NamedFst")._2 === List("a match type"))
-      .and(stored("PlainFst") === (Some(BooleanSize), Nil))
-  }
 
   // `(x: A, y: A)` is the opaque `NamedTuple[("x", "y"), (A, A)]`: not `(A, A)`, nor `(y: A, x: A)`,
   // so a rigid F relates none of them (0); the same names, spelled either way, are one type (1).

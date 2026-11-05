@@ -39,7 +39,6 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       ignore a concrete method whose value the scope already has  $concreteMethod
       read an enum the source set defines                         $sourceEnum
       read a sealed family as the sum it enumerates               $sealedSum
-      read a sealed family's covariant pin and mirror binders     $sealedFamilyWithBinder
       read an empty sealed enumeration as no values               $sealedEmpty
       refuse a sealed family an open subtype keeps growing         $sealedOpenSubtype
       refuse a sealed family an open abstract intermediate         $sealedOpenIntermediate
@@ -380,26 +379,6 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
          |case object False extends Bool
          |def bit(b: Bool): Boolean = ???""".stripMargin
     entry(code, "bit").count === Count.Finite(4)
-  }
-
-  def sealedFamilyWithBinder = {
-    // The mirror pattern eo's carriers use: the child's binder pins the parent's slot by the
-    // same name, and `Nothing` pins a covariant slot bottom-up — `Missing` belongs to every
-    // `Opt[A]`. The family resolves; an `A` has no producer, which is the reviewed `CanGet.get`
-    // zero. Sum-domain branching stays deferred exactly as it does for enums — the sealed
-    // family and its enum twin answer alike.
-    val code =
-      """sealed trait Opt[+A]
-         |case class Have[A](value: A) extends Opt[A]
-         |case object Missing extends Opt[Nothing]
-         |def use[A](o: Opt[A]): A = ???""".stripMargin
-    val sealedResult = entry(code, "use").count
-    val enumTwin =
-      entry(
-        "enum Opt[+A] { case Have(value: A); case Missing }\ndef use[A](o: Opt[A]): A = ???",
-        "use"
-      ).count
-    (sealedResult === Count.Finite(0)).and(sealedResult === enumTwin)
   }
 
   def sealedEmpty = {

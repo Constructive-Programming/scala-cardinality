@@ -29,8 +29,6 @@ class ReportSpec extends Specification {
       signatures carry their parameters         $signatures
       an applied user type substitutes arguments  $appliedType
       a parameterised recursion keeps its fixed point  $parameterisedRecursion
-      a match type reduces on a known scrutinee  $matchType
-      a match type that does not reduce stays unread  $matchTypeStuck
       a higher-kinded parameter names its arity  $higherKinded
       the top and the bottom of the lattice   $latticeEnds
 
@@ -481,47 +479,6 @@ class ReportSpec extends Specification {
       ("p.User", Some(EffectiveOmega), List("opaque type read outside its scope: p.Id"))
     ))
       .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
-  }
-
-  def matchType = {
-    val found = definitions(
-      """|type Fst[T] = T match { case (f, s) => f }
-         |type Snd[T] = T match { case (f, s) => s }
-         |type Pick[T] = T match
-         |  case Int => Boolean
-         |  case x => x
-         |type Two = Fst[(Boolean, Boolean)]
-         |type Second = Snd[(Int, Boolean)]
-         |type ANumber = Pick[Int]
-         |type Other = Pick[String => String]
-         |""".stripMargin,
-    )
-    // A match type reduces on the argument's syntax: `Fst[(Boolean, Boolean)]` is `Boolean` because
-    // the case pattern is that tuple and its body is the first binder. A concrete pattern matches
-    // by spelling and falls through to the binder case when it does not. The definitions' own rows
-    // are stuck only on their parameter `T`: each instantiation decides them.
-    found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
-      ("Fst", Some(EffectiveOmega), List("T")),
-      ("Snd", Some(EffectiveOmega), List("T")),
-      ("Pick", Some(EffectiveOmega), List("T")),
-      ("Two", Some(BooleanSize), Nil),
-      ("Second", Some(BooleanSize), Nil),
-      ("ANumber", Some(BooleanSize), Nil),
-      ("Other", Some(EffectiveEpsilon0), Nil),
-    )
-  }
-
-  def matchTypeStuck = {
-    val found = definitions(
-      """|type Fst[T] = T match { case (f, s) => f }
-         |type Stuck = Fst[String]
-         |""".stripMargin,
-    )
-    // No case matches a `String` scrutinee: the match type stays unreduced, which a report names
-    // rather than guessing what it might be worth. The scrutinee is a modelled space, so the
-    // unreduced match type is the row's only reason.
-    found.find(_.name == "Stuck").map(d => (d.size, d.unbound.map(_.render))) ===
-      Some((Some(EffectiveOmega), List("a match type")))
   }
 
   def openAbstraction = {

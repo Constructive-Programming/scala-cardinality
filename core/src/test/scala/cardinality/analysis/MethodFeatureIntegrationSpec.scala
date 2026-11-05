@@ -3,7 +3,6 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.*
 import cardinality.types.*
 import org.specs2.Specification
 
@@ -23,11 +22,8 @@ class MethodFeatureIntegrationSpec extends Specification {
       validate private singleton aliases inside repeated types    $privateRepeatedAlias
     Syntax-preserving aliases and polymorphic binders
       keep a polymorphic identity binder distinct from alias args $polyAliasShadowing
-      substitute free outer types inside polymorphic bodies       $polyAliasOuter
       protect nested type-lambda binders during alias substitution $lambdaAliasShadowing
-      substitute fixed match patterns for stored-value analysis    $fixedMatchPattern
       reject private singleton leaks through refined members       $privateRefinedMember
-      avoid capture by user binders resembling internal tokens     $internalTokenShadowing
       preserve nominal projected member names during substitution $projectedMemberName
       preserve refinement member scope during substitution         $refinementMemberScope
   """
@@ -111,31 +107,10 @@ class MethodFeatureIntegrationSpec extends Specification {
     methodCount("type Id[A] = [A] => A => A; def f: Id[(Boolean, Boolean)] = ???") ===
       Count.Finite(1)
 
-  def polyAliasOuter =
-    methodCount("type Outer[A] = [B] => A => A; def f[A](x: A): Outer[A] = ???") must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("outside the closed identity fragment")) must beTrue
-    }
-
   def lambdaAliasShadowing =
     methodCount(
       "type Nested[A] = (([A] =>> (A, A))[Boolean], A); def f: Nested[Unit] = ???"
     ) === Count.Finite(4)
-
-  def fixedMatchPattern = {
-    val source = dialects
-      .Scala3(
-        """type F[A, B] = A match {
-        |  case B => Boolean
-        |  case _ => Unit
-        |}
-        |case class Result(value: F[Boolean, Boolean])
-        |""".stripMargin
-      )
-      .parse[Source]
-      .get
-    Counter.definitions(source).find(_.name == "Result").get.size === Some(TinySize(2))
-  }
 
   def privateRefinedMember =
     methodCount(
@@ -144,15 +119,6 @@ class MethodFeatureIntegrationSpec extends Specification {
     ) must beLike {
       case Count.Unresolved(reasons) =>
         reasons.exists(_.contains("singleton")) must beTrue
-    }
-
-  def internalTokenShadowing =
-    methodCount(
-      "type Outer[A] = [`$cardinalityProjection1`] => A => A; " +
-        "def f[A](x: A): Outer[A] = ???"
-    ) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("outside the closed identity fragment")) must beTrue
     }
 
   def projectedMemberName = {

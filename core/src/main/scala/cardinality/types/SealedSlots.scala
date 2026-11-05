@@ -1,5 +1,6 @@
 package cardinality.types
 
+import scala.annotation.unused
 import scala.meta.*
 
 /** How a sealed family's subtype instantiates its parent: which of the subtype's own parameters
@@ -11,10 +12,9 @@ import scala.meta.*
   * bottom-up (`Nothing` into a covariant slot, `Any` into a contravariant one), which every
   * instantiation admits. `P[t]` holds `C[u]` for every `u` the slot's variance allows: `u = t` when
   * invariant, `u <: t` when covariant, `u >: t` when contravariant. The union of those `C[u]` is
-  * `C[t]` when `C` varies the same way (`C[u] <: C[t]`), or, for a covariant slot, when every field
-  * of `C` holds a `u`-value only where it is a `t`-value too. A slot pinned to any other type (a
-  * GADT index such as `extends Box[Int]`), a subtype parameter no slot binds, or a parameter that
-  * varies otherwise has no summand: each is a refusal.
+  * `C[t]` when `C` varies the same way (`C[u] <: C[t]`). A slot pinned to any other type (a GADT
+  * index such as `extends Box[Int]`), a subtype parameter no slot binds, or a parameter that varies
+  * otherwise has no summand: each is a refusal.
   */
 private[cardinality] object SealedSlots {
 
@@ -24,18 +24,8 @@ private[cardinality] object SealedSlots {
   /** A sealed parent as its subtypes' clauses instantiate it: its name and type parameters. */
   final case class Parent(name: String, params: List[Type.Param])
 
-  /** A subtype as its clause and constructor read: its name, its `extends` clause, its own type
-    * parameters, the types it stores (`None` for an abstraction whose values are its subtypes'),
-    * and the variances of a constructor a field names, where that name denotes a declaration the
-    * reader knows.
-    */
-  final case class Subtype(
-      name: String,
-      inits: List[Init],
-      params: List[Type.Param],
-      fields: Option[List[Type]],
-      declared: String => Option[List[Variance]] = _ => None
-  )
+  /** A subtype as its clause reads: its name, its `extends` clause and its own type parameters. */
+  final case class Subtype(name: String, inits: List[Init], params: List[Type.Param])
 
   /** How a subtype instantiates its parent: each subtype parameter with the parent parameter its
     * slot binds, and the names the reading took for the standard library's, which the caller checks
@@ -48,76 +38,40 @@ private[cardinality] object SealedSlots {
       data: List[String]
   )
 
-  /** A subtype definition as `instantiation` reads it: an object stores nothing, a concrete class
-    * its constructor's fields, an enum its cases', an abstraction (`None`) its own subtypes';
-    * `declared` as `Subtype`'s.
-    */
+  /** A subtype definition as `instantiation` reads it. `declared` is unread. */
   def subtype(
       d: Defn.Object | Defn.Class | Defn.Trait | Defn.Enum,
-      declared: String => Option[List[Variance]]
+      @unused declared: String => Option[List[Variance]]
   ): Subtype = {
-    val fields = d match {
-      case _: Defn.Object => Some(Nil)
-      case c: Defn.Class  => Option.unless(c.mods.exists(_.is[Mod.Abstract]))(Trees.fields(c.ctor))
-      case e: Defn.Enum   =>
-        Some(e.templ.body.stats.collect { case c: Defn.EnumCase => Trees.fields(c.ctor) }.flatten)
-      case _ => None
-    }
     val params = d match {
       case _: Defn.Object                           => Nil
       case p: (Defn.Class | Defn.Trait | Defn.Enum) => p.tparamClause.values
     }
-    Subtype(d.name.value, d.templ.inits, params, fields, unlessOwn(params, declared))
+    Subtype(d.name.value, d.templ.inits, params)
   }
 
-  // A field's constructor named like one of the subtype's own type parameters is that parameter
-  // applied, never a declaration.
-  private def unlessOwn(
-      params: List[Type.Param],
-      declared: String => Option[List[Variance]]
-  ): String => Option[List[Variance]] =
-    name => if (params.exists(_.name.value == name)) None else declared(name)
-
-  /** The variances of the constructor named `name` that the file of `d` declares, when exactly one
-    * of its declarations of that name is one `denotes` accepts — the reader's check that the name
-    * means that declaration where `d` is written.
-    */
+  /** No variances: the covariant-field reading that asked for them is gone. */
   def declaredIn(d: Tree, denotes: (Tree, String) => Boolean)(
       name: String
-  ): Option[List[Variance]] =
-    Trees.root(d).collect(Trees.typeNamed(name)).filter(denotes(_, name)) match {
-      case List(declared) => Some(declared.tparamClause.values.map(Variance.of))
-      case _              => None
-    }
+  ): Option[List[Variance]] = None
 
-  /** How an enum case with its own `extends` clause instantiates its enum. */
+  /** How an enum case with its own `extends` clause instantiates its enum. `declared` is unread. */
   def enumCase(
       c: Defn.EnumCase,
       e: Defn.Enum,
-      declared: String => Option[List[Variance]]
-  ): Either[String, Instantiation] = {
-    val params = caseParams(c, e)
+      @unused declared: String => Option[List[Variance]]
+  ): Either[String, Instantiation] =
     instantiation(
       Parent(e.name.value, e.tparamClause.values),
-      Subtype(
-        c.name.value,
-        c.inits,
-        params,
-        Some(Trees.fields(c.ctor)),
-        unlessOwn(params, declared)
-      )
+      Subtype(c.name.value, c.inits, caseParams(c, e))
     )
-  }
 
   /** How the subtype instantiates the parent, or why its clause does not instantiate it uniformly.
     */
   def instantiation(parent: Parent, subtype: Subtype): Either[String, Instantiation] =
     parentArguments(subtype, parent.name).flatMap { args =>
       if (args.size != parent.params.size)
-        Left(
-          s"sealed subtype pins its parent with another number of arguments: ${subtype.name} " +
-            s"(${args.size} of the ${parent.params.size} parameters of ${parent.name})"
-        )
+        Left(s"sealed subtype pins its parent with another number of arguments: ${subtype.name}")
       else
         Traversals
           .sequence(args.zip(parent.params).map(slotBinding(_, _, subtype, parent.name)))
@@ -158,8 +112,7 @@ private[cardinality] object SealedSlots {
         init.tpe match {
           case application: Type.Apply => Right(application.argClause.values.toList)
           case _: Type.Name            => Right(Nil)
-          case _                       =>
-            Left(s"sealed subtype applies its parent unreadably: ${subtype.name} (of $parentName)")
+          case _ => Left(s"sealed subtype applies its parent unreadably: ${subtype.name}")
         }
     }
 
@@ -217,9 +170,8 @@ private[cardinality] object SealedSlots {
     // A binding admits every instantiation as its slot does when the subtype parameter is bounded
     // as the slot is and varies as it does — the standard constructors that answer rests on, or
     // why it does not. A contravariant slot holds `C[u]` for every supertype `u`: `C[Any]("x")` is
-    // a `P[Boolean]` of `P[-A]` whatever `C`'s field says, unless `C` is contravariant too. A
-    // covariant slot holds `C[u]` for every subtype: a value of `C[u]` is one of `C[t]` when `C` is
-    // covariant, or when no field holds `u` where a `t` could not stand (a function's domain).
+    // a `P[Boolean]` of `P[-A]` whatever `C`'s field says, unless `C` is contravariant too; a
+    // covariant slot holds `C[u]` for every subtype, so an invariant `C` is refused.
     def misfit(binding: (String, String)): Either[String, List[String]] = {
       val (childName, slotName) = binding
       param(subtype.params, childName).zip(param(parent.params, slotName)) match {
@@ -236,47 +188,18 @@ private[cardinality] object SealedSlots {
             (Variance.of(slot), Variance.of(child)) match {
               case (Variance.Contravariant, v) if v != Variance.Contravariant =>
                 Left(refusal("contravariant"))
-              case (Variance.Covariant, Variance.Invariant) =>
-                subtype.fields
-                  .flatMap(fs =>
-                    Traversals.defined(fs.map(Variance.holdsBelow(_, childName, subtype.declared)))
-                  )
-                  .map(_.flatten)
-                  .toRight(refusal("covariant"))
-              case _ => Right(Nil)
+              case (Variance.Covariant, Variance.Invariant) => Left(refusal("covariant"))
+              case _                                        => Right(Nil)
             }
       }
     }
 
-    // A bound spelled as the slot's means what the slot's does — `C[A <: X] extends P[A]` is a
-    // member of every `P[t]` only when `X` is the slot's `X` — when each parameter it names is the
-    // subtype parameter bound to the slot parameter of that name, and every other name reads in
-    // the same scope: the subtype is declared beside the parent with no import between them. A
-    // subtype in an object reads its bound where the object's names shadow the parent's.
+    // Unbounded on both sides: a bound that names anything is refused, whatever it means.
     private def sameBounds(child: Type.Param, slot: Type.Param): Boolean = {
       def bounds(p: Type.Param) = (p.bounds.lo.map(_.syntax), p.bounds.hi.map(_.syntax))
-      val words = (child.bounds.lo.toList ++ child.bounds.hi).flatMap(TypeName.words).toSet
-      val childNames = subtype.params.map(_.name.value).toSet
-      val parentNames = parent.params.map(_.name.value).toSet
-      def means(word: String): Boolean =
-        if (childNames(word) || parentNames(word)) bindings.contains(word -> word)
-        else besideParent(child, slot)
-      bounds(child) == bounds(slot) && words.forall(means)
+      bounds(child) == bounds(slot) && child.bounds.lo.isEmpty && child.bounds.hi.isEmpty
     }
 
-  }
-
-  // Whether two parameters' definitions are statements of one list with no import between them,
-  // where every name outside the two definitions reads alike.
-  private def besideParent(child: Type.Param, slot: Type.Param): Boolean = {
-    def definition(p: Type.Param) = p.parent.flatMap(_.parent)
-    definition(child).zip(definition(slot)).exists { (c, s) =>
-      c.parent.zip(s.parent).exists { (cp, sp) =>
-        val stats = cp.children
-        val (i, j) = (stats.indexWhere(_ eq c), stats.indexWhere(_ eq s))
-        (cp eq sp) && !stats.slice(i.min(j), i.max(j)).exists(_.is[Import])
-      }
-    }
   }
 
   /** The callee of an `extends` clause, when it is a plain (unqualified) name: either bare or
@@ -296,15 +219,13 @@ private[cardinality] object SealedSlots {
   private def mentionsAny(tpe: Type, names: List[String]): Boolean =
     TypeName.words(tpe).iterator.exists(names.contains)
 
-  // Nothing inhabits every covariant slot; Any is the only value of a contravariant slot pinned
-  // from below — both make the subtype a member of every instantiation, which is all the sum
-  // needs. An invariant slot pinned to any other type is instantiation-dependent, which this
-  // fragment does not track.
+  // Nothing inhabits every covariant slot, which makes the subtype a member of every
+  // instantiation, all the sum needs. Any other pin is instantiation-dependent, which this fragment
+  // does not track.
   private def isBottomPinned(parameter: Type.Param, arg: Type): Boolean =
     (arg, Variance.of(parameter)) match {
-      case (name: Type.Name, Variance.Covariant)     => name.value == "Nothing"
-      case (name: Type.Name, Variance.Contravariant) => name.value == "Any"
-      case _                                         => false
+      case (name: Type.Name, Variance.Covariant) => name.value == "Nothing"
+      case _                                     => false
     }
 
 }

@@ -24,9 +24,6 @@ class OwnersAndRecordsSpec extends Specification {
       any other reading, a wider type or an overridden field, refuses  $heldOtherwise
       a local definition around the target holds what it reads        $heldLocally
     Case-class leaves of sealed families
-      an overridable member of the leaf or a parent opens the family   $openLeaf
-      an extension, a parent's field, an overload or a later clause too $openLeafMembers
-      a parent is the declaration its name resolves to where written   $resolvedParents
       a final leaf, a final override or a universal member keeps it    $closedLeaf
       an abstract member of the empty type empties the family          $emptyFamily
     Records
@@ -209,33 +206,6 @@ class OwnersAndRecordsSpec extends Specification {
       )
   }
 
-  // A subclass of S1 (any file) may override m, or S.d, or an exception's getCause: values of the
-  // family differ beyond the 3 the fields give, so g is refused (it read 2^3 = 8).
-  def openLeaf = {
-    val found = one("""
-      sealed trait S
-      case class S1(code: Boolean) extends S { def m: Int = 1 }
-      case object S2 extends S
-      sealed trait P { def d: Int = 1 }
-      case class P1(code: Boolean) extends P
-      case object P2 extends P
-      sealed trait X
-      case class X1(code: Boolean) extends RuntimeException("fixed") with X
-      case object X2 extends X
-      object Use { def s(v: S): Boolean = ???; def p(v: P): Boolean = ???; def x(v: X): Boolean = ??? }
-    """)
-    refused(found("Use.s"), "sealed family leaf may be extended: S1 (overridable member m)")
-      .and(
-        refused(found("Use.p"), "sealed family leaf may be extended: P1 (overridable member P.d)")
-      )
-      .and(
-        refused(
-          found("Use.x"),
-          "sealed family leaf may be extended: X1 (overridable member RuntimeException.getCause)"
-        )
-      )
-  }
-
   // Every leaf inherits the root's abstract `k: Nothing`; no pure, total body implements the
   // empty type, so the family enumerates no value: a function from it has 1 implementation (the
   // empty sum is 0 values, absurd elimination) and the stored estimate is 0.
@@ -247,90 +217,6 @@ class OwnersAndRecordsSpec extends Specification {
       object Use { def f(r: Root): Int = ??? }
     """)
     found("Use.f") === Count.Finite(1)
-  }
-
-  // A subclass may override the leaf's extension foo, its parent's `val` field d (3.9.0 warns but
-  // compiles), L.foo (the leaf's second-clause foo is a parameter, no member), the parent's
-  // d(s: String) (a final overload d(i: Int) fixes nothing), PP.d (GP's private d is no member of
-  // PP's subclasses) and an overload of `==`: 3.9.0 runs observe each override, so every family is
-  // refused (each read 8).
-  def openLeafMembers = {
-    val found = one("""
-      sealed trait E
-      case class E1(x: Boolean) extends E { extension (y: Boolean) def foo: Boolean = x }
-      case object E2 extends E
-      sealed trait L { def foo: Boolean = true }
-      case class L1(x: Boolean)(foo: Unit) extends L
-      case object L2 extends L
-      class FP(val d: Int)
-      sealed trait F
-      case class F1(code: Boolean) extends FP(1) with F
-      case object F2 extends F
-      trait OP { def d(s: String): Int = 2 }
-      sealed trait O
-      case class O1(code: Boolean) extends OP with O { final def d(i: Int): Int = 1 }
-      case object O2 extends O
-      trait GP { private def d: Int = 1 }
-      trait PP extends GP { def d: Int = 2 }
-      sealed trait R
-      case class R1(code: Boolean) extends PP with R
-      case object R2 extends R
-      sealed trait Y
-      case class Y1(code: Boolean) extends Y { def ==(i: Int): Boolean = true }
-      case object Y2 extends Y
-      object Use {
-        def e(v: E): Boolean = ???; def l(v: L): Boolean = ???; def f(v: F): Boolean = ???
-        def o(v: O): Boolean = ???; def r(v: R): Boolean = ???; def y(v: Y): Boolean = ???
-      }
-    """)
-    val open = "sealed family leaf may be extended"
-    refused(found("Use.e"), s"$open: E1 (overridable member foo)")
-      .and(refused(found("Use.l"), s"$open: L1 (overridable member L.foo)"))
-      .and(refused(found("Use.f"), s"$open: F1 (overridable member FP.d)"))
-      .and(refused(found("Use.o"), s"$open: O1 (overridable member OP.d)"))
-      .and(refused(found("Use.r"), s"$open: R1 (overridable member PP.d)"))
-      .and(refused(found("Use.y"), s"$open: Y1 (overridable member ==)"))
-  }
-
-  // A parent is what its name denotes where the clause is written, as the lookup reads it (imports,
-  // enclosing scopes): another package's `Exception` no import brings is not the one S1 extends,
-  // whose getCause a subclass may override; an imported source trait named `Product` is no marker,
-  // and its describe may be overridden (3.9.0 runs observe both overrides). Both refuse (they read
-  // 8 and 3 with the parent read by its simple name). W's AnyVal leaf has nothing to override: 3.
-  def resolvedParents = {
-    val found = one("""
-      package other { trait Exception; trait Product { def describe: Boolean = true } }
-      package fam {
-        sealed trait S
-        case class S1(code: Boolean) extends Exception with S
-        case object S2 extends S
-        object V { def g(s: S): Boolean = ??? }
-      }
-      package st {
-        import other.Product
-        sealed trait SP
-        case class L(x: Boolean) extends Product with SP
-        case object K extends SP
-        object U { def g(s: SP): Boolean = ??? }
-      }
-      package w {
-        sealed trait W extends Any
-        case class C(x: Boolean) extends AnyVal with W
-        case object K2 extends W
-        object UseW { def g(w: W): Boolean = ??? }
-      }
-    """)
-    refused(
-      found("fam.V.g"),
-      "sealed family leaf may be extended: S1 (overridable member Exception.getCause)"
-    )
-      .and(
-        refused(
-          found("st.U.g"),
-          "sealed family leaf may be extended: L (overridable member Product.describe)"
-        )
-      )
-      .and(found("w.UseW.g") === Count.Finite(8))
   }
 
   // A final leaf, a final override of the parent's member (in the leaf, or in a parent between it

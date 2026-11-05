@@ -16,7 +16,6 @@ class ValueRowsSpec extends Specification {
     A value row holds one value when its declared type has one
       an empty declared type holds no value                           $emptyValues
       an inhabited, undeclared or unresolved type                     $valueReasons
-      a witness decides it whatever the rest of the type              $valueWitnesses
       a class, enum or module no construction is read for             $unbuiltValues
       a sum drops the summands that provably build nothing            $sumDropsEmptySummand
       a singleton type holds what its path denotes                    $singletonValues
@@ -111,47 +110,6 @@ class ValueRowsSpec extends Specification {
         found(("vb.p2", Value)) ===
           "unresolved[value not decided: vr.P holds a function from an empty type]"
       )
-  }
-
-  // A witness decides a value whatever the rest of the type: the top and marker types, `BigInt`
-  // and the comparisons, the throwables (`new Exception`) and the containers with an empty one are
-  // inhabited (they read `?` with an unresolved or open name: `AnyRef`, `Throwable`, `Json` in
-  // `Option[Json]`); so is a sealed family with a case object a member of every instantiation
-  // (`V[Json]` holds `Empty` by covariance, as eo's `PSVec[Json]` holds `PSVec.Empty`), and an
-  // enum with a parameterless case (`E.None`). A source that binds the name takes it from the
-  // standard library: `Product` here is the source's empty enum, 0, and a wildcard over a namespace
-  // no source supplies may bind `Option` to anything: refused, not the library's witness. A union
-  // with an inhabited branch is inhabited.
-  def valueWitnesses = {
-    val found = rows(
-      """|package vw
-         |sealed trait V[+B]
-         |case object Empty extends V[Nothing]
-         |final case class One[B](b: B) extends V[B]
-         |enum E[+A] { case None; case Some(a: A) }
-         |val a1: AnyRef = ""
-         |val a2: Matchable = 1
-         |val a3: java.io.Serializable = ""
-         |val a4: Comparable[String] = ""
-         |val a5: BigInt = BigInt(1)
-         |val a6: Ordering[Json] = ???
-         |val a7: Throwable = new Exception
-         |val a8: Option[Json] = None
-         |val a9: List[Json] = Nil
-         |val w: V[Json] = Empty
-         |val e: E[Json] = E.None
-         |val t: (Nothing => Int, Boolean) = ((n: Nothing) => 1, true)
-         |val un: Json | Int = 1
-         |enum Product { case P(n: Nothing) }
-         |val pr: Product = ???
-         |""".stripMargin
-    )
-    val doubted = rows("package vz\nimport zz.*\nval o: Option[Int] = ???")
-    List("a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "w", "e", "t", "un")
-      .map(name => (found((s"vw.$name", Value)) === "1").updateMessage(s"vw.$name: " + _))
-      .reduce(_.and(_))
-      .and(found(("vw.pr", Value)) === "0")
-      .and(doubted(("vz.o", Value)) === "unresolved[Option (may be imported by zz.*)]")
   }
 
   // A value of a class exists only if one is built, which runs every ancestor's constructor

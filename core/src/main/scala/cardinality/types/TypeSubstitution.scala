@@ -65,15 +65,10 @@ private[cardinality] object TypeSubstitution {
           case p: Type.Function        => p.copy(paramClause = params, res = k.last)
         }
       }
-    case p: Type.TypedParam      => List(p.typ) -> (k => p.copy(typ = k.head))
-    case Type.ByName(v)          => List(v) -> (k => Type.ByName(k.head))
-    case Type.Repeated(v)        => List(v) -> (k => Type.Repeated(k.head))
-    case a: Type.Annotate        => List(a.tpe) -> (k => a.copy(tpe = k.head))
-    case e: Type.Existential     => List(e.tpe) -> (k => e.copy(tpe = k.head))
-    case p: Type.Project         => List(p.qual) -> (k => p.copy(qual = k.head))
-    case Type.With(l, r)         => List(l, r) -> (k => Type.With(k.head, k(1)))
-    case a: Type.AnonymousLambda => List(a.tpe) -> (k => a.copy(tpe = k.head))
-    case w: Type.Wildcard        =>
+    case p: Type.TypedParam => List(p.typ) -> (k => p.copy(typ = k.head))
+    case Type.ByName(v)     => List(v) -> (k => Type.ByName(k.head))
+    case Type.Repeated(v)   => List(v) -> (k => Type.Repeated(k.head))
+    case w: Type.Wildcard   =>
       (w.bounds.lo.toList ++ w.bounds.hi.toList) -> { k =>
         val (lo, rest) = w.bounds.lo.fold((Option.empty[Type], k))(_ => (k.headOption, k.drop(1)))
         val hi = w.bounds.hi.flatMap(_ => rest.headOption)
@@ -81,8 +76,6 @@ private[cardinality] object TypeSubstitution {
       }
     case l: Type.Lambda =>
       lambdaBody.getOption(l).toList -> (k => k.headOption.fold(l)(lambdaBody.replace(_)(l)))
-    case p: Type.PolyFunction =>
-      polyBody.getOption(p).toList -> (k => k.headOption.fold(p)(polyBody.replace(_)(p)))
     case r: Type.Refine =>
       r.tpe.toList -> (k => r.copy(tpe = r.tpe.zip(k.headOption).map(_._2), body = r.body))
     case Type.Match.After_4_9_9(scrutinee, block) =>
@@ -125,7 +118,6 @@ private[cardinality] object TypeSubstitution {
   object Union {
 
     def unapply(tpe: Type): Option[(Type, Type)] = tpe match {
-      case Type.Or(left, right)                            => Some(left -> right)
       case union: Type.ApplyInfix if union.op.value == "|" => Some(union.lhs -> union.rhs)
       case _                                               => None
     }
@@ -136,8 +128,6 @@ private[cardinality] object TypeSubstitution {
   object Meet {
 
     def unapply(tpe: Type): Option[(Type, Type)] = tpe match {
-      case Type.And(left, right)                         => Some(left -> right)
-      case Type.With(left, right)                        => Some(left -> right)
       case meet: Type.ApplyInfix if meet.op.value == "&" => Some(meet.lhs -> meet.rhs)
       case _                                             => None
     }
@@ -153,29 +143,10 @@ private[cardinality] object TypeSubstitution {
       (node, kids) => if (kids.isEmpty) List(node) else kids.flatten
     )
 
-  val described: Type => String =
-    hylo[Type, String](
-      {
-        case a: Type.Apply       => List(a.tpe)
-        case a: Type.Annotate    => List(a.tpe)
-        case e: Type.Existential => List(e.tpe)
-        case r: Type.Refine      => r.tpe.toList
-        case _                   => Nil
-      },
-      (tpe, kids) =>
-        tpe match {
-          case name: Type.Name                                    => name.value
-          case _: (Type.Apply | Type.Annotate | Type.Existential) => kids.head
-          case infix: Type.ApplyInfix                             => infix.op.value
-          case _: Type.Refine                                     =>
-            kids.headOption.fold("a refinement")(base => s"a refinement of $base")
-          case _: Type.Match        => "a match type"
-          case _: Type.Lambda       => "a type lambda"
-          case _: Type.PolyFunction => "a polymorphic function type"
-          case _: Type.Wildcard     => "a wildcard"
-          case other                => Spelling.of(other)
-        }
-    )
+  val described: Type => String = {
+    case _: Type.Lambda => "a type lambda"
+    case other          => Spelling.of(other)
+  }
 
   private val substituted: Getter[Type, Map[TypeName, Type] => Type] =
     Schemes.cata[Type, Map[TypeName, Type] => Type] { (node, kids) => env =>
@@ -183,8 +154,6 @@ private[cardinality] object TypeSubstitution {
         case selected: Type.Select => selected
         case lambda: Type.Lambda   =>
           replaceScoped(lambda, lambda.tparamClause.values, lambdaBody, kids, env)
-        case poly: Type.PolyFunction =>
-          replaceScoped(poly, poly.tparamClause.values, polyBody, kids, env)
         case refinement: Type.Refine =>
           val base = if (kids.isEmpty) None else Some(kids(0)(env))
           val scoped = env -- refineMembers(refinement)
@@ -227,24 +196,10 @@ private[cardinality] object TypeSubstitution {
       case d: (Defn.Type | Decl.Type) => TypeName.of(d.name.value)
     }.toSet
 
-  private def replaceBounds(bounds: Type.Bounds, env: Map[TypeName, Type]): Type.Bounds =
-    bounds.copy(
-      lo = bounds.lo.map(replace(_, env)),
-      hi = bounds.hi.map(replace(_, env)),
-      context = bounds.context.map(replace(_, env))
-    )
-
   private def replaceStat(stat: Stat, env: Map[TypeName, Type]): Stat = stat match {
     case d: Defn.Type =>
       val scoped = env -- boundNames(d.tparamClause.values)
       d.copy(body = replace(d.body, scoped))
-    case d: Decl.Type =>
-      val scoped = env -- boundNames(d.tparamClause.values)
-      d.copy(bounds = replaceBounds(d.bounds, scoped))
-    case d: Decl.Val =>
-      d.copy(decltpe = replace(d.decltpe, env))
-    case d: Defn.Val =>
-      d.copy(decltpe = d.decltpe.map(replace(_, env)))
     case other => other
   }
 

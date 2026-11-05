@@ -3,7 +3,7 @@ package cardinality.types
 import scala.annotation.tailrec
 import scala.meta.*
 
-import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
+import cardinality.analysis.model.MemberSyntax
 
 /** Which members a subclass may override, read from syntax alone (scalac E164). */
 private[cardinality] object Overrides {
@@ -111,12 +111,13 @@ private[cardinality] object Overrides {
           val sources = ancestry.collect { case Clause(_, _, Parent.Source(at)) => at }
           val fixed = inheritedFields(leaf).map(_.name.value).toSet ++
             (level :: sources).flatMap(members(_, parents)).filter(fixes).flatMap(paramless)
-          observed(flatten(leaf.templ.body.stats), fixed)
+          observed(leaf.templ.body.stats, fixed)
             .map(m => s"overridable member $m")
             .orElse(inherited(ancestry, fixed, parents))
         }
 
-  // The first overridable member of a source parent, or listed of a library one, breadth first.
+  // The first overridable member of a source parent, breadth first. A library parent's listed
+  // members are not read.
   private def inherited[L](
       ancestry: List[Clause[L]],
       fixed: Set[String],
@@ -126,26 +127,17 @@ private[cardinality] object Overrides {
       .map {
         case Clause(_, name, Parent.Source(at)) =>
           observed(members(at, parents), fixed).map(m => s"$name.$m")
-        case Clause(_, name, Parent.Library(listed)) =>
-          (listed -- fixed).toList.sorted.headOption.map(m => s"$name.$m")
-        case Clause(_, _, Parent.Unread) => None
+        case _ => None
       }
       .collectFirst { case Some(member) => s"overridable member $member" }
 
   private def members[L](level: L, parents: Parents[L]): List[Tree] =
-    flatten(parents.body(level)) ++ parents.fields(level)
-
-  // A body's members, an extension group's methods among them.
-  private def flatten(stats: List[Stat]): List[Tree] = stats.flatMap {
-    case group: Defn.ExtensionGroup => ScopeTerms.extensionMethods(group)
-    case other                      => List(other)
-  }
+    parents.body(level) ++ parents.fields(level)
 
   // A member no subclass may override fixes its name, unless private: that one is not inherited.
   private def fixes(member: Tree): Boolean =
     !overridable(member) && (member match {
       case m: Stat.WithMods => !unqualifiedPrivate(m.mods)
-      case p: Term.Param    => !unqualifiedPrivate(p.mods)
       case _                => true
     })
 
@@ -157,25 +149,16 @@ private[cardinality] object Overrides {
 
   // A concrete member's names, each with whether it is parameterless; none restating `Any`'s.
   private def concrete(member: Tree): List[(String, Boolean)] = member match {
-    case d: Defn.Def if !MemberSyntax.universal(d)(spelledAny) =>
+    case d: Defn.Def if !MemberSyntax.universal(d)(_ => false) =>
       List(d.name.value -> d.paramClauseGroups.isEmpty)
-    case v: Defn.Val   => TypeApplications.boundNames(v.pats).map(_ -> true)
-    case p: Term.Param => List(p.name.value -> true)
-    case _             => Nil
+    case v: Defn.Val => TypeApplications.boundNames(v.pats).map(_ -> true)
+    case _           => Nil
   }
 
   // A parameterless member's names: such members of one name in a linearization are one member.
   private def paramless(member: Tree): List[String] = member match {
-    case d: Defn.Def if d.paramClauseGroups.isEmpty        => List(d.name.value)
-    case v: Defn.Val                                       => TypeApplications.boundNames(v.pats)
-    case d: Defn.Var                                       => TypeApplications.boundNames(d.pats)
-    case g: Defn.GivenAlias if g.paramClauseGroups.isEmpty =>
-      List(g.name.value).filter(_.nonEmpty)
-    case p: Term.Param => List(p.name.value)
-    case _             => Nil
+    case d: Defn.Def if d.paramClauseGroups.isEmpty => List(d.name.value)
+    case _                                          => Nil
   }
-
-  private def spelledAny(tpe: Type): Boolean =
-    Set("Any", "scala.Any", "_root_.scala.Any")(tpe.syntax)
 
 }

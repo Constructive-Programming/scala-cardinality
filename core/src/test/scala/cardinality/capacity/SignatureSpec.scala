@@ -14,7 +14,6 @@ class SignatureSpec extends Specification {
   private def sig(code: String): Size =
     Counter.sourceSignature(dialects.Scala3(code).parse[Source].get)
 
-
   private val service =
     "object Service { def parse(s: String): String = s; def render(s: String): String = s; val name: String = x }"
 

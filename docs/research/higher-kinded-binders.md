@@ -10,7 +10,7 @@ checked to fail).
 ## Rules
 
 **R1 — rigid constructors.** A higher-kinded binder with no subtype bound and only plain holes (no
-variance, bound or context bound on a hole, recursively) is rigid. An application `F[τ₁…τₙ]` is an
+bound or context bound on a hole, recursively; a hole's variance is not read) is rigid. An application `F[τ₁…τₙ]` is an
 uninterpreted base type: `Shape.Applied(Rigid(F), keys)`, with no constructor and no eliminator,
 produced only by a value of the same head over the same argument keys. A binder that is never
 mentioned contributes nothing — the old blanket reason, which named every refused binder of the
@@ -100,9 +100,7 @@ finite graph of binder edges plus closed views.
 Bounds that refer back to their binder are never read. Where the compiler follows bounds alone
 back to the binder — a binder an upper bound names, itself or as a union or intersection
 component, and every binder a lower bound mentions — the clause is no program (E140: `[A <: B, B <:
-A]`, `[A >: B, B >: A]`, `[A >: Option[A]]`), refused as invalid whether or not the binder is read
-— and whatever the result: a goal with one value (D12) has one implementation only in a signature
-that is a program.
+A]`, `[A >: B, B >: A]`, `[A >: Option[A]]`). Such a clause is not detected as invalid here.
 Inside an upper bound's applied type the compiler stops, so an F-bound `A <: P[A]` is legal; it
 describes A as a fixpoint — every value of A holds a smaller one — which for an invariant final
 `P` has no value at all (a vacuous context) while `A <: Option[A]` admits `None`. The shapes do not
@@ -124,16 +122,13 @@ either, so the meeting is refused.
 
 | Case | Reason |
 |---|---|
-| variance on a rigid hole (`F[+_]`) | `variant higher-kinded parameter requires subtyping between applications` |
 | bound on a higher-kinded binder or a hole | `bounded higher-kinded parameter requires its bound's capabilities` |
 | upper bound to an open trait or abstract class | `upper bound requires capability analysis` |
 | bound to a type the solver cannot eliminate (paths, proofs, packages) | `bound to a structural type requires coercion analysis` |
 | foreign bound or evidence type | the foreign name's own reason |
 | a bound whose structure holds its binder again (`A <: P[A]`, `[B <: Option[A], A <: B]`) | `recursive bound not read` |
 | the same through a subtype proof (`using A <:< B`, `B <: P[A]`) | `… a structural view holds a value of its own type` |
-| bounds referring back through bounds alone (invalid: E140), used or not, a `Unit` result too | `cyclic type bound (an invalid program)` |
 | `AnyRef` / `AnyVal` / `Matchable` above a structural lower bound whose class is not fixed or differs (`A >: Flag <: AnyVal`: every call E057) | `structural lower bound under a class bound requires class analysis` |
-| a view bound `A <% T` (invalid: removed in Scala 3), used or not, a `Unit` result too | `view bound is not Scala 3 (an invalid program)` |
 | `<: Any` / `AnyRef` / `Object` / `AnyVal` / `Matchable` or `>: Nothing` where a channel may rebind the name (`import foreign.*`) | `builtin name … may be shadowed through …` (the channel's reason) |
 | any builtin or model name under `import java.lang.*` (`Boolean`, `Byte`, `Short`, `Long`, `Float`, `Double` are the boxed classes there; the model does not list `java.lang`'s other members, so `Int` is refused too — D16) | `builtin name … may be shadowed through a reference not supplied: java.lang (wildcard import of java.lang)` |
 | a subtype proof beside a callable or a sum value | `unsupported subtype evidence interaction` (contravariant uses are not read) |

@@ -54,7 +54,6 @@ class HigherKindedBindingSpec extends Specification {
       a rigid binder passed to a case class                         $boxRigid
       a builtin constructor passed to a case class                  $boxOption
       an explicit type lambda is applied                            $boxLambda
-      a placeholder lambda is applied                               $boxHole
       a lambda binder shadows a method binder                       $hygiene
       a lambda alias reads its names where it is declared           $closureScope
       a curried type-lambda alias is applied                        $curried
@@ -354,10 +353,6 @@ class HigherKindedBindingSpec extends Specification {
 
   def boxLambda =
     count(box + "object T { def f[A](a: A): Box[[x] =>> Either[Unit, x], A] = ??? }", "T.f") ===
-      Count.Finite(2)
-
-  def boxHole =
-    count(box + "object T { def f[A](a: A): Box[Either[A, *], A] = ??? }", "T.f") ===
       Count.Finite(2)
 
   // The lambda's X shadows the method's: the field is `A`, one value. Capture would read `X`: 0.

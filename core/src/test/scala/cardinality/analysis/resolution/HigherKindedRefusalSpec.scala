@@ -21,12 +21,10 @@ class HigherKindedRefusalSpec extends Specification {
       a constructor argument of another kind is not counted         $argumentKinds
       a higher-kinded name read as a type                           $properUse
       a wildcard under a rigid binder is not counted                $wildcard
-      a view bound is not Scala 3                                   $viewBound
     Unreadable identities
       a wildcard where a constructor is expected                    $wildConstructor
       a nested wildcard has no key                                  $nestedWildcard
       distinct union alternatives have no key                       $unionKeys
-      variance on a rigid hole                                      $variant
       a bounded higher-kinded binder                                $boundedHk
       abstract members, paths and inherited members key as members  $members
       a structural bound beside a proof                             $coercionBound
@@ -131,18 +129,6 @@ class HigherKindedRefusalSpec extends Specification {
     invalid("T.w").and(invalid("C.w"))
   }
 
-  // 3.9.0: "view bounds `<%' are no longer supported", used or not.
-  def viewBound = {
-    val counts = entries("""
-      object V {
-        def f[A <% Int](a: A): A = a
-        def unused[A <% Int](n: Boolean): Boolean = n
-      }
-    """)
-    val reason = "view bound is not Scala 3 (an invalid program): A <% Int"
-    refused(counts, "V.f", reason).and(refused(counts, "V.unused", reason))
-  }
-
   def wildConstructor =
     unresolved(
       box + "object T { def f[A](x: Box[?, A]): A = ??? }",
@@ -162,14 +148,6 @@ class HigherKindedRefusalSpec extends Specification {
       "object T { def f[F[_], A, B](x: F[A | B]): F[A] = ??? }",
       "T.f",
       "nominal identity of argument not established: A | B"
-    )
-
-  // Exact count 1 once covariant views exist; the invariant twin is 0.
-  def variant =
-    unresolved(
-      "object T { def f[F[+_], A](x: F[Nothing]): F[A] = x }",
-      "T.f",
-      "variant higher-kinded parameter"
     )
 
   def boundedHk = {

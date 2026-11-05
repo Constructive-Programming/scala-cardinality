@@ -22,7 +22,6 @@ class MethodRefinementSpec extends Specification {
       do not erase refinements on a known product                   $noProductErasure
       do not invent structural object representations               $noTraitProduct
       retain structural term constraints                           $noTermErasure
-      resolve projected fields for constructor analysis             $constructor
       preserve qualification through a forward alias               $qualifiedAlias
       reject hidden member equalities                              $hiddenEquality
       do not resolve shadowed type binders through source aliases   $shadowedBinder
@@ -108,12 +107,6 @@ class MethodRefinementSpec extends Specification {
     count("def choose(): Unit { def unavailable: Boolean } = ???") must beLike {
       case Count.Unresolved(_) => ok
     }
-
-  def constructor =
-    count(
-      "type R[A] = { type X = A }; case class Pair[A](x: R[A]#X, y: A)",
-      "Pair.<init>"
-    ) === Count.Finite(4)
 
   def qualifiedAlias =
     count(

@@ -27,10 +27,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
       comments between tokens are layout                    $comments
       a literal keeps its own spaces                        $literal
       a line break between statements in braces reads `;`   $statementBreaks
-      a line break inside an expression is layout           $expressionBreaks
-      an operator at a line start is infix only before space $leadingOperators
       an operator at a line end continues only an operand   $trailingOperators
-      a braceless match reads in the braces it stands for   $bracelessMatch
       text the tokenizer refuses keeps its characters       $untokenizable
       a character Scala does not have keeps its spaces      $invalidCharacter
       spelling is idempotent                                $idempotent
@@ -45,7 +42,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
       an operator name stays apart from its result's colon  $operatorNames
       a signature drops its layout and trailing comma       $signatureLayout
       curried clauses read one way however laid out         $curriedClauses
-      a braceless match type result reads as valid Scala    $bracelessResult
       a literal shaped like a placeholder is the literal    $placeholderLiteral
       every reason spells a refinement as the row does      $refinedReasons
       so does one whose result is inferred                  $inferredResult
@@ -131,23 +127,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
         ) === "f(x: Int = { val a = 1; a }): Int"
       )
 
-  // A line that ends in an infix operator, or starts with one, continues its expression; inside
-  // parentheses or brackets a line break is never a separator; nor before `}` or after `;`.
-  def expressionBreaks =
-    (Spelling.flat("{\n  a +\n    b\n}") === "{ a + b }")
-      .and(Spelling.flat("{\n  a\n    + b\n}") === "{ a + b }")
-      .and(Spelling.flat("{ f(a,\n  b)\n  g[A,\n  B] }") === "{ f(a, b); g[A, B] }")
-      .and(Spelling.flat("{ type X = Int;\n  type Y = Int\n}") === "{ type X = Int; type Y = Int }")
-
-  // Scala 3 reads an operator at a line start as infix only with whitespace and an operand after it
-  // and no blank line before it: `-bar` begins a statement (`{ foo; -bar }` is -2 where `foo` is 1
-  // and `bar` 2, `{ foo - bar }` is -1).
-  def leadingOperators =
-    (Spelling.flat("{\n  foo\n  -bar\n}") === "{ foo; -bar }")
-      .and(Spelling.flat("{\n  foo\n  - bar\n}") === "{ foo - bar }")
-      .and(Spelling.flat("{\n  foo\n\n  - bar\n}") === "{ foo; - bar }")
-      .and(Spelling.flat("{ foo -bar }") === "{ foo -bar }")
-
   // A line that ends in an operator name continues into an operand, never into a definition or a
   // case.
   def trailingOperators =
@@ -158,21 +137,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
           "T match { case Int => ~>; case _ => Int }"
       )
       .and(Spelling.flat("{\n  a +:\n    b\n}") === "{ a +: b }")
-
-  // A braceless `match` opens an indentation region; on one line its cases need the braces it
-  // stands for (scalac 3.9.0 rejects `T match case Int => String case _ => Boolean`, E040). The
-  // region ends at a line indented less than its cases, or at a bracket closing around it.
-  def bracelessMatch =
-    (Spelling.flat("T match\n  case Int => String\n  case _ => Boolean") ===
-      "T match { case Int => String; case _ => Boolean }")
-      .and(
-        Spelling.flat("Two {\n  type F[X] = X match\n    case Int => String\n  type G = Int\n}") ===
-          "Two { type F[X] = X match { case Int => String }; type G = Int }"
-      )
-      .and(
-        Spelling.flat("F[T match\n  case Int => String]") === "F[T match { case Int => String }]"
-      )
-      .and(Spelling.flat("T match { case Int => String }") === "T match { case Int => String }")
 
   def untokenizable = Spelling.flat("the bound's\n  capabilities") === "the bound's capabilities"
 
@@ -372,16 +336,6 @@ class ReportHygieneSpec extends Specification with AfterAll {
           .identity(big, tree)
           ._4 === "extension [A](x: A)(using o: Ordering[A])"
       )
-  }
-
-  // A braceless match type result reads with the braces its region stands for, which scalac 3.9.0
-  // accepts on one line.
-  def bracelessResult = {
-    val found = entries(
-      "package m\nobject M:\n  def f[T](t: T): T match\n    case Int => String\n" +
-        "    case _ => Boolean\n  = ???\n"
-    ).find(_.name == "m.M.f").get
-    found.signature === "f[T](t: T): T match { case Int => String; case _ => Boolean }"
   }
 
   // A literal type's text is what the source wrote, even shaped like a placeholder: restored, it
