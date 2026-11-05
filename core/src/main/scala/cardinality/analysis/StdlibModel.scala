@@ -355,14 +355,6 @@ private[cardinality] object StdlibModel {
     name -> (t.fqn :: Option.when(t.scalaAlias)(s"scala.$name").toList)
   )
 
-  private val witnessedFqns: Set[String] = witnesses.values.flatten.toSet
-
-  /** The simple name of a witnessed type. */
-  def witnessName(name: String): Boolean = witnesses.contains(name)
-
-  /** A fully qualified spelling of a witnessed type, `_root_`-anchored or not. */
-  def witnessQualified(fqn: String): Boolean = witnessedFqns(fqn)
-
   /** The number of type arguments an entry the model reads takes, or why it does not hold them: an
     * unmodelled class is recorded by name alone, and an excluded entry's parameters are not read
     * (`scala.quoted.Type[T <: AnyKind]` takes a constructor as well).

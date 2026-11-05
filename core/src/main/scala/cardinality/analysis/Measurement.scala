@@ -67,7 +67,7 @@ final private[cardinality] class Measurement(
     }
     scanParents()
     val candidates = new ContextualScope(owners, steps, scopeReader).candidates
-    errors ++= ContextualEvidence.unreachable(candidates, resolver.boundedBinders.contains)
+    errors ++= ContextualEvidence.unreachable(candidates)
     // The target's own binders matter only where they may hide anonymous evidence.
     if (candidates.nonEmpty) contexts.of(target.frame).left.foreach(errors += _)
     // Parameters of the target hide outer names, but their type binders keep their identities.
@@ -486,8 +486,6 @@ final private[cardinality] class Measurement(
   // has no implementation to count.
   private def count(result: Resolved, inferred: Either[String, InferredResults.Inferred]): Count =
     result match {
-      // No receiver the declaration runs in is ever built (register D26): it is never called.
-      case _ if capabilities.neverCalled => Count.Finite(1)
       case Right(shape)
           if !target.constructor && bounded.invalid.isEmpty && TopTypes.terminalGoal(shape) =>
         inferred.toOption.flatMap(r => resolver.unreadChannel(r.context.referencing(r.tpe))) match {

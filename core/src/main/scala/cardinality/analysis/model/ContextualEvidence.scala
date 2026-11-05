@@ -84,10 +84,7 @@ private[cardinality] object ContextualEvidence {
   /** A diagnostic per anonymous candidate a search may not select. An unread type that is already a
     * diagnostic blocks the count by its own reason, so it is not repeated as an overlap.
     */
-  def unreachable(
-      candidates: List[Candidate],
-      @annotation.unused bounded: String => Boolean
-  ): List[String] =
+  def unreachable(candidates: List[Candidate]): List[String] =
     candidates.filter(c => c.anonymous && c.shape.nonEmpty).flatMap { evidence =>
       candidates
         .filter(other => (other ne evidence) && other.level >= evidence.level)

@@ -136,7 +136,7 @@ object Counter {
       if (c.inits.isEmpty) None
       else
         SealedSlots
-          .enumCase(c, e, SealedFamilies.denoted(c))
+          .enumCase(c, e, _ => None)
           .fold(Some(_), SealedFamilies.unstandard(scope, enumName, _).map(why => s"it $why"))
     why.fold(stored(EnumCompanions.caseScope(scope, e))(c.tparamClause.values, c.ctor)) { reason =>
       scope.note(

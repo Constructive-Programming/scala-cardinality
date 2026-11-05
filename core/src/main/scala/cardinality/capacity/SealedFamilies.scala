@@ -276,7 +276,7 @@ private[cardinality] object SealedFamilies {
   ): Either[String, Found] = {
     def bound(s: Defn.Object | Defn.Class | Defn.Trait, intermediate: Boolean) =
       SealedSlots
-        .instantiation(parent, SealedSlots.subtype(s, denoted(s)))
+        .instantiation(parent, SealedSlots.subtype(s, _ => None))
         .map { i =>
           // The view the subtype's own statement reads in; the family's where the system has none.
           def at(outside: Scope): Scope = site(s).fold(outside)(_(outside))
@@ -313,15 +313,6 @@ private[cardinality] object SealedFamilies {
       .openLeaf(c, c, Overrides.ancestry[Defn](c, parents), parents)
       .map(open(key, _))
   }
-
-  /** The constructor a subtype's field names: the declaration of the file that name denotes where
-    * the subtype `d` is written (`ParentNames`), if any.
-    */
-  def denoted(d: Tree): String => Option[List[Variance]] =
-    SealedSlots.declaredIn(
-      d,
-      (declared, name) => ParentNames.denotes(d, declared, name) == Denotes.Parent
-    )
 
   /** Why a subtype is no member of every instantiation of `parent` where its clause is read
     * (`site`): a bottom pin, or a data constructor a field holds a parameter through, that is not

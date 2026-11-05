@@ -392,20 +392,6 @@ final private[cardinality] class Scope(
     */
   def binds(name: TypeName): Boolean = binding(name) != Binding.Free
 
-  /** The declaration a bare type name denotes here, for telling two reads apart: the definition it
-    * binds (one per declaration), the standard library's when no source binds it (`Some(None)`), or
-    * nothing comparable — a type parameter, a clause's reason, an abstraction with no equation.
-    */
-  def declaration(name: TypeName): Option[Option[Named]] =
-    if (isBinder(name)) None
-    else
-      binding(name) match {
-        case Binding.Free               => Some(None)
-        case Binding.Here               => definition(name).map(Some(_))
-        case Binding.Elsewhere(in, key) => in.definition(key).map(Some(_))
-        case Binding.Clause(_)          => None
-      }
-
   /** `other`'s names and world, recording into this scope's notes: how a member another scope
     * solved — a library package, an object, a class body — is read for a row, so its reasons become
     * the row's.
@@ -650,18 +636,6 @@ private[cardinality] object Scope {
 
   // A fresh scope each time: its record of unresolved names is mutable, never shared.
   def empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
-
-  /** Whether a name denotes one declaration in every one of `readers`: the standard library's in
-    * all, or one definition (by identity) in all.
-    */
-  def sameDeclaration(readers: List[Scope], name: TypeName): Boolean =
-    Traversals.defined(readers.map(_.declaration(name))) match {
-      case Some(first :: rest) =>
-        rest.forall(other =>
-          other.isEmpty == first.isEmpty && other.forall(o => first.exists(_ eq o))
-        )
-      case _ => false
-    }
 
   /** The reason a sealed family the estimate does not sum carries, in its row and in a reference:
     * the family, and why its subtypes are not its whole value space.

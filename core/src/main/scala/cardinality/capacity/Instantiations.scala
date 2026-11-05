@@ -75,15 +75,7 @@ private[capacity] object Instantiations {
     val through = inspected.flatMap(p => argumentOf(i.scope, written(p)).filterNot(_.in eq i.scope))
     val arguments = through.fold(written)(a => written ++ inspected.map(_ -> a.tpe))
     val parts = through.fold(i.scope)(_.in)
-    val home = i.named.read(i.context)
-    // A case matches by spelling, or is passed over as provably disjoint, only where each name
-    // means one declaration as the pattern (`home`) and the arguments (`i.scope`, `parts`) read it.
-    val readers = List(i.scope, parts, home)
-    val meaning = MatchTypes.Meaning(
-      name => Scope.sameDeclaration(readers, TypeName.of(name)),
-      name => readers.forall(!_.binds(TypeName.of(name)))
-    )
-    MatchTypes.matched(matchType, arguments, meaning) match {
+    MatchTypes.matched(matchType, arguments) match {
       case Some((body, bindings)) =>
         val own = bindings.filter((n, _) => written.contains(n)).keySet
         val bound = frame(i.scope, written.filter((p, _) => own(p))) ++

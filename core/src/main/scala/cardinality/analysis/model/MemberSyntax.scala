@@ -245,10 +245,6 @@ private[cardinality] object MemberSyntax {
     case _                                              => false
   }
 
-  /** An abstract `inline` (or `transparent inline`) member: a deferred inline method or value. */
-  def deferredInline(stat: Tree): Boolean =
-    (stat.is[Decl.Def] || stat.is[Decl.Val]) && inlined(stat)
-
   /** Whether a definition is `inline`: its body is expanded at each call site. */
   def inlined(tree: Tree): Boolean = modifiers(tree).exists(_.is[Mod.Inline])
 

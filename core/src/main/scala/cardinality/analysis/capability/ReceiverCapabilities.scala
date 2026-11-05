@@ -71,11 +71,6 @@ final private[cardinality] class ReceiverCapabilities(
   lazy val construction: Construction.Verdict =
     Construction.Verdict.all(verdicts)
 
-  /** Whether the declaration is never called: not modelled, a template that may never be built
-    * leaves its construction unresolved (`construction`).
-    */
-  def neverCalled: Boolean = false
-
   // The object holding a package's top-level definitions.
   private def fileHolder(owner: Frame): Boolean = resolver.isPackage(owner) && !owner.isTemplate
 

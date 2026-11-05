@@ -1,6 +1,5 @@
 package cardinality.types
 
-import scala.annotation.unused
 import scala.meta.*
 
 // Match types, read on a known scrutinee: the reduction behind `Fst[(Boolean, Boolean)]`. See
@@ -74,12 +73,11 @@ private[cardinality] object MatchTypes {
     * stands for: the definition's parameters their arguments, and the pattern's binders the parts
     * of the scrutinee they matched — so a reader can read the arguments where they are written and
     * the body where the match type is. Only the first case is tried: one that does not match leaves
-    * the match type stuck. `meaning` is unread.
+    * the match type stuck.
     */
   private[cardinality] def matched(
       matchType: Type,
-      arguments: Map[TypeName, Type],
-      @unused meaning: Meaning
+      arguments: Map[TypeName, Type]
   ): Option[(Type, Map[TypeName, Type])] =
     matchType match {
       case Type.Match.After_4_9_9(scrutinee, block) =>
@@ -93,10 +91,5 @@ private[cardinality] object MatchTypes {
 
   private def caseOf(caseType: TypeCase, scrutinee: Type): Option[Type] =
     bindings((caseType.pat, scrutinee)).map(TypeSubstitution.replace(caseType.body, _))
-
-  /** What a match reading knows of a name: whether it means one declaration wherever the match
-    * reads it (`same`), and whether that is the standard library's type (`standard`).
-    */
-  final case class Meaning(same: String => Boolean, standard: String => Boolean)
 
 }
