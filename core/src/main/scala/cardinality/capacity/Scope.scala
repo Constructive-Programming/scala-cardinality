@@ -223,7 +223,7 @@ final private[cardinality] case class Child(
 
 final private[cardinality] class Scope(
     private val values: Map[TypeName, Size],
-    private val notes: mutable.LinkedHashSet[Definition.Unbound],
+    private val notes: Scope.Notes,
     private val world: World,
     private val outer: Option[Scope] = None,
 ) {
@@ -235,7 +235,7 @@ final private[cardinality] class Scope(
     * a reading of it notes stays in the reading, never in the scope a library holds for others.
     */
   private[cardinality] def detached: Scope =
-    new Scope(values, mutable.LinkedHashSet.from(notes), world, outer.map(_.detached))
+    new Scope(values, notes.copy, world, outer.map(_.detached))
 
   /** The size this read binds a type parameter to: `case scope.Parameter(size)`. */
   object Parameter {
@@ -620,7 +620,7 @@ final private[cardinality] class Scope(
   private def recorded(taint: Taint): Scope =
     new Scope(
       values,
-      mutable.LinkedHashSet.empty,
+      new Scope.Notes,
       world.copy(session = world.session.copy(recording = true, taint = Some(taint))),
       outer
     )
@@ -707,7 +707,26 @@ final private[cardinality] class Scope(
 private[cardinality] object Scope {
 
   // A fresh scope each time: its record of unresolved names is mutable, never shared.
-  def empty: Scope = new Scope(Map.empty, mutable.LinkedHashSet.empty, World())
+  def empty: Scope = new Scope(Map.empty, new Notes, World())
+
+  /** A scope's record of unresolved names, each once, in the order they were met. A copy shares
+    * what is recorded so far and records on its own from there: detaching a library's package scope
+    * for a reading costs nothing however many names the package left unresolved.
+    */
+  final private[cardinality] class Notes(
+      private var met: Set[Definition.Unbound] = Set.empty,
+      private var order: Vector[Definition.Unbound] = Vector.empty
+  ) {
+
+    def +=(reason: Definition.Unbound): Unit =
+      if (!met(reason)) {
+        met += reason
+        order :+= reason
+      }
+
+    def toList: List[Definition.Unbound] = order.toList
+    def copy: Notes = new Notes(met, order)
+  }
 
   /** Whether a name denotes one declaration in every one of `readers`: the standard library's in
     * all, or one definition (by identity) in all.

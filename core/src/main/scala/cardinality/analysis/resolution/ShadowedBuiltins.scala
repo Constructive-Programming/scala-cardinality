@@ -89,8 +89,8 @@ final private[cardinality] class ShadowedBuiltins(
   private lazy val classes =
     types.filter(_.self.nonEmpty).groupBy(entry => entry.owner.path :+ entry.name)
 
-  private val channels =
-    scala.collection.mutable.Map.empty[(Frame, Option[(String, Int)], Option[String]), Option[Stop]]
+  private val searches = scala.collection.mutable.Map
+    .empty[(Option[String], Frame, List[List[ImportBinding]], Option[String]), Option[Stop]]
 
   // The searches under way, and how many met themselves again: a parent whose standing is asked
   // while its own scope's channel is being searched (`import O.*` beside `trait T extends
@@ -240,7 +240,7 @@ final private[cardinality] class ShadowedBuiltins(
       .flatten
 
   private def walked(name: String, context: ResolutionContext): Option[Stop] =
-    Option.when(spelled(name))(guarded(Search(Some(name), context.frame, context.at))).flatten
+    Option.when(spelled(name))(kept(Some(name), context, None)).flatten
 
   private def subpackage(name: String, context: ResolutionContext): Option[Stop] = {
     val head = name.takeWhile(_ != '.')
@@ -374,17 +374,27 @@ final private[cardinality] class ShadowedBuiltins(
   def unread(context: ResolutionContext): Option[String] =
     channel(context, None).map(refusal("builtin names", _))
 
-  // The same for every name no supplied declaration spells, so it is read once per reference — and
-  // per frame, not per frame id: a constructor's frame shares its class's id but not its members
-  // (Scala 3.9.0 reads `class C(a: Any) extends X` with `scala.Any` beside `X`'s `type Any`).
+  // The same for every name no supplied declaration spells. A search is read once per scope and the
+  // import clauses in view — and per frame, not per frame id: a constructor's frame shares its
+  // class's id but not its members (Scala 3.9.0 reads `class C(a: Any) extends X` with `scala.Any`
+  // beside `X`'s `type Any`). The reference's position decides only which clauses are in view, so
+  // every reference that sees the same clauses shares one walk (a walk over a package as large as
+  // the root, every file's, is not repeated per reference).
   // A builtin's own search skips the clauses that leave its name out (`import p.{Boolean as _, *}`).
-  private def channel(context: ResolutionContext, subject: Option[String]): Option[Stop] = {
-    val key = (context.frame, context.at, subject)
-    channels.getOrElse(
+  private def channel(context: ResolutionContext, subject: Option[String]): Option[Stop] =
+    kept(None, context, subject)
+
+  private def kept(
+      name: Option[String],
+      context: ResolutionContext,
+      subject: Option[String]
+  ): Option[Stop] = {
+    val key = (name, context.frame, context.frame.chain.map(clauses(_, context.at)), subject)
+    searches.getOrElse(
       key, {
         val before = cycles
-        val found = guarded(Search(None, context.frame, context.at, subject))
-        if (cycles == before) channels.update(key, found)
+        val found = guarded(Search(name, context.frame, context.at, subject))
+        if (cycles == before) searches.update(key, found)
         found
       }
     )
