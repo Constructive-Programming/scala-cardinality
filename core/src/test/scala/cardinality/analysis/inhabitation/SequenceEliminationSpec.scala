@@ -40,7 +40,7 @@ class SequenceEliminationSpec extends Specification {
       a sequence inside a supplied sum                              $insideSum
       a sequence parameter of a built function                      $builtFunction
       more than three sequences                                     $budget
-      the fields of a receiver only its own factories build         $constrainedReceiver
+      a private constructor is callable in its own class             $constrainedReceiver
       a non-public or local class is built by its constructors      $scopedReceivers
       a sequence under an existential or a proof                    $hiddenSequence
   """
@@ -264,16 +264,14 @@ class SequenceEliminationSpec extends Specification {
       "sequence elimination budget exceeded: 4 sequences (at most 3)"
     )
 
-  // `NonEmpty.of` is the only builder, so `xs` is never Nil: `head` is total (xs.head, xs.last, …),
-  // not 0. A public constructor admits Nil, where no A exists: 0.
+  // Inside `NonEmpty` its private constructor is callable (rule B), and it admits Nil, where no A
+  // exists: 0, as for `Open`'s public one. (`NonEmpty.of` never builds Nil; factories are not read.)
   def constrainedReceiver = {
     val code = """final class NonEmpty[A] private (val xs: List[A]) { def head: A = xs.head }
       |object NonEmpty { def of[A](a: A, rest: A*): NonEmpty[A] = new NonEmpty(a :: rest.toList) }
       |final class Open[A](val xs: List[A]) { def head: A = ??? }""".stripMargin
-    refused(
-      entry(code, "NonEmpty.head"),
-      "receiver has no public constructor: NonEmpty"
-    ).and(entry(code, "Open.head") === Count.Finite(0))
+    (entry(code, "NonEmpty.head") === Count.Finite(0))
+      .and(entry(code, "Open.head") === Count.Finite(0))
   }
 
   // Review fixture c6 (valid Scala 3.9.0): a private class, a package-private one, a class local

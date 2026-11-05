@@ -67,8 +67,9 @@ not declare, unsafe casts and reflection. None of them is counted.
 Two conventions complete the model:
 
 - **Public constructors build the receiver.** The values a class's fields hold are what its public
-  constructors build: the largest space any one of them builds. A `private` or `protected`
-  constructor is ignored. A class that is itself non-public (`private[pkg]`, nested in a private
+  constructors build: the largest space any one of them builds. A constructor counts where the
+  measured code may call it (a `private[pkg]` one inside `pkg`, a `private` one inside its class or
+  companion) and is ignored elsewhere. A class that is itself non-public (`private[pkg]`, nested in a private
   object, local to a block) has no use site outside its scope, so its constructors count as
   public. A class with no public constructor at all, built only by a factory such as
   `NonEmpty.of`, stays `?` with `receiver has no public constructor`.

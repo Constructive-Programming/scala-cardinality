@@ -36,7 +36,9 @@ Two conventions sit beside it (v1.md §2, "Modelling conventions"):
 
 - **Rule B, public constructors build the receiver.** A receiver's fields (or a field-bearing
   argument's) hold what its public constructors build: the largest space any of them builds, not
-  the sum. A constructor with its own `private`/`protected` is ignored. A restriction on the class
+  the sum. "Public" means callable from the measured declaration's site: a `private[p]`
+  constructor counts inside `p`, a `private` one inside its class or companion; any other
+  restricted constructor is ignored. A restriction on the class
   or trait itself, on a template around it, or a class local to a block is disregarded: its
   constructors count as public. A public primary builds every field value. A public secondary
   builds at most min(its parameters' space, the fields' space), read only where both are closed.

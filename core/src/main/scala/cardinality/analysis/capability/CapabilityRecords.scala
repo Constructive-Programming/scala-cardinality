@@ -101,10 +101,12 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     // constructor takes freely, or the closed space its public constructors build
     // (`ConstrainedReceivers`).
     private def finalRecord: Resolved =
-      ConstrainedReceivers.space(template, read(_, template, Scope.empty)).flatMap {
-        case None => Traversals.sequence(template.params.map(observable)).map(Shape.Product(_))
-        case Some(space) => Right(Shape.Ground(key, space))
-      }
+      ConstrainedReceivers
+        .space(template, useSite, resolver, read(_, template, Scope.empty))
+        .flatMap {
+          case None => Traversals.sequence(template.params.map(observable)).map(Shape.Product(_))
+          case Some(space) => Right(Shape.Ground(key, space))
+        }
 
     private def fieldType(parameter: Term.Param, scope: Scope = Scope.empty): Resolved =
       parameter.decltpe

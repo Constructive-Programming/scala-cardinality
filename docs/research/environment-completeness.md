@@ -173,8 +173,9 @@ fixtures, but without compiler metadata it is not syntax) and is not done.
 - `Optional`'s `Fused` leaf with a free `M0` (`sealed subtype Fused binds M0 to no slot of
   Optional`): the environment memo reads it as an existential summand, but no eo count can move
   (the summand's existential sits in result positions, which stay `?`), so the sound refusal stays.
-- `Slice`'s `private[data]` constructor: no public constructor builds it (rule B, `receiver has no
-  public constructor: …Slice`); the polarity refinement frees no eo row (the fields are hidden too).
+- `Slice`'s `private[data]` constructor: callable inside `data`, where its fields are read; elsewhere
+  no constructor builds it (rule B, `receiver has no public constructor: …Slice`); the polarity
+  refinement frees no eo row (the fields are hidden too).
 - A package-level export of another file is not followed (a builtin it may rebind is refused).
 - Exported or imported term names that may hide a local capture, inherited members a parent outside
   the sources may declare under its name, the names an ancestor's export clauses define, and the

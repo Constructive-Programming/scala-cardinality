@@ -13,14 +13,14 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
   def is = s2"""
     Public constructors build the receiver
       a public primary builds every field value, whatever else is public   $publicPrimary
-      a private primary is ignored for its public secondary                $privateSecondary
+      a private primary is ignored outside its class for its secondary     $privateSecondary
       several public secondaries: the largest space they build             $largestSecondary
       a secondary over a larger space builds no more than the fields hold  $widerSecondary
       a non-public class or trait is read as public                        $nonPublicClass
       no public constructor: no space                                      $noPublic
       a public secondary over a type parameter: not compared               $parametric
     Sealed families
-      a non-public leaf is a summand; one with no public constructor no    $sealedLeaves
+      a leaf is a summand where a constructor of it may be called      $sealedLeaves
   """
 
   private val code =
@@ -44,6 +44,7 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
       |  def max(x: Max): Boolean = ???
       |  def pkg(x: Pkg): Boolean = ???
       |  def factory(x: Factory): Boolean = ???
+      |  def gen[A](x: Gen[A]): A = ???
       |}
       |""".stripMargin
 
@@ -55,15 +56,17 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
   def publicPrimary =
     (found("rc.Two.get") === Count.Finite(4)).and(found("rc.Use.two") === Count.Finite(4))
 
-  // `One`'s private primary is ignored; `this(u: Unit)` builds min(|Unit|, |Boolean|) = 1 receiver:
-  // `get` is 2^1 = 2, and so is a function of a `One`.
+  // Outside `One`, its private primary is no constructor the caller may call; `this(u: Unit)`
+  // builds min(|Unit|, |Boolean|) = 1 receiver, so a function of a `One` is 2^1 = 2. Inside `One`
+  // the primary is callable: `get` reads `b` over both values, 2^2 = 4.
   def privateSecondary =
-    (found("rc.One.get") === Count.Finite(2)).and(found("rc.Use.one") === Count.Finite(2))
+    (found("rc.Use.one") === Count.Finite(2)).and(found("rc.One.get") === Count.Finite(4))
 
   // `Max`'s fields hold 4 values, its public secondaries build min(1, 4) = 1 and min(2, 4) = 2: the
-  // largest is 2, not their sum 3 nor the fields' 4. `get` is 2^2 = 4 (16 over every field value).
+  // largest is 2, not their sum 3 nor the fields' 4: a function of a `Max` outside it is 2^2 = 4.
+  // Inside, the primary builds all 4: `get` is 2^4 = 16.
   def largestSecondary =
-    (found("rc.Max.get") === Count.Finite(4)).and(found("rc.Use.max") === Count.Finite(4))
+    (found("rc.Use.max") === Count.Finite(4)).and(found("rc.Max.get") === Count.Finite(16))
 
   // `Wide`'s `this(s: String)` takes ω arguments, but builds at most the fields' 2 values: `get` is
   // 2^2 = 4.
@@ -76,32 +79,43 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
       .and(found("rc.Use.pkg") === Count.Finite(4))
       .and(found("rc.Tr.get") === Count.Finite(4))
 
-  // Only the factory `Factory.on` builds a `Factory` (`b` is always true): no public constructor
-  // says which values its fields hold.
+  // Outside `Factory` only `Factory.on` builds one (`b` is always true): no constructor the caller
+  // may call says which values its fields hold. Inside, the private primary is callable: 4.
   def noPublic =
-    refused(found("rc.Factory.get"), "receiver has no public constructor: rc.Factory")
-      .and(refused(found("rc.Use.factory"), "receiver has no public constructor: rc.Factory"))
+    refused(found("rc.Use.factory"), "receiver has no public constructor: rc.Factory")
+      .and(found("rc.Factory.get") === Count.Finite(4))
 
-  // `Gen`'s public secondary takes an `A`, a choice of supplied values, not a value space.
+  // Outside `Gen`, its public secondary takes an `A`, a choice of supplied values, not a value
+  // space.
   def parametric =
     refused(
-      found("rc.Gen.get"),
+      found("rc.Use.gen"),
       "receiver space of its public secondary constructors not compared: rc.Gen"
     )
 
   // `S` sums a private leaf (its restriction disregarded: 2 values) and `Z` (1): 3, so `f` is
-  // 2^3 = 8. `L`'s leaf `M` has only a private constructor: no space, so `g` has none either.
+  // 2^3 = 8. `L`'s leaf `M` has only a private constructor: no space, so `g` has none either. `R`'s
+  // leaf `Q` has a `private[sl]` constructor: callable inside `sl`, where `h` is 2^(2+1) = 8, and
+  // not from `out`.
   def sealedLeaves = {
-    val found = rows("""package sl
-      |sealed trait S
-      |private final case class P(b: Boolean) extends S
-      |case object Z extends S
-      |sealed trait L
-      |final case class M private (b: Boolean) extends L
-      |object Use { def f(s: S): Boolean = ???; def g(l: L): Boolean = ??? }
-      |""".stripMargin)
+    val found = counts(
+      "a.scala" -> """package sl
+        |sealed trait S
+        |private final case class P(b: Boolean) extends S
+        |case object Z extends S
+        |sealed trait L
+        |final case class M private (b: Boolean) extends L
+        |sealed trait R
+        |final case class Q private[sl] (b: Boolean) extends R
+        |case object Y extends R
+        |object Use { def f(s: S): Boolean = ???; def g(l: L): Boolean = ???; def h(r: R): Boolean = ??? }
+        |""".stripMargin,
+      "b.scala" -> "package out\nobject Use { def h(r: sl.R): Boolean = ??? }"
+    )
     (found("sl.Use.f") === Count.Finite(8))
       .and(refused(found("sl.Use.g"), "receiver has no public constructor: sl.M"))
+      .and(found("sl.Use.h") === Count.Finite(8))
+      .and(refused(found("out.Use.h"), "receiver has no public constructor: sl.Q"))
   }
 
 }

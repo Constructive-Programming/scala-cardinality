@@ -1812,7 +1812,8 @@ the environment can witness for the binder (`witness-kind analysis`) — is the 
 **Decision.** Two modelling conventions the user decided (2026-11-05; [v1.md §2, "Modelling
 conventions"](../plans/v1.md)). (B) The values a receiver's fields hold together — and a final
 class's record, a sealed summand — are what its public constructors build: the largest space any
-one of them builds, not their sum. A constructor with its own access modifier is ignored; a
+one of them builds, not their sum. A constructor is public where the measured declaration may
+call it (`private[p]` inside `p`, `private` inside its class or companion), else ignored; a
 restriction on the class or trait itself, on a template around it, or a class local to a block is
 disregarded (such a class has no use site outside its scope), so its constructors are public. A
 public primary builds every field value; otherwise a public secondary builds at most

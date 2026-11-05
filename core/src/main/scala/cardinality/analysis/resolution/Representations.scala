@@ -234,14 +234,15 @@ final private[cardinality] class Representations(
       val fields = Representations.caseClass(c) || parameters.forall(MemberSyntax.keptParameter)
       if (!fields || parameters.exists(p => !usableWhere(p.mods, child.owner, useSite)))
         Left(s"sealed subtype hides a parameter: ${c.name.value}")
-      else built(child).flatMap(_ => declaredFields(parameters, c.name.value).map(List(_)))
+      else
+        built(child, useSite).flatMap(_ => declaredFields(parameters, c.name.value).map(List(_)))
     }
 
   // Whether a leaf's public constructors build its whole field space, or why not.
-  private def built(child: TypeEntry): Either[String, Unit] =
+  private def built(child: TypeEntry, useSite: Frame): Either[String, Unit] =
     child.self.fold(Right(())) { frame =>
       ConstrainedReceivers
-        .space(frame, resolver.resolve(_, frame, resolver.typeParameters(frame)))
+        .space(frame, useSite, resolver, resolver.resolve(_, frame, resolver.typeParameters(frame)))
         .flatMap(
           _.map(_ =>
             s"sealed subtype built by public constructors with fewer values: ${child.name}"

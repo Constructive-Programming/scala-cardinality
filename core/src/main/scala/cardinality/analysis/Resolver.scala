@@ -99,6 +99,9 @@ private[cardinality] trait Resolver {
 
   def accessible(tree: Tree, owner: Frame, from: Frame): Boolean
 
+  /** Whether a declaration of `owner` with these modifiers is accessible from `from`. */
+  def reaches(mods: List[Mod], owner: Frame, from: Frame): Boolean
+
   def modules: List[Frame]
 
   /** Packages, objects, classes, traits, enums and given instances not inside a method's body. */

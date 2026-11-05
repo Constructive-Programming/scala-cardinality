@@ -11,8 +11,10 @@ import MethodAnalysis.{Frame, Resolved}
 /** The values a receiver's fields hold together: what its public constructors build (v1.md §2,
   * receiver constructors). A restriction on the class itself, or on a template around it, and a
   * class local to a block, are disregarded: such a class has no use site outside its scope, so its
-  * constructors are public wherever it is used. A constructor with its own restriction is not
-  * public and is ignored; the receiver's space is the largest any public constructor builds.
+  * constructors are public wherever it is used. A constructor is public where the measured
+  * declaration may call it: one with no restriction, a `private[p]` one inside `p`, a `private` or
+  * `protected` one inside its class, and a `private` one in its companion. Any other is ignored;
+  * the receiver's space is the largest any public constructor builds.
   *
   * Every secondary constructor delegates to the primary, so a public primary builds the fields'
   * whole space and the fields hold any values of their types. Otherwise a public secondary builds
@@ -26,13 +28,21 @@ private[cardinality] object ConstrainedReceivers {
   /** None where the fields hold any values of their types; Some(space) where the receiver's closed
     * fields hold `space` values together; a reason where the receiver's space is unknown.
     */
-  def space(owner: Frame, resolve: Type => Resolved): Either[String, Option[Card]] =
+  def space(
+      owner: Frame,
+      from: Frame,
+      resolver: Resolver,
+      resolve: Type => Resolved
+  ): Either[String, Option[Card]] = {
+    // Whether the measured declaration may call a constructor with these modifiers.
+    def callable(mods: List[Mod]): Boolean =
+      !mods.exists(MemberSyntax.restricted) || resolver.reaches(mods, owner, from) ||
+        !mods.exists(_.is[Mod.Protected]) && companion(owner, from)
     owner.tree match {
-      case Some(d: Defn.Class)
-          if owner.params.nonEmpty && d.ctor.mods.exists(MemberSyntax.restricted) =>
+      case Some(d: Defn.Class) if owner.params.nonEmpty && !callable(d.ctor.mods) =>
         val path = owner.path.mkString(".")
         val public = d.templ.body.stats.collect {
-          case c: Ctor.Secondary if !c.mods.exists(MemberSyntax.restricted) =>
+          case c: Ctor.Secondary if callable(c.mods) =>
             closed(
               SecondaryConstructors.arguments(c.paramClauses.toList.flatMap(_.values)),
               resolve
@@ -44,6 +54,14 @@ private[cardinality] object ConstrainedReceivers {
             .toRight(s"receiver space of its public secondary constructors not compared: $path")
       case _ => Right(None)
     }
+  }
+
+  // Whether `from` is inside the class's companion object.
+  private def companion(owner: Frame, from: Frame): Boolean =
+    from.chain.exists(f =>
+      f.parent.map(_.id) == owner.parent.map(_.id) && f.name == owner.name &&
+        f.tree.exists(_.is[Defn.Object])
+    )
 
   // The largest of min(a secondary's space, the fields'), None when it is the fields' own.
   private def largest(fields: Option[Card], built: List[Option[Card]]): Option[Option[Card]] =

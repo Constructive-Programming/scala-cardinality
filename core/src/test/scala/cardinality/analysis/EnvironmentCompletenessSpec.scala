@@ -93,14 +93,15 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       "h"
     ) === Count.Finite(1)
 
-  // `Secret.on` is the only way to a `Secret`: it has no public constructor (rule B), so neither
-  // the field inside nor the final case class's record outside has a space this reading knows.
+  // Outside `Secret` (and its companion) `Secret.on` is the only way to one: no constructor `f` may
+  // call says what its record holds (rule B). Inside, the private primary is callable: `get` is
+  // 2^2 = 4.
   def privateConstructor = {
     val found = rows(
       "final case class Secret private (b: Boolean) { def get: Boolean = b }\n" +
         "object Secret { val on: Secret = new Secret(true) }\ndef f(): Secret = Secret.on"
     )
-    refused(found("Secret.get"), "receiver has no public constructor: Secret")
+    (found("Secret.get") === Count.Finite(4))
       .and(refused(found("f"), "receiver has no public constructor: Secret"))
   }
 

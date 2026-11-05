@@ -356,7 +356,7 @@ final private[cardinality] class Measurement(
   private def receiverSpace(owner: Frame): Unit =
     if (owner.id == target.frame.id) bindParams(owner)
     else
-      ConstrainedReceivers.space(owner, resolveIn(_, owner)) match {
+      ConstrainedReceivers.space(owner, target.frame, resolver, resolveIn(_, owner)) match {
         case Left(reason)       => errors += reason
         case Right(None)        => bindParams(owner)
         case Right(Some(space)) =>
