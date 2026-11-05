@@ -199,7 +199,6 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
         owner.path :+ name,
         Some(owner),
         opening.stats,
-        typeParams = opening.tparams,
         params = opening.params,
         local = opening.local,
         parents = opening.parents,
@@ -696,8 +695,8 @@ object SourceIndex {
 
   /** The name an explicit selector binds: its own, or a rename's new one. */
   def boundName(importee: Importee): Option[String] = importee match {
-    case e: Importee.Name   => Some(e.name.value)
-    case _                  => None
+    case e: Importee.Name => Some(e.name.value)
+    case _                => None
   }
 
   /** The names an importer's wildcard leaves out: an unimport (`N as _`) and the original of a

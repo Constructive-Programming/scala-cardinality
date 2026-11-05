@@ -342,7 +342,7 @@ object MethodAnalysis {
           applications.resolve(t.tpe, t.argClause.values, context)
         case t: Type.ApplyInfix =>
           applications.resolve(t.op, List(t.lhs, t.rhs), context)
-        case n: Type.Name    => lexicalType(n.value, Arguments.none, context)
+        case n: Type.Name   => lexicalType(n.value, Arguments.none, context)
         case r: Type.Refine => members.refinement(r, context)
         case s: Type.Select if RefinedMembers.pathType(s.qual, frame).nonEmpty =>
           Left(s"unsupported type: ${Spelling.of(tpe)}")

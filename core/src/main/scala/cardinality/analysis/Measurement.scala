@@ -190,7 +190,7 @@ final private[cardinality] class Measurement(
         else FinalImplementations.implementer(step.root, linearization, stat)
       (stat, implementer) match {
         case (_, Some(level))     => errors ++= FinalImplementations.localImplementer(level, stat)
-        case (value: Decl.Val, _)     => declaration(slot, value)
+        case (value: Decl.Val, _) => declaration(slot, value)
         case _ if implemented.nonEmpty => ()
         case (method: Decl.Def, _)     => inheritedCallable(step, slot, method, steps)
         case (other, _) => withOwn(step, other)(own => if (own.isEmpty) declaration(slot, other))
@@ -253,7 +253,7 @@ final private[cardinality] class Measurement(
   // A declared method is a slot; a declared value, variable or given is not read here.
   private def declaration(slot: MemberSlot, stat: Stat): Unit =
     stat match {
-      case d: Decl.Def => addMember(slot, d, d.name.value)
+      case d: Decl.Def                               => addMember(slot, d, d.name.value)
       case _: (Decl.Val | Decl.Var | Decl.GivenLike) =>
         errors += s"declared value not resolved: ${MemberSyntax.names(stat).mkString(", ")}"
       case _ => ()
@@ -404,7 +404,7 @@ final private[cardinality] class Measurement(
     case d: (Decl.Val | Decl.Var | Decl.Def | Decl.GivenLike) =>
       val slot = MemberSlot(scope, resolver.typeParameters(scope), scope)
       if (!isTarget(d) || d.is[Decl.Val] || d.is[Decl.Var]) declaration(slot, d)
-    case _         => ()
+    case _ => ()
   }
 
   // The signature being measured is not one of its own slots: binding it would let a declaration
@@ -428,8 +428,8 @@ final private[cardinality] class Measurement(
       case Right(Observation.Applied(callable, result)) =>
         val read = resolveIn(_, slot.scope, slot.env ++ callable.binders, slot.receiver)
         MemberSyntax.applied(callable, result, read) match {
-          case Right(None)                                               => ()
-          case Left(reason)                                              => errors += reason
+          case Right(None)        => ()
+          case Left(reason)       => errors += reason
           case Right(Some(shape)) => bindMember(slot, name, member, shape)
         }
     }

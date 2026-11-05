@@ -381,8 +381,8 @@ private[cardinality] object StdlibModel {
 
   /** What a model spelling applied to these arguments denotes, or why it is not counted. */
   def read(entry: Entry, args: List[Shape]): Either[String, Shape] = entry.reading match {
-    case Excluded(why)                                  => Left(outside(entry, why))
-    case Unmodelled(open)                               => Left(unmodelled(open, "type", entry))
+    case Excluded(why)                           => Left(outside(entry, why))
+    case Unmodelled(open)                        => Left(unmodelled(open, "type", entry))
     case _ if args.size != entry.parameters.size =>
       Left(s"type argument arity: ${entry.fqn} takes ${entry.parameters.size}, given ${args.size}")
     case Structural(shape) => Right(shape(args))
@@ -402,8 +402,8 @@ private[cardinality] object StdlibModel {
   // A type parameter or abstract member, read through an existential's opening and a singleton's
   // widened type (`x.type` for `x: A` has no `ClassTag` either). An object's singleton has one.
   private def rigid(element: Shape): Boolean = element match {
-    case _: Shape.Atom                     => true
-    case _                                 => false
+    case _: Shape.Atom => true
+    case _             => false
   }
 
   /** A stdlib parent the model knows declares no type member, with the term members a subclass must

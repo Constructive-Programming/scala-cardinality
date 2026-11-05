@@ -189,7 +189,7 @@ private object ConstructorPositions {
   def render(reason: Definition.Unbound): Option[String] = reason match {
     case Definition.Unbound.Imported(name, provenance) =>
       Some(s"unresolved type: $name ($provenance)")
-    case Definition.Unbound.Open(name)             => Some(s"open to implementations: $name")
+    case Definition.Unbound.Open(name)    => Some(s"open to implementations: $name")
     case Definition.Unbound.Refusal(what) => Some(what)
     case _                                => None
   }
