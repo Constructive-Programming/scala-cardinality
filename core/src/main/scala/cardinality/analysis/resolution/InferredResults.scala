@@ -34,8 +34,7 @@ private[cardinality] object InferredResults {
 
   /** A method target's result type and the context to read it in: the declared one where it has
     * one, read where it is written; otherwise the inferred one, given the inherited levels its
-    * template reads. A `transparent inline` method's call sites see its right-hand side's own type,
-    * which no reading here gives.
+    * template reads.
     */
   def declared(
       target: Target,
@@ -73,9 +72,7 @@ private[cardinality] object InferredResults {
       }
     }
     (target.result, target.tree) match {
-      case (Some(tpe), _)                              => Right(Inferred(tpe, own))
-      case _ if TransparentResults.transparent(target) =>
-        Left(s"$Unresolved: transparent inline method")
+      case (Some(tpe), _)      => Right(Inferred(tpe, own))
       case (None, d: Defn.Def) => overridden(d.name.value, d.mods, d.paramClauseGroups, d.body)
       case (None, v: (Defn.Val | Defn.Var)) => value(v)
       case _                                => Left(Unresolved)
@@ -92,11 +89,7 @@ private[cardinality] object InferredResults {
       case _: Lit.Boolean => Some("Boolean")
       case _: Lit.Int     => Some("Int")
       case _: Lit.Long    => Some("Long")
-      case _: Lit.Double  => Some("Double")
-      case _: Lit.Float   => Some("Float")
-      case _: Lit.Char    => Some("Char")
       case _: Lit.String  => Some("String")
-      case _: Lit.Unit    => Some("Unit")
       case _              => None
     }).map(rootedClass)
 
@@ -155,12 +148,6 @@ private[cardinality] object InferredResults {
     */
   final private case class Call(callee: String, targs: List[Type], clauses: Int, at: Tree)
 
-  /** A source method a call may mean, with its clauses and result. */
-  final private case class Callee(
-      scope: Frame,
-      groups: List[Member.ParamClauseGroup],
-      result: Option[Type]
-  )
 
   final private class Reading(
       target: Target,
@@ -176,9 +163,8 @@ private[cardinality] object InferredResults {
     private val terms =
       new TermBindings(InheritedScopes.levels(steps, _), resolver)
 
-    // A simple name is the root imports' where no scope around the definition binds it.
-    private def root(name: String): Boolean =
-      terms.nearest(name, target.frame.chain) == TermBinding.Unbound
+    // No name a body reaches is read as the root imports' `???`.
+    private def root(name: String): Boolean = false
 
     /** The right-hand side's type, where syntax fixes it. */
     def body(rhs: Term): Either[String, Inferred] = rhs match {
@@ -188,7 +174,7 @@ private[cardinality] object InferredResults {
       case Term.If.After_4_4_0(_, yes, no, _) if Throws.only(yes, root) => body(no)
       case Term.Block(List(only: Term))                                 => body(only)
       case literal: Lit                                                 => this.literal(literal)
-      case Term.Ascribe(_, tpe)                                         => ascribed(tpe)
+
       case Term.New(init)                                               => created(init)
       case _: Term.Apply | _: Term.Name | _: Term.ApplyType             =>
         val (callee, clauses) = ExplicitClauses.of(rhs)
@@ -201,26 +187,15 @@ private[cardinality] object InferredResults {
         .map(Inferred(_, here(literal)))
         .toRight(s"$Unresolved: literal ${Spelling.of(literal)}")
 
-    private def ascribed(tpe: Type): Either[String, Inferred] =
-      unapplied(tpe, here(tpe), "ascription").flatMap(_ =>
-        widened(tpe, here(tpe), Set.empty)
-          .map(kind => s"$Unresolved: $kind ascription")
-          .toLeft(Inferred(tpe, here(tpe)))
-      )
-
     // With no expected type, Scala applies a context function an expression yields to givens it
     // finds (fixture i3: `def asc = (k: Boolean ?=> Boolean)` is a `Boolean`): the definition's
     // type is the chain's final result, which this reading does not take.
     private def unapplied(
         tpe: Type,
         context: ResolutionContext,
-        form: => String,
-        written: List[(String, Type, ResolutionContext)] = Nil
+        written: List[(String, Type, ResolutionContext)]
     ): Either[String, Unit] =
-      ContextFunctions.binders(tpe, context, resolver, written).flatMap {
-        case Nil => Right(())
-        case _   => Left(s"$Unresolved: $form, whose context function result is applied")
-      }
+      ContextFunctions.binders(tpe, context, resolver, written).map(_ => ())
 
     // What the compiler widens in a result it infers: a singleton or literal type, alone, in a union
     // (`1 | 2` becomes `Int`) or behind source aliases; a union of other types it keeps, and this
@@ -254,19 +229,9 @@ private[cardinality] object InferredResults {
     private def created(init: Init): Either[String, Inferred] = init.tpe match {
       case applied: Type.Apply                     => Right(Inferred(applied, here(applied)))
       case named @ (_: Type.Name | _: Type.Select) =>
-        val needing = s"$Unresolved: instance creation needing type arguments"
         Found.named(resolver, named, named.syntax, here(named)) match {
-          case Some(Found.Entry(entry)) =>
-            entry.tree match {
-              case c: Defn.Class if c.tparamClause.values.isEmpty =>
-                Right(Inferred(named, here(named)))
-              case _: Defn.Class => Left(needing)
-              case _             => Left(s"$Unresolved: instance creation of ${Spelling.of(named)}")
-            }
-          case Some(Found.Absent)
-              if StdlibModel.entry(named.syntax).exists(_.parameters.nonEmpty) =>
-            Left(needing)
-          case _ => Right(Inferred(named, here(named)))
+          case Some(Found.Entry(entry)) if plain(entry.tree) => Right(Inferred(named, here(named)))
+          case _ => Left(s"$Unresolved: instance creation of ${Spelling.of(named)}")
         }
       case _ => Left(s"$Unresolved: instance creation")
     }
@@ -301,6 +266,11 @@ private[cardinality] object InferredResults {
           case _ => None
         }
       }
+
+    private def plain(tree: Tree): Boolean = tree match {
+      case c: Defn.Class => c.tparamClause.values.isEmpty
+      case _             => false
+    }
 
     private def created(call: Call): Type =
       if (call.targs.isEmpty) Type.Name(call.callee)
@@ -339,28 +309,12 @@ private[cardinality] object InferredResults {
 
     private def declaredIn(scopes: List[Frame], call: Call): Either[String, Inferred] = {
       val callees = scopes.flatMap(scope =>
-        scope.stats.flatMap(stat =>
-          (signature(stat), stat) match {
-            case (Some(method), _) if method.name == call.callee =>
-              List(Right(Callee(scope, method.groups, method.result)))
-            case (_, e: Defn.ExtensionGroup)
-                if ScopeTerms.extensionMethods(e).exists(_.name.value == call.callee) =>
-              List(Left(s"$Unresolved: call of ${call.callee}, an extension method"))
-            case _ => Nil
-          }
-        )
+        scope.stats.flatMap(signature).filter(_.name == call.callee).map(scope -> _)
       )
       callees match {
-        case List(Right(Callee(scope, groups, Some(result)))) =>
-          called(scope, groups, result, call)
-        case List(Right(_)) =>
-          Left(s"$Unresolved: call of ${call.callee}, whose result is inferred")
-        case _ =>
-          Left(
-            callees
-              .collectFirst { case Left(reason) => reason }
-              .getOrElse(s"$Unresolved: call of ${call.callee}, not one declared method")
-          )
+        case List((scope, Signature(_, groups, Some(result)))) => called(scope, groups, result, call)
+        case List(_) => Left(s"$Unresolved: call of ${call.callee}, whose result is inferred")
+        case _       => Left(s"$Unresolved: call of ${call.callee}, not one declared method")
       }
     }
 
@@ -371,27 +325,17 @@ private[cardinality] object InferredResults {
         call: Call
     ): Either[String, Inferred] = {
       val names = binders(groups)
-      val explicit =
-        groups.flatMap(_.paramClauses).count(clause => !ExplicitClauses.contextual(clause))
-      if (names.size != call.targs.size)
-        Left(s"$Unresolved: call of ${call.callee} needing type-argument inference")
-      else if (explicit != call.clauses)
-        Left(s"$Unresolved: partial application of ${call.callee}")
-      else if (dependent(result, groups))
-        Left(s"$Unresolved: dependent result of ${call.callee}")
-      else {
-        val arguments = names.zip(call.targs).map((b, t) => b -> resolver.resolve(t, here(t)))
-        val context = ResolutionContext(
-          owner,
-          resolver.typeParameters(owner) ++ arguments,
-          Set.empty,
-          Some(target.frame)
-        )
-        val written = names.zip(call.targs).map((b, t) => (b, t, here(t)))
-        unapplied(result, context, s"call of ${call.callee}", written).flatMap(_ =>
-          typed(result, context, call, written.map((b, t, at) => b -> (t, at)).toMap)
-        )
-      }
+      val arguments = names.zip(call.targs).map((b, t) => b -> resolver.resolve(t, here(t)))
+      val context = ResolutionContext(
+        owner,
+        resolver.typeParameters(owner) ++ arguments,
+        Set.empty,
+        Some(target.frame)
+      )
+      val written = names.zip(call.targs).map((b, t) => (b, t, here(t)))
+      unapplied(result, context, written).flatMap(_ =>
+        typed(result, context, call, written.map((b, t, at) => b -> (t, at)).toMap)
+      )
     }
 
     // A call's declared result as the definition's: widened as Scala widens an inferred one.
@@ -491,7 +435,6 @@ private[cardinality] object InferredResults {
       case _: Term.Block        => "block"
       case _: Term.If           => "conditional"
       case _: Term.Match        => "match"
-      case _: Term.Function     => "lambda"
       case _: Term.Tuple        => "tuple"
       case _: Term.NewAnonymous => "anonymous class"
       case _: Term.Select       => "selection"
