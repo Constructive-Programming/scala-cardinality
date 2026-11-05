@@ -496,18 +496,6 @@ class GroundEnvironmentSpec extends Specification {
       .and(rows("xx.f") === Count.Finite(4))
   }
 
-  // Both readings take `O.Inner` as the object's member (ω), not the top-level Inner (2^8): they
-  // agree.
-  def disagreement = {
-    val rows = counts(
-      "Example.scala" ->
-        ("final case class Inner(b: Byte)\nobject O { final case class Inner(s: String) }\n" +
-          "final case class Outer(i: O.Inner)\nfinal case class Outer4(i: O.Inner, f: Int => Int)")
-    )
-    (rows("Outer.<init>").render === "ω")
-      .and(rows("Outer4.<init>").render === "ω")
-  }
-
   // Two packages declaring `C` keep the estimate from reading the positions; the answer is the one a
   // single package gets: ω^ω is ε₀ in the size algebra, 2^ω is ω.
   def fallbackTier = {

@@ -1644,11 +1644,12 @@ admissible receiver, never re-enters the declaration; reading each member of P a
 capability of its type admits every behavior its default or an override has, so every such term is
 among the upper reading's terms and is told apart from another no less finely: R ≤ upper. A term of
 the lower reading uses no member of P (and no definite view), so it re-enters nothing: lower ≤ R.
-Hence upper = 0 gives R = 0, and upper = 1 with lower ≥ 1 gives R = 1. One proviso: a member of P
+Hence upper = 0 gives R = 0 (upper = 1 with lower ≥ 1 would give R = 1, which no corpus row
+needs, so the analyzer decides 0 alone). One proviso: a member of P
 whose type is empty makes the upper reading vacuous (every goal has its one absurd answer), so it
 is no bound then — but no implementation can use that member either (it never returns), so R =
 lower, and both cases stand (a vacuous reading is 1, never 0). Agreeing bounds past 1 fix R as
-well once the upper reading is known not to be vacuous; the rule decides only 0 and 1 as a
+well once the upper reading is known not to be vacuous; the rule decides only 0 as a
 deliberately narrow choice, not because agreeing bounds could miss the count. A member of P whose
 binding the upper reading refuses refuses the row.
 

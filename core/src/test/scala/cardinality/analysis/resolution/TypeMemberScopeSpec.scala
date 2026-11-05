@@ -93,8 +93,6 @@ class TypeMemberScopeSpec extends Specification {
       .and(refused(found("A.valMember"), "path through member q of refined p"))
   }
 
-  private val withField = "trait U { type Y }\nabstract class T { val p: U; type X = p.Y }\n"
-
   // Only O may extend P, R or Q's T (scalac: "can only be accessed from object O"), only m's body
   // may extend L, and nothing extends FA: no subclass picks X, so each f is vacuously one, where
   // the atom gave 2. A `private[pk]` template is open to its whole package: x, y — 2.

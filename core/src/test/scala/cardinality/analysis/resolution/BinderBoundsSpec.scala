@@ -66,8 +66,6 @@ class BinderBoundsSpec extends Specification {
       .and(recursive("R.chain", "B <: Option[A]"))
   }
 
-  }
-
   private val classReason = "structural lower bound under a class bound requires class analysis: "
 
   // B >: Flag lies below A <: AnyVal through B's own bound or through a proof: no type fits.

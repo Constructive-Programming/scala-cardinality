@@ -47,8 +47,6 @@ class HigherKindedRefusalSpec extends Specification {
       case Count.Unresolved(reasons) => reasons must contain(reason)
     }
 
-  private val box = "case class Box[F[_], A](value: F[A])\n"
-
   def arity =
     unresolved("object T { def f[F[_], A](x: F[A, A]): A = ??? }", "T.f", "type argument arity: F")
 
@@ -88,7 +86,6 @@ class HigherKindedRefusalSpec extends Specification {
       }
     invalid("T.w").and(invalid("C.w"))
   }
-
 
   def nestedWildcard =
     unresolved(

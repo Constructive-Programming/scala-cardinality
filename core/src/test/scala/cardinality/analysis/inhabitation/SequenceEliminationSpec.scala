@@ -118,14 +118,6 @@ class SequenceEliminationSpec extends Specification {
       "E.three"
     ) === Count.Countable
 
-  // `A => Nothing` elements beside an A make every nonempty length absurd (one answer), so only
-  // length 0 has a choice: the true count is 2 (a or b), not ω — refused rather than overcounted.
-  def absurdElems =
-    entry(
-      "object E { def f[A](a: A, b: A, xs: List[A => Nothing]): A = ??? }",
-      "E.f"
-    )
-
   // Cross-check X2: the Left branch is absurd once an element exists, the Right branch keeps
   // true/false, so c(1) = 1 · 2 = 2 at a nonempty length — ω. Without the absurd element: the
   // length alone (c(0) = c(1) = 2) and headOption (c(0) = 1, c(1) = 2) are ω too.

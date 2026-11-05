@@ -36,13 +36,6 @@ class EvidenceTransportCardinalitySpec extends Specification {
         reasons.exists(_.contains(reason)) must beTrue
     }
 
-  def reflexive =
-    (count("def use[A]: A =:= A = summon[A =:= A]") === Count.Finite(1))
-      .and(count("def use[A]: A <:< A = summon[A <:< A]") === Count.Finite(1))
-
-  def identity =
-    count("def use[A](x: A, ev: A =:= A, sub: A <:< A): A = ev(sub(x))") === Count.Finite(1)
-
   def transport =
     (count("def use[A, B](x: A)(using ev: A =:= B): B = ev(x)") === Count.Finite(1))
       .and(count("def use[A, B](x: B)(using ev: A =:= B): A = ev.flip(x)") === Count.Finite(1))

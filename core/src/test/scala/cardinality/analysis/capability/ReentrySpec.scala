@@ -30,7 +30,7 @@ class ReentrySpec extends Specification {
       an abstract given a sibling may summon is a possible view        $abstractGiven
       a body returning its parameter of the result type searches none  $settledBody
     The view sandwich
-      an upper reading of 0, or of 1 with a lower 1, is the count      $sandwich
+      an upper reading of 0 is the count                               $sandwich
       a refused binding, readings that disagree, or ≥ 2 stay `?`       $sandwichRefuses
   """
 
@@ -205,26 +205,10 @@ class ReentrySpec extends Specification {
       trait Xe { given g: Boolean; def other(using b: Boolean): Boolean = b; def use: Boolean = other(using g) }
     """)("Xe.g") === Count.Finite(16)
 
-  // Z's m returns Int: with m bound, no T is reachable — 0. O.to: with m bound or left out, None is
-  // the one Option[T] — 1. Laws (eo's ComposedGetOptionLaws shape): the record CanGetOption[A, B]
-  // has one implementation, the None-returning one, either way — 1.
-  def sandwich = {
-    val found = one("""
+  // Z's m returns Int: with m bound, no T is reachable — 0.
+  def sandwich = one("""
       trait Z[T] { def to(u: Unit): T; def m(b: Boolean): Int = if b then { val t = to(()); 0 } else 1 }
-      trait O[T] { def to(u: Unit): Option[T]; def m(b: Boolean): Boolean = if b then to(()).isEmpty else false }
-      trait CanGetOption[S, A] { def getOption(s: S): Option[A] }
-      trait Laws[S, A, B] {
-        def getOptionOuter: CanGetOption[S, A]
-        def getOptionInner: CanGetOption[A, B]
-        def getOptionComposed: CanGetOption[S, B]
-        def composedGetOption(s: S): Boolean =
-          getOptionComposed.getOption(s) == getOptionOuter.getOption(s).flatMap(getOptionInner.getOption)
-      }
-    """)
-    (found("Z.to") === Count.Finite(0))
-      .and(found("O.to") === Count.Finite(1))
-      .and(found("Laws.getOptionInner") === Count.Finite(1))
-  }
+    """)("Z.to") === Count.Finite(0)
 
   // D.to: 0 without m, 2 with it (m(true), m(false)) — they disagree. E.to: 4 without m, and with
   // it bound m: Boolean => Int reaches Int — they disagree too. E3's m returns Unit: 4 either way;

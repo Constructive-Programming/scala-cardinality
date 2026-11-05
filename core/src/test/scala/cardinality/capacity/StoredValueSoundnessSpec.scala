@@ -120,8 +120,6 @@ class StoredValueSoundnessSpec extends Specification {
   private def notSummed(family: String, why: String) =
     s"unresolved[sealed family not summed: $family ($why)]"
 
-        ) === notSummed("W", "a template the estimate does not read: Defn.Class")
-          "a subtype open to extension: C (parent not read: Exception)"
   // `X extends WA` with `type WA = W` is a subtype the parent's name does not spell (the sum would
   // say 1, the truth is 1 + 2); so is `new WA {}`. `Both` reaches `D` through `D1` and `D2`: a
   // summand counted twice. The method side refuses the same constructors.
@@ -267,8 +265,6 @@ class StoredValueSoundnessSpec extends Specification {
           "recursion through a constructor the estimate does not read: T (through Chunk)"
         )
       )
-  }
-
   }
 
   // Every reader of a definition resting on an unknown name rests on it too — through a generic

@@ -133,10 +133,8 @@ views P bound as free capabilities give an upper reading, left out a lower one. 
 recursion-free implementation is among the upper reading's terms, and every term of the lower
 reading is recursion-free, so lower ≤ count ≤ upper (a member of P with an empty type makes the
 upper reading vacuous, but then no implementation uses it and the count is the lower reading): an
-upper reading of 0 is the count, and so is 1 when the lower reading is 1 too. Agreeing bounds past
-1 would fix the count as well; deciding only 0 and 1 is a deliberately narrow choice, so the
-reasons stay there. A member of P whose binding is refused in the upper reading refuses the row. eo's `ComposedGetOptionLaws.getOptionInner` is 1: the record
-`CanGetOption[A, B]` has the None-returning implementation alone, with or without the law member.
+upper reading of 0 is the count. Agreeing bounds would fix the count as well; deciding only 0 is a
+deliberately narrow choice, so the reasons stay there. A member of P whose binding is refused in the upper reading refuses the row.
 
 A precision regression the bounds record rather than repair (FOLLOWUPS 14b): eo's `Optic.to` and
 `Optic.from` printed 0 at `b5045b8`, derived independently — `andThen` can return only `rc.Out`,
