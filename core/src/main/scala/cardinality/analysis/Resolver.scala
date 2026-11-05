@@ -40,6 +40,17 @@ private[cardinality] trait Resolver {
   /** Whether every instance of a template is of a supplied declaration no subclass extends. */
   def fixedTemplate(frame: Frame): Boolean
 
+  /** Whether some supplied template extends both templates (the closed world): only then may one
+    * instance be of both.
+    */
+  def mixed(left: Frame, right: Frame): Boolean
+
+  /** How a supplied template extending a template may override its member `name` (the closed
+    * world): a member none overrides is fixed on that receiver, the constructor `val`s and literal
+    * `val`s the closed world leaves as written included.
+    */
+  def overriding(template: Frame, name: String): ClosedWorld.Overriding
+
   /** The builtin or stdlib-model key of a name no supplied declaration binds, or why it is none. */
   def builtin(written: String, context: ResolutionContext): Either[String, String]
 

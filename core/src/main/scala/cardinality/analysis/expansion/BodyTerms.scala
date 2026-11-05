@@ -5,9 +5,10 @@ import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
-import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex}
+import cardinality.analysis.{ClosedWorld, MethodAnalysis, Resolver, SourceIndex}
 import cardinality.types.{ListedNamespaces, Overrides, Spelling, TypeApplications}
 
+import ClosedWorld.Overriding
 import MethodAnalysis.Frame
 
 /** A supplied definition a body may reach: the tree, and the frame of its own parameters, whose
@@ -91,7 +92,9 @@ private[expansion] enum Meaning {
   * package's other files, then the root imports. A binding this reading cannot follow — an export,
   * an import or a parent outside the sources, a self type — is a refusal, never a guess.
   */
-final private[expansion] class BodyTerms(resolver: Resolver) {
+/** `expanded` names why a supplied inline method of a name differs at each call site, if one does.
+  */
+final private[expansion] class BodyTerms(resolver: Resolver, expanded: String => Option[String]) {
 
   private val ancestors = mutable.Map.empty[String, Either[String, List[Frame]]]
 
@@ -189,26 +192,33 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
 
   private def narrowedMember(
       found: Meaning,
-      overrider: Option[String],
+      overrider: Option[(String, Overriding)],
       name: String,
       via: String
   ): Meaning = (overrider, found) match {
     case (None, _) | (_, _: Meaning.Refused) => found
     case (_, value: Meaning.Value)           => value.copy(via = Some(s"$via.$name"))
-    case (Some(label), _)                    =>
-      Meaning.Refused(
+    // An override that is not inline is dispatched as the `def` is, and a supplied inline one whose
+    // expansion is one function of its values is that function: only another differs.
+    case (Some((label, how)), _) =>
+      val narrowed =
         s"selects $name on $via, which a call site may type as a subclass of $label " +
           s"that overrides $name inline"
-      )
+      if (how == Overriding.Unknown) Meaning.Refused(narrowed)
+      else expanded(name).fold(found)(why => Meaning.Refused(s"$narrowed, and $why"))
   }
 
-  // The class an open receiver's member may be overridden below, if a subclass may override it.
-  private def overrider(receiver: Receiver, name: String): Option[String] = receiver match {
-    case Receiver.Template(frame) =>
-      Option.when(overridable(frame, name))(frame.path.mkString("."))
-    case Receiver.Library(key) => Option.when(LibraryInlines.extensible(key))(key)
-    case _                     => None
-  }
+  // The class an open receiver's member may be overridden below, and how, if a subclass may.
+  private def overrider(receiver: Receiver, name: String): Option[(String, Overriding)] =
+    receiver match {
+      case Receiver.Template(frame) =>
+        Some(overridable(frame, name))
+          .filter(_ != Overriding.No)
+          .map(frame.path.mkString(".") -> _)
+      case Receiver.Library(key) =>
+        Option.when(LibraryInlines.extensible(key))(key -> Overriding.Supplied)
+      case _ => None
+    }
 
   // A template no class extends: a final class, an object, a given, an enum (its cases have no
   // body to override with), an anonymous class, a package's synthetic object.
@@ -217,20 +227,25 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       FinalImplementations.isFinal(t) || t.is[Defn.Enum] || t.is[Term.NewAnonymous]
     )
 
-  /** Whether a subclass of an open template may override its member `name`: some definition of the
-    * name on its supplied ancestry is neither final, private, inline nor an object, or none is
-    * supplied and the name is no universal member (which the model excludes) — a parent outside the
-    * sources is refused where the member is read.
+  /** How a subclass of an open template may override its member `name`: some definition of the name
+    * on its supplied ancestry is neither final, private, inline nor an object, and (the closed
+    * world) a supplied template extending it overrides it, or a parent outside the sources may; or
+    * none is supplied and the name is no universal member (which the model excludes) — a parent
+    * outside the sources is refused where the member is read.
     */
-  private def overridable(template: Frame, name: String): Boolean =
-    !closed(template) && (levels(template) match {
-      case Left(_)      => true
-      case Right(above) =>
-        val definitions = (template :: above).flatMap(definitionsOf(_, name))
-        if (definitions.isEmpty)
-          !(LibraryInlines.universal(name) || LibraryInlines.references(name))
-        else definitions.exists(Overrides.overridable)
-    })
+  private def overridable(template: Frame, name: String): Overriding =
+    if (closed(template)) Overriding.No
+    else
+      levels(template) match {
+        case Left(_)      => Overriding.Unknown
+        case Right(above) =>
+          val definitions = (template :: above).flatMap(definitionsOf(_, name))
+          if (definitions.nonEmpty)
+            if (definitions.exists(Overrides.overridable)) resolver.overriding(template, name)
+            else Overriding.No
+          else if (LibraryInlines.universal(name) || LibraryInlines.references(name)) Overriding.No
+          else Overriding.Unknown
+      }
 
   private def definitionsOf(level: Frame, name: String): List[Tree] =
     level.stats.flatMap {

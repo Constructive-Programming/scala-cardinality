@@ -8,7 +8,9 @@ import org.specs2.matcher.MatchResult
   * nothing, and a throwable is data. Every fixture is valid Scala 3.9.0 (compiled with scalac)
   * except the singleton type of a `var`, which Scala rejects (E083) — the refusal under test — and
   * the two that import from `foo`, a package deliberately not supplied (`Blocked`, `W`). Each
-  * expected number is derived in the comment beside it.
+  * expected number is derived in the comment beside it. A fixture about an overridable member's
+  * default is read in the open world (`openRows`), where the member is open as one a supplied
+  * template overrides is in the closed world.
   */
 class PureCodeSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
@@ -83,14 +85,13 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   // Privacy, not mutation, hides the field: no member observes it, so a goal could not be told
-  // apart by it while an input still holds it — refused, never 2 or 4.
-  def privateVarField =
-    refused(
-      rows("class RVH(private var x: Boolean)\nobject Use { def f(v: RVH): Boolean = ??? }")(
-        "Use.f"
-      ),
-      "open class with hidden constructor state: RVH.x"
-    )
+  // apart by it while an input still holds it — refused, never 2 or 4. In the closed world RVH is
+  // final, and x a field no member observes: refused all the same.
+  def privateVarField = {
+    val code = "class RVH(private var x: Boolean)\nobject Use { def f(v: RVH): Boolean = ??? }"
+    refused(openRows(code)("Use.f"), "open class with hidden constructor state: RVH.x")
+      .and(refused(rows(code)("Use.f"), "final class field not observable injectively: RVH.x"))
+  }
 
   // RAV's record is its getter y (the setter returns Unit, an effect): 4 as input and goal (an
   // anonymous `new RAV { var y = … }` realizes any choice; it read "capability record with a
@@ -219,11 +220,20 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   // A subclass may override `get` with any Boolean: m ranges over functions of (b, get), 2^4 = 16,
-  // as for the abstract twin — reading the throwing default as absent would give 4.
+  // as for the abstract twin — reading the throwing default as absent would give 4. In the closed
+  // world nothing overrides it: OpenGet is final, get supplies nothing, m is b's functions — 4.
   def throwingOpenMember = {
-    val found = rows("""class OpenGet { def get: Boolean = ???; def m(b: Boolean): Boolean = ??? }
-      |abstract class AbsGet { def get: Boolean; def m(b: Boolean): Boolean }""".stripMargin)
-    (found("OpenGet.m") === Count.Finite(16)).and(found("AbsGet.m") === Count.Finite(16))
+    val found = openRows(
+      """class OpenGet { def get: Boolean = ???; def m(b: Boolean): Boolean = ??? }
+      |abstract class AbsGet { def get: Boolean; def m(b: Boolean): Boolean }""".stripMargin
+    )
+    (found("OpenGet.m") === Count.Finite(16))
+      .and(found("AbsGet.m") === Count.Finite(16))
+      .and(
+        rows("class OpenGet { def get: Boolean = ???; def m(b: Boolean): Boolean = ??? }")(
+          "OpenGet.m"
+        ) === Count.Finite(4)
+      )
   }
 
   // A default that only throws is no behavior, so the member reads as its abstract twin: every
@@ -234,7 +244,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // no generator as String => Nothing: empty, so OpenFail, like its abstract twin AbsFail, has no
   // instance — 1 each, never 4.
   def unimplementable = {
-    val found = rows("""class OpenBoom {
+    val found = openRows("""class OpenBoom {
       |  def boom: Nothing = throw new Exception("x")
       |  def m(b: Boolean): Boolean = ???
       |}
@@ -255,7 +265,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // Gen[Boolean] is Mono: no value (0 as a goal, 1 as an input); a Boolean-observing Mono has none
   // either.
   def appliedTwins = {
-    val found = rows("""class K1 { def k(x: Int): Nothing = ???; def m(b: Boolean): Boolean = ??? }
+    val found = openRows(
+      """class K1 { def k(x: Int): Nothing = ???; def m(b: Boolean): Boolean = ??? }
       |class K2[A] { def k(x: A): Nothing = ??? }
       |class K4 extends K2[Int] { def m(b: Boolean): Boolean = ??? }
       |class K5[A](val a: A) { def k(x: A): Nothing = ???; def m(b: Boolean): Boolean = ??? }
@@ -271,7 +282,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |  def mkGen(b: Boolean): Gen[Boolean] = ???
       |  def useMono(g: Mono, b: Boolean): Boolean = ???
       |  def useGen(g: Gen[Boolean], b: Boolean): Boolean = ???
-      |}""".stripMargin)
+      |}""".stripMargin
+    )
     each(found, Count.Finite(1))(
       "K1.m",
       "K4.m",
@@ -292,7 +304,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // polymorphic capability ∀A. A => Nothing, empty at A = Unit (register D24), so neither has an
   // instance: 1 for both, never 2^(2^33) for K3.
   def subclassTwins = {
-    val found = rows("""abstract class P { def k(x: Int): Nothing }
+    val found = openRows("""abstract class P { def k(x: Int): Nothing }
       |class Q extends P { def k(x: Int): Nothing = ??? }
       |class K3 { def k[A](x: A): Nothing = ???; def use(a: Int, b: Boolean): Boolean = ??? }
       |abstract class K3a { def k[A](x: A): Nothing; def use(a: Int, b: Boolean): Boolean }
@@ -309,7 +321,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // dropped as empty, and it builds no Boolean, so Mention.m is the 4 functions of b, as its abstract
   // twin AMention.m — never 1.
   def boundedBinder = {
-    val found = rows(
+    val found = openRows(
       """class Lower { def zero[A >: Int]: A = ???; def m(b: Boolean): Boolean = ??? }
       |class Evidence { def unit[A: Ordering]: A = ???; def m(b: Boolean): Boolean = ??? }
       |class Pick { def pick[A, B <: A](x: B, y: B): A = ??? }
@@ -338,7 +350,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // 2 and 4 of a dropped member. This reading does not type an open member's inferred result:
   // refused.
   def overridingResult = {
-    val found = rows("""abstract class Base { def get: Boolean }
+    val found = openRows("""abstract class Base { def get: Boolean }
       |class Impl extends Base { def get = ??? }
       |trait TBase { def get: Boolean }
       |class TImpl extends TBase { def get = sys.error("no") }
@@ -362,7 +374,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // ∀A. Int => (A, Int) is Int => (Nothing, Int), empty, so H5.m is vacuous — 1; ∀A. Option[A] is
   // None alone, which builds no Boolean, so H6.m is the 4 functions of b.
   def emptyTypes = {
-    val found = rows("""class H1 { def handler: Int => Nothing = ???; def m(b: Boolean): Boolean = ??? }
+    val found = openRows(
+      """class H1 { def handler: Int => Nothing = ???; def m(b: Boolean): Boolean = ??? }
       |class H2 { def pair: (Nothing, Int) = ???; def m(b: Boolean): Boolean = ??? }
       |class H3 { def e: Either[Nothing, Nothing] = ???; def m(b: Boolean): Boolean = ??? }
       |class H5 { def poly[A](x: Int): (A, Int) = ???; def m(b: Boolean): Boolean = ??? }
@@ -373,7 +386,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |abstract class AH6 { def poly[A]: Option[A]; def m(b: Boolean): Boolean }
       |abstract class AH7 { def f(n: Nothing): Nothing; def m(b: Boolean): Boolean }
       |object Use { def u1(h: H1, b: Boolean): Boolean = ???; def u3(h: H3, b: Boolean): Boolean = ??? }
-      |""".stripMargin)
+      |""".stripMargin
+    )
     each(found, Count.Finite(1))(
       "H1.m",
       "H2.m",
@@ -407,7 +421,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   def construction = {
-    val found = rows("""class OK2 { val boom: Nothing = ???; def m: Boolean = true }
+    val found = openRows("""class OK2 { val boom: Nothing = ???; def m: Boolean = true }
       |class LK2 { lazy val boom: Boolean = ???; def m: Boolean = true }
       |class DK2 { def boom: Boolean = ???; def m: Boolean = true }
       |class OK1 { val x: Boolean = ???; def m(b: Boolean): Boolean = ??? }
@@ -510,7 +524,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // functions of (b, x), 2^(2^33)). An export binds throughout its template (O.E: 2^(2^33)), and a
   // renaming import does not bind the original name (R: 1).
   def bindingScope = {
-    val found = rows("""object Helpers { def ??? : Int = 1 }
+    val found = openRows("""object Helpers { def ??? : Int = 1 }
       |trait TK { val x: Boolean = ??? }
       |class Sh extends TK { def ??? : Boolean = true; def m(b: Boolean): Boolean = ??? }
       |class K { import Helpers.???; val x: Int = ???; def m(b: Boolean): Boolean = b }
@@ -639,7 +653,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // an input (1), empty as a goal (0). OpenGet's is (get, m): functions of get, m(true), m(false) —
   // 2^8 = 256.
   def throwingRecord = {
-    val found = rows("""class OpenGet { def get: Boolean = ???; def m(b: Boolean): Boolean = ??? }
+    val found = openRows("""class OpenGet { def get: Boolean = ???; def m(b: Boolean): Boolean = ??? }
       |class OpenBoom { def boom: Nothing = throw new Exception("x"); def m(b: Boolean): Boolean = ??? }
       |object Use {
       |  def f(o: OpenBoom): Boolean = ???
@@ -728,7 +742,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // getLocalizedMessage, which this reading does not enumerate as capabilities: refused with the
   // member named.
   def openSubclass = {
-    val found = rows("""class MyErr(msg: String) extends Exception(msg) {
+    val found = openRows("""class MyErr(msg: String) extends Exception(msg) {
       |  override def getMessage: String = "x"
       |}
       |object U { def u(e: MyErr): Boolean = ??? }""".stripMargin)

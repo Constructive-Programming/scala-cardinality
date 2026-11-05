@@ -176,11 +176,12 @@ class TastyStubsSpec extends Specification {
       .and(refused(javaMethods(Nil)("j.coin")) must beTrue)
   }
 
-  // An interface has no state: its value is the record of its abstract `flip` and its overridable
-  // default `same`, each Boolean => Boolean (4 behaviors), so 16 values, and 2^16 maps to Boolean.
-  "a Java interface is the record of its overridable methods" in {
-    (throughJava("j.mkToggle") must_== Inhabitation.Count.Finite(16))
-      .and(throughJava("j.toggle") must_== Inhabitation.Count.Finite(65536))
+  // An interface has no state: its value is the record of its abstract `flip`, a Boolean =>
+  // Boolean (4 behaviors). Its default `same` no supplied class overrides (the closed world), so it
+  // is concrete code over flip: 4 values, and 2^4 maps to Boolean (with `same` open: 16 and 2^16).
+  "a Java interface is the record of its abstract methods" in {
+    (throughJava("j.mkToggle") must_== Inhabitation.Count.Finite(4))
+      .and(throughJava("j.toggle") must_== Inhabitation.Count.Finite(16))
   }
 
   // A class's constructors set state no stub ties to their parameters; a sealed interface's
@@ -256,15 +257,19 @@ class TastyStubsSpec extends Specification {
   }
 
   // `OutputStreamIO[Boolean]` is the record of its one abstract `write`, whose result is `Unit`:
-  // one value, so one way to build it and 2^1 maps to Boolean. Dropping a `Classpath` is one body.
+  // one value, so one way to build it and 2^1 maps to Boolean. Dropping a `Classpath` is one body,
+  // `()`, with or without its declaration: the unsupplied `scala.meta.io.*` rebinds no `Unit`
+  // (register D37), so its one-valued result decides it.
   "a reference to a Scala 2 class gets a count instead of `declaration not supplied`" in {
     val unsupplied = scala2Methods(Nil)
-    List("s.drop" -> 1, "s.mkOut" -> 1, "s.out" -> 2)
+    val drop = (throughScala2("s.drop") must_== Inhabitation.Count.Finite(1))
+      .and(unsupplied("s.drop") must_== Inhabitation.Count.Finite(1))
+    List("s.mkOut" -> 1, "s.out" -> 2)
       .map((name, n) =>
         (throughScala2(name) must_== Inhabitation.Count.Finite(n))
           .and(unsupplied(name).toString must contain("declaration not supplied"))
       )
-      .reduce(_ and _)
+      .foldLeft(drop)(_ and _)
   }
 
   // `AbsolutePath` is a sealed case class whose one child is anonymous (`new AbsolutePath(p) {}`),

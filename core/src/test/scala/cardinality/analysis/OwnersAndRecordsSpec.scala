@@ -209,8 +209,9 @@ class OwnersAndRecordsSpec extends Specification {
       )
   }
 
-  // A subclass of S1 (any file) may override m, or S.d, or an exception's getCause: values of the
-  // family differ beyond the 3 the fields give, so g is refused (it read 2^3 = 8).
+  // S1X overrides S1's m: values of the family differ beyond the 3 the fields give, so g is refused
+  // (it read 2^3 = 8). In the closed world no template extends P1 or X1, so neither S.d nor an
+  // exception's getCause varies: S1(true), S1(false), S2 — functions to Boolean, 2^3 = 8.
   def openLeaf = {
     val found = one("""
       sealed trait S
@@ -223,17 +224,11 @@ class OwnersAndRecordsSpec extends Specification {
       case class X1(code: Boolean) extends RuntimeException("fixed") with X
       case object X2 extends X
       object Use { def s(v: S): Boolean = ???; def p(v: P): Boolean = ???; def x(v: X): Boolean = ??? }
+      class S1X(c: Boolean) extends S1(c) { override def m: Int = 2 }
     """)
     refused(found("Use.s"), "sealed family leaf may be extended: S1 (overridable member m)")
-      .and(
-        refused(found("Use.p"), "sealed family leaf may be extended: P1 (overridable member P.d)")
-      )
-      .and(
-        refused(
-          found("Use.x"),
-          "sealed family leaf may be extended: X1 (overridable member RuntimeException.getCause)"
-        )
-      )
+      .and(found("Use.p") === Count.Finite(8))
+      .and(found("Use.x") === Count.Finite(8))
   }
 
   // Every leaf inherits the root's abstract `k: Nothing`; no pure, total body implements the
@@ -252,10 +247,11 @@ class OwnersAndRecordsSpec extends Specification {
   // A subclass may override the leaf's extension foo, its parent's `val` field d (3.9.0 warns but
   // compiles), L.foo (the leaf's second-clause foo is a parameter, no member), the parent's
   // d(s: String) (a final overload d(i: Int) fixes nothing), PP.d (GP's private d is no member of
-  // PP's subclasses) and an overload of `==`: 3.9.0 runs observe each override, so every family is
-  // refused (each read 8).
+  // PP's subclasses) and an overload of `==`: 3.9.0 runs observe each override. Each leaf here has
+  // a supplied subclass (`…X`), so every family is refused (each read 8); with none, the closed
+  // world closes the leaf: 8.
   def openLeafMembers = {
-    val found = one("""
+    val code = """
       sealed trait E
       case class E1(x: Boolean) extends E { extension (y: Boolean) def foo: Boolean = x }
       case object E2 extends E
@@ -282,7 +278,17 @@ class OwnersAndRecordsSpec extends Specification {
         def e(v: E): Boolean = ???; def l(v: L): Boolean = ???; def f(v: F): Boolean = ???
         def o(v: O): Boolean = ???; def r(v: R): Boolean = ???; def y(v: Y): Boolean = ???
       }
-    """)
+    """
+    val found = one(
+      code + """
+      class E1X extends E1(true)
+      class L1X extends L1(true)(()) { override def foo: Boolean = false }
+      class F1X extends F1(true)
+      class O1X extends O1(true)
+      class R1X extends R1(true) { override def d: Int = 3 }
+      class Y1X extends Y1(true) { override def ==(i: Int): Boolean = false }
+    """
+    )
     val open = "sealed family leaf may be extended"
     refused(found("Use.e"), s"$open: E1 (overridable member foo)")
       .and(refused(found("Use.l"), s"$open: L1 (overridable member L.foo)"))
@@ -290,15 +296,17 @@ class OwnersAndRecordsSpec extends Specification {
       .and(refused(found("Use.o"), s"$open: O1 (overridable member OP.d)"))
       .and(refused(found("Use.r"), s"$open: R1 (overridable member PP.d)"))
       .and(refused(found("Use.y"), s"$open: Y1 (overridable member ==)"))
+      .and(one(code)("Use.e") === Count.Finite(8))
   }
 
   // A parent is what its name denotes where the clause is written, as the lookup reads it (imports,
   // enclosing scopes): another package's `Exception` no import brings is not the one S1 extends,
   // whose getCause a subclass may override; an imported source trait named `Product` is no marker,
-  // and its describe may be overridden (3.9.0 runs observe both overrides). Both refuse (they read
-  // 8 and 3 with the parent read by its simple name). W's AnyVal leaf has nothing to override: 3.
+  // and its describe may be overridden (3.9.0 runs observe both overrides). With a supplied subclass
+  // of each leaf both refuse (they read 8 and 3 with the parent read by its simple name); in the
+  // closed world, with none, both are closed — 8. W's AnyVal leaf has nothing to override: 3.
   def resolvedParents = {
-    val found = one("""
+    val code = """
       package other { trait Exception; trait Product { def describe: Boolean = true } }
       package fam {
         sealed trait S
@@ -319,7 +327,16 @@ class OwnersAndRecordsSpec extends Specification {
         case object K2 extends W
         object UseW { def g(w: W): Boolean = ??? }
       }
-    """)
+    """
+    val found = one(
+      code + """
+      package x {
+        class S1X extends fam.S1(true)
+        class LX extends st.L(true) { override def describe: Boolean = false }
+      }
+    """
+    )
+    val closed = one(code)
     refused(
       found("fam.V.g"),
       "sealed family leaf may be extended: S1 (overridable member Exception.getCause)"
@@ -331,6 +348,7 @@ class OwnersAndRecordsSpec extends Specification {
         )
       )
       .and(found("w.UseW.g") === Count.Finite(8))
+      .and(closed("fam.V.g") === Count.Finite(8))
   }
 
   // A final leaf, a final override of the parent's member (in the leaf, or in a parent between it
@@ -386,6 +404,7 @@ class OwnersAndRecordsSpec extends Specification {
       object CP { def mk(x: Boolean): CP = new CP(x) }
       final case class C2(a: Boolean)(b: Boolean)
       case class NC(a: Boolean) { def hit: Boolean = a }
+      class NCX extends NC(true) { override def hit: Boolean = false }
       object Use { def h(x: Boolean): C2 = C2(x)(x); def i(x: Boolean): NC = NC(x) }
     """)
     (found("CP.mk") === Count.Finite(4))
@@ -433,6 +452,7 @@ class OwnersAndRecordsSpec extends Specification {
       trait T { given g: Boolean = true; inline def f: Boolean = g }
       trait U { final def g: Boolean = true; inline def f: Boolean = g }
       trait V { def g: Boolean = true; inline def f: Boolean = g }
+      trait VO extends V { override inline def g: Boolean = scala.compiletime.codeOf(1) == "1" }
     """)
     (found("T.f") === Count.Finite(2))
       .and(found("U.f") === Count.Finite(2))
@@ -440,14 +460,16 @@ class OwnersAndRecordsSpec extends Specification {
         refused(
           found("V.f"),
           "inline method: selects g on this, which a call site may type as a subclass of V that " +
-            "overrides g inline"
+            "overrides g inline, and inline method VO.g uses scala.compiletime.codeOf"
         )
       )
   }
 
   // `given g: Boolean = deferred` is supplied by each class extending T (3.9.0 run: two classes
   // with different givens in scope print false and true): other reads a free Boolean g — g, !g,
-  // true, false: 4 (it read 2). TI.f's expansion selects g, which a subclass gives: refused. A
+  // true, false: 4 (it read 2). TI.f's expansion selects g, which a subclass gives; in the closed
+  // world no supplied template overrides it inline with an expansion that differs per call site,
+  // so f is g's functions too — 4 (it was refused). A
   // `deferred` another declaration binds — a member of V, X's imported in TX's object, a local
   // `compiletime` object's selected in TL — is no abstract given.
   def deferredGiven = {
@@ -465,13 +487,7 @@ class OwnersAndRecordsSpec extends Specification {
     val other = "given alias of a deferred not resolved to scala.compiletime"
     (found("T.other") === Count.Finite(4))
       .and(found("Q.other") === Count.Finite(4))
-      .and(
-        refused(
-          found("TI.f"),
-          "inline method: selects g on this, which a call site may type as a subclass of TI that " +
-            "overrides g inline"
-        )
-      )
+      .and(found("TI.f") === Count.Finite(4))
       .and(refused(found("V.other"), s"$other: V.g"))
       .and(refused(found("TXs.TX.other"), s"$other: TXs.TX.g"))
       .and(refused(found("TL.other"), s"$other: TL.g"))

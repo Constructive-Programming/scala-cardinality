@@ -545,6 +545,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
       """|package ul
          |case class json(n: Int) { def run: Int = n }
          |case class Data(n: Int) { def run: Int = n }
+         |class jsonX extends json(1) { override def run: Int = 0 }
+         |class DataX extends Data(1) { override def run: Int = 0 }
          |trait Missing
          |object L {
          |  def f(x: json | Missing): Boolean = true

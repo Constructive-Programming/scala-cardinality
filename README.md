@@ -103,12 +103,31 @@ the pure, total implementations of a signature and the values of a type. The ful
 the counting contract in [docs/plans/v1.md §2](docs/plans/v1.md). [AGENTS.md](AGENTS.md)
 repeats it for coding agents working on this repository.
 
+## Assumption: the sources are the whole program
+
+The second assumption is a **closed world**. The sources you supply, with the dependency
+declarations, are the whole program: no subclass, override or implementation exists anywhere
+else.
+
+- A concrete class that no supplied template extends is final, and so is a concrete member that
+  no supplied template overrides. The calculator reads the sources as if they said `final` there.
+  - `abstract class A { def m: Boolean = true; def target(b: Boolean): Boolean }` has `4`
+    implementations of `target`, the functions of `b`. `m` is always `true`.
+  - Add `class B extends A { override def m = false; … }` and `m` varies: `16`, the functions of
+    `(b, m)`.
+- Abstract members stay free capabilities. A value of a trait may still be built by the method
+  being counted, which implements its abstract members.
+- Two traits share an instance only if a supplied template extends both.
+- The closed world settles which templates exist. It does not settle a name the calculator cannot
+  resolve, so an unresolved override identity still gives `?`.
+
 ### Inline methods
 
 An `inline def` is counted like a `def` when its body uses no compile-time operation: no
 `inline if` or `inline match`, nothing from `scala.compiletime` (`summonFrom`, `summonInline`,
 `erasedValue`, `constValue`, …), no quotes or splices. The same holds for every inline method the
-body calls.
+body calls. An abstract `inline def` counts like an abstract `def`, and its implementations are read
+through their own bodies.
 
 - `inline def pick[A](x: A, y: A): A = x` has `2` implementations, like the `def`. With
   `inline erasedValue[A] match` in its body it is `?`.
@@ -117,13 +136,16 @@ body calls.
   members the model excludes can see).
 - A `transparent` result is `?` unless its declared type is a singleton: callers see the type of
   what the expansion returns, which may be narrower than the declared one.
+- An implicit conversion the body may meet is typed where the body is written, like any call. It
+  makes the body `?` only when it is inline and its own expansion uses a compile-time operation.
 - An expansion can also differ from the method's body without a compile-time operation, and those
   bodies are `?` too: a member selected on a parameter or on `this` (`C.this` included) that a
-  subclass may override with an inline method (a function parameter's `apply` included, and the
-  `apply` a further argument clause selects on a call's result), a runtime class that depends on a
-  type parameter (a type test, or `classOf[Array[A]]`: each expansion reifies its type argument), a
-  given left to implicit search (a local method's `using` clause or context bound included), an
-  extension or conversion the body may meet. Definitions written in the body are read like
+  supplied subclass overrides with an inline method whose expansion differs (a function
+  parameter's `apply` included, and the `apply` a further argument clause selects on a call's
+  result), a runtime class that depends on a type parameter (a type test, or `classOf[Array[A]]`:
+  each expansion reifies its type argument), a given left to implicit search (a local method's
+  `using` clause or context bound included), an inline or contextual extension the body may
+  meet. Definitions written in the body are read like
   supplied ones, with `this` in a nested class or instance being that template.
 - Any other inline method is `?`, and the reason names what disqualified it.
 

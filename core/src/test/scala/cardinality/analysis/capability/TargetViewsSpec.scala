@@ -10,7 +10,8 @@ import org.specs2.execute.Result
 // Target views (design/capabilities.md C6): which overridable members re-enter the measured
 // declaration. Every fixture is valid Scala 3.9.0 (compiled with scalac: probes/b3fix1/spec,
 // probes/b3fix2/spec). Each count is derived in the comment above its check; a `?` is a possible
-// view, never a number.
+// view, never a number. They are read in the open world (`MethodAnalysis.analyzeOpen`), where each
+// overridable member is open as one a supplied template overrides is in the closed world.
 class TargetViewsSpec extends Specification {
   import Inhabitation.Count
 
@@ -52,7 +53,7 @@ class TargetViewsSpec extends Specification {
   """
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
-    MethodAnalysis.analyze(
+    MethodAnalysis.analyzeOpen(
       List(MethodAnalysis.Input("Views.scala", dialects.Scala3(code).parse[Source].get))
     )
 

@@ -204,7 +204,7 @@ class TypeMemberSpec extends Specification {
     refused(found("Vals.v"), "p is not overridable in Vals")
       .and(found("Strict.v") === Count.Finite(1))
       .and(found("Open.v") === Count.Finite(2))
-      .and(found("C.v") === Count.Finite(2))
+      .and(refused(found("C.v"), "p is not overridable in C"))
       .and(refused(found("F.v"), "p is not overridable in F"))
   }
 
@@ -305,8 +305,8 @@ class TypeMemberSpec extends Specification {
       .and(refused(found("D.g"), "type member X of D.this may be defined by unsupplied parent"))
   }
 
-  // Mid.to overrides Q.to: both signatures key X as Mid's alias A, so the override is found. Mid is
-  // open, so its own `from` stays an overridable capability: b, a, from(b), … — ω. Without `from`
+  // Mid.to overrides Q.to: both signatures key X as Mid's alias A, so the override is found. MidO
+  // overrides `from`, so it stays an overridable capability: b, a, from(b), … — ω. Without `from`
   // the twin tells a found override (b, a — 2) from Q2.to read as a second capability A => A (ω).
   def overrideIdentity =
     (count(
@@ -319,6 +319,8 @@ class TypeMemberSpec extends Specification {
         type X = A
         def to(b: A): X = ???
         def from(x: X): A = x
+      class MidO[A](a: A) extends Mid[A](a):
+        override def from(x: X): A = a
       """,
       "Mid.to"
     ) === Count.Countable).and(
@@ -482,6 +484,9 @@ class TypeMemberSpec extends Specification {
         def other: A = ???
       class O[A](a: A) extends Mid[A](a):
         def other: A = ???
+      class OO[A](a: A) extends O[A](a):
+        override def to(b: A): X = a
+        override def from(x: X): A = a
       final class D2[A](a: A) extends Q[A]:
         type X = A
         def to(b: A): X = b

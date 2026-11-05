@@ -166,9 +166,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     }
 
     // A value of the record may be the measured declaration's own receiver when some instance is of
-    // both templates — always for two traits, which a subclass may mix — so a member of its name
-    // and arity may be the declaration itself: calling it re-enters the declaration (capabilities
-    // C6), which this reading does not split.
+    // both templates, so a member of its name and arity may be the declaration itself: calling it
+    // re-enters the declaration (capabilities C6), which this reading does not split.
     private def selfView(members: List[Tree], all: List[Frame]): Option[String] =
       useSite.tree
         .flatMap(measured)
@@ -180,9 +179,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
           }
         }
 
-    // Whether one instance may be of the measured declaration's template and of this record's: two
-    // unrelated classes cannot (a class has one superclass chain), nor can an owner no subclass
-    // extends (an object, a given, a final class) and a template outside its linearization.
+    // Whether one instance may be of the measured declaration's template and of this record's: one
+    // extends the other, or (the closed world) some supplied template extends both.
     private def shareInstance(owner: Frame, all: List[Frame]): Boolean = {
       val ownerLevels = owner :: Traversals
         .sequence(
@@ -192,11 +190,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         .toList
         .flatten
         .map(_.declared)
-      val related = all.exists(_.id == owner.id) || ownerLevels.exists(_.id == template.id)
-      val classLike =
-        owner.tree.exists(t => t.is[Defn.Class] || t.is[Defn.Object] || t.is[Defn.Given])
-      val apart = resolver.fixedTemplate(owner) || template.tree.exists(_.is[Defn.Class])
-      related || !(classLike && apart)
+      all.exists(_.id == owner.id) || ownerLevels.exists(_.id == template.id) ||
+      resolver.mixed(owner, template)
     }
 
     private def refusal(
@@ -336,10 +331,10 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       if (table.universal(stat, level)) Right(None)
       else
         MemberSyntax.names(stat).headOption match {
-          case Some(name) if MemberSyntax.deferredInline(stat) =>
+          case Some(name)
+              if MemberSyntax.deferredInline(stat) && !DeferredInline.supplied(useSite.tree) =>
             observe(stat, level, name, scope).flatMap(
-              _.flatMap(DeferredInline.refusal(_, s"$key.$name", useSite.tree, resolver))
-                .toLeft(None)
+              _.flatMap(DeferredInline.refusal(_, s"$key.$name", resolver)).toLeft(None)
             )
           case Some(name) => observe(stat, level, name, scope)
           case None       => Right(None)

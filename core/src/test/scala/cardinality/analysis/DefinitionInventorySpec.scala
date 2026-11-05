@@ -121,12 +121,14 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("Local.local.h") === "4")
   }
 
-  // A given with clauses implementing an inherited one: matching their parameter types is not done.
+  // A given with clauses implementing an inherited one in an open class (D extends it): matching
+  // their parameter types is not done.
   def givenIdentity =
     refused(
       rows(
         """|trait T[B] { given g[A](using a: A, b: B): A }
            |class C[B](x: B) extends T[B] { given g[A](using a: A, b: B): A = a }
+           |class D[B](x: B) extends C[B](x)
            |""".stripMargin
       )("C.g"),
       "inherited override identity not resolved: g"
@@ -262,10 +264,11 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
          |trait HasSeed[A] { def seed: A }
          |class Seeded[A](a: A) extends HasSeed[A] { val seed: A = a }
          |class Twins[A](a: A) { val m1, m2: A = a }
+         |class TwinsO[A](a: A) extends Twins[A](a) { override val m1: A = a; override val m2: A = a }
          |""".stripMargin
     )
     // Each open class's value implements the inherited declaration: a alone, 1. Of two names of
-    // one definition, the other is an open member: a or m2, 2.
+    // one definition, the other is an open member (TwinsO overrides both): a or m2, 2.
     (found("Default.default") === "1")
       .and(found("Seeded.seed") === "1")
       .and(found("Twins.m1") === "2")

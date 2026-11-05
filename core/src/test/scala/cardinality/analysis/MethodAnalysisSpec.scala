@@ -207,27 +207,35 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Env.pick"
     ).count === Count.Finite(2)
 
-  // The open twins of the final fixtures above (capabilities C5): a subclass may override a concrete
-  // member with any behavior its type allows — `class G extends E[Int](0) { override def id(x: Int)
+  // The open twins of the final fixtures above (capabilities C5): a subclass (each F) overrides a
+  // concrete member — in the closed world one no supplied template overrides is final — and may do
+  // so with any behavior its type allows — `class G extends E[Int](0) { override def id(x: Int)
   // = x + 1 }` tells seed, id(seed), id(id(seed)) apart — so each is a capability, as an abstract
   // member is: pick is ω through id or step, the alias chain adds alias and later (x, y, seed,
   // alias, later — 5), the captured alias adds alias (x, captured, alias — 3).
   def openMembers = {
     val identity = entry(
-      "class E[A](seed: A) { def id(x: A): A = x; val step: A => A = id; def pick(): A = seed }",
+      "class E[A](seed: A) { def id(x: A): A = x; val step: A => A = id; def pick(): A = seed }\n" +
+        "class F[A](s: A) extends E[A](s) { override def id(x: A): A = s; override val step: A => A = id }",
       "E.pick"
     )
     val chain = entry(
       "class E[A](seed: A) { lazy val alias: A = later; lazy val later: A = seed; " +
-        "def pick(x: A, y: A): A = x }",
+        "def pick(x: A, y: A): A = x }\nclass F[A](s: A) extends E[A](s) " +
+        "{ override lazy val alias: A = s; override lazy val later: A = s }",
       "E.pick"
     )
     val captured = entry(
-      "class Env[A](captured: A) { val alias: A = captured; def choose(x: A): A = x }",
+      "class Env[A](captured: A) { val alias: A = captured; def choose(x: A): A = x }\n" +
+        "class F[A](c: A) extends Env[A](c) { override val alias: A = c }",
       "Env.choose"
     )
     val method =
-      entry("class Env[A](x: A, y: A) { def id(a: A): A = a\ndef pick(): A = x }", "Env.pick")
+      entry(
+        "class Env[A](x: A, y: A) { def id(a: A): A = a\ndef pick(): A = x }\n" +
+          "class F[A](a: A) extends Env[A](a, a) { override def id(b: A): A = a }",
+        "Env.pick"
+      )
     (identity.count === Count.Countable)
       .and(chain.count === Count.Finite(5))
       .and(captured.count === Count.Finite(3))
@@ -411,17 +419,21 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
   }
 
   def sealedOpenSubtype = {
-    // A plain class leaf without `final` can be extended outside the file with its own state:
-    // the enumeration is no longer the space. The family stays unreadable.
+    // A plain class leaf a supplied class extends (Grown) has subclasses with their own state: the
+    // enumeration is no longer the space. The family stays unreadable. With none, the closed world
+    // makes it final, and its hidden parameter is what the reading cannot take apart.
     val code =
       """sealed trait Shape
          |class Variant(x: Int) extends Shape
          |case object Flat extends Shape
          |def side(s: Shape): Boolean = ???""".stripMargin
-    entry(code, "side").count must beLike {
+    (entry(code + "\nclass Grown extends Variant(1)", "side").count must beLike {
       case Count.Unresolved(reasons) =>
         reasons.exists(_.contains("sealed subtype outside the closed fragment")) must beTrue
-    }
+    }).and(entry(code, "side").count must beLike {
+      case Count.Unresolved(reasons) =>
+        reasons.exists(_.contains("sealed subtype hides a parameter: Variant")) must beTrue
+    })
   }
 
   def sealedOpenIntermediate = {

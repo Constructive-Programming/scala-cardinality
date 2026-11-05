@@ -25,6 +25,15 @@ trait InventoryFixtures extends MustMatchers {
   protected def rows(code: String): Map[String, Count] =
     entries(code).map(entry => entry.name -> entry.count).toMap
 
+  /** The rows as the open world reads them (`MethodAnalysis.analyzeOpen`): every overridable member
+    * open, as one a supplied template overrides is in the closed world.
+    */
+  protected def openRows(code: String): Map[String, Count] =
+    MethodAnalysis
+      .analyzeOpen(inputs("Example.scala" -> code))
+      .map(entry => entry.name -> entry.count)
+      .toMap
+
   protected def count(code: String, name: String): Count = rows(code)(name)
 
   protected def rendered(code: String): Map[String, String] =

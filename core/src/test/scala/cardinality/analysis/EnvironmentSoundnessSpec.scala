@@ -320,13 +320,14 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
 
   // A final class implementing `get` as `a` has one value of A, at any inheritance depth: 1 each
   // (the declaration was a second, free capability: 2). `D2.get` is that implementation: a — 1.
-  // The open twin's `get` can be overridden by a subclass holding another A: a and get — 2.
+  // The open twin's `get` is overridden by a subclass (O4), which may hold another A: a and get — 2.
   def finalImplementation = {
     val found = counts("Final.scala" -> """trait P[A] { def get: A }
       |trait Q[A] extends P[A]
       |final class C1[A](a: A) extends P[A] { def get: A = a; def other: A = ??? }
       |final class D2[A](a: A) extends Q[A] { def get: A = ???; def other: A = ??? }
       |class O3[A](a: A) extends P[A] { def get: A = a; def other: A = ??? }
+      |class O4[A](a: A) extends O3[A](a) { override def get: A = a }
       |""".stripMargin)
     (found("C1.other") === Count.Finite(1))
       .and(found("D2.other") === Count.Finite(1))
@@ -336,7 +337,7 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
 
   // An inherited `val` or `given` a final template implements is that member too: `get = a`, so
   // `other` has one value (each read 2), and `pick.other` only `a`. `OB.flag = true` is no second
-  // Boolean: true, false — 2 (read 4). The open twin `OpenV` can be overridden: a and get — 2.
+  // Boolean: true, false — 2 (read 4). The open twin `OpenV` is overridden (OpenW): a and get — 2.
   def finalValues = {
     val found = counts("FinalVal.scala" -> """trait PV[A] { val get: A }
       |final class FV[A](a: A) extends PV[A] { val get: A = a; def other: A = ??? }
@@ -347,6 +348,7 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |trait PD[A] { def get: A }
       |object GivenInst { given pick[A](using a: A): PD[A] with { def get: A = a; def other: A = ??? } }
       |class OpenV[A](a: A) extends PV[A] { val get: A = a; def other: A = ??? }
+      |class OpenW[A](a: A) extends OpenV[A](a) { override val get: A = a }
       |""".stripMargin)
     (found("FV.other") === Count.Finite(1))
       .and(found("FP.other") === Count.Finite(1))

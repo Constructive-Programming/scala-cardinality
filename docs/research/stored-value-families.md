@@ -48,7 +48,8 @@ subtype belongs to every instantiation of `P`. The estimate checks both conditio
   value of its type) open nothing; an extension method of the leaf and a parent's `val` parameter
   do. A parameterless member fixed anywhere in the ancestry fixes its name for every subclass
   (`trait P extends GP { final override def d = 2 }` closes GP's `d`); a later clause's plain
-  parameter or a member with parameters fixes nothing. The method side reads its parents through
+  parameter or a member with parameters fixes nothing. In the closed world (register D39) a leaf no
+  supplied template extends is final, and nothing opens it. The method side reads its parents through
   the supplied sources and the stdlib model (`sealed family leaf may be extended: C (overridable
   member Exception.getCause)`). A sealed intermediate contributes its own sum. A subtype reached
   twice (`C extends D1 with D2`, both sealed under `D`) is refused, because its values would be
