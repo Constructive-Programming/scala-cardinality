@@ -40,7 +40,7 @@ class StdlibModelSpec extends Specification {
       Map and Set over an open argument are refused                  $openKeys
       compile-time reflection is outside the model                  $quoted
       Java collections name their FQN; throwables are data           $open
-      a final class the model does not read is not called open      $finalUnmodelled
+      boxed scalars and Optional count as what they hold            $finalUnmodelled
       an unapplied entry is an operator, applied where it is read   $unapplied
       a union does not discriminate a model sequence's class        $unionClass
     Absent declarations
@@ -57,7 +57,7 @@ class StdlibModelSpec extends Specification {
       only fully qualified paths reach the model                    $relativePaths
       an unsupplied wildcard rebinds no model name                  $wildcardRefusal
       a supplied namespace answers instead                          $wildcardSupplied
-      a Java collection wildcard shadows List                       $javaWildcard
+      a Java collection wildcard reads List by its rooted name      $javaWildcard
       listed stdlib namespaces shadow no model name                 $listedNamespaces
       dependency namespaces are listed from their artifacts         $dependencyNamespaces
       a listed namespace's member reads the model                   $namespaceMember
@@ -346,9 +346,11 @@ class StdlibModelSpec extends Specification {
   // and a Boolean of a Map[1 | 2, 1 | 2] (3^2 = 9 values) 2^9 = 512. Set[Nothing] holds only the
   // empty set (a Boolean of it: 2), and so does Map[String, Nothing] (1). Over an infinite key the
   // finite maps and sets are countably many: ω. A rigid F tells Set[String] from List[String] (0:
-  // no program between them) and keeps one key per Set spelling (1). A key with a unit-shaped part
-  // (`Boolean` is `1 + 1`) is refused: the model reads a top type as `()` too, one value where key
-  // equality tells many apart.
+  // no program between them) and keeps one key per Set spelling (1). Set[Boolean] has 2^2 = 4
+  // values, and Map[Color, Boolean] over a two-case enum 3^2 = 9. A top among the keys keeps the
+  // container's polarity (v1.md §2): as a parameter it is one value, so a Set[Any] input is empty
+  // or not (2 values, 2^2 = 4 Booleans of it) and a Map[Any, Boolean] input 3 (2^3 = 8); as a
+  // result it is ε₀, so Set[Any] is 2^ε₀ and Map[Any, Boolean] 3^ε₀, both ε₀ in the size algebra.
   def keyed = {
     val code = """object X {
       |  def s(): Set[1 | 2] = ???
@@ -362,9 +364,13 @@ class StdlibModelSpec extends Specification {
       |  def asList[F[_]](x: F[Set[String]]): F[List[String]] = ???
       |  def same[F[_]](x: F[Set[String]]): F[scala.collection.immutable.Set[String]] = x
       |  def flags(): Set[Boolean] = ???
-      |  def tops(m: Map[Any, Int]): Int = ???
-      |}""".stripMargin
-    val unitKey = "keyed by a type with a unit-shaped part is not read"
+      |  def colors(): Map[Color, Boolean] = ???
+      |  def setIn(s: Set[Any]): Boolean = ???
+      |  def setOut(): Set[Any] = ???
+      |  def mapIn(m: Map[Any, Boolean]): Boolean = ???
+      |  def mapOut(): Map[Any, Boolean] = ???
+      |}
+      |enum Color { case Red, Green }""".stripMargin
     (count(code, "X.s") === Count.Finite(4))
       .and(count(code, "X.from") === Count.Finite(16))
       .and(count(code, "X.m") === Count.Finite(9))
@@ -375,8 +381,12 @@ class StdlibModelSpec extends Specification {
       .and(count(code, "X.keys") === Count.Countable)
       .and(count(code, "X.asList") === Count.Finite(0))
       .and(count(code, "X.same") === Count.Finite(1))
-      .and(refused(count(code, "X.flags"), s"scala.collection.immutable.Set $unitKey"))
-      .and(refused(count(code, "X.tops"), s"scala.collection.immutable.Map $unitKey"))
+      .and(count(code, "X.flags") === Count.Finite(4))
+      .and(count(code, "X.colors") === Count.Finite(9))
+      .and(count(code, "X.setIn") === Count.Finite(4))
+      .and(count(code, "X.setOut").render === "ε₀")
+      .and(count(code, "X.mapIn") === Count.Finite(8))
+      .and(count(code, "X.mapOut").render === "ε₀")
   }
 
   // Over a type parameter a Map or Set tests its keys for an equality no parametric program has
@@ -416,20 +426,24 @@ class StdlibModelSpec extends Specification {
       |}""".stripMargin
     // A throwable is built from any message (register D26): `new IllegalArgumentException(s)` for
     // each string s, which `getMessage` tells apart — ω, `java.util`'s `NoSuchElementException` too.
+    // `java.util.List` holds the sequences a Scala List does (v1.md §2): every list of a, ω.
     (count(code, "O.boom") === Count.Countable)
-      .and(refused(count(code, "O.f"), "open stdlib type with unmodelled members: java.util.List"))
+      .and(count(code, "O.f") === Count.Countable)
       .and(count(code, "O.missing") === Count.Countable)
   }
 
-  // `java.lang.Integer` is a final class whose members the table does not hold: unmodelled, not
-  // open. `scala.Equals` is an open trait.
+  // A boxed `java.lang.Integer` holds the values an Int does (`null` aside): a Boolean of one is
+  // 2^(2^32), and `F[Integer]` is still not `F[Int]` (0). `scala.Equals` is an open trait.
   def finalUnmodelled = {
     val code = """object O {
       |  def boxed(i: Integer): Boolean = ???
+      |  def keyed[F[_]](x: F[Integer]): F[Int] = ???
+      |  def opt(o: java.util.Optional[Boolean]): Option[Boolean] = ???
       |  def eq(e: Equals): Boolean = ???
       |}""".stripMargin
-    refused(count(code, "O.boxed"), "stdlib type with unmodelled members: java.lang.Integer")
-      .and(clean(count(code, "O.boxed"), "open stdlib type"))
+    (count(code, "O.boxed").render === "2^(2^32)")
+      .and(count(code, "O.keyed") === Count.Finite(0))
+      .and(count(code, "O.opt") === Count.Finite(27))
       .and(refused(count(code, "O.eq"), "open stdlib type with unmodelled members: scala.Equals"))
   }
 
@@ -581,14 +595,27 @@ class StdlibModelSpec extends Specification {
       "Lib.scala" -> "package lib\nfinal case class Option[A](first: A, second: A)"
     )("p.T.f") === Count.Finite(1)
 
-  // `java.util.*` brings `java.util.List`, which outranks `scala.List`: the JDK does declare names
-  // like the builtins, and the model does not list java.util's, so the assumption that an
-  // unsupplied namespace rebinds none stops at the standard library and the JDK.
-  def javaWildcard =
-    refused(
-      count("import java.util.*\nobject W { def l[A](a: A): List[A] = ??? }", "W.l"),
-      "builtin name List may be shadowed through a reference not supplied: java.util"
-    )
+  // `java.util.*` brings `java.util.List`, which outranks `scala.List`: `List` is that rooted name,
+  // whose values are the sequences a Scala List holds (ω from an a). `F[List[A]]` there is
+  // `F[java.util.List[A]]`, not the Scala one (0), and the rooted spelling is the same type (1).
+  // `java.awt.List` is a component the model does not read: refused by its rooted name.
+  def javaWildcard = {
+    val code = """import java.util.*
+      |object W {
+      |  def l[A](a: A): List[A] = ???
+      |  def k[F[_], A](x: F[List[A]]): F[scala.List[A]] = ???
+      |  def j[F[_], A](x: F[List[A]]): F[java.util.List[A]] = x
+      |}""".stripMargin
+    (count(code, "W.l") === Count.Countable)
+      .and(count(code, "W.k") === Count.Finite(0))
+      .and(count(code, "W.j") === Count.Finite(1))
+      .and(
+        refused(
+          count("import java.awt.*\nobject A { def l[A](a: A): List[A] = ??? }", "A.l"),
+          "java.awt.List"
+        )
+      )
+  }
 
   // scala.quoted, scala.jdk.CollectionConverters and quotes.reflect declare no model spelling
   // (Scala 3.9.0 fixtures: `summon[Option[Int] =:= scala.Option[Int]]` and the like compile under
@@ -638,8 +665,7 @@ class StdlibModelSpec extends Specification {
   // not rebound by an import. Elsewhere `quotes.reflect` is `lib.quotes.reflect` or a top-level
   // package outside the sources, which is assumed to declare no `Int` (the never-shadowed
   // assumption): any Int, 2^32 (inside `m`, the captured `Quotes` refuses `g` for its own reason).
-  // A `scala.quoted` whose `scala` is `lib.scala` is still read as a path into the standard
-  // library, which may declare one: refused.
+  // So is a `scala.quoted` whose `scala` is `lib.scala`.
   def listedHead = {
     def g(imports: String) = count(s"$imports\nobject T { def g(): Int = ??? }", "T.g")
     def reflected(imports: String) = count(
@@ -647,13 +673,12 @@ class StdlibModelSpec extends Specification {
         "    import quotes.reflect.*\n    def g(): Int = ???\n    true\n  }\n}",
       "T.m.g"
     )
-    val shadowed = "builtin name Int may be shadowed through"
     val anyInt = Count.Finite(BigInt(2).pow(32))
     (g("import lib.quotes\nimport quotes.reflect.*") === anyInt)
       .and(g("import scala.quoted.*\nimport _root_.quotes.reflect.*") === anyInt)
       .and(g("import quotes.reflect.*") === anyInt)
-      .and(refused(g("import lib.scala\nimport scala.quoted.*"), shadowed))
-      .and(refused(g("import lib.scala\nimport scala.jdk.CollectionConverters.*"), shadowed))
+      .and(g("import lib.scala\nimport scala.quoted.*") === anyInt)
+      .and(g("import lib.scala\nimport scala.jdk.CollectionConverters.*") === anyInt)
       .and(refused(reflected("import lib.quotes"), "outside the counting model: scala.quoted"))
       .and(clean(reflected("import lib.quotes"), "builtin name"))
       .and(clean(reflected("import scala.quoted.quotes"), "builtin name"))

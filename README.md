@@ -64,17 +64,23 @@ implementations a method admits. Two consequences come up constantly in real cod
 Other effects are excluded the same way: I/O, logging, divergence, a `null` that the type does
 not declare, unsafe casts and reflection. None of them is counted.
 
-Two further idealizations hold for every count:
+Three further idealizations hold for every count:
 
 - **Key equality is lawful.** A `Map` or `Set` is counted as its abstract value, a finite partial
   function or a finite subset, and an `Iterator`, `IterableOnce`, `ByteBuffer` or `InputStream` as
-  the sequence it yields. A `Map` or `Set` over a type parameter, or keyed by a type with a top
-  type (or unit) in it, stays `?`.
+  the sequence it yields. A `Map` or `Set` over a type parameter stays `?`.
 - **Builtin names are not shadowed by code the run does not see.** A wildcard import of an
   unsupplied package, an unsupplied parent and the like never rebind `Int`, `String`, `Option` or
-  any other root-import name. A declaration of the name the sources do supply still shadows it, and
-  so does a wildcard into the standard library or the JDK (`import java.util.*` brings `List`),
-  which keeps its `builtin name … may be shadowed` reason.
+  any other root-import name. A declaration of the name the sources do supply still shadows it. A
+  wildcard into the standard library or the JDK binds what it declares by its full name
+  (`import java.util.*` makes `List` mean `java.util.List`), and types with the same values count
+  the same: Java and mutable collections as Scala's, `java.lang.Integer` as `Int`, `Optional` as
+  `Option`.
+- **`Any` is read by its position.** As a parameter it is one value, since a body can learn
+  nothing from it; as a result it is ε₀, since a body may return anything. So
+  `def f(x: Any): Boolean` has 2 implementations and `def g(): Any` ε₀; a `Set[Any]` parameter
+  holds 2 values (empty or not) and a `Set[Any]` result 2^ε₀. The same holds for `AnyRef`,
+  `Object`, `Matchable` and `AnyVal`.
 
 The calculator does not check that a body actually obeys this assumption. A result describes
 the pure, total implementations of a signature and the values of a type. The full statement is

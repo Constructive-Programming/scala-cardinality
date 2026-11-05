@@ -585,7 +585,7 @@ final private[cardinality] class Measurement(
     case _ if capabilities.neverCalled => Count.Finite(1)
     case Right(shape)
         if !target.constructor && !rebound && bounded.invalid.isEmpty &&
-          TopTypes.terminalGoal(shape) =>
+          TopTypes.terminalGoal(TopTypes.polarized(shape, true)) =>
       inferred.toOption
         .filterNot(r => BuiltinTypes.canonical(r.tpe.syntax).nonEmpty)
         .flatMap(r => resolver.unreadChannel(r.context.referencing(r.tpe))) match {

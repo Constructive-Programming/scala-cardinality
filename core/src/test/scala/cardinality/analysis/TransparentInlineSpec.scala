@@ -48,7 +48,8 @@ class TransparentInlineSpec extends Specification {
           "not the declared Option[Any]"
         )
       )
-      .and(count("inline def plain(b: Boolean): Any = b", "plain") === Count.Finite(1))
+      // A plain inline Any result is positive: ε₀ (v1.md §2).
+      .and(count("inline def plain(b: Boolean): Any = b", "plain").render === "ε₀")
       .and(
         reasonContains(
           "transparent inline def u(b: Boolean): Unit = ()",

@@ -39,12 +39,12 @@ goal of `E.A.type` is 1.
 | function | `Function0`…`Function22` ≡ the arrow they spell | `Function` |
 | finite sequence | `List`, `Vector`, `IndexedSeq`, `Seq`, `immutable.ArraySeq`, `Array[E]`; the single-pass `Iterator`, `IterableOnce`, `java.util.Iterator` (reading is no effect, v1.md §2) | `Repeated(E)` |
 | byte sequence | `java.nio.ByteBuffer`, `java.io.InputStream`: the bytes they yield (single-pass, as above) | `Repeated(Byte)` |
-| finite map, finite set | `Map[K, V]`, `Set[E]` under lawful key equality (v1.md §2): the finite partial function or finite subset, read over closed arguments as the function it tabulates; over an open argument, or a key with a unit-shaped part (a top type reads as `()`), refused | `Function(K, 1 + V)`, `Function(E, 2)`; refused: `<fqn> over an open type is not read (…)`, `<fqn> keyed by a type with a unit-shaped part is not read (…)` |
+| finite map, finite set | `Map[K, V]`, `Set[E]` under lawful key equality (v1.md §2): the finite partial function or finite subset, read over closed arguments as the function it tabulates, a top among the keys keeping the container's polarity (top-types-unions.md Rule P); over an open argument, refused | `Function(K, 1 + V)`, `Function(E, 2)`; refused: `<fqn> over an open type is not read (…)` |
+| same value space, other name | `scala.collection.{Seq, IndexedSeq, Iterable}`, `immutable.Iterable`, `mutable.{Seq, IndexedSeq, Iterable, Buffer, ArrayBuffer, ListBuffer}`, `java.lang.Iterable`, `java.util.{Collection, List, ArrayList, LinkedList, Vector}`, `java.util.stream.Stream` (sequences); `collection.Map`, `mutable.Map`, `concurrent.Map`, `java.util.{Map, HashMap, LinkedHashMap, TreeMap}`, `java.util.concurrent.{ConcurrentMap, ConcurrentHashMap}` (maps); `collection.Set`, `mutable.Set`, `java.util.{Set, HashSet, LinkedHashSet, TreeSet}` (sets); `java.lang.{Boolean, Byte, Short, Character, Integer, Long, Float, Double}` (their scalars); `java.util.Optional` (`Option`); `java.util.function.Function` (`Function1`) — mutability is a `var` read as a `val`, order and representation are not observed | the modelled type's shape, under its own name as a rigid constructor's argument |
 | type constructor | any of the above unapplied: in a higher-kinded position (`Box[Either]`) an operator of the higher-kinded reading, applied where it is read; read as a proper type (no Scala program) | operator ([higher-kinded binders](higher-kinded-binders.md) R3); refused: `higher-kinded argument: scala.util.Either (type constructor [L, R] =>> L + R, needs higher-kinded instantiation)` |
 | excluded (final) | `WeakReference`, `ReferenceQueue`; `scala.quoted.{Quotes, Expr, Type, …}`; `scala.reflect.{ClassTag, Manifest, TypeTest, Typeable}`, `scala.deriving.Mirror{, .Product, .Sum, .Singleton, .Of, .ProductOf, .SumOf}` (type-revealing evidence, [syntax-features.md](syntax-features.md)) | refused: `outside the counting model: <fqn> (<why>)` |
 | transparent, open | the throwables (`Throwable` … `NumberFormatException`, `java.util.NoSuchElementException`): built from any message, observed through `getMessage`, `getLocalizedMessage`, `getCause` ([code without side effects](pure-code.md), register D26) | `Ground(<fqn>, ω)` |
-| unmodelled, open | `Product`, `Equals`, `CharSequence`, `java.util.{List, Map, Set, Collection, ArrayList, HashMap}`, `ConcurrentHashMap` | refused: `open stdlib type with unmodelled members: <fqn>` |
-| unmodelled, final | `java.lang.Integer` | refused: `stdlib type with unmodelled members: <fqn>` |
+| unmodelled, open | `Product`, `Equals`, `CharSequence` | refused: `open stdlib type with unmodelled members: <fqn>` |
 
 **Products and sums.** `TupleN`, `Some`, `Left` and `Right` are `final case class`es with a public
 total constructor and public fields, so their values are exactly the products of their fields;
@@ -89,11 +89,11 @@ for a finite key, and ω for an infinite one (countably many finite maps; the em
 `E => Boolean`, whose power saturates at ω over an infinite domain (register D2). So the model
 reads it as that function, and the solver splits a supplied one and builds a goal of one like any
 closed value; a rigid constructor's argument keeps the `Map` / `Set` key (`F[Set[Int]]` is not
-`F[List[Int]]`). Two cases are refused. Over an open argument (`Set[A]`), the keys are compared by
-an equality no parametric program has. A key with a unit-shaped part is refused too: a top type is
-read as `()` (register D12), one value where key equality tells many apart (`Set(1, "a")` is not
-`Set(1)`), and the shape cannot tell it from `Unit` (so `Set[Boolean]`, `1 + 1`, is refused with
-it; a `Map`'s values are held by position, where a top is harmless).
+`F[List[Int]]`). Over an open argument (`Set[A]`) it is refused: the keys are compared by an
+equality no parametric program has. A top type among the keys tells many values apart
+(`Set(1, "a")` is not `Set(1)`), so it is read by the container's polarity
+([top-types-unions.md](top-types-unions.md) Rule P): one value in a parameter's `Set[Any]` (2
+sets), ε₀ in a result's (2^ε₀).
 
 **Closed sequences are transparent data.** A sequence of closed elements (`Array[Byte]`,
 `List[Int]`, `Array[Any]` — `Any` is `1` on the method side, register D12) is a closed value like
@@ -163,23 +163,26 @@ name — but under the never-shadowed assumption (v1.md §2) it declares none th
 `Int`, `String`, `Option`, `Map` and every other builtin or model spelling keep their reading under
 `import lib.*`, an unsupplied parent or self type, or a package clause no supplied unit declares
 members of. What still rebinds one is a declaration a channel reaches (a supplied member, an enum
-case, an export selector, a listed namespace's member such as `quotes.reflect.Singleton`), and a
-channel into the standard library or the JDK (`scala.*`, `java.*`, `javax.*`, a `scala`
-subpackage spelled relative to the root import): those packages do declare classes named like the
-builtins (`java.util.List`, `scala.collection.Seq`), which the table lists only for `java.lang`
-(its boxed `Boolean`, `Byte`, `Short`, `Long`, `Float`, `Double`, `Iterable` and
-`StringBuilder`; `scala.compiletime.ops` is listed too, and declares none). A step the reading
-cannot follow (`… not resolved`) rebinds nothing, even with a library-looking path. A relative
+case, an export selector, a listed namespace's member such as `quotes.reflect.Singleton`). A
+wildcard into the standard library or the JDK (`scala.*`, `java.*`, `javax.*`, a `scala`
+subpackage spelled relative to the root import) binds the root names its package declares by
+their full rooted names: `ListedNamespaces` lists, for every JDK 25 `java.*` / `javax.*` package
+and every scala-library 3.9.0 package, the types whose simple name the root imports bind to
+another declaration (47 in 21 packages: `java.util` `List`, `Map`, `Set`, `Iterator`, `Vector`,
+`Enumeration`; `java.lang` its boxed scalars, `Iterable`, `StringBuilder`; `scala.collection` and
+`mutable` `Seq`, `IndexedSeq`, `Map`, `Set`, `Iterable`; `java.awt.List`, `java.sql.Array`, …).
+`import java.util.*` makes `List` mean `java.util.List`, which the model reads as a sequence under
+its own name; a rooted name the model does not read stays `?` as itself (`declaration not
+supplied: java.awt.List (wildcard import)`). A step the reading cannot follow (`… not resolved`)
+rebinds nothing. A relative
 spelling through a root import (`util.Either`, `Predef.String`) is the builtin too: no top-level
 package outside the sources is assumed to outrank it.
 
 A `scala.Dynamic` parent is registered in the same table as a marker that declares no member
 a count reads: the structural calls its subclasses enable (`selectDynamic`, `applyDynamic`, …)
 are compile-time-generated members outside the model, and a run over sources that use them logs a
-notice saying so — the assumption is that no counted implementation calls a structural member. — `import java.util.*` brings `java.util.List` over `scala.List`. Every builtin and model
-name is refused there (`builtin name List may be shadowed through a reference not
-supplied: java.util (wildcard import of java.util)`), as through any other channel into the
-standard library or the JDK. A `_root_`-anchored path is exempt. One table,
+notice saying so — the assumption is that no counted implementation calls a structural member. — `import java.util.*` brings `java.util.List` over `scala.List`, read by that rooted name.
+A `_root_`-anchored path is exempt. One table,
 `ListedNamespaces`, which the stored-value estimate reads too, lists the stdlib namespaces whose
 wildcards both readings know, with what each declares: `scala.quoted.*` (the types `Expr`,
 `ExprMap`, `FromExpr`, `Quotes`, `ToExpr`, `Type`; the terms `Expr`, `Exprs`, `FromExpr`,
@@ -385,7 +388,7 @@ either, since the table holds no parameters for them — `scala.quoted.Type` tak
 unapplied constructor read as a proper type; an `Array` of a type parameter or of a singleton of
 one, even as an input (the reading has no polarity); the members of a class only its own scope
 builds (a non-public constructor or class, a non-public enclosing template, a block) until its
-factories are read; `Map`/`Set` over an open argument or a key with a unit-shaped part; names
+factories are read; `Map`/`Set` over an open argument; names
 under an unsupplied wildcard (a `given` selector, a package spelled only as a prefix and an
 importer whose prefix is no path included), and the source names and paths' first names it may
 bind; a definition in another block of the reading file's package on the stored side and in the

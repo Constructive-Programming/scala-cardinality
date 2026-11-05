@@ -1,7 +1,14 @@
 package cardinality.analysis.inhabitation
 
 import cardinality.analysis.resolution.LiteralTypes
-import cardinality.capacity.{EffectiveOmega, FinitePart, NothingSize, Size, UnitSize}
+import cardinality.capacity.{
+  EffectiveEpsilon0,
+  EffectiveOmega,
+  FinitePart,
+  NothingSize,
+  Size,
+  UnitSize
+}
 
 import Inhabitation.Shape
 import Shape.*
@@ -100,6 +107,7 @@ private[cardinality] object ClosedSpaces {
     // A ground size is a word-sized literal or ω.
     def ground(size: Card) = size match {
       case Card.Exact(Natural.Lit(value)) => Size(0, 0, FinitePart.exact(value))
+      case Card.Epsilon0                  => EffectiveEpsilon0
       case _                              => EffectiveOmega
     }
     def plus(a: Size, b: Size) = a + b

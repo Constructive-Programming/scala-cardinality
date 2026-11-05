@@ -16,16 +16,17 @@ class TopTypesUnionSpec extends Specification {
 
   def is = s2"""
     Any is the terminal type of the model
-      a result of type Any has one implementation                    $anyOut
+      a result of type Any is ε₀                                      $anyOut
+      a bare Any is one value as a parameter, ε₀ as a result         $polarity
       an Any input carries no information                            $anyIn
       no equality on Any, exactly as on a type parameter             $noEquality
-      a consumer of Any is constant                                  $consumer
-      two consumers of Any give two values                           $twoConsumers
-      feeding a value to an Any consumer adds nothing                $feed
-      a cycle through Any is not a productive family                 $loop
+      a consumer of Any takes ε₀ arguments                            $consumer
+      two consumers of Any give ε₀                                  $twoConsumers
+      an Any consumer fed a value is still ε₀                       $feed
+      a cycle through Any is refused                                  $loop
       Any is always inhabited, so f(()) seeds a result               $unseeded
-      structural constructors over Any count Unit's cases            $structural
-      the other top names are terminal too                           $otherTops
+      structural results over Any are ε₀                           $structural
+      the other top names are ε₀ too                                 $otherTops
       qualified spellings reach the builtin                          $qualified
       a repeated Any still has an observable length                  $repeated
     Shadowing and boundaries keep their meaning
@@ -66,7 +67,7 @@ class TopTypesUnionSpec extends Specification {
       a top behind an alias is read on the method side               $aliasedTopCtor
       a binder named Nothing does not capture the empty slot         $nothingBinderCtor
       a source type named Nothing does not capture it either         $nothingAliasCtor
-      a top inside a container that merges equal elements is refused $mergingCtor
+      a top inside a set or map key is read by its polarity      $mergingCtor
       a rewritten slot is read where its constructor is written      $rewrittenScope
     Discriminable disjoint unions are sums
       a result adds its alternatives                                 $sumOut
@@ -130,49 +131,63 @@ class TopTypesUnionSpec extends Specification {
 
   private val detail = "overlap and discrimination proof"
 
-  def anyOut = count("def anyOut[A](a: A): Any = a", "anyOut") === Count.Finite(1)
+  // An Any result is positive: ε₀ (v1.md §2). An Any input is negative: it carries nothing.
+  def anyOut = count("def anyOut[A](a: A): Any = a", "anyOut").render === "ε₀"
   def anyIn = count("def anyIn[A](x: Any, a: A): A = a", "anyIn") === Count.Finite(1)
+
+  // A bare Any parameter is one value (a Boolean of it: 2); a bare Any result is ε₀ whatever the
+  // inputs (ε₀^2 = ε₀ from a Boolean).
+  def polarity =
+    (count("def p(x: Any): Boolean = true", "p") === Count.Finite(2))
+      .and(count("def r(b: Boolean): Any = b", "r").render === "ε₀")
 
   def noEquality =
     (count("def eqAny(x: Any, y: Any): Boolean = true", "eqAny") === Count.Finite(2))
       .and(count("def eqParam[A](a: A, b: A): Boolean = true", "eqParam") === Count.Finite(2))
 
-  def consumer = count("def call[R](f: Any => R): R = f(())", "call") === Count.Finite(1)
+  // A supplied `Any => R` takes an argument the body builds: its Any is positive, ε₀ choices (v1.md
+  // §2), so f applied to them gives ε₀ results, and so do two of them or one fed a value.
+  def consumer = count("def call[R](f: Any => R): R = f(())", "call").render === "ε₀"
 
   def twoConsumers =
-    count("def callTwo[R](f: Any => R, g: Any => R): R = f(1)", "callTwo") === Count.Finite(2)
+    count("def callTwo[R](f: Any => R, g: Any => R): R = f(1)", "callTwo").render === "ε₀"
 
-  def feed = count("def feed[A, R](a: A, f: Any => R): R = f(a)", "feed") === Count.Finite(1)
+  def feed = count("def feed[A, R](a: A, f: Any => R): R = f(a)", "feed").render === "ε₀"
 
-  // Terminal Any makes f constant: a and f(()) — not the ω an opaque X would give.
+  // `g: A => Any` yields a negative Any, a sum the solver does not enumerate at ε₀ arguments: the
+  // loop is refused where it was 2, never a wrong number. An opaque X still gives ω.
   def loop =
-    (count("def loop[A](a: A, f: Any => A, g: A => Any): A = a", "loop") === Count.Finite(2))
-      .and(count("def loop[A, X](a: A, f: X => A, g: A => X): A = a", "loop") === Count.Countable)
+    reasonContains(
+      "def loop[A](a: A, f: Any => A, g: A => Any): A = a",
+      "loop",
+      "sum elimination over an argument space not enumerated: g"
+    ).and(count("def loop[A, X](a: A, f: X => A, g: A => X): A = a", "loop") === Count.Countable)
 
-  // () always inhabits Any — not the 0 an uninhabited X would give.
+  // Any is always inhabited (refused alike), not the 0 an uninhabited X would give.
   def unseeded =
-    (count("def u[A](f: Any => A, g: A => Any): A = f(())", "u") === Count.Finite(1))
-      .and(count("def u[A, X](f: X => A, g: A => X): A = ???", "u") === Count.Finite(0))
+    reasonContains(
+      "def u[A](f: Any => A, g: A => Any): A = f(())",
+      "u",
+      "sum elimination over an argument space not enumerated: g"
+    ).and(count("def u[A, X](f: X => A, g: A => X): A = ???", "u") === Count.Finite(0))
 
   def structural =
-    (count("def opt: Option[Any] = None", "opt") === Count.Finite(2))
-      .and(count("def e: Either[Any, Any] = Left(())", "e") === Count.Finite(2))
-      .and(count("def f[A](a: A): A => Any = _ => a", "f") === Count.Finite(1))
+    (count("def opt: Option[Any] = None", "opt").render === "ε₀")
+      .and(count("def e: Either[Any, Any] = Left(())", "e").render === "ε₀")
+      .and(count("def f[A](a: A): A => Any = _ => a", "f").render === "ε₀")
       .and(
-        count("case class Box(x: Any)\ndef same(b: Box, c: Box): Box = b", "same") === Count.Finite(
-          1
-        )
+        count("case class Box(x: Any)\ndef same(b: Box, c: Box): Box = b", "same").render === "ε₀"
       )
 
   def otherTops =
-    (count("def r: AnyRef = \"\"", "r") === Count.Finite(1))
-      .and(count("def m: Matchable = ()", "m") === Count.Finite(1))
-      .and(count("def v: AnyVal = ()", "v") === Count.Finite(1))
-      .and(count("def o: Object = \"\"", "o") === Count.Finite(1))
+    (count("def r: AnyRef = \"\"", "r").render === "ε₀")
+      .and(count("def m: Matchable = ()", "m").render === "ε₀")
+      .and(count("def v: AnyVal = ()", "v").render === "ε₀")
+      .and(count("def o: Object = \"\"", "o").render === "ε₀")
 
   def qualified =
-    (count("def q: scala.Any = ()", "q") === Count.Finite(1))
-      .and(count("def j: java.lang.Object = \"\"", "j") === Count.Finite(1))
+    (count("def q: scala.Any = ()", "q").render === "ε₀")
+      .and(count("def j: java.lang.Object = \"\"", "j").render === "ε₀")
 
   // Only the length of `xs` is observable: finitely describable predicates on it are ω many.
   def repeated = count("def f(xs: Any*): Boolean = true", "f") === Count.Countable
@@ -201,7 +216,7 @@ class TopTypesUnionSpec extends Specification {
 
   def existential =
     (count("def m[R](consume: Function1[?, R]): R = ???", "m") === Count.Finite(0))
-      .and(count("def m[R](consume: Function1[Any, R]): R = ???", "m") === Count.Finite(1))
+      .and(count("def m[R](consume: Function1[Any, R]): R = ???", "m").render === "ε₀")
 
   // Ext could declare `type Unit = Boolean` and `type Any = Boolean` (g and h would have 2), but a
   // declaration outside the sources is assumed to rebind no builtin name (the never-shadowed
@@ -209,7 +224,8 @@ class TopTypesUnionSpec extends Specification {
   // unsupplied parent.
   def foreignSelf = {
     val code = "import ext.Ext\ntrait T { self: Ext => def g(): Unit; def h(): Any }"
-    (count(code, "T.g") === Count.Finite(1)).and(count(code, "T.h") === Count.Finite(1))
+    (count(code, "T.g") === Count.Finite(1))
+      .and(reasonContains(code, "T.h", "self type not resolved: Ext"))
   }
 
   def selfUnsuppliedParent =
@@ -244,7 +260,7 @@ class TopTypesUnionSpec extends Specification {
   def packageObject = {
     val code = "package p\npackage object p2 extends ext.X\npackage p2 {\n" +
       "  object M { def k(x: Any): Boolean = true; def r(b: Boolean): Any = b } }"
-    (count(code, "p.p2.M.k") === Count.Finite(2)).and(count(code, "p.p2.M.r") === Count.Finite(1))
+    (count(code, "p.p2.M.k") === Count.Finite(2)).and(count(code, "p.p2.M.r").render === "ε₀")
   }
 
   // An unsupplied wildcard import rebinds neither `Any` nor `Unit` (the never-shadowed
@@ -252,7 +268,7 @@ class TopTypesUnionSpec extends Specification {
   def foreignWildcard = {
     val imported = "import ext.*\ndef g(): Any = ()\ndef f(s: Schema): Unit = ()"
     val exported = "object E { export ext.defs.*; def f(s: ext.Schema): Unit = () }"
-    (count(imported, "g") === Count.Finite(1))
+    (count(imported, "g").render === "ε₀")
       .and(count(imported, "f") === Count.Finite(1))
       .and(
         reasonContains(
@@ -299,12 +315,12 @@ class TopTypesUnionSpec extends Specification {
     val chained = "package extp\npackage inner\n" +
       "object U { def f(): Any = true; def g(x: Foo): Unit = () }"
     val supplied = "package extp\ntrait Foo"
-    (count(chained, "extp.inner.U.f") === Count.Finite(1))
+    (count(chained, "extp.inner.U.f").render === "ε₀")
       .and(
         count(chained, "extp.inner.U.g") === Count.Finite(1)
       )
       .and(
-        countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.f") === Count.Finite(1)
+        countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.f").render === "ε₀"
       )
       .and(
         countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.g") === Count.Finite(1)
@@ -326,11 +342,12 @@ class TopTypesUnionSpec extends Specification {
     "import ext.Schema\ntrait Codec[A] { def schema: Schema; def encode(a: A): Any; " +
       "def run(a: A): Unit; def both(a: A): (Unit, Any); def bad(a: A): Schema }"
 
-  // An opaque type outside its scope is unreadable here, but adds no second Unit.
+  // An opaque type outside its scope is unreadable here, but adds no second Unit. An Any result is
+  // positive (ε₀, v1.md §2), no longer terminal: the unreadable receiver refuses it.
   def terminalResults =
-    (count(codec, "Codec.encode") === Count.Finite(1))
+    reasonContains(codec, "Codec.encode", "declaration not supplied: ext.Schema")
       .and(count(codec, "Codec.run") === Count.Finite(1))
-      .and(count(codec, "Codec.both") === Count.Finite(1))
+      .and(reasonContains(codec, "Codec.both", "declaration not supplied: ext.Schema"))
       .and(
         count(
           "object Owner { opaque type Leak = Boolean }\n" +
@@ -361,19 +378,22 @@ class TopTypesUnionSpec extends Specification {
     count("import ext.Schema\nimport x.y.{given Unit}\ndef y(): Unit = ()", "y") === Count.Finite(1)
 
   def rebindingTops =
-    (count("import x.y.{given Any}\ndef r(): Any = ()", "r") === Count.Finite(1))
+    (count("import x.y.{given Any}\ndef r(): Any = ()", "r").render === "ε₀")
       .and(count("import x.y.{given Null}\ndef r(): Unit = ()", "r") === Count.Finite(1))
 
   def constructorGoal =
     reasonContains("import ext.Schema\ncase class C(s: Schema, u: Unit)", "C.<init>", "Schema")
 
   def absorbAny =
-    (count("def a[A](a: A): A | Any = a", "a") === Count.Finite(1))
-      .and(count(colours + "def b(r: Red): Red | Null | Any = r", "b") === Count.Finite(1))
-      .and(count("import ext.Schema\ndef s(): Schema | Any = ()", "s") === Count.Finite(1))
+    (count("def a[A](a: A): A | Any = a", "a").render === "ε₀")
+      .and(count(colours + "def b(r: Red): Red | Null | Any = r", "b").render === "ε₀")
+      .and(count("import ext.Schema\ndef s(): Schema | Any = ()", "s").render === "ε₀")
       .and(
-        count("type Top = Any\nimport ext.Schema\ndef t(s: Schema): Schema | Top = s", "t") ===
-          Count.Finite(1)
+        reasonContains(
+          "type Top = Any\nimport ext.Schema\ndef t(s: Schema): Schema | Top = s",
+          "t",
+          "Schema"
+        )
       )
 
   def meetAny = count("def m[A](a: A): A & Any = a", "m") === Count.Finite(1)
@@ -389,7 +409,7 @@ class TopTypesUnionSpec extends Specification {
       )
 
   def topLikeTwice =
-    count("def t(x: AnyRef): AnyRef | Object = x", "t") === Count.Finite(1)
+    count("def t(x: AnyRef): AnyRef | Object = x", "t").render === "ε₀"
 
   def anyBoxCtor = count("case class AnyBox(x: Any)", "AnyBox.<init>") === Count.Finite(1)
 
@@ -409,10 +429,11 @@ class TopTypesUnionSpec extends Specification {
   def nullCtor = {
     val code = colours + "case class N(x: Null)\ncase class NB(x: Boolean | Null)\n" +
       "case class R(x: Red | Blue)\ncase class T(x: Option[Any], y: Any => Boolean)"
+    // T's slots are negative: Option[Any] is 2, but `Any => Boolean` takes a positive Any, ε₀.
     (count(code, "N.<init>") === Count.Finite(0))
       .and(count(code, "NB.<init>") === Count.Finite(2))
       .and(count(code, "R.<init>") === Count.Finite(3))
-      .and(count(code, "T.<init>") === Count.Finite(4))
+      .and(count(code, "T.<init>").render === "ε₀")
   }
 
   // The method side reads the alias's Any as (); the estimate would read it as everything. Through
@@ -424,7 +445,7 @@ class TopTypesUnionSpec extends Specification {
     val slots = "type Fn[A] = Any => A\nfinal case class W[A](f: Fn[A])\n" +
       "final case class V[A](f: Any => A)"
     (count(code, "TA.<init>") === Count.Finite(1))
-      .and(count(code, "TC.<init>") === Count.Finite(2))
+      .and(count(code, "TC.<init>").render === "ε₀")
       .and(count(code, "TB.<init>") === Count.Bounded(EffectiveOmega))
       .and(count(slots, "W.<init>") === count(slots, "V.<init>"))
   }
@@ -441,20 +462,20 @@ class TopTypesUnionSpec extends Specification {
       .and(count("type Nothing = Boolean\n" + slot, "NA.<init>") === Count.Finite(2))
   }
 
-  // Set(1, "a") and Set(1) differ in size, though Any reads as (): Set[Any] is not Set[Unit]'s 2.
-  // A Map's values and a sequence's elements are held by position (Map[Boolean, ()]: 2^2 key sets),
-  // and a source class the method side reads whole needs no estimate (Box[Any]: 1).
+  // A slot is negative (v1.md §2), and a Set's elements or a Map's keys keep the container's
+  // polarity: Any is one value there, so Set[Any] is 2 (empty or not), Map[Any, Boolean] 3,
+  // Set[(Any, Boolean)] 2^2, Bag[Any]'s Set 2; a Map's values and an Option's are 1 too
+  // (Map[Boolean, Any]: 2^2), and a source class the method side reads whole is 1 (Box[Any]).
   def mergingCtor = {
     val code = "final case class S1(x: Set[Any])\nfinal case class M1(m: Map[Any, Boolean])\n" +
       "final case class MV(m: Map[Boolean, Any])\nfinal case class O1(x: Option[Any])\n" +
       "final case class ST(x: Set[(Any, Boolean)])\nfinal case class Bag[A](s: Set[A])\n" +
       "final case class WBag(b: Bag[Any])\nfinal case class Box[A](a: A)\n" +
       "final case class WBox(b: Box[Any])\nfinal case class SU(x: Set[Unit])"
-    reasonContains(code, "S1.<init>", "top type inside Set, which may tell its elements apart: x")
-      .and(count(code, "S1.<init>") must_!= Count.Finite(2))
-      .and(reasonContains(code, "M1.<init>", "top type inside Map"))
-      .and(reasonContains(code, "ST.<init>", "top type inside Set"))
-      .and(reasonContains(code, "WBag.<init>", "top type inside Bag"))
+    (count(code, "S1.<init>") === Count.Finite(2))
+      .and(count(code, "M1.<init>") === Count.Finite(3))
+      .and(count(code, "ST.<init>") === Count.Finite(4))
+      .and(count(code, "WBag.<init>") === Count.Finite(2))
       .and(count(code, "MV.<init>") === Count.Finite(4))
       .and(count(code, "O1.<init>") === Count.Finite(2))
       .and(count(code, "WBox.<init>") === Count.Finite(1))

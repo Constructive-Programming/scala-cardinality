@@ -104,7 +104,9 @@ class NamespaceScopingSpec extends Specification {
 
   // `scala.collection.mutable.*` is not supplied, and a wildcard outranks another file's package
   // member and the root `scala.Int` alike: `StringBuilder` may be mutable's (scalac binds it so),
-  // and so may `Int`. Both are refused, naming the clause. A name the file defines itself still
+  // and is refused, naming the clause. The standard library's wildcards bind the root names they
+  // declare by their rooted names (`ListedNamespaces`), and mutable declares no `Int`: N is the
+  // root Int's, ≤2^32. A name the file defines itself still
   // outranks the wildcard (scalac reports an outer definition and an inner import as ambiguous):
   // `Own()` holds one value.
   def unsuppliedWildcard = {
@@ -115,7 +117,7 @@ class NamespaceScopingSpec extends Specification {
     val found = rowsOf(files*)
     val clause = "may be imported by scala.collection.mutable.*"
     (found(("px.UseSB", Class)) === s"unresolved[StringBuilder ($clause)]")
-      .and(found(("px.N", Class)) === s"unresolved[Int ($clause)]")
+      .and(found(("px.N", Class)) === "≤2^32")
       .and(found(("px.UseOwn", Class)) === "1")
       .and(
         constructor("px.UseSB.<init>", files*) ===

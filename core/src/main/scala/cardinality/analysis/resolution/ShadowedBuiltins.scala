@@ -163,11 +163,11 @@ final private[cardinality] class ShadowedBuiltins(
       // never-shadowed assumption); one the sources declare, or a source term, is read as written.
       case Spelling.Relative(name, head)
           if !terms(head) && !resolver.namespace(List(head)) && known(s"scala.$name").nonEmpty =>
-        standingReading(name, anchored = false, known(s"scala.$name").get, context)
+        standingReading(known)(name, anchored = false, known(s"scala.$name").get, context)
       case Spelling.Relative(name, _)      => Left(absent(name, context))
       case Spelling.Rooted(name, anchored) =>
         known(name) match {
-          case Some(reading) => standingReading(name, anchored, reading, context)
+          case Some(reading) => standingReading(known)(name, anchored, reading, context)
           case None          =>
             opened(name, context)
               .map(importedReading(known)(_, Wildcard, context))
@@ -182,7 +182,7 @@ final private[cardinality] class ShadowedBuiltins(
   ): Either[String, A] =
     (Spelling.imported(path) match {
       case Spelling.Rooted(name, _) =>
-        known(name).map(standingReading(name, anchored = false, _, context))
+        known(name).map(standingReading(known)(name, anchored = false, _, context))
       case _ => None
     }).getOrElse(Left(Found.Foreign(path, binding).reason))
 
@@ -196,31 +196,33 @@ final private[cardinality] class ShadowedBuiltins(
       case _                               => None
     }
 
-  private def standingReading[A](
+  private def standingReading[A](known: Known[A])(
       name: String,
       anchored: Boolean,
       reading: Either[String, A],
       context: ResolutionContext
   ): Either[String, A] =
-    declared(name, anchored, context).fold(reading)(stop =>
-      Left(refusal(s"builtin name $name", stop))
-    )
+    declared(name, anchored, context) match {
+      case None => reading
+      // A wildcard of a listed namespace binds its member: the spelling means that rooted name.
+      case Some(Step.Found(_, _, Some(rooted))) => importedReading(known)(rooted, Wildcard, context)
+      case Some(stop)                           => Left(refusal(s"builtin name $name", stop))
+    }
 
   // What rebinds a root spelling under the never-shadowed assumption: a declaration a channel
-  // reaches (or a package `scala` / `java` of the sources), or a channel that leaves the sources
-  // into the standard library or the JDK, whose classes named like builtins the model does not
-  // list. A step this reading cannot follow, or one that leaves the sources anywhere else — an
+  // reaches (or a package `scala` / `java` of the sources), or a member a listed namespace's
+  // wildcard declares — the JDK's and the standard library's by their rooted names
+  // (`ListedNamespaces`). A step this reading cannot follow, or one that leaves the sources — an
   // unsupplied wildcard, parent or self type — binds no builtin name.
-  private def declared(name: String, anchored: Boolean, context: ResolutionContext): Option[Stop] =
+  private def declared(
+      name: String,
+      anchored: Boolean,
+      context: ResolutionContext
+  ): Option[Step.Found] =
     Option
       .unless(anchored)(
         (walked(name, context) ++ channel(context, Some(name.takeWhile(_ != '.'))) ++
-          subpackage(name, context)).find {
-          case _: Step.Found                 => true
-          case _: Step.Doubt                 => false
-          case Step.Unread(what, _, doubted) =>
-            !doubted && ListedNamespaces.platform(what.split('.').toList)
-        }
+          subpackage(name, context)).collectFirst { case found: Step.Found => found }
       )
       .flatten
 
@@ -529,9 +531,8 @@ final private[cardinality] class ShadowedBuiltins(
       }
       val frames = paths.flatMap(path => modules.getOrElse(path, Nil) ++ resolver.peers(path))
       val companions = paths.flatMap(classes.getOrElse(_, Nil)).flatMap(_.self)
-      val outside = doubted(prefix, from, at).map(why =>
-        Step.Unread(relative.mkString("."), s"$via: $why", doubted = true)
-      )
+      val outside =
+        doubted(prefix, from, at).map(why => Step.Unread(relative.mkString("."), s"$via: $why"))
       if (frames.nonEmpty || companions.nonEmpty)
         (frames ++ companions.filter(frame => enums(frame.id))).map(Step.Reach(_, via)) ++
           outside.orElse(open(paths, frames, relative, via))
@@ -559,7 +560,7 @@ final private[cardinality] class ShadowedBuiltins(
     private def declares(namespace: ListedNamespaces.Namespace, via: String): Option[Step] =
       subject
         .flatMap(namespace.typeBinding(_, root = true))
-        .collect { case ListedNamespaces.Binding.Member(fqn) => Step.Found(fqn, via) }
+        .collect { case ListedNamespaces.Binding.Member(fqn) => Step.Found(fqn, via, Some(fqn)) }
 
     // A parent, self type or alias body naming a supplied template reaches it; one that resolves to
     // an alias is followed; a name lookup refuses, or one a supplied type spells but lookup does not
@@ -642,13 +643,13 @@ private[cardinality] object ShadowedBuiltins {
 
   private enum Step {
     case Reach(frame: Frame, via: String)
-    case Found(declaration: String, via: String)
+    // `rooted`: the member a listed namespace's wildcard declares, by its full name.
+    case Found(declaration: String, via: String, rooted: Option[String] = None)
     // A step this reading cannot follow, which may lead into the supplied sources — or one whose
     // standing rests on a search under way.
     case Doubt(unread: String, via: String, selfReached: Boolean = false)
-    // A step that leads outside the supplied sources; `doubted` when only an unsupplied wildcard
-    // that may rebind the prefix's first name leads it there.
-    case Unread(unread: String, via: String, doubted: Boolean = false)
+    // A step that leads outside the supplied sources.
+    case Unread(unread: String, via: String)
   }
 
   // Where a search stops: a declaration of the name, or a step it cannot see past.
@@ -657,19 +658,19 @@ private[cardinality] object ShadowedBuiltins {
   // What may shadow the name, and through which clause, follow the separator: a namespace such as
   // `cats` reads like prose, and a report tallies one category per kind of stop, not per namespace.
   private def refusal(subject: String, stop: Stop): String = stop match {
-    case Step.Found(declaration, via) =>
+    case Step.Found(declaration, via, _) =>
       s"$subject may be shadowed by a declaration: $declaration ($via)"
     case doubt: Step.Doubt =>
       s"$subject may be shadowed through a reference not resolved: ${doubt.unread} (${why(doubt)})"
-    case Step.Unread(what, via, _) =>
+    case Step.Unread(what, via) =>
       s"$subject may be shadowed through a reference not supplied: $what ($via)"
   }
 
   // A step a search could not see past, as the way a binding may come through it.
   private def route(stop: Stop): String = stop match {
-    case Step.Found(declaration, via) => s"through $declaration ($via)"
-    case doubt: Step.Doubt => s"through ${doubt.unread}, which is not resolved (${why(doubt)})"
-    case Step.Unread(what, via, _) => s"through $what, which is not supplied ($via)"
+    case Step.Found(declaration, via, _) => s"through $declaration ($via)"
+    case doubt: Step.Doubt      => s"through ${doubt.unread}, which is not resolved (${why(doubt)})"
+    case Step.Unread(what, via) => s"through $what, which is not supplied ($via)"
   }
 
   // The clause a doubt came through, and the search under way its standing rests on.

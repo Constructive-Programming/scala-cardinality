@@ -48,6 +48,10 @@ private[cardinality] object BuiltinTypes {
     "String" -> Card.Omega
   )
 
+  /** The shape a scalar's name reads as (`Int`, `Boolean`, …). */
+  def scalarShape(name: String): Shape =
+    scalar(name, Nil).flatMap(_.toOption).get
+
   /** `Byte`'s ground shape: what a byte stream or buffer yields. */
   val byte: Shape = Shape.Ground("Byte", grounds("Byte"))
 

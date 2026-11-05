@@ -1816,9 +1816,8 @@ arguments the value space is `(|V| + 1)^|K|` (`2^|E|`), ω over an infinite key,
 closed space of `K => 1 + V` (`E => Boolean`) under the saturating power of D2, so the method
 side reads it as that function (`StdlibModel`, reading `Tabulated`); the stored-value side
 already read the same formulas (`Counter`). An open argument is refused: no parametric program
-has the key equality. A key with a unit-shaped part is refused too: a top type reads as `()`
-(D12), which key equality tells apart (`Set(1, "a")` is not `Set(1)`), and the shape cannot tell
-it from `Unit`. (2) Reading a single-pass `Iterator`, `IterableOnce`, `java.util.Iterator`,
+has the key equality. A top type among the keys, which key equality tells apart (`Set(1, "a")`
+is not `Set(1)`), keeps the container's polarity (D-polarity). (2) Reading a single-pass `Iterator`, `IterableOnce`, `java.util.Iterator`,
 `ByteBuffer` or `InputStream` changes it, an effect D26 excludes, so each is the sequence it
 yields: `Σₙ Eⁿ`, bytes for the last two (a buffer's position and capacity are more state of one
 countable value). An infinite iterator changes no count, by D16's continuity argument for `Seq`.
@@ -1826,14 +1825,14 @@ countable value). An infinite iterator changes no count, by D16's continuity arg
 **Evidence.** **Executable**: `StdlibModelSpec.singlePass` (`List[A] => Iterator[A]` ω, an
 `Iterator[Nothing]` 1, `ByteBuffer => Boolean` ω), `.keyed` (`Set[1 | 2]` 4, `(1 | 2) =>
 Set[1 | 2]` 16, `Map[1 | 2, Boolean]` 9, `Map[1 | 2, 1 | 2] => Boolean` 2^9, `Set[Nothing] =>
-Boolean` 2, `Map[String, Nothing]` 1, `F[Set[String]] => F[List[String]]` 0, `Set[Boolean]` and
-`Map[Any, Int]` refused), `.openKeys`; `KindedIdentitySpec.modelKeys` (`F[Map[Int, Int]]` keyed);
-`TopTypesUnionSpec.mergingCtor` (a top in a key still refused). Knvl 2018 (D3) for the powerset
+Boolean` 2, `Map[String, Nothing]` 1, `F[Set[String]] => F[List[String]]` 0, `Set[Boolean]` 4,
+an enum-keyed `Map` 9, `Set[Any]` / `Map[Any, Boolean]` by polarity), `.openKeys`;
+`KindedIdentitySpec.modelKeys` (`F[Map[Int, Int]]` keyed); `TopTypesUnionSpec.mergingCtor`. Knvl 2018 (D3) for the powerset
 and partial-function arithmetic.
 
 **Boundary.** It is an assumption about the measured code, not checked: a key type with a
 reference `equals` (a plain class, a function) is read as if its equality were its value's. Open
-keys stay refused; so do unit-shaped keys, including `Boolean` and `Option` keys.
+keys stay refused.
 
 ## D-unshadowed. No declaration outside the sources rebinds a builtin name
 
@@ -1845,13 +1844,18 @@ named like a root import's member (`util.Either`, `Predef.String`) — binds non
 root imports bind (the builtins, the model's spellings, the top types). A declaration a channel
 does reach still shadows one (a supplied member, an enum case, an export selector, a listed
 namespace's member such as `quotes.reflect.Singleton`), and so does a channel into the standard
-library or the JDK (`scala.*`, `java.*`, `javax.*`, a `scala` subpackage spelled relative to the
-root import), whose packages do declare classes named like builtins (`java.util.List`,
-`scala.collection.Seq`): `ListedNamespaces` lists those of `java.lang` (its boxed scalars,
-`Iterable`, `StringBuilder`), and any other library wildcard still refuses
-(`ShadowedBuiltins.declared`). Only the method side reads it: the stored-value estimate still
-refuses a name an unsupplied wildcard may bind (`unresolved type: Int (may be imported by zz.*)`),
-which a constructor slot lent to the method side keeps. A channel's reach for anything else — an
+library or the JDK binds the names its package declares by their full rooted names:
+`ListedNamespaces` lists every JDK 25 and scala-library 3.9.0 type whose simple name the root
+imports bind to another declaration (generated from `jimage list` and the jars' entries), so
+`import java.util.*` makes `List` mean `java.util.List`, and a wildcard into a library package
+binds no other root name — on both sides. A rooted name whose values are a modelled type's counts
+as that type under its own identity (`StdlibModel`'s equivalent entries: the Java and mutable
+collections, the boxes, `Optional`); one the model does not read is refused by name
+(`declaration not supplied: java.awt.List`). The stored-value estimate still refuses a name an
+unsupplied non-library wildcard may bind (`unresolved type: Int (may be imported by zz.*)`): its
+namespace reading answers `Absent` both for a package no source supplies and for a supplied enum
+or companion it does not follow, and taking the first for the second read `scala.Boolean` where
+an enum case `Boolean` was meant (`StoredScopesSpec.enumTerms`). A channel's reach for anything else — an
 implicit conversion a body may meet, a source name — is unchanged.
 
 **Evidence.** **Executable**: `StdlibModelSpec.wildcardRefusal`, `.relativePaths`,
@@ -1859,12 +1863,31 @@ implicit conversion a body may meet, a source name — is unchanged.
 `GroundEnvironmentSpec.wildcard`, `.foreignWildcard`, `.nestedParentName`;
 `UnsuppliedWildcardSpec.doubtedBuiltins`, `.singletonMarker`; `TopTypesUnionSpec.foreignSelf`,
 `.packageObject`, `.chainedPackage`; `BinderBoundsSpec.rebindableTops`;
-`HigherKindedRefusalSpec.boxedNames` (java.lang's boxed names still refused, its missing `Int`
-read); the Shadowed-builtin-names group of `GroundEnvironmentSpec` (declarations still shadow).
+`HigherKindedRefusalSpec.boxedNames` (java.lang's boxed names read by their rooted names: their
+scalars' counts, their own keys), `StdlibModelSpec.javaWildcard` (`java.util.List` a sequence,
+`java.awt.List` refused), `.finalUnmodelled` (`Integer`, `Optional`),
+`NamespaceScopingSpec.unsuppliedWildcard` (the stored side under `scala.collection.mutable.*`); the Shadowed-builtin-names group of `GroundEnvironmentSpec` (declarations still shadow).
 Scala 3.9.0 fixtures r5, r8 and review-A7q/sc show a rebinding the assumption sets aside.
 
 **Boundary.** A count under an unsupplied wildcard is exact only if that namespace declares no
 root spelling; the report does not check it.
+
+## D-polarity. A top type is read by its polarity
+
+**Decision.** The owner's idealization (v1 §2), superseding D12's terminal reading where it is
+positive: `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` are `1` in a negative position
+(D12's argument: a parametric body observes nothing of the value) and ε₀ in a positive one (the
+body may build any value; ε₀ is the stored-value side's reading of `Any`, and the solver's `Card`
+gains that tier, absorbing ω and itself). Polarity flips through function parameters only; a
+`Set`'s elements and a `Map`'s keys keep the container's (`TopTypes.polarized`, `TopTypes.keyed`).
+A constructor slot is negative. A one-valued goal is judged after polarity.
+
+**Evidence.** **Executable**: `TopTypesUnionSpec.polarity`, `.anyOut`, `.consumer`, `.structural`,
+`.mergingCtor`, `.nullCtor`; `StdlibModelSpec.keyed` (`Set[Any]` and `Map[Any, Boolean]` on both
+sides, `Set[Boolean]`, an enum-keyed `Map`).
+
+**Boundary.** The ε₀ tier is a choice, not a derivation: it is an upper tier, rendered as a bound.
+A supplied `A => Any` whose result is eliminated is refused, not enumerated.
 
 ## How to extend this register
 

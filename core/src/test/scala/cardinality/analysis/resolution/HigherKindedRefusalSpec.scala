@@ -220,9 +220,10 @@ class HigherKindedRefusalSpec extends Specification {
 
   // Under `import java.lang.*`, `Boolean` is java.lang.Boolean (3.9.0 accepts `val b: Boolean =
   // null` there and rejects `F[Boolean]` as an `F[scala.Boolean]`): exact count 0, not the 1 the
-  // two scala keys gave: the model knows the boxed names java.lang declares, so its wildcard binds
-  // them to java.lang's classes, which it does not hold. It binds no other builtin name (the never-shadowed assumption;
-  // java.lang has no `Int`), so `int` is x alone (1). A renaming import binds no bare name.
+  // two scala keys gave. The wildcard binds them by their rooted names (`ListedNamespaces`), whose
+  // values are the scalars' (v1.md §2): `plain` is a Boolean endomorphism, 4, while the keys stay
+  // apart, so `boo`, `lng` and `dbl` are 0. It binds no other builtin name (java.lang has no
+  // `Int`), so `int` is x alone (1). A renaming import binds no bare name.
   def boxedNames = {
     val counts = entries("""
       package boxed {
@@ -243,13 +244,11 @@ class HigherKindedRefusalSpec extends Specification {
       "import java.lang.{Boolean => JB}\nobject T { def boo[F[_]](x: F[Boolean]): F[scala.Boolean] = x }",
       "T.boo"
     )
-    def boxed(name: String, builtin: String) =
-      refused(counts, name, s"declaration not supplied: java.lang.$builtin (wildcard import)")
-    boxed("boxed.T.plain", "Boolean")
-      .and(boxed("boxed.T.boo", "Boolean"))
-      .and(boxed("boxed.T.lng", "Long"))
+    (counts("boxed.T.plain") === Count.Finite(4))
+      .and(counts("boxed.T.boo") === Count.Finite(0))
+      .and(counts("boxed.T.lng") === Count.Finite(0))
       .and(counts("boxed.T.int") === Count.Finite(1))
-      .and(boxed("rooted.T.dbl", "Double"))
+      .and(counts("rooted.T.dbl") === Count.Finite(0))
       .and(renamed === Count.Finite(1))
   }
 

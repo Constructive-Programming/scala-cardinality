@@ -114,8 +114,9 @@ final private[cardinality] class NominalKeys(
   // ground scalar. A structural substitution has lost it.
   private def variable(name: String, bound: Resolved): Keyed =
     bound.flatMap {
-      case key @ (_: Shape.Atom | _: Shape.Applied) => Right(key)
-      case Shape.Ground(ground, _) => Right(nominal(BuiltinTypes.groundKey(ground), Nil))
+      case key @ (_: Shape.Atom | _: Shape.Applied)         => Right(key)
+      case Shape.Ground(ground, _) if !TopTypes.top(ground) =>
+        Right(nominal(BuiltinTypes.groundKey(ground), Nil))
       case LiteralTypes.Keyed(key) => Right(key)
       case _: Shape.Constructor    => Left(s"higher-kinded parameter used as a proper type: $name")
       case _ => Left(s"nominal identity of substituted argument not tracked: $name")

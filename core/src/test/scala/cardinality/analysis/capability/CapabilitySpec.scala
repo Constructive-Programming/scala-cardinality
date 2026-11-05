@@ -619,14 +619,14 @@ class CapabilitySpec extends Specification {
       .and(field("Use.mk") === Count.Finite(4))
   }
 
-  // canEqual is scala.Equals', not Any's: a free Any => Boolean, which observes nothing of its
-  // argument (Any is terminal), so one Boolean — true, false, c(x), !c(x): 4, as `(x: A, c: Any =>
-  // Boolean)` gives (it read 2).
+  // canEqual is scala.Equals', not Any's: a free Any => Boolean, which a body may call with any value
+  // it builds — its Any parameter is positive there, ε₀ (v1.md §2) — so ε₀ Booleans (it read 2,
+  // then 4 while Any was terminal everywhere).
   def universalRecord =
     one("""
       trait Eq2[A] { def x: A; def canEqual(that: Any): Boolean }
       object U { def eq2[A](e: Eq2[A]): Boolean = ??? }
-    """)("U.eq2") === Count.Finite(4)
+    """)("U.eq2").render === "ε₀"
 
   // Every T is `new P(v) with T` for some v: t.p is a free Boolean — 4 (it read 2).
   def parentFields =

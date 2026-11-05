@@ -55,10 +55,9 @@ private[cardinality] object ListedNamespaces {
 
   val roots: Set[String] = Set("scala", "java")
 
-  // The heads of a path into the standard library or the JDK: the root packages, `javax`, and the
-  // `scala` package's subpackages and `Predef`, which the root import binds (scala-library 3.9.0).
-  private val platformHeads: Set[String] = roots ++ Set(
-    "javax",
+  // The `scala` package's subpackages and objects a relative prefix may start with, which the root
+  // import of `scala.*` binds (scala-library 3.9.0).
+  private val scalaMembers: Set[String] = Set(
     "Predef",
     "annotation",
     "beans",
@@ -78,14 +77,62 @@ private[cardinality] object ListedNamespaces {
     "util"
   )
 
-  /** Whether a path, as written, may lead into the standard library or the JDK. Their packages do
-    * declare classes named like builtins (`java.util.List`, `scala.collection.Seq`), which the
-    * model lists only for the namespaces above, so a wildcard over one still may rebind a builtin
-    * name. Any other namespace the sources do not supply never does (the never-shadowed assumption,
-    * v1.md §2).
-    */
-  def platform(path: List[String]): Boolean =
-    path.dropWhile(_ == "_root_").headOption.exists(platformHeads)
+  // Every type of the JDK's `java.*` / `javax.*` packages and of scala-library 3.9.0 whose simple
+  // name the root imports bind to another declaration, by package (JDK 25 `jimage list`, the
+  // scala-library and scala3-library jars' entries, against `java.lang.*`, `scala.*` with the
+  // `scala` package's aliases and `Predef`'s). A package missing here declares no such name.
+  private val platformRoots: Map[String, Set[String]] = Map(
+    "java.awt" -> Set("List"),
+    "java.io" -> Set("Console"),
+    "java.lang" -> Set(
+      "Boolean",
+      "Byte",
+      "Double",
+      "Float",
+      "Iterable",
+      "Long",
+      "Short",
+      "StringBuilder"
+    ),
+    "java.lang.reflect" -> Set("Array", "Proxy"),
+    "java.math" -> Set("BigDecimal"),
+    "java.net" -> Set("Proxy"),
+    "java.sql" -> Set("Array"),
+    "java.util" -> Set("Enumeration", "Iterator", "List", "Map", "Set", "Vector"),
+    "java.util.function" -> Set("Function"),
+    "java.util.stream" -> Set("Stream"),
+    "javax.swing.text.html" -> Set("Map", "Option"),
+    "scala.annotation.meta" -> Set("languageFeature"),
+    "scala.collection" -> Set("IndexedSeq", "Map", "Seq", "Set"),
+    "scala.collection.concurrent" -> Set("Map"),
+    "scala.collection.immutable" -> Set("Iterable"),
+    "scala.collection.mutable" -> Set("Cloneable", "IndexedSeq", "Iterable", "Map", "Seq", "Set"),
+    "scala.compiletime.testing" -> Set("Error"),
+    "scala.reflect" -> Set("Enum", "Selectable"),
+    "scala.runtime.stdLibPatches" -> Set("Predef", "language"),
+    "scala.sys.process" -> Set("Process", "ProcessBuilder", "ProcessImpl"),
+    "scala.util.control" -> Set("Exception")
+  )
+
+  // A wildcard over the JDK or the standard library: its members are not listed, but the names the
+  // root imports bind that it declares are, by their full rooted name (`import java.util.*` binds
+  // `List` to `java.util.List`). A relative prefix headed by a member of `scala` is that member's.
+  private def platform(path: List[String]): Option[Namespace] = {
+    val full = path match {
+      case head :: _ if scalaMembers(head) => "scala" :: path
+      case _                               => path
+    }
+    Option.when(full.headOption.exists(Set("java", "javax", "scala")))(
+      Namespace(
+        full.mkString("."),
+        None,
+        None,
+        None,
+        "the JDK or the standard library",
+        platformRoots.getOrElse(full.mkString("."), Set.empty)
+      )
+    )
+  }
 
   val quoted: List[(String, Int)] =
     List("Expr" -> 1, "ExprMap" -> 0, "FromExpr" -> 1, "Quotes" -> 0, "ToExpr" -> 1, "Type" -> 1)
@@ -273,10 +320,6 @@ private[cardinality] object ListedNamespaces {
       reflection,
       Set("Singleton", "Symbol")
     ),
-    // `java.lang`'s members are not listed; the root spellings it declares as other classes than
-    // the root imports bind are its boxed scalars, `Iterable` and `StringBuilder` (JDK 21 class
-    // list against every `scala.*` and `scala.Predef` type; its `String`, `Object`, `Integer`,
-    // throwables and the rest are the root imports' own declarations).
     // `scala.compiletime.ops`' members (scala-library 3.9.0): the objects `any`, `boolean`,
     // `double`, `float`, `int`, `long` and `string`, whose type operators are their own members.
     Namespace(
@@ -285,14 +328,6 @@ private[cardinality] object ListedNamespaces {
       Some(Set.empty),
       Some(Set("any", "boolean", "double", "float", "int", "long", "string")),
       "compile-time type operators"
-    ),
-    Namespace(
-      "java.lang",
-      None,
-      None,
-      None,
-      "the Java language package",
-      Set("Boolean", "Byte", "Short", "Long", "Float", "Double", "Iterable", "StringBuilder")
     )
   ) ++ dependencyNamespaces
 
@@ -300,11 +335,12 @@ private[cardinality] object ListedNamespaces {
     * name denotes the library's is the caller's to check, against the namespace's anchor.
     */
   def of(prefix: List[String]): Option[Namespace] = {
-    val path = prefix.dropWhile(_ == "_root_").mkString(".")
-    all.find(_.path == path)
+    val path = prefix.dropWhile(_ == "_root_")
+    all.find(_.path == path.mkString(".")).orElse(platform(path))
   }
 
-  def at(full: List[String]): Option[Namespace] = all.find(_.full == full)
+  def at(full: List[String]): Option[Namespace] =
+    all.find(_.full == full).orElse(platform(full))
 
   /** Why a name is not read where a wildcard over a namespace no source supplies may bind it. */
   def mayBind(written: String): String = s"may be imported by $written"
