@@ -1,6 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.annotation.unused
 import scala.meta.*
 
 import cardinality.analysis.model.{AliasReading, ResolutionContext}
@@ -20,9 +19,9 @@ import RuntimeClasses.*
   */
 final private[cardinality] class RuntimeClasses(
     resolver: Resolver,
-    @unused types: List[TypeEntry],
-    @unused sources: Map[String, Source],
-    @unused supplied: String => Boolean
+    @annotation.unused types: List[TypeEntry],
+    @annotation.unused sources: Map[String, Source],
+    @annotation.unused supplied: String => Boolean
 ) {
 
   /** The runtime class of one alternative where it is written, or why it has none. */
@@ -42,7 +41,8 @@ final private[cardinality] class RuntimeClasses(
     case _ => Left(s"${a.label} and ${b.label} may overlap (ancestry not read)")
   }
 
-  /** Why a sealed family's values may come from a subclass its shape does not count, if they may. */
+  /** Why a sealed family's values may come from a subclass its shape does not count, if they may.
+    */
   def enumerable(runtime: Runtime): Either[String, Unit] = runtime match {
     case family: Declared =>
       family.tree match {
@@ -60,15 +60,24 @@ final private[cardinality] class RuntimeClasses(
       case Some(failed: Found.Failed) => Left(failed.reason)
       case Some(Found.Absent) if StdlibModel.entry(name).isEmpty =>
         Left(s"$name has no runtime class (declaration not supplied)")
-      case Some(Found.Absent) => Left(s"$name has no runtime class this reading tells apart (stdlib model)")
-      case _                  => Left(s"${Spelling.of(head)} has no runtime class")
+      case Some(Found.Absent) =>
+        Left(s"$name has no runtime class this reading tells apart (stdlib model)")
+      case _ => Left(s"${Spelling.of(head)} has no runtime class")
     }
   }
 
   private def declaration(entry: TypeEntry, name: String, context: ResolutionContext) =
     entry.tree match {
       case _: Defn.Class | _: Defn.Trait | _: Defn.Enum =>
-        Right(Alternative(Declared(s"${entry.owner.input}:${entry.tree.pos.start}", entry.name)(entry.tree, entry.owner), false))
+        Right(
+          Alternative(
+            Declared(s"${entry.owner.input}:${entry.tree.pos.start}", entry.name)(
+              entry.tree,
+              entry.owner
+            ),
+            false
+          )
+        )
       case alias: Defn.Type =>
         context
           .enterAlias(entry, resolver.typeParameters(entry.owner), AliasReading.Runtime)

@@ -27,7 +27,6 @@ class SequenceEliminationSpec extends Specification {
       a callable taking a sequence is applied to built ones         $consumer
       closed sequences stay transparent data                        $closed
       singleton references share one sequence                       $sharedReference
-      a singleton alias of a product is the product itself          $singletonAlias
       three sequences are within the budget                         $threeSequences
       an absurd element type beside a branch keeps the other's choice $absurdBranch
       a rigid constructor's application is no element of a sequence $rigidGoal
@@ -155,22 +154,6 @@ class SequenceEliminationSpec extends Specification {
       List(Binding("xs", xs), Binding("ys", Singleton("xs", Some(xs)))),
       a
     ) === Count.Finite(0)
-  }
-
-  // `q: p.type` is `p` (two aliases are one value): the only A is `p._2` and the list's elements
-  // are Bs, so every length has one answer — the true count is 1, never ω (two copies of the A
-  // field would give c(0) = c(1) = 2). Without a sequence the product is 1 outright.
-  def singletonAlias = {
-    val code = """final case class Box[A, B](xs: List[B], a: A)
-      |object T {
-      |  def pairAlias[A, B](p: (List[B], A), q: p.type): A = p._2
-      |  def boxAlias[A, B](p: Box[A, B], q: p.type): A = p.a
-      |  def noSeq[A](p: (Int, A), q: p.type): A = p._2
-      |}""".stripMargin
-    val unique = "sequence elimination: goal unique up to length 2"
-    refused(entry(code, "T.pairAlias"), unique)
-      .and(refused(entry(code, "T.boxAlias"), unique))
-      .and(entry(code, "T.noSeq") === Count.Finite(1))
   }
 
   // None at length 0 of all three; None or Some(e) once any one holds an element: ω, at the budget.

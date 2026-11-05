@@ -148,7 +148,6 @@ private[cardinality] object InferredResults {
     */
   final private case class Call(callee: String, targs: List[Type], clauses: Int, at: Tree)
 
-
   final private class Reading(
       target: Target,
       name: String,
@@ -175,8 +174,8 @@ private[cardinality] object InferredResults {
       case Term.Block(List(only: Term))                                 => body(only)
       case literal: Lit                                                 => this.literal(literal)
 
-      case Term.New(init)                                               => created(init)
-      case _: Term.Apply | _: Term.Name | _: Term.ApplyType             =>
+      case Term.New(init)                                   => created(init)
+      case _: Term.Apply | _: Term.Name | _: Term.ApplyType =>
         val (callee, clauses) = ExplicitClauses.of(rhs)
         applied(callee, clauses)
       case other => Left(s"$Unresolved: ${form(other)}")
@@ -186,16 +185,6 @@ private[cardinality] object InferredResults {
       literalClass(literal)
         .map(Inferred(_, here(literal)))
         .toRight(s"$Unresolved: literal ${Spelling.of(literal)}")
-
-    // With no expected type, Scala applies a context function an expression yields to givens it
-    // finds (fixture i3: `def asc = (k: Boolean ?=> Boolean)` is a `Boolean`): the definition's
-    // type is the chain's final result, which this reading does not take.
-    private def unapplied(
-        tpe: Type,
-        context: ResolutionContext,
-        written: List[(String, Type, ResolutionContext)]
-    ): Either[String, Unit] =
-      ContextFunctions.binders(tpe, context, resolver, written).map(_ => ())
 
     // What the compiler widens in a result it infers: a singleton or literal type, alone, in a union
     // (`1 | 2` becomes `Int`) or behind source aliases; a union of other types it keeps, and this
@@ -312,7 +301,8 @@ private[cardinality] object InferredResults {
         scope.stats.flatMap(signature).filter(_.name == call.callee).map(scope -> _)
       )
       callees match {
-        case List((scope, Signature(_, groups, Some(result)))) => called(scope, groups, result, call)
+        case List((scope, Signature(_, groups, Some(result)))) =>
+          called(scope, groups, result, call)
         case List(_) => Left(s"$Unresolved: call of ${call.callee}, whose result is inferred")
         case _       => Left(s"$Unresolved: call of ${call.callee}, not one declared method")
       }
@@ -333,9 +323,11 @@ private[cardinality] object InferredResults {
         Some(target.frame)
       )
       val written = names.zip(call.targs).map((b, t) => (b, t, here(t)))
-      unapplied(result, context, written).flatMap(_ =>
-        typed(result, context, call, written.map((b, t, at) => b -> (t, at)).toMap)
-      )
+      // With no expected type, Scala applies a context function an expression yields to givens it
+      // finds: the definition's type would be the chain's final result, which is not read.
+      ContextFunctions
+        .binders(result, context, resolver, written)
+        .flatMap(_ => typed(result, context, call, written.map((b, t, at) => b -> (t, at)).toMap))
     }
 
     // A call's declared result as the definition's: widened as Scala widens an inferred one.

@@ -131,7 +131,6 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
         }
       }
 
-
   private def tagged(alternatives: List[Written]): Either[String, Unit] =
     Traversals.sequence(alternatives.map(_.found)).flatMap { found =>
       val runtimes = found.map(_.runtime)

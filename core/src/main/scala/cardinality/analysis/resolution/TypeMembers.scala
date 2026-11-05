@@ -1,6 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.annotation.unused
 import scala.collection.mutable
 import scala.meta.*
 
@@ -320,7 +319,7 @@ final private[cardinality] class TypeMembers(
   }
 
   /** A refinement read as a value type outside a stable input: its constraints are not erased. */
-  def refinement(r: Type.Refine, @unused context: ResolutionContext): Resolved =
+  def refinement(r: Type.Refine, @annotation.unused context: ResolutionContext): Resolved =
     Left(s"refined representation unavailable (constraints not erased): ${Spelling.of(r)}")
 
   /** Whether a type declares or inherits a type member: it may, as far as this reading tells. */

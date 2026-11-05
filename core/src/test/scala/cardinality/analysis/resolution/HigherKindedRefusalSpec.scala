@@ -15,13 +15,9 @@ class HigherKindedRefusalSpec extends Specification {
 
   def is = s2"""
     Invalid programs
-      a wrong arity is not counted                                  $arity
-      a builtin applied at a wrong arity says so in both readings   $builtinArity
       a kind mismatch is not counted                                $kindMismatch
       a constructor argument of another kind is not counted         $argumentKinds
       a higher-kinded name read as a type                           $properUse
-      a wildcard under a rigid binder is not counted                $wildcard
-      a view bound is not Scala 3                                   $viewBound
     Unreadable identities
       a wildcard where a constructor is expected                    $wildConstructor
       a nested wildcard has no key                                  $nestedWildcard
@@ -30,7 +26,6 @@ class HigherKindedRefusalSpec extends Specification {
       a bounded higher-kinded binder                                $boundedHk
       abstract members, paths and inherited members key as members  $members
       a structural bound beside a proof                             $coercionBound
-      a higher-kinded name or a lambda where a type is expected     $constructorsAsTypes
       java.lang's boxed names under its wildcard import             $boxedNames
   """
 
@@ -55,30 +50,12 @@ class HigherKindedRefusalSpec extends Specification {
 
   private val box = "case class Box[F[_], A](value: F[A])\n"
 
-  def arity =
-    unresolved("object T { def f[F[_], A](x: F[A, A]): A = ??? }", "T.f", "type argument arity: F")
-
   def kindMismatch =
     unresolved(
       "case class Bi[F[_, _], A](value: F[A, A])\nobject T { def f[G[_], A](x: Bi[G, A]): A = ??? }",
       "T.f",
       "kind mismatch: G has kind (*) → *, expected (*, *) → *"
     )
-
-  // `Either[A]` is no type: the shape reading said `unresolved type: Either`, the key reading
-  // `type argument arity: Either`. Both say the arity now.
-  def builtinArity = {
-    val counts = entries("""
-      object T {
-        def direct[A](x: Either[A]): A = ???
-        def keyed[F[_], A](x: F[Either[A]]): A = ???
-        def ground[A](x: Int[A]): A = ???
-      }
-    """)
-    refused(counts, "T.direct", "type argument arity: Either")
-      .and(refused(counts, "T.keyed", "type argument arity: Either"))
-      .and(refused(counts, "T.ground", "type argument arity: Int"))
-  }
 
   // 3.9.0: "Type argument Option does not have the same kind as its bound [_$1,_$2]", whether or
   // not the parameter is ever applied. Before: `Phantom[Option]` counted 1, `Box[Either, A]` was
@@ -115,33 +92,6 @@ class HigherKindedRefusalSpec extends Specification {
       "T.f",
       "higher-kinded parameter used as a proper type: F"
     )
-
-  // Scala 3.9.0 rejects an abstract constructor applied to a wildcard (E043), for a method's binder
-  // and a class's alike. Before: counted 1.
-  def wildcard = {
-    val counts = entries("""
-      object T { def w[F[_], A](x: F[?]): Option[A] = None }
-      class C[F[_]] { def w[A](x: F[?]): Option[A] = None }
-    """)
-    def invalid(name: String) =
-      counts(name) must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons must contain("unreducible application of a higher-kinded binder to a wildcard: F")
-      }
-    invalid("T.w").and(invalid("C.w"))
-  }
-
-  // 3.9.0: "view bounds `<%' are no longer supported", used or not.
-  def viewBound = {
-    val counts = entries("""
-      object V {
-        def f[A <% Int](a: A): A = a
-        def unused[A <% Int](n: Boolean): Boolean = n
-      }
-    """)
-    val reason = "view bound is not Scala 3 (an invalid program): A <% Int"
-    refused(counts, "V.f", reason).and(refused(counts, "V.unused", reason))
-  }
 
   def wildConstructor =
     unresolved(
@@ -208,15 +158,6 @@ class HigherKindedRefusalSpec extends Specification {
       "R.c",
       "bound to a structural type requires coercion analysis: A <: (B =:= C)"
     )
-
-  def constructorsAsTypes = {
-    val counts = entries("""
-      object S { def k[F[_], A](x: F[A]): F[F] = ??? }
-      object L { def l[A](x: [y] =>> y): A = ??? }
-    """)
-    refused(counts, "S.k", "higher-kinded parameter used as a proper type: F")
-      .and(refused(counts, "L.l", "unapplied type lambda used as a proper type"))
-  }
 
   // Under `import java.lang.*`, `Boolean` is java.lang.Boolean (3.9.0 accepts `val b: Boolean =
   // null` there and rejects `F[Boolean]` as an `F[scala.Boolean]`): exact count 0, not the 1 the

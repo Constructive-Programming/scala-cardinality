@@ -15,25 +15,15 @@ linearization (declared or inherited from a supplied parent), then enclosing sco
 imports (environment readings, rule 10, already reads inherited names first and refuses a name an
 unsupplied parent may declare).
 
-**M1 — members of a path.** A stable path is `this` of a template (also `C.this`, a self alias
-`outer =>`, or the implicit `this` of a member name), a parameter that is neither by-name nor
-`var`, a `val` with a declared type, or `q: p.type`, which is `p`. A name is its innermost binding:
-a parameter or value of a nearer scope hides an enclosing template's self alias (`def f(self: R)`
-inside `trait T { self => … }` makes `self.X` R's member). Along the path's linearization — its
-refinement, its template, the template's supplied parents, each read with the arguments the path
-gives it — the first alias is the member's meaning (Scala lets an alias be overridden only by an
-equal one), read where it is declared with `this` still the path. A private member is not
-inherited: read from inside its own template it is that template's own, ahead of any same-named
-member of the receiver. A member every level leaves abstract, with no bounds and no type
-parameters, is the rigid atom `member:<path>#N`. Exact bounds `>: L <: L` are the alias `L`. A
-member some level declares as a class (classes cannot be overridden) is never an atom: refused.
-A field (`val p`) a member alias reads is a member of `this` as the alias is read — the receiver's
-field, keyed under the receiver and typed at its most derived declaration (a subclass may narrow
-`val p: U { type Y = Boolean }`), and fixed where the receiver cannot be extended or the field
-cannot be overridden. Inside a refinement `p: T { … }`, `this` and a name the refinement or T
-declares are p's (Scala types the refinement as a class extending T; a same-file enclosing
-definition of the name is ambiguous, E049); a term member of T there would start a path through p,
-which is refused.
+**M1 — members of a path.** A stable path is a self alias `outer =>` or the implicit `this` of a
+member name, a parameter that is neither by-name nor `var`, or a local `val` with a declared type (a
+template's field is not followed). A name is its innermost binding: a parameter or value of a nearer
+scope hides an enclosing template's self alias (`def f(self: R)` inside `trait T { self => … }`
+makes `self.X` R's member). Along the path's linearization — its refinement, its template, the
+template's supplied parents, each read with the arguments the path gives it — the first alias is the
+member's meaning (Scala lets an alias be overridden only by an equal one), read where it is declared
+with `this` still the path. A member every level leaves abstract, with no bounds and no type
+parameters, is the rigid atom `member:<path>#N`.
 
 **M2 — members of the receiver.** A parent's declaration is a member of the template that inherits
 it, so its type members are read on that receiver: Optic's `to: S => F[X, A]` read for
@@ -44,21 +34,15 @@ receiver `C` extends both `P` and `O` (scalac types `get: O.this.X` in `C` as `O
 `C.this.X`). Override identity keys a member the same way on both signatures.
 
 **M3/M5 — values.** A trait or plain class with no parent, parameter, constructor modifier or self
-type whose only members are types has the empty record (one value; universal members are outside
-the model), when it has an instance: not a `final abstract` class, and no member with two bounds
-(Nothing meets every upper bound and Any every lower one, but `>: Int <: String` has no instance
-and `>: A <: B` one only where A conforms to B). A structural type that only pins type members (`{ type X = A }`) has one value too,
-where each member is an alias or has exact or no bounds. A stable value's type-only refinement is
-read as its base when some value of the base has the refined members: the base is a supplied
+type whose only members are types has the empty record (one value; universal members are outside the
+model), when it has an instance: not a `final abstract` class. A stable value's type-only refinement
+is read as its base when some value of the base has the refined members: the base is a supplied
 template a subclass may extend anywhere (not final, a value class, an object, sealed, privately
-constructed, or below an unsupplied parent), no member the refinement pins is already fixed or
-bounded along the base, and a refined bound is exact or one-sided (`<: U`, met by `Nothing`;
-`>: L`, met by `Any`) and meets no alias, class or opposite bound along the base. Otherwise the
-refined type may have no value (`Boolean { type X }`, `F { type X = String }` for a final `F` with
-`X = Int`, `{ type X >: Int <: String }` — all rejected by scalac) and the input is refused: every
-implementation would be vacuously one, never the base's count. A term member no supplied base
-declares is selected through reflection: refused as such; one that narrows the base's own member
-keeps `refined representation unavailable`.
+constructed, or below an unsupplied parent), and no member the refinement pins is already fixed or
+bounded along the base. Otherwise the refined type may have no value (`Boolean { type X }`,
+`F { type X = String }` for a final `F` with `X = Int` — both rejected by scalac) and the input is
+refused: every implementation would be vacuously one, never the base's count. A refinement with a
+term member keeps `refined representation unavailable`.
 
 **MT1′ — arguments as written.** A binder bound by an application keeps the argument as written
 and its scope; a projection reads the argument again, so `Affine[(A, A), A]` reaches its fields'
@@ -95,8 +79,8 @@ count is the binder's (D3; executable: `TypeMemberSpec.parity`). A parameter pat
 an existential package whose witness the caller picks (Mitchell & Plotkin 1988, C-10), named by
 the path (dot notation, Cardelli & Leroy 1990, background).
 
-*When the choice is not free.* The parity argument fails, and the member is refused, where no one
-supplying the path can pick the member: a final class (a value class is one: "cannot extend final
+*When the choice is not free.* The parity argument fails where no one supplying the path can pick
+the member: a final class (a value class is one: "cannot extend final
 class"; a `final abstract` class has no instance at all), object or given never instantiates it (a
 concrete class may leave it undefined — `memberfixture.Never` compiles — and then no value of the
 member exists, so every implementation is vacuously one); a private constructor, the template's
@@ -107,24 +91,15 @@ cases fix it when every case is closed (inside the family the receiver gate G2 a
 trait or class among the cases lets any file pick the member, and only its own reason is true); a
 `val` fixed by its own definition (a local value, a member of a closed template or object, a private
 or final field) has one value whose member nobody outside sees; a parent outside the source set may
-define it. A bounded member stays `?`: bounds
+define it. This reading refuses the sealed family, the `val` (a local one as fixed, a field as a
+path it does not follow) and the parent outside the source set; a final class, a private constructor
+and a private or local template are not refused since the corpus-coverage prune. A bounded member
+stays `?`: bounds
 on abstract members are where Scala's subtyping loses transitivity (\[29\]: "known to break
 transitivity"; the abstract of Hu & Lhoták 2020 (Metadata-verified) reports undecidable `D<:`
 subtyping and decidable fragments without bad bounds). A type projection `P#X` of an abstract
 member denotes no path's member — each value of `P` has its own (`∃p. p.X`) — so it is refused as
 such, not read through the member's bounds.
-
-*Refinement bodies.* Scala types `B { type X = this.Y }` as an anonymous class extending B whose
-`this` is the refined value, so `this.Y` and a bare `Y` that B or the refinement declares are p's
-members (scalac rejects `x: p.X` as a `Boolean` there and accepts it as `p.Y`, `TypeMemberScopeSpec
-.facts`); reading them in the enclosing scope gave 16 for a count of 2. A projection `R#X` has no
-path for that value, so a body that reads `this` or an owner's member there is refused, as is a
-path through a term member of the base (`q.Y` is `p.q.Y`).
-
-*Fields read through an alias.* `type X = p.Y` in `T` read for a receiver `G extends T` is
-`G.this.p.Y`: two receivers' fields are two values (scalac: Found `T.this.X`, Required
-`In.this.X`), and G may narrow `p` (`val p: U { type Y = Boolean }` makes X = Boolean). A final
-receiver's own `val p: U = u` is no one's choice, whichever spelling (`X` or `p.Y`) reaches it.
 
 *Refinements (M5).* Reading a stable input `p: B { type X = T }` as a `B` is sound only when some
 `B` value has `X = T`: then the inputs are exactly the `B` values of the subclasses that pick it,
@@ -156,21 +131,15 @@ produce (`D.other` would read ω, true 1).
 ## Limits (stay `?`, with the reason)
 
 - `bounded abstract type member p#X (<bounds>)`; `higher-kinded abstract type member p#F` (also for
-  an applied path member `rc.Out[S, C]`); `type projection of abstract member P#X: no stable path`
-  (a bounded one keeps `non-exact bounds`); `type member is a class: C.this#X`.
-- `abstract type member X of final template C is never instantiated` (also a value class and a
-  `final abstract` class); `abstract type member X of C is fixed: its constructor is private` (or
-  `the constructor of B is private` for an ancestor, `Q is private`, `L is local`); `… of p is
-  fixed by the cases of sealed S` (only where every case is closed); `abstract type member p#X is
-  fixed: p is not overridable in C` (or `p is a local value`); `type member X of C.this may be
-  defined by unsupplied parent P`.
-- `refinement not shown satisfiable: B { … } (<why>)` — `B is final`, `is sealed`, `has a private
-  constructor`, `already defines X`, `unsupplied parent P`, `B is not a supplied template`;
-  `abstract refined member has non-exact bounds: <declaration>` for a refinement's own bounds.
-- `structural refinement with term members: …` (a term member no supplied base declares); a
-  refinement outside a stable input position, or one narrowing its base's own term, keeps `refined
-  representation unavailable (constraints not erased)`; `path through member q of refined p`;
-  `refined member X refers to its own value` / `… to its owner's member Y` in a projection.
+  an applied path member `rc.Out[S, C]`); `unavailable refined member: P#X` for a type projection
+  or a member selected on a refinement.
+- `… of p is fixed by the cases of sealed S` (only where every case is closed); `abstract type
+  member p#X is fixed: p is a local value`; `path through the field p not followed`; `type member
+  X of C.this may be defined by unsupplied parent P`.
+- `refinement not shown satisfiable: B { … } (<why>)` — `B is not extended freely`, `already
+  defines X`, `B is not a supplied template`, `refined members not read`.
+- a refinement outside a stable input position keeps `refined representation unavailable
+  (constraints not erased)`.
 - `stuck match types on α have no common reducing instantiation: arities …`; `… meet a bound that
   mentions it`; `… meet type evidence that mentions it`; `inert match type: a bounded match type
   stays stuck on α`; a nominal, opaque or

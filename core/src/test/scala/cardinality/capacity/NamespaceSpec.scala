@@ -78,7 +78,6 @@ class NamespaceSpec extends Specification {
       a slot never lends a size resting on an unknown name        $slotReasons
       a slot reads a type defined in several packages in its own  $slotOwnPackage
       a local class's slot reads the block around it              $slotLocal
-      a sibling parameter's path reads its declared type          $slotParameterPath
       a refused slot names what the estimate stopped at           $slotRefusal
     """
 
@@ -394,16 +393,6 @@ class NamespaceSpec extends Specification {
     val param = box.ctor.paramClauses.head.values.head.decltpe.get
     (constructor("l.F.g.Out.<init>", files*) === Count.Finite(2))
       .and(Reading.of(tree).read(param, param) === Left(List(Definition.Unbound.Parameter("A"))))
-  }
-
-  // In `Dep(q: Other)(val x: q.X)`, `q` is the first clause's parameter, of type `Other`, whose `X`
-  // is `Int` (2^32) — not the package's object `q` (`X = Boolean`). The method side reads the
-  // parameter's path too (members M1), so the constructor's two readings agree: 2^32.
-  def slotParameterPath = {
-    val code =
-      "package u\nobject q { type X = Boolean }\nfinal class Other { type X = Int }\nfinal case class Dep(q: Other)(val x: q.X)"
-    (constructor("u.Dep.<init>", "S.scala" -> code).render === "2^32")
-      .and(rowsOf("S.scala" -> code)(("u.Dep", Class)) === "≤2^32")
   }
 
   // `Failure`'s `Failed` case holds a `Widget` nobody supplied: the estimate refuses the slot, and

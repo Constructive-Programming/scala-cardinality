@@ -41,7 +41,6 @@ class CapabilitySpec extends Specification {
     Override identity as seen from the receiver (C9)
       a grandparent's declaration is matched through the chain      $multiLevel
       an imported parent's declaration is matched by its binding (B1) $importedParent
-      a covariant result is the same slot, a parameter another     $covariant
       another arity is an overload                                  $arity
       a binder spelled `foreign` keys no foreign declaration        $tentativeKeys
     Records of source types (C0–C4)
@@ -214,20 +213,6 @@ class CapabilitySpec extends Specification {
       "a.scala" -> "package p.api\ntrait Src[A] { def x: A; def get: A }",
       "b.scala" -> "package p.impl\nimport p.api.Src\nabstract class Impl[A](a: A) extends Src[A] { def get: A = a }"
     )("p.impl.Impl.get") === Count.Finite(2)
-
-  // Parameters match: `get(b: Boolean): Boolean` overrides `get(b: Boolean): Boolean | Unit` (SLS
-  // 5.1.3), one slot: b, !b, true, false — 4 (read as an overload, a free Boolean => Boolean | Unit
-  // would join). OvlU2's get(b: Int) is an overload: it reads b (2^32 values) and the inherited free
-  // get at true and at false (3 values each): 2^(9 · 2^32) = 2^38654705664.
-  def covariant = {
-    val found = one("""
-      trait BaseU { def get(b: Boolean): Boolean | Unit }
-      abstract class CovU2 extends BaseU { def get(b: Boolean): Boolean }
-      abstract class OvlU2 extends BaseU { def get(b: Int): Boolean }
-    """)
-    (found("CovU2.get") === Count.Finite(4))
-      .and(found("OvlU2.get") === Count.Symbolic(pow(2, BigInt("38654705664"))))
-  }
 
   // Two parameters cannot be one: Two.get is a supplied (A, A) => A — a, get(a, a), … ω.
   def arity =

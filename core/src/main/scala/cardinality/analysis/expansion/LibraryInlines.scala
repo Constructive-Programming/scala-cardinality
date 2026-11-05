@@ -106,7 +106,6 @@ private[expansion] object LibraryInlines {
       ) ++ (0 to 22).map(n => s"Function$n" -> functions).toMap ++
       (1 to 22).map(n => s"Tuple$n" -> (1 to n).map(i => s"_$i").toSet).toMap
 
-
   /** A library value or object a root import binds under a simple name. */
   private val rooted: Map[String, String] = Map(
     "Some" -> "Some",
@@ -166,7 +165,6 @@ private[expansion] object LibraryInlines {
   def functionMember(name: String): Boolean = functions(name)
 
   private def canonical(key: String): String = key.stripPrefix("scala.")
-
 
   private val packages: Set[List[String]] = Set(
     List("scala"),

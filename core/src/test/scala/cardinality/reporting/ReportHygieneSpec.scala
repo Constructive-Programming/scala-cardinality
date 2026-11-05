@@ -284,8 +284,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
     (found.map(_.signature) === List("f(x: \"a  b\" & Int): Int", "f(x: \"a b\" & Int): Int"))
       .and(
         found.map(reasons) === List(
-          List("unsupported intersection relationship: \"a  b\" & Int"),
-          List("unsupported intersection relationship: \"a b\" & Int")
+          List("\"a  b\" & Int: singleton and intersection types are not resolved"),
+          List("\"a b\" & Int: singleton and intersection types are not resolved")
         )
       )
   }

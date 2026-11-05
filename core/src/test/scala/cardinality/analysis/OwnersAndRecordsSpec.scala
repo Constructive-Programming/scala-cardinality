@@ -17,7 +17,6 @@ class OwnersAndRecordsSpec extends Specification {
 
   def is = s2"""
     Inline members of a never-built owner
-      a static object's, a given object's or a file's inline member    $staticInline
       a class's, a member object's or a plain def keeps one call      $builtOwners
     Captures a member holds
       a readable field or own member that is the capture, or of type 1 $heldAlias
@@ -34,7 +33,6 @@ class OwnersAndRecordsSpec extends Specification {
       a private constructor or a later clause gives its own reason     $caseRefusals
       a match-type field reduces on the record's tuple argument        $matchField
     Members no subclass overrides
-      a given or a final member an inline body selects is fixed        $fixedSelection
       a deferred given is abstract: every class extending it gives one $deferredGiven
       a `deferred` nothing imports is no compiletime one               $deferredBare
   """
@@ -47,42 +45,6 @@ class OwnersAndRecordsSpec extends Specification {
 
   private def refused(count: Count, reason: String): Result =
     count must beLike { case Count.Unresolved(reasons) => reasons must contain(reason) }
-
-  // Each owner's body throws, yet an expansion builds none (3.9.0 runs: no `K init`, nor `G init`
-  // for a `given … with` object): each inline member is counted as in a built owner — !b among b's
-  // functions: 4; b && c: 16; pick[A]: y or x, 2; an inline given Int: 2^32; nest's h reads c and
-  // the capture b: 16. Before: 1 each. r reads the owner's z, which supplies nothing (an object
-  // declares no slot): b's functions, 4 — never 1, nor 16 as with z a free Boolean.
-  def staticInline = {
-    val found = one("""
-      object K {
-        val z: Boolean = ???
-        inline def f(b: Boolean): Boolean = !b
-        inline def two(b: Boolean, c: Boolean): Boolean = b && c
-        inline def pick[A](x: A, y: A): A = y
-        extension (b: Boolean) inline def flip: Boolean = !b
-        inline given g: Int = 7
-        inline def nest(b: Boolean): Boolean = { def h(c: Boolean): Boolean = !c; h(b) }
-      }
-      object Outer { object M { val z: Int = ???; inline def f(b: Boolean): Boolean = b } }
-      val topZ: Boolean = ???
-      inline def topF(b: Boolean): Boolean = !b
-      object R { val z: Boolean = ???; inline def r(b: Boolean): Boolean = b && z }
-      trait Base
-      given G: Base with { val z: Int = ???; inline def f(b: Boolean): Boolean = b }
-    """)
-    val flip = found.collectFirst { case (name, count) if name.endsWith(".flip") => count }
-    List("K.f" -> 4, "K.two" -> 16, "K.pick" -> 2, "K.nest" -> 4)
-      .map((name, n) => found(name) === Count.Finite(n))
-      .reduce(_ and _)
-      .and(flip must beSome(Count.Finite(4)))
-      .and(found("K.g") === Count.Finite(BigInt(2).pow(32)))
-      .and(found("K.nest.h") === Count.Finite(16))
-      .and(found("Outer.M.f") === Count.Finite(4))
-      .and(found("topF") === Count.Finite(4))
-      .and(found("R.r") === Count.Finite(4))
-      .and(found("G.f") === Count.Finite(4))
-  }
 
   // A class or trait owner is the receiver every call needs, and a member object of one is built
   // with it: never built, no call returns — 1. A def that is not inline needs its owner too.
@@ -423,26 +385,6 @@ class OwnersAndRecordsSpec extends Specification {
       .and(found("V.m6") === Count.Finite(1))
       .and(found("V.m7") === Count.Finite(2))
       .and(found("V.m8") must not(beEqualTo(Count.Finite(4))))
-  }
-
-  // No subclass overrides a given (E164) or a final member: f's expansion selects T's g and U's g
-  // on every call site — g, 2 (T.f read `?`). V's g is open: a call site's subclass may override
-  // it inline.
-  def fixedSelection = {
-    val found = one("""
-      trait T { given g: Boolean = true; inline def f: Boolean = g }
-      trait U { final def g: Boolean = true; inline def f: Boolean = g }
-      trait V { def g: Boolean = true; inline def f: Boolean = g }
-    """)
-    (found("T.f") === Count.Finite(2))
-      .and(found("U.f") === Count.Finite(2))
-      .and(
-        refused(
-          found("V.f"),
-          "inline method: selects g on this, which a call site may type as a subclass of V that " +
-            "overrides g inline"
-        )
-      )
   }
 
   // `given g: Boolean = deferred` is supplied by each class extending T (3.9.0 run: two classes

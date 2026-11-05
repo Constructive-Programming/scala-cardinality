@@ -93,7 +93,7 @@ final private[cardinality] class NominalKeys(
         case Found.Entry(_) if resolver.inheritsName(callee, spelled, scope) =>
           Left(s"nominal identity of inherited type member not established: $spelled")
         case Found.Entry(entry) => declared(entry, application)
-        case Found.Absent => builtins.denoted(spelled, scope).flatMap(builtin(_, application))
+        case Found.Absent       => builtins.denoted(spelled, scope).flatMap(builtin(_, application))
         case failed: Found.Failed => Left(failed.reason)
       }
     )

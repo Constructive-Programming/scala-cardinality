@@ -100,7 +100,7 @@ until the path atom and the opened witness can be agreed on.
 
 `TypeSubstitution` owns binder-aware syntax replacement. `MethodProjections`
 owns syntax-preserving match/transparent-alias normalization and its extractor.
-`SingletonIntersections` owns one extractor for singleton references and the
-recognized intersection spellings, keeping their distinct semantic operations.
+`SingletonIntersections` recognizes singleton types and intersections, and refuses
+both.
 `TypeApplications` centralizes constructor spelling, lambda recognition and
 parameter-constraint classification.

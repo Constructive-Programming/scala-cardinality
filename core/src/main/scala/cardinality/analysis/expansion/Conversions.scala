@@ -33,13 +33,11 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private lazy val conversions: List[Candidate] =
     resolver.memberScopes.flatMap(scope => scope.stats.flatMap(conversion(_, scope)))
 
-
   /** The first inline conversion a body read in `frame` may meet. */
   def inlineConversion(frame: Frame): Option[Candidate] = candidates(frame).find(_.inline)
 
   /** The first conversion that may answer an applied selection read in `frame`. */
   def conversion(frame: Frame): Option[Candidate] = candidates(frame).nextOption()
-
 
   // The body's own conversions and those of the methods around it, then the visible ones.
   private def candidates(frame: Frame): Iterator[Candidate] =
@@ -95,7 +93,6 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
     }
 
   }
-
 
   private def oneValueClause(groups: List[Member.ParamClauseGroup]): Boolean =
     groups.flatMap(_.paramClauses).filterNot(MemberSyntax.contextual).map(_.values.size) == List(1)
@@ -156,7 +153,6 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       }
     )
 
-
   /** Whether a member of `scope` may be found from a body read in `frame`: the scope encloses it,
     * an import around it names the scope, or the scope is some type's implicit scope.
     */
@@ -210,4 +206,3 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   }
 
 }
-

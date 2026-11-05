@@ -2,9 +2,11 @@ package cardinality.analysis.expansion
 
 import scala.meta.*
 
-import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.model.MemberSyntax
+import cardinality.analysis.{MethodAnalysis, SourceIndex}
 import cardinality.types.TypeApplications
+
+import MethodAnalysis.Frame
 
 /** A value a body binds itself: its declared type, or its right-hand side. */
 final private[expansion] case class Local(tpe: Option[Type], rhs: Option[Term])
@@ -217,7 +219,9 @@ final private[expansion] class BodyWalk(
 
   // A qualifier that is a name or a path of names: what it denotes, package or value.
   private def pathMeaning(qual: Term, scope: Scope): Option[Meaning] = qual match {
-    case n: Term.Name   => Some(meaning(n, scope))
+    // A compiled body's stub (`tasty.StubTypes.Body`) selects from the root package.
+    case Term.Name(SourceIndex.Root) => Some(Meaning.Package(Nil, supplied = true))
+    case n: Term.Name                => Some(meaning(n, scope))
     case s: Term.Select => pathMeaning(s.qual, scope).map(terms.select(_, s.name.value))
     case _              => None
   }
@@ -258,9 +262,9 @@ final private[expansion] class BodyWalk(
   }
 
   private def statement(stat: Stat, scope: Scope): Option[String] = stat match {
-    case term: Term          => walk(term, scope)
+    case term: Term           => walk(term, scope)
     case Valued(pats, _, rhs) => rhs.flatMap(walk(_, scope)).orElse(destructured(pats))
-    case _ => Some("defines inside the body what this reading does not follow")
+    case _                    => Some("defines inside the body what this reading does not follow")
   }
 
   // `val (x, _) = …` matches a pattern: its extractors and type tests are the body's.

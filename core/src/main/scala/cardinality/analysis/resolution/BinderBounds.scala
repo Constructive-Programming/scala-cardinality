@@ -4,11 +4,12 @@ import scala.meta.{Defn, Type, XtensionSyntax}
 
 import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.Resolver
-import cardinality.analysis.inhabitation.ExistentialInputs
-import cardinality.analysis.inhabitation.Inhabitation.Shape
+import cardinality.analysis.inhabitation.{ExistentialInputs, Inhabitation}
 import cardinality.analysis.model.ResolutionContext
 import cardinality.capacity.Counter
 import cardinality.types.{Kinds, Spelling}
+
+import Inhabitation.Shape
 
 /** A subtype bound on a proper binder is an ambient proof (hkt R5), which this reading does not
   * construct: a bound other than `Any` above refuses the binder, unless it is `AnyRef`, `AnyVal` or

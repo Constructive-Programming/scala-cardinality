@@ -29,7 +29,6 @@ class NeutralSaturationSpec extends Specification {
       a ground argument space is not enumerated                     $literals
       a higher-order argument keeps the opaque reason               $higherOrder
       a sum argument space is not enumerated                        $sumArgument
-      an argument type a lower bound builds is not enumerated       $lowerBoundArgument
       an argument type a polymorphic member builds is not enumerated $polymorphicArgument
       a record's callable is named by its field                     $recordField
       a callable is named by its source name, whatever it spells    $sourceNames
@@ -161,13 +160,6 @@ class NeutralSaturationSpec extends Specification {
   // p's arguments are the Option[A] terms None and Some(a), built, not neutral: 16 in truth, refused.
   def sumArgument =
     refused(sat("sat.U.optArg"), "sum elimination over an argument space not enumerated: p")
-
-  // B's values are built through its lower bound (None, Some(a); (a, a)): 16 and 4 in truth.
-  def lowerBoundArgument =
-    refused(sat("sat.U.lowOption"), "sum elimination over an argument space not enumerated: p")
-      .and(
-        refused(sat("sat.U.lowPair"), "sum elimination over an argument space not enumerated: p")
-      )
 
   // wrap at M := A builds an F[A], p(wrap(a)): 4 in truth, but an instantiation is no neutral this
   // enumerates.

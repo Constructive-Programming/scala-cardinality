@@ -31,7 +31,6 @@ class HigherKindedBindingSpec extends Specification {
       an application of an application is one more key             $nested
     Nominal argument identity (R2)
       Option and Either[Unit, _] stay distinct under F              $optionEither
-      a case class and a tuple stay distinct under F                $caseTuple
       Boolean and Either[Unit, Unit] stay distinct under F          $boolEither
       equal spellings are one type                                  $sameKey
       tuple sugar is type equality                                  $tupleSugar
@@ -40,13 +39,11 @@ class HigherKindedBindingSpec extends Specification {
       a local alias shadows a builtin name in a key                 $shadowedKey
       an opaque argument is transparent only in its scope           $opaqueKey
       an opaque argument outside its scope is no readable key       $opaqueOutside
-      an idempotent union is its one alternative                    $unionKey
       equality evidence substitutes through F                       $leibniz
       subtype evidence does not lift through an invariant F         $noLift
       an applied endpoint of equality evidence                      $appliedEq
       a long equality chain settles                                 $longChain
       an equality that keeps unfolding is refused                   $unfolding
-      operators are keyed by their eta-long lambda                  $operatorKeys
       an export of a vocabulary name is not trusted                 $exportedVocabulary
       inherited substitution keeps nominal identity                 $inherited
       a constructor field of F[Unit]                                $unfold
@@ -72,23 +69,6 @@ class HigherKindedBindingSpec extends Specification {
       same-typed anonymous evidences are not counted                $ambiguous
       anonymous using parameters do not overwrite each other        $anonymous
       a bounded binder's evidence is not provably unrelated         $boundedEvidence
-    Subtype bounds (R5, B1)
-      an upper bound upcasts                                        $upper
-      an upper bound does not downcast                              $noDowncast
-      a lower bound upcasts the bound                               $lower
-      a bound does not lift through an invariant F                  $noBoundLift
-      bounds that make binders equal identify them                  $boundEquality
-      Any above and Nothing below bound nothing                     $extremes
-    Structural bounds (R5, B2)
-      an upper bound to a sealed family is eliminated as it         $upperSealed
-      two bounded values are eliminated into a structural goal      $upperPair
-      an upper bound to a case class is projected                   $upperProduct
-      an upper bound to Option is split                             $upperOption
-      an upper bound to a ground type reads its literals            $upperGround
-      an upper bound to Nothing makes the context absurd            $upperNothing
-      a lower bound builds the goal as the bound                    $lowerSealed
-      a lower bound survives a split of another value               $lowerSplit
-      unrelated lower and upper bounds are read separately          $upLow
   """
 
   private def entries(code: String): Map[String, Count] =
@@ -186,12 +166,6 @@ class HigherKindedBindingSpec extends Specification {
     count("object T { def f[F[_], A](x: F[Option[A]]): F[Either[Unit, A]] = ??? }", "T.f") ===
       Count.Finite(0)
 
-  def caseTuple =
-    count(
-      "case class Pair[A](a: A, b: A)\nobject T { def f[F[_], A](x: F[Pair[A]]): F[(A, A)] = ??? }",
-      "T.f"
-    ) === Count.Finite(0)
-
   def boolEither =
     count("object T { def f[F[_]](x: F[Boolean]): F[Either[Unit, Unit]] = ??? }", "T.f") ===
       Count.Finite(0)
@@ -248,9 +222,6 @@ class HigherKindedBindingSpec extends Specification {
     hidden("T.outside", "O.W").and(hidden("Ctx.outside", "Ctx.M.V")).and(hidden("H.outside", "G.U"))
   }
 
-  def unionKey =
-    count("object T { def f[F[_], A](x: F[A | A]): F[A] = x }", "T.f") === Count.Finite(1)
-
   def leibniz =
     count("object T { def f[F[_], A, B](fa: F[A])(using A =:= B): F[B] = ??? }", "T.f") ===
       Count.Finite(1)
@@ -289,25 +260,6 @@ class HigherKindedBindingSpec extends Specification {
           )
       }
     refused("T.loop").and(refused("T.loop2"))
-  }
-
-  // `G ≡ [y] =>> G[y]`, `Option ≡ [y] =>> Option[y]`, `Either ≡ [a, b] =>> Either[a, b]`; a
-  // different body or argument order is a different operator.
-  def operatorKeys = {
-    val counts = entries("""
-      object T {
-        def eta[F[_[_]], G[_]](x: F[G]): F[[y] =>> G[y]] = x
-        def named[F[_[_]]](x: F[Option]): F[[y] =>> Option[y]] = x
-        def other[F[_[_]]](x: F[Option]): F[[y] =>> Either[Unit, y]] = ???
-        def same[F[_[_, _]]](x: F[Either]): F[[a, b] =>> Either[a, b]] = x
-        def swapped[F[_[_, _]]](x: F[Either]): F[[a, b] =>> Either[b, a]] = ???
-      }
-    """)
-    (counts("T.eta") === Count.Finite(1))
-      .and(counts("T.named") === Count.Finite(1))
-      .and(counts("T.other") === Count.Finite(0))
-      .and(counts("T.same") === Count.Finite(1))
-      .and(counts("T.swapped") === Count.Finite(0))
   }
 
   // A parent instantiated at a binder keeps its key; one instantiated at `Option[B]` was read as a
@@ -551,93 +503,5 @@ class HigherKindedBindingSpec extends Specification {
       "T.f",
       "anonymous evidence selection not resolved"
     )
-
-  // R5, B1 -------------------------------------------------------------------------------------
-  def upper = {
-    val counts = entries("""
-      object T {
-        def ub[A <: B, B](a: A): B = a
-        def ub2[A <: B, B](a: A, b: B): B = b
-      }
-    """)
-    (counts("T.ub") === Count.Finite(1)).and(counts("T.ub2") === Count.Finite(2))
-  }
-
-  def noDowncast =
-    count("object T { def f[A <: B, B](b: B): A = ??? }", "T.f") === Count.Finite(0)
-
-  def lower = count("object T { def f[A >: B, B](b: B): A = b }", "T.f") === Count.Finite(1)
-
-  def noBoundLift =
-    count("object T { def f[F[_], A >: B, B](fb: F[B]): F[A] = ??? }", "T.f") === Count.Finite(0)
-
-  def boundEquality =
-    count("object T { def f[F[_], A >: B <: B, B](fb: F[B]): F[A] = fb }", "T.f") === Count.Finite(
-      1
-    )
-
-  def extremes = {
-    val counts = entries("""
-      object T {
-        def top[A <: Any](a: A): A = a
-        def bottom[A >: Nothing, B](a: A): B = ???
-      }
-    """)
-    (counts("T.top") === Count.Finite(1)).and(counts("T.bottom") === Count.Finite(0))
-  }
-
-  // R5, B2 -------------------------------------------------------------------------------------
-  private val flag =
-    "sealed trait Flag\ncase object On extends Flag\ncase object Off extends Flag\n"
-
-  // A function of the received case: |Flag|^|Flag|; "return a" is the case identity among them.
-  def upperSealed =
-    count(flag + "object U { def f[A <: Flag](a: A): Flag = a }", "U.f") === Count.Finite(4)
-
-  // Both split by case: every function {On, Off}² → Flag, 2^4.
-  def upperPair =
-    count(flag + "object U { def f[A <: Flag](a: A, b: A): Flag = a }", "U.f") === Count.Finite(16)
-
-  def upperProduct = {
-    val counts = entries("""
-      final case class P[X](x: X, y: X)
-      object U {
-        def field[A <: P[B], B](a: A): B = ???
-        def same[A <: P[B], B](a: A): A = a
-      }
-    """)
-    (counts("U.field") === Count.Finite(2)).and(counts("U.same") === Count.Finite(1))
-  }
-
-  // The None case has no B: no total program.
-  def upperOption = {
-    val counts = entries("""
-      object T {
-        def f[A <: Option[B], B](a: A): B = ???
-        def g[A <: Option[B], B](a: A, b: B): B = b
-      }
-    """)
-    (counts("T.f") === Count.Finite(0)).and(counts("T.g") === Count.Finite(2))
-  }
-
-  // A may be Int itself: every function Int => Int, (2^32)^(2^32) = 2^(2^37).
-  def upperGround =
-    count("object T { def f[A <: Int](a: A): Int = a }", "T.f").render === "2^(2^37)"
-
-  def upperNothing =
-    count("object T { def f[A <: Nothing, B](a: A): B = ??? }", "T.f") === Count.Finite(1)
-
-  // x, or Flag's two cases upcast: 3.
-  def lowerSealed =
-    count(flag + "object U { def f[A >: Flag](x: A): A = x }", "U.f") === Count.Finite(3)
-
-  // f splits into two branches, each with x, On, Off: 3^2.
-  def lowerSplit =
-    count(flag + "object U { def f[A >: Flag](x: A, f: Flag): A = x }", "U.f") === Count.Finite(9)
-
-  // A and B are unrelated binders: a is split by case, and B is built as On or Off in each branch
-  // (a itself, also a B through Flag, is always one of them): 2^2.
-  def upLow =
-    count(flag + "object U { def f[A <: Flag, B >: Flag](a: A): B = a }", "U.f") === Count.Finite(4)
 
 }

@@ -1,6 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.annotation.unused
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.*
@@ -16,9 +15,9 @@ private[cardinality] object RefinedMembers {
   def resolve(
       qualifier: Type,
       member: String,
-      @unused context: ResolutionContext,
-      @unused resolver: Resolver,
-      @unused projection: Boolean = false
+      @annotation.unused context: ResolutionContext,
+      @annotation.unused resolver: Resolver,
+      @annotation.unused projection: Boolean = false
   ): Resolved = Left(s"unavailable refined member: ${Spelling.of(qualifier)}#$member")
 
   def pathType(path: Term.Ref, frame: Frame): Option[Either[String, (Type, Frame)]] = path match {

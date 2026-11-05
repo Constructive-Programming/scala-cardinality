@@ -49,8 +49,8 @@ private[expansion] enum Meaning {
   /** A library object of the table (`Some`, `NonFatal`, …). */
   case Library(name: String)
 
-  /** A member the reading lists without a definition to read — a library member or a universal
-    * one — that takes at most `arity` argument clauses and returns `result`.
+  /** A member the reading lists without a definition to read — a library member or a universal one
+    * — that takes at most `arity` argument clauses and returns `result`.
     */
   case Call(name: String, result: Receiver, arity: Int)
 
@@ -143,7 +143,6 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
     self(scope).collect {
       case Self(Term.Name(alias), _) if alias == name => Meaning.Instance(thisOf(scope))
     }
-
 
   private def self(scope: Frame): Option[Self] =
     scope.tree.flatMap(TypeApplications.template).flatMap(_.body.selfOpt)
@@ -250,7 +249,7 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       case v @ Valued(_, declared, _) if MemberSyntax.defined(v).contains(name) =>
         List(Meaning.Value(declared, scope))
       case o: Defn.Object if o.name.value == name => List(module(scope, name))
-      case _ => Nil
+      case _                                      => Nil
     }
 
   private def combine(found: List[Meaning]): Meaning = {
@@ -346,7 +345,6 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
   private def from(start: Meaning, rest: List[String]): Meaning =
     rest.foldLeft(start)((meaning, segment) => select(meaning, segment))
 
-
   // Another file of the package defines the name, or the package holds a subpackage of it.
   private def packaged(name: String, scope: Frame): Option[Meaning] =
     Option.when(resolver.isPackage(scope))(packageMember(scope.path, name, Some(scope.id))).flatten
@@ -429,7 +427,6 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
             )
       }
   }
-
 
   /** A member of an instance. */
   def selectOn(receiver: Receiver, name: String): Meaning = receiver match {

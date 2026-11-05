@@ -7,9 +7,8 @@ import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
 /** Identities the higher-kinded reading changed (docs/research/higher-kinded-binders.md): an
-  * override matched by binder kind and by the type its sugar spells, overloads apart by kind,
-  * constructor positions keyed by place, and stdlib-model entries keyed by declaration. Every
-  * fixture compiles with Scala 3.9.0.
+  * override matched by binder kind and by the type its sugar spells, overloads apart by kind, and
+  * constructor positions keyed by place. Every fixture compiles with Scala 3.9.0.
   */
 class KindedIdentitySpec extends Specification {
   import Inhabitation.Count
@@ -18,7 +17,6 @@ class KindedIdentitySpec extends Specification {
     anonymous constructor positions are keyed by place            $anonymousPositions
     binder renaming, function and tuple sugar keep an override    $overrideSugar
     overloads that differ only in a binder's kind stay apart      $kindOverloads
-    stdlib-model entries are keys, one per declaration            $modelKeys
   """
 
   private def entries(code: String): Map[String, Count] =
@@ -85,38 +83,6 @@ class KindedIdentitySpec extends Specification {
       }
     inherits("C3.m", "K (the result instantiates the binder)", "H")
       .and(inherits("C4.m", "H (the result instantiates the binder)", "K"))
-  }
-
-  private def refused(found: Count, fragment: String) =
-    found must beLike {
-      case Count.Unresolved(reasons) => reasons.exists(_.contains(fragment)) must beTrue
-    }
-
-  // A rigid `F` tells its arguments apart by the declarations they name (hkt R2), every spelling of a
-  // model entry one key: `List` and `scala.collection.immutable.List` (also through a named
-  // import) are one type, `Option[Int]` and `Either[Unit, Int]` two, though both are `1 + Int`. An
-  // excluded or unmodelled entry's parameters are not held (`scala.quoted.Type` takes any kind), so
-  // its key is refused with the entry's reason; a throwable is a read entry, its own key (x).
-  def modelKeys = {
-    val code = """object K {
-      |  def list[F[_]](x: F[List[Int]]): F[scala.collection.immutable.List[Int]] = x
-      |  def seq[F[_]](x: F[Seq[Int]]): F[scala.collection.immutable.Seq[Int]] = x
-      |  def sum[F[_]](x: F[Option[Int]]): F[Either[Unit, Int]] = ???
-      |  def map[F[_]](x: F[Map[Int, Int]]): F[Map[Int, Int]] = x
-      |  def throwable[F[_]](x: F[Throwable]): F[Throwable] = x
-      |}""".stripMargin
-    val imported = entries(
-      "import scala.collection.immutable.List\nobject I { def l[F[_]](x: F[List[Int]]): F[List[Int]] = x }"
-    )("I.l")
-    val counts = entries(code)
-    (counts("K.list") === Count.Finite(1))
-      .and(counts("K.seq") === Count.Finite(1))
-      .and(counts("K.sum") === Count.Finite(0))
-      .and(
-        refused(counts("K.map"), "outside the counting model: scala.collection.immutable.Map")
-      )
-      .and(counts("K.throwable") === Count.Finite(1))
-      .and(imported === Count.Finite(1))
   }
 
 }

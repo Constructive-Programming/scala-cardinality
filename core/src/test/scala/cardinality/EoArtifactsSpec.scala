@@ -104,8 +104,14 @@ class EoArtifactsSpec extends Specification with AfterAll {
     Tsv
       .rows(Tsv.table(EoCheckout.MethodColumns, written))
       .map(row => (row("signature"), row("unresolved_reasons"))) === List(
-      ("f(x: \"a  b\" & Int): Int", "unsupported intersection relationship: \"a  b\" & Int"),
-      ("f(x: \"a b\" & Int): Int", "unsupported intersection relationship: \"a b\" & Int")
+      (
+        "f(x: \"a  b\" & Int): Int",
+        "\"a  b\" & Int: singleton and intersection types are not resolved"
+      ),
+      (
+        "f(x: \"a b\" & Int): Int",
+        "\"a b\" & Int: singleton and intersection types are not resolved"
+      )
     )
   }
 

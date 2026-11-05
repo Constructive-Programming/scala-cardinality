@@ -11,9 +11,8 @@ the compiler). Executable: `SyntaxFeaturesSpec`, `ContextBindersSpec`, `InlineMe
 ## Named tuples are the products of their fields
 
 **Rule.** `(x: A, y: B)` reads as the product `A × B`, and so does
-`scala.NamedTuple.NamedTuple[("x", "y"), (A, B)]` through the stdlib model (D16). As an argument
-of a rigid constructor it keys as `NamedTuple[TupleN[names], TupleN[types]]`, the names being
-`String` literal types. A match type is stuck on one.
+`scala.NamedTuple.NamedTuple[("x", "y"), (A, B)]` through the stdlib model (D16). A match type is
+stuck on one.
 
 **Derivation.** SIP-58 and the reference page *Named Tuples* (\[4\], **inspected**): "`NamedTuple`
 is an opaque type alias of its second, value parameter", with `toTuple` and positional and named
@@ -35,13 +34,10 @@ it compiles to `Int`). The stored-value side's reading of that spelling is uncha
 ## Literal types have one value
 
 **Rule.** A literal type (`1`, `-1`, `1L`, `0.5`, `'c'`, `"a"`, `true`) is a singleton with no
-widened binding: a goal of it has one implementation, an input of it adds nothing. Its key, as a
-rigid constructor's argument, is its class and constant. A union of literal types is the set of
-its distinct constants; beside a class it is refused or read by runtime class, as unions are
-(D13), the literal carrying its own class. A literal type is a closed space of one point and a
-union of literals one of as many points as constants, so a function into or out of one is counted
-like one over `Unit` or a sum of case objects (`def fnIn(g: 1 => Boolean): Boolean` = 4, `def
-k1(g: (true | false) => Boolean): Boolean` = 16). A call whose type argument makes its result a
+widened binding: a goal of it has one implementation, an input of it adds nothing. A literal type
+is a closed space of one point, so a function into or out of one is counted like one over `Unit`
+(`def fnIn(g: 1 => Boolean): Boolean` = 4). A union of literal types is refused: a literal has no
+runtime class this reading tells apart (D13). A call whose type argument makes its result a
 literal type is widened to the literal's class, as Scala widens an inferred result (`def call2(x:
 Boolean) = idc[1](1)` with `def idc[T](t: T): T` is an `Int`, `2^64`).
 
@@ -50,45 +46,33 @@ denotes the single literal value `lit`"; SIP-23 (\[3\], **inspected**): literals
 designate "the corresponding singleton type". `null` is not a value of one (Scala 3.9.0 rejects
 `def nul: "a" = null`, fixture `m3`), so no null-free premise is needed. The value is a literal of
 a transparent ground type (D9), which any body can write, so an input of it changes no count:
-`def f(x: 3): Int` has the `2^32` functions of a one-point domain, never `2^(2^37)`. A union of
-literals holds exactly their constants. Literal patterns (ground equality, D9) tell constants of
-one class apart, and a class test those of different classes, which cooperative equality would
-conflate: `case 1` matches `1L` and `case 97` matches `'a'` (fixture `a5-gate-review eq` prints
-`(lit1,lit97)`). So `def u(x: 1 | 2): Boolean` = 4, and `lng(x: 1 | 1L)` and `chi(x: 'a' | 97)`
-are 4 as well. Constants compare as Scala compares them: `1` and `1L` differ, a floating constant
-is the value its spelling rounds to at its own width, compared by its bits as `equals` compares
-it. A value of a closed space only yields closed values, each a literal the empty environment
-builds, and a literal type's one value is such a literal: so its function space is the
-codomain's raised to one, as for `Unit`. Scala types an inferred result by widening a singleton
-standing alone or in a union (fixture `review-A5 r2 inf3`: `def t: 1 = call2(true)` finds an
-`Int`; `opt[1](1)` keeps its `Option[1]`), and the instantiated shape shows where a type argument
-put one.
+`def f(x: 3): Int` has the `2^32` functions of a one-point domain, never `2^(2^37)`. Literal
+patterns (ground equality, D9) tell constants of one class apart, and a class test those of
+different classes, which cooperative equality would conflate: `case 1` matches `1L` and `case 97`
+matches `'a'` (fixture `a5-gate-review eq` prints `(lit1,lit97)`). Constants compare as Scala
+compares them: `1` and `1L` differ, a floating constant is the value its spelling rounds to at its
+own width, compared by its bits as `equals` compares it. A value of a closed space only yields
+closed values, each a literal the empty environment builds, and a literal type's one value is such a
+literal: so its function space is the codomain's raised to one, as for `Unit`. Scala types an
+inferred result by widening a singleton standing alone or in a union (fixture `review-A5 r2 inf3`:
+`def t: 1 = call2(true)` finds an `Int`; `opt[1](1)` keeps its `Option[1]`), and the instantiated
+shape shows where a type argument put one.
 
 **Limits.** scalameta reads `-0.0` as `0.0`, and the two are different types, so a floating zero
 is refused (`literal type of a floating zero not read (its sign is not kept): 0.0`). `1 | Int` is
-`Int`, which the union reading refuses (two alternatives share runtime class `java.lang.Integer`).
+`Int`, which the union reading refuses.
 A call instantiated with a value's singleton, or with a union of literals, is widened to a type
 this reading does not compute (`inferred result type not resolved: singleton result of a call of
 idc`).
 
 ## Context functions are functions whose binders are givens
 
-**Rule.** `T ?=> R` reads as `T => R`. The parameters of the chain of context functions a
-definition's result starts with are contextual candidates nested inside it: between its
-parameters and its body, each `?=>` of the chain one level deeper than the last, the binders of
-one clause at one level (two of one type are ambiguous). The chain is followed where Scala follows
-it — transparent aliases with their arguments, applied type lambdas (also curried applications
-such as `Alias[F][X, A]`), a constructor an argument supplies, a type member as seen from the
-receiver, the overridden declaration's result for a member without one. For the target they are
-the arguments of its result, which an explicit literal names: an anonymous evidence they may
-shadow is refused by the anonymous-evidence rule (D10, `anonymous evidence selection not resolved:
-A (overlaps context function binder A)`). For an enclosing definition they are anonymous evidence
-of everything nested in its body, reached only through implicit search, so the same rule refuses
-one that a deeper binder, a nested `using`, a local given or a nested definition's own binder may
-shadow, and two of one clause are ambiguous. A candidate — evidence, binder or named `using` —
-whose type is a context function `A ?=> R` also answers searches for `R`, and a search for
-`A ?=> R` finds a plain `R`: the rule compares every type a search may select a candidate for,
-so `(using A ?=> B)(using B)` refuses both. An expression without an expected type that yields a
+**Rule.** `T ?=> R` reads as `T => R`. The chain of context functions a definition's result starts
+with is followed where Scala follows it — transparent aliases with their arguments, applied type
+lambdas (also curried applications such as `Alias[F][X, A]`), a constructor an argument supplies, a
+type member as seen from the receiver. Since the corpus-coverage prune a chain that reaches a
+context function is refused (`context function not read: …`): its binders, contextual candidates
+nested inside the definition, are not read. An expression without an expected type that yields a
 context function — a call, an ascription — is applied where it is written, so it is no inferred
 result.
 
@@ -123,21 +107,15 @@ applied to a found given, so `def asc = (k: Boolean ?=> Boolean)` is a `Boolean`
 returning one is. Related work: Odersky et al. 2018, *Simplicitly* (PACMPL 2, POPL),
 **metadata-verified**.
 
-**Limits.** An overlapping binder or evidence is refused, never dropped: a concrete given computed
-from it would still reach it. So `def g[A](using A): A ?=> A` (true 1), `two[A]: A ?=> A ?=> A`'s
-local `g: A` (true 1) and `(A, A) ?=> A`'s local definitions read `?`, as do `a4[A, B](using A ?=>
-B)(using B)(a: A): B` (true 1: with no given `A` the plain `B` is reachable), `a8[A, B](using
-A)(using k: A ?=> B)(using B): B` (true 1) and `b1` (true 1). A chain the reading does not
-follow is taken, for this comparison, to be context functions all the way down its shape. The
-chain stops with its reason — and refuses the definitions nested in an enclosing method — at a match type, a
-projection, a path, a refinement of a context function, an applied inherited alias, an alias or
-lambda applied to the wrong number of arguments, `ContextFunctionN` spelled by name, a name not
-supplied or not declared at all, a type parameter an `extends` clause substituted with a function
-(its argument reaches the reading as a shape that has lost `?=>`), an application left over after
-a match type or another form (`M[Int][Boolean]`: `context function behind an applied type not
-read`) or applied to a curried type parameter (`G[Int][Boolean]`: `context function behind an
-applied type parameter not read`), or a value or variable whose type is inferred. Context
-functions are not keyed under rigid constructors.
+**Limits.** The chain stops with its reason — and refuses the definitions nested in an enclosing
+method — at a match type, a projection, a path, a refinement of a context function, an applied
+inherited alias, an alias or lambda applied to the wrong number of arguments, `ContextFunctionN`
+spelled by name, a name not supplied or not declared at all, a type parameter an `extends` clause
+substituted with a function (its argument reaches the reading as a shape that has lost `?=>`), an
+application left over after a match type or another form (`M[Int][Boolean]`: `context function
+behind an applied type not read`) or applied to a curried type parameter (`G[Int][Boolean]`:
+`context function behind an applied type parameter not read`), or a value or variable whose type is
+inferred. Context functions are not keyed under rigid constructors.
 
 ## Inline methods count as methods unless their body uses a compile-time operation
 
@@ -183,8 +161,7 @@ Every other inline method is refused with what failed, after the prefix `inline 
 - `is an abstract inline declaration, with no body to check`, and `implements the abstract inline
   declaration T.f, which has no body to check` (conservative: the implementation's own body is not
   read through the declaration);
-- `calls scala.Predef.valueOf, an inline method not supplied`, and a name the reading cannot
-  resolve (`reads Lib, a declaration not supplied: ext.Lib (import of Lib)`);
+- a name the reading cannot resolve (`reads Lib, which may be bound outside the sources: …`);
 - `selects f on b, which a call site may type as a subclass of Base that overrides f inline` for a
   member an expansion may re-select (below).
 
@@ -198,10 +175,10 @@ excluded, and so does `scala.quoted`, as A5 left them (next section).
 method's and enclosing parameters, a template's own and inherited members, imports, other files
 of the package, then the root imports. A call must reach a supplied method that is not inline, a
 supplied inline method that passes, or a member of the library table. The table lists the
-regular methods of `Any`, the scalar classes, `String`, `Array`, `Option`, `Either`, the function
-classes, the tuple fields, `Some`, `None`, `Left`, `Right`, `NonFatal` and `math`. The Scala 3.9.0
-compiler, reading the library's TASTy, finds no inline member in any of them; `Predef`'s inline
-members (`assert`, `eq`, `ne`, `nn`, `runtimeChecked`, `summon`, `valueOf`) and `Tuple`'s inline
+regular instance methods of `Any`, the scalar classes, `String`, `Array`, `Option`, `Some`,
+`Either`, `Left`, `Right`, the function classes and the tuple fields. The Scala 3.9.0 compiler,
+reading the library's TASTy, finds no inline member in any of them; `Predef`'s inline members
+(`assert`, `eq`, `ne`, `nn`, `runtimeChecked`, `summon`, `valueOf`) and `Tuple`'s inline
 operations (`head`, `size`, `++`, …) are left out (fixture a6 `inventory`). Anything else refuses.
 This covers an unsupplied parent or self type that may declare the name, an export, a wildcard
 import the reading cannot list, an extension method, an import inside the body, and a `for`
@@ -266,14 +243,12 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
 - A runtime class reified from a type variable: Scala substitutes the type arguments into an
   expansion.
   Fixture a6 `b1`: `x.isInstanceOf[A]` is false for `isA[String](1)`, and true in the
-  corresponding method. A type test whose erased class depends on a type parameter or an abstract
-  type refuses: `tests the type A at run time, which each expansion instantiates`. An array's
-  class is its element type's (fixture review-A6 h5: `isArr[Int](Array("a"))` is false,
-  `isArr[String]` true), so `Array[A]` refuses, and an alias is read where it is declared, its
-  class's type parameters as variables (`type TA = Array[A]` in `class C[A]`). `classOf` reifies
-  the same way (fixture review-A6 r2 `c2`: `intArr[Int]` is true and `intArr[String]` false for
-  `isIntArr(classOf[Array[A]])`, where the method's erased array is never `Array[Int]`'s class),
-  so its type argument is read like a tested type: `reifies with classOf the class of Array[A] …`.
+  corresponding method. An array's class is its element type's (fixture review-A6 h5:
+  `isArr[Int](Array("a"))` is false, `isArr[String]` true). `classOf` reifies the same way
+  (fixture review-A6 r2 `c2`: `intArr[Int]` is true and `intArr[String]` false for
+  `isIntArr(classOf[Array[A]])`, where the method's erased array is never `Array[Int]`'s class).
+  Neither `isInstanceOf` nor `classOf` is in the library table, so every type test and every
+  `classOf` refuses.
 - A given the body leaves to implicit search: the given chosen where the method is written may be
   an inline one, expanded at each call site. Fixture a6 `b1`: `viaGiven` prints "default", then
   "callsite"; fixtures review-A6 h4 and h7 show the same through an extension group's `using`
@@ -281,67 +256,26 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   eta-expanded method with a `using` clause (1, then 5). A call that leaves a contextual clause, a
   context bound or an extension group's clause to the compiler refuses, and so does a reference
   applied to fewer clauses than a contextual one (eta-expansion fills it), `summon` and
-  `implicitly`. A local method or given is a callee like a supplied one (fixtures review-A6 r2
-  `l4`, `l6`: a local `def read(using f: Flag)` called as `read`, or with a context bound, prints
-  true, then false), and its parameter defaults are read as part of the body (`l5`: a default
-  calling an inline `summonFrom` method prints 5, then 9). A value of a context function type is
-  refused unless applied with an explicit
-  `using` clause, and so is any context function type the body writes, a context function
-  literal, a callee whose signature holds one, and a result that holds one: every value of such a
-  type is applied by implicit search wherever it is read where no context function is expected,
-  and the reading does not type the expected types of lambda parameters and pattern variables.
+  `implicitly`.
 - An inserted extension or conversion. When no member of the selected name applies to the
   arguments, Scala tries an extension or a conversion of that name. Fixture a6 `fb`: `r.m(5)`
   takes an inline extension `m(Int)` beside the member `m(String)`, and prints 2, then 9 under a
-  call-site given. An extension that restates the member never answers, since the member applies
-  wherever it would: for `q.m(args)` with `q` of a final supplied class C, its own public member
-  m among the alternatives the selection finds (others only add ways for a member to apply), of
-  one plain value clause the call fills, every extension of the name the body may meet either
-  takes a supplied receiver class that is no base class of C, or takes an invariant base class R
-  of C — C itself or a direct parent — with each of the group's binders spelled once in the
-  receiver, no binder, default or repeated parameter of its own, and one value clause whose
-  parameter names, and whose types read with the binders bound to C's base-type arguments, are
-  the member's (by resolved identity). A receiver type headed by a type parameter — the group's
-  own, or one of a scope around it — is no class, whatever class shares its name: `extension
-  [Other](x: Other)` applies to anything, so it keeps the reason (`binderExtension`; a 3.9.0 run
-  shows its inline match reading the call's type). eo's `Getter.andThen`, `BijectionIso.andThen`
-  and `Review.andThen` are 1 (`inner.get` / `inner.reverseGet` restate `Optic`'s inline
-  extensions). A covariant receiver, swapped base arguments, a binder of the method's own, other
-  parameter names or a private member keep the reason (`InlineMethodsSpec.restatedExtension`:
-  `Swapped.twice`, `PolyGetter.again`, `Named.call`, `Hidden.call`, `Use.same`; a session
-  fixture, Scala 3.9.0, not retained, shows a result the member misses is a type error, never
-  the extension). A conversion is inserted wherever an expression's type does not conform (Scala
+  call-site given. A conversion is inserted wherever an expression's type does not conform (Scala
   3 reference, *Implicit Conversions*, classical here; not re-verified in this session). A
   conversion is read by its type, not its spelling: a given or implicit value of `scala.Conversion`
-  (through an alias or a renaming import) or of a supplied class extending it, an implicit object
-  extending it, an implicit method of one value clause, an implicit class; it is inline when it
-  is an inline given or method or when the `apply` it runs is (fixture review-A6 h10: `given
-  toTag: Conversion[Int, Tag] with inline def apply` prints "none", then "abcd"). A conversion or
-  extension counts where Scala may find it from the body: in an enclosing scope or an inherited
-  template, through an import of the body's scopes, or in an implicit scope — every member of an
-  object holding a type or companion to one, of a class, trait or given instance, of a package
-  declaring an opaque type — and one the body or a method around it declares, and what an export
-  clause defines again in a scope found so (an export defines aliases, D11; fixture a6-fix1b
-  `ex2`: an exported given and a given local to the body each expand RichR's inline `m`, 2, then
-  9); never one local to another method. So an applied selection refuses
-  when such an inline or contextual extension of the name, or any such conversion, exists — the
-  reason says the arguments are not typed, since the member may well apply. A body refuses when
-  such an inline conversion exists, or when a channel outside the sources (an unsupplied wildcard
-  import, parent or self type) is open at the method (`may expand an implicit conversion from
-  outside the sources (…)`). The one exception is a body that returns one of the method's
-  parameters whose declared type is the declared result, aliases visible there unfolded: nothing is
-  inserted around it.
-
-**Definitions inside the body.** A local method, given alias, object or given instance is read
-under its own frame, as the index reads a supplied one: its type parameters are its own, its
-clauses, defaults and declared types are read where it is written, and a call of it is checked
-like a call of a supplied method. Inside an anonymous class, a local class or a local given
-instance, `this` and the names the template inherits are that template's (fixture review-A6 r2
-`a1`: `run(new Mid { def k = this.h })` expands Mid's inline `h`, 5 then 9, though the enclosing
-object declares a plain `h`). An anonymous class and a given instance are closed; a local class a
-local subclass may extend is open. A local type named like a type the reading resolves outside the
-body refuses (`declares the local type Fn, which hides a type of that name …`): the reading would
-take the outer one.
+  (through an alias or a renaming import) or of a supplied class extending it, or an implicit
+  method of one value clause; it is inline when it is an inline given or method or when the
+  `apply` it runs is (fixture review-A6 h10: `given toTag: Conversion[Int, Tag] with inline def
+  apply` prints "none", then "abcd"). A conversion counts where Scala may find it from the body:
+  in an enclosing scope or an inherited template, through an import of the body's scopes, or in an
+  implicit scope — every member of an object holding a type or companion to one, of a package
+  declaring an opaque type — and one the body or a method around it declares; never one local to
+  another method. So every applied selection refuses: the reason names such a conversion, or says
+  an extension or a conversion may answer. Every body refuses too, naming such an inline
+  conversion when one exists (`may expand an implicit conversion this check does not place`
+  otherwise). The one exception is a body that returns one of the method's parameters whose
+  declared type is the declared result, aliases visible there unfolded: nothing is inserted
+  around it.
 
 Related work: Stucki, Biboudis & Odersky 2018 and Stucki, Brachthäuser & Odersky 2021 (GPCE,
 **metadata-verified**), background on macros that generate and analyse code.
@@ -353,22 +287,15 @@ outside the sources brings. Either could be selected because a member does not a
 is seen. A given of the sources whose class is declared outside them is not read as a conversion
 either: the class's parents are not supplied. A thrown expression is not read: with no side
 effects (D26) what an expansion throws changes nothing counted. An inline method whose body applies
-a member whose name an inline or contextual extension of the sources also declares is refused,
-even where the member applies (eo's `Getter.andThen`,
-`BijectionIso.andThen` and `Review.andThen` apply `get` and `reverseGet`, which `Optic`'s inline
-extensions also declare). Lambda parameters without a type, pattern variables and results of
-library methods outside a small result table are not typed, so a selection on them refuses. A
+a selected member is refused, even where the member applies. Lambda parameters without a type,
+pattern variables and results of library methods are not typed, so a selection on them refuses. A
 member of a sealed class selected on a parameter is refused although every subclass is supplied
 (conservative: the subclasses' overrides are not read). A conversion's visibility is
-over-approximated (an import is matched by its last segment; every class's, trait's and given's
-members count), so some bodies refuse for a conversion Scala would not consider. A transparent
-result is refused unless its type is a singleton, even where no stable path of the type exists. A
-local class, trait or enum is read through its companion and its own body only: a value of its
-type has no members this reading resolves, so a selection on one refuses. A passing body goes to
-the solver like its `def` twin (eo's `MendTearPrism.getOption` / `replace` 2, `PickMendPrism.replace`
-16, `PickFold.andThen` 2 through D25's sum elimination), but a receiver holding a deferred inline
-member keeps D24's refusal in an inline target, even one whose body never calls it (conservative:
-`InlineScopesSpec.deferredMembers`).
+over-approximated (an import is matched by its last segment), so some bodies refuse for a
+conversion Scala would not consider. A transparent result is refused unless its type is a singleton,
+even where no stable path of the type exists. A passing body goes to the solver like its `def` twin,
+but a receiver holding a deferred inline member keeps D24's refusal in an inline target, even one
+whose body never calls it (conservative: `InlineScopesSpec.deferredMembers`).
 
 ## Type-revealing evidence and quoted code are refused
 

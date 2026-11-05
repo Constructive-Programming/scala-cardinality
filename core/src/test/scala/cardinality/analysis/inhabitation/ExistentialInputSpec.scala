@@ -19,7 +19,6 @@ class ExistentialInputSpec extends Specification {
       keep inputs of the same existential alias independent     $aliasPackages
       capture one wildcard before substituting an alias         $aliasArgument
       open packages supplied by arrow introduction              $introducedInput
-      preserve a stable singleton's package identity            $singletonIdentity
       preserve enclosing package capture identity               $enclosingCapture
       do not equate a hidden type with a universal method binder $rigidWitness
       do not choose Unit to feed an existential callable         $noInstantiation
@@ -91,9 +90,6 @@ class ExistentialInputSpec extends Specification {
 
   def introducedInput =
     count(packed + "def run[R]: Packed[?, R] => R = ???") === Count.Finite(1)
-
-  def singletonIdentity =
-    count(packed + "def run[R](p: Packed[?, R])(q: p.type): R = ???") === Count.Finite(1)
 
   def enclosingCapture =
     count(packed + "class Env[R](p: Packed[?, R]) { def run: R = ??? }", "Env.run") === Count

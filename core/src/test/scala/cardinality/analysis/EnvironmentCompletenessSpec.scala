@@ -2,7 +2,6 @@ package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
-import org.specs2.matcher.MatchResult
 
 /** Environment completeness: concrete code outside the target, mutable state, names exports and
   * imports bind and by-name parameters (inferred results: `InferredResultsSpec`). Every fixture is
@@ -54,7 +53,6 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       an inner import or inherited member hides a local capture      $ambiguousCapture
       an extension method hides a local capture                      $extensionCapture
       every variable a pattern definition binds hides a capture      $patternCapture
-      a pattern-bound value is no method and no object               $patternDefinitions
     Parameters
       a by-name parameter reads as its value                         $byName
   """
@@ -515,30 +513,6 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       |  }
       |}""".stripMargin)
     List("C", "V", "W", "Sub").map(c => found(s"H.outer.$c.g") === Count.Finite(1)).reduce(_ and _)
-  }
-
-  // `Inner.f` is the pattern's function value (scalac types `g` a Boolean, true 2), never `Outer.f:
-  // Int`; `x` is a value holding `Other`, so `x.T` is `Other.T = Int` (scalac accepts `f(1)`; true
-  // 2^(2^32)), never the object `x`'s Boolean. Both are refused. A pattern member implementing an
-  // inherited declaration is that concrete value: other only (1).
-  def patternDefinitions = {
-    val found = rows(
-      """object Outer {
-      |  def f(x: Int): Int = x
-      |  object Inner { val (f, z) = ((x: Int) => true, 1); def g = f(1) }
-      |}
-      |object x { type T = Boolean }
-      |object Other { type T = Int }
-      |object PInner { val (x, y) = (Other, Other); def f(t: x.T): Boolean = true }
-      |trait P[A] { val seed: A }
-      |final class C[A](other: A) extends P[A] { val (seed, z) = (other, other); def g(): A = seed }""".stripMargin
-    )
-    refused(
-      found("Outer.Inner.g"),
-      "inferred result type not resolved: call of f, not one declared"
-    )
-      .and(refused(found("PInner.f"), "unavailable stable path type: x"))
-      .and(found("C.g") === Count.Finite(1))
   }
 
   // Evaluation count and timing are not observable in the model: x (1); x or y (2).

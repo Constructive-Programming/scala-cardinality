@@ -1,6 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.annotation.unused
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Resolved}
@@ -20,8 +19,8 @@ private[cardinality] object SingletonIntersections {
 
   def resolve(
       syntax: Type,
-      @unused context: ResolutionContext,
-      @unused resolver: Resolver
+      @annotation.unused context: ResolutionContext,
+      @annotation.unused resolver: Resolver
   ): Resolved = Left(s"${Spelling.of(syntax)}: singleton and intersection types are not resolved")
 
   /** A singleton identity is not rechecked at the use site, so it is refused. */

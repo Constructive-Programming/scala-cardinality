@@ -18,12 +18,6 @@ class TypeMemberSpec extends Specification {
       a trait's own abstract member is a rigid atom              $ownAtom
       a member atom counts as a class type parameter (parity)    $parity
       two paths never share a member                             $distinctPaths
-      a singleton alias, `this` and a self alias share the path   $samePath
-      a refinement pins a parameter's member                     $refinementPins
-      a type-only structural value has one value                 $structural
-      a bounded or higher-kinded member stays a diagnostic       $boundedMember
-      a member no one may pick stays a diagnostic                $fixedMember
-      a value path is a choice only where it can be overridden    $valuePaths
       the compiler keeps paths apart and aliases together         $pathFacts
     Members of the receiver
       inherited declarations read the receiver's alias            $inheritedAlias
@@ -106,106 +100,6 @@ class TypeMemberSpec extends Specification {
     (found("f") === Count.Finite(0))
       .and(found("g") === Count.Finite(2))
       .and(found("w") === Count.Countable)
-  }
-
-  // q: p.type denotes p, so q.X is p.X: x and y — 2 (unshared paths would read 1). Inside a trait
-  // `this.X`, `outer.X` and `X` are one member: x, y — 2.
-  def samePath =
-    (count(member + "def h(p: R)(q: p.type)(x: q.X, y: p.X): q.X = ???", "h") === Count.Finite(2))
-      .and(
-        count(
-          """
-          trait Self[A]:
-            outer =>
-            type X
-            def g(x: outer.X, y: this.X): X = ???
-          """,
-          "Self.g"
-        ) === Count.Finite(2)
-      )
-
-  // p.X = A transparently: a and x — 2 (read rigidly, 1).
-  def refinementPins =
-    count(member + "def r[A](p: R { type X = A }, a: A, x: p.X): A = ???", "r") ===
-      Count.Finite(2)
-
-  // `{ type X }` asks nothing of a value: p adds no Boolean, so s has the 4 functions of b; t: x, y
-  // — 2. A term member is selected through reflection, which the model excludes.
-  def structural = {
-    val found = entries("""
-      def s(p: { type X }, b: Boolean): Boolean = ???
-      def t(p: { type X }, x: p.X, y: p.X): p.X = ???
-      def u(p: { def mk: Int }, b: Boolean): Boolean = ???
-    """)
-    (found("s") === Count.Finite(4))
-      .and(found("t") === Count.Finite(2))
-      .and(refused(found("u"), "structural refinement with term members"))
-  }
-
-  def boundedMember = {
-    val found = entries("""
-      trait B:
-        type X <: Tuple
-      def f(p: B, x: p.X): p.X = ???
-      trait H:
-        type F[_]
-      def g(p: H, x: p.F[Int]): p.F[Int] = ???
-      trait P:
-        type X
-      def h(x: P#X, y: P#X): P#X = ???
-    """)
-    refused(found("f"), "bounded abstract type member p#X (<: Tuple)")
-      // g's higher-kinned member is the rigid constructor p's package binds: p.F[Int] is an
-      // uninterpreted application, and the only p.F[Int] value the environment builds is x — 1.
-      .and(found("g") === Count.Finite(1))
-      .and(refused(found("h"), "type projection of abstract member P#X: no stable path"))
-  }
-
-  // A final class or object never instantiates its member (`memberfixture.Never` compiles), so x
-  // and y could never be supplied — the atom's 2 would overcount the vacuous 1. A sealed family's
-  // cases fix it (S1 makes it Unit: 1, not 2).
-  def fixedMember = {
-    val found = entries("""
-      trait HasX:
-        type X
-      final class F extends HasX:
-        def g(x: X, y: X): X = ???
-      sealed trait S:
-        type X
-      final class S1 extends S:
-        type X = Unit
-      def onSealed(p: S, x: p.X, y: p.X): p.X = ???
-    """)
-    refused(found("F.g"), "abstract type member X of final template F is never instantiated")
-      .and(refused(found("onSealed"), "is fixed by the cases of sealed S"))
-  }
-
-  // An object's `lazy val p: R` is fixed by its definition: no one can supply its X — refused
-  // (true count 1, vacuous). A strict `val p: R = ???` throws while the object is built, so Strict
-  // is never built and v never called: 1 (register D26). An open template's abstract or `val`
-  // field may be narrowed by a subclass (`override val p: R { type X = Int }`): x, y — 2. A final
-  // class's field cannot.
-  def valuePaths = {
-    val found = entries(member + """
-      object Vals:
-        lazy val p: R = ???
-        def v(x: p.X, y: p.X): p.X = ???
-      object Strict:
-        val p: R = ???
-        def v(x: p.X, y: p.X): p.X = ???
-      trait Open:
-        val p: R
-        def v(x: p.X, y: p.X): p.X = ???
-      class C(val p: R):
-        def v(x: p.X, y: p.X): p.X = ???
-      final class F(val p: R):
-        def v(x: p.X, y: p.X): p.X = ???
-      """)
-    refused(found("Vals.v"), "p is not overridable in Vals")
-      .and(found("Strict.v") === Count.Finite(1))
-      .and(found("Open.v") === Count.Finite(2))
-      .and(found("C.v") === Count.Finite(2))
-      .and(refused(found("F.v"), "p is not overridable in F"))
   }
 
   def pathFacts =

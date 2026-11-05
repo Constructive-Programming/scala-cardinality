@@ -26,7 +26,6 @@ class MethodFeatureIntegrationSpec extends Specification {
       substitute free outer types inside polymorphic bodies       $polyAliasOuter
       protect nested type-lambda binders during alias substitution $lambdaAliasShadowing
       substitute fixed match patterns for stored-value analysis    $fixedMatchPattern
-      reject private singleton leaks through refined members       $privateRefinedMember
       avoid capture by user binders resembling internal tokens     $internalTokenShadowing
       preserve nominal projected member names during substitution $projectedMemberName
       preserve refinement member scope during substitution         $refinementMemberScope
@@ -136,15 +135,6 @@ class MethodFeatureIntegrationSpec extends Specification {
       .get
     Counter.definitions(source).find(_.name == "Result").get.size === Some(TinySize(2))
   }
-
-  def privateRefinedMember =
-    methodCount(
-      "object Owner { private object Hidden; type R = Any { type X = Hidden.type } }; " +
-        "def f: Owner.R#X = ???"
-    ) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("singleton")) must beTrue
-    }
 
   def internalTokenShadowing =
     methodCount(

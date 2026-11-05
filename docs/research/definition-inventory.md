@@ -62,9 +62,7 @@ when its body passes that rule (no compile-time operation, transitively, and no 
 the call site) it counts as its given twin, otherwise it is refused with the inline method's reason. A row in any scope of an
 inline method's body (a block, function literal, case clause, comprehension, anonymous class) is
 copied into every expansion: it counts in its typing context when the method's body passes and
-carries `definition inside an inline method: …` when it does not
-(`DefinitionInventorySpec.inlineGivens`, `NestedScopesSpec.inlineOwners`, fixtures
-`$S/probes/b5-land`).
+carries `definition inside an inline method: …` when it does not (fixtures `$S/probes/b5-land`).
 
 **Values.** A `val` is a parameterless member: "a stable member can only be overridden by a stable
 member" (\[30\], *Overriding*), and a 3.9.0 fixture (`specfix/f08`) compiles a `val` implementing a

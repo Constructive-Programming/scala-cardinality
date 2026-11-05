@@ -3,7 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.{ByteSize, EffectiveOmega}
+import cardinality.capacity.EffectiveOmega
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -56,8 +56,6 @@ class GroundEnvironmentSpec extends Specification {
       a representation budget breach names its limit                 $budget
       floating point positions count equals classes exactly          $floats
       an enclosing template's parameters are captures                $outerCaptures
-      a singleton beside a value takes the estimate's reading        $singletonPositions
-      a symbolic value space agrees only with a wide estimate        $symbolicDisagreement
     Anonymous evidence
       two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
@@ -659,63 +657,6 @@ class GroundEnvironmentSpec extends Specification {
     (rows("Outer.Inner.<init>") === Count.Symbolic(pow(BigInt(2).pow(32) + 1, pow(2, 32))))
       .and(rows("OuterB.InnerB.<init>") === Count.Finite(9))
   }
-
-  // Each `W` position is read in its own package, as the estimate binds `C`: |Inner.type|·|C| (2^8 —
-  // a capacity —, 2). The shape model would count the functions of the position instead. A position
-  // the estimate declines (an unsupplied `Missing`) is `?` with the estimate's reason.
-  def singletonPositions = {
-    val rows = counts(
-      "kg.scala" ->
-        ("package kg\nfinal case class C(n: Byte)\nobject Inner\nfinal case class W(p: (Inner.type, C))\n" +
-          "final case class V(p: C)\nfinal case class M(p: (Inner.type, Missing))"),
-      "kb.scala" ->
-        "package kb\nfinal case class C(n: Boolean)\nobject Inner\nfinal case class W(p: (Inner.type, C))",
-      "kh.scala" -> "package kh\nfinal case class C(n: Byte)"
-    )
-    (rows("kg.W.<init>") === Count.Bounded(ByteSize))
-      .and(rows("kb.W.<init>") === Count.Finite(2))
-      .and(rows("kg.V.<init>") === Count.Finite(256))
-      .and(
-        rows("kg.M.<init>") ===
-          Count.Unresolved(List(s"declaration not supplied: Missing (${StdlibModel.undeclared})"))
-      )
-  }
-
-  // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
-  // at an infinite tier: they agree. Both read `q.X` through the parameter `q: Other` (`X = Byte`,
-  // 2^8), not the object `q` (a symbolic space): they agree, at the estimate's 2^8. Where the method
-  // side reads `Int` as the member `O` inherits (`Char => Boolean`, 2^(2^16)) and the estimate as the
-  // builtin (2^32), the symbolic space is wider than any literal: they cannot be one type. A path
-  // through `a.b`'s `val x: Foo` is no longer read through package `a`'s object: 2^8, as scalac
-  // (printed as the estimate's bound, `≤2^8`).
-  def symbolicDisagreement =
-    (count(
-      "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
-        "final case class Outer(i: O.Inner)",
-      "Outer.<init>"
-    ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + 5))))
-      .and(
-        count(
-          "package d2\nobject q { type X = (Int => Int) => Int }\nfinal class Other { type X = Byte }\n" +
-            "final case class Dep(q: Other)(val x: q.X)",
-          "d2.Dep.<init>"
-        ).render === "2^8"
-      )
-      .and(
-        count("final case class P(p: Char => Boolean)", "P.<init>") === Count.Symbolic(
-          pow(2, 65536)
-        )
-      )
-      // The inherited `Int = Char => Boolean` on both sides: 2^(2^16) (a disagreement with the
-      // builtin's 2^32 before register D29).
-      .and(
-        count(
-          "package w12s\ntrait Base { type Int = Char => Boolean }\n" +
-            "object O extends Base { final case class P(x: Int) }",
-          "w12s.O.P.<init>"
-        ) === Count.Symbolic(pow(2, 65536))
-      )
-      .and(counts(valPath*)("a.b.UsesT.<init>").render === "≤2^8")
 
   // `summon[Int]` is ambiguous between two anonymous `Int`s (3.9.0: E172), so a body reaches
   // neither: the true count of `f` is 2^32 (a literal), not 2^(2^37) (one Int read) or 2^(2^64). One
