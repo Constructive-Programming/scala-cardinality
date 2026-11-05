@@ -65,7 +65,7 @@ class ReportDependenciesSpec extends Specification {
     val file = Files.createTempFile("stubs", ".bin")
     val _ = Files.write(file, Array[Byte](0, 4, 'o', 'l', 'd', '!'))
     val read = StubFile.read(file)
-    (read.stubs must beEmpty).and(read.errors.mkString must contain("not cardinality-stubs/3"))
+    (read.stubs must beEmpty).and(read.errors.mkString must contain("not cardinality-stubs/4"))
   }
 
   "an empty classpath is the sources-only report" in {

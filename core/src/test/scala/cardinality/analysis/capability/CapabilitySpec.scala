@@ -53,6 +53,7 @@ class CapabilitySpec extends Specification {
       a composed-getter law reads its records                       $laws
       a `val` and a parameterless `def` of one name are one member  $oneSlot
       only `Any`'s members are universal (`canEqual` is not)        $universalRecord
+      a Product, Equals or Serializable parent declares nothing     $markerParents
       a parameterized parent's public fields are a trait's fields   $parentFields
       a passed parent's field is still overridable                  $passedParentField
     Records the reading refuses
@@ -627,6 +628,25 @@ class CapabilitySpec extends Specification {
       trait Eq2[A] { def x: A; def canEqual(that: Any): Boolean }
       object U { def eq2[A](e: Eq2[A]): Boolean = ??? }
     """)("U.eq2") === Count.Finite(4)
+
+  // `Product` and `Equals` declare only reflection over a value's fields and an equality test,
+  // outside the model like `Any`'s universal members: a trait listing them (scalameta's `Tree`
+  // does) is read as one that does not. U is the record of x: 2 values, so 2^2 maps to Boolean and
+  // 2^2 maps from it.
+  def markerParents = {
+    val found = one("""
+      trait U { def x: Boolean }
+      trait P extends Product with Serializable { def x: Boolean }
+      trait E extends Equals with java.io.Serializable { def x: Boolean }
+      object Use {
+        def u(a: U): Boolean = ???; def p(a: P): Boolean = ???; def e(a: E): Boolean = ???
+        def mkU(b: Boolean): U = ???; def mkP(b: Boolean): P = ???; def mkE(b: Boolean): E = ???
+      }
+    """)
+    List("Use.u", "Use.p", "Use.e", "Use.mkU", "Use.mkP", "Use.mkE")
+      .map(name => found(name) === Count.Finite(4))
+      .reduce(_ and _)
+  }
 
   // Every T is `new P(v) with T` for some v: t.p is a free Boolean — 4 (it read 2).
   def parentFields =

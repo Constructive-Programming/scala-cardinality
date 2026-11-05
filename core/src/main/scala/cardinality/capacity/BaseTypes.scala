@@ -55,6 +55,9 @@ private[cardinality] object BaseTypes {
     // A `String` holds what finite programs can type: countably many, the article's `String ~ ω`,
     // and the same space both halves of the report read.
     "String" -> EffectiveOmega,
+    // An arbitrary-precision number: countably many finite values, as a `String`.
+    "BigInt" -> EffectiveOmega,
+    "BigDecimal" -> EffectiveOmega,
     "Byte" -> ByteSize,
     "Short" -> ShortSize,
     "Char" -> CharSize,

@@ -15,7 +15,7 @@ import java.nio.file.{Files, Path}
 object StubFile {
 
   /** The rendering's version: bump it whenever a change to the renderer can change a stub. */
-  val Format = "cardinality-stubs/3"
+  val Format = "cardinality-stubs/4"
 
   /** Replaces the file: one a build cache restored may be a read-only link into its store. */
   def write(rendered: TastyStubs.Rendered, file: Path): Unit = {

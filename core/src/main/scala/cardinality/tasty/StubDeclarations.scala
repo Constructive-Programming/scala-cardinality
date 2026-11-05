@@ -4,6 +4,7 @@ import scala.util.control.NonFatal
 
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.*
+import tastyquery.Names.termName
 import tastyquery.Symbols.*
 import tastyquery.Types.*
 import tastyquery.{SourceLanguage, Trees}
@@ -96,7 +97,7 @@ final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassf
   private def levelModifiers(c: ClassSymbol): String = {
     val level = c.openLevel match {
       case OpenLevel.Final if !c.isModuleClass => "final "
-      case OpenLevel.Sealed                    => "sealed "
+      case OpenLevel.Sealed if childrenRead(c) => "sealed "
       case OpenLevel.Open                      => "open "
       case _                                   => ""
     }
@@ -109,12 +110,21 @@ final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassf
 
   private def skipped(s: Symbol): Boolean = s match {
     case t: TermSymbol =>
-      t.isSynthetic || t.isSetter || t.isModuleVal || t.name.toString.contains("$") ||
-      t.name.toString.startsWith("<") || (t.isParamAccessor && !t.isMethod)
+      t.isSynthetic || t.isSetter || scala2Setter(t) || t.isModuleVal ||
+      t.name.toString.contains("$") || t.name.toString.startsWith("<") ||
+      (t.isParamAccessor && !t.isMethod)
     case c: ClassSymbol      => c.isSynthetic || objectName(c).contains("$")
     case t: TypeMemberSymbol => t.isSynthetic || t.name.toString.contains("$")
     case _                   => true
   }
+
+  // A Scala 2 pickle flags a `var`'s setter as no setter: it is the `x_=` method beside a `var x`.
+  private def scala2Setter(t: TermSymbol): Boolean =
+    t.isMethod && t.name.toString.endsWith("_=") && (t.owner match {
+      case o: ClassSymbol =>
+        o.getDecl(termName(t.name.toString.stripSuffix("_="))).exists(_.kind == TermSymbolKind.Var)
+      case _ => false
+    })
 
   private def typeParam(t: TypeParamSymbol, types: StubTypes): String = {
     val variance = t match {
@@ -246,14 +256,25 @@ final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassf
     c.declarations.sortBy(d => (position(d), d.name.toString, signature(d)))
   }
 
-  private def attempt(text: => String, fallback: String): String =
+  private def attempt[A](text: => A, fallback: A): A =
     try text
     catch { case NonFatal(_) => fallback }
 
-  /** The primary constructor: the template's own, not one of the secondary `this` overloads. */
+  /** The primary constructor: the template's own, not one of the secondary `this` overloads. A
+    * class without a tree (Java, Scala 2) has its constructors in no order: the primary is the one
+    * whose parameters name every field a parameter sets, and when several do, none is chosen.
+    */
   private def primaryConstructor(c: ClassSymbol): Option[TermSymbol] =
-    attemptOption(c.tree.map(_.rhs.constr.symbol))
-      .orElse(ordered(c).collectFirst { case t: TermSymbol if t.name.toString == "<init>" => t })
+    attemptOption(c.tree.map(_.rhs.constr.symbol)).orElse {
+      val all = c.declarations.collect { case t: TermSymbol if t.name.toString == "<init>" => t }
+      val fields = c.declarations.collect { case t: TermSymbol if t.isParamAccessor => t.name }
+      def names(k: TermSymbol) = k.paramSymss.flatMap(_.left.toSeq.flatten).map(_.name).toSet
+      all.filter(k => fields.toSet.subsetOf(names(k))) match {
+        case _ if all.size <= 1 => all.headOption
+        case List(k)            => Some(k)
+        case _ => throw Unsupported(s"no primary constructor among ${all.size} of ${c.name}")
+      }
+    }
 
   private def attemptOption[A](value: => Option[A]): Option[A] =
     try value
@@ -335,7 +356,7 @@ final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassf
       else {
         // A context clause of the parent's constructor is filled by the compiler: not spelled.
         val explicit = parentClass(p).toList.flatMap(pc =>
-          primaryConstructor(pc).toList
+          attemptOption(primaryConstructor(pc)).toList
             .flatMap(_.paramSymss.collect {
               case Left(ps) => !ps.headOption.exists(x => x.isGivenOrUsing || x.isImplicit)
             })
@@ -390,6 +411,25 @@ final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassf
           else access + clauses.map(clause(_, types, Some(c))).mkString
         }
 
+  /** A sealed class's values are its children's, so each must be a declaration a stub renders. A
+    * local or anonymous child is none (a Scala 2 pickle records one as the class itself): the class
+    * is then neither sealed nor read, rather than read as fewer children.
+    */
+  private def childrenRead(c: ClassSymbol): Boolean = {
+    def rendered(s: Symbol): Boolean = s match {
+      case _: PackageSymbol => true
+      case k: ClassSymbol   => !skipped(k) && rendered(k.owner)
+      case _                => false
+    }
+    java(c) || attempt(
+      c.sealedChildren.forall {
+        case k: ClassSymbol => k != c && rendered(k)
+        case t: TermSymbol  => !t.name.toString.contains("$") && rendered(t.owner)
+      },
+      false
+    )
+  }
+
   /** A class, object, trait or enum with its body. A fragment that has no spelling here (a parent,
     * the constructor, the type parameters, the self type) is not dropped: the class then extends
     * the undeclared `Spell.Unread`, so a reading of its members or parents refuses instead of
@@ -415,7 +455,8 @@ final private[tasty] class StubDeclarations(classfile: ClassSymbol => JavaClassf
     // A sealed Java class's permitted subclasses are not read: its values are not read either. An
     // enum is its constants, whatever subclasses their bodies compile to.
     val complete = ext.nonEmpty && self.nonEmpty && ctor.nonEmpty && tparams.nonEmpty &&
-      !(java(c) && (hiddenState(c) || c.isTrait) && classfile(c).sealedClass)
+      !(java(c) && (hiddenState(c) || c.isTrait) && classfile(c).sealedClass) &&
+      childrenRead(c)
     def extending(ps: List[String]) = if (ps.isEmpty) "" else " extends " + ps.mkString(", ")
     val unread = extending(List(Unread))
     val head =

@@ -208,6 +208,85 @@ class TastyStubsSpec extends Specification {
       )
   }
 
+  // Scala 2 declarations (scalameta's `io_2.13` and `common2_2.13` jars, from their pickles).
+
+  private val scala2Jars = List(
+    jarOf(classOf[scala.meta.io.AbsolutePath]),
+    jarOf(classOf[scala.meta.internal.SingletonReference[?]])
+  )
+
+  private lazy val scala2Stubs = TastyStubs.of(
+    (List(jarOf(classOf[Option[?]]), jarOf(classOf[scala.deriving.Mirror])) ++ scala2Jars).distinct,
+    scala2Jars.contains,
+    Set("scala.meta.io", "scala.meta.internal.io", "scala.meta.internal")
+  )
+
+  private val scala2Targets =
+    """package s
+      |import scala.meta.io.*
+      |import scala.meta.internal.io.*
+      |def path(a: AbsolutePath): Boolean = ???
+      |def classpath(c: Classpath): Boolean = ???
+      |def drop(c: Classpath): Unit = ???
+      |def out(o: OutputStreamIO[Boolean]): Boolean = ???
+      |def mkOut: OutputStreamIO[Boolean] = ???
+      |""".stripMargin
+
+  private val scala2Target =
+    MethodAnalysis.Input("s/S.scala", dialects.Scala3(scala2Targets).parse[Source].get)
+
+  private def scala2Methods(environment: List[MethodAnalysis.Input]) =
+    MethodAnalysis
+      .analyze(scala2Target :: environment)
+      .filter(_.path == scala2Target.path)
+      .map(e => e.name -> e.count)
+      .toMap
+
+  private lazy val throughScala2 = scala2Methods(scala2Stubs.inputs)
+
+  private def scala2Stub(name: String): String =
+    scala2Stubs.inputs.find(_.path.endsWith(s"/$name.scala")).fold("")(_.tree.syntax)
+
+  "every Scala 2 class renders to a stub that parses" in {
+    (scala2Stubs.errors must beEmpty).and(
+      scala2Stubs.inputs.map(_.path.split('/').last) must contain(
+        allOf("AbsolutePath.scala", "Classpath.scala", "OutputStreamIO.scala")
+      )
+    )
+  }
+
+  // `OutputStreamIO[Boolean]` is the record of its one abstract `write`, whose result is `Unit`:
+  // one value, so one way to build it and 2^1 maps to Boolean. Dropping a `Classpath` is one body.
+  "a reference to a Scala 2 class gets a count instead of `declaration not supplied`" in {
+    val unsupplied = scala2Methods(Nil)
+    List("s.drop" -> 1, "s.mkOut" -> 1, "s.out" -> 2)
+      .map((name, n) =>
+        (throughScala2(name) must_== Inhabitation.Count.Finite(n))
+          .and(unsupplied(name).toString must contain("declaration not supplied"))
+      )
+      .reduce(_ and _)
+  }
+
+  // `AbsolutePath` is a sealed case class whose one child is anonymous (`new AbsolutePath(p) {}`),
+  // which the pickle records as `<local child>`: read as sealed, it would hold no value at all.
+  "a sealed class with a child no stub declares is neither sealed nor read" in {
+    val path = scala2Stub("AbsolutePath")
+    (path must contain("abstract case class AbsolutePath(val toNIO: java.nio.file.Path) extends"))
+      .and(path must not(contain("sealed")))
+      .and(
+        List("s.path", "s.classpath")
+          .map(n => refused(throughScala2(n)) must beTrue)
+          .reduce(_ and _)
+      )
+  }
+
+  "a Scala 2 var's setter is the var's, not a method of its own" in {
+    val reference = scala2Stub("SingletonReference")
+    (reference must contain("class Ref[A](var ref: A)"))
+      .and(reference must not(contain("ref_=")))
+      .and(reference must contain("def value_=("))
+  }
+
   "a jar tasty-query cannot load renders nothing and says why, instead of failing the read" in {
     // `Box.class` alone: its `InnerClasses` attribute names `Box$Point`, which the jar lacks (as a
     // shaded jar can), so loading the jar's symbols throws.

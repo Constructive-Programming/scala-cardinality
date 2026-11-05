@@ -118,6 +118,8 @@ class ArticleCardinalitySpec extends Specification {
     Set[Boolean] is a powerset               ${tpe("Set[Boolean]") === TinySize(4)}
     Set[Option[Boolean]] is 2^3              ${tpe("Set[Option[Boolean]]") === TinySize(8)}
     finite subsets stay countable            ${tpe("Set[String]") === EffectiveOmega}
+    BigInt is countable                      ${tpe("BigInt") === EffectiveOmega}
+    BigDecimal is countable                  ${tpe("BigDecimal") === EffectiveOmega}
     a predicate on a countable domain        ${tpe("String => Boolean") === EffectiveOmega} (ℵ₀)
     a function between countable types       ${tpe(
       "String => String"

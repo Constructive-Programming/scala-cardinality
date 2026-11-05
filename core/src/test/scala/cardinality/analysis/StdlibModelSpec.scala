@@ -37,7 +37,7 @@ class StdlibModelSpec extends Specification {
     Excluded and open declarations
       single-pass and equality-built types are outside the model     $excluded
       compile-time reflection is outside the model                  $quoted
-      Java collections name their FQN; throwables are data           $open
+      Java collections name their FQN; throwables, BigInt are data   $open
       a final class the model does not read is not called open      $finalUnmodelled
       an unapplied entry is an operator, applied where it is read   $unapplied
       a union does not discriminate a model sequence's class        $unionClass
@@ -352,12 +352,17 @@ class StdlibModelSpec extends Specification {
       |  def f[A](a: A): List[A] = ???
       |  def boxed(i: Integer): Boolean = ???
       |  def missing(b: Boolean): NoSuchElementException = ???
+      |  def big(b: Boolean): BigInt = ???
+      |  def decimal(b: Boolean): scala.math.BigDecimal = ???
       |}""".stripMargin
     // A throwable is built from any message (register D26): `new IllegalArgumentException(s)` for
     // each string s, which `getMessage` tells apart — ω, `java.util`'s `NoSuchElementException` too.
     (count(code, "O.boom") === Count.Countable)
       .and(refused(count(code, "O.f"), "open stdlib type with unmodelled members: java.util.List"))
       .and(count(code, "O.missing") === Count.Countable)
+      // An arbitrary-precision number is one of countably many literals, as a `String` is.
+      .and(count(code, "O.big") === Count.Countable)
+      .and(count(code, "O.decimal") === Count.Countable)
   }
 
   // `java.lang.Integer` is a final class whose members the table does not hold: unmodelled, not

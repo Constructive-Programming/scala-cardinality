@@ -62,7 +62,9 @@ implementations a method admits. Two consequences come up constantly in real cod
     returned in an `Either`.
 
 Other effects are excluded the same way: I/O, logging, divergence, a `null` that the type does
-not declare, unsafe casts and reflection. None of them is counted.
+not declare, unsafe casts and reflection. None of them is counted. The members of `Product` and
+`Equals` (`productElement`, `canEqual`, …) are reflection and equality tests, so a trait extending
+`Product with Serializable` counts as one without those parents.
 
 The calculator does not check that a body actually obeys this assumption. A result describes
 the pure, total implementations of a signature and the values of a type. The full statement is
@@ -219,19 +221,20 @@ is `ω + ω`, and a module with two `String => String` methods and one `String` 
 reached ω or beyond and which type names stopped it from being tighter.
 
 `cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
-`Compile / dependencyClasspath` from their compiled TASTy and Java `.class` files: each Scala 3
-and Java class of a dependency joins the environment as a signature stub
+`Compile / dependencyClasspath` from their compiled TASTy, Scala 2 pickles and Java `.class`
+files: each Scala 3, Scala 2 and Java class of a dependency joins the environment as a signature stub
 (`cardinality.tasty.TastyStubs`), so a row over a dependency's type gets a number, or a specific
 `?`, instead of `declaration not supplied`. Stubs are never measured or reported, supply no
 bodies, and nothing is rendered that the stdlib model reads: `scala` and the Scala library's own
 subpackages (`scala.collection`, `scala.util`, …), and the JDK classes the model holds
 (`java.lang.String`, `java.util.List`, `java.io.Serializable`, …). The rest of the JDK's `java.*`
 and `javax.*` classes render like a dependency's, and a library's own namespace under `scala`
-(`scala.meta`) is a dependency's too. Scala 2 classes stay unsupplied. When one class file is on
+(`scala.meta`) is a dependency's too. When one class file is on
 the classpath twice, the first copy the JVM would load is read; a shaded copy (TASTy that still
 declares its original package) is not read at all. A Java enum is its constants and a Java interface the record of its methods; a Java
 class's constructor state, a sealed Java type's subclasses and a raw type are not read, so a
-reading through them refuses. With stubs present, each target gets a fixed quota of
+reading through them refuses; so does a sealed class with a local or anonymous child, which no
+stub declares. With stubs present, each target gets a fixed quota of
 300,000 logical work steps. A stub that cannot be read is listed as `dependency stub not read`
 and refuses more, never differently. Choose the dependencies with `cardinalityDependencyClasspath`
 (`:= Nil` reads sources only); in the library, `Report.of(paths, classpath)` and
