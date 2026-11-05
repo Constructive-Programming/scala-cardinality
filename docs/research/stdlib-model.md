@@ -349,8 +349,9 @@ chooses only its parameters. A sealed template whose subtypes are all fixed rece
 (final classes, objects, sealed templates of such, with no anonymous or given instance) is one too:
 its own receiver's family is what stays unread (`receiver is a sealed family this measurement does not split: P`). The table
 summarizes the parents eo extends: the root and marker types (`Any`, `AnyRef`, `Object`,
-`Matchable`, `AnyVal`, `Serializable`, `Dynamic`) declare no member a count reads; `Product` and
-`Equals` declare no type member, but term members the table does not hold; `IterableOnce`
+`Matchable`, `AnyVal`, `Serializable`, `Dynamic`) declare no member a count reads, nor do `Product`
+and `Equals`, whose members are reflection over fields and an equality test (v1.md §2);
+`java.lang.Comparable` leaves `compareTo` abstract (JDK 25 class file); `IterableOnce`
 declares no type member, leaves `iterator` abstract and lets a subclass override `knownSize` and
 `stepper` (scala-library 2.13 class file), so an open owner must define all three (`inherited
 parent declaration not implemented: …iterator`, `inherited stdlib member a subclass may override:
@@ -430,4 +431,7 @@ dependency-sources mode).
   builtins as the rules above say.
 - scala-library 2.13 class file (`javap scala.collection.IterableOnce`) — **Inspected**:
   `iterator` abstract, `stepper` and `knownSize` default methods.
+- JDK 25 class file (`javap java.lang.Comparable`) — **Inspected**: `compareTo(T): Int`
+  abstract, its one member. The stored side reads it as a witnessed comparison, so the JDK's
+  rendered stubs leave it to this table (`CapabilitySpec.comparableParent`).
 - **Executable**: `StdlibModelSpec`, `SequenceEliminationSpec`, `RepeatedParameterFragmentSpec`.

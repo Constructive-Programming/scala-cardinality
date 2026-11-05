@@ -55,6 +55,7 @@ class CapabilitySpec extends Specification {
       `Any`'s and `Product`'s members are universal (`canEqual`)    $universalRecord
       a `canEqual` overridden under another parameter name is none  $renamedCanEqual
       a Product, Equals or Serializable parent declares nothing     $markerParents
+      a Comparable parent declares its compareTo                    $comparableParent
       a parameterized parent's public fields are a trait's fields   $parentFields
       a passed parent's field nothing overrides is its argument       $passedParentField
     Records the reading refuses
@@ -703,6 +704,23 @@ class CapabilitySpec extends Specification {
     List("Use.u", "Use.p", "Use.e", "Use.mkU", "Use.mkP", "Use.mkE")
       .map(name => found(name) === Count.Finite(4))
       .reduce(_ and _)
+  }
+
+  // `java.lang.Comparable[T]` declares one abstract `compareTo(T): Int`. K implements it, so K is
+  // the record of x: 2 values, 2^2 maps to Boolean. J leaves it to a subclass, whose compareTo the
+  // sources do not hold: refused by name, not as an unsupplied declaration.
+  def comparableParent = {
+    val found = one("""
+      trait K extends Comparable[K] { def x: Boolean; def compareTo(o: K): Int = 0 }
+      trait J extends java.lang.Comparable[J] { def x: Boolean }
+      object Use { def k(a: K): Boolean = ???; def j(a: J): Boolean = ??? }
+    """)
+    (found("Use.k") === Count.Finite(4)).and(
+      refused(
+        found("Use.j"),
+        "inherited parent declaration not implemented: java.lang.Comparable.compareTo"
+      )
+    )
   }
 
   // Every T is `new P(v) with T` for some v: t.p is a free Boolean — 4 (it read 2).

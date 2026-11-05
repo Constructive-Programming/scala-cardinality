@@ -550,7 +550,12 @@ private[cardinality] object StdlibModel {
       (name, s"scala.$name", Root.ScalaPackage)
     ) :+ ("Object", "java.lang.Object", Root.JavaLang)
 
-  private val markerSpelled: Map[String, String] = spelledBy(markers)
+  // `java.lang.Comparable[T]` (JDK 25, read with javap): one abstract `compareTo(T): Int`. The
+  // stored side reads it as a witnessed comparison (`witnesses`), so no JDK stub renders it.
+  private val comparable = "java.lang.Comparable"
+
+  private val markerSpelled: Map[String, String] =
+    spelledBy(markers :+ ("Comparable", comparable, Root.JavaLang))
 
   private val observations: Set[String] = Set("getMessage", "getLocalizedMessage", "getCause")
 
@@ -570,7 +575,7 @@ private[cardinality] object StdlibModel {
         Set("iterator"),
         Set("knownSize", "stepper"),
         listed = true
-      ))
+      )) + (comparable -> Summary(Set("compareTo"), Set.empty, listed = true))
   }
 
 }
