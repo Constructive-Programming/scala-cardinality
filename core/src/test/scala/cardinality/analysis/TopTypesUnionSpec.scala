@@ -600,7 +600,7 @@ class TopTypesUnionSpec extends Specification {
     val code = "object S { opaque type Age = Boolean; def mk(b: Boolean): Age = b; " +
       "def inside(a: Age, b: Boolean): Age | Boolean = b }\n" +
       "def u(a: S.Age, b: Boolean): S.Age | Boolean = b"
-    reasonContains(code, "u", "opaque representation is not visible at use site")
+    reasonContains(code, "u", "S.Age has no runtime class at this use site (opaque type)")
       .and(count(code, "S.inside") === Count.Finite(16))
   }
 

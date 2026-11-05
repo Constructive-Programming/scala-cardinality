@@ -73,13 +73,14 @@ class NameLookupSoundnessSpec extends Specification with InventoryFixtures {
   }
 
   // `D` is opaque in `d.data`; from `u` its representation `(A, A)` is hidden, so a `_root_` import
-  // that binds it must reach the declaration and say so — not read some other `D` or a builtin.
+  // that binds it must reach the declaration, where it is one value (rule F): `f` is 1 — not some
+  // other `D` or a builtin.
   def rootOpaque = {
     val found = counts(
       "a.scala" -> "package d.data\nopaque type D[A] = (A, A)",
       "b.scala" -> "package u\nimport _root_.d.data.D\nobject U { def f[A](x: D[A]): D[A] = ??? }"
     )
-    refused(found("u.U.f"), "opaque representation is not visible at use site: d.data.D")
+    found("u.U.f") === Count.Finite(1)
   }
 
   // The type path `_root_.p.Opt.Option[A]` in `q` is the top-level one: `Option(())` — 1, while

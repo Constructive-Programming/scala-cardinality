@@ -3,7 +3,13 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, Throws}
-import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
+import cardinality.analysis.{
+  ConstrainedReceivers,
+  MethodAnalysis,
+  Resolver,
+  SourceIndex,
+  StdlibModel
+}
 import cardinality.capacity.Counter
 import cardinality.types.{Traversals, *}
 
@@ -15,7 +21,6 @@ import MethodAnalysis.{Frame, TypeEntry}
   */
 final private[cardinality] class Representations(
     indexer: SourceIndex,
-    accessible: (Tree, Frame, Frame) => Boolean,
     packageGrant: (List[Mod], List[String]) => Option[List[String]],
     resolver: Resolver
 ) {
@@ -107,29 +112,26 @@ final private[cardinality] class Representations(
 
   private def sealedCase(child: TypeEntry, family: Family): Either[String, List[List[Type]]] = {
     val Family(parent, level, _, useSite) = family
-    if (!accessible(child.tree, child.owner, useSite))
-      Left(s"sealed subtype not visible at use site: ${child.name}")
-    else
-      child.tree match {
-        case t: (Defn.Object | Defn.Class) if mayThrow(t) =>
-          Left(s"sealed family construction not resolved: ${child.name}")
-        case d: Defn.Object =>
-          SealedSlots
-            .instantiation(slots(parent.name, level), SealedSlots.subtype(d, inFile(d)))
-            .map(_ => List(Nil))
-        case d: (Defn.Class | Defn.Trait) if intermediate(d) => sealedIntermediate(child, d, family)
-        case c: Defn.Class if closedLeaf(c)                  =>
-          openLeaf(child, c)
-            .map(why => s"sealed family leaf may be extended: ${child.name} ($why)")
-            .toLeft(())
-            .flatMap { _ =>
-              SealedSlots
-                .instantiation(slots(parent.name, level), SealedSlots.subtype(c, inFile(c)))
-                .flatMap(i => sealedLeaf(c, child.owner, useSite).map(renamed(_, i.bindings)))
-            }
-        case _ =>
-          Left(s"sealed subtype outside the closed fragment: ${child.name}")
-      }
+    child.tree match {
+      case t: (Defn.Object | Defn.Class) if mayThrow(t) =>
+        Left(s"sealed family construction not resolved: ${child.name}")
+      case d: Defn.Object =>
+        SealedSlots
+          .instantiation(slots(parent.name, level), SealedSlots.subtype(d, inFile(d)))
+          .map(_ => List(Nil))
+      case d: (Defn.Class | Defn.Trait) if intermediate(d) => sealedIntermediate(child, d, family)
+      case c: Defn.Class if closedLeaf(c)                  =>
+        openLeaf(child, c)
+          .map(why => s"sealed family leaf may be extended: ${child.name} ($why)")
+          .toLeft(())
+          .flatMap { _ =>
+            SealedSlots
+              .instantiation(slots(parent.name, level), SealedSlots.subtype(c, inFile(c)))
+              .flatMap(i => sealedLeaf(c, child, useSite).map(renamed(_, i.bindings)))
+          }
+      case _ =>
+        Left(s"sealed subtype outside the closed fragment: ${child.name}")
+    }
   }
 
   // A leaf no file outside the family's extends: a case class or a final class.
@@ -210,31 +212,42 @@ final private[cardinality] class Representations(
     fields.map(replaceSlots(_, bindings))
 
   // The fields a concrete leaf stores, read as a product: one parameter clause, every parameter
-  // declared, and — separately for the constructor and the fields — permission at the use site.
-  // Constructing a value and projecting its fields are different rights: a `private[p]`
-  // constructor hides who may build the summand, not what the space holds, while a field's
-  // qualifier decides whether this reading may project it at all. An unqualified `private`,
-  // `protected` or `implicit` reads neither and refuses the family, and so does a plain class's
-  // parameter written without `val` or `var`: it is no member (E173), so values that differ only
-  // there may be one value. A `var` field holds the argument it was given, as a `val` does (the
+  // declared, built by a public constructor, and each field permitted at the use site. The values
+  // a leaf holds are what its public constructors build (`ConstrainedReceivers`): a restriction on
+  // the leaf itself is disregarded, a restricted constructor ignored, and a leaf no public
+  // constructor builds whole is refused. A field's qualifier decides whether this reading may
+  // project it at all: an unqualified `private`, `protected` or `implicit` refuses the family, and
+  // so does a plain class's parameter written without `val` or `var`: it is no member (E173), so
+  // values that differ only there may be one value. A `var` field holds the argument it was given, as a `val` does (the
   // model has no mutation). A case class body may hold methods — members add no
   // values to the space — but a plain class must carry `final`, or outside subtypes would extend
   // the family past its file.
   private def sealedLeaf(
       c: Defn.Class,
-      childOwner: Frame,
+      child: TypeEntry,
       useSite: Frame
   ): Either[String, List[List[Type]]] =
     if (c.ctor.paramClauses.size != 1)
       Left(s"sealed subtype shape unreadable: ${c.name.value}")
-    else if (!usableWhere(c.ctor.mods, childOwner, useSite))
-      Left(s"sealed subtype constructor not visible at use site: ${c.name.value}")
     else {
       val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
       val fields = Representations.caseClass(c) || parameters.forall(MemberSyntax.keptParameter)
-      if (!fields || parameters.exists(p => !usableWhere(p.mods, childOwner, useSite)))
+      if (!fields || parameters.exists(p => !usableWhere(p.mods, child.owner, useSite)))
         Left(s"sealed subtype hides a parameter: ${c.name.value}")
-      else declaredFields(parameters, c.name.value).map(List(_))
+      else built(child).flatMap(_ => declaredFields(parameters, c.name.value).map(List(_)))
+    }
+
+  // Whether a leaf's public constructors build its whole field space, or why not.
+  private def built(child: TypeEntry): Either[String, Unit] =
+    child.self.fold(Right(())) { frame =>
+      ConstrainedReceivers
+        .space(frame, resolver.resolve(_, frame, resolver.typeParameters(frame)))
+        .flatMap(
+          _.map(_ =>
+            s"sealed subtype built by public constructors with fewer values: ${child.name}"
+          )
+            .toLeft(())
+        )
     }
 
   // Mods that grant their declaration to an enclosing package are readable wherever that package

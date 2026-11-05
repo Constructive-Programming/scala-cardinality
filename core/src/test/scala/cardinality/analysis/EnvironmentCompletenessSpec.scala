@@ -18,8 +18,8 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       a module's Boolean producers add no implementation             $moduleProducers
       a polymorphic module member adds nothing to a Boolean result   $polymorphicProducer
       a constructor's value spaces ignore outside modules            $constructorPositions
-      an opaque type outside its scope stays unread                  $opaqueOutside
-      a class with a private constructor stays unread                $privateConstructor
+      an opaque type outside its scope is one value                  $opaqueOutside
+      a class with no public constructor stays unread                $privateConstructor
       a supplied callable's Boolean result is eliminated             $opaqueCallable
       a final template's member is its own concrete code             $finalMembers
       an open class's member is a capability (X5)                    $overridableMembers
@@ -84,28 +84,24 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       "Phone.<init>"
     ) === Count.Finite(BigInt(2).pow(33))
 
-  // `Token.flip` is a producer of `Token.T` the target could call; the opaque type is not read
-  // outside its scope, so no number rests on what its companion offers.
+  // Outside its scope `Token.T` is one value (rule F), so `h` has one implementation, whatever its
+  // companion offers.
   def opaqueOutside =
-    refused(
-      count(
-        "object Token { opaque type T = Boolean; def flip(t: T): T = !t }\n" +
-          "def h(t: Token.T): Token.T = Token.flip(t)",
-        "h"
-      ),
-      "opaque representation is not visible at use site"
-    )
+    count(
+      "object Token { opaque type T = Boolean; def flip(t: T): T = !t }\n" +
+        "def h(t: Token.T): Token.T = Token.flip(t)",
+      "h"
+    ) === Count.Finite(1)
 
-  // `Secret.on` is the only way to a `Secret`: inside, the field is not any Boolean (its factories
-  // decide), and outside, the final case class is a final class's record its private constructor
-  // constrains.
+  // `Secret.on` is the only way to a `Secret`: it has no public constructor (rule B), so neither
+  // the field inside nor the final case class's record outside has a space this reading knows.
   def privateConstructor = {
     val found = rows(
       "final case class Secret private (b: Boolean) { def get: Boolean = b }\n" +
         "object Secret { val on: Secret = new Secret(true) }\ndef f(): Secret = Secret.on"
     )
-    refused(found("Secret.get"), "receiver fields constrained by a non-public constructor: Secret")
-      .and(refused(found("f"), "receiver fields constrained by a non-public constructor: Secret"))
+    refused(found("Secret.get"), "receiver has no public constructor: Secret")
+      .and(refused(found("f"), "receiver has no public constructor: Secret"))
   }
 
   // `g(a)` is eliminated once (capabilities C10) and the helper `M.not` adds no new function of it:

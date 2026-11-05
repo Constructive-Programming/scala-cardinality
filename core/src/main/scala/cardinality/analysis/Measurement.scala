@@ -280,10 +280,9 @@ final private[cardinality] class Measurement(
 
   // One owner's bindings: its own parameters, then every scope that shares its path.
   private def scan(owner: Frame): Unit = {
-    if (owner.id != target.frame.id) errors ++= ConstrainedReceivers.reason(owner)
     errors ++= owner.refusals
     val outer = values.keySet.toSet -- owner.params.map(_.name.value)
-    bindParams(owner)
+    receiverSpace(owner)
     if (owner.id != target.frame.id) bindContext(owner)
     frames(owner).foreach(scope => hide(scope.stats))
     hideInherited(owner, outer)
@@ -351,6 +350,23 @@ final private[cardinality] class Measurement(
           ParameterScope.of(owner)
         )
     }
+
+  // An enclosing receiver's fields, as its public constructors build them (`ConstrainedReceivers`):
+  // closed fields holding fewer values together than their types are one value of that space.
+  private def receiverSpace(owner: Frame): Unit =
+    if (owner.id == target.frame.id) bindParams(owner)
+    else
+      ConstrainedReceivers.space(owner, resolveIn(_, owner)) match {
+        case Left(reason)       => errors += reason
+        case Right(None)        => bindParams(owner)
+        case Right(Some(space)) =>
+          val name = s"<receiver ${owner.path.mkString(".")}>"
+          bindSlot(
+            MemberSlot(owner, resolver.typeParameters(owner), owner),
+            name,
+            Shape.Ground(name, space)
+          )
+      }
 
   // The binders an enclosing definition's context-function result puts around its body are values
   // of everything nested in it, read where its result is; implicit search alone reaches them, so

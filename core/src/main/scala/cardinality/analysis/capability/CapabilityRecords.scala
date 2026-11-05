@@ -98,10 +98,12 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       Traversals.sequence(InheritedScopes.walk(List(template -> env), resolver, useSite))
 
     // A final class: its observable constructor parameters, each an argument a public
-    // constructor takes freely.
+    // constructor takes freely, or the closed space its public constructors build
+    // (`ConstrainedReceivers`).
     private def finalRecord: Resolved =
-      ConstrainedReceivers.reason(template).toLeft(()).flatMap { _ =>
-        Traversals.sequence(template.params.map(observable)).map(Shape.Product(_))
+      ConstrainedReceivers.space(template, read(_, template, Scope.empty)).flatMap {
+        case None => Traversals.sequence(template.params.map(observable)).map(Shape.Product(_))
+        case Some(space) => Right(Shape.Ground(key, space))
       }
 
     private def fieldType(parameter: Term.Param, scope: Scope = Scope.empty): Resolved =

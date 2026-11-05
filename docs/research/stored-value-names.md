@@ -44,7 +44,7 @@ followed, the name is a reason (`?`), never a same-named declaration found elsew
   is not inherited; a qualified-private one (`private[pa] type Boolean = Int`) is: Scala binds
   the name to it from anywhere and rejects an access from outside `pa` (E173), so in a valid
   program the reference is inside `pa` and reads `Int`. An abstract member is the implementing
-  instance's to choose (`member T`, as the template's own); an opaque one is outside its scope;
+  instance's to choose (`member T`, as the template's own); an opaque one is outside its scope, one value (v1.md §2);
   one whose parent the `extends` clause applies to type arguments is refused (`inherited type
   member not resolved: Boolean (type arguments of BaseP)`). A parent outside the sources may
   declare any name, so where the meaning would otherwise come from a package, an import or the

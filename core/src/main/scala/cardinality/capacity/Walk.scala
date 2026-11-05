@@ -497,7 +497,7 @@ private[cardinality] object Walk {
       }
     // An opaque type's row reads its representation here, where it is visible — `|A|` for
     // `opaque type Direct[X, A] = A` — and adds no inhabitants of its own; a reference reads the
-    // representation only where it is visible too, and is refused elsewhere (`OpaqueScopes`).
+    // representation only where it is visible too, and is one value elsewhere (`OpaqueScopes`).
     case d: Defn.Type if Counter.isOpaqueAlias(d) =>
       measured(scope, d) { s =>
         val represented = Counter.typeIn(s)(d.body)

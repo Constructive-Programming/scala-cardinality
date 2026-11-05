@@ -379,7 +379,7 @@ object Counter {
       val name = TypeName.of(t.value)
       if (generic(scope, t)) constructor(scope, t.value)
       else
-        hidden(scope, t, Namespaces.lookup(scope, t)((in, key, _) => in.definition(key)))
+        hidden(t, Namespaces.lookup(scope, t)((in, key, _) => in.definition(key)))
           .getOrElse(scope.resolve(name).getOrElse { scope.note(t); EffectiveOmega })
 
     // A refinement is read as the type it refines: the members the refinement binds are not what
@@ -432,7 +432,7 @@ object Counter {
   // A member a namespace solved, read with the reasons its value rests on: a qualified reference
   // to a definition that holds an unknown name is no more bounded than the definition is.
   private def keyed(scope: Scope, select: Type.Select, key: TypeName, in: Scope): Size =
-    hidden(scope, select, in.definition(key)).getOrElse(solvedMember(scope, select, key, in))
+    hidden(select, in.definition(key)).getOrElse(solvedMember(scope, select, key, in))
 
   private def solvedMember(scope: Scope, select: Type.Select, key: TypeName, in: Scope): Size =
     in.size(key) match {
@@ -546,18 +546,16 @@ object Counter {
     found
       .filter(_._3.params.size == args.size)
       .map((name, context, named) =>
-        hidden(scope, callee, Some(named)).getOrElse(
+        hidden(callee, Some(named)).getOrElse(
           Instantiations.read(Instantiations.Instance(scope, callee, args, name, context, named))
         )
       )
   }
 
-  // A reference to an opaque alias written where its representation is not visible: a reason.
-  private def hidden(scope: Scope, reference: Type, named: Option[Named]): Option[Size] =
-    named
-      .flatMap(_.opaque)
-      .filterNot(OpaqueScopes.transparent(_, reference))
-      .map(alias => unbound(scope, OpaqueScopes.outside(alias)))
+  // A reference to an opaque alias written where its representation is not visible: one value
+  // (v1.md §2, opaque types).
+  private def hidden(reference: Type, named: Option[Named]): Option[Size] =
+    named.flatMap(_.opaque).filterNot(OpaqueScopes.transparent(_, reference)).map(_ => UnitSize)
 
   // The simple name a type constructor is spelled with: `Pair`, or `data.Pair`'s last segment. Only
   // the solver's syntactic classification reads it (an `extends` clause, an `Option` hole); a

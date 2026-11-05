@@ -22,9 +22,13 @@ private[cardinality] object SecondaryConstructors {
     * for one, `Unit` for none), with the evidence of its bounds last, a by-name parameter's value
     * and a repeated parameter's sequence.
     */
-  def primaryArguments(d: Defn.Class): Type = {
-    val params = d.ctor.paramClauses.toList.flatMap(_.values) ++
-      ContextBounds.evidence(d.tparamClause.values)
+  def primaryArguments(d: Defn.Class): Type =
+    arguments(
+      d.ctor.paramClauses.toList.flatMap(_.values) ++ ContextBounds.evidence(d.tparamClause.values)
+    )
+
+  /** The arguments a list of parameters takes, as one type (`primaryArguments`). */
+  def arguments(params: List[Term.Param]): Type =
     params.flatMap(_.decltpe).map {
       case b: Type.ByName   => b.tpe
       case r: Type.Repeated =>
@@ -38,7 +42,6 @@ private[cardinality] object SecondaryConstructors {
       case List(one) => one
       case many      => Type.Tuple(many)
     }
-  }
 
   private def classType(d: Defn.Class): Type = d.tparamClause.values match {
     case Nil     => d.name

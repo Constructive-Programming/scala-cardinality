@@ -41,7 +41,7 @@ class SequenceEliminationSpec extends Specification {
       a sequence parameter of a built function                      $builtFunction
       more than three sequences                                     $budget
       the fields of a receiver only its own factories build         $constrainedReceiver
-      a class only its scope may build: private, nested, local      $scopedReceivers
+      a non-public or local class is built by its constructors      $scopedReceivers
       a sequence under an existential or a proof                    $hiddenSequence
   """
 
@@ -272,15 +272,15 @@ class SequenceEliminationSpec extends Specification {
       |final class Open[A](val xs: List[A]) { def head: A = ??? }""".stripMargin
     refused(
       entry(code, "NonEmpty.head"),
-      "receiver fields constrained by a non-public constructor: NonEmpty"
+      "receiver has no public constructor: NonEmpty"
     ).and(entry(code, "Open.head") === Count.Finite(0))
   }
 
-  // Review fixture c6 (valid Scala 3.9.0): a private class, a package-private one and a class local
-  // to a method are built only by their scope's code — `Factory.first` builds `a :: rest`, `run`
-  // builds `List(a)` — so `head` is total there (true counts ω and 1), never 0 or ω over every
-  // field value. A class nested in a private object and a protected class likewise; a public class
-  // nested in a public object keeps its count (0: `new Public(Nil)` exists).
+  // Review fixture c6 (valid Scala 3.9.0): a private class, a package-private one, a class local
+  // to a method, one nested in a private object and a protected class have no use site outside
+  // their scope, so their restriction is disregarded (rule B): their public constructors take any
+  // `xs`, `Nil` included, where no A exists — 0, as for a public class nested in a public object.
+  // `Local` also captures `run`'s `a`: `a` or an element of a non-empty `xs` — ω.
   def scopedReceivers = {
     val code = """package c6
       |object Factory {
@@ -299,14 +299,13 @@ class SequenceEliminationSpec extends Specification {
       |  final class Public[A](val xs: List[A]) { def head: A = xs.head }
       |  protected final class Prot[A](val xs: List[A]) { def head: A = xs.head }
       |}""".stripMargin
-    def constrained(name: String, why: String) =
-      refused(entry(code, s"c6.$name.head"), s"receiver fields constrained by $why: c6.$name")
-    constrained("Factory.NonEmpty", "a non-public class")
-      .and(constrained("Pkg", "a non-public class"))
-      .and(constrained("Outer.run.Local", "a class local to c6.Outer.run"))
-      .and(constrained("Hidden.Inner", "a class nested in non-public c6.Hidden"))
-      .and(constrained("Open.Prot", "a non-public class"))
-      .and(entry(code, "c6.Open.Public.head") === Count.Finite(0))
+    def head(name: String) = entry(code, s"c6.$name.head") === Count.Finite(0)
+    head("Factory.NonEmpty")
+      .and(head("Pkg"))
+      .and(entry(code, "c6.Outer.run.Local.head") === Count.Countable)
+      .and(head("Hidden.Inner"))
+      .and(head("Open.Prot"))
+      .and(head("Open.Public"))
       .and(entry(code, "c6.Outer.run") === Count.Finite(1))
   }
 

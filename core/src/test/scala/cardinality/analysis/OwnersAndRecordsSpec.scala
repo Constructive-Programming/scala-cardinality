@@ -377,9 +377,9 @@ class OwnersAndRecordsSpec extends Specification {
       .and(found("Use.j") === Count.Finite(4))
   }
 
-  // A private constructor constrains what its fields hold; a second clause is no field; a case
-  // class no `final` closes may be extended by a class overriding hit — each says so instead of the
-  // generic reason.
+  // A private constructor is no public one, and only `CP.mk` builds a CP (rule B); a second clause
+  // is no field; a case class no `final` closes may be extended by a class overriding hit — each
+  // says so instead of the generic reason.
   def caseRefusals = {
     val found = one("""
       final case class CP private (a: Boolean)
@@ -388,7 +388,7 @@ class OwnersAndRecordsSpec extends Specification {
       case class NC(a: Boolean) { def hit: Boolean = a }
       object Use { def h(x: Boolean): C2 = C2(x)(x); def i(x: Boolean): NC = NC(x) }
     """)
-    refused(found("CP.mk"), "receiver fields constrained by a non-public constructor: CP")
+    refused(found("CP.mk"), "receiver has no public constructor: CP")
       .and(refused(found("Use.h"), "final class field not observable injectively: C2.b"))
       .and(refused(found("Use.i"), "case class open to extension: NC (overridable member hit)"))
   }

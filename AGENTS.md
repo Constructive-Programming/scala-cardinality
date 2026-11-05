@@ -32,6 +32,20 @@ in code, tests and docs:
 The analyzer does not certify that a body obeys the assumption. A `0` means "no pure, total,
 parametric implementation", not "no Scala body compiles".
 
+Two conventions sit beside it (v1.md §2, "Modelling conventions"):
+
+- **Rule B, public constructors build the receiver.** A receiver's fields (or a field-bearing
+  argument's) hold what its public constructors build: the largest space any of them builds, not
+  the sum. A constructor with its own `private`/`protected` is ignored. A restriction on the class
+  or trait itself, on a template around it, or a class local to a block is disregarded: its
+  constructors count as public. A public primary builds every field value. A public secondary
+  builds at most min(its parameters' space, the fields' space), read only where both are closed.
+  No public constructor (only a factory builds it) is `?`: `receiver has no public constructor`.
+- **Rule F, an opaque type outside its scope is one value.** Where its representation is hidden,
+  an opaque type counts 1 on both sides (it reads as `Unit`; as a type argument it keeps its own
+  nominal identity). Inside its scope the representation is read as before. Never refuse a count
+  because a representation is hidden.
+
 ## Inline methods count as methods
 
 Count an `inline def` exactly like a `def` unless its body uses a compile-time operation.

@@ -37,9 +37,9 @@ parameters the model does not hold, is no key) applied to its arguments' keys, e
 atom. Keys respect Scala's equalities: a transparent alias expands in its own scope, an opaque type
 only where it is visible, `(A, B)` is `Tuple2[A, B]` and `A => B` is `Function1[A, B]`, `A | A` is
 `A`, and an operator argument is its η-long lambda with parameters numbered by position, so
-α-equivalent operators share a key. Outside its scope an opaque type is no key at all: its API may
-relate it to other types (`inside: F[W[A]] => F[A]`), which a key cannot record, and concrete code
-is only irrelevant to the count when every input is readable. `=:=` evidence rewrites atoms inside
+α-equivalent operators share a key. Outside its scope an opaque type is its own declaration's key,
+as a class is (register D35): the compiler keeps `W[A]` and `A` apart there, and its API
+(`inside: F[W[A]] => F[A]`) is no member of another scope's environment. `=:=` evidence rewrites atoms inside
 keys (Leibniz: `substituteCo` exists for every `F`); `<:<` evidence never lifts through an invariant
 head. Rewriting replaces an occurrence by its equality class's representative, which depends on the
 class alone, so a rewriting that ends unfolds each class at most once along any chain: one still
@@ -140,7 +140,6 @@ either, so the meeting is refused.
 | a callable producing a structurally bounded value | `… a callable produces a value its bound views as a structural type` |
 | two values a structural bound views producing their own type | `… values a bound views as a structural type may be the same case` |
 | structural lower and upper bounds sharing a supertype (`A >: Flag <: Flag`, `A >: Flag <: Boolean`) | `… a structural lower bound meets an upper one` |
-| an opaque type outside its scope in a key | `opaque representation is not visible at use site` |
 | an equality proof that never settles (`A =:= F[A]`) | `unsupported evidence relationship: an equality proof keeps unfolding` |
 | a rigid binder applied to a wildcard, `F[?]` (invalid: E043) | `unreducible application of a higher-kinded binder to a wildcard` |
 | a structurally substituted argument under a rigid head | `nominal identity of substituted argument not tracked` (the shape lost the identity; exact counts need the argument's syntax) |

@@ -518,7 +518,8 @@ class StoredScopesSpec extends Specification {
 
   // An abstract inherited member is the implementing instance's to choose (as the template's
   // own); an inherited opaque alias is outside the template that declares it (scalac rejects `o:
-  // Int` in `UsesOp`); a parent applied to type arguments is not read under them.
+  // Int` in `UsesOp`), so it is one value (rule F); a parent applied to type arguments is not read
+  // under them.
   def unreadMembers = {
     val found = rows(
       """|package um
@@ -531,9 +532,7 @@ class StoredScopesSpec extends Specification {
          |""".stripMargin
     )
     (found(("um.Sub#U", Class)) === "instantiation[member T]")
-      .and(
-        refusedWith(found(("um.UsesOp.U", Class)), "opaque type read outside its scope: um.Op.Ob")
-      )
+      .and(found(("um.UsesOp.U", Class)) === "1")
       .and(
         refusedWith(
           found(("um.Applied.U", Class)),
@@ -567,9 +566,9 @@ class StoredScopesSpec extends Specification {
       )
   }
 
-  // `Id`'s representation is visible in `Ids`: `Inside(id: Id)` ≤2^32. Outside, `U(id: Ids.Id)` is
-  // refused (it was 1, as though the alias had one value). `Box.B[Boolean] = Option[Boolean]` is 3
-  // inside `Box`, refused outside. The opaque rows read the representation.
+  // `Id`'s representation is visible in `Ids`: `Inside(id: Id)` ≤2^32. Outside, an opaque type is
+  // one value (rule F): `U(id: Ids.Id)` is 1. `Box.B[Boolean] = Option[Boolean]` is 3 inside `Box`,
+  // 1 outside. The opaque rows read the representation.
   def opaqueMembers = {
     val found = rows(
       """|package op
@@ -580,9 +579,9 @@ class StoredScopesSpec extends Specification {
          |""".stripMargin
     )
     (found(("op.Ids.Inside", Class)) === "≤2^32")
-      .and(refusedWith(found(("op.U", Class)), "opaque type read outside its scope: op.Ids.Id"))
+      .and(found(("op.U", Class)) === "1")
       .and(found(("op.Box.In", Class)) === "3")
-      .and(refusedWith(found(("op.UB", Class)), "opaque type read outside its scope: op.Box.B"))
+      .and(found(("op.UB", Class)) === "1")
       .and(found(("op.Ids.Id", Opaque)) === "≤2^32")
   }
 
@@ -591,7 +590,7 @@ class StoredScopesSpec extends Specification {
   // class or object, which Scala 3 wraps there too (scalac reads `f: Boolean` in `implicit class
   // R(f: Flag)`, and in `implicit object IO`): R, R#In and IO.In are 2 — not a top-level class,
   // another object, or another file of the package (scalac rejects `asBool: Boolean = f` in `V`,
-  // and `Boolean` where `Flag` is expected in `object W`).
+  // and `Boolean` where `Flag` is expected in `object W`), where `Flag` is one value (rule F).
   def opaqueTopLevel = {
     val found = rowsOf(
       "f/a.scala" ->
@@ -608,25 +607,24 @@ class StoredScopesSpec extends Specification {
            |""".stripMargin,
       "f/b.scala" -> "package f\nfinal case class V3(f: Flag)"
     )
-    val outside = "opaque type read outside its scope: f.Flag"
     (found(("f.Same", Alias)) === "2")
       .and(found(("f.Flag.In", Class)) === "2")
       .and(found(("f.Al.In2", Class)) === "2")
       .and(found(("f.R", Class)) === "2")
       .and(found(("f.R#In", Class)) === "2")
       .and(found(("f.IO.In", Class)) === "2")
-      .and(refusedWith(found(("f.V", Class)), outside))
-      .and(refusedWith(found(("f.W.V2", Class)), outside))
-      .and(refusedWith(found(("f.V3", Class)), outside))
+      .and(found(("f.V", Class)) === "1")
+      .and(found(("f.W.V2", Class)) === "1")
+      .and(found(("f.V3", Class)) === "1")
   }
 
-  // Outside its scope, the method side's own reading is refused too (OpaqueTypeScopeSpec), and the
-  // slot carries the estimate's refusal beside it: it no longer lends a 1. Inside, both read 2^32.
+  // Outside its scope, both sides read the opaque type as one value (rule F): `U(id: Ids.Id)` is 1,
+  // and `h(f: Flag): Boolean` is 2^1. Inside, both read 2^32.
   // In an implicit class, the method side reads the representation as well: `R(f: Flag)` and
   // `In(x: Flag)` are 2, and `b: Boolean` over the captured `f` is 2^2 (it was refused on both
   // sides). So does a `given … with` body, wrapped in the package object too (scalac reads `f` as a
   // `Boolean` there): `g(f: Flag): Boolean` is 2^2. A plain top-level class of the alias's own
-  // file is outside it (scalac rejects `def h(f: Flag): Boolean = f`): refused.
+  // file is outside it (scalac rejects `def h(f: Flag): Boolean = f`): one value.
   def opaqueLending = {
     val files = List(
       "a.scala" ->
@@ -641,22 +639,13 @@ class StoredScopesSpec extends Specification {
            |class Plain { def h(f: Flag): Boolean = ??? }
            |""".stripMargin
     )
-    refusedExactly(
-      constructor("ol.U.<init>", files*),
-      "opaque representation is not visible at use site: ol.Ids.Id",
-      "opaque type read outside its scope: ol.Ids.Id"
-    )
+    (constructor("ol.U.<init>", files*) === Count.Finite(1))
       .and(constructor("ol.Ids.Inside.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
       .and(constructor("ic.R.<init>", files*) === Count.Finite(2))
       .and(constructor("ic.R.In.<init>", files*) === Count.Finite(2))
       .and(constructor("ic.R.b", files*) === Count.Finite(4))
       .and(constructor("gw.<given@4>.g", files*) === Count.Finite(4))
-      .and(
-        refusedExactly(
-          constructor("gw.Plain.h", files*),
-          "opaque representation is not visible at use site: gw.Flag"
-        )
-      )
+      .and(constructor("gw.Plain.h", files*) === Count.Finite(2))
   }
 
 }
