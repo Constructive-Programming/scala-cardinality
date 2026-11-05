@@ -388,16 +388,17 @@ such a package as the sources give it. The stored side, and the constructor slot
 each package block with its own definitions only (another block of the file is refused through a
 wildcard there). Explicit imports and sealed families are D15's.
 
-## D12. Top types are terminal; a goal with one value has one implementation
+## D12. Top types carry nothing in an input; a goal with one value has one implementation
 
-**Decision.** On the method side `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` are the
-terminal type `1`: results of them have one implementation, inputs of them carry no information,
-`Any => R ≅ R`. Every universal member — `==`, `!=`, `equals`, `hashCode`, `##`, `eq`, `ne`,
+**Decision.** On the method side `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` in an input
+are the terminal type `1`: inputs of them carry no information, `Any => R ≅ R`. D38 supersedes the
+reading of results: a top result is ω, not one implementation. Every universal member — `==`, `!=`, `equals`, `hashCode`, `##`, `eq`, `ne`,
 `isInstanceOf`, type patterns, `asInstanceOf`, `getClass`, the default `toString`, `synchronized` —
 is outside the model on a value of an abstract, top or top-like type. A declared result with exactly
-one value (`Unit`, a top type, a singleton type, products of those, a function into one, a closed
-type of value space 1) counts 1 whatever the environment leaves unresolved. The stored-value side
-keeps `Any` as everything (ε₀); constructor positions are read through the method-side model.
+one value (`Unit`, a singleton type, products of those, a function into one, a closed type of value
+space 1) counts 1 whatever the environment leaves unresolved; a top result is not one (D38). The
+stored-value side reads `Any` as every value, ω (D38); constructor positions are read through the
+method-side model.
 
 **Evidence.**
 
@@ -422,14 +423,14 @@ Scala `Any`, and the exclusions above are what make it terminal. A `transparent 
 whose declared type is not a singleton stays `?`, even a one-valued one: the call site observes the
 expansion's type (Scala 3.9.0 compiles `mk(true).n` against a declared `Foo` whose expansion is
 `new Sub(true)`, and gives a returned stable path its singleton type — **compiler fixtures**, D27);
-so does a top-typed parameter of an `inline` method, which an `inline match` may dispatch on. A clause that may rebind a builtin name keeps its
+a top-typed parameter of an `inline` method refuses nothing by itself (D38): only a compile-time
+operation such as an `inline match` does. A clause that may rebind a builtin name keeps its
 reason, and so does a channel name lookup does not walk that reaches declarations the sources do
 not supply (a self type, the parent of a wildcard-imported or package object, a wildcard namespace,
 the outer clause of a chained package no supplied unit declares into): there every builtin and
-model name is refused (D16) and the one-value rule does not fire. `Any*` is not terminal (its
-length is observable), and neither is a top inside a constructor that merges equal elements:
-`Set[Any]` has a value per size, so a constructor position reading one is refused rather than read
-as `Set[Unit]`. See
+model name is refused (D16) and the one-value rule does not fire. `Any*` is not one value (its
+length is observable); an input `Set[Any]` is `Set[Unit]`'s 2 values, since the type fixes no
+size (D38). See
 [top-types-unions.md](top-types-unions.md).
 
 ## D13. A union of disjoint, discriminable classes is a coproduct
@@ -1869,8 +1870,9 @@ arguments the value space is `(|V| + 1)^|K|` (`2^|E|`), ω over an infinite key,
 closed space of `K => 1 + V` (`E => Boolean`) under the saturating power of D2, so the method
 side reads it as that function (`StdlibModel`, reading `Tabulated`); the stored-value side
 already read the same formulas (`Counter`). An open argument is refused: no parametric program
-has the key equality. A top type among the keys, which key equality tells apart (`Set(1, "a")`
-is not `Set(1)`), keeps the container's polarity (D38). (2) Reading a single-pass `Iterator`, `IterableOnce`, `java.util.Iterator`,
+has the key equality. A top type among the keys takes the container's place (D38): one value in
+an input, where only the set's size could tell two sets apart and the type fixes none, ω in an
+output. (2) Reading a single-pass `Iterator`, `IterableOnce`, `java.util.Iterator`,
 `ByteBuffer` or `InputStream` changes it, an effect D26 excludes, so each is the sequence it
 yields: `Σₙ Eⁿ`, bytes for the last two (a buffer's position and capacity are more state of one
 countable value). An infinite iterator changes no count, by D16's continuity argument for `Seq`.
@@ -1879,7 +1881,7 @@ countable value). An infinite iterator changes no count, by D16's continuity arg
 `Iterator[Nothing]` 1, `ByteBuffer => Boolean` ω), `.keyed` (`Set[1 | 2]` 4, `(1 | 2) =>
 Set[1 | 2]` 16, `Map[1 | 2, Boolean]` 9, `Map[1 | 2, 1 | 2] => Boolean` 2^9, `Set[Nothing] =>
 Boolean` 2, `Map[String, Nothing]` 1, `F[Set[String]] => F[List[String]]` 0, `Set[Boolean]` 4,
-an enum-keyed `Map` 9, `Set[Any]` / `Map[Any, Boolean]` by polarity), `.openKeys`;
+an enum-keyed `Map` 9, `Set[Any]` / `Map[Any, Boolean]` by place), `.openKeys`;
 `KindedIdentitySpec.modelKeys` (`F[Map[Int, Int]]` keyed); `TopTypesUnionSpec.mergingCtor`. Knvl 2018 (D3) for the powerset
 and partial-function arithmetic.
 
@@ -1931,29 +1933,42 @@ root spelling; the report does not check it.
 
 ## D38. A top type is read by its place in its own arrow
 
-**Decision.** The owner's idealization (v1 §2), superseding D12's terminal reading in outputs and
-ideal-dc's polarity flip: each function type and each method is read on its own, innermost
-first; `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` in that arrow's input are `1` (D12's
-argument: the code receiving it observes nothing of it) and in its output ε₀ (any value may be
-built; ε₀ is the stored-value side's reading of `Any`, and the solver's `Card` has that tier,
-absorbing ω and itself). Nothing flips through nesting (`TopTypes.polarized`); a container's
-contents — a sequence's elements, a `Set`'s elements, a `Map`'s keys and values — take its place
-(`TopTypes.keyed`). A constructor slot and a method parameter are inputs. Arguments are read
-before the method: where an argument's space holds an ε₀ top, the result's choices are counted
-with it as one value and two or more of them are ε₀, one stays 1, none 0 (`Inhabitation.count`);
-no count is refused for a top-typed position the solver cannot enumerate. A one-valued goal is
-judged after placing.
+**Decision.** The owner's decision (v1 §2), superseding D12's terminal reading in outputs,
+ideal-dc's polarity flip and the ε₀ output tier: each function type and each method is read on its
+own, innermost first. *Input* is a method's or function's parameter or a constructor slot, read by
+the code receiving it; *output* is a result. `Any`, `AnyRef` / `Object`, `Matchable` and `AnyVal` in
+an input are `1` (D12's argument: the code receiving it observes nothing of it) and in an output ω
+(any value a finite program builds, the tier `String` has). Nothing flips through nesting
+(`TopTypes.polarized`); a container's contents — an `Option`'s value, a sequence's elements, a
+`Set`'s elements, a `Map`'s keys and values — take its place (`TopTypes.keyed`): `Option[Any]` is 2
+as an input and ω as an output. A `Set[Any]` in an input is 2 values (its size is the only thing
+that could tell two apart, and the type fixes none; a size known a priori determines the set), ω in
+an output or a `val`; a `Map`'s keys alike. Arguments are read before the method: where an
+argument's space holds an output top, the result's choices are counted with it as one value and two
+or more of them are ω, one stays 1, none 0 (`Inhabitation.count`); no count is refused for a
+top-typed position the solver cannot enumerate. A top result is not one-valued (rule O does not
+apply). `AnyRef` / `Object` and `Matchable` are read exactly as `Any` everywhere — on the method
+side, on the stored side, and in unions and intersections (`T | AnyRef` is `AnyRef`, `T & AnyRef`
+is `T`); `AnyVal` keeps its reading (a top on the method side, unmodelled on the stored side,
+refused in a union). `A <:< Any` (`AnyRef`, `Object`, `Matchable`) is a proof that carries nothing:
+one value. An `inline` method's top-typed parameter refuses nothing. On the stored-value side `Any`,
+`AnyRef` / `Object` and `Matchable` are ω everywhere (it was ε₀ for `Any`, unresolved for the
+others), a top behind a source alias too; a constructor row (inputs) and its type's stored values
+are measured apart: `final class Walk(val cur: Any, val n: Int)` is 2^32 as a constructor and ω as
+a type. The solver's `Card` has no ε₀ tier any more: it was added only for tops.
 
-**Evidence.** **Executable**: `TopTypesUnionSpec.polarity`, `.anyOut`, `.consumer`
-(`call[R](f: Any => R): R` 1), `.twoConsumers` (2), `.feed` (1), `.loop` (ε₀; `h(g: Unit => Any):
-Boolean` ε₀), `.unseeded` (1), `.existential`, `.structural`, `.mergingCtor`, `.nullCtor` (4),
-`.aliasedTopCtor` (`TC(f: Any => Boolean)` 2); `ReentrySpec.literalSearch` (`V.conv` ε₀ over a `def
-other: Any` capability); `StdlibModelSpec.keyed` (`Set[Any]` and `Map[Any, Boolean]` on both
-sides, `Set[Boolean]`, an enum-keyed `Map`).
+**Evidence.** **Executable**: `TopTypesUnionSpec.polarity` (`r(b: Boolean): Any` ω), `.anyOut`,
+`.consumer` (`call[R](f: Any => R): R` 1), `.twoConsumers` (2), `.feed` (1), `.loop` (ω; `h(g: Unit
+=> Any): Boolean` ω), `.unseeded` (1), `.existential`, `.structural`, `.otherTops`, `.containers`,
+`.equalsOverride`, `.inlineTop`, `.referenceTops`, `.evidence`, `.topLike`, `.walkCtor`, `.walkType`,
+`.outputSlot`, `.mergingCtor`, `.nullCtor` (4), `.aliasedTopCtor` (`TC(f: Any => Boolean)` 2);
+`ReentrySpec.literalSearch` (`V.conv` ω over a `def other: Any` capability); `StdlibModelSpec.keyed`
+(`Set[Any]` and `Map[Any, Boolean]` as input and output); `ReportSpec` (`Anything(x: Any)` and
+`Elements(xs: Array[Any])` ω); `StoredValueSoundnessSpec.containers`.
 
-**Boundary.** The ε₀ tier is a choice, not a derivation: it is an upper tier, rendered as a bound.
-Over an ε₀ argument space it is the extensional reading of the rule, above the parametric count a
-body that cannot observe the top would have (2 for `h`).
+**Boundary.** The output tier is a decision, not a derivation. Over an argument space holding an
+output top it is the extensional reading of the rule, above the parametric count a body that cannot
+observe the top would have (2 for `h`).
 
 ## D39. The supplied sources are the whole program (closed world)
 

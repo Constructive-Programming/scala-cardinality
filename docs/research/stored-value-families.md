@@ -197,9 +197,10 @@ bounds onto a case.
 
 `|List[A]| = Σₙ |A|ⁿ` (type-arithmetic §4). The n = 1 term alone is `|A|`, so a finite
 collection is never below its element's tier:
-- over an element with an ε₀ term (`String => String`, `Any`), `List`, `Vector`, `Seq`, `Array`,
-  `Set`, a `Map`'s keys or values, and repeated parameters are ε₀;
-- over any other non-empty element they are ω (`Set[Boolean]` keeps 2² = 4);
+- over an element with an ε₀ term (`String => String`), `List`, `Vector`, `Seq`, `Array`, `Set`, a
+  `Map`'s keys or values, and repeated parameters are ε₀;
+- over any other non-empty element they are ω (`Set[Boolean]` keeps 2² = 4; `Array[Any]` is ω,
+  `Any` being ω on this side, v1.md §2);
 - over `Nothing` they are 1.
 
 The method side keeps its own saturating reading: its constructor slots follow its own model.

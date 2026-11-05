@@ -26,7 +26,12 @@ Important boundaries:
 
 - The article's `Any ≅ 1` uses an abstract existential with no operations that
   reveal its contents. Ordinary Scala `Any` permits observations such as pattern
-  matching, so do not hard-code `|Any| = 1` for ordinary Scala semantics.
+  matching, so do not hard-code `|Any| = 1` for ordinary Scala semantics. The
+  stored-value estimate reads `Any`, `AnyRef` / `Object` and `Matchable` as ω —
+  every value a finite program builds, as `String` — wherever they appear,
+  behind an alias too; `AnyVal` is not modelled. The method side reads a top by
+  its place instead: 1 in an input, ω in an output
+  ([top-types-unions.md](research/top-types-unions.md), v1.md §2).
 - Abstract and opaque types are not automatically singletons. Their observable
   cardinality depends on their exposed operations and representation access.
 - Finite function spaces can be enumerated. For infinite types, distinguish all
