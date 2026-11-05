@@ -220,9 +220,9 @@ class HigherKindedRefusalSpec extends Specification {
 
   // Under `import java.lang.*`, `Boolean` is java.lang.Boolean (3.9.0 accepts `val b: Boolean =
   // null` there and rejects `F[Boolean]` as an `F[scala.Boolean]`): exact count 0, not the 1 the
-  // two scala keys gave. A wildcard of a namespace the sources do not supply and the stdlib model
-  // does not list may bind any builtin name (D16), so `Int` is refused too (true 1: java.lang has
-  // no `Int`, but the model does not list its members). A renaming import binds no bare name.
+  // two scala keys gave: the model knows the boxed names java.lang declares, so its wildcard binds
+  // them to java.lang's classes, which it does not hold. It binds no other builtin name (the never-shadowed assumption;
+  // java.lang has no `Int`), so `int` is x alone (1). A renaming import binds no bare name.
   def boxedNames = {
     val counts = entries("""
       package boxed {
@@ -243,18 +243,13 @@ class HigherKindedRefusalSpec extends Specification {
       "import java.lang.{Boolean => JB}\nobject T { def boo[F[_]](x: F[Boolean]): F[scala.Boolean] = x }",
       "T.boo"
     )
-    def boxed(name: String, builtin: String, prefix: String) =
-      refused(
-        counts,
-        name,
-        s"builtin name $builtin may be shadowed through a reference not supplied: $prefix " +
-          s"(wildcard import of $prefix)"
-      )
-    boxed("boxed.T.plain", "Boolean", "java.lang")
-      .and(boxed("boxed.T.boo", "Boolean", "java.lang"))
-      .and(boxed("boxed.T.lng", "Long", "java.lang"))
-      .and(boxed("boxed.T.int", "Int", "java.lang"))
-      .and(boxed("rooted.T.dbl", "Double", "_root_.java.lang"))
+    def boxed(name: String, builtin: String) =
+      refused(counts, name, s"declaration not supplied: java.lang.$builtin (wildcard import)")
+    boxed("boxed.T.plain", "Boolean")
+      .and(boxed("boxed.T.boo", "Boolean"))
+      .and(boxed("boxed.T.lng", "Long"))
+      .and(counts("boxed.T.int") === Count.Finite(1))
+      .and(boxed("rooted.T.dbl", "Double"))
       .and(renamed === Count.Finite(1))
   }
 

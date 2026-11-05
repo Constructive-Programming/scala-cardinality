@@ -203,29 +203,20 @@ class TopTypesUnionSpec extends Specification {
     (count("def m[R](consume: Function1[?, R]): R = ???", "m") === Count.Finite(0))
       .and(count("def m[R](consume: Function1[Any, R]): R = ???", "m") === Count.Finite(1))
 
-  // Ext may declare `type Unit = Boolean` and `type Any = Boolean`: g and h could have 2.
+  // Ext could declare `type Unit = Boolean` and `type Any = Boolean` (g and h would have 2), but a
+  // declaration outside the sources is assumed to rebind no builtin name (the never-shadowed
+  // assumption): both results are terminal, one implementation each, so is a supplied self type's
+  // unsupplied parent.
   def foreignSelf = {
     val code = "import ext.Ext\ntrait T { self: Ext => def g(): Unit; def h(): Any }"
-    reasonContains(
-      code,
-      "T.g",
-      "self type not resolved: Ext",
-      "builtin name Unit may be shadowed through a reference not supplied: ext.Ext (self type of T)"
-    ).and(
-      reasonContains(
-        code,
-        "T.h",
-        "builtin name Any may be shadowed through a reference not supplied: ext.Ext (self type of T)"
-      )
-    )
+    (count(code, "T.g") === Count.Finite(1)).and(count(code, "T.h") === Count.Finite(1))
   }
 
   def selfUnsuppliedParent =
-    reasonContains(
+    count(
       "trait Base extends ext.X\ntrait T { self: Base => def g(): Unit; def h(): Any }",
-      "T.g",
-      "builtin name Unit may be shadowed through a reference not supplied: ext.X (self type of T)"
-    )
+      "T.g"
+    ) === Count.Finite(1)
 
   def suppliedSelf =
     count("trait Base { def x: Int }\ntrait T { self: Base => def g(): Unit }", "T.g") ===
@@ -248,25 +239,21 @@ class TopTypesUnionSpec extends Specification {
       )
   }
 
+  // The package object's unsupplied parent rebinds no builtin name (the never-shadowed assumption):
+  // k reads a top as (), so it is a Boolean, 2; r's result is terminal, 1.
   def packageObject = {
     val code = "package p\npackage object p2 extends ext.X\npackage p2 {\n" +
       "  object M { def k(x: Any): Boolean = true; def r(b: Boolean): Any = b } }"
-    reasonContains(code, "p.p2.M.k", "parents of package object p.p2")
-      .and(reasonContains(code, "p.p2.M.r", "parents of package object p.p2"))
+    (count(code, "p.p2.M.k") === Count.Finite(2)).and(count(code, "p.p2.M.r") === Count.Finite(1))
   }
 
+  // An unsupplied wildcard import rebinds neither `Any` nor `Unit` (the never-shadowed
+  // assumption): both results are terminal, one implementation each, whatever `Schema` is.
   def foreignWildcard = {
     val imported = "import ext.*\ndef g(): Any = ()\ndef f(s: Schema): Unit = ()"
     val exported = "object E { export ext.defs.*; def f(s: ext.Schema): Unit = () }"
-    reasonContains(imported, "g", "reference not supplied: ext (wildcard import of ext)")
-      .and(
-        reasonContains(
-          imported,
-          "f",
-          "declaration not supplied: Schema",
-          "builtin name Unit may be shadowed through a reference not supplied: ext"
-        )
-      )
+    (count(imported, "g") === Count.Finite(1))
+      .and(count(imported, "f") === Count.Finite(1))
       .and(
         reasonContains(
           exported,
@@ -305,28 +292,23 @@ class TopTypesUnionSpec extends Specification {
       .and(count(body, "C.<init>") === Count.Finite(2))
   }
 
-  // `package extp; package inner` opens extp's members; with no unit of extp supplied, one may be
-  // `type Any = Boolean` (Scala 3.9.0 compiles `val b: Boolean = extp.inner.U.f()` beside it).
+  // `package extp; package inner` opens extp's members; with no unit of extp supplied, one could be
+  // `type Any = Boolean` (Scala 3.9.0 compiles `val b: Boolean = extp.inner.U.f()` beside it), but
+  // none is assumed (the never-shadowed assumption): both results are terminal, 1.
   def chainedPackage = {
     val chained = "package extp\npackage inner\n" +
       "object U { def f(): Any = true; def g(x: Foo): Unit = () }"
     val supplied = "package extp\ntrait Foo"
-    reasonContains(
-      chained,
-      "extp.inner.U.f",
-      "builtin name Any may be shadowed through a reference not supplied: extp (package clause extp)"
-    ).and(
-      reasonContains(
-        chained,
-        "extp.inner.U.g",
-        "builtin name Unit may be shadowed through a reference not supplied: extp",
-        "declaration not supplied: Foo"
+    (count(chained, "extp.inner.U.f") === Count.Finite(1))
+      .and(
+        count(chained, "extp.inner.U.g") === Count.Finite(1)
       )
-    ).and(
-      countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.f") === Count.Finite(1)
-    ).and(
-      countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.g") === Count.Finite(1)
-    )
+      .and(
+        countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.f") === Count.Finite(1)
+      )
+      .and(
+        countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.g") === Count.Finite(1)
+      )
   }
 
   def suppliedObject =

@@ -55,6 +55,38 @@ private[cardinality] object ListedNamespaces {
 
   val roots: Set[String] = Set("scala", "java")
 
+  // The heads of a path into the standard library or the JDK: the root packages, `javax`, and the
+  // `scala` package's subpackages and `Predef`, which the root import binds (scala-library 3.9.0).
+  private val platformHeads: Set[String] = roots ++ Set(
+    "javax",
+    "Predef",
+    "annotation",
+    "beans",
+    "caps",
+    "collection",
+    "compiletime",
+    "concurrent",
+    "deriving",
+    "io",
+    "jdk",
+    "math",
+    "quoted",
+    "ref",
+    "reflect",
+    "runtime",
+    "sys",
+    "util"
+  )
+
+  /** Whether a path, as written, may lead into the standard library or the JDK. Their packages do
+    * declare classes named like builtins (`java.util.List`, `scala.collection.Seq`), which the
+    * model lists only for the namespaces above, so a wildcard over one still may rebind a builtin
+    * name. Any other namespace the sources do not supply never does (the never-shadowed assumption,
+    * v1.md §2).
+    */
+  def platform(path: List[String]): Boolean =
+    path.dropWhile(_ == "_root_").headOption.exists(platformHeads)
+
   val quoted: List[(String, Int)] =
     List("Expr" -> 1, "ExprMap" -> 0, "FromExpr" -> 1, "Quotes" -> 0, "ToExpr" -> 1, "Type" -> 1)
 
@@ -240,6 +272,27 @@ private[cardinality] object ListedNamespaces {
       None,
       reflection,
       Set("Singleton", "Symbol")
+    ),
+    // `java.lang`'s members are not listed; the root spellings it declares as other classes than
+    // the root imports bind are its boxed scalars, `Iterable` and `StringBuilder` (JDK 21 class
+    // list against every `scala.*` and `scala.Predef` type; its `String`, `Object`, `Integer`,
+    // throwables and the rest are the root imports' own declarations).
+    // `scala.compiletime.ops`' members (scala-library 3.9.0): the objects `any`, `boolean`,
+    // `double`, `float`, `int`, `long` and `string`, whose type operators are their own members.
+    Namespace(
+      "scala.compiletime.ops",
+      None,
+      Some(Set.empty),
+      Some(Set("any", "boolean", "double", "float", "int", "long", "string")),
+      "compile-time type operators"
+    ),
+    Namespace(
+      "java.lang",
+      None,
+      None,
+      None,
+      "the Java language package",
+      Set("Boolean", "Byte", "Short", "Long", "Float", "Double", "Iterable", "StringBuilder")
     )
   ) ++ dependencyNamespaces
 

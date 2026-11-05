@@ -56,7 +56,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       an open subclass's overridable members are reasons            $openSubclass
       a final subclass is the record of its parameters              $finalSubclass
       a source class named Throwable shadows the model              $shadowedThrowable
-      an unsupplied wildcard import refuses the name                $wildcardThrowable
+      an unsupplied wildcard import rebinds no builtin name         $wildcardThrowable
       a union with Exception has no runtime class to test           $exceptionUnion
   """
 
@@ -750,11 +750,10 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       "S.s"
     ) === Count.Finite(4)
 
+  // An unsupplied `foo` is assumed to declare no `Throwable` (the never-shadowed assumption): the
+  // model's throwable, ω data, so ω Booleans of it.
   def wildcardThrowable =
-    refused(
-      rows("import foo.*\nobject W { def w(t: Throwable): Boolean = ??? }")("W.w"),
-      "builtin name Throwable may be shadowed through a reference not supplied: foo"
-    )
+    rows("import foo.*\nobject W { def w(t: Throwable): Boolean = ??? }")("W.w") === Count.Countable
 
   // A class test cannot yet tell an open stdlib class apart from a source class: the union stays
   // unresolved, with the stdlib class named.

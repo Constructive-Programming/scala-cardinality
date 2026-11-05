@@ -159,10 +159,11 @@ final private[cardinality] class ShadowedBuiltins(
     Spelling.of(written) match {
       case Spelling.TopLevel(_) =>
         Left(absent(written, context))
-      case Spelling.Relative(name, head) if known(s"scala.$name").nonEmpty =>
-        Left(
-          s"builtin name $name may be shadowed by a top-level package outside the sources: $head"
-        )
+      // No top-level package outside the sources is named like a root import's member (the
+      // never-shadowed assumption); one the sources declare, or a source term, is read as written.
+      case Spelling.Relative(name, head)
+          if !terms(head) && !resolver.namespace(List(head)) && known(s"scala.$name").nonEmpty =>
+        standingReading(name, anchored = false, known(s"scala.$name").get, context)
       case Spelling.Relative(name, _)      => Left(absent(name, context))
       case Spelling.Rooted(name, anchored) =>
         known(name) match {
@@ -191,7 +192,7 @@ final private[cardinality] class ShadowedBuiltins(
     */
   def rootShadow(name: String, context: ResolutionContext): Option[String] =
     Spelling.of(name) match {
-      case Spelling.Rooted(path, anchored) => standing(path, anchored, context).map(route)
+      case Spelling.Rooted(path, anchored) => declared(path, anchored, context).map(route)
       case _                               => None
     }
 
@@ -201,9 +202,27 @@ final private[cardinality] class ShadowedBuiltins(
       reading: Either[String, A],
       context: ResolutionContext
   ): Either[String, A] =
-    standing(name, anchored, context).fold(reading)(stop =>
+    declared(name, anchored, context).fold(reading)(stop =>
       Left(refusal(s"builtin name $name", stop))
     )
+
+  // What rebinds a root spelling under the never-shadowed assumption: a declaration a channel
+  // reaches (or a package `scala` / `java` of the sources), or a channel that leaves the sources
+  // into the standard library or the JDK, whose classes named like builtins the model does not
+  // list. A step this reading cannot follow, or one that leaves the sources anywhere else — an
+  // unsupplied wildcard, parent or self type — binds no builtin name.
+  private def declared(name: String, anchored: Boolean, context: ResolutionContext): Option[Stop] =
+    Option
+      .unless(anchored)(
+        (walked(name, context) ++ channel(context, Some(name.takeWhile(_ != '.'))) ++
+          subpackage(name, context)).find {
+          case _: Step.Found                 => true
+          case _: Step.Doubt                 => false
+          case Step.Unread(what, _, doubted) =>
+            !doubted && ListedNamespaces.platform(what.split('.').toList)
+        }
+      )
+      .flatten
 
   // Why a root spelling may stand for another declaration where it is read: a supplied declaration
   // of the name lookup does not reach, a channel to declarations the sources do not supply, or a
@@ -510,15 +529,16 @@ final private[cardinality] class ShadowedBuiltins(
       }
       val frames = paths.flatMap(path => modules.getOrElse(path, Nil) ++ resolver.peers(path))
       val companions = paths.flatMap(classes.getOrElse(_, Nil)).flatMap(_.self)
-      val outside =
-        doubted(prefix, from, at).map(why => Step.Unread(relative.mkString("."), s"$via: $why"))
+      val outside = doubted(prefix, from, at).map(why =>
+        Step.Unread(relative.mkString("."), s"$via: $why", doubted = true)
+      )
       if (frames.nonEmpty || companions.nonEmpty)
         (frames ++ companions.filter(frame => enums(frame.id))).map(Step.Reach(_, via)) ++
           outside.orElse(open(paths, frames, relative, via))
       else if (relative.headOption.exists(terms)) List(Step.Doubt(relative.mkString("."), via))
       else
         listed(prefix, from, at).fold(List(Step.Unread(prefix.mkString("."), via)))(namespace =>
-          outside.orElse(declares(namespace, via)).toList
+          outside.toList ++ declares(namespace, via)
         )
     }
 
@@ -539,7 +559,7 @@ final private[cardinality] class ShadowedBuiltins(
     private def declares(namespace: ListedNamespaces.Namespace, via: String): Option[Step] =
       subject
         .flatMap(namespace.typeBinding(_, root = true))
-        .collect { case ListedNamespaces.Binding.Member(fqn) => Step.Unread(fqn, via) }
+        .collect { case ListedNamespaces.Binding.Member(fqn) => Step.Found(fqn, via) }
 
     // A parent, self type or alias body naming a supplied template reaches it; one that resolves to
     // an alias is followed; a name lookup refuses, or one a supplied type spells but lookup does not
@@ -626,8 +646,9 @@ private[cardinality] object ShadowedBuiltins {
     // A step this reading cannot follow, which may lead into the supplied sources — or one whose
     // standing rests on a search under way.
     case Doubt(unread: String, via: String, selfReached: Boolean = false)
-    // A step that leads outside the supplied sources.
-    case Unread(unread: String, via: String)
+    // A step that leads outside the supplied sources; `doubted` when only an unsupplied wildcard
+    // that may rebind the prefix's first name leads it there.
+    case Unread(unread: String, via: String, doubted: Boolean = false)
   }
 
   // Where a search stops: a declaration of the name, or a step it cannot see past.
@@ -640,15 +661,15 @@ private[cardinality] object ShadowedBuiltins {
       s"$subject may be shadowed by a declaration: $declaration ($via)"
     case doubt: Step.Doubt =>
       s"$subject may be shadowed through a reference not resolved: ${doubt.unread} (${why(doubt)})"
-    case Step.Unread(what, via) =>
+    case Step.Unread(what, via, _) =>
       s"$subject may be shadowed through a reference not supplied: $what ($via)"
   }
 
   // A step a search could not see past, as the way a binding may come through it.
   private def route(stop: Stop): String = stop match {
     case Step.Found(declaration, via) => s"through $declaration ($via)"
-    case doubt: Step.Doubt      => s"through ${doubt.unread}, which is not resolved (${why(doubt)})"
-    case Step.Unread(what, via) => s"through $what, which is not supplied ($via)"
+    case doubt: Step.Doubt => s"through ${doubt.unread}, which is not resolved (${why(doubt)})"
+    case Step.Unread(what, via, _) => s"through $what, which is not supplied ($via)"
   }
 
   // The clause a doubt came through, and the search under way its standing rests on.

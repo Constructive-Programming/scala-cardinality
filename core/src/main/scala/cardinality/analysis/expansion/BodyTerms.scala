@@ -491,10 +491,14 @@ final private[expansion] class BodyTerms(resolver: Resolver) {
       Option.when(resolver.namespace(path :+ name))(Meaning.Package(path :+ name, supplied = true))
   }
 
-  // A name no scope binds: the root imports, or a top-level package of the sources.
+  // A name no scope binds: the root imports, or a top-level package of the sources. A channel to
+  // declarations the sources do not supply may bind it — except a root import's name, which only a
+  // declaration rebinds (the never-shadowed assumption).
   private def rooted(name: String, frame: Frame, offset: Int): Meaning = {
     val context = at(frame, offset)
-    resolver.unreadChannel(context).orElse(resolver.rootShadow(name, context)) match {
+    val unread =
+      Option.unless(LibraryInlines.root(name).nonEmpty)(resolver.unreadChannel(context)).flatten
+    unread.orElse(resolver.rootShadow(name, context)) match {
       case Some(reason) =>
         Meaning.Refused(s"reads $name, which may be bound outside the sources: $reason")
       case None =>

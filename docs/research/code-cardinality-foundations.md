@@ -607,11 +607,12 @@ one a leaf extends. A non-final case class with more than its product is refused
 fully qualified name (`stdlib-model/1`, Scala 3.9.0 on 2.13 collections): tuples, `Some`, `Left`,
 `Right`, `EmptyTuple`, `NamedTuple` as products; `Option`, `Either` as sums; `FunctionN` as
 arrows; `List`, `Vector`, `IndexedSeq`, `Seq`, `ArraySeq` and `Array` of a class as finite
-sequences `Σₙ Eⁿ`; single-pass, equality-built, reflective and type-revealing (`ClassTag`,
-`TypeTest`, `Mirror`) types excluded; classes and Java
+sequences `Σₙ Eⁿ`, and so the single-pass `Iterator`, `IterableOnce`, `ByteBuffer` and
+`InputStream` (D-lawful); `Map` and `Set` as the finite functions they tabulate (D-lawful);
+reflective and type-revealing (`ClassTag`, `TypeTest`, `Mirror`) types excluded; classes and Java
 interfaces whose members it does not hold (open ones, and the final `Integer`) refused. The table
 answers after every binding of the sources, under the root imports' spellings only; a wildcard of an
-unsupplied namespace refuses every builtin and model name, and a wildcard of a listed namespace
+unsupplied namespace rebinds no builtin or model name (D-unshadowed), and a wildcard of a listed namespace
 binds the type and term names it lists ahead of another file's package member, and nothing else
 (`quotes.reflect`, whose members are not listed, any name but a root spelling the reading side
 reads — of the root imports' names it declares `Singleton` and `Symbol`, which the table records);
@@ -1804,6 +1805,66 @@ context-bounded and view-binded binders. The instantiation search — enumeratin
 the environment can witness for the binder (`witness-kind analysis`) — is the feature's open half.
 
 
+
+## D-lawful. Key equality is lawful, and a single-pass read is replayable
+
+**Decision.** Two idealizations the owner adopted (v1 §2). (1) The equality and hashing a `Map`
+or `Set` uses on its keys is lawful — structural, consistent with the value identity the model
+gives the key type — so a `Map[K, V]` is its abstract value, a finite partial function, and a
+`Set[E]` a finite subset; iteration order and hash structure are not observed. Over closed
+arguments the value space is `(|V| + 1)^|K|` (`2^|E|`), ω over an infinite key, exactly the
+closed space of `K => 1 + V` (`E => Boolean`) under the saturating power of D2, so the method
+side reads it as that function (`StdlibModel`, reading `Tabulated`); the stored-value side
+already read the same formulas (`Counter`). An open argument is refused: no parametric program
+has the key equality. A key with a unit-shaped part is refused too: a top type reads as `()`
+(D12), which key equality tells apart (`Set(1, "a")` is not `Set(1)`), and the shape cannot tell
+it from `Unit`. (2) Reading a single-pass `Iterator`, `IterableOnce`, `java.util.Iterator`,
+`ByteBuffer` or `InputStream` changes it, an effect D26 excludes, so each is the sequence it
+yields: `Σₙ Eⁿ`, bytes for the last two (a buffer's position and capacity are more state of one
+countable value). An infinite iterator changes no count, by D16's continuity argument for `Seq`.
+
+**Evidence.** **Executable**: `StdlibModelSpec.singlePass` (`List[A] => Iterator[A]` ω, an
+`Iterator[Nothing]` 1, `ByteBuffer => Boolean` ω), `.keyed` (`Set[1 | 2]` 4, `(1 | 2) =>
+Set[1 | 2]` 16, `Map[1 | 2, Boolean]` 9, `Map[1 | 2, 1 | 2] => Boolean` 2^9, `Set[Nothing] =>
+Boolean` 2, `Map[String, Nothing]` 1, `F[Set[String]] => F[List[String]]` 0, `Set[Boolean]` and
+`Map[Any, Int]` refused), `.openKeys`; `KindedIdentitySpec.modelKeys` (`F[Map[Int, Int]]` keyed);
+`TopTypesUnionSpec.mergingCtor` (a top in a key still refused). Knvl 2018 (D3) for the powerset
+and partial-function arithmetic.
+
+**Boundary.** It is an assumption about the measured code, not checked: a key type with a
+reference `equals` (a plain class, a function) is read as if its equality were its value's. Open
+keys stay refused; so do unit-shaped keys, including `Boolean` and `Option` keys.
+
+## D-unshadowed. No declaration outside the sources rebinds a builtin name
+
+**Decision.** The owner's idealization (v1 §2): a channel the reading cannot follow or that leaves
+the sources — a wildcard import or export of an unsupplied namespace, an unsupplied parent or self
+type, a package clause no supplied unit declares members of, a wildcard whose prefix's first name
+such a wildcard may rebind, a search that meets itself, a top-level package outside the sources
+named like a root import's member (`util.Either`, `Predef.String`) — binds none of the names the
+root imports bind (the builtins, the model's spellings, the top types). A declaration a channel
+does reach still shadows one (a supplied member, an enum case, an export selector, a listed
+namespace's member such as `quotes.reflect.Singleton`), and so does a channel into the standard
+library or the JDK (`scala.*`, `java.*`, `javax.*`, a `scala` subpackage spelled relative to the
+root import), whose packages do declare classes named like builtins (`java.util.List`,
+`scala.collection.Seq`): `ListedNamespaces` lists those of `java.lang` (its boxed scalars,
+`Iterable`, `StringBuilder`), and any other library wildcard still refuses
+(`ShadowedBuiltins.declared`). Only the method side reads it: the stored-value estimate still
+refuses a name an unsupplied wildcard may bind (`unresolved type: Int (may be imported by zz.*)`),
+which a constructor slot lent to the method side keeps. A channel's reach for anything else — an
+implicit conversion a body may meet, a source name — is unchanged.
+
+**Evidence.** **Executable**: `StdlibModelSpec.wildcardRefusal`, `.relativePaths`,
+`.wildcardParent`, `.selfReachingParent`, `.javaWildcard` (still refused), `.listedHead`;
+`GroundEnvironmentSpec.wildcard`, `.foreignWildcard`, `.nestedParentName`;
+`UnsuppliedWildcardSpec.doubtedBuiltins`, `.singletonMarker`; `TopTypesUnionSpec.foreignSelf`,
+`.packageObject`, `.chainedPackage`; `BinderBoundsSpec.rebindableTops`;
+`HigherKindedRefusalSpec.boxedNames` (java.lang's boxed names still refused, its missing `Int`
+read); the Shadowed-builtin-names group of `GroundEnvironmentSpec` (declarations still shadow).
+Scala 3.9.0 fixtures r5, r8 and review-A7q/sc show a rebinding the assumption sets aside.
+
+**Boundary.** A count under an unsupplied wildcard is exact only if that namespace declares no
+root spelling; the report does not check it.
 
 ## How to extend this register
 

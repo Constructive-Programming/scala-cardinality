@@ -64,6 +64,18 @@ implementations a method admits. Two consequences come up constantly in real cod
 Other effects are excluded the same way: I/O, logging, divergence, a `null` that the type does
 not declare, unsafe casts and reflection. None of them is counted.
 
+Two further idealizations hold for every count:
+
+- **Key equality is lawful.** A `Map` or `Set` is counted as its abstract value, a finite partial
+  function or a finite subset, and an `Iterator`, `IterableOnce`, `ByteBuffer` or `InputStream` as
+  the sequence it yields. A `Map` or `Set` over a type parameter, or keyed by a type with a top
+  type (or unit) in it, stays `?`.
+- **Builtin names are not shadowed by code the run does not see.** A wildcard import of an
+  unsupplied package, an unsupplied parent and the like never rebind `Int`, `String`, `Option` or
+  any other root-import name. A declaration of the name the sources do supply still shadows it, and
+  so does a wildcard into the standard library or the JDK (`import java.util.*` brings `List`),
+  which keeps its `builtin name … may be shadowed` reason.
+
 The calculator does not check that a body actually obeys this assumption. A result describes
 the pure, total implementations of a signature and the values of a type. The full statement is
 the counting contract in [docs/plans/v1.md §2](docs/plans/v1.md). [AGENTS.md](AGENTS.md)

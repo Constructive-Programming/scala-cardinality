@@ -1,6 +1,6 @@
 package cardinality.analysis
 
-import cardinality.analysis.inhabitation.{Card, Inhabitation}
+import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation}
 import cardinality.capacity.BaseTypes
 import cardinality.types.ListedNamespaces
 
@@ -18,15 +18,21 @@ import Inhabitation.Shape
   * `Repeated` shape loses nothing. `Seq` also admits an infinite `LazyList`, which changes no
   * count: a total program reads a finite prefix of it (continuity), and a goal of one needs an
   * element, with which the finite sequences already give ω. An array is built only with its
-  * element's `ClassTag`, so one over a type parameter is refused. An excluded entry is outside the
-  * counting model for good: reading an `Iterator` or a `ByteBuffer` changes it, a `Map` or `Set` is
-  * built and read by testing keys for equality, `scala.quoted` is compile-time reflection, and a
-  * `ClassTag`, `TypeTest` or `Mirror` reveals the type it is evidence for. A throwable is data
-  * (register D26): its pure members read strings and throwables, and its constructors build
-  * infinitely many values they tell apart, so it is an ω transparent value, as `String` is. An
-  * unmodelled entry is a class or interface whose members the model does not hold (`Product`,
-  * `java.util.List`, the final `Integer`). The table answers where Scala's root imports would,
-  * after every binding of the sources, and lists the parents whose members it knows (Scala 3.9.0).
+  * element's `ClassTag`, so one over a type parameter is refused. Reading is no effect (the
+  * no-side-effects assumption), so a single-pass `Iterator` or `IterableOnce` is the sequence it
+  * yields, and an `InputStream` or `ByteBuffer` the bytes it yields. Key equality is lawful (the
+  * lawful-equality assumption), so a `Map` or `Set` is its abstract value: the finite partial
+  * function or finite subset it holds, read over closed arguments as the total function it
+  * tabulates (`K => Option[V]`, `E => Boolean`, the same value space: an infinite domain saturates
+  * at ω, like the finite maps). Over an open argument its keys are tested for an equality no
+  * parametric program has, so it is refused. An excluded entry is outside the counting model for
+  * good: `scala.quoted` is compile-time reflection, and a `ClassTag`, `TypeTest` or `Mirror`
+  * reveals the type it is evidence for. A throwable is data (register D26): its pure members read
+  * strings and throwables, and its constructors build infinitely many values they tell apart, so it
+  * is an ω transparent value, as `String` is. An unmodelled entry is a class or interface whose
+  * members the model does not hold (`Product`, `java.util.List`, the final `Integer`). The table
+  * answers where Scala's root imports would, after every binding of the sources, and lists the
+  * parents whose members it knows (Scala 3.9.0).
   */
 private[cardinality] object StdlibModel {
 
@@ -46,6 +52,11 @@ private[cardinality] object StdlibModel {
 
     /** A finite sequence of its argument; an array needs its element's class to be built. */
     case Sequence(tagged: Boolean)
+
+    /** A finite map or set under lawful key equality: over closed arguments, the total function it
+      * tabulates.
+      */
+    case Tabulated(shape: List[Shape] => Shape)
 
     /** Outside the counting model, for the reason given. */
     case Excluded(why: String)
@@ -109,8 +120,11 @@ private[cardinality] object StdlibModel {
 
   private def transparent(fqn: String): Entry = Entry(fqn, Nil, Transparent, "ω")
 
-  private val SinglePass = "single-pass: reading it changes it"
-  private val Equality = "built and read by testing keys for equality"
+  // The bytes a single-pass stream or buffer yields.
+  private def bytes(fqn: String): Entry =
+    Entry(fqn, Nil, Structural(_ => Shape.Repeated(BuiltinTypes.byte)), "Σₙ Byteⁿ")
+
+  private val unit = Shape.Product(Nil)
   private val Reflection = "compile-time reflection"
   private val Revealing = "type-revealing evidence: it tells instantiations apart at run time"
   private val Collected = "garbage-collector state"
@@ -177,15 +191,25 @@ private[cardinality] object StdlibModel {
       "scala.collection.immutable.IndexedSeq",
       "scala.collection.immutable.Seq",
       "scala.collection.immutable.ArraySeq",
-      "scala.Array"
+      "scala.Array",
+      "scala.collection.Iterator",
+      "scala.collection.IterableOnce",
+      "java.util.Iterator"
     ).map(sequence) ++ List(
-      excluded(SinglePass)("scala.collection.Iterator", 1),
-      excluded(SinglePass)("scala.collection.IterableOnce", 1),
-      excluded(SinglePass)("java.util.Iterator", 1),
-      excluded(SinglePass)("java.nio.ByteBuffer", 0),
-      excluded(SinglePass)("java.io.InputStream", 0),
-      excluded(Equality)("scala.collection.immutable.Map", 2),
-      excluded(Equality)("scala.collection.immutable.Set", 1),
+      bytes("java.nio.ByteBuffer"),
+      bytes("java.io.InputStream"),
+      Entry(
+        "scala.collection.immutable.Map",
+        List("K", "V"),
+        Tabulated(types => Shape.Function(List(types.head), Shape.Sum(List(unit, types(1))))),
+        "K => 1 + V"
+      ),
+      Entry(
+        "scala.collection.immutable.Set",
+        List("E"),
+        Tabulated(types => Shape.Function(types, Shape.Sum(List(unit, unit)))),
+        "E => 2"
+      ),
       excluded(Collected)("java.lang.ref.WeakReference", 1),
       excluded(Collected)("java.lang.ref.ReferenceQueue", 1)
     ) ++ ListedNamespaces.quoted.map((name, arity) =>
@@ -364,7 +388,7 @@ private[cardinality] object StdlibModel {
     * (`scala.quoted.Type[T <: AnyKind]` takes a constructor as well).
     */
   def arity(entry: Entry): Either[String, Int] = entry.reading match {
-    case _: (Structural | Sequence) | Transparent => Right(entry.parameters.size)
+    case _: (Structural | Sequence | Tabulated) | Transparent => Right(entry.parameters.size)
     // The reason the reading refuses an entry it does not read, whatever the arguments.
     case _ => read(entry, Nil).map(_ => entry.parameters.size)
   }
@@ -386,8 +410,21 @@ private[cardinality] object StdlibModel {
       )
     case _ if args.size != entry.parameters.size =>
       Left(s"type argument arity: ${entry.fqn} takes ${entry.parameters.size}, given ${args.size}")
-    case Structural(shape) => Right(shape(args))
-    case Transparent       => Right(Shape.Ground(entry.fqn, Card.Omega))
+    case Structural(shape)                                 => Right(shape(args))
+    case Tabulated(_) if !args.forall(ClosedSpaces.closed) =>
+      Left(
+        s"${entry.fqn} over an open type is not read (its keys are tested for an equality no " +
+          "parametric program has)"
+      )
+    // A top type reads as `()`, one value where key equality tells many apart (`Set(1, "a")` is not
+    // `Set(1)`); its shape is a unit's, so a key holding a unit anywhere is not read.
+    case Tabulated(_) if Shape.exists(args.head)(_ == unit) =>
+      Left(
+        s"${entry.fqn} keyed by a type with a unit-shaped part is not read (a top type reads as " +
+          "one value, which key equality tells apart)"
+      )
+    case Tabulated(shape) => Right(shape(args))
+    case Transparent      => Right(Shape.Ground(entry.fqn, Card.Omega))
     // `new Array[E](0)` needs a `ClassTag[E]`, which Scala 3.9.0 synthesizes for every element type
     // but a type parameter, an abstract type member or a singleton of one — `Nothing`, `Null`, an
     // object, a singleton of a class type, an opaque type and `F[A]` included (fixtures) — so only

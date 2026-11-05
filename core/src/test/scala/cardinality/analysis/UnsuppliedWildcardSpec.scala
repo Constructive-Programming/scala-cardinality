@@ -179,11 +179,12 @@ class UnsuppliedWildcardSpec extends Specification {
       .and(found("s.V.pick") === Count.Finite(4))
   }
 
-  // `import zzz.{Boolean as _, *}` leaves `Boolean` to the root imports, but `compose` in the
-  // later `import compose.*` may be `zzz.compose`, whose wildcard may bind it (scalac:
-  // probes/review-A7/r8 binds `zzz.compose.Boolean`, an `Int`), and so may
-  // `scala.jdk.CollectionConverters.*` when `scala` may be `zzz.scala` (r5): the builtin reading
-  // asks the lookup about the prefix's first name. `_root_.p.compose` cannot be rebound: 4.
+  // `import zzz.{Boolean as _, *}` leaves `Boolean` to the root imports. `compose` in the later
+  // `import compose.*` may be `zzz.compose`, and `scala` in `scala.jdk.CollectionConverters.*`
+  // may be `zzz.scala`, whose wildcards could bind it (scalac: probes/review-A7/r8 binds
+  // `zzz.compose.Boolean`, an `Int`; r5). Neither unsupplied namespace is assumed to (the
+  // never-shadowed assumption), and the listed CollectionConverters declares no `Boolean`, so all
+  // three are b, !b, true, false: 4.
   def doubtedBuiltins = {
     val hidden = "import zzz.{Boolean as _, *}"
     val found = counts(
@@ -194,23 +195,15 @@ class UnsuppliedWildcardSpec extends Specification {
       "p/R.scala" ->
         s"package p\n$hidden\nimport _root_.p.compose.*\nobject R { def f(b: Boolean): Boolean = b }"
     )
-    refused(
-      found("p.U.f"),
-      "builtin name Boolean may be shadowed through a reference not supplied: compose (wildcard " +
-        "import of compose: compose may be imported by zzz.*)"
-    ).and(
-      refused(
-        found("p.C.f"),
-        "builtin name Boolean may be shadowed through a reference not supplied: " +
-          "scala.jdk.CollectionConverters (wildcard import of scala.jdk.CollectionConverters: " +
-          "scala may be imported by zzz.*)"
-      )
-    ).and(found("p.R.f") === Count.Finite(4))
+    (found("p.U.f") === Count.Finite(4))
+      .and(found("p.C.f") === Count.Finite(4))
+      .and(found("p.R.f") === Count.Finite(4))
   }
 
   // `O.type & Singleton` is `O.type` only where `Singleton` is `scala.Singleton`: a `zzz` declaring
-  // `type Singleton = Nothing` makes it empty (scalac: probes/review-A7q/sc), and `quotes.reflect`
-  // declares its own `Singleton` (probes/review-A7/r4/m.scala). Without either wildcard: 1.
+  // `type Singleton = Nothing` would make it empty (scalac: probes/review-A7q/sc), but an unsupplied
+  // namespace is assumed not to (the never-shadowed assumption): 1, as without the wildcard.
+  // `quotes.reflect` does declare its own `Singleton` (probes/review-A7/r4/m.scala): refused.
   def singletonMarker = {
     val single = "def single(o: O.type): O.type & Singleton = o"
     val found = counts(
@@ -232,14 +225,7 @@ class UnsuppliedWildcardSpec extends Specification {
             |}""".stripMargin
     )
     (found("s.Plain.single") === Count.Finite(1))
-      .and(
-        refused(
-          found("s.W.single"),
-          "declaration not supplied: Singleton (not declared in " +
-            "the sources or stdlib-model/1, may be bound through zzz, which is not supplied " +
-            "(wildcard import of zzz))"
-        )
-      )
+      .and(found("s.W.single") === Count.Finite(1))
       .and(
         refused(
           found("s.Q.outer.single"),
@@ -576,7 +562,9 @@ class UnsuppliedWildcardSpec extends Specification {
 
   // The method side reads constructor slots through the table too (eo's avro constructors): the
   // conversions declare no `Any`, `Array` or `Int`, so `WalkRes` holds `1 · ω · 2^32` = ω values
-  // and `DirectPlan` 2^32; under the unsupplied `zz.*` the builtin `Int` is refused.
+  // and `DirectPlan` 2^32. The unsupplied `zz.*` rebinds no builtin on the method side (the
+  // never-shadowed assumption), but the stored-value estimate the slot is checked against still
+  // reads any name under it as possibly imported, so `ZPlan` keeps the estimate's reason.
   def listedConstructors = {
     val found = counts(
       "p/W.scala" ->
@@ -588,12 +576,7 @@ class UnsuppliedWildcardSpec extends Specification {
     )
     (found("p.WalkRes.<init>").render === "ω")
       .and(found("p.DirectPlan.<init>") === Count.Finite(BigInt(2).pow(32)))
-      .and(
-        refused(
-          found("p.ZPlan.<init>"),
-          "builtin name Int may be shadowed through a reference not supplied: zz (wildcard import of zz)"
-        )
-      )
+      .and(refused(found("p.ZPlan.<init>"), "unresolved type: Int (may be imported by zz.*)"))
   }
 
   // `quotes.reflect.*` is `Quotes#reflectModule`'s members, which the table does not list: any

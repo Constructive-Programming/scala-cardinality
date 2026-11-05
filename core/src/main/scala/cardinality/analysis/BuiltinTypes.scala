@@ -48,6 +48,9 @@ private[cardinality] object BuiltinTypes {
     "String" -> Card.Omega
   )
 
+  /** `Byte`'s ground shape: what a byte stream or buffer yields. */
+  val byte: Shape = Shape.Ground("Byte", grounds("Byte"))
+
   /** The ground names, bare: what an import or export could put a different meaning behind. */
   val groundNames: Set[String] = grounds.keySet
 

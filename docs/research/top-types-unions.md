@@ -91,11 +91,10 @@ another meaning may hide behind a name:
   supplied declaration provides (`import ext.*`, `export ext.defs.*`), or the outer clause of a
   chained `package a; package b` when no supplied unit declares a member of `a` (the clause opens
   all of `a`'s members, wherever they are written). Scala 3.9.0 compiles
-  `def g(): Unit = false` in each case when the outside declaration is `type Unit = Boolean`, so
-  the rows keep their other reasons plus `builtin names may be shadowed through a reference not
-  supplied: <step> (<channel>)` (`… not resolved …` for a step this reading cannot follow). The top
-  names themselves are refused there the same way (`builtin name Any may be shadowed through …`),
-  and so is every other builtin and stdlib-model name ([stdlib-model.md](stdlib-model.md));
+  `def g(): Unit = false` in each case when the outside declaration is `type Unit = Boolean`; the
+  never-shadowed assumption (v1.md §2, register D-unshadowed) sets that case aside, so the top
+  names and every other builtin and stdlib-model name keep their reading there, unless the channel
+  leads into the standard library or the JDK ([stdlib-model.md](stdlib-model.md));
 - a `transparent inline` result must also pass rule X.
 
 Constructor rows are value spaces, not goals, and are untouched.
@@ -274,7 +273,7 @@ family, any other may.
 | literal alternatives beside a class (`1 \| Int`) | `two alternatives share runtime class …` (a union of literals alone is the set of its constants: [syntax-features.md](syntax-features.md)) |
 | callable returning a union | a disjoint one is a sum, eliminated once per argument ([D25](polymorphic-members-and-saturation.md): `TopTypesUnionSpec.callableSum` 27); an open one keeps the union's own reason |
 | transparent result whose declared type is not a singleton | `transparent inline result: …` |
-| self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
+| self type, wildcard-imported object, package object, wildcard namespace or outer chained package clause outside the sources | the builtin (never-shadowed assumption); through the standard library or the JDK, `builtin name(s) … may be shadowed through a reference not supplied: … (…)` |
 | a top inside a `Set`, a `Map`'s keys or another constructor that may merge it | `constructor position reads a top type inside <F>, which may tell its elements apart: <param>` |
 | an `inline` method whose body uses a compile-time operation or another channel to the call site | `inline method: <what failed>` ([syntax-features.md](syntax-features.md)) |
 | `Any` shadowed (alias, binder, import, inherited member) | the shadowing declaration's reading or refusal, unchanged |
