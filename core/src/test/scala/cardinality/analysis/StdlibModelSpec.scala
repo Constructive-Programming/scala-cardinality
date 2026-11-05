@@ -23,7 +23,6 @@ class StdlibModelSpec extends Specification {
       tuple spellings keep one override identity                    $tupleIdentity
       FunctionN and arrow spellings keep one override identity      $functionIdentity
       Either spellings are one evidence identity                    $eitherIdentity
-    Singleton terms
     Sequences
       List, Vector, Seq, IndexedSeq and ArraySeq introduce Nil/Cons  $introduction
       an Array of a concrete element is a sequence                  $arrays

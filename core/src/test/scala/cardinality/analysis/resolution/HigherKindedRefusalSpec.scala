@@ -15,10 +15,7 @@ class HigherKindedRefusalSpec extends Specification {
 
   def is = s2"""
     Invalid programs
-      a wrong arity is not counted                                  $arity
-      a builtin applied at a wrong arity says so in both readings   $builtinArity
       a kind mismatch is not counted                                $kindMismatch
-      a wildcard under a rigid binder is not counted                $wildcard
     Unreadable identities
       a nested wildcard has no key                                  $nestedWildcard
       distinct union alternatives have no key                       $unionKeys
@@ -47,45 +44,12 @@ class HigherKindedRefusalSpec extends Specification {
       case Count.Unresolved(reasons) => reasons must contain(reason)
     }
 
-  def arity =
-    unresolved("object T { def f[F[_], A](x: F[A, A]): A = ??? }", "T.f", "type argument arity: F")
-
   def kindMismatch =
     unresolved(
       "case class Bi[F[_, _], A](value: F[A, A])\nobject T { def f[G[_], A](x: Bi[G, A]): A = ??? }",
       "T.f",
       "kind mismatch: G has kind (*) → *, expected (*, *) → *"
     )
-
-  // `Either[A]` is no type: the shape reading said `unresolved type: Either`, the key reading
-  // `type argument arity: Either`. Both say the arity now.
-  def builtinArity = {
-    val counts = entries("""
-      object T {
-        def direct[A](x: Either[A]): A = ???
-        def keyed[F[_], A](x: F[Either[A]]): A = ???
-        def ground[A](x: Int[A]): A = ???
-      }
-    """)
-    refused(counts, "T.direct", "type argument arity: Either")
-      .and(refused(counts, "T.keyed", "type argument arity: Either"))
-      .and(refused(counts, "T.ground", "type argument arity: Int"))
-  }
-
-  // Scala 3.9.0 rejects an abstract constructor applied to a wildcard (E043), for a method's binder
-  // and a class's alike. Before: counted 1.
-  def wildcard = {
-    val counts = entries("""
-      object T { def w[F[_], A](x: F[?]): Option[A] = None }
-      class C[F[_]] { def w[A](x: F[?]): Option[A] = None }
-    """)
-    def invalid(name: String) =
-      counts(name) must beLike {
-        case Count.Unresolved(reasons) =>
-          reasons must contain("unreducible application of a higher-kinded binder to a wildcard: F")
-      }
-    invalid("T.w").and(invalid("C.w"))
-  }
 
   def nestedWildcard =
     unresolved(

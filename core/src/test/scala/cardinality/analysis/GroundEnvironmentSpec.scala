@@ -51,7 +51,6 @@ class GroundEnvironmentSpec extends Specification {
       an unreadable infinite position takes the size algebra's tier   $fallbackTier
       floating point positions count equals classes exactly          $floats
       an enclosing template's parameters are captures                $outerCaptures
-      a symbolic value space agrees only with a wide estimate        $symbolicDisagreement
     Anonymous evidence
       two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
@@ -531,20 +530,6 @@ class GroundEnvironmentSpec extends Specification {
     (rows("Outer.Inner.<init>") === Count.Symbolic(pow(BigInt(2).pow(32) + 1, pow(2, 32))))
       .and(rows("OuterB.InnerB.<init>") === Count.Finite(9))
   }
-
-  // Both readings take `O.Inner` as the object's member, a symbolic value space the estimate saturates
-  // at an infinite tier: they agree.
-  def symbolicDisagreement =
-    (count(
-      "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
-        "final case class Outer(i: O.Inner)",
-      "Outer.<init>"
-    ) === Count.Symbolic(pow(2, pow(2, BigInt(2).pow(37) + 5))))
-      .and(
-        count("final case class P(p: Char => Boolean)", "P.<init>") === Count.Symbolic(
-          pow(2, 65536)
-        )
-      )
 
   // `summon[Int]` is ambiguous between two anonymous `Int`s (3.9.0: E172), so a body reaches
   // neither: the true count of `f` is 2^32 (a literal), not 2^(2^37) (one Int read) or 2^(2^64). One

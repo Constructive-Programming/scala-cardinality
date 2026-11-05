@@ -23,7 +23,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       an unmatched inherited given leaves the identity unresolved     $givenIdentity
       an anonymous given is the member of its synthesized name        $anonymousGivens
       a synthesized name is the one 3.9.0 gives                       $synthesizedNames
-      an inline given alias is read by the inline-method rule         $inlineGivens
     Member values
       a value is a nullary signature of its type                      $memberValues
       a pattern's names are not typed by syntax                       $patternValues
@@ -33,7 +32,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       an inherited concrete member is no capability of it             $anonymousFinal
       hidden parent state a body may not reach is refused             $hiddenState
       a level passing the argument or a body import is not followed   $passedLevels
-      a context-function literal binds its own clause once            $contextLiterals
     Constructors
       an enum's parameterized case has the case-class constructor     $enumCases
       an enum case is typed where its enum is declared                $enumScope
@@ -76,24 +74,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     // The declaration has no A to delegate to: 0. The alias implements it in an open class, so
     // the inherited declaration is the alias itself, not a slot: only a, 1 (2 if it counted itself).
     (found("Pick.pick") === "0").and(found("Picked.pick") === "1")
-  }
-
-  // An inline given alias is a row read like an inline method (register D27): its body uses no
-  // compile-time operation, so it counts as its given twin — a Boolean, 2; a Boolean from b
-  // (negation, identity, the two literals), 4 — while one that summons is refused. Fixture
-  // `$S/probes/b5-land/giv.scala` (3.9.0).
-  def inlineGivens = {
-    val code =
-      """|import scala.compiletime.summonInline
-         |object G {
-         |  inline given g: Boolean = true
-         |  inline given h(using b: Boolean): Boolean = !b
-         |  inline given k[A](using a: A): A = summonInline[A]
-         |}""".stripMargin
-    val found = rows(code)
-    (found("G.g").render === "2")
-      .and(found("G.h").render === "4")
-      .and(refused(found("G.k"), "inline method: uses scala.compiletime.summonInline"))
   }
 
   def localGiven = {
@@ -274,37 +254,6 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     val reason = "open class with hidden constructor state: Hide.h"
     refused(found("Passed.mid.<new#1>.seed"), reason)
       .and(refused(found("Passed.imported.<new#1>.seed"), reason))
-  }
-
-  private val literals = getter + """
-    |object Literal {
-    |  def one[A]: A ?=> Getter[Unit, A] = (x: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = x }
-    |  def anon[A]: A ?=> Getter[Unit, A] =
-    |    (_: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
-    |  def local[A]: A ?=> A = (x: A) ?=> { def g: A = x; g }
-    |  def named2[A]: (A, A) ?=> Getter[Unit, A] =
-    |    (x: A, y: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = y }
-    |  def two[A]: (A, A) ?=> Getter[Unit, A] =
-    |    (_: A, _: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
-    |  val held: Boolean ?=> Getter[Unit, Boolean] =
-    |    (b: Boolean) ?=> new Getter[Unit, Boolean] { def get(s: Unit): Boolean = b }
-    |  given lifted: (Boolean ?=> Getter[Unit, Boolean]) =
-    |    (b: Boolean) ?=> new Getter[Unit, Boolean] { def get(s: Unit): Boolean = b }
-    |}""".stripMargin
-
-  // A right-hand side that already is a context-function literal is not wrapped again (Scala 3
-  // reference, context functions): its parameters are the clause's binders, once — givens in its
-  // body, named or not. One A: 1; x or y: 2; one Boolean: Boolean => Boolean, 4. Two anonymous
-  // binders of one type are ambiguous for summon.
-  def contextLiterals = {
-    val found = rows(literals)
-    (found("Literal.one.<lambda#1>.<new#1>.get").render === "1")
-      .and(found("Literal.anon.<lambda#1>.<new#1>.get").render === "1")
-      .and(found("Literal.local.<lambda#1>.g").render === "1")
-      .and(found("Literal.named2.<lambda#1>.<new#1>.get").render === "2")
-      .and(found("Literal.held.<lambda#1>.<new#1>.get").render === "4")
-      .and(found("Literal.lifted.<lambda#1>.<new#1>.get").render === "4")
-      .and(refused(found("Literal.two.<lambda#1>.<new#1>.get"), "ambiguous anonymous evidence"))
   }
 
   def enumCases = {

@@ -2,7 +2,6 @@ package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
-import org.specs2.matcher.MatchResult
 
 /** Named tuples, literal types, context function types and compile-time evidence
   * (docs/research/syntax-features.md). Every fixture is valid Scala 3.9.0 except where a name
@@ -15,21 +14,15 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
     Named tuples are the products of their fields
       fields are read as a tuple's                                   $namedFields
       a named tuple inside a type-lambda alias                       $namedAlias
-      names are part of a rigid argument's key                       $namedKeys
       a named tuple and its tuple share a runtime class              $namedUnion
       a dependent function's named parameter is not a field          $dependentFunction
     Literal types have one value
       a literal goal has one implementation                          $literalGoals
-      a literal is its own key, by class and constant                $literalKeys
       a floating zero is not read, its sign being lost               $floatingZero
     Context functions are functions whose binders are givens
       an input applies like a function                               $contextInputs
       a result builds a literal with named binders                   $contextResults
-      a whole-body binder hides outer evidence of its type           $contextShadowing
       a nested context function wraps only its part                  $contextNested
-      a binder behind a reading that stops is refused                $contextUnread
-      a call returning a context function is applied                 $contextCalls
-      an ascription to a context function is applied                 $contextAscription
     Compile-time and type-revealing evidence is refused
       an inline method counts unless its expansion reads its call    $inlineMethods
       a definition inside an inline method is expanded with it       $inlineNested
@@ -65,21 +58,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |object M { def map[I, X, A, B](fa: G[I][X, A], f: A => B): G[I][X, B] = ??? }
       |""".stripMargin)("M.map") === Count.Finite(1)
 
-  // `(x: A, y: A)` is the opaque `NamedTuple[("x", "y"), (A, A)]`: not `(A, A)`, nor `(y: A, x: A)`,
-  // so a rigid F relates none of them (0); the same names, spelled either way, are one type (1).
-  def namedKeys = {
-    val found = rows("""object K {
-      |  def plain[F[_], A](x: F[(x: A, y: A)]): F[(A, A)] = ???
-      |  def same[F[_], A](x: F[(x: A, y: A)]): F[(x: A, y: A)] = x
-      |  def swapped[F[_], A](x: F[(x: A, y: A)]): F[(y: A, x: A)] = ???
-      |  def spelled[F[_], A](x: F[(x: A, y: A)]): F[scala.NamedTuple.NamedTuple[("x", "y"), (A, A)]] = x
-      |}""".stripMargin)
-    (found("K.plain") === Count.Finite(0))
-      .and(found("K.same") === Count.Finite(1))
-      .and(found("K.swapped") === Count.Finite(0))
-      .and(found("K.spelled") === Count.Finite(1))
-  }
-
   // A named tuple's runtime class is its tuple's, so no class test separates the alternatives.
   def namedUnion =
     refused(
@@ -101,32 +79,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |}""".stripMargin)
     List("one", "str", "ch", "half", "long", "yes", "neg").map(n => found(s"L.$n")).distinct ===
       List(Count.Finite(1))
-  }
-
-  // F[1] and F[2], F[1L], F[-1] are unrelated types under a rigid F (0); F[1] is itself (1). A
-  // floating literal is its value at its own width: `1.0` and `1.00` are one Double (1), `1.0f` a
-  // Float (0); `0x10` is the Int 16 (1), and 'a' a Char, never the Int 97 (0).
-  def literalKeys = {
-    val found = rows("""object K {
-      |  def k[F[_]](x: F[1]): F[2] = ???
-      |  def same[F[_]](x: F[1]): F[1] = x
-      |  def long[F[_]](x: F[1]): F[1L] = ???
-      |  def str[F[_]](x: F["a"]): F["b"] = ???
-      |  def neg[F[_]](x: F[-1]): F[1] = ???
-      |  def dbl[F[_]](x: F[1.0]): F[1.00] = x
-      |  def flt[F[_]](x: F[1.0]): F[1.0f] = ???
-      |  def hex[F[_]](x: F[0x10]): F[16] = x
-      |  def chr[F[_]](x: F['a']): F[97] = ???
-      |}""".stripMargin)
-    (found("K.k") === Count.Finite(0))
-      .and(found("K.same") === Count.Finite(1))
-      .and(found("K.long") === Count.Finite(0))
-      .and(found("K.str") === Count.Finite(0))
-      .and(found("K.neg") === Count.Finite(0))
-      .and(found("K.dbl") === Count.Finite(1))
-      .and(found("K.flt") === Count.Finite(0))
-      .and(found("K.hex") === Count.Finite(1))
-      .and(found("K.chr") === Count.Finite(0))
   }
 
   // scalameta reads `-0.0` as `0.0`, and the two are different types: the zero is not read.
@@ -155,95 +107,12 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       .and(found("R.unit") === Count.Finite(1))
   }
 
-  // Fixture cf: `g(using 1)(using 2)` prints 2, the binder hiding the outer anonymous evidence,
-  // so g has 1 implementation, never the 2 a plain function would give (h); the reading refuses.
-  // An alias of an alias applied to a context function wraps the body too (fixture p6 prints the
-  // binder's 5).
-  def contextShadowing = {
-    val found = rows("""type L[B] = B
-      |type K[A] = L[A]
-      |object S {
-      |  def g[A](using A): A ?=> A = summon[A]
-      |  def h[A](using A): A => A = y => summon[A]
-      |  def curried[A](using A): A ?=> A ?=> A = summon[A]
-      |  def nested[A](using A): K[A ?=> A] = summon[A]
-      |}""".stripMargin)
-    refused(found("S.g"), "overlaps context function binder A")
-      .and(found("S.h") === Count.Finite(2))
-      .and(refused(found("S.curried"), "overlaps context function binder A"))
-      .and(refused(found("S.nested"), "overlaps context function binder A"))
-  }
-
   // Fixture cf3: the tuple's first component is wrapped, yet `val o = summon[A]` before it reaches
   // the outer evidence (`hoisted` prints 1): binder or outer value there, the outer one after (2).
   def contextNested =
     rows("object N { def nested[A](using A): (A ?=> A, A) = (summon[A], summon[A]) }")(
       "N.nested"
     ) === Count.Finite(2)
-
-  // Where the reading of an enclosing result stops — a match type that may reduce to a context
-  // function, `ContextFunction1` by name, an applied inherited alias, a path, a name not supplied
-  // or not declared at all — a local definition's environment is unknown. Beside `plain`'s `Int`
-  // result, lp reads b and the captured i: every Boolean of a Boolean and an Int, 2^(2·2^32) =
-  // 2^(2^33).
-  def contextUnread = {
-    val found = rows("""import ext.J
-      |type M[T] = T match { case Int => Int ?=> Int }
-      |trait P2 { type KA[X] = X ?=> X }
-      |trait Holder { type T = Int ?=> Int }
-      |object O {
-      |  def viaPath(h: Holder): h.T = { def lv(b: Boolean): Boolean = b; ??? }
-      |  def viaMatch(x: Int): M[Int] = { def lm(b: Boolean): Boolean = b; ??? }
-      |  def byName: ContextFunction1[Int, Int] = { def ln(b: Boolean): Boolean = b; ??? }
-      |  def foreign(i: Int): J = { def lf(b: Boolean): Boolean = b; ??? }
-      |  def absent(i: Int): ext.Unknown = { def la(b: Boolean): Boolean = b; ??? }
-      |  def plain(i: Int): Int = { def lp(b: Boolean): Boolean = b; i }
-      |}
-      |final class C2 extends P2 { def h2[Y]: KA[Y] = { def lka: Y = summon[Y]; lka } }
-      |""".stripMargin)
-    refused(found("O.viaMatch.lm"), "context function behind a match type not read: M[Int]")
-      .and(refused(found("O.byName.ln"), "context function spelled by name: ContextFunction1"))
-      .and(refused(found("O.foreign.lf"), "declaration not supplied: ext.J"))
-      .and(refused(found("O.absent.la"), "declaration not supplied: ext.Unknown"))
-      .and(found("O.plain.lp") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 33))))
-      .and(refused(found("C2.h2.lka"), "context function behind an inherited alias not read: KA"))
-      .and(refused(found("O.viaPath.lv"), "context function result through a path not read: h.T"))
-  }
-
-  // Without an expected type Scala applies the returned context function to a given it finds, so
-  // t2's type is A, not `A ?=> A`. An explicit type argument is read as written (fixture a5-fix1
-  // r9: viaCtx prints `false`, applied where it is defined): `id[Boolean => Boolean](f)` is that
-  // function, every Boolean of f's 4 values and a Boolean (2^8), `id[Boolean ?=> Boolean](g)` is
-  // applied.
-  def contextCalls = {
-    val found = rows("""object T {
-      |  given Boolean = true
-      |  def ctx[A](a: A): A ?=> A = a
-      |  def t2[A](a: A)(using A) = ctx[A](a)
-      |  def id[X](x: X): X = x
-      |  def viaFn(f: Boolean => Boolean) = id[Boolean => Boolean](f)
-      |  def viaCtx(g: Boolean ?=> Boolean) = id[Boolean ?=> Boolean](g)
-      |}""".stripMargin)
-    val applied = "whose context function result is applied"
-    refused(found("T.t2"), applied)
-      .and(found("T.viaFn") === Count.Finite(256))
-      .and(refused(found("T.viaCtx"), s"call of id, $applied"))
-  }
-
-  // Fixture review-A5 inf/i3: `def asc = (k: Boolean ?=> Boolean)` compiles to `boolean asc()` and
-  // prints `false` with no given at the use site: Scala applied k where asc is defined, so asc is
-  // a Boolean, never the 4 of `Boolean => Boolean`. A plain function ascription is that function.
-  def contextAscription = {
-    val found = rows("""object A {
-      |  given Boolean = true
-      |  val k: Boolean ?=> Boolean = !summon[Boolean]
-      |  val k2: Boolean => Boolean = b => !b
-      |  def asc = (k: Boolean ?=> Boolean)
-      |  def asc2 = (k2: Boolean => Boolean)
-      |}""".stripMargin)
-    refused(found("A.asc"), "ascription, whose context function result is applied")
-      .and(found("A.asc2") === Count.Finite(4))
-  }
 
   // Fixture a5-fix1 r3: `f[Int](1, 2)` prints 1, and 7 under a call-site `given Int = 7`: the
   // `summonFrom` of the local g is expanded with f, so g's parametric 4 (a or b, of x or y) is

@@ -18,9 +18,6 @@ class TypeMemberSpec extends Specification {
       a trait's own abstract member is a rigid atom              $ownAtom
       a member atom counts as a class type parameter (parity)    $parity
       two paths never share a member                             $distinctPaths
-      a refinement pins a parameter's member                     $refinementPins
-      a type-only structural value has one value                 $structural
-      a member no one may pick stays a diagnostic                $fixedMember
       the compiler keeps paths apart and aliases together         $pathFacts
     Members of the receiver
       inherited declarations read the receiver's alias            $inheritedAlias
@@ -103,43 +100,6 @@ class TypeMemberSpec extends Specification {
     (found("f") === Count.Finite(0))
       .and(found("g") === Count.Finite(2))
       .and(found("w") === Count.Countable)
-  }
-
-  // p.X = A transparently: a and x — 2 (read rigidly, 1).
-  def refinementPins =
-    count(member + "def r[A](p: R { type X = A }, a: A, x: p.X): A = ???", "r") ===
-      Count.Finite(2)
-
-  // `{ type X }` asks nothing of a value: p adds no Boolean, so s has the 4 functions of b; t: x, y
-  // — 2. A term member is selected through reflection, which the model excludes.
-  def structural = {
-    val found = entries("""
-      def s(p: { type X }, b: Boolean): Boolean = ???
-      def t(p: { type X }, x: p.X, y: p.X): p.X = ???
-      def u(p: { def mk: Int }, b: Boolean): Boolean = ???
-    """)
-    (found("s") === Count.Finite(4))
-      .and(found("t") === Count.Finite(2))
-      .and(refused(found("u"), "structural refinement with term members"))
-  }
-
-  // A final class or object never instantiates its member (`memberfixture.Never` compiles), so x
-  // and y could never be supplied — the atom's 2 would overcount the vacuous 1. A sealed family's
-  // cases fix it (S1 makes it Unit: 1, not 2).
-  def fixedMember = {
-    val found = entries("""
-      trait HasX:
-        type X
-      final class F extends HasX:
-        def g(x: X, y: X): X = ???
-      sealed trait S:
-        type X
-      final class S1 extends S:
-        type X = Unit
-      def onSealed(p: S, x: p.X, y: p.X): p.X = ???
-    """)
-    refused(found("F.g"), "abstract type member X of final template F is never instantiated")
-      .and(refused(found("onSealed"), "is fixed by the cases of sealed S"))
   }
 
   def pathFacts =

@@ -9,19 +9,17 @@ import cardinality.types.{Spelling, Traversals, TypeApplications, TypeSubstituti
 
 import Inhabitation.Shape
 import MethodAnalysis.{Resolved, TypeEntry}
-import RuntimeClasses.{Alternative, Runtime, Top}
+import RuntimeClasses.Alternative
 
 /** A Scala union read as the tagged sum its alternatives make, where one exists.
   *
   * Scala unions carry no constructor tag, and equal structural shapes do not prove equal nominal
   * types. Exact type equalities apply first, before any alternative is read: a union alias is its
-  * alternatives, `T | Any` is `Any`, one class spelled twice is one alternative, a class absorbs
-  * the classes known to derive from it, and `Nothing` / `Null` (null-free model) are empty. What
-  * remains is the sum of its alternatives only when each has a runtime class, no class carries two
-  * alternatives (type arguments are erased), the classes are pairwise disjoint, and each sealed
-  * family's subclasses are all declarations its shape counts: then an exhaustive class-test `match`
-  * is the sum's eliminator, total, well defined, and returning each value at the type it was
-  * injected from — a restricted test, unlike one on `Any`, which needs a default case.
+  * alternatives, one spelling written twice is one alternative, and `Nothing` / `Null` (null-free
+  * model) are empty. What remains is the sum of its alternatives only when each has a runtime
+  * class, no class carries two alternatives (type arguments are erased), the classes are pairwise
+  * disjoint, and no class is a sealed family: then an exhaustive class-test `match` is the sum's
+  * eliminator, total, well defined, and returning each value at the type it was injected from.
   */
 final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeClasses) {
 
@@ -37,39 +35,22 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
     val written = flatten(union, context)
       .distinctBy((tpe, scope) => tpe.syntax -> scope)
       .map((tpe, scope) => Written(tpe, scope, classes.alternative(tpe, scope)))
-    if (written.exists(_.found.exists(_.runtime == Top(TopTypes.Kind.Universal))))
-      Right(TopTypes.terminal)
-    else {
-      val kept = absorbed(written)
-      Traversals
-        .sequence(kept.map(w => w.context.read(w.tpe, resolver)))
-        .left
-        .map(reason => s"union (${Spelling.of(union)}): $reason")
-        .flatMap { shapes =>
-          kept.zip(shapes).filterNot(_._2 == Shape.Sum(Nil)) match {
-            case Nil               => Right(Shape.Sum(Nil))
-            case List((_, single)) => Right(single)
-            // Aliases of the same free binder denote the very same type.
-            case (_, atom: Shape.Atom) :: rest if rest.forall(_._2 == atom) => Right(atom)
-            // Literal types are one constant each: the union holds the distinct ones. Literal
-            // patterns tell constants of one class apart, and a class test those of different
-            // classes, which cooperative equality would conflate (`case 1` matches `1L`; fixture
-            // a5-gate-review eq).
-            case literals if literals.forall((_, shape) => LiteralTypes.literal(shape)) =>
-              literals.map(_._2).distinct match {
-                case List(one) => Right(one)
-                case distinct  => Right(Shape.Sum(distinct))
-              }
-            case inhabited =>
-              tagged(inhabited.map(_._1)).left
-                .map(detail =>
-                  "union alternatives require an overlap and discrimination proof: " +
-                    s"${Spelling.of(union)} — $detail"
-                )
-                .map(_ => Shape.Sum(inhabited.map(_._2)))
-          }
+    Traversals
+      .sequence(written.map(w => w.context.read(w.tpe, resolver)))
+      .left
+      .map(reason => s"union (${Spelling.of(union)}): $reason")
+      .flatMap { shapes =>
+        written.zip(shapes).filterNot(_._2 == Shape.Sum(Nil)) match {
+          case List((_, single)) => Right(single)
+          case inhabited         =>
+            tagged(inhabited.map(_._1)).left
+              .map(detail =>
+                "union alternatives require an overlap and discrimination proof: " +
+                  s"${Spelling.of(union)} — $detail"
+              )
+              .map(_ => Shape.Sum(inhabited.map(_._2)))
         }
-    }
+      }
   }
 
   /** Whether `tpe` names or applies a union alias — one whose body, read through the aliases it
@@ -149,27 +130,6 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
           case body => aliasOf(body, scope).exists((e, a, _) => unionBody(e, a, scope))
         }
       }
-
-  // An unapplied alternative is dropped when an earlier one has its class, or another one's class
-  // is known to be its ancestor: both are type equalities, so the dropped one is never read.
-  private def absorbed(written: List[Written]): List[Written] = {
-    val runtimes = written.map(w => unapplied(w.found))
-    written.zip(runtimes).zipWithIndex.collect {
-      case ((alternative, own), index) if !own.exists(absorbedBy(runtimes, index)) => alternative
-    }
-  }
-
-  private def absorbedBy(runtimes: List[Option[Runtime]], index: Int)(own: Runtime): Boolean =
-    runtimes.zipWithIndex.exists {
-      case (Some(theirs), other) if other != index => absorbs(theirs, earlier = other < index)(own)
-      case _                                       => false
-    }
-
-  private def absorbs(theirs: Runtime, earlier: Boolean)(own: Runtime): Boolean =
-    if (theirs == own) earlier else classes.derives(own, theirs)
-
-  private def unapplied(found: Either[String, Alternative]): Option[Runtime] =
-    found.toOption.filterNot(_.applied).map(_.runtime)
 
   private def tagged(alternatives: List[Written]): Either[String, Unit] =
     Traversals.sequence(alternatives.map(_.found)).flatMap { found =>

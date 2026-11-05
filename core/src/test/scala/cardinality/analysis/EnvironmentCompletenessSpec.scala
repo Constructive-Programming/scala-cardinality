@@ -2,7 +2,6 @@ package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
-import org.specs2.matcher.MatchResult
 
 /** Environment completeness: concrete code outside the target, mutable state, names exports and
   * imports bind and by-name parameters (inferred results: `InferredResultsSpec`). Every fixture is

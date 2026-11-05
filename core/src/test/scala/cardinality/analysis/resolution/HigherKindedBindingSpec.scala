@@ -31,7 +31,6 @@ class HigherKindedBindingSpec extends Specification {
       an application of an application is one more key             $nested
     Nominal argument identity (R2)
       Option and Either[Unit, _] stay distinct under F              $optionEither
-      a case class and a tuple stay distinct under F                $caseTuple
       Boolean and Either[Unit, Unit] stay distinct under F          $boolEither
       equal spellings are one type                                  $sameKey
       tuple sugar is type equality                                  $tupleSugar
@@ -40,12 +39,10 @@ class HigherKindedBindingSpec extends Specification {
       a local alias shadows a builtin name in a key                 $shadowedKey
       an opaque argument is transparent only in its scope           $opaqueKey
       an opaque argument outside its scope is no readable key       $opaqueOutside
-      an idempotent union is its one alternative                    $unionKey
       equality evidence substitutes through F                       $leibniz
       an applied endpoint of equality evidence                      $appliedEq
       a long equality chain settles                                 $longChain
       an equality that keeps unfolding is refused                   $unfolding
-      operators are keyed by their eta-long lambda                  $operatorKeys
       an export of a vocabulary name is not trusted                 $exportedVocabulary
       a constructor field of F[Unit]                                $unfold
     Constructor arguments (R3)
@@ -67,9 +64,6 @@ class HigherKindedBindingSpec extends Specification {
       a foreign evidence names the foreign type                     $foreignBound
       same-typed anonymous evidences are not counted                $ambiguous
       a bounded binder's evidence is not provably unrelated         $boundedEvidence
-    Subtype bounds (R5, B1)
-      Any above and Nothing below bound nothing                     $extremes
-    Structural bounds (R5, B2)
   """
 
   private def entries(code: String): Map[String, Count] =
@@ -167,12 +161,6 @@ class HigherKindedBindingSpec extends Specification {
     count("object T { def f[F[_], A](x: F[Option[A]]): F[Either[Unit, A]] = ??? }", "T.f") ===
       Count.Finite(0)
 
-  def caseTuple =
-    count(
-      "case class Pair[A](a: A, b: A)\nobject T { def f[F[_], A](x: F[Pair[A]]): F[(A, A)] = ??? }",
-      "T.f"
-    ) === Count.Finite(0)
-
   def boolEither =
     count("object T { def f[F[_]](x: F[Boolean]): F[Either[Unit, Unit]] = ??? }", "T.f") ===
       Count.Finite(0)
@@ -229,9 +217,6 @@ class HigherKindedBindingSpec extends Specification {
     hidden("T.outside", "O.W").and(hidden("Ctx.outside", "Ctx.M.V")).and(hidden("H.outside", "G.U"))
   }
 
-  def unionKey =
-    count("object T { def f[F[_], A](x: F[A | A]): F[A] = x }", "T.f") === Count.Finite(1)
-
   def leibniz =
     count("object T { def f[F[_], A, B](fa: F[A])(using A =:= B): F[B] = ??? }", "T.f") ===
       Count.Finite(1)
@@ -266,25 +251,6 @@ class HigherKindedBindingSpec extends Specification {
           )
       }
     refused("T.loop").and(refused("T.loop2"))
-  }
-
-  // `G ≡ [y] =>> G[y]`, `Option ≡ [y] =>> Option[y]`, `Either ≡ [a, b] =>> Either[a, b]`; a
-  // different body or argument order is a different operator.
-  def operatorKeys = {
-    val counts = entries("""
-      object T {
-        def eta[F[_[_]], G[_]](x: F[G]): F[[y] =>> G[y]] = x
-        def named[F[_[_]]](x: F[Option]): F[[y] =>> Option[y]] = x
-        def other[F[_[_]]](x: F[Option]): F[[y] =>> Either[Unit, y]] = ???
-        def same[F[_[_, _]]](x: F[Either]): F[[a, b] =>> Either[a, b]] = x
-        def swapped[F[_[_, _]]](x: F[Either]): F[[a, b] =>> Either[b, a]] = ???
-      }
-    """)
-    (counts("T.eta") === Count.Finite(1))
-      .and(counts("T.named") === Count.Finite(1))
-      .and(counts("T.other") === Count.Finite(0))
-      .and(counts("T.same") === Count.Finite(1))
-      .and(counts("T.swapped") === Count.Finite(0))
   }
 
   // `Function1`, `Tuple2` and `=:=` are read as builtins wherever no source declares them, so an
@@ -496,15 +462,5 @@ class HigherKindedBindingSpec extends Specification {
       "T.f",
       "anonymous evidence selection not resolved"
     )
-
-  def extremes = {
-    val counts = entries("""
-      object T {
-        def top[A <: Any](a: A): A = a
-        def bottom[A >: Nothing, B](a: A): B = ???
-      }
-    """)
-    (counts("T.top") === Count.Finite(1)).and(counts("T.bottom") === Count.Finite(0))
-  }
 
 }

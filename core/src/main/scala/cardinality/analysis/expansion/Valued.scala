@@ -12,7 +12,6 @@ private[expansion] object Valued {
     case v: Defn.Val => Some((v.pats, v.decltpe, Some(v.rhs)))
     case v: Defn.Var => Some((v.pats, v.decltpe, Some(v.body)))
     case v: Decl.Val => Some((v.pats, Some(v.decltpe), None))
-    case v: Decl.Var => Some((v.pats, Some(v.decltpe), None))
     case _           => None
   }
 

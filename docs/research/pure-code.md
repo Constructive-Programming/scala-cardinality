@@ -226,9 +226,7 @@ root-import name (`Throwable`) is not read: unresolved. It never claims a finite
 - **Executable**: `PureCodeSpec` (vars, throws, emptiness, construction, throwables, positive and
   adversarial), `ThrowableSlotsSpec` (stored side), `ValueRowsSpec.valueReasons` and
   `sumDropsEmptySummand` (value rows),
-  `StdlibModelSpec.open`,
-  `KindedIdentitySpec.modelKeys`, `CapabilitySpec.unreadMembers`,
-  `MethodRefinementSpec.mutablePath`, `TypeMemberSpec.valuePaths`.
+  `StdlibModelSpec.open`, `CapabilitySpec.unreadMembers`.
 - The no-side-effects assumption is the owner's model decision (v1 §2), not a theorem. Reading a
   `var` as its value remains a model decision. Related work on why the exclusion is load-bearing:
   - Pitts & Stark 1998, *Operational reasoning for functions with local state*, HOOTS (CUP)

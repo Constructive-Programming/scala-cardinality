@@ -27,7 +27,6 @@ class OwnersAndRecordsSpec extends Specification {
       a private constructor or a later clause gives its own reason     $caseRefusals
       a match-type field reduces on the record's tuple argument        $matchField
     Members no subclass overrides
-      a given or a final member an inline body selects is fixed        $fixedSelection
   """
 
   private def one(code: String): Map[String, Count] =
@@ -185,26 +184,6 @@ class OwnersAndRecordsSpec extends Specification {
       .and(found("V.m6") === Count.Finite(1))
       .and(found("V.m7") === Count.Finite(2))
       .and(found("V.m8") must not(beEqualTo(Count.Finite(4))))
-  }
-
-  // No subclass overrides a given (E164) or a final member: f's expansion selects T's g and U's g
-  // on every call site — g, 2 (T.f read `?`). V's g is open: a call site's subclass may override
-  // it inline.
-  def fixedSelection = {
-    val found = one("""
-      trait T { given g: Boolean = true; inline def f: Boolean = g }
-      trait U { final def g: Boolean = true; inline def f: Boolean = g }
-      trait V { def g: Boolean = true; inline def f: Boolean = g }
-    """)
-    (found("T.f") === Count.Finite(2))
-      .and(found("U.f") === Count.Finite(2))
-      .and(
-        refused(
-          found("V.f"),
-          "inline method: selects g on this, which a call site may type as a subclass of V that " +
-            "overrides g inline"
-        )
-      )
   }
 
 }

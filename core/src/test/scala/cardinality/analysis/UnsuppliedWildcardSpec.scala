@@ -31,7 +31,6 @@ class UnsuppliedWildcardSpec extends Specification {
       a `given` selector may bind a path's first name                  $givenSelectors
       a supplied wildcard binding a value, an enum case                $valuesAndCases
       a package the sources spell only as a prefix is open             $prefixPackages
-      a parameter whose declared type is in doubt keeps that reason    $doubtedParameter
     Term heads a supplied clause binds (probes/a7fix2/spec)
       an object's inherited members, by kind, and an unsupplied parent $inheritedHeads
       the aliases an object's export clauses define                    $exportedHeads
@@ -274,19 +273,6 @@ class UnsuppliedWildcardSpec extends Specification {
             |}""".stripMargin
     )
     (found("s.U.pick") === Count.Finite(4)).and(found("s.U.path") === Count.Finite(4))
-  }
-
-  // A parameter's declared type the lookup refuses leaves its path `rc.Out` refused for that reason
-  // alone (review-A7-quality/q): the path is not read again as a name.
-  def doubtedParameter = {
-    val found = counts(
-      "q/RC.scala" -> "package q\npackage compose\ntrait RC[F] { type Out[S, C] }",
-      "q/V.scala" ->
-        "package q\nimport zzz.*\nimport compose.*\ntrait V[S] { def andThen[C, F](using rc: RC[F]): rc.Out[S, C] }"
-    )
-    found("q.V.andThen") === Count.Unresolved(
-      List("unresolved type: RC (may be imported by compose.*: compose may be imported by zzz.*)")
-    )
   }
 
   // Term heads (`TermMembers`): every fixture compiles with Scala 3.9.0 (probes/a7fix2/spec, with

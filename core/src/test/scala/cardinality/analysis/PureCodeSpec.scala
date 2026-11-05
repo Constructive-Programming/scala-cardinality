@@ -2,7 +2,6 @@ package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
-import org.specs2.matcher.MatchResult
 
 /** The no-side-effects assumption (register D26): a `var` reads as a `val`, a throw supplies
   * nothing, and a throwable is data. Every fixture is valid Scala 3.9.0 (compiled with scalac)
@@ -21,7 +20,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       a private var field of a sealed subtype stays hidden          $privateVarProduct
       a plain parameter of a sealed leaf is no field                $plainLeafParameter
     A throw supplies nothing
-      a right-hand side that only throws is a Nothing               $inferredNothing
       a throwing branch joins nothing to the other branch           $throwingBranch
       a rebound ??? or sys is no throw                              $reboundNames
       a module helper that only throws inhabits no type             $throwingHelper
@@ -126,26 +124,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |object U { def f(s: S): Boolean = ???; def g(t: T): Boolean = ??? }""".stripMargin)
     refused(found("U.f"), "sealed subtype hides a parameter: H2")
       .and(found("U.g") === Count.Finite(8))
-  }
-
-  // Scala types `throw e`, `???` and `sys.error(…)` as Nothing, and a block, match or conditional
-  // whose every result throws as well: no implementation of Nothing exists — 0 (each read "inferred
-  // result type not resolved").
-  def inferredNothing = {
-    val found = rows("""object Inferred {
-      |  def boom = throw new Exception("x")
-      |  def q = ???
-      |  def s = sys.error("x")
-      |  def full = scala.sys.error("x")
-      |  def block = { val n = 1; throw new Exception(n.toString) }
-      |  def matched(x: Int) = x match { case 0 => ???; case _ => sys.error("e") }
-      |  def predef = Predef.???
-      |  def scalaPredef = scala.Predef.???
-      |  def rooted = _root_.scala.sys.error("x")
-      |}""".stripMargin)
-    List("boom", "q", "s", "full", "block", "matched", "predef", "scalaPredef", "rooted")
-      .map(name => found(s"Inferred.$name") === Count.Finite(0))
-      .reduce(_ and _)
   }
 
   // `if (c) throw … else true` is a Boolean: Boolean => Boolean, 4; `if (c) 1 else throw …` an Int:

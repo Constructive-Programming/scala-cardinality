@@ -18,9 +18,6 @@ class TransparentInlineSpec extends Specification {
       a transparent result of an open class may be a subclass        $transparentSubclass
       a closed transparent result is still narrowed at the call site $transparentClosed
       a transparent function result is refused too                   $transparentFunction
-      a narrower class, None, or a declared singleton                $transparentResults
-    An inline method that is not transparent
-      an inline parameter of a top type is read only by inline match $inlineTop
   """
 
   private def rows(code: String): Map[String, Count] =
@@ -81,38 +78,5 @@ class TransparentInlineSpec extends Specification {
         "not the declared Unit"
       )
     )
-
-  // `inline x match { case _: Int => true; case _ => false }` tells f(1) from f("s") (Scala 3.9.0):
-  // only a compile-time operation reads an argument's static type (register D27). Without one a
-  // body counts as a method's: Any is one value (isInt, al: 2); Option[Any] has 2 (opt: 2^2 = 4).
-  def inlineTop = {
-    val code = "type Top = Any\nobject Use {\n  inline def isInt(x: Any): Boolean = true\n" +
-      "  inline def opt(x: Option[Any]): Boolean = true\n  inline def al(x: Top): Boolean = true\n" +
-      "  inline def unit(x: Any): Unit = ()\n  def plain(x: Any): Boolean = true\n" +
-      "  inline def dispatch(x: Any): Boolean = inline x match { case _: Int => true; case _ => false } }"
-    (count(code, "Use.isInt") === Count.Finite(2))
-      .and(count(code, "Use.opt") === Count.Finite(4))
-      .and(count(code, "Use.al") === Count.Finite(2))
-      .and(count(code, "Use.unit") === Count.Finite(1))
-      .and(count(code, "Use.plain") === Count.Finite(2))
-      .and(reasonContains(code, "Use.dispatch", "inline method: uses inline match"))
-  }
-
-  // Rule X: narrowable's call site sees `Sub`, whose `n` tells `new Sub(true)` from `new Sub(false)`;
-  // closed's sees `None.type`, which an overload tells from `(None: Option[Boolean])` (fixture
-  // review-A6 h11). Only a declared singleton type leaves nothing narrower: one returns 1.
-  def transparentResults = {
-    val code = """class Foo
-      |class Sub(val n: Boolean) extends Foo
-      |object Pos {
-      |  transparent inline def closed(b: Boolean): Option[Boolean] = None
-      |  transparent inline def narrowable(b: Boolean): Foo = new Sub(b)
-      |  transparent inline def one(b: Boolean): 1 = 1
-      |}""".stripMargin
-    val found = rows(code)
-    reasonContains(code, "Pos.closed", "not the declared Option[Boolean]")
-      .and(reasonContains(code, "Pos.narrowable", "transparent inline result"))
-      .and(found("Pos.one") === Count.Finite(1))
-  }
 
 }

@@ -3,8 +3,6 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.*
-import cardinality.analysis.model.ResolutionContext
-import cardinality.analysis.resolution.RuntimeClasses
 import org.specs2.Specification
 
 /** Top types as the terminal type, goals with one value, and unions read as tagged sums only where
@@ -48,44 +46,16 @@ class TopTypesUnionSpec extends Specification {
       a given selector binds no type name                            $rebinding
       a given selector spelling Any or Null binds neither            $rebindingTops
       a constructor's positions are value spaces, not goals          $constructorGoal
-    Lattice identities apply before resolution
-      Any absorbs a union, even an unresolvable alternative          $absorbAny
-      a subtype alternative is absorbed by its sealed parent         $absorbSubtype
-      one top-like class spelled twice is that class                 $topLikeTwice
     Constructor slots read the implementation model
       an Any slot is one value, not the epsilon tier                 $anyBoxCtor
       an Any slot beside an Int is the Int's space                   $walkCtor
       an Any array beside them is a countable length                 $walkResCtor
-      Null is empty and a union slot is its sum                      $nullCtor
       a binder named Nothing does not capture the empty slot         $nothingBinderCtor
       a source type named Nothing does not capture it either         $nothingAliasCtor
       a rewritten slot is read where its constructor is written      $rewrittenScope
-    Discriminable disjoint unions are sums
-      a result adds its alternatives                                 $sumOut
-      an input multiplies its branches                               $sumIn
-      nested unions flatten                                          $nested
-      a union alias reads as the same sum                            $alias
-      Null alternatives vanish before the sum is formed              $nullMix
-      one class spelled twice is one alternative                     $sameClass
-      distinct builtin classes are disjoint                          $builtins
-      sealed traits whose cases are apart are disjoint               $sealedApart
-      an enum and a sealed trait are disjoint case by case           $enumApart
-      a foreign parent cannot extend the sources                     $foreignParent
     Unions that are not sums stay unresolved
-      a type-parameter alternative                                   $param
-      two alternatives of one runtime class                          $sameRuntimeClass
-      an opaque alternative outside its scope                        $opaqueOutside
-      a top-like alternative                                         $topLike
       an alternative whose declaration was not supplied              $missingDecl
-      a callable that returns a union                                $callableSum
-      a case shared by two sealed families                           $sharedCase
       a case extending through an alias                              $aliasChild
-      an enum case that extends the other alternative                $enumCase
-      a parent an unread parent may declare                          $unreadParent
-      a family whose shape misses an enum-case subclass              $unenumeratedChild
-      a family a child extends through a parameterised alias         $aliasApplicationChild
-      one union alias applied twice to one runtime class             $aliasTwice
-      the pair check refuses what the shape reading refuses first    $openPair
   """
 
   private def entry(code: String, name: String): MethodAnalysis.Entry =
@@ -110,14 +80,6 @@ class TopTypesUnionSpec extends Specification {
       case Count.Unresolved(reasons) =>
         fragments.forall(f => reasons.exists(_.contains(f))) must beTrue
     }
-
-  private val colours =
-    "final case class Red(level: Boolean)\nfinal case class Blue()\n"
-
-  private val fail =
-    "sealed trait Fail\nfinal case class Missing() extends Fail\ncase object Broken extends Fail\n"
-
-  private val detail = "overlap and discrimination proof"
 
   def anyOut = count("def anyOut[A](a: A): Any = a", "anyOut") === Count.Finite(1)
   def anyIn = count("def anyIn[A](x: Any, a: A): A = a", "anyIn") === Count.Finite(1)
@@ -334,28 +296,6 @@ class TopTypesUnionSpec extends Specification {
   def constructorGoal =
     reasonContains("import ext.Schema\ncase class C(s: Schema, u: Unit)", "C.<init>", "Schema")
 
-  def absorbAny =
-    (count("def a[A](a: A): A | Any = a", "a") === Count.Finite(1))
-      .and(count(colours + "def b(r: Red): Red | Null | Any = r", "b") === Count.Finite(1))
-      .and(count("import ext.Schema\ndef s(): Schema | Any = ()", "s") === Count.Finite(1))
-      .and(
-        count("type Top = Any\nimport ext.Schema\ndef t(s: Schema): Schema | Top = s", "t") ===
-          Count.Finite(1)
-      )
-
-  // Fail | Missing is Fail: 2 values, and f splits in 2 → 2^2.
-  def absorbSubtype =
-    (count(fail + "def a(f: Fail): Fail | Missing = f", "a") === Count.Finite(4))
-      .and(
-        count(fail + "def a(f: Fail): Fail | Missing = f", "a") === count(
-          fail + "def b(f: Fail): Fail = f",
-          "b"
-        )
-      )
-
-  def topLikeTwice =
-    count("def t(x: AnyRef): AnyRef | Object = x", "t") === Count.Finite(1)
-
   def anyBoxCtor = count("case class AnyBox(x: Any)", "AnyBox.<init>") === Count.Finite(1)
 
   def walkCtor =
@@ -369,15 +309,6 @@ class TopTypesUnionSpec extends Specification {
       "WalkRes.<init>"
     )
     (walk.isCountable must beTrue).and(walk.render === "ω")
-  }
-
-  def nullCtor = {
-    val code = colours + "case class N(x: Null)\ncase class NB(x: Boolean | Null)\n" +
-      "case class R(x: Red | Blue)\ncase class T(x: Option[Any], y: Any => Boolean)"
-    (count(code, "N.<init>") === Count.Finite(0))
-      .and(count(code, "NB.<init>") === Count.Finite(2))
-      .and(count(code, "R.<init>") === Count.Finite(3))
-      .and(count(code, "T.<init>") === Count.Finite(4))
   }
 
   def nothingBinderCtor =
@@ -403,124 +334,11 @@ class TopTypesUnionSpec extends Specification {
       .and(count(code, "p.O.Opt.<init>") === Count.Finite(4))
   }
 
-  // Red: 2, Blue: 1 → 3 results per branch of r.level → 3^2.
-  def sumOut =
-    count(colours + "def out(r: Red, b: Blue): Red | Blue = r", "out") === Count.Finite(9)
-
-  // 3 input values → Boolean^3.
-  def sumIn =
-    count(colours + "def in(u: Red | Blue): Boolean = true", "in") === Count.Finite(8)
-
-  // 2 + 1 + 2 results; r.level × f → 4 branches → 5^4.
-  def nested =
-    count(colours + fail + "def n(r: Red, b: Blue, f: Fail): Red | (Blue | Fail) = r", "n") ===
-      Count.Finite(625)
-
-  // r: 4 cases × fb.level 2 → 8 branches, 2 Reds each → 2^8.
-  def alias =
-    count(colours + fail + "type Result = Fail | Red\ndef g(r: Result, fb: Red): Red = fb", "g") ===
-      Count.Finite(256)
-
-  def nullMix = count(colours + "def nm(r: Red): Red | Blue | Null = r", "nm") === Count.Finite(9)
-
-  def sameClass =
-    count(
-      "package p\nfinal case class Red(level: Boolean)\ndef s(r: Red): Red | p.Red = r",
-      "p.s"
-    ) ===
-      Count.Finite(4)
-
-  // Unit | Boolean: 3 values; Option[Boolean] | Either[Unit, Unit]: 5 values over 3 inputs.
-  def builtins =
-    (count("def ue(x: Unit): Unit | Boolean = x", "ue") === Count.Finite(3))
-      .and(
-        count("def oe(x: Option[Boolean]): Option[Boolean] | Either[Unit, Unit] = x", "oe") ===
-          Count.Finite(125)
-      )
-
-  private val families =
-    "sealed trait P\nsealed trait Q\ncase object P1 extends P\ncase object Q1 extends Q\n"
-
-  def sealedApart = count(families + "def pq(p: P): P | Q = p", "pq") === Count.Finite(2)
-
-  // Color: 2 cases, Q: 1 → 3 results over 2 inputs.
-  def enumApart =
-    count(
-      "enum Color { case R, G }\nsealed trait Q\ncase object Q1 extends Q\n" +
-        "def cq(c: Color): Color | Q = c",
-      "cq"
-    ) === Count.Finite(9)
-
-  // A declaration outside the sources — named, or imported from a path not supplied — cannot
-  // extend the sources that depend on it.
-  def foreignParent =
-    (count(
-      "sealed trait P\ncase object P1 extends P with ext.Mixin\n" +
-        "sealed trait Q\ncase object Q1 extends Q with ext.Other\ndef pq(p: P): P | Q = p",
-      "pq"
-    ) === Count.Finite(2)).and(
-      count(
-        "import ext.{Mixin, Other}\nsealed trait P\ncase object P1 extends P with Mixin\n" +
-          "sealed trait Q\ncase object Q1 extends Q with Other\ndef pq(p: P): P | Q = p",
-        "pq"
-      ) === Count.Finite(2)
-    )
-
-  def param =
-    reasonContains(colours + "def p[A](a: A, r: Red): A | Red = r", "p", detail, "type parameter")
-
-  def sameRuntimeClass =
-    reasonContains(
-      "final case class Box[T](t: T)\n" +
-        "def b(a: Box[Boolean], c: Box[Unit]): Box[Boolean] | Box[Unit] = a",
-      "b",
-      "share runtime class Box"
-    ).and(
-      reasonContains(
-        "def l(x: (Int, Int)): (Int, Int) | (String, String) = x",
-        "l",
-        "share runtime class scala.Tuple2"
-      )
-    ).and(
-      reasonContains(
-        "def o(x: Option[Boolean]): Option[Boolean] | Option[Unit] = x",
-        "o",
-        "share runtime class scala.Option"
-      )
-    )
-
-  // Inside the scope, Age is Boolean: one alternative, 4 branches, 2 results each.
-  def opaqueOutside = {
-    val code = "object S { opaque type Age = Boolean; def mk(b: Boolean): Age = b; " +
-      "def inside(a: Age, b: Boolean): Age | Boolean = b }\n" +
-      "def u(a: S.Age, b: Boolean): S.Age | Boolean = b"
-    reasonContains(code, "u", "opaque representation is not visible at use site")
-      .and(count(code, "S.inside") === Count.Finite(16))
-  }
-
-  def topLike =
-    reasonContains("def t(x: AnyRef, i: Boolean): AnyRef | Boolean = i", "t", "top-like")
-
   def missingDecl =
     reasonContains(
       "import ext.Json\nfinal case class Red(level: Boolean)\ndef m(j: Json, r: Red): Json | Red = r",
       "m",
       "union (Json | Red): declaration not supplied: ext.Json (named import Json)"
-    )
-
-  // `f(a)` is eliminated once (capabilities C10): `Red(level)` splits `level` (2) and `Blue` is one
-  // case, and each of the three cases answers any of the three values `Red(true)`, `Red(false)`,
-  // `Blue` — 3^3 = 27.
-  def callableSum =
-    count(colours + "def c[A](a: A)(f: A => Red | Blue): Red | Blue = f(a)", "c") ===
-      Count.Finite(27)
-
-  def sharedCase =
-    reasonContains(
-      "sealed trait P\nsealed trait Q\ncase object P1 extends P\ncase object PQ extends P with Q\n" +
-        "def pq(p: P): P | Q = p",
-      "pq",
-      "P | Q — PQ derives from Q"
     )
 
   // The family reading refuses first; the class reading would find X through the alias too.
@@ -530,76 +348,6 @@ class TopTypesUnionSpec extends Specification {
         "case object Q1 extends Q\ncase object P1 extends P\ndef pq(p: P): P | Q = p",
       "pq",
       "sealed family is extended through an alias: P"
-    )
-
-  def enumCase =
-    reasonContains(
-      "sealed trait Q\ncase object Q1 extends Q\nenum Color { case R; case G extends Color with Q }\n" +
-        "def cq(c: Color): Color | Q = c",
-      "cq",
-      "a case of Color derives from Q"
-    )
-
-  // Inside O, `Mixin` may be a member of the unread `ext.Base`, which may be a supplied class.
-  def unreadParent =
-    reasonContains(
-      "import ext.Base\nobject O extends Base {\n  sealed trait P\n  case object P1 extends P with Mixin\n" +
-        "  sealed trait Q\n  case object Q1 extends Q with Mixin\n  def pq(p: P): P | Q = p\n}",
-      "O.pq",
-      "P | Q — ancestry of P1 not resolved: Mixin"
-    )
-
-  // P is {P1, E.A}, but its shape reads P1 alone: Q's side proves the pair apart, so only the
-  // family check stops the sum from counting 2 instead of 3^2.
-  def unenumeratedChild =
-    reasonContains(
-      "sealed trait P\ncase object P1 extends P\nenum E { case A extends E with P }\n" +
-        "sealed trait Q\ncase object Q1 extends Q\ndef pq(p: P): P | Q = p",
-      "pq",
-      "sealed family P has a subclass this reading does not enumerate"
-    )
-
-  // `type Id[X] = X; case class C() extends Id[S]` is a child of S (Scala 3.9.0 warns that a match
-  // on S1 alone misses C()), so S | Q has 3 values, not 2. A supplied class applied to the family
-  // (`Visitor[R]`) cannot be dealiased: R | Q is R1 + Q1.
-  def aliasApplicationChild = {
-    val code = "type Id[X] = X\ntrait Visitor[A]\nsealed trait S\nfinal case class S1() extends S\n" +
-      "final case class C() extends Id[S]\nsealed trait Q\nfinal case class Q1() extends Q\n" +
-      "sealed trait R\nfinal case class R1() extends R\nfinal case class V() extends Visitor[R]\n" +
-      "def u(): S | Q = ???\ndef w(): R | Q = ???"
-    reasonContains(code, "u", "sealed family S may be extended through Id[S]")
-      .and(count(code, "w") === Count.Finite(2))
-  }
-
-  // `class C` and an open `trait T` have no shape, and two spellings of one class are absorbed
-  // before pairs are formed, so no count reaches these refusals; the pair check keeps them.
-  def openPair = {
-    val source = dialects.Scala3("class C\ntrait T\nfinal case class F()").parse[Source].get
-    val index = new MethodAnalysis.Index(
-      List(MethodAnalysis.Input("Open.scala", source)),
-      MethodAnalysis.Limits()
-    )
-    val classes = index.runtimeClasses
-    val root = ResolutionContext(index.peers(Nil).head, Map.empty, Set.empty)
-    def runtime(name: String) = classes.alternative(Type.Name(name), root).toOption.get.runtime
-    val option = RuntimeClasses.Builtin("scala.Option")
-    (classes.disjoint(runtime("C"), runtime("T")) ===
-      Left("C and T may overlap (non-final class and open trait)"))
-      .and(
-        classes.disjoint(option, option) === Left(
-          "two alternatives share runtime class scala.Option"
-        )
-      )
-      .and(classes.disjoint(runtime("F"), runtime("T")) === Right(()))
-      .and(classes.disjoint(option, runtime("T")) === Right(()))
-  }
-
-  def aliasTwice =
-    reasonContains(
-      "final case class Box[T](t: T)\nfinal case class Crate()\ntype Boxed[A] = Box[A] | Crate\n" +
-        "def b(x: Crate): Boxed[Boolean] | Boxed[Unit] = x",
-      "b",
-      "two alternatives share runtime class Box"
     )
 
 }

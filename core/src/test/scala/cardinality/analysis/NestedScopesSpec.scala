@@ -20,7 +20,6 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       a given binder of a case clause is refused                      $givenBinders
       a function literal's parameter is a parameter                   $lambdaParameters
       an untyped function literal parameter is refused                $untypedLambda
-      a scope of an inline method shares the method's verdict         $inlineOwners
   """
 
   private val nested = """
@@ -174,32 +173,5 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       )("Untyped.lifted.<lambda#1>.<new#1>.get"),
       "missing type of accessible value: x"
     )
-
-  // A definition in a scope of an inline method is copied into every expansion (register D27): it
-  // counts when the method's body passes — a Boolean function of c and the capture b, 16 — and
-  // carries the method's refusal when it does not. Fixture `$S/probes/b5-land/nest.scala` (3.9.0).
-  def inlineOwners = {
-    val found = rows(
-      """|import scala.compiletime.summonInline
-         |object I {
-         |  inline def outer(b: Boolean): Boolean =
-         |    if (b) {
-         |      def inner(c: Boolean): Boolean = c && b
-         |      inner(b)
-         |    } else b
-         |  inline def refused(b: Boolean): Boolean =
-         |    if (b) {
-         |      def inner(c: Boolean): Boolean = c
-         |      inner(summonInline[Boolean])
-         |    } else b
-         |}""".stripMargin
-    )
-    (found("I.outer.<block#1>.inner").render === "16").and(
-      refused(
-        found("I.refused.<block#1>.inner"),
-        "definition inside an inline method: refused uses scala.compiletime.summonInline"
-      )
-    )
-  }
 
 }
