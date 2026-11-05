@@ -211,9 +211,9 @@ private[cardinality] object SingletonIntersections {
       context: ResolutionContext,
       resolver: Resolver
   ): Resolved = {
-    // `Any` is the unit of intersection: `T & Any` is `T`, whatever `T` is.
-    if (TopTypes.isAny(left, context, resolver)) context.read(right, resolver)
-    else if (TopTypes.isAny(right, context, resolver)) context.read(left, resolver)
+    // `Any` (`AnyRef`, `Matchable`) is the unit of intersection: `T & Any` is `T`, whatever `T` is.
+    if (TopTypes.absorbs(left, context, resolver)) context.read(right, resolver)
+    else if (TopTypes.absorbs(right, context, resolver)) context.read(left, resolver)
     else if (left.structure == right.structure) context.read(left, resolver)
     else if (marker(left, context, resolver)) context.read(right, resolver).flatMap(singletonOnly)
     else if (marker(right, context, resolver)) context.read(left, resolver).flatMap(singletonOnly)

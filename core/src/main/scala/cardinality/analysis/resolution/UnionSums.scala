@@ -37,7 +37,12 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
     val written = flatten(union, context)
       .distinctBy((tpe, scope) => tpe.syntax -> scope)
       .map((tpe, scope) => Written(tpe, scope, classes.alternative(tpe, scope)))
-    if (written.exists(_.found.exists(_.runtime == Top(TopTypes.Kind.Universal))))
+    if (
+      written.exists(_.found.exists(_.runtime match {
+        case Top(kind) => TopTypes.absorbing(kind)
+        case _         => false
+      }))
+    )
       Right(TopTypes.terminal)
     else {
       val kept = absorbed(written)

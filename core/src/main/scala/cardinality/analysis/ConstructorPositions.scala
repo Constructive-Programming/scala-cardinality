@@ -111,7 +111,7 @@ final private[cardinality] class ConstructorPositions(
       val slot = unread.fold(TopTypes.implementationSlot(tpe, context, resolver))(_ => None)
       val written = ContextBounds.written(param, tpe, owner.typeParams)
       val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), written)
-      // A slot is a parameter of the constructor: its tops are negative (v1.md §2).
+      // A slot is a parameter of the constructor, an input: a bare top in it is one value (v1.md §2).
       val shaped = resolveIn(tpe, owner).map(TopTypes.polarized(_, false))
       declined(tpe, reading, shaped.isLeft).getOrElse(
         readPosition(label(param, tpe), shaped, unread, slot.flatMap(_ => reading.toOption))
@@ -182,9 +182,7 @@ final private[cardinality] class ConstructorPositions(
       estimate: Option[Size]
   ): Position =
     space match {
-      // A top type's positive tier: the estimate reads `Any` as ε₀ too.
-      case Card.Epsilon0 => Estimated(cardinality.capacity.EffectiveEpsilon0)
-      case Card.Omega    =>
+      case Card.Omega =>
         estimate match {
           case None                           => Estimated(ClosedSpaces.estimate(shape))
           case Some(size) if size.hasInfinite => Estimated(size)

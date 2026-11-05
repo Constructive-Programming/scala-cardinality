@@ -689,14 +689,13 @@ class ReportSpec extends Specification {
          |case class Nullable(xs: Array[Int] | Null)
          |""".stripMargin,
     )
-    // `Null` has the one value `null`; `Any` is the top of the lattice, and nothing the analysis can
-    // place is above the ε₀ tier, so it sits there — and an `Array[Any]` holds each one-element
-    // array, so it is ε₀ too (`Σₙ aⁿ` from n = 1), never below its element. eo's `PSVec.Slice` is
-    // that shape.
+    // `Null` has the one value `null`; `Any` holds every value a finite program builds, ω (v1.md
+    // §2; it was ε₀) — and an `Array[Any]` holds each array, `Σₙ ωⁿ` = ω, never below its element.
+    // eo's `PSVec.Slice` is that shape.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("MaybeNull", Some(UnitSize), Nil),
-      ("Anything", Some(EffectiveEpsilon0), Nil),
-      ("Elements", Some(EffectiveEpsilon0), Nil),
+      ("Anything", Some(EffectiveOmega), Nil),
+      ("Elements", Some(EffectiveOmega), Nil),
       ("Nullable", Some(EffectiveOmega + UnitSize), Nil),
     )
   }

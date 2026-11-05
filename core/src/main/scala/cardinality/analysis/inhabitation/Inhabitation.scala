@@ -193,7 +193,6 @@ object Inhabitation {
       case Card.Exact(Natural.Lit(value)) => Finite(value)
       case Card.Exact(value)              => Symbolic(value)
       case Card.Omega                     => Countable
-      case Card.Epsilon0                  => Bounded(cardinality.capacity.EffectiveEpsilon0)
     }
 
     /** The count a constructor admits: the product of its positions' value spaces. Exact spaces
@@ -220,11 +219,10 @@ object Inhabitation {
 
     // The solver answers with an exact count, ω or a reason, never with an estimate's bound.
     private def cardOf(count: Count): Card = count match {
-      case Finite(value)                                                     => Card.exact(value)
-      case Symbolic(value)                                                   => Card.Exact(value)
-      case Countable                                                         => Card.Omega
-      case Bounded(space) if space == cardinality.capacity.EffectiveEpsilon0 => Card.Epsilon0
-      case Bounded(_) | Unresolved(_)                                        =>
+      case Finite(value)              => Card.exact(value)
+      case Symbolic(value)            => Card.Exact(value)
+      case Countable                  => Card.Omega
+      case Bounded(_) | Unresolved(_) =>
         throw new IllegalArgumentException(s"a solver count has no exact card: $count")
     }
 
@@ -259,10 +257,10 @@ object Inhabitation {
     try
       inspect("solver preparation")
       val placed = bindings.map(b => b.copy(shape = TopTypes.polarized(b.shape, false)))
-      // Arguments before the method (v1.md §2): an argument space holding an ε₀ top — a top a
-      // supplied function returns — is ε₀ values. The body observes nothing of such a top, so the
-      // result's choices are counted with it as one value, and over ε₀ arguments two or more
-      // choices are ε₀; one stays 1, none 0.
+      // Arguments before the method (v1.md §2): an argument space holding a top in an output — a
+      // top a supplied function returns — is ω values. The body observes nothing of such a top, so
+      // the result's choices are counted with it as one value, and over ω arguments two or more
+      // choices are ω; one stays 1, none 0.
       if (placed.exists(b => TopTypes.unbounded(b.shape)))
         overUnbounded(
           count(
@@ -284,7 +282,7 @@ object Inhabitation {
   private def overUnbounded(choices: Count): Count = choices match {
     case Finite(n) if n <= 1 => choices
     case Unresolved(_)       => choices
-    case _                   => Bounded(cardinality.capacity.EffectiveEpsilon0)
+    case _                   => Countable
   }
 
   private def solved(
