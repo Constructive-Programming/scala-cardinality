@@ -23,10 +23,12 @@ import Inhabitation.Shape
   * built and read by testing keys for equality, `scala.quoted` is compile-time reflection, and a
   * `ClassTag`, `TypeTest` or `Mirror` reveals the type it is evidence for. A throwable is data
   * (register D26): its pure members read strings and throwables, and its constructors build
-  * infinitely many values they tell apart, so it is an ω transparent value, as `String` is. An
-  * unmodelled entry is a class or interface whose members the model does not hold (`Product`,
-  * `java.util.List`, the final `Integer`). The table answers where Scala's root imports would,
-  * after every binding of the sources, and lists the parents whose members it knows (Scala 3.9.0).
+  * infinitely many values they tell apart, so it is an ω transparent value, as `String` is; so is
+  * an arbitrary-precision number (`BigInt`, `BigDecimal`): countably many finite values, each a
+  * literal of a total equality. An unmodelled entry is a class or interface whose members the model
+  * does not hold (`Product`, `java.util.List`, the final `Integer`). The table answers where
+  * Scala's root imports would, after every binding of the sources, and lists the parents whose
+  * members it knows (Scala 3.9.0).
   */
 private[cardinality] object StdlibModel {
 
@@ -55,7 +57,7 @@ private[cardinality] object StdlibModel {
       */
     case Unmodelled(open: Boolean)
 
-    /** A throwable: an ω transparent value (register D26). */
+    /** A throwable (register D26) or an arbitrary-precision number: an ω transparent value. */
     case Transparent
   }
 
@@ -152,6 +154,9 @@ private[cardinality] object StdlibModel {
       .sortBy(_.fqn)
       .map(t => t.fqn -> (if (t.scalaAlias) Root.ScalaPackage else Root.JavaLang))
 
+  // The `scala` package aliases both.
+  private val Numbers = List("scala.math.BigInt", "scala.math.BigDecimal")
+
   private val entries: List[Entry] =
     (1 to 22).map(tuple).toList ++ (0 to 22).map(function) ++ List(
       Entry("scala.EmptyTuple", Nil, Structural(_ => Shape.Product(Nil)), "1"),
@@ -192,7 +197,7 @@ private[cardinality] object StdlibModel {
       excluded(Reflection)(s"scala.quoted.$name", arity)
     ) ++
       Revealed.map((fqn, arity) => excluded(Revealing)(fqn, arity)) ++
-      Exceptions.map((fqn, _) => transparent(fqn)) ++
+      (Exceptions.map(_._1) ++ Numbers).map(transparent) ++
       List(
         "scala.Product",
         "scala.Equals",
@@ -249,7 +254,9 @@ private[cardinality] object StdlibModel {
       ("Set", "scala.collection.immutable.Set", Root.Predef),
       ("Integer", "java.lang.Integer", Root.JavaLang),
       ("CharSequence", "java.lang.CharSequence", Root.JavaLang)
-    ) ++ Exceptions.map((fqn, root) => (fqn.split('.').last, fqn, root))
+    ) ++ (Exceptions ++ Numbers.map(_ -> Root.ScalaPackage)).map((fqn, root) =>
+      (fqn.split('.').last, fqn, root)
+    )
 
   private def simple(fqn: String): String = fqn.stripPrefix(Root.ScalaPackage.prefix)
 

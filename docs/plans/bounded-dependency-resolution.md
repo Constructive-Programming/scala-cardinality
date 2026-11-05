@@ -55,13 +55,17 @@ The stubs keep the guards the summary format was meant to keep:
   inline callee, a default, a parent's constructor argument - refuses as for any unresolved callee.
 - **No guessed signature.** A declaration whose type has no spelling keeps its name with the
   undeclared type `_root_.SignatureNotRead`; an unparseable stub file is left out, its names
-  unsupplied. Scala 2 classes are not rendered: their names stay unsupplied. Java classes are
-  rendered from their `.class` files under the rules below.
+  unsupplied. Scala 2 classes are rendered from their pickles (tasty-query reads them) like
+  Scala 3 ones, with the gaps a pickle leaves closed: a `var`'s setter is not a method of its own,
+  the primary constructor is the one whose parameters name every parameter field (none when two
+  do), and a sealed class with a child no stub declares (a local or anonymous one, Scala 2's
+  `<local child>`) is rendered neither sealed nor read. Java classes are rendered from their
+  `.class` files under the rules below.
 - **No partial stdlib namespace.** Nothing is rendered that the stdlib model reads: `scala` and the
   Scala 3.9.0 library's own subpackages, from any jar (a stub in `scala.collection.compat` would
   make that namespace partly supplied, so every lookup the model answers would doubt it), and the
   JDK classes the model holds (`java.lang.String`, `java.io.Serializable`, …). The rest of the
-  JDK (`java.*`, `javax.*` of `java.base`) renders like a jar (stub format `cardinality-stubs/3`;
+  JDK (`java.*`, `javax.*` of `java.base`) renders like a jar (stub format `cardinality-stubs/4`;
   the plugin's cache key names the Java version), as does a library's namespace under `scala`
   (`scala.meta`).
 - **The classpath the JVM loads.** A class file on the classpath twice is read from the first

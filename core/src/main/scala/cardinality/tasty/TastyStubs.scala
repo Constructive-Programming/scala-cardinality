@@ -10,7 +10,6 @@ import java.nio.file.{FileSystems, Files, Path}
 import tastyquery.Classpaths.{ClassData, ClasspathEntry, PackageData}
 import tastyquery.Contexts.*
 import tastyquery.Names.{termName, PackageFullName}
-import tastyquery.SourceLanguage
 import tastyquery.Symbols.*
 import tastyquery.jdk.ClasspathLoaders
 
@@ -18,10 +17,9 @@ import tastyquery.jdk.ClasspathLoaders
   * signature stubs: one parsed source per original source file of each rendered jar, under
   * `tasty/<jar>/<source path>`. The stubs are environment, never review targets.
   *
-  * Scala 3 (TASTy) and Java (`.class`) classes the stdlib model does not read are rendered, the
-  * JDK's `java.*` and `javax.*` among them; Scala 2 classes stay unsupplied, so a reference to them
-  * keeps its `declaration not supplied` reason. Every concrete body is the unresolved `Spell.Body`:
-  * the stubs supply identities and signatures, not implementations.
+  * Scala 3 (TASTy), Scala 2 (pickle) and Java (`.class`) classes the stdlib model does not read are
+  * rendered, the JDK's `java.*` and `javax.*` among them. Every concrete body is the unresolved
+  * `Spell.Body`: the stubs supply identities and signatures, not implementations.
   */
 object TastyStubs {
 
@@ -75,8 +73,7 @@ object TastyStubs {
         case (jar, (symbols, _)) =>
           val classes = symbols.collect {
             case c: ClassSymbol
-                if c.sourceLanguage != SourceLanguage.Scala2 &&
-                  (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
+                if (Spell.packageObject(c) || !Spell.objectName(c).contains("$")) &&
                   !stdlibOwned(packageOf(c), Spell.objectName(c)) && packages(packageOf(c)) &&
                   (jar != jdk || jdkPackage(packageOf(c))) =>
               c
