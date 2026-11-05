@@ -17,14 +17,11 @@ final class Reading private (private val top: Scope) {
   private val bodies = new java.util.IdentityHashMap[Tree, Scope]
   private val clauses = new java.util.IdentityHashMap[Tree, Stat => Imports]
 
-  /** What a signature type is worth in this source: the size, when the scope answers the type whole
-    * — every name it reads, transitively, bounded — and otherwise the reasons the estimate could
-    * not bound it for, which the shape model must not count past.
-    */
-  def read(tpe: Type): Either[List[Definition.Unbound], Size] = read(tpe, tpe)
-
-  /** `tpe` read where `written` sits: a type rebuilt from a parsed one has no position of its own,
-    * so it reads in the scope of the tree it was rebuilt from.
+  /** What a signature type is worth in this source, read where `written` sits: the size, when the
+    * scope answers the type whole — every name it reads, transitively, bounded — and otherwise the
+    * reasons the estimate could not bound it for, which the shape model must not count past. A type
+    * rebuilt from a parsed one has no position of its own, so it reads in the scope of the tree it
+    * was rebuilt from.
     */
   def read(tpe: Type, written: Tree): Either[List[Definition.Unbound], Size] = {
     // The method side counts a sequence of any non-empty element as ω (its closed algebra), so the

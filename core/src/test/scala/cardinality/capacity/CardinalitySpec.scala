@@ -327,7 +327,11 @@ class CardinalitySpec extends Specification {
     ) === TinySize(3)} (one tower each: every consumer sees the settled value)
     a definition agrees with its reference     ${src(
       "case class Q(next: Option[Q]); case class Use(q: Q)"
-    ) === Size.tiers(0, 2)} (Q collapses to ω, Use sees ω, and the source still adds both)
+    ) === Size(
+      0,
+      2,
+      FinitePart.Zero
+    )} (Q collapses to ω, Use sees ω, and the source still adds both)
     a custom lazy list matches the built in    ${src(
       "enum U { case End; case More(head: Boolean, tail: => U) }"
     ) === EffectiveOmega} (completed lazy type, exactly LazyList[Boolean])
@@ -347,10 +351,10 @@ class CardinalitySpec extends Specification {
     Stream[Nothing] keeps its single empty value ${tpe("Stream[Nothing]") === UnitSize}
     an outer sum keeps two high-tier lazy values ${tpe(
       "Either[LazyList[String], LazyList[String]]"
-    ) === Size.tiers(2, 0)}
+    ) === Size(2, 0, FinitePart.Zero)}
     an outer sum keeps two countable lazy values ${tpe(
       "Either[LazyList[Unit], Stream[Boolean]]"
-    ) === Size.tiers(0, 2)}
+    ) === Size(0, 2, FinitePart.Zero)}
     an outer option keeps its finite alternative ${tpe(
       "Option[LazyList[String]]"
     ) === EffectiveEpsilon0 + UnitSize}
@@ -368,7 +372,11 @@ class CardinalitySpec extends Specification {
     ) === UnitSize}
     consumers of a lazy type may add finite terms ${src(
       "case class CoNat(pred: => Option[CoNat]); case class Use(value: Option[CoNat])"
-    ) === Size.tiers(0, 2) + UnitSize} (CoNat ω + Use (ω + 1), not a collapsed source total)
+    ) === Size(
+      0,
+      2,
+      FinitePart.Zero
+    ) + UnitSize} (CoNat ω + Use (ω + 1), not a collapsed source total)
   """
 
 }

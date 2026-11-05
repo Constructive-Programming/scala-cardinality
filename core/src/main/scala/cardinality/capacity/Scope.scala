@@ -383,9 +383,6 @@ final private[cardinality] class Scope(
       size
     }
 
-  /** Whether a reference's reasons are being collected. */
-  def collecting: Boolean = world.session.taint.isDefined
-
   /** What a term name denotes here, innermost binding first — unless, for a file read with the rest
     * of its package, only another file binds it and a wildcard of this file names it too.
     */
@@ -756,7 +753,6 @@ private[cardinality] object Scope {
   val summingLens = sessionLens.andThen(lens[Session](_.summing))
   val recursionLens = sessionLens.andThen(lens[Session](_.recursion))
   val recordingLens = sessionLens.andThen(lens[Session](_.recording))
-  val taintLens = sessionLens.andThen(lens[Session](_.taint))
   val saturatingLens = sessionLens.andThen(lens[Session](_.saturating))
 
 }

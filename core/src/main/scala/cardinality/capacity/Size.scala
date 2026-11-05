@@ -49,13 +49,9 @@ final case class Size(epsilon: BigInt, omega: BigInt, finite: FinitePart) { self
     // reports it as countable.
     else finite.pow(other.finite).fold(EffectiveOmega: Size)(Size(0, 0, _))
 
-  def exp: Size => Size = _.pow(self)
-
   def +(other: Size): Size = add(other)
 
   def *(other: Size): Size = mul(other)
-
-  def ^(other: Size): Size = pow(other)
 
   def min(other: Size): Size = Size.order.min(self, other)
 
@@ -152,9 +148,6 @@ object Size {
   private def coefficient(value: BigInt, tier: String): String =
     if (value == 0) "" else if (value == 1) tier else s"$value$tier"
 
-  /** A size of whole tiers with nothing finite: `a·ε₀ + b·ω`. */
-  def tiers(epsilon: BigInt, omega: BigInt): Size = Size(epsilon, omega, FinitePart.Zero)
-
 }
 
 /** The finite component of a `Size`: the third coordinate of `a·ε₀ + b·ω + n`. Counts up to 127 are
@@ -207,9 +200,6 @@ sealed trait FinitePart { self =>
     if (self.isInstanceOf[FinitePart.Lossy] || other.isInstanceOf[FinitePart.Lossy])
       FinitePart.Lossy(bits)
     else FinitePart.Capacity(bits)
-
-  /** Strict comparison through the `FinitePart.order` instance, by rank first. */
-  def larger(other: FinitePart): Boolean = FinitePart.order.compare(self, other) > 0
 
   /** No values at all: the exact count zero, and nothing else. */
   def isZero: Boolean = self == Zero

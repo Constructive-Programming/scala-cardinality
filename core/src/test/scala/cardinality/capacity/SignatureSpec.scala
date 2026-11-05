@@ -105,10 +105,10 @@ class SignatureSpec extends Specification {
     a single definition reports its own        ${defnOf(module) === TinySize(4)}
     completed lazy fields remain separate contributions ${sig(
       "object S { val first: LazyList[String] = LazyList.empty; val second: LazyList[String] = LazyList.empty }"
-    ) === Size.tiers(2, 0)}
+    ) === Size(2, 0, FinitePart.Zero)}
     a sum inside a lazy-valued member retains its coefficient ${sig(
       "object S { val both: Either[LazyList[String], LazyList[String]] = Left(LazyList.empty) }"
-    ) === Size.tiers(2, 0)}
+    ) === Size(2, 0, FinitePart.Zero)}
   """
 
 }

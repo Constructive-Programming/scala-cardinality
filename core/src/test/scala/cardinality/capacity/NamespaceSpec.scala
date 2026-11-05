@@ -391,11 +391,9 @@ class NamespaceSpec extends Specification {
     val files = List("l/L.scala" -> l, "m/M.scala" -> "package m\nfinal case class In(n: Int)")
     val tree = dialects.Scala3(l).parse[Source].get
     val box = tree.collect { case c: Defn.Class if c.name.value == "Box" => c }.head
+    val param = box.ctor.paramClauses.head.values.head.decltpe.get
     (constructor("l.F.g.Out.<init>", files*) === Count.Finite(2))
-      .and(
-        Reading.of(tree).read(box.ctor.paramClauses.head.values.head.decltpe.get) ===
-          Left(List(Definition.Unbound.Parameter("A")))
-      )
+      .and(Reading.of(tree).read(param, param) === Left(List(Definition.Unbound.Parameter("A"))))
   }
 
   // In `Dep(q: Other)(val x: q.X)`, `q` is the first clause's parameter, of type `Other`, whose `X`

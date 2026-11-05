@@ -7,10 +7,11 @@ import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.{AliasReading, ResolutionContext}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.capacity.Counter
+import cardinality.types.Traversals.sequence
 import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
-import MethodAnalysis.{sequence, Frame, TypeEntry}
+import MethodAnalysis.{Frame, TypeEntry}
 import RuntimeClasses.*
 import TypeSubstitution.{Meet, Union}
 
@@ -58,7 +59,7 @@ final private[cardinality] class RuntimeClasses(
   def alternative(tpe: Type, context: ResolutionContext): Either[String, Alternative] =
     tpe match {
       case a: Type.Apply            => headed(a.tpe, tpe, context).map(applied)
-      case Union(_, _) | Meet(_, _) => Left(s"${spell(tpe)} has no runtime class")
+      case Union(_, _) | Meet(_, _) => Left(s"${Spelling.of(tpe)} has no runtime class")
       case i: Type.ApplyInfix       => headed(i.op, tpe, context).map(applied)
       case Type.Tuple(args)         => Right(Alternative(Builtin(tuple(args.size)), true))
       case s: Type.Singleton        => module(s, context)
@@ -69,9 +70,9 @@ final private[cardinality] class RuntimeClasses(
           .className(lit)
           .flatMap(builtins.get)
           .map(cls => Alternative(Builtin(cls), applied = true))
-          .toRight(s"${spell(lit)} has no runtime class")
+          .toRight(s"${Spelling.of(lit)} has no runtime class")
       case _: Type.Name | _: Type.Select => headed(tpe, tpe, context)
-      case other                         => Left(s"${spell(other)} has no runtime class")
+      case other                         => Left(s"${Spelling.of(other)} has no runtime class")
     }
 
   /** Whether `derived` is known to derive from `base`: a positive answer needs no complete
@@ -124,7 +125,7 @@ final private[cardinality] class RuntimeClasses(
           case Some(Found.Entry(entry))   => declaration(entry, name, context)
           case Some(Found.Absent)         => builtin(name, whole, context)
           case Some(failed: Found.Failed) => Left(failed.reason)
-          case None                       => Left(s"${spell(head)} has no runtime class")
+          case None                       => Left(s"${Spelling.of(head)} has no runtime class")
         }
     }
   }
@@ -182,9 +183,9 @@ final private[cardinality] class RuntimeClasses(
           .moduleFrame(id, resolver)
           .flatMap(moduleClass)
           .map(Alternative(_, false))
-          .toRight(s"${spell(singleton)} has no runtime class")
+          .toRight(s"${Spelling.of(singleton)} has no runtime class")
       case _ =>
-        Left(s"${spell(singleton)} has no runtime class (a stable value's singleton type)")
+        Left(s"${Spelling.of(singleton)} has no runtime class (a stable value's singleton type)")
     }
 
   private def declared(entry: TypeEntry): Declared =
@@ -284,7 +285,7 @@ final private[cardinality] class RuntimeClasses(
     !classNames(lastName(init.tpe)) && words(init.tpe).exists(names)
 
   private def hidden(family: Declared, init: Init): String =
-    s"sealed family ${family.label} may be extended through ${spell(init.tpe)}, " +
+    s"sealed family ${family.label} may be extended through ${Spelling.of(init.tpe)}, " +
       "which this reading does not dealias"
 
   private def child(tree: Tree, family: Declared): Either[String, Declared] = {
@@ -295,7 +296,7 @@ final private[cardinality] class RuntimeClasses(
     }
     found.toRight(
       s"sealed family ${family.label} has a subclass this reading does not enumerate: " +
-        spell(tree).take(60)
+        Spelling.of(tree).take(60)
     )
   }
 
@@ -337,7 +338,7 @@ final private[cardinality] class RuntimeClasses(
       case Right(Alternative(found: Declared, _)) => Right(Some(found))
       case Right(_)                               => Right(None)
       case Left(_) if foreign(init.tpe, context)  => Right(None)
-      case Left(_)                                => Left(spell(init.tpe))
+      case Left(_)                                => Left(Spelling.of(init.tpe))
     }
   }
 
@@ -391,11 +392,6 @@ private[cardinality] object RuntimeClasses {
   /** One alternative's class, and whether the alternative applies it to type arguments. */
   final case class Alternative(runtime: Runtime, applied: Boolean)
 
-  /** The builtin names whose class this reading models: each final, or sealed in the standard
-    * library with final cases.
-    */
-  def builtinNames: Set[String] = builtins.keySet
-
   private val builtins: Map[String, String] = Map(
     "String" -> "java.lang.String",
     "java.lang.String" -> "java.lang.String",
@@ -429,8 +425,6 @@ private[cardinality] object RuntimeClasses {
 
   private def words(tree: Tree): Set[String] =
     tree.syntax.split("[^\\p{L}\\p{N}_$]+").toSet
-
-  private def spell(tree: Tree): String = Spelling.of(tree)
 
   private def isClass(d: Declared): Boolean = !d.tree.is[Defn.Trait]
 

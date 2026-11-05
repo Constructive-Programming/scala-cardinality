@@ -59,10 +59,6 @@ object Natural {
 
     def ^(b: Natural): Natural = checked(power(a, b))
 
-    def isZero: Boolean = a == Zero
-
-    def isOne: Boolean = a == One
-
     /** Decimal digits up to 100 bits, `2^k` for a power of two from 2^8 up, a wider literal as its
       * odd root's power times its power of two; `·` between factors.
       */

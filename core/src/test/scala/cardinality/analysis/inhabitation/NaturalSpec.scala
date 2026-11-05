@@ -41,17 +41,15 @@ class NaturalSpec extends Specification {
 
     "answer zero and one exactly" in {
       val big = pow(2, pow(2, 37))
-      (Zero.isZero must beTrue)
-        .and(One.isOne must beTrue)
-        .and((big * Zero) mustEqual Zero)
+      ((big * Zero) mustEqual Zero)
         .and((Zero * big) mustEqual Zero)
         .and((big * One) mustEqual big)
         .and((One ^ big) mustEqual One)
         .and((big ^ Zero) mustEqual One)
         .and((Zero ^ big) mustEqual Zero)
         .and((big ^ One) mustEqual big)
-        .and(big.isZero must beFalse)
-        .and(big.isOne must beFalse)
+        .and((big != Zero) must beTrue)
+        .and((big != One) must beTrue)
         .and((big + Zero) mustEqual big)
     }
 

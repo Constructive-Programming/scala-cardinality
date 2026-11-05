@@ -16,9 +16,10 @@ import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.analysis.model.{Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
+import cardinality.types.Traversals.sequence
 import cardinality.types.{Kind, Kinds, NamedTuples, Spelling, TypeApplications, TypeSubstitution}
 
-import MethodAnalysis.{sequence, Resolved, TypeEntry}
+import MethodAnalysis.{Resolved, TypeEntry}
 
 /** The identity of a type written as an argument of a rigid constructor (hkt R2).
   *
@@ -50,10 +51,6 @@ final private[cardinality] class NominalKeys(
   // Lambda parameters are numbered below zero while a key is built, and from zero once it is
   // renumbered, so a finished key never collides with one being built.
   private var lambdas = 0
-
-  /** The key of an argument of the given kind: a proper type's key, or an operator's. */
-  def argument(tpe: Type, kind: Kind, context: ResolutionContext): Keyed =
-    keyOf(tpe, kind, context).map(KeyNumbering.renumbered)
 
   /** A rigid binder applied to arguments: an uninterpreted application over their keys. Scala 3.9.0
     * rejects an abstract constructor applied to a wildcard (E043, an unreducible application), so

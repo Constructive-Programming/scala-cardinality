@@ -13,9 +13,6 @@ object TypeName {
   /** A printed name as the key it stands for. */
   def of(value: String): TypeName = value
 
-  /** A dotted path (`dev.constructive.eo.data`) as the names it is made of. */
-  def path(value: String): List[TypeName] = value.split('.').toList
-
   /** Every identifier a tree spells: the names a mention test or an import can mean. */
   def words(tree: Tree): Array[String] = tree.syntax.split("[^\\p{L}\\p{N}_$]+")
 
