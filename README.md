@@ -62,7 +62,9 @@ implementations a method admits. Two consequences come up constantly in real cod
     returned in an `Either`.
 
 Other effects are excluded the same way: I/O, logging, divergence, a `null` that the type does
-not declare, unsafe casts and reflection. None of them is counted.
+not declare, unsafe casts and reflection. None of them is counted. The members of `Product` and
+`Equals` (`productElement`, `canEqual`, …) are reflection and equality tests, so a trait extending
+`Product with Serializable` counts as one without those parents.
 
 The calculator does not check that a body actually obeys this assumption. A result describes
 the pure, total implementations of a signature and the values of a type. The full statement is

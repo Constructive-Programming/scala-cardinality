@@ -418,7 +418,7 @@ private[cardinality] object StdlibModel {
 
   /** A stdlib parent the model knows declares no type member, with the term members a subclass must
     * implement and the concrete ones it may override — or, when `listed` is false, term members the
-    * model does not hold (`Product`).
+    * model does not hold.
     */
   final case class Summary(abstracts: Set[String], overridable: Set[String], listed: Boolean)
 
@@ -447,10 +447,12 @@ private[cardinality] object StdlibModel {
 
   private val parents: Map[String, Summary] = {
     val memberless = Summary(Set.empty, Set.empty, listed = true)
-    ("java.io.Serializable" :: markers.map(_._2)).map(_ -> memberless).toMap ++
-      List("scala.Product", "scala.Equals").map(
-        _ -> Summary(Set.empty, Set.empty, listed = false)
-      ) ++
+    // `Product` and `Equals` declare only reflection over a value's fields (`productArity`,
+    // `productElement`, `productElementName(s)`, `productIterator`, `productPrefix`) and an equality
+    // test (`canEqual`): outside the model like `Any`'s universal members, so they declare none.
+    ("java.io.Serializable" :: "scala.Product" :: "scala.Equals" :: markers.map(_._2))
+      .map(_ -> memberless)
+      .toMap ++
       // A throwable's members a subclass may override and the model reads (the rest are outside it).
       Exceptions.map(_._1 -> Summary(Set.empty, observations, listed = true)) +
       // `IterableOnce` (scala-library 2.13, read with javap): abstract `iterator`, default
