@@ -5,10 +5,11 @@ import scala.meta.{Defn, Type, XtensionSyntax}
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
+import cardinality.types.Traversals.sequence
 import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
-import MethodAnalysis.{sequence, Resolved, TypeEntry}
+import MethodAnalysis.{Resolved, TypeEntry}
 import RuntimeClasses.{Alternative, Runtime, Top}
 
 /** A Scala union read as the tagged sum its alternatives make, where one exists.

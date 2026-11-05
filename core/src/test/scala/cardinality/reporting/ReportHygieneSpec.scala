@@ -621,7 +621,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
 
   def singleSource =
     (located("/tmp/sources/p/Only.scala") must contain("  Only.scala:1"))
-      .and(Report.locations(List("dev/x/A.scala", "dev/x/B.scala"))("dev/x/B.scala") === "B.scala")
+      .and(Locations.shared(List("dev/x/A.scala", "dev/x/B.scala"))("dev/x/B.scala") === "B.scala")
 
   private val scratch = Files.createTempDirectory("report-hygiene")
 

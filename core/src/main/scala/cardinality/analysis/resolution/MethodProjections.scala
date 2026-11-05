@@ -6,8 +6,9 @@ import cardinality.analysis.*
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
 import cardinality.types.*
+import cardinality.types.Traversals.sequence
 
-import MethodAnalysis.{sequence, Resolved, TypeEntry}
+import MethodAnalysis.{Resolved, TypeEntry}
 
 /** Match types and transparent aliases share syntax-preserving projection normalization.
   * Constructor lambdas belong to application resolution, not this feature family.

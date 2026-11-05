@@ -57,7 +57,7 @@ final case class Report(
 
   /** Where a row of each source says it is. */
   def located: String => String = {
-    val shared = Report.locations(sources.map(_.path).filterNot(locations.contains))
+    val shared = Locations.shared(sources.map(_.path).filterNot(locations.contains))
     path => locations.getOrElse(path, shared(path))
   }
 
@@ -221,11 +221,6 @@ object Report {
       )
 
   }
-
-  /** Where a row says it is: the source's path below the deepest directory holding every source of
-    * the report (`Locations.shared`).
-    */
-  def locations(paths: List[String]): String => String = Locations.shared(paths)
 
   /** Reads every Scala source under `paths` — a file, a directory walked recursively, or a jar such
     * as the `-sources.jar` a library publishes — and measures the definitions it finds.

@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.model.ResolutionContext
-import cardinality.types.{Kinds, Spelling, TypeApplications}
+import cardinality.types.{Kinds, Spelling, Traversals, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved}
 
@@ -46,7 +46,7 @@ private[cardinality] object InheritedScopes {
     * read.
     */
   def ancestors(frame: Frame, resolver: Resolver): Option[List[Frame]] =
-    MethodAnalysis
+    Traversals
       .sequence(walk(List(frame -> resolver.typeParameters(frame)), resolver, frame))
       .toOption
       .map(_.map(_.declared))

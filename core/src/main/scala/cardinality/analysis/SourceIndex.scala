@@ -269,9 +269,11 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def indexImport(frame: Frame, clause: Import): Unit =
     clause.importers.foreach { importer =>
-      val binding = importPath(importer.ref).fold(ImportBinding.unfollowed(importer))(
-        ImportBinding.of(importer, _)
-      )
+      val binding = SourceIndex
+        .importPath(importer.ref)
+        .fold(ImportBinding.unfollowed(importer))(
+          ImportBinding.of(importer, _)
+        )
       if (
         binding.named.nonEmpty || binding.wildcards.nonEmpty || binding.givens.nonEmpty ||
         binding.unfollowed.nonEmpty
@@ -281,13 +283,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
 
   private def indexExport(frame: Frame, clause: Export): Unit =
     clause.importers.foreach { importer =>
-      val binding = importPath(importer.ref).map(ImportBinding.of(importer, _))
+      val binding = SourceIndex.importPath(importer.ref).map(ImportBinding.of(importer, _))
       exports += ((frame.id, ExportClause(importer, binding)))
     }
-
-  // A pure dotted term path, a leading `_root_` kept as the anchor; anything deeper (a `this`, a
-  // term prefix) names no package the model can reach and binds nothing.
-  private def importPath(ref: Term): Option[List[String]] = SourceIndex.importPath(ref)
 
   private def indexPackage(input: String, frame: Frame, pkg: Pkg): Unit = {
     val nested = frame.copy(

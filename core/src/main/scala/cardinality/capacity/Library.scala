@@ -114,7 +114,13 @@ final class Library private[cardinality] (
 object Library {
 
   val empty: Library =
-    new Library(Packages.none, 0, Map.empty, Map.empty, Set.empty)
+    new Library(
+      new Packages(Map.empty, Vector.empty, Map.empty),
+      0,
+      Map.empty,
+      Map.empty,
+      Set.empty
+    )
 
   /** Every source's top-level definitions, solved package by package as reads need them. */
   def of(sources: List[scala.meta.Source]): Library = {
@@ -203,10 +209,6 @@ object Library {
         .overlay
     }
 
-  }
-
-  private object Packages {
-    val none = new Packages(Map.empty, Vector.empty, Map.empty)
   }
 
 }

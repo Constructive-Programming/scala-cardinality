@@ -12,11 +12,12 @@ import cardinality.analysis.capability.{
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
+import cardinality.types.Traversals.sequence
 import cardinality.types.TypeApplications
 
 import MemberSyntax.Observation
 import Inhabitation.{Binding, Count, Shape}
-import MethodAnalysis.{sequence, Entry, Frame, Resolved, Target}
+import MethodAnalysis.{Entry, Frame, Resolved, Target}
 
 /** One signature's environment: the bindings visible from its frame, the diagnostics that make that
   * environment incomplete, and the count the two admit.

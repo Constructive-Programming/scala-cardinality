@@ -6,8 +6,9 @@ import cardinality.analysis.model.{MemberSyntax, Throws}
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.capacity.Counter
 import cardinality.types.*
+import cardinality.types.Traversals.sequence
 
-import MethodAnalysis.{sequence, Frame, TypeEntry}
+import MethodAnalysis.{Frame, TypeEntry}
 
 /** A source type's parameters and the cases its representation is built from: one case of one type
   * for an alias, one case of its fields for a case class, one per case for an enum or a closed

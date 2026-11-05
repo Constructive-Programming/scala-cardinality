@@ -4,9 +4,10 @@ import scala.meta.{Defn, Type}
 
 import cardinality.analysis.model.{Operator, ResolutionContext, ResolutionOptics, TypeOperators}
 import cardinality.analysis.{MethodAnalysis, Resolver}
+import cardinality.types.Traversals.sequence
 import cardinality.types.{Kinds, Spelling, TypeApplications}
 
-import MethodAnalysis.{sequence, Resolved, TypeEntry}
+import MethodAnalysis.{Resolved, TypeEntry}
 
 /** What a constructor application applies, read where the callee is written. Both readings of an
   * application — the structural shape and the nominal key — dispatch on it the same way and differ

@@ -5,9 +5,10 @@ import scala.meta.*
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.{Found, InheritedScopes, OverrideIdentity}
 import cardinality.analysis.{MethodAnalysis, Resolver}
+import cardinality.types.Traversals.sequence
 import cardinality.types.TypeApplications
 
-import MethodAnalysis.{sequence, Frame}
+import MethodAnalysis.Frame
 import OverrideIdentity.MethodMember
 import TargetViews.Applied
 

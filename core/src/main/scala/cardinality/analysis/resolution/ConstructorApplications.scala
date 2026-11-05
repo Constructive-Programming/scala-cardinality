@@ -2,13 +2,14 @@ package cardinality.analysis.resolution
 
 import scala.meta.{Decl, Defn, Tree, Type, XtensionClassifiable}
 
-import cardinality.analysis.MethodAnalysis.{sequence, Resolved}
+import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.ExistentialInputs
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{Arguments, Operator, ResolutionContext}
 import cardinality.analysis.resolution.TypeMembers.Meaning
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
+import cardinality.types.Traversals.sequence
 import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
 
 /** Constructor applications, read by kind (hkt R1, R3).

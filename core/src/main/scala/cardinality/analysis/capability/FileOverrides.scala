@@ -6,9 +6,10 @@ import scala.meta.*
 import cardinality.analysis.model.MemberSyntax
 import cardinality.analysis.resolution.InheritedScopes
 import cardinality.analysis.{MethodAnalysis, Resolver}
+import cardinality.types.Traversals.sequence
 import cardinality.types.{TypeApplications, TypeName}
 
-import MethodAnalysis.{sequence, Frame}
+import MethodAnalysis.Frame
 
 /** Whether a template that only code of its own scope may extend — its file, or its enclosing block
   * when it is local — has a member another template of that scope may override.

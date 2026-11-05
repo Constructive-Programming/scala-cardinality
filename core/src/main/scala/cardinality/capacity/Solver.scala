@@ -40,19 +40,19 @@ private[cardinality] object Shapes {
     val classes = stats.collect { case d: Defn.Class if Counter.isConcreteClass(d) => d }
     Shapes(
       // An opaque alias's equation reads its representation, so what that names is a dependency.
-      stats.collect { case d: Defn.Type => Counter.nameOf(d) -> Some(rewrite(d, d.body)) }.toMap,
+      stats.collect { case d: Defn.Type => Walk.named(d) -> Some(rewrite(d, d.body)) }.toMap,
       classes.map { d =>
-        Counter.nameOf(d) -> List(stored(d.tparamClause.values, d.ctor).map(rewrite(d, _)))
+        Walk.named(d) -> List(stored(d.tparamClause.values, d.ctor).map(rewrite(d, _)))
       }.toMap ++ stats.collect {
         case d: Defn.Enum =>
-          Counter.nameOf(d) -> d.templ.body.stats.collect {
+          Walk.named(d) -> d.templ.body.stats.collect {
             case c: Defn.EnumCase => stored(c.tparamClause.values, c.ctor).map(rewrite(d, _))
             case _: Defn.RepeatedEnumCase => Nil
           }
       }.toMap,
       // A system adds its sealed families' subtypes (`SealedFamilies.edges`).
       Map.empty,
-      classes.map(d => Counter.nameOf(d) -> memberReads(stats, d).map(rewrite(d, _))).toMap,
+      classes.map(d => Walk.named(d) -> memberReads(stats, d).map(rewrite(d, _))).toMap,
     )
   }
 

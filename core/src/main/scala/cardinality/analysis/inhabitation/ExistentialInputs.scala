@@ -3,7 +3,7 @@ package cardinality.analysis.inhabitation
 import scala.meta.*
 
 import cardinality.analysis.*
-import cardinality.types.*
+import cardinality.types.{Traversals, *}
 
 import Inhabitation.Shape
 import Inhabitation.Shape.*
@@ -52,7 +52,7 @@ private[cardinality] object ExistentialInputs {
             case other => resolve(other, kind)
           }
       }
-      MethodAnalysis.sequence(prepared).map(shapes => witnesses.result() -> shapes)
+      Traversals.sequence(prepared).map(shapes => witnesses.result() -> shapes)
     }
 
   }

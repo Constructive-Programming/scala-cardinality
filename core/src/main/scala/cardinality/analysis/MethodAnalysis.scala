@@ -68,12 +68,6 @@ object MethodAnalysis {
 
   private[cardinality] type Resolved = Either[String, Shape]
 
-  // Traverse a list of resolutions: the first failure wins, and the successful ones keep their
-  // order. (Used both for a case's fields and for the cases of an enum.) It is a free function
-  // rather than an index method because the measurement needs it too.
-  private[cardinality] def sequence[A](values: List[Either[String, A]]): Either[String, List[A]] =
-    Traversals.sequence(values)
-
   final private[cardinality] case class Frame(
       id: String,
       path: List[String],
@@ -324,9 +318,11 @@ object MethodAnalysis {
           MethodProjections.resolve(projected, context, this, sourceNames)
         // A named tuple is its fields' product; it is still no tuple to a match type.
         case NamedTuples(fields) =>
-          sequence(fields.map((_, field) => context.read(field, this))).map(Shape.Product(_))
+          Traversals
+            .sequence(fields.map((_, field) => context.read(field, this)))
+            .map(Shape.Product(_))
         case Type.Tuple(args) =>
-          sequence(args.map(context.read(_, this))).map(Shape.Product(_))
+          Traversals.sequence(args.map(context.read(_, this))).map(Shape.Product(_))
         case lit: Lit               => LiteralTypes.shape(lit)
         case Type.Repeated(element) =>
           context.read(element, this).map(Shape.Repeated(_))
@@ -337,7 +333,7 @@ object MethodAnalysis {
         // (`ContextFunctions`); the binders it puts around a whole body are read with the scope.
         case f: Type.FunctionType =>
           for {
-            args <- sequence(f.paramClause.values.map(context.read(_, this)))
+            args <- Traversals.sequence(f.paramClause.values.map(context.read(_, this)))
             result <- context.read(f.res, this)
           } yield Shape.Function(args, result)
         case wildcard: Type.Wildcard => Left(TypePlaceholders.existential(wildcard))
@@ -561,7 +557,8 @@ object MethodAnalysis {
           val written = applied.arguments.proper(parameters)
           val scoped =
             context.inScope(entry.owner, scope ++ replacements).written(written).enter(key)
-          sequence(cases.map(fields => sequence(fields.map(scoped.read(_, this)))))
+          Traversals
+            .sequence(cases.map(fields => Traversals.sequence(fields.map(scoped.read(_, this)))))
             .map(shapeOf(entry, _))
         }
     }

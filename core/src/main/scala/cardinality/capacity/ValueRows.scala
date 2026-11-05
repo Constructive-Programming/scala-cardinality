@@ -153,24 +153,13 @@ private[capacity] object ValueRows {
 
   // A standard-library type with a value the library gives for every argument, spelled where no
   // source binds the name: through the root imports, or in full where no source namespace has the
-  // path.
+  // path. The registry is the stdlib model's (`StdlibModel.witnesses`), one table for both readers.
   private def standard(scope: Scope, callee: Type): Boolean = callee match {
-    case Type.Name(name) => Witnessed.named(name) && !scope.binds(TypeName.of(name))
+    case Type.Name(name) => StdlibModel.witnessName(name) && !scope.binds(TypeName.of(name))
     case select @ Type.Select(q, Type.Name(name)) =>
-      Witnessed.qualified(select.syntax.stripPrefix("_root_.")) &&
+      StdlibModel.witnessQualified(select.syntax.stripPrefix("_root_.")) &&
       Namespaces.locate(scope, q, TypeName.of(name)).isEmpty
     case _ => false
-  }
-
-  // The standard-library types with a value for every argument, spelled where no source binds the
-  // name: the registry is the stdlib model's (`StdlibModel.witnesses`), one table for both
-  // readers - the follow-up that kept this copy beside `analysis.StdlibModel` is closed.
-  private object Witnessed {
-
-    def named(name: String): Boolean = StdlibModel.witnessName(name)
-
-    def qualified(fqn: String): Boolean = StdlibModel.witnessQualified(fqn)
-
   }
 
 }

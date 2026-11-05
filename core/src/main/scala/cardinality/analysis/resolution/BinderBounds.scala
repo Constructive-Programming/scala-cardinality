@@ -3,12 +3,13 @@ package cardinality.analysis.resolution
 import scala.annotation.tailrec
 import scala.meta.{dialects, Decl, Defn, Dialect, Tree, Type, XtensionSyntax}
 
-import cardinality.analysis.MethodAnalysis.{sequence, Frame, TypeEntry}
+import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.inhabitation.{EvidenceAnalysis, ExistentialInputs}
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
+import cardinality.types.Traversals.sequence
 import cardinality.types.{Kinds, Spelling, TypeApplications}
 
 /** A subtype bound on a proper binder is an ambient proof (hkt R5): `A <: U` is `A <:< U`, `A >: L`

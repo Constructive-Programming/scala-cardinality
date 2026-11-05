@@ -14,9 +14,10 @@ import cardinality.analysis.resolution.{
 }
 import cardinality.analysis.{ConstrainedReceivers, ForeignParents, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
+import cardinality.types.Traversals.sequence
 import cardinality.types.TypeApplications
 
-import MethodAnalysis.{sequence, Frame, Resolved, TypeEntry}
+import MethodAnalysis.{Frame, Resolved, TypeEntry}
 
 /** A value of a source class or trait, read as the record of what observes it (capabilities C0–C4).
   *

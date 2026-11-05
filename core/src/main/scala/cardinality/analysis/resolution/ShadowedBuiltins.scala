@@ -456,7 +456,7 @@ final private[cardinality] class ShadowedBuiltins(
             importer.importees.exists(_.is[Importee.Wildcard])
         )
         .flatMap { importer =>
-          val ref = spell(importer.ref)
+          val ref = TreeSpelling.of(importer.ref)
           val via = s"wildcard import of $ref"
           // A root-anchored prefix is a package path read from the root alone.
           if (ref.startsWith("_root_."))
@@ -485,11 +485,11 @@ final private[cardinality] class ShadowedBuiltins(
           importer.importees.flatMap {
             case _: Importee.Wildcard if subject.exists(SourceIndex.hiddenNames(importer)) => Nil
             case _: Importee.Wildcard                                                      =>
-              prefix.fold(List(Step.Doubt(s"export ${spell(importer)}", via)))(
+              prefix.fold(List(Step.Doubt(s"export ${TreeSpelling.of(importer)}", via)))(
                 targets(_, frame, via, None)
               )
             case selector if SourceIndex.boundName(selector).exists(isSearched) =>
-              List(Step.Found(s"export ${spell(importer)}", via))
+              List(Step.Found(s"export ${TreeSpelling.of(importer)}", via))
             case _ => Nil
           }
         }
@@ -546,8 +546,8 @@ final private[cardinality] class ShadowedBuiltins(
     // find, may be that type.
     private def named(tpe: Type, from: Frame, via: String, depth: Int): List[Step] =
       parentName(tpe) match {
-        case None                       => List(Step.Doubt(spell(tpe), via))
-        case Some(_) if depth > MaxHops => List(Step.Doubt(spell(tpe), via))
+        case None                       => List(Step.Doubt(TreeSpelling.of(tpe), via))
+        case Some(_) if depth > MaxHops => List(Step.Doubt(TreeSpelling.of(tpe), via))
         case Some(parent)               =>
           val at = Option.when(tpe.pos.start >= 0)(from.input -> tpe.pos.start)
           val context = ResolutionContext(from, Map.empty, Set.empty, at = at)
@@ -699,7 +699,6 @@ private[cardinality] object ShadowedBuiltins {
   private def qualified(frame: Frame): String = frame.path.mkString(".")
 
   // A tree as one line of a reason.
-  private def spell(tree: Tree): String = TreeSpelling.of(tree)
 
   private def label(frame: Frame): String = frame.tree match {
     case Some(_: Pkg.Object)        => s"package object ${qualified(frame)}"

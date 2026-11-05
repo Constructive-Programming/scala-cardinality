@@ -59,7 +59,7 @@ object Counter {
         val equation = bound(d)(sc => typeIn(sc)(d.body))
         val opaque = Option.when(isOpaqueAlias(d))(d)
         Some(
-          nameOf(d) -> Named(
+          Walk.named(d) -> Named(
             parameterNames(d),
             equation,
             matchType,
@@ -67,9 +67,10 @@ object Counter {
             opaque = opaque
           )
         )
-      case d: Defn.Enum => Some(nameOf(d) -> built(d, enumSize(_)(d)).copy(constant = constant(d)))
+      case d: Defn.Enum =>
+        Some(Walk.named(d) -> built(d, enumSize(_)(d)).copy(constant = constant(d)))
       case d: Defn.Class if isConcreteClass(d) =>
-        Some(nameOf(d) -> built(d, stored(_)(d.tparamClause.values, d.ctor)))
+        Some(Walk.named(d) -> built(d, stored(_)(d.tparamClause.values, d.ctor)))
       case _ => None
     }
     types
@@ -117,9 +118,6 @@ object Counter {
   private[cardinality] def parameterNames(d: Defn): List[TypeName] =
     parameters(d).map(p => TypeName.of(p.name.value))
 
-  // The name a definition is known by, as the maps below key it.
-  private[cardinality] def nameOf(d: Defn): TypeName = Walk.named(d)
-
   // The modifier tests the case arms repeat: abstract classes contribute no inhabitants of their
   // own, opaque aliases hide their representation outside their scope, and `sealed` marks the
   // pass-through parents.
@@ -140,8 +138,8 @@ object Counter {
     case p: Pkg                              => Walk.body(p.body.stats, scope)
     case p: Pkg.Object                       => Walk.body(p.templ.body.stats, scope)
     case d: Defn.Class if isConcreteClass(d) =>
-      scope.getOrElse(nameOf(d), stored(scope)(d.tparamClause.values, d.ctor))
-    case d: Defn.Enum   => scope.getOrElse(nameOf(d), enumSize(scope)(d))
+      scope.getOrElse(Walk.named(d), stored(scope)(d.tparamClause.values, d.ctor))
+    case d: Defn.Enum   => scope.getOrElse(Walk.named(d), enumSize(scope)(d))
     case _: Defn.Object => UnitSize
     // scalameta's `Stat` is not sealed and hides `Stat.Quasi` as `private[meta]`, so an
     // exhaustive match is impossible. Every other statement — declarations, imports and
