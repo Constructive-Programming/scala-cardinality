@@ -25,4 +25,11 @@ private[cardinality] object UniversalMembers {
   /** `java.lang.Object`'s other methods, which a class inherits (and may override, `clone`). */
   val objectMethods: Set[String] = Set("clone", "finalize", "notify", "notifyAll", "wait")
 
+  /** `scala.Product`'s parameterless members: reflection over a value's fields (v1.md §2). */
+  val productValues: Set[String] =
+    Set("productArity", "productElementNames", "productIterator", "productPrefix")
+
+  /** `scala.Product`'s members of one `Int` parameter, which read a field by its position. */
+  val productReaders: Set[String] = Set("productElement", "productElementName")
+
 }

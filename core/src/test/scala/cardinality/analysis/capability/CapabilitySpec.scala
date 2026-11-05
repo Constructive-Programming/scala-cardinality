@@ -52,7 +52,8 @@ class CapabilitySpec extends Specification {
       a final class is its observable constructor arguments         $finalRecord
       a composed-getter law reads its records                       $laws
       a `val` and a parameterless `def` of one name are one member  $oneSlot
-      only `Any`'s members are universal (`canEqual` is not)        $universalRecord
+      `Any`'s and `Product`'s members are universal (`canEqual`)    $universalRecord
+      a `canEqual` overridden under another parameter name is none  $renamedCanEqual
       a Product, Equals or Serializable parent declares nothing     $markerParents
       a parameterized parent's public fields are a trait's fields   $parentFields
       a passed parent's field nothing overrides is its argument       $passedParentField
@@ -663,14 +664,27 @@ class CapabilitySpec extends Specification {
       .and(field("Use.mk") === Count.Finite(4))
   }
 
-  // canEqual is scala.Equals', not Any's: a free Any => Boolean, which a body may call with any value
-  // it builds — its Any parameter is positive there, ε₀ (v1.md §2) — so ε₀ Booleans (it read 2,
-  // then 4 while Any was terminal everywhere).
+  // canEqual is scala.Equals' equality test, outside the model like Any's members (v1.md §2): Eq2[A]
+  // is the record of x alone, one value a parametric body cannot inspect, so 2^1 Booleans. (It read
+  // 4 while canEqual was a free Any => Boolean over a terminal Any, then ε₀ once a function's Any
+  // parameter was positive, register D38.)
   def universalRecord =
     one("""
       trait Eq2[A] { def x: A; def canEqual(that: Any): Boolean }
       object U { def eq2[A](e: Eq2[A]): Boolean = ??? }
-    """)("U.eq2").render === "ε₀"
+    """)("U.eq2") === Count.Finite(2)
+
+  // scalameta's Tree declares `canEqual(that: Any)` and its classes override it as
+  // `canEqual(other: Any)`: no identity question is asked of a member outside the model, so the
+  // record is x's alone — 2 values, 2^2 maps to Boolean.
+  def renamedCanEqual = {
+    val found = one("""
+      trait T extends Product { def x: Boolean; def canEqual(that: Any): Boolean }
+      trait S extends T { def canEqual(other: Any): Boolean = true; def productArity: Int = 1 }
+      object U { def s(t: S): Boolean = ???; def t(t: T): Boolean = ??? }
+    """)
+    (found("U.s") === Count.Finite(4)).and(found("U.t") === Count.Finite(4))
+  }
 
   // `Product` and `Equals` declare only reflection over a value's fields and an equality test,
   // outside the model like `Any`'s universal members: a trait listing them (scalameta's `Tree`

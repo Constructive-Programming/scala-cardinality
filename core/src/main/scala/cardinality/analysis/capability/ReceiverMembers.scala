@@ -43,7 +43,8 @@ final private[cardinality] class ReceiverMembers(
 
   private val concretes: List[Concrete] = levels.flatMap { level =>
     val fields = if (level.id == root.id) Nil else fieldParams(level)
-    level.stats.flatMap(stat => Concrete.of(level, stat)) ++
+    // A universal member is outside the model: it implements, overrides and restates nothing.
+    level.stats.filterNot(universal(_, level)).flatMap(stat => Concrete.of(level, stat)) ++
       fields.map(p => Concrete(level, p, p.name.value))
   }
 
@@ -94,24 +95,22 @@ final private[cardinality] class ReceiverMembers(
     }
   }
 
-  // An effective member other than the declaration itself: none for a universal member, a derived
-  // one or a definite view; a reason for a refusal or a possible view; the member when it is open.
+  // An effective member other than the declaration itself: none for a derived one or a definite
+  // view; a reason for a refusal or a possible view; the member when it is open.
   private def verdict(
       c: Concrete,
       closures: List[TemplateClosures.Closure],
       view: View
   ): Option[Either[Refusal, Concrete]] =
-    if (universal(c.tree, c.level)) None
-    else
-      classification(c, closures) match {
-        case Some(refused) => refused.left.toOption.map(reason => Left(Refusal(reason)))
-        case None          =>
-          view match {
-            case View.Definite => None
-            case View.Possible => Some(Left(Refusal(s"${TargetViews.Reentry}: ${label(c)}", true)))
-            case View.Free     => Some(Right(c))
-          }
-      }
+    classification(c, closures) match {
+      case Some(refused) => refused.left.toOption.map(reason => Left(Refusal(reason)))
+      case None          =>
+        view match {
+          case View.Definite => None
+          case View.Possible => Some(Left(Refusal(s"${TargetViews.Reentry}: ${label(c)}", true)))
+          case View.Free     => Some(Right(c))
+        }
+    }
 
   // A field of a level no class of the linearization passes arguments to: every value of its type,
   // whichever class finally extends the receiver passes it.
@@ -135,7 +134,7 @@ final private[cardinality] class ReceiverMembers(
       other.tree.exists(_.is[Defn.Class]) && linearization.parents(other.id).contains(level.id)
     )
 
-  /** Whether a member of a level restates a universal member of `Any` (C0: outside the model). */
+  /** Whether a member of a level restates a universal member (`MemberSyntax.universal`). */
   def universal(member: Tree, level: Frame): Boolean =
     MemberSyntax.universal(member)(tpe =>
       TopTypes.isAny(

@@ -32,14 +32,9 @@ private[cardinality] object InheritedTerms {
     UniversalMembers.any ++ UniversalMembers.anyRef ++ UniversalMembers.objectMethods
 
   private val products: Map[String, String] =
-    List(
-      "productArity",
-      "productElement",
-      "productElementName",
-      "productElementNames",
-      "productIterator",
-      "productPrefix"
-    ).map(_ -> "Product").toMap + ("canEqual" -> "Equals")
+    (UniversalMembers.productValues ++ UniversalMembers.productReaders)
+      .map(_ -> "Product")
+      .toMap + ("canEqual" -> "Equals")
 
   /** How a template whose supplied ancestors are `levels` inherits a term `name`: from a parent
     * outside the sources (an implicit one included) or a supplied ancestor; None when no parent

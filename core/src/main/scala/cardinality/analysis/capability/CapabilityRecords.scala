@@ -287,7 +287,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         table: ReceiverMembers,
         scope: Scope
     ): Either[String, List[Option[Shape]]] = {
-      val open = all.flatMap(level => abstracts(level).map(level -> _))
+      val open =
+        all.flatMap(level => abstracts(level).filterNot(table.universal(_, level)).map(level -> _))
       Traversals.sequence(open.zipWithIndex.map {
         case ((level, stat), index) =>
           for {

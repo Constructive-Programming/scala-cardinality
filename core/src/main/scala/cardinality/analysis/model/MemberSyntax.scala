@@ -143,15 +143,21 @@ private[cardinality] object MemberSyntax {
   def repeated(parameter: Term.Param): Boolean = parameter.decltpe.exists(_.is[Type.Repeated])
 
   /** A member restating one of `Any`'s overridable members — `toString`, `hashCode`, `equals(Any)`:
-    * runtime printing, hashing and equality, outside the model (capabilities C0). `isAny` tells
-    * whether a parameter type is `Any` where the member is written.
+    * runtime printing, hashing and equality, outside the model (capabilities C0) — or one of
+    * `Product`'s and `Equals`' (`productArity`, `productElement(n)`, `canEqual(Any)`, …): reflection
+    * over a value's fields and an equality test, outside it too (v1.md §2). `isAny` tells whether a
+    * parameter type is `Any` where the member is written.
     */
   def universal(stat: Tree)(isAny: Type => Boolean): Boolean = stat match {
     case d: (Decl.Def | Defn.Def) if d.paramClauseGroups.forall(_.tparamClause.values.isEmpty) =>
+      val name = d.name.value
       d.paramClauseGroups.flatMap(_.paramClauses).map(_.values) match {
-        case Nil | List(Nil)   => Set("toString", "hashCode")(d.name.value)
-        case List(List(value)) => d.name.value == "equals" && value.decltpe.exists(isAny)
-        case _                 => false
+        case Nil | List(Nil) =>
+          Set("toString", "hashCode")(name) || UniversalMembers.productValues(name)
+        case List(List(value)) =>
+          (Set("equals", "canEqual")(name) && value.decltpe.exists(isAny)) ||
+          UniversalMembers.productReaders(name)
+        case _ => false
       }
     case _ => false
   }
