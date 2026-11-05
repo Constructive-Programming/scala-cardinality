@@ -9,8 +9,7 @@ import cardinality.analysis.inhabitation.{EvidenceAnalysis, ExistentialInputs}
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.Traversals.sequence
-import cardinality.types.{Kinds, Spelling, TypeApplications}
+import cardinality.types.{Kinds, Spelling, Traversals, TypeApplications}
 
 /** A subtype bound on a proper binder is an ambient proof (hkt R5): `A <: U` is `A <:< U`, `A >: L`
   * is `L <:< A`, always available and never a value — in the body, `summon[A <:< U]` compiles, and
@@ -94,7 +93,7 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
           Bound.Lower(_, instanceClass(bound, context))
         )
       }
-    sequence(upper.toList ++ lower.toList).map(Declared(parameter, _))
+    Traversals.sequence(upper.toList ++ lower.toList).map(Declared(parameter, _))
   }
 
   private def read(

@@ -5,8 +5,7 @@ import scala.meta.*
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
-import cardinality.types.*
-import cardinality.types.Traversals.sequence
+import cardinality.types.{Traversals, *}
 
 import MethodAnalysis.{Resolved, TypeEntry}
 
@@ -124,7 +123,7 @@ private[cardinality] object MethodProjections {
         }
 
     private def prepareTuple(parts: List[Type], context: ResolutionContext): Prepared =
-      sequence(parts.map(syntax(_, context))).map { prepared =>
+      Traversals.sequence(parts.map(syntax(_, context))).map { prepared =>
         Type.Tuple(prepared.map(_._1)) -> prepared.flatMap(_._2).toMap
       }
 
@@ -282,7 +281,7 @@ private[cardinality] object MethodProjections {
         TypeApplications
           .checkApplication(name, parameters, args.size)
           .flatMap { _ =>
-            sequence(args.map(syntax(_, context))).flatMap { prepared =>
+            Traversals.sequence(args.map(syntax(_, context))).flatMap { prepared =>
               prepareAliasBody(entry, declared, prepared, context.enter(key))
             }
           }

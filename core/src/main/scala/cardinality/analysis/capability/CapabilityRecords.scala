@@ -14,8 +14,7 @@ import cardinality.analysis.resolution.{
 }
 import cardinality.analysis.{ConstrainedReceivers, ForeignParents, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.Traversals.sequence
-import cardinality.types.TypeApplications
+import cardinality.types.{Traversals, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
 
@@ -96,13 +95,13 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         }
 
     private def walk: Either[String, List[InheritedScopes.Step]] =
-      sequence(InheritedScopes.walk(List(template -> env), resolver, useSite))
+      Traversals.sequence(InheritedScopes.walk(List(template -> env), resolver, useSite))
 
     // A final class: its observable constructor parameters, each an argument a public
     // constructor takes freely.
     private def finalRecord: Resolved =
       ConstrainedReceivers.reason(template).toLeft(()).flatMap { _ =>
-        sequence(template.params.map(observable)).map(Shape.Product(_))
+        Traversals.sequence(template.params.map(observable)).map(Shape.Product(_))
       }
 
     private def fieldType(parameter: Term.Param, scope: Scope = Scope.empty): Resolved =
@@ -150,8 +149,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         val members = open.collect { case Right(c) => c.tree } ++ all.flatMap(abstracts)
         for {
           _ <- selfView(members, all).toLeft(())
-          fields <- sequence(template.params.map(valField(_, scope)))
-          concrete <- sequence(
+          fields <- Traversals.sequence(template.params.map(valField(_, scope)))
+          concrete <- Traversals.sequence(
             open.map(_.flatMap(c => observe(c.tree, c.level, c.name, scope)))
           )
           declared <- declarations(all, table, scope)
@@ -181,9 +180,14 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     // unrelated classes cannot (a class has one superclass chain), nor can an owner no subclass
     // extends (an object, a given, a final class) and a template outside its linearization.
     private def shareInstance(owner: Frame, all: List[Frame]): Boolean = {
-      val ownerLevels = owner :: sequence(
-        InheritedScopes.walk(List(owner -> resolver.typeParameters(owner)), resolver, owner)
-      ).toOption.toList.flatten.map(_.declared)
+      val ownerLevels = owner :: Traversals
+        .sequence(
+          InheritedScopes.walk(List(owner -> resolver.typeParameters(owner)), resolver, owner)
+        )
+        .toOption
+        .toList
+        .flatten
+        .map(_.declared)
       val related = all.exists(_.id == owner.id) || ownerLevels.exists(_.id == template.id)
       val classLike =
         owner.tree.exists(t => t.is[Defn.Class] || t.is[Defn.Object] || t.is[Defn.Given])
@@ -285,7 +289,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         scope: Scope
     ): Either[String, List[Option[Shape]]] = {
       val open = all.flatMap(level => abstracts(level).map(level -> _))
-      sequence(open.zipWithIndex.map {
+      Traversals.sequence(open.zipWithIndex.map {
         case ((level, stat), index) =>
           for {
             implemented <- table.implemented(stat, level, None)

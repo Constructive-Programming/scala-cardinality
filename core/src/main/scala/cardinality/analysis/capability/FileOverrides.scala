@@ -6,8 +6,7 @@ import scala.meta.*
 import cardinality.analysis.model.MemberSyntax
 import cardinality.analysis.resolution.InheritedScopes
 import cardinality.analysis.{MethodAnalysis, Resolver}
-import cardinality.types.Traversals.sequence
-import cardinality.types.{TypeApplications, TypeName}
+import cardinality.types.{Traversals, TypeApplications, TypeName}
 
 import MethodAnalysis.Frame
 
@@ -74,17 +73,19 @@ final private[capability] class FileOverrides(
   }
 
   private def reaches(parent: Frame, name: String): Boolean =
-    sequence(
-      InheritedScopes.walk(List(parent -> resolver.typeParameters(parent)), resolver, parent)
-    ).fold(
-      _ => true,
-      steps =>
-        (parent :: steps.map(_.declared)).exists(level =>
-          level.stats.exists(MemberSyntax.defined(_).contains(name)) ||
-            level.params.exists(_.name.value == name) ||
-            level.parents.exists(resolver.unsuppliedParent(_, level))
-        )
-    )
+    Traversals
+      .sequence(
+        InheritedScopes.walk(List(parent -> resolver.typeParameters(parent)), resolver, parent)
+      )
+      .fold(
+        _ => true,
+        steps =>
+          (parent :: steps.map(_.declared)).exists(level =>
+            level.stats.exists(MemberSyntax.defined(_).contains(name)) ||
+              level.params.exists(_.name.value == name) ||
+              level.parents.exists(resolver.unsuppliedParent(_, level))
+          )
+      )
 
   // The frame whose scope a template's parents are named in: the frame holding its definition.
   private def enclosing(template: Template): Frame =

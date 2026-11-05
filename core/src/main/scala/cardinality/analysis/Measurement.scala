@@ -12,8 +12,7 @@ import cardinality.analysis.capability.{
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
-import cardinality.types.Traversals.sequence
-import cardinality.types.TypeApplications
+import cardinality.types.{Traversals, TypeApplications}
 
 import MemberSyntax.Observation
 import Inhabitation.{Binding, Count, Shape}
@@ -546,15 +545,17 @@ final private[cardinality] class Measurement(
   // any position the estimate reads with a reason, where the model's diagnostic says more than a
   // number resting on an unknown name.
   private def constructorShape(): Resolved =
-    sequence(
-      target.frame.params
-        .filter(positions.leftToShape(_, target.frame))
-        .map(p =>
-          p.decltpe
-            .toRight(s"missing parameter type: ${p.name.value}")
-            .flatMap(resolver.resolve(_, target.frame, variables))
-        )
-    ).map(Shape.Product(_))
+    Traversals
+      .sequence(
+        target.frame.params
+          .filter(positions.leftToShape(_, target.frame))
+          .map(p =>
+            p.decltpe
+              .toRight(s"missing parameter type: ${p.name.value}")
+              .flatMap(resolver.resolve(_, target.frame, variables))
+          )
+      )
+      .map(Shape.Product(_))
 
   // The result type, declared or inferred, read in its context.
   private def declaredShape(inferred: Either[String, InferredResults.Inferred]): Resolved =

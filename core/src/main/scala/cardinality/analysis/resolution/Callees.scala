@@ -4,8 +4,7 @@ import scala.meta.{Defn, Type}
 
 import cardinality.analysis.model.{Operator, ResolutionContext, ResolutionOptics, TypeOperators}
 import cardinality.analysis.{MethodAnalysis, Resolver}
-import cardinality.types.Traversals.sequence
-import cardinality.types.{Kinds, Spelling, TypeApplications}
+import cardinality.types.{Kinds, Spelling, Traversals, TypeApplications}
 
 import MethodAnalysis.{Resolved, TypeEntry}
 
@@ -52,7 +51,7 @@ final private[cardinality] class Callees(resolver: Resolver, bind: TypeOperators
       args: List[Type],
       context: ResolutionContext
   ): Either[String, List[(String, Resolved)]] =
-    sequence(parameters.zip(args).map { (parameter, arg) =>
+    Traversals.sequence(parameters.zip(args).map { (parameter, arg) =>
       bind(Kinds.of(parameter), arg, context).map(parameter.name.value -> Right(_))
     })
 

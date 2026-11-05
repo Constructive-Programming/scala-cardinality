@@ -16,8 +16,15 @@ import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.analysis.model.{Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.Traversals.sequence
-import cardinality.types.{Kind, Kinds, NamedTuples, Spelling, TypeApplications, TypeSubstitution}
+import cardinality.types.{
+  Kind,
+  Kinds,
+  NamedTuples,
+  Spelling,
+  Traversals,
+  TypeApplications,
+  TypeSubstitution
+}
 
 import MethodAnalysis.{Resolved, TypeEntry}
 
@@ -75,7 +82,7 @@ final private[cardinality] class NominalKeys(
   }
 
   private def arguments(args: List[Type], kinds: List[Kind], context: ResolutionContext) =
-    sequence(args.zip(kinds).map(keyOf(_, _, context)))
+    Traversals.sequence(args.zip(kinds).map(keyOf(_, _, context)))
 
   private def read(tpe: Type, context: ResolutionContext): Keyed =
     if (context.visiting.size >= resolver.limits.maxTypeDepth)
@@ -116,11 +123,12 @@ final private[cardinality] class NominalKeys(
 
   // `A | A` is `A`; distinct alternatives need an overlap proof.
   private def alternatives(union: Type, context: ResolutionContext): Keyed =
-    sequence(TypeSubstitution.unionAlternatives(union).map(read(_, context))).flatMap { keys =>
-      keys.distinct match {
-        case List(single) => Right(single)
-        case _            => unestablished(union)
-      }
+    Traversals.sequence(TypeSubstitution.unionAlternatives(union).map(read(_, context))).flatMap {
+      keys =>
+        keys.distinct match {
+          case List(single) => Right(single)
+          case _            => unestablished(union)
+        }
     }
 
   private def applied(application: Application): Keyed =
@@ -255,7 +263,7 @@ final private[cardinality] class NominalKeys(
     }
 
   private def namedTuple(fields: List[(String, Type)], context: ResolutionContext): Keyed =
-    sequence(fields.map((_, field) => read(field, context))).map { values =>
+    Traversals.sequence(fields.map((_, field) => read(field, context))).map { values =>
       val tuple = s"scala.Tuple${values.size}"
       val names = fields.map((name, _) => LiteralTypes.name(name))
       nominal("scala.NamedTuple.NamedTuple", List(nominal(tuple, names), nominal(tuple, values)))

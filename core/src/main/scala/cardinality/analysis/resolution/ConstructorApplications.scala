@@ -9,8 +9,7 @@ import cardinality.analysis.model.{Arguments, Operator, ResolutionContext}
 import cardinality.analysis.resolution.TypeMembers.Meaning
 import cardinality.analysis.{BuiltinTypes, Resolver}
 import cardinality.capacity.Counter
-import cardinality.types.Traversals.sequence
-import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
+import cardinality.types.{Kind, Kinds, Spelling, Traversals, TypeApplications}
 
 /** Constructor applications, read by kind (hkt R1, R3).
   *
@@ -80,11 +79,13 @@ final private[cardinality] class ConstructorApplications(
     else if (arguments.exists(_.is[Type.Wildcard]))
       Left(s"unreducible application of a higher-kinded member to a wildcard: $name")
     else
-      sequence(
-        arguments
-          .zip(kind.holes)
-          .map((arg, hole) => resolver.operators.argument(hole, arg, context))
-      ).map(shapes => Shape.rigid(atom, shapes))
+      Traversals
+        .sequence(
+          arguments
+            .zip(kind.holes)
+            .map((arg, hole) => resolver.operators.argument(hole, arg, context))
+        )
+        .map(shapes => Shape.rigid(atom, shapes))
   }
 
   // A projection reads a source alias's applied body; a wildcard argument, a binder or an

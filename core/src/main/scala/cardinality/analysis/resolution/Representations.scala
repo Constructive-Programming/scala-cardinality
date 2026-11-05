@@ -5,8 +5,7 @@ import scala.meta.*
 import cardinality.analysis.model.{MemberSyntax, Throws}
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.capacity.Counter
-import cardinality.types.*
-import cardinality.types.Traversals.sequence
+import cardinality.types.{Traversals, *}
 
 import MethodAnalysis.{Frame, TypeEntry}
 
@@ -68,7 +67,8 @@ final private[cardinality] class Representations(
       indexer
         .unnamedInstances(file, entry.name)
         .fold(
-          sequence(children.map(sealedCase(_, family.copy(seen = seen :+ entry.name))))
+          Traversals
+            .sequence(children.map(sealedCase(_, family.copy(seen = seen :+ entry.name))))
             .map(_.flatten)
         )(Left(_))
   }
@@ -343,7 +343,7 @@ final private[cardinality] class Representations(
     owner.stats.collectFirst { case o: Defn.Object if o.name.value == e.name.value => o }
 
   private def enumCases(e: Defn.Enum, key: String): Either[String, List[List[Type]]] =
-    sequence(
+    Traversals.sequence(
       e.templ.body.stats.flatMap {
         case c: Defn.EnumCase         => List(enumCase(c, e, key))
         case r: Defn.RepeatedEnumCase => List.fill(r.cases.size)(Right(Nil))
@@ -391,7 +391,7 @@ final private[cardinality] class Representations(
 
   // A field without a declared type leaves the product unreadable.
   private def declaredFields(fields: List[Term.Param], key: String): Either[String, List[Type]] =
-    sequence(fields.map(_.decltpe.toRight(s"missing field type: $key")))
+    Traversals.sequence(fields.map(_.decltpe.toRight(s"missing field type: $key")))
 
 }
 

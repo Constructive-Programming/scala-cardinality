@@ -7,8 +7,7 @@ import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.{AliasReading, ResolutionContext}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.capacity.Counter
-import cardinality.types.Traversals.sequence
-import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
+import cardinality.types.{Spelling, Traversals, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{Frame, TypeEntry}
@@ -271,7 +270,7 @@ final private[cardinality] class RuntimeClasses(
         .toRight(s"sealed family source not supplied: ${family.label}")
         .flatMap { source =>
           val names = spellings(family.label)
-          sequence(templates(source).flatMap { (tree, inits) =>
+          Traversals.sequence(templates(source).flatMap { (tree, inits) =>
             if (inits.exists(init => names(lastName(init.tpe)))) List(child(tree, family))
             else inits.find(throughAlias(_, names)).map(init => Left(hidden(family, init))).toList
           })

@@ -5,8 +5,7 @@ import scala.meta.{Defn, Type, XtensionSyntax}
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
-import cardinality.types.Traversals.sequence
-import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
+import cardinality.types.{Spelling, Traversals, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{Resolved, TypeEntry}
@@ -42,7 +41,9 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
       Right(TopTypes.terminal)
     else {
       val kept = absorbed(written)
-      sequence(kept.map(w => w.context.read(w.tpe, resolver))).left
+      Traversals
+        .sequence(kept.map(w => w.context.read(w.tpe, resolver)))
+        .left
         .map(reason => s"union (${Spelling.of(union)}): $reason")
         .flatMap { shapes =>
           kept.zip(shapes).filterNot(_._2 == Shape.Sum(Nil)) match {
@@ -171,7 +172,7 @@ final private[cardinality] class UnionSums(resolver: Resolver, classes: RuntimeC
     found.toOption.filterNot(_.applied).map(_.runtime)
 
   private def tagged(alternatives: List[Written]): Either[String, Unit] =
-    sequence(alternatives.map(_.found)).flatMap { found =>
+    Traversals.sequence(alternatives.map(_.found)).flatMap { found =>
       val runtimes = found.map(_.runtime)
       val pairs = for {
         (left, index) <- runtimes.zipWithIndex

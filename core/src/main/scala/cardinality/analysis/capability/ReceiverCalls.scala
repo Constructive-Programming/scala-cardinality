@@ -5,8 +5,7 @@ import scala.meta.*
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.{Found, InheritedScopes, OverrideIdentity}
 import cardinality.analysis.{MethodAnalysis, Resolver}
-import cardinality.types.Traversals.sequence
-import cardinality.types.TypeApplications
+import cardinality.types.{Traversals, TypeApplications}
 
 import MethodAnalysis.Frame
 import OverrideIdentity.MethodMember
@@ -54,17 +53,20 @@ final private[capability] class ReceiverCalls(levels: List[Frame], resolver: Res
   ): Boolean =
     declaredType(member, visible).flatMap((tpe, level) => templateOf(tpe, level)).exists {
       template =>
-        sequence(
-          InheritedScopes
-            .walk(List(template -> resolver.typeParameters(template)), resolver, template)
-        ).toOption.exists { steps =>
-          (template :: steps.map(_.declared)).exists(level =>
-            ReceiverMembers.fields(level)(name) || level.stats.exists(stat =>
-              MemberSyntax.names(stat).contains(name) &&
-                ReceiverMembers.Signature.of(stat).accepts(applied)
-            )
+        Traversals
+          .sequence(
+            InheritedScopes
+              .walk(List(template -> resolver.typeParameters(template)), resolver, template)
           )
-        }
+          .toOption
+          .exists { steps =>
+            (template :: steps.map(_.declared)).exists(level =>
+              ReceiverMembers.fields(level)(name) || level.stats.exists(stat =>
+                MemberSyntax.names(stat).contains(name) &&
+                  ReceiverMembers.Signature.of(stat).accepts(applied)
+              )
+            )
+          }
     }
 
   // The declarations a call's head may denote: a method of a level the body sees, or a method of a
