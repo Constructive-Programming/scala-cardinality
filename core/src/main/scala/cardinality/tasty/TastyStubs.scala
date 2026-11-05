@@ -9,7 +9,7 @@ import java.net.URI
 import java.nio.file.{FileSystems, Files, Path}
 import tastyquery.Classpaths.{ClassData, ClasspathEntry, PackageData}
 import tastyquery.Contexts.*
-import tastyquery.Names.*
+import tastyquery.Names.{termName, PackageFullName}
 import tastyquery.SourceLanguage
 import tastyquery.Symbols.*
 import tastyquery.jdk.ClasspathLoaders
