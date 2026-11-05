@@ -67,6 +67,7 @@ class TopTypesUnionSpec extends Specification {
       an Any slot is one value, not the epsilon tier                 $anyBoxCtor
       an Any slot beside an Int is the Int's space                   $walkCtor
       the type Walk stores ω, its constructor row 2^32               $walkType
+      a class parameter counts as its fields as parameters would $classParams
       a slot holding a top in an output is ω                         $outputSlot
       an Any array beside them is a countable length                 $walkResCtor
       Null is empty and a union slot is its sum                      $nullCtor
@@ -477,6 +478,20 @@ class TopTypesUnionSpec extends Specification {
   def walkCtor =
     count("final class Walk(val cur: Any, val n: Int)", "Walk.<init>") ===
       Count.Finite(BigInt(2).pow(32))
+
+  // A parameter of a class type is an input: its fields are read as the constructor's are, so
+  // `g(w: Walk)` is `g(cur: Any, n: Int)` — 1 · 2^32 inputs, 2^(2^32) Booleans — and
+  // `g(b: AnyBox)` is `g(x: Any)`: one input, 2 Booleans. The type's stored ω (walkType) is not
+  // the parameter's reading.
+  def classParams = {
+    val walk = "final class Walk(val cur: Any, val n: Int)\n"
+    val box = "case class AnyBox(x: Any)\n"
+    (count(walk + "def g(w: Walk): Boolean = ???", "g") ===
+      count("def g(cur: Any, n: Int): Boolean = ???", "g"))
+      .and(count(walk + "def g(w: Walk): Boolean = ???", "g").render === "2^(2^32)")
+      .and(count(box + "def g(b: AnyBox): Boolean = ???", "g") === Count.Finite(2))
+      .and(count("def g(x: Any): Boolean = ???", "g") === Count.Finite(2))
+  }
 
   // Before: the estimate read `cur: Any` as everything (ε₀). Now 1 × lengths × 2^32.
   // The definition Walk stores what a value holds: Any is ω there (v1.md §2), so Walk is ω · 2^32
