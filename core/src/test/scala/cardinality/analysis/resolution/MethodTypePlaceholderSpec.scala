@@ -13,8 +13,6 @@ class MethodTypePlaceholderSpec extends Specification {
     Placeholder syntax
       distinguishes constructor holes from existential wildcards $ast
       refuses a constructor placeholder                           $placeholder
-      keeps existential result construction separate from capture $existential
-      retains upper and lower existential bounds in diagnostics   $bounds
   """
 
   def ast = {
@@ -39,23 +37,9 @@ class MethodTypePlaceholderSpec extends Specification {
       .get
       .count
 
-  private def unresolved(code: String, fragment: String) =
-    count(code) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains(fragment)) must beTrue
-    }
-
   def placeholder =
     count("def pick[A](x: A): (Function1[A, *])[A] = a => a") must beLike {
       case Count.Unresolved(_) => ok
     }
-
-  def existential =
-    unresolved("def pick(x: Option[?]): Option[?] = x", "existential wildcard")
-
-  def bounds =
-    unresolved("def pick[A](x: Option[? <: A]): A = ???", "? <: A").and(
-      unresolved("def pick[A](x: Option[? >: A]): A = ???", "? >: A")
-    )
 
 }

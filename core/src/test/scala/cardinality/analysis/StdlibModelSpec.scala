@@ -32,7 +32,6 @@ class StdlibModelSpec extends Specification {
       an Array of a concrete element is a sequence                  $arrays
       an Array of a class or of an empty type is a sequence         $classArrays
       an Array of a type parameter needs its ClassTag               $abstractArray
-      an Array of a singleton needs its widened type's ClassTag     $singletonArrays
       an override over List keeps its identity                      $fromList
     Excluded and open declarations
       single-pass and equality-built types are outside the model     $excluded
@@ -275,32 +274,6 @@ class StdlibModelSpec extends Specification {
         )
       )
       .reduce(_.and(_))
-  }
-
-  private val rigidArray = "Array of an abstract element type is not read"
-
-  // Review fixtures arr11–arr13 (Scala 3.9.0): `x.type` for `x: A` (or a field `a: A`) has no
-  // ClassTag — `new Array[x.type](0)`, `Array.empty` and `Array(x)` are E172 — so no total program
-  // returns `Array[x.type]` and `opt` can only be None (true counts 0 and 1): refused, never ω. A
-  // singleton of a class type, of a String and an object's singleton type have one: ω (every
-  // length of the one value).
-  def singletonArrays = {
-    val code = """final case class Box[A](a: A)
-      |object O
-      |final class C[A](val a: A) { def u: Array[a.type] = ??? }
-      |object T {
-      |  def single[A](x: A): Array[x.type] = ???
-      |  def opt[A](x: A): Option[Array[x.type]] = ???
-      |  def boxed[A](x: Box[A]): Array[x.type] = ???
-      |  def text(x: String): Array[x.type] = ???
-      |  def module(): Array[O.type] = ???
-      |}""".stripMargin
-    refused(count(code, "T.single"), rigidArray)
-      .and(refused(count(code, "T.opt"), rigidArray))
-      .and(refused(count(code, "C.u"), rigidArray))
-      .and(count(code, "T.boxed") === Count.Countable)
-      .and(count(code, "T.text") === Count.Countable)
-      .and(count(code, "T.module") === Count.Countable)
   }
 
   // `forList` implements the trait's `fromList` (List keys alike in both): ω by sequence

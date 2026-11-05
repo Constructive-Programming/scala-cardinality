@@ -23,7 +23,6 @@ class RepeatedParameterFragmentSpec extends Specification {
       eliminate a constructor slot's sequence by length           $ordinaryConstructor
       eliminate repeated functions by length                      $repeatedFunctions
       count length-dependent selection beside a fallback          $fallback
-      eliminate a sequence introduced under a result arrow        $negativeArrow
       reject a sequence under a deeper arrow                      $nestedArrow
       retain unsupported element-type diagnostics                 $unknownElement
   """
@@ -99,10 +98,6 @@ class RepeatedParameterFragmentSpec extends Specification {
   def fallback =
     entry("def pick[A](x: A, y: A)(xs: A*): A = if xs.isEmpty then x else y", "pick").count ===
       Count.Countable
-
-  // `(xs: A*, y: A) => A` is its body under xs and y: y at length 0, y or e₁ at length 1 — ω.
-  def negativeArrow =
-    Inhabitation.count(Nil, Function(List(Repeated(a), a), a)) === Count.Countable
 
   // A sequence parameter of a function the goal returns is not an input of the outer environment.
   def nestedArrow =

@@ -9,8 +9,8 @@ import Inhabitation.Count
   * Its count is `weight · (Π children)^exponent`: a ground goal's literals are its weight, and a
   * uniform split is one child raised to the split value's space. `quotient` marks an application of
   * a polymorphic input at the instantiation a goal fixes (capabilities PB2): a genuine term, so it
-  * proves productivity and absurdity, but free theorems may merge it with others, so a count it
-  * contributes to is exact only at 0 or 1.
+  * proves productivity and absurdity, but free theorems may merge it with others, so a cycle
+  * through it is not counted.
   */
 final private[inhabitation] case class Rule(
     children: List[Int],
@@ -29,46 +29,25 @@ final private[inhabitation] case class Rule(
 
 }
 
-/** What the solver proved of each goal: `proved` holds the goals built by rules that carry no
-  * reason, `optimistic` those built when every rule is allowed, and `absurd` maps a goal to the
-  * node of the empty goal in its environment.
-  */
-final private[inhabitation] case class Verdicts(
-    proved: Int => Boolean,
-    optimistic: Int => Boolean,
-    absurd: Int => Option[Int]
-)
-
 /** The rules a productive root can actually reach, counted. */
 final private[inhabitation] class Live(
     private[inhabitation] val rules: Vector[List[Rule]],
     private[inhabitation] val inspect: String => Unit,
-    private[inhabitation] val maxDepth: Int,
-    verdicts: Verdicts
+    private[inhabitation] val maxDepth: Int
 ) {
   import Live.Walk
-  import verdicts.{absurd, optimistic, proved}
 
   private[inhabitation] val totals = mutable.Map.empty[Int, Card]
 
-  /** The root's count: with reasons, ω only through a vouched cycle (C11); through a cycle, ω
-    * unless an instantiation of a polymorphic input is on the way; otherwise the exact total,
-    * reported past an instantiation only at 0 or 1 (PB2).
+  /** The root's count: none with reasons; through a cycle, ω unless an instantiation of a
+    * polymorphic input is on the way; otherwise the exact total.
     */
   def result(root: Int): Count = {
     val (reasons, quotients) = marks(root)
-    if (reasons.nonEmpty) { if (unbounded(root)) Count.Countable else Count.Unresolved(reasons) }
-    else if (cyclic(root)) throughCycle(root, quotients)
-    else total(root, quotients)
-  }
-
-  private def throughCycle(root: Int, quotients: List[String]): Count =
-    if (quotients.nonEmpty && !unbounded(root)) Count.Unresolved(quotients) else Count.Countable
-
-  private def total(root: Int, quotients: List[String]): Count = {
-    val card = Live.count((this, root, 0))
-    if (quotients.nonEmpty && !card.isZero && !card.isOne) Count.Unresolved(quotients)
-    else Count.of(card)
+    if (reasons.nonEmpty) Count.Unresolved(reasons)
+    else if (cyclic(root))
+      if (quotients.nonEmpty) Count.Unresolved(quotients) else Count.Countable
+    else Count.of(Live.count((this, root, 0)))
   }
 
   // The reasons on the rules this root reads, in the order they were met, and the polymorphic
@@ -76,7 +55,7 @@ final private[inhabitation] class Live(
   private def marks(root: Int): (List[String], List[String]) = {
     val reasons = mutable.LinkedHashSet.empty[String]
     val quotients = mutable.LinkedHashSet.empty[String]
-    walk(root, Walk("solver reasons", skipFinished = false, rules)) { rule =>
+    walk(root, Walk("solver reasons", skipFinished = false)) { rule =>
       reasons ++= rule.reason
       quotients ++= rule.quotient
       ()
@@ -87,33 +66,7 @@ final private[inhabitation] class Live(
   // A walk that revisits a goal has a productive cycle behind it: countably many constructions.
   private def cyclic(root: Int): Boolean = {
     var found = false
-    walk(root, Walk("solver cycle", skipFinished = true, rules))(_ => (), _ => found = true)
-    found
-  }
-
-  /** ω whatever the reasons elsewhere (capabilities C11, restricted as SYNTHESIS D-capabilities and
-    * crosscheck X3 require): the root reaches a cycle along rules that carry no reason and no
-    * polymorphic instantiation, every child of every such rule is built by rules without reasons,
-    * and the empty goal is not built, even optimistically, at any goal on the way.
-    *
-    * The cycle's terms are then pairwise distinct terms of every rule along the path, each a real
-    * term (its siblings have one), so at least ω; every goal on the way has a consistent context,
-    * the only way further producers could merge terms (a context proving the empty type has one
-    * term, an empty sibling makes a product empty); and a program text is finite, so at most ω
-    * (register D2). Eager reasons never reach the solver: a reading that fails is refused before.
-    */
-  private def unbounded(root: Int): Boolean = {
-    def sound(id: Int): Boolean = absurd(id).forall(node => !optimistic(node))
-    def vouched(id: Int): List[Rule] =
-      if (!sound(id)) Nil
-      else
-        rules(id).filter(r => r.reason.isEmpty && r.quotient.isEmpty && r.children.forall(proved))
-    var found = false
-    if (proved(root))
-      walk(root, Walk("solver saturation", skipFinished = true, vouched))(
-        _ => (),
-        _ => found = true
-      )
+    walk(root, Walk("solver cycle", skipFinished = true))(_ => (), _ => found = true)
     found
   }
 
@@ -138,7 +91,7 @@ final private[inhabitation] class Live(
       if (onPath(id)) repeat(id)
       else if (!mode.skipFinished || !finished(id)) {
         onPath += id
-        mode.rulesOf(id).foreach { rule =>
+        rules(id).foreach { rule =>
           read(rule)
           rule.children.foreach(child => visit(child, depth + 1))
         }
@@ -153,11 +106,10 @@ final private[inhabitation] class Live(
 
 private[inhabitation] object Live {
 
-  /** A walk's budget step, whether it answers each goal once (the cycle walks; the reading walk
-    * repeats a subtree a second path reaches, as the budget always counted it), and the rules it
-    * walks a goal through (the ω-saturation walk keeps the vouched ones).
+  /** A walk's budget step, and whether it answers each goal once (the cycle walk; the reading walk
+    * repeats a subtree a second path reaches, as the budget always counted it).
     */
-  final case class Walk(step: String, skipFinished: Boolean, rulesOf: Int => List[Rule])
+  final case class Walk(step: String, skipFinished: Boolean)
 
   // With no cycle behind it the reachable graph is a DAG, so a memo-aware hylomorphism counts
   // each goal as the sum of its rules' counts, exactly.

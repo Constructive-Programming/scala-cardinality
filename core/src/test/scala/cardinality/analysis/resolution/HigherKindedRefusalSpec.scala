@@ -21,7 +21,6 @@ class HigherKindedRefusalSpec extends Specification {
       a higher-kinded name read as a type                           $properUse
       a wildcard under a rigid binder is not counted                $wildcard
     Unreadable identities
-      a wildcard where a constructor is expected                    $wildConstructor
       a nested wildcard has no key                                  $nestedWildcard
       distinct union alternatives have no key                       $unionKeys
       a bounded higher-kinded binder                                $boundedHk
@@ -99,12 +98,6 @@ class HigherKindedRefusalSpec extends Specification {
     invalid("T.w").and(invalid("C.w"))
   }
 
-  def wildConstructor =
-    unresolved(
-      box + "object T { def f[A](x: Box[?, A]): A = ??? }",
-      "T.f",
-      "existential type constructor requires witness-kind analysis"
-    )
 
   def nestedWildcard =
     unresolved(

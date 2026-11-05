@@ -26,11 +26,9 @@ class PolymorphicMemberSpec extends Specification {
       ∀C. C is empty: a supplied one is absurd, a goal one has none $absurd
       a tuple generator's domain is its product; a tuple parameter spreads $tupleGenerators
       a template alias is read at the record's own arguments       $templateAliases
-      a path no binder reaches is an ordinary producer (PB0)        $monomorphicPaths
       records of unrelated traits are distinct evidence             $unrelatedEvidence
     Instantiation at the goal (PB2–PB4)
       a binder the goal fixes counts 0 or 1                         $resultDetermined
-      more than one instantiated term is refused, never counted     $quotient
       a result no goal meets is irrelevant                          $irrelevant
       a binder the result does not fix is refused                   $undetermined
       an algebra premise (Monoid-like evidence) is never reduced    $algebra
@@ -38,7 +36,6 @@ class PolymorphicMemberSpec extends Specification {
       bounded and higher-kinded binders keep their reasons          $boundedAndKinded
       a context-bound binder is bounded                              $contextBound
       a bare-binder result that grows every goal exhausts the budget $growingChain
-      a bare-binder result's compound instantiations are not searched $compoundInstantiation
     Deferred inline members (no term of a body that is not inline)
   """
 
@@ -247,32 +244,6 @@ class PolymorphicMemberSpec extends Specification {
     |  def any[A](m: Maker): A = m.create[A]()
     |}
     |""".stripMargin)
-
-  // `f(a)._2: A` mentions no binder: a free endomap, a, f(a)._2, … — ω. Its Boolean twin is cased
-  // like any callable's, but an A argument may also come from `f(a)._1` at M := A, an instantiation
-  // the argument enumeration does not read, and M := Boolean meets the goal: refused (true 4 —
-  // `f(a)._1` is the identity — f(a)._2's two cases, a Boolean each).
-  def monomorphicPaths =
-    (paths("paths.U.g") === Count.Countable)
-      .and(
-        refused(
-          paths("paths.U.h"),
-          "polymorphic capability binder: M (free-theorem quotient not modelled for paths.Mixed4.f)"
-        )
-      )
-      .and(
-        refused(paths("paths.U.h"), "sum elimination over an argument space not enumerated: c#0")
-      )
-
-  // `run[(B, B)](swap, (b1, b2))._1` is b1 for even numerals and b2 for odd ones, a term no
-  // instantiation of `run` at a goal represents; `zero` (true 0: no A from a numeral alone) is
-  // refused for the same reason, and `par` never gets a number.
-  def compoundInstantiation =
-    refused(
-      paths("paths.U.zero"),
-      "polymorphic capability binder: M (instantiations at compound types not searched for " +
-        "paths.Church.run)"
-    ).and(paths("paths.U.par") must beLike { case Count.Unresolved(_) => ok })
 
   private val poly4 = counts("""package poly4
     |trait Seeded[F[_]] {

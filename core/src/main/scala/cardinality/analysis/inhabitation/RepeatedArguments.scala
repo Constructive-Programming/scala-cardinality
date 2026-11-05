@@ -12,10 +12,9 @@ import Shape.*
   * has only Nil and is normalized to Unit. A sequence of closed elements is transparent data
   * (`ClosedSpaces`): the solver splits it like any other closed value. A supplied sequence of
   * opaque elements is eliminated by `SequenceElimination` when it is a value of the environment
-  * itself (a field of one included); the goal's own function parameters are introduced first, so
-  * they are such values too. Anywhere else an opaque sequence would be eliminated — under a sum, as
-  * a callable's result, as a parameter of a function the goal or a callable's argument builds — the
-  * fragment is refused, unless the goal has one inhabitant whatever the sequence holds.
+  * itself (a field of one included). Anywhere else an opaque sequence would be eliminated — under a
+  * sum, as a callable's result, as a parameter of a function the goal or a callable's argument
+  * builds — the fragment is refused, unless the goal has one inhabitant whatever the sequence holds.
   */
 private[cardinality] object RepeatedArguments {
 
@@ -46,9 +45,8 @@ private[cardinality] object RepeatedArguments {
       node match {
         case Product(_)      => kids.forall(identity)
         case Sum(_)          => kids.size == 1 && kids.head
-        case Function(_, _)  => kids.last
-        case Singleton(_, _) => true
-        case _               => false
+        case Function(_, _) => kids.last
+        case _              => false
       }
     }
 
@@ -59,16 +57,15 @@ private[cardinality] object RepeatedArguments {
     // Leave even singleton goals to the solver, so evidence validation cannot be bypassed.
     if (hasSequence && singletonCheck.get(target)) Right(Prepared.Direct(prepared, target))
     else {
-      val (introduced, goal) = introduce(prepared, target)
-      val split = introduced.map(binding => extract(binding.id, binding.shape))
-      val stranded = split.flatMap(_.stranded) ++ unsplit(goal, read = false)
+      val split = prepared.map(binding => extract(binding.id, binding.shape))
+      val stranded = split.flatMap(_.stranded) ++ unsplit(target, read = false)
       stranded.headOption match {
         case Some(place) => Left(Count.Unresolved(List(s"$Refused $place")))
         case None        =>
-          val rest = introduced.zip(split).map((binding, part) => binding.copy(shape = part.kept))
+          val rest = prepared.zip(split).map((binding, part) => binding.copy(shape = part.kept))
           split.flatMap(_.sequences).distinctBy(_.id) match {
-            case Nil       => Right(Prepared.Direct(rest, goal))
-            case sequences => Right(Prepared.Eliminate(rest, sequences, goal))
+            case Nil       => Right(Prepared.Direct(rest, target))
+            case sequences => Right(Prepared.Eliminate(rest, sequences, target))
           }
       }
     }
@@ -93,28 +90,12 @@ private[cardinality] object RepeatedArguments {
     case _                  => false
   }
 
-  // A goal function's parameters are the environment of its body (arrow introduction is unique), so
-  // a curried goal is its result under its parameters as values. Done only where a parameter holds
-  // an opaque sequence, so every other goal reaches the solver as it is written.
-  private def introduce(bindings: List[Binding], target: Shape): (List[Binding], Shape) =
-    target match {
-      case Function(parameters, result) if parameters.exists(Shape.exists(_)(opaque)) =>
-        val named =
-          parameters.zipWithIndex.map((shape, i) => Binding(s"<goal-${bindings.size}#$i>", shape))
-        introduce(bindings ++ named, result)
-      case _ => (bindings, target)
-    }
-
   // A value's opaque sequences that are values of the environment themselves — the value, or a
-  // field of it — and the places any other opaque sequence sits in. A singleton stays the alias it
-  // is: `q: p.type` is `p` (two aliases are one value), so its sequences are `p`'s own.
+  // field of it — and the places any other opaque sequence sits in.
   private def extract(id: String, shape: Shape): Extracted =
     shape match {
       case sequence: Repeated if opaque(sequence) =>
         Extracted(Product(Nil), List(Sequence(id, sequence)), Nil)
-      case Singleton(reference, Some(underlying)) =>
-        val inner = extract(reference, underlying)
-        inner.copy(kept = Singleton(reference, Some(inner.kept)))
       case Product(fields) =>
         val parts = fields.zipWithIndex.map((field, i) => extract(s"$id.$i", field))
         Extracted(

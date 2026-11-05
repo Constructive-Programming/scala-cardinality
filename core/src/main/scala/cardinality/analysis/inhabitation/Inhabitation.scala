@@ -1,6 +1,6 @@
 package cardinality.analysis.inhabitation
 
-import cardinality.capacity.{EffectiveOmega, FinitePart, Size, TinySize}
+import cardinality.capacity.{FinitePart, Size}
 import cardinality.types.Traversals
 import dev.constructive.eo.data.PSVec
 import dev.constructive.eo.generics.prism
@@ -209,7 +209,7 @@ object Inhabitation {
               val card = exact.foldLeft(cardOf(solved))(_ * _)
               if (estimated.isEmpty) of(card)
               else
-                sizeOf(card, estimated.exists(_.hasInfinite)).fold(
+                sizeOf(card).fold(
                   Unresolved(List(s"constructor space has no estimate form: ${of(card).render}"))
                 )(space => bounded(estimated.foldLeft(space)(_ * _)))
             }
@@ -225,12 +225,10 @@ object Inhabitation {
         throw new IllegalArgumentException(s"a solver count has no exact card: $count")
     }
 
-    // The size an exact card stands for beside an estimate. A symbolic value is at least 2, which
-    // is all a product with an infinite tier reads; beside finite capacities it has no size.
-    private def sizeOf(card: Card, besideInfinite: Boolean): Option[Size] = card match {
+    // The size a literal card stands for beside an estimate; ω or a symbolic value has none here.
+    private def sizeOf(card: Card): Option[Size] = card match {
       case Card.Exact(Natural.Lit(value)) => Some(Size(0, 0, FinitePart.exact(value)))
-      case Card.Omega                     => Some(EffectiveOmega)
-      case Card.Exact(_)                  => Option.when(besideInfinite)(TinySize(2))
+      case _                              => None
     }
 
     private def bounded(space: Size): Count =

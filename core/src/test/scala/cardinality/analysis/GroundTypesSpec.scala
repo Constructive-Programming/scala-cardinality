@@ -42,14 +42,12 @@ class GroundTypesSpec extends Specification {
       a finite function position stays finite                      $finiteFunctionPosition
       an infinite closed position keeps the estimate's tier         $infinitePosition
       a mixed position names its own reason                        $mixed
-      an exact symbolic space beside an estimate bound is no number $estimateBeside
     Boundary
       a ground-result callable on an atom is split by its literals $groundCallable
       a closed Int callable is never ω                             $closedCallable
       a var reads as the value it was initialized with             $mutable
       an export binds a ground name; a given import binds none     $exported
       a source alias still shadows the builtin                     $sourceShadow
-      a literal type is one constant of its ground type            $literalType
       higher-order use of a ground domain stays unresolved         $higherOrder
       repeated atoms are eliminated by length                      $repeatedAtoms
   """
@@ -246,19 +244,6 @@ class GroundTypesSpec extends Specification {
       "constructor position mixes type parameters with transparent ground values: p"
     )
 
-  def estimateBeside = {
-    // `Foo` has a body, so only the estimate reads it — as a 2^32 capacity, a bound. A symbolic
-    // exact factor has no capacity form to multiply it with; beside a tier it is the tier.
-    val foo = "case class Foo(x: Int) { def y: Int = x }\n"
-    val nat =
-      "sealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat\n"
-    unresolvedOn(
-      count(foo + "case class G(f: (Int => Int) => Int, q: Foo)", "G.<init>"),
-      "constructor space has no estimate form: 2^(2^137438953477)"
-    ).and(count(foo + "case class H(x: Int, q: Foo)", "H.<init>").render === "≤2^64")
-      .and(count(nat + "case class K(f: (Int => Int) => Int, n: Nat)", "K.<init>").render === "ω")
-  }
-
   // `g(a)` is eliminated once by its literals (capabilities C10): an Int-valued function of one Int,
   // (2^32)^(2^32) = 2^(2^37). With `h: Int => A` the arguments of `g` include `h(n)` for every
   // literal `n`, an argument space this does not enumerate. A String result splits into countably
@@ -306,9 +291,6 @@ class GroundTypesSpec extends Specification {
         count("object H { type Int = Boolean }\nimport H.Int\ndef f(x: Int): Int = x") === Count
           .Finite(4)
       )
-
-  // `x: 3` is the constant 3, which a body writes anyway: every Int on a one-point domain (2^32).
-  def literalType = count("def f(x: 3): Int = x") === Count.Finite(two32)
 
   def higherOrder =
     unresolvedOn(

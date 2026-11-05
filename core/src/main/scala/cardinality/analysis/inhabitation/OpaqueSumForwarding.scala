@@ -7,11 +7,9 @@ import Shape.*
 
 /** A deliberately small completeness certificate, not an opaque-sum elimination grammar.
   *
-  * There is at most one reachable binary observation, with distinct atomic payloads and at most one
-  * Unit alternative. Its argument tuple has exactly one normal form. Payloads have no ambient
-  * producers and cannot enable any application, including recalling the observed callable.
-  * Consequently the only endomaps of that sum are forwarding and (when present) constant Unit. Case
-  * analysis into a uniquely determined unrelated atom is redundant.
+  * A context whose sum-producing callables are all unreachable, and whose reachable atoms each have
+  * exactly one normal form, builds an atom or a flat sum of atoms in as many ways as those atoms
+  * have values: zero or one.
   *
   * Reachability is computed before ignoring a callable: unavailable parameters are a proof of
   * non-application, not permission to discard an unsupported diagnostic. Counts saturate at two;
@@ -34,55 +32,14 @@ private[cardinality] object OpaqueSumForwarding {
       counts = ordinaryCounts(atoms, calls)
       reachable = calls.filter(_.inputs.forall(a => counts(a) > 0))
       sums = reachable.filter(c => Shape.sumPrism.getOption(c.output).nonEmpty)
-      if sums.size <= 1
+      if sums.isEmpty
       if reachable.forall(_.inputs.forall(a => counts(a) == 1))
-      answer <- certify(sums.headOption, calls, counts, target)
+      answer <- ordinary(target, counts)
     } yield answer
-
-  private def certify(
-      observation: Option[Call],
-      calls: List[Call],
-      counts: Map[Atom, Int],
-      target: Shape
-  ): Option[Int] = observation match {
-    case None => ordinary(target, counts)
-    case Some(Call(_, Sum(alternatives))) if isolated(alternatives, calls, counts) =>
-      observed(alternatives, counts, target)
-    case _ => None
-  }
-
-  private def observed(
-      alternatives: List[Shape],
-      counts: Map[Atom, Int],
-      target: Shape
-  ): Option[Int] = target match {
-    case Sum(`alternatives`) =>
-      Some(1 + alternatives.count(_ == Product(Nil)))
-    case a: Atom if !alternatives.contains(a) && counts(a) <= 1 => Some(counts(a))
-    case Sum(Nil)                                               => Some(0)
-    case _                                                      => None
-  }
-
-  private def isolated(
-      alternatives: List[Shape],
-      calls: List[Call],
-      counts: Map[Atom, Int]
-  ): Boolean = {
-    val payloads = alternatives.flatMap(Shape.atomPrism.getOption)
-    // Expose ALL alternatives together: a stronger rejection than any single branch needs.
-    // Any newly enabled application must first consume one of these payloads, so checking the
-    // first layer also proves there is no downstream producer/observation closure to explore.
-    val exposed = counts ++ payloads.map(_ -> 1)
-    val consumers = calls.filter(_.inputs.forall(a => exposed(a) > 0))
-    alternatives.size == 2 && alternatives.forall(flat) && payloads.nonEmpty &&
-    payloads.distinct.size == payloads.size && payloads.forall(a => counts(a) == 0) &&
-    !consumers.exists(_.inputs.exists(payloads.contains))
-  }
 
   private def ordinary(target: Shape, counts: Map[Atom, Int]): Option[Int] =
     target match {
       case a: Atom if counts(a) <= 1 => Some(counts(a))
-      case Product(Nil)              => Some(1)
       case Sum(alternatives) if alternatives.size <= 2 && alternatives.forall(flat) =>
         Traversals.defined(alternatives.map(ordinary(_, counts))).map(_.sum)
       case _ => None

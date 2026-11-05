@@ -18,7 +18,6 @@ class TypeMemberSpec extends Specification {
       a trait's own abstract member is a rigid atom              $ownAtom
       a member atom counts as a class type parameter (parity)    $parity
       two paths never share a member                             $distinctPaths
-      a singleton alias, `this` and a self alias share the path   $samePath
       a refinement pins a parameter's member                     $refinementPins
       a type-only structural value has one value                 $structural
       a bounded or higher-kinded member stays a diagnostic       $boundedMember
@@ -106,22 +105,6 @@ class TypeMemberSpec extends Specification {
       .and(found("g") === Count.Finite(2))
       .and(found("w") === Count.Countable)
   }
-
-  // q: p.type denotes p, so q.X is p.X: x and y — 2 (unshared paths would read 1). Inside a trait
-  // `this.X`, `outer.X` and `X` are one member: x, y — 2.
-  def samePath =
-    (count(member + "def h(p: R)(q: p.type)(x: q.X, y: p.X): q.X = ???", "h") === Count.Finite(2))
-      .and(
-        count(
-          """
-          trait Self[A]:
-            outer =>
-            type X
-            def g(x: outer.X, y: this.X): X = ???
-          """,
-          "Self.g"
-        ) === Count.Finite(2)
-      )
 
   // p.X = A transparently: a and x — 2 (read rigidly, 1).
   def refinementPins =

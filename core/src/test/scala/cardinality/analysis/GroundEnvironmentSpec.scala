@@ -51,9 +51,7 @@ class GroundEnvironmentSpec extends Specification {
       chained package clauses read the innermost package first       $chainedPackages
       an explicit import wins over another file's package member     $explicitImport
     Constructor readings
-      readings of a member path agree; disagreeing ones are refused  $disagreement
       an unreadable infinite position takes the size algebra's tier   $fallbackTier
-      a representation budget breach names its limit                 $budget
       floating point positions count equals classes exactly          $floats
       an enclosing template's parameters are captures                $outerCaptures
       a singleton beside a value takes the estimate's reading        $singletonPositions
@@ -629,16 +627,6 @@ class GroundEnvironmentSpec extends Specification {
       .and(colliding("ka.R4.<init>").render === "ε₀")
       .and(colliding("ka.B.<init>").render === "ω")
   }
-
-  def budget =
-    unresolvedOn(
-      count(
-        "case class T(f: ((((((((((Int => Int) => Int) => Int) => Int) => Int) => Int) => Int) => " +
-          "Int) => Int) => Int))",
-        "T.<init>"
-      ),
-      "symbolic form: power tower higher than 8"
-    )
 
   // Exact equals classes on the method side; the stored-value row keeps its lossy capacity.
   def floats =

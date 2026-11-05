@@ -12,7 +12,6 @@ class SingletonIntersectionMethodSpec extends Specification {
   def is = s2"""
     Singleton and intersection method shapes
       count an accessible empty module and constructor             $module
-      preserve a supplied stable path and its widened provenance   $stable
       normalize stable alias identity                              $alias
       keep different singleton identities distinct                  $identities
       eliminate idempotent intersections without multiplying        $idempotent

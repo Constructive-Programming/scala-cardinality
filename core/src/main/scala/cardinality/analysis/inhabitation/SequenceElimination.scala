@@ -48,22 +48,13 @@ private[cardinality] object SequenceElimination {
       variant(vectors.head) match {
         case Count.Finite(zero) if zero == 0 => Count.Finite(0)
         case unresolved: Count.Unresolved    => unresolved
-        case empty                           =>
+        case _                               =>
           vectors.tail.iterator
             .map(variant)
-            .collectFirst {
-              case unresolved: Count.Unresolved   => unresolved
-              case several if atLeastTwo(several) => Count.Countable
-            }
-            .getOrElse(Count.Unresolved(List(undecided(atLeastTwo(empty)))))
+            .collectFirst { case several if atLeastTwo(several) => Count.Countable }
+            .getOrElse(Count.Unresolved(List("sequence elimination: undecided up to length 2")))
       }
     }
-
-  private def undecided(emptyChoice: Boolean): String =
-    if (emptyChoice)
-      "sequence elimination: two answers only for empty sequences up to length 2 " +
-        "(a longer environment may be absurd)"
-    else "sequence elimination: goal unique up to length 2 but not structurally singleton"
 
   // The fresh elements standing for one sequence at one length.
   private def elements(sequence: RepeatedArguments.Sequence, length: Int): List[Binding] =
@@ -79,10 +70,9 @@ private[cardinality] object SequenceElimination {
     )
 
   private def atLeastTwo(count: Count): Boolean = count match {
-    case Count.Finite(value)                    => value >= 2
-    case Count.Symbolic(_)                      => true
-    case Count.Countable                        => true
-    case Count.Bounded(_) | Count.Unresolved(_) => false
+    case Count.Finite(value)               => value >= 2
+    case Count.Symbolic(_) | Count.Countable => true
+    case _                                   => false
   }
 
 }

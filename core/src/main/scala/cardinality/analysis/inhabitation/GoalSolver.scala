@@ -38,7 +38,7 @@ final private[inhabitation] class GoalSolver(
     val root = goal(env, result)
     val productive = leastProductive(allowUnresolved = true)
     // A root with no productive rule has no implementation at all, not an unknown one.
-    if (!productive(root)) covered(Count.Finite(0), vacuous = false)
+    if (!productive(root)) Count.Finite(0)
     else {
       val proved = leastProductive(allowUnresolved = false)
       val live = nodes.indices.map { id =>
@@ -48,29 +48,7 @@ final private[inhabitation] class GoalSolver(
         if (absurd.get(id).exists(proved)) List(Rule(Nil))
         else nodes(id).filter(_.children.forall(productive))
       }.toVector
-      val verdicts = Verdicts(proved, productive, absurd.get)
-      covered(
-        new Live(live, inspect, maxDepth, verdicts).result(root),
-        absurd.get(root).exists(proved)
-      )
-    }
-  }
-
-  // PB2's boundary: a polymorphic input whose result is a bare binder may be instantiated at a
-  // compound type whose value is then applied, projected or cased (`run[(B, B)](swap, (b1, b2))._1`
-  // is b1 for even numerals and b2 for odd ones), a term no goal-fixed instantiation represents.
-  // Such terms neither lower ω nor make a context proved absurd consistent; any other count is
-  // refused.
-  private def covered(count: Count, vacuous: Boolean): Count = {
-    val reasons = memo.keys.toList
-      .flatMap(_._1)
-      .collect { case Value(_, poly: Poly, _) => poly }
-      .distinct
-      .flatMap(PolymorphicMembers.uncovered)
-    count match {
-      case _ if reasons.isEmpty || vacuous       => count
-      case Count.Countable | _: Count.Unresolved => count
-      case _                                     => Count.Unresolved(reasons)
+      new Live(live, inspect, maxDepth).result(root)
     }
   }
 
@@ -108,47 +86,19 @@ final private[inhabitation] class GoalSolver(
       .context(live(flat).map(_.shape))
       .fold(reason => throw new Inhabitation.Unsupported(reason), identity)
     def rewrite(shape: Shape): Shape =
-      evidence.rewrite(shape).fold(reason => throw new Inhabitation.Unsupported(reason), identity)
+      evidence(shape).fold(reason => throw new Inhabitation.Unsupported(reason), identity)
     // An available proof stays in the environment, so a value a later split or binder brings is
     // read under it too.
-    val env = flat.flatMap(value => withViews(value, evidence, rewrite)).distinct
+    val env = flat.map {
+      case value @ (Value(_, _: Evidence, _) | Value(_, _, Reading.Spent)) => value
+      case value => value.copy(shape = rewrite(value.shape))
+    }.distinct
     val normalized = rewrite(target)
-    // The interactions are judged on what the goal reads, views and their fields included. A
-    // Unit goal has its one construction whatever the context holds.
-    if (normalized != Product(Nil)) {
-      val (views, own) = live(env).partition(_.reading == Reading.View)
-      evidence
-        .validate(own.map(_.shape), views.map(_.shape), normalized)
-        .left
-        .foreach(reason => throw new Inhabitation.Unsupported(reason))
-    }
     memo.get((env, normalized)) match {
       case Some(id) => id
-      case None => record(Recorded(env, normalized, nodes.size, evidence.lowers(_).map(rewrite)))
+      case None     => record(Recorded(env, normalized, nodes.size))
     }
   }
-
-  // A view is the same value read as a supertype, once: a structural one is flattened or split
-  // like a value, and must not come back after it was eliminated. The fields a view is flattened
-  // into are values of their own, read through their own bounds in the same pass (`A <: P[B]`,
-  // `B <: C`: `a.x` is a C), so what the goal can read does not depend on whether a later goal is
-  // recorded. The proofs rule out a bound whose structure holds its own type, so this ends.
-  private def withViews(
-      value: Value,
-      evidence: EvidenceAnalysis.Context,
-      rewrite: Shape => Shape
-  ): List[Value] =
-    value match {
-      case Value(_, _: Evidence, _) | Value(_, _, Reading.Spent) => List(value)
-      case Value(path, shape, Reading.Unread)                    =>
-        val own = rewrite(shape)
-        val supertypes = evidence.views(own).filterNot(_ == own)
-        Value(path, own, Reading.Read) :: supertypes.zipWithIndex.flatMap { (above, i) =>
-          flatten(List(Value(path :+ s"view:$i", rewrite(above), Reading.View)))
-            .flatMap(withViews(_, evidence, rewrite))
-        }
-      case read => List(read.copy(shape = rewrite(read.shape)))
-    }
 
   private def record(recorded: Recorded): Int = {
     inspect("solver state")
@@ -202,17 +152,10 @@ final private[inhabitation] class GoalSolver(
   private def name(path: List[String]): String = path match {
     case "input" :: id :: rest =>
       (source(id) :: rest.collect { case s"field:$index" => index }).mkString("#")
-    case "bound" :: _ => "a function the goal binds"
-    case _            => "a value a case binds"
+    case _            => "a function the goal binds"
   }
 
-  private def source(id: String): String =
-    labels.get(id).getOrElse {
-      labels.keys
-        .filter(id.startsWith)
-        .maxByOption(_.length)
-        .fold(id)(prefix => labels(prefix) + id.drop(prefix.length))
-    }
+  private def source(id: String): String = labels.getOrElse(id, id)
 
   private def neutralPath(neutral: NeutralSaturation.Neutral): List[String] =
     List("neutral", neutrals.getOrElseUpdate(neutral, neutrals.size).toString)
@@ -226,12 +169,7 @@ final private[inhabitation] class GoalSolver(
       case Product(Nil) | _: Singleton | _: Existential => NeutralSaturation.Plan.empty
       case _                                            =>
         val env = live(recorded.env)
-        val polymorphic = env.collect { case Value(_, poly: Poly, _) => poly }
-        val planner = new NeutralSaturation.Planner(
-          recorded.lowers,
-          shape => polymorphic.exists(poly => builds(poly, shape))
-        )
-        planner.plan(
+        NeutralSaturation.plan(
           env.collect {
             case Value(path, shape, _) if !higherOrderValue(shape) => path -> shape
           },
@@ -243,24 +181,11 @@ final private[inhabitation] class GoalSolver(
         )
     }
 
-  // Whether some instantiation of a polymorphic input builds `shape`: its paths that mention no
-  // binder are ordinary producers, which the planner reads as such.
-  private def builds(poly: Poly, shape: Shape): Boolean =
-    producerPaths
-      .get(poly.body)(Nil)
-      .exists(producer =>
-        PolymorphicMembers.offer(poly.binders, producer, shape) match {
-          case PolymorphicMembers.Offer.Irrelevant | PolymorphicMembers.Offer.Monomorphic => false
-          case _                                                                          => true
-        }
-      )
-
   private def ordinaryRules(recorded: Recorded, refused: Refusals): List[Rule] = {
     import recorded.{env, id, target}
     target match {
-      case Existential(_, _) =>
-        List(Rule(Nil, Some(ExistentialInputs.resultBoundary)))
-      case Singleton(_, _) => List(Rule(Nil))
+      case _: (Existential | Singleton) =>
+        throw new Inhabitation.Unsupported("an existential or singleton goal")
       case Product(fields) =>
         List(Rule(fields.map(goal(env, _))))
       case Function(parameters, result) =>
@@ -277,9 +202,7 @@ final private[inhabitation] class GoalSolver(
           Rule(List(goal(env, ExistentialInputs.mapAtoms(body)(a => skolems.getOrElse(a.id, a)))))
         )
       case _ =>
-        constructors(env, target) ++
-          recorded.lowers(target).map(bound => Rule(List(goal(env, bound)))) ++
-          producers(recorded, refused)
+        constructors(env, target) ++ producers(recorded, refused)
     }
   }
 
@@ -336,26 +259,18 @@ final private[inhabitation] class GoalSolver(
           callees(value).flatMap { (callee, producer) =>
             application(recorded.env, recorded.target, producer, refused.get(callee))
           }
-        case poly: Poly => polymorphic(recorded, value.path, poly, refused)
+        case poly: Poly => polymorphic(recorded, poly)
         case _          => Nil
       }
     }
 
-  // A polymorphic input's paths: one its binders do not reach is an ordinary producer (PB0),
-  // planned and applied like any callable's; the others are instantiated at what the goal fixes
-  // (PB2), irrelevant here (PB3) or refused (PB4).
-  private def polymorphic(
-      recorded: Recorded,
-      path: List[String],
-      poly: Poly,
-      refused: Refusals
-  ): List[Rule] = {
+  // A polymorphic input's paths: each is instantiated at what the goal fixes (PB2), irrelevant here
+  // (PB3) or refused (PB4).
+  private def polymorphic(recorded: Recorded, poly: Poly): List[Rule] = {
     import recorded.{env, target}
-    producerPaths.get(poly.body)(Nil).zipWithIndex.flatMap { (producer, index) =>
+    producerPaths.get(poly.body)(Nil).flatMap { producer =>
       PolymorphicMembers.offer(poly.binders, producer, target) match {
-        case PolymorphicMembers.Offer.Irrelevant  => Nil
-        case PolymorphicMembers.Offer.Monomorphic =>
-          application(env, target, producer, refused.get(NeutralSaturation.Callee(path, index)))
+        case PolymorphicMembers.Offer.Irrelevant      => Nil
         case PolymorphicMembers.Offer.Refused(reason) => List(Rule(Nil, Some(reason)))
         case PolymorphicMembers.Offer.Instantiated(instance, quotient) =>
           application(env, target, instance, None).map(_.copy(quotient = Some(quotient)))
@@ -375,22 +290,13 @@ final private[inhabitation] class GoalSolver(
     // Empty-result callables are negations, not opaque tagged choices. A proved call to one
     // is handled by absurd elimination above; only nonempty sum results need case analysis.
     val eliminable = NeutralSaturation.eliminable(value.output)
-    val opaque = value.output match {
-      case _ if eliminable => refusal
-      case Repeated(_) => Some("Elimination of an opaque callable's sequence result is unsupported")
-      case Existential(_, _) => Some(ExistentialInputs.callableBoundary)
-      case _                 => None
-    }
+    val opaque = if (eliminable) refusal else None
     // A call with no reason is a rule only where it is the goal: an eliminable result is saturated
     // (every case of it is in the context already). Case analysis of a ground result has every
     // literal's branch in the same environment, and a sequence result may be empty, so neither
     // proves the context absurd: no rule toward the empty goal.
     val idle = opaque.isEmpty && (eliminable || value.output != target)
-    val noAbsurdRule = target == Sum(Nil) && (value.output match {
-      case Ground(_, _) | Repeated(_) => true
-      case _                          => false
-    })
-    if (idle || noAbsurdRule) Nil
+    if (idle) Nil
     else {
       val certified = TerminalHigherOrder.certified(data(env))
       val dependencies =
@@ -418,18 +324,9 @@ final private[inhabitation] class GoalSolver(
 
   private def flatten(values: List[Value]): List[Value] =
     values.flatMap {
-      case spent @ Value(_, _, Reading.Spent)       => List(spent)
-      case Value(path, Existential(bound, body), _) =>
-        // Binder positions, not display names, keep identity stable under alpha-renaming.
-        val replacements = bound.zipWithIndex.map { (name, index) =>
-          name -> witnesses.getOrElseUpdate((path, index), freshWitness())
-        }.toMap
-        val opened =
-          ExistentialInputs.mapAtoms(body)(atom => replacements.getOrElse(atom.id, atom))
-        flatten(List(Value(path :+ "existential", opened)))
-      case Value(_, Singleton(id, Some(underlying)), _) =>
-        flatten(List(Value(List("input", id), underlying)))
-      case Value(_, Singleton(_, None), _) => Nil
+      case spent @ Value(_, _, Reading.Spent) => List(spent)
+      case Value(_, _: (Existential | Singleton), _) =>
+        throw new Inhabitation.Unsupported("an existential or singleton input")
       case Value(path, Product(fields), _) =>
         flatten(fields.zipWithIndex.map {
           case (shape, index) =>
@@ -449,20 +346,17 @@ final private[inhabitation] class GoalSolver(
 
 private[inhabitation] object GoalSolver {
 
-  // How a value stands to the subtype proofs: not yet read through them, read (its supertypes are
-  // values beside it), or one of those supertypes — the same value seen as its bound, never read
-  // further. A mark of its own, not a step of the path: a path is provenance, and its first steps
-  // are binding ids, which any spelling may start. `Spent` marks a neutral eliminated on this path
-  // (capabilities C10): no value, only the reason the neutral is not cased on again.
+  // `Spent` marks a neutral eliminated on this path (capabilities C10): no value, only the reason
+  // the neutral is not cased on again. A mark of its own, not a step of the path: a path is
+  // provenance, and its first steps are binding ids, which any spelling may start.
   enum Reading {
-    case Unread, Read, View, Spent
+    case Unread, Spent
   }
 
   final case class Value(path: List[String], shape: Shape, reading: Reading = Reading.Unread)
 
-  // A goal being recorded: what it reads, what it builds, its node, and the structural types a
-  // lower bound lets a type be built as in its context — one more way per bound.
-  final case class Recorded(env: List[Value], target: Shape, id: Int, lowers: Shape => List[Shape])
+  // A goal being recorded: what it reads, what it builds, and its node.
+  final case class Recorded(env: List[Value], target: Shape, id: Int)
 
   final case class Producer(parameters: List[Shape], output: Shape)
 

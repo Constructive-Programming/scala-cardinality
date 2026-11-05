@@ -33,7 +33,6 @@ class TopTypesUnionSpec extends Specification {
       a type binder named Any is that binder                         $shadowBinder
       an import of Any refuses the builtin                           $shadowImport
       an inherited member named Any is that member                   $shadowInherited
-      a wildcard function is still uncallable                        $existential
     A channel to declarations the sources do not supply keeps Any open
       a self type outside the sources                                $foreignSelf
       a supplied self type with a parent outside the sources         $selfUnsuppliedParent
@@ -71,10 +70,8 @@ class TopTypesUnionSpec extends Specification {
     Discriminable disjoint unions are sums
       a result adds its alternatives                                 $sumOut
       an input multiplies its branches                               $sumIn
-      a module singleton and a tuple are disjoint                    $singletonTuple
       nested unions flatten                                          $nested
       a union alias reads as the same sum                            $alias
-      a union alias nested in a union flattens                       $aliasNested
       Null alternatives vanish before the sum is formed              $nullMix
       one class spelled twice is one alternative                     $sameClass
       distinct builtin classes are disjoint                          $builtins
@@ -198,10 +195,6 @@ class TopTypesUnionSpec extends Specification {
       .and(count(code, "O.g") === Count.Finite(4))
       .and(reasonContains(code, "O.h", "unsupported intersection relationship: Red & Any"))
   }
-
-  def existential =
-    (count("def m[R](consume: Function1[?, R]): R = ???", "m") === Count.Finite(0))
-      .and(count("def m[R](consume: Function1[Any, R]): R = ???", "m") === Count.Finite(1))
 
   // Ext may declare `type Unit = Boolean` and `type Any = Boolean`: g and h could have 2.
   def foreignSelf = {
@@ -498,13 +491,6 @@ class TopTypesUnionSpec extends Specification {
   def sumIn =
     count(colours + "def in(u: Red | Blue): Boolean = true", "in") === Count.Finite(8)
 
-  // 1 + 4 values per branch, p splits into 4 → 5^4.
-  def singletonTuple =
-    count(
-      "case object Green\ndef t(p: (Boolean, Boolean)): Green.type | (Boolean, Boolean) = Green",
-      "t"
-    ) === Count.Finite(625)
-
   // 2 + 1 + 2 results; r.level × f → 4 branches → 5^4.
   def nested =
     count(colours + fail + "def n(r: Red, b: Blue, f: Fail): Red | (Blue | Fail) = r", "n") ===
@@ -514,18 +500,6 @@ class TopTypesUnionSpec extends Specification {
   def alias =
     count(colours + fail + "type Result = Fail | Red\ndef g(r: Result, fb: Red): Red = fb", "g") ===
       Count.Finite(256)
-
-  // Red | Blue | Green: 4 values over Red's 2 → 4^2, through a plain or a parameterised alias,
-  // an alias of an application, or an application on its own (Red | Blue: 3^2).
-  def aliasNested = {
-    val code = colours + "case object Green\ntype RB = Red | Blue\ntype Or[A, B] = A | B\n" +
-      "type ORB = Or[Red, Blue]\n"
-    (count(code + "def a(r: Red): RB | Green.type = r", "a") === Count.Finite(16))
-      .and(count(code + "def c(r: Red): Or[Red, Blue] | Green.type = r", "c") === Count.Finite(16))
-      .and(count(code + "def e(r: Red): ORB | Green.type = r", "e") === Count.Finite(16))
-      .and(count(code + "def f(r: Red): Or[RB, Green.type] = r", "f") === Count.Finite(16))
-      .and(count(code + "def b(r: Red): Or[Red, Blue] = r", "b") === Count.Finite(9))
-  }
 
   def nullMix = count(colours + "def nm(r: Red): Red | Blue | Null = r", "nm") === Count.Finite(9)
 

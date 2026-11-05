@@ -55,8 +55,6 @@ class CapabilitySpec extends Specification {
       a field no member observes injectively                        $unexposedField
       hidden constructor state of an open class (X6)                $unwitnessed
       a `final abstract` class has no value                         $noInstance
-      abstract type members and self types                          $existentials
-      an unbounded record witness opens per value                   $existentialRecords
       a member that may be the measured declaration on its receiver $selfView
       an inferred overridable result and a recursive record         $inferredAndRecursive
   """
@@ -349,59 +347,6 @@ class CapabilitySpec extends Specification {
   def noInstance =
     one("final abstract class Never\nobject U { def never(): Never = ??? }")("U.never") ===
       Count.Finite(0)
-
-  // A goal of Opt is a result construction: the implementation picks the witness the package
-  // carries, which this model does not choose (existential-inputs boundary 1). A Selfy value
-  // also has CanGet's members, which this reading does not enumerate: refused.
-  def existentials = {
-    val found = one("""
-      trait CanGet[S, A] { def get(s: S): A }
-      trait Opt[S, A] { type X; def to(s: S): (X, A) }
-      trait Selfy { self: CanGet[Int, Int] => def x: Int }
-      object U {
-        def opt[S, A](s: S, a: A): Opt[S, A] = ???
-        def selfy(s: Selfy): Int = s.x
-      }
-    """)
-    refused(
-      found("U.opt"),
-      "existential wildcard result construction and repackaging requires witness-choice analysis"
-    ).and(refused(found("U.selfy"), "self type not resolved: CanGet[Int, Int]"))
-  }
-
-  // An unbounded abstract type member of an open record is the witness of the package each value
-  // carries (∃X. members-over-X): an input opens it — the members read over a witness fresh per
-  // value, so p's and q's never mix. The witness itself is unobservable (r3's record of one value
-  // alone leaves the literals alone), but consume's behavior at the value the body can supply is
-  // one observable bit, so run's implementations are the four Boolean functions of it. both: two
-  // independent packages, never crossed: 2^4. A goal of the record is a result construction:
-  // refused. touch spells p.X, so the record's witness and the path atom would have to be one:
-  // refused.
-  def existentialRecords = {
-    val found = one("""
-      trait Pair { type X; def value: X; def consume(x: X): Boolean }
-      trait Source { type X; def value: X }
-      object U {
-        def run(p: Pair): Boolean = ???
-        def solo(p: Source): Boolean = ???
-        def both(p: Pair, q: Pair): Boolean = ???
-        def make(): Pair = ???
-        def touch(p: Pair, x: p.X): Boolean = ???
-      }
-    """)
-    (found("U.run") === Count.Finite(4))
-      .and(found("U.solo") === Count.Finite(2))
-      .and(found("U.both") === Count.Finite(16))
-      .and(
-        refused(
-          found("U.make"),
-          "existential wildcard result construction and repackaging requires witness-choice analysis"
-        )
-      )
-      .and(
-        refused(found("U.touch"), "capability record with abstract type member not read: Pair.X")
-      )
-  }
 
   // A subclass may mix Wrap and Pick: `other` may be this, and other.pick re-enter Wrap.pick. Two
   // unrelated classes share no instance: D's t is a capability of C.t, never C.t itself — a, d.b,

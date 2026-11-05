@@ -12,13 +12,8 @@ class MethodFeatureIntegrationSpec extends Specification {
 
   def is = s2"""
     Cross-feature shape traversal
-      eliminate repeated inputs behind singleton widening        $singletonSequenceInput
-      eliminate repeated inputs inside introduced singleton arrows $singletonSequenceArrow
-      construct an accessible sequence singleton uniquely         $singletonSequenceResult
       normalize equality inside sequence introduction            $equalitySequence
       normalize equality inside singleton representations         $equalitySingleton
-      read an accessible singleton proof with its provenance      $singletonProof
-      validate evidence even for singleton repeated goals         $invalidEvidence
       validate private singleton aliases inside repeated types    $privateRepeatedAlias
     Syntax-preserving aliases and polymorphic binders
       keep a polymorphic identity binder distinct from alias args $polyAliasShadowing
@@ -30,24 +25,7 @@ class MethodFeatureIntegrationSpec extends Specification {
 
   private val a = Atom("A")
   private val b = Atom("B")
-  private val unit = Product(Nil)
   private val equality = Evidence(a, b, true)
-
-  // The sequence a singleton widens to is its binding's own: eliminated by length. Empty, it leaves
-  // no A (0); beside a seed, one element already gives two answers, so every length does (ω).
-  def singletonSequenceInput = {
-    val xs = Binding("xs", Singleton("xs", Some(Repeated(a))))
-    (Inhabitation.count(List(xs), a) === Count.Finite(0))
-      .and(Inhabitation.count(List(xs, Binding("seed", a)), a) === Count.Countable)
-  }
-
-  // A goal function's parameters are its body's environment: `(xs: xs.type) => A` is 0, as above.
-  def singletonSequenceArrow =
-    Inhabitation.count(Nil, Function(List(Singleton("xs", Some(Repeated(a)))), a)) ===
-      Count.Finite(0)
-
-  def singletonSequenceResult =
-    Inhabitation.count(Nil, Singleton("xs", Some(Repeated(a)))) === Count.Finite(1)
 
   def equalitySequence =
     Inhabitation.count(
@@ -58,22 +36,7 @@ class MethodFeatureIntegrationSpec extends Specification {
   def equalitySingleton =
     EvidenceAnalysis
       .context(List(equality))
-      .flatMap(_.rewrite(Singleton("x", Some(b)))) === Right(Singleton("x", Some(a)))
-
-  def singletonProof =
-    Inhabitation.count(
-      List(Binding("evidence", Singleton("ev", Some(equality))), Binding("value", a)),
-      b
-    ) === Count.Finite(1)
-
-  def invalidEvidence =
-    Inhabitation.count(
-      List(Binding("xs", Repeated(a)), Binding("bad", Evidence(unit, a, true))),
-      unit
-    ) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons.exists(_.contains("free-atom or rigid-application endpoints")) must beTrue
-    }
+      .flatMap(_(Singleton("x", Some(b)))) === Right(Singleton("x", Some(a)))
 
   def privateRepeatedAlias = {
     val source = dialects

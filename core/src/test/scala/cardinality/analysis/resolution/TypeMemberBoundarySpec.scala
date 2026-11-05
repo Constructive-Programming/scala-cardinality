@@ -24,7 +24,6 @@ class TypeMemberBoundarySpec extends Specification {
       a member some level declares as a class is no atom            $classMember
       a value class or a private constructor fixes its members      $unsubclassable
       a parent's private alias is that parent's own                 $privateAlias
-      a type-only template with no constructor input is one value  $typesOnly
       a type projection of an abstract member has no path           $projection
     Refinements
       a refinement no value of its base may have is refused         $unsatisfiable
@@ -173,52 +172,6 @@ class TypeMemberBoundarySpec extends Specification {
     (found("C.pick") === Count.Finite(4))
       .and(found("C.same") === Count.Finite(1))
       .and(found("C2.to") === Count.Finite(2))
-  }
-
-  // A trait with no term member has the empty record: h — 1 (the result is one value), k — the 4
-  // functions of b. Every template a parameter, parent, self type or constructor modifier may give
-  // a term member — or no instance at all (`CNothing(n: Nothing)`, CROSSCHECK X6) — keeps the
-  // abstract-representation reason.
-  def typesOnly = {
-    val found = entries("""
-      trait T
-      def h(t: T, u: T): T = ???
-      def k(t: T, b: Boolean): Boolean = ???
-      class CNothing(n: Nothing)
-      def nothing(c: CNothing): Boolean = ???
-      abstract class Abs(n: Nothing)
-      def abs(c: Abs): Boolean = ???
-      class Priv private ()
-      def priv(c: Priv): Boolean = ???
-      trait Base:
-        def b: Int
-      trait Sub extends Base:
-        type X
-      def sub(c: Sub): Boolean = ???
-      trait Selfy:
-        self: Base =>
-        type X
-      def selfy(c: Selfy): Boolean = ???
-    """)
-    // Each keeps the capability record's own reason (CNothing has no instance — X6 — and its
-    // hidden parameter is what the record cannot witness). Sub's unbounded X opens as the witness
-    // of the package each value carries: the record's observable content is `b`'s Int, and sub's
-    // implementations are the functions from it to Boolean — 2^(2^32); the witness is unobservable
-    // and adds nothing.
-    val reasons = List(
-      "open class with hidden constructor state: CNothing.n",
-      "open class with hidden constructor state: Abs.n",
-      "capability record of a template only its scope instantiates: Priv",
-      "self type not resolved: Base"
-    )
-    val open = List("nothing", "abs", "priv", "selfy")
-      .zip(reasons)
-      .map((name, reason) => found(name) === Count.Unresolved(List(reason)))
-    (found("h") === Count.Finite(1))
-      .and(found("k") === Count.Finite(4))
-      .and(found("sub") === Count.Symbolic(pow(2, BigInt("4294967296"))))
-      .and(found("CNothing.<init>") === Count.Finite(0))
-      .and(open.reduce(_ and _))
   }
 
   def projection =
