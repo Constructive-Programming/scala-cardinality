@@ -64,7 +64,14 @@ object MethodAnalysis {
   final case class Limits(maxTypeDepth: Int = 64, maxStates: Int = 256)
 
   def analyze(inputs: List[Input], limits: Limits = Limits()): List[Entry] =
-    new Index(inputs, limits).analyze()
+    new Index(ClosedWorld.finals(inputs), limits).analyze()
+
+  /** The rows as an open world reads the sources: without the `final` modifiers the closed world
+    * writes (`ClosedWorld`), every overridable member is open — as a member some supplied template
+    * overrides is in the closed world — so the readings of open members are tested on it.
+    */
+  private[cardinality] def analyzeOpen(inputs: List[Input]): List[Entry] =
+    new Index(inputs, Limits(), closed = false).analyze()
 
   private[cardinality] type Resolved = Either[String, Shape]
 
@@ -133,7 +140,8 @@ object MethodAnalysis {
       inputs: List[Input],
       val limits: Limits,
       work: Option[AnalysisWork] = None,
-      shared: Option[Library] = None
+      shared: Option[Library] = None,
+      closed: Boolean = true
   ) extends Resolver {
     private val sourceNames = inputs.flatMap(_.tree.collect { case name: Name => name.value }).toSet
 
@@ -382,6 +390,17 @@ object MethodAnalysis {
     def unsuppliedParent(init: Init, from: Frame): Boolean = inheritedMembers.unsupplied(init, from)
 
     def fixedTemplate(frame: Frame): Boolean = FinalImplementations.fixed(frame, indexer)
+
+    private lazy val world = new ClosedWorld(inputs.map(_.tree))
+
+    // In the open world any two templates may share an instance and any member be overridden.
+    def mixed(left: Frame, right: Frame): Boolean =
+      !closed || left.name.zip(right.name).exists(world.mixes(_, _))
+
+    def overriding(template: Frame, name: String): ClosedWorld.Overriding =
+      template.name
+        .filter(_ => closed)
+        .fold(ClosedWorld.Overriding.Supplied)(world.overriding(_, name))
 
     def baseClasses(frame: Frame): (Set[String], Boolean) = inheritedMembers.baseClasses(frame)
 

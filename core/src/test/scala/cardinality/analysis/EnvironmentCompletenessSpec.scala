@@ -124,15 +124,20 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       "FBox.target"
     ) === Count.Finite(2)
 
-  // `Box` is open: a subclass may override `other` to return `a`, so `other` is a capability
-  // (capabilities C5, register D20), and `target` may return a, b or `other` (3).
-  def overridableMembers =
-    count("class Box[A](a: A, b: A) { def other: A = b; def target: A = a }", "Box.target") ===
-      Count.Finite(3)
+  // `Box` is open: BoxO overrides `other` to return `a`, so `other` is a capability (capabilities
+  // C5, register D20), and `target` may return a, b or `other` (3). With no BoxO (the closed world)
+  // Box is final: a or b (2).
+  def overridableMembers = {
+    val box = "class Box[A](a: A, b: A) { def other: A = b; def target: A = a }"
+    (count(
+      box + "\nclass BoxO[A](a: A) extends Box[A](a, a) { override def other: A = a }",
+      "Box.target"
+    ) === Count.Finite(3)).and(count(box, "Box.target") === Count.Finite(2))
+  }
 
   // Cross-check X1 (fixture c3): inside `C`, `T` is the exported `A.T = Boolean`, not `Outer.T =
   // Int`. In the final `C`, g: Boolean => Boolean = 4; P's one field is a Boolean = 2 (the estimate
-  // agrees). In the open `D` each of g and h is the other's overridable capability, a Boolean =>
+  // agrees). In the open `D` (DO overrides both) each of g and h is the other's overridable capability, a Boolean =>
   // Boolean (capabilities C5): every Boolean function of t, g(true) and g(false) — 2^8.
   def exportOutranks = {
     val found = rows("""object Outer {
@@ -145,6 +150,7 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       |    def h(t: T): T = t
       |  }
       |  class D { export A.T; def g(t: T): Boolean = true; def h(t: T): T = t }
+      |  class DO extends D { override def g(t: T): Boolean = false; override def h(t: T): T = t }
       |}""".stripMargin)
     (found("Outer.C.g") === Count.Finite(4))
       .and(found("Outer.C.h") === Count.Finite(4))

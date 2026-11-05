@@ -87,17 +87,13 @@ is an open capability exactly as an abstract one is; a declaration a concrete me
 that member, and a same-named member of another signature is an overload, a member of its own. A
 constructor reads only its parameters: no member of the class exists before it runs.
 
-Only the template's own file may extend it when it is local, when it or an enclosing template is
-private to a template, or when its own constructor is private (unqualified, `this`, or qualified
-by a template: its companion is in the file). There an overridable member is derived unless
-another template of the file (of the enclosing block, for a local one) defines its name — in its
-body, as a pattern binder or as a constructor parameter — or a template of the file that may
-extend the receiver (naming it, a subclass of it or an alias of either among its parents) mixes in
-a parent written outside that scope whose supplied linearization defines the name, or that this
-reading cannot follow: `class D extends C with T2` overrides C's `m` with T2's wherever T2 is
-written. Then it is refused, since this reading does not enumerate those subclasses. An ancestor's private constructor closes no public subclass, a
-top-level `private` template is visible in its whole package, and a `private[p]` constructor is
-reached package-wide: those templates are open.
+In the closed world (register D35) the supplied templates are every subclass there is: an
+overridable member no supplied template overrides — none defines its name, in its body, as a
+pattern binder or as a constructor parameter, and none that extends the receiver mixes in a parent
+whose supplied linearization defines it, or one this reading cannot follow — is final, so derived.
+A member a supplied template does override varies across receivers: it stays an open capability,
+as an abstract one is (it was refused where only the template's file could extend it, this reading
+not enumerating those subclasses).
 
 **C6 — target views.** The model counts recursion-free implementations: none re-enters the
 measured declaration in any admissible receiver, and a receiver that overrides nothing is
@@ -223,8 +219,8 @@ Each of those positions is evaluated only if the compiler inserts no code that d
   definite view.
 
 A record member of the declaration's name and arity is a possible view whenever one instance may be
-of both templates — always for two traits, which a subclass may mix; never for two unrelated classes
-(a class has one superclass chain) or a fixed owner outside the record's linearization.
+of both templates: one extends the other, or (the closed world, register D35) a supplied template
+extends both — never two templates no supplied class mixes.
 
 **C7 — irrelevant members (exact case).** A member every application of which builds Unit is
 irrelevant to every count (Unit has its one construction whatever the environment holds), so its
@@ -278,19 +274,19 @@ number of binders or parameters per clause is always another slot.
 | Trait parameters | `capability record with trait parameters not read: C` |
 | Recursive record (a member's type mentions the record) | `recursive type not read: C` (the type reading's own guard) |
 | Polymorphic open member not reduced | `polymorphic capability binder: M (…)` ([PB0–PB4](polymorphic-members-and-saturation.md)) |
-| Possible view | `overridable member may re-enter the measured declaration: C.m` |
+| Possible view of a member a supplied template overrides | `overridable member may re-enter the measured declaration: C.m` |
 | Record member that may be the declaration on its receiver | `capability record member may be the measured declaration on its receiver: C.m` |
 | Inherited identity unknown | `inherited declaration identity not resolved: m` / `inherited override identity not resolved: m` |
 | Overridable concrete member without a declared type | `overridable member's result type is inferred: m` |
-| A member of a template only its file extends (own private constructor, private or local scope) that another template of the file defines — in its body, as a pattern binder or as a constructor parameter — or that a subclass of the file may inherit from a parent written outside it | `member of a template only its file extends may be overridden there: C.m` |
 | A view through code the compiler inserts: a by-name extension receiver, conversion or `==` overload, a context-function parameter, a SAM-converted lambda, implicit search reaching a given that may re-enter, `super.m` | `overridable member may re-enter the measured declaration: C.m` |
 
 Case classes keep their product reading, sealed families their sum, enums their cases. A final
 case class with more than its product — members, parents, a second clause, a constructor modifier
 — is a final class: its record is its constructor arguments, the first clause its public fields,
 a later clause hidden state (`final class field not observable injectively: C.b`), a private
-constructor the specific reason. A case class no `final` closes, with more than its product, is
-refused for what it is: `case class open to extension: NC (overridable member hit)`.
+constructor the specific reason. A case class no supplied template extends is final in the closed
+world (register D35); one a supplied class extends, with more than its product, is refused for what
+it is: `case class open to extension: NC (overridable member hit)`.
 A record's proper type parameters remember their arguments as written, as a case class's do
 (members MT1'), so a match-type field reduces on a tuple argument: `final class Miss[A](val fst:
 Fst[A])` read as `Miss[(Unit, Unit)]` has the field `Unit` (eo's `pickFoldMiss`: 1). A member's own

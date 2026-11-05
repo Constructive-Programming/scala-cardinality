@@ -17,16 +17,16 @@ import TargetViews.{Applied, Resolution, View, ViewMode}
   * declaration a concrete member implements is that member. A parent's constructor `val` is a
   * concrete member too (a subclass may override it); the receiver's own are its constructor's
   * parameters. An effective member no instance of the receiver can replace (a fixed receiver, a
-  * `final`, `private` or `inline` member, a given or a member object) is *derived*: concrete code
-  * computing from the environment it shares, which adds no choice. One an instance may override is
-  * *open*: across admissible receivers it is every behavior its type allows — a subclass whose
-  * override returns a stored function realizes any tuple of member behaviors — so it is a free
-  * capability like an abstract one, its default body only one of those behaviors. An open member
-  * whose default re-enters the measured declaration is a view (`TargetViews`): excluded when
-  * definite, a reason when possible. A default that only throws is no behavior at all (register
-  * D26): the member reads exactly as its abstract twin. A parameterized parent no class of the
-  * linearization passes arguments to leaves them to the class that finally extends the receiver:
-  * its fields are free state, and state no public field observes is a reason.
+  * `final`, `private` or `inline` member, a given or a member object — and, in the closed world,
+  * every class no supplied template extends and member none overrides: `ClosedWorld`) is *derived*:
+  * concrete code computing from the environment it shares, which adds no choice. One a supplied
+  * template overrides is *open*: it varies across receivers as an abstract member does, so it is a
+  * free capability like one, its default body only one of its behaviors. An open member whose
+  * default re-enters the measured declaration is a view (`TargetViews`): excluded when definite, a
+  * reason when possible. A default that only throws is no behavior at all (register D26): the
+  * member reads exactly as its abstract twin. A parameterized parent no class of the linearization
+  * passes arguments to leaves them to the class that finally extends the receiver: its fields are
+  * free state, and state no public field observes is a reason.
   */
 final private[cardinality] class ReceiverMembers(
     root: Frame,
@@ -186,17 +186,12 @@ final private[cardinality] class ReceiverMembers(
     else if (deferredElsewhere(c))
       Some(Left(s"given alias of a deferred not resolved to scala.compiletime: ${label(c)}"))
     else if (
-      resolver.fixedTemplate(root) || closures.contains(TemplateClosures.Closure.Final) || c.fixed
+      resolver.fixedTemplate(root) || closures.contains(TemplateClosures.Closure.Final) ||
+      c.fixed || (!c.deferred && overriding(c) == ClosedWorld.Overriding.No)
     )
       Some(Right(()))
-    else if (TemplateClosures.fileScoped(root))
-      Some(
-        Either.cond(
-          !fileOverrides.overridden(c.name),
-          (),
-          s"member of a template only its file extends may be overridden there: ${label(c)}"
-        )
-      )
+    else if (!c.deferred && overriding(c) == ClosedWorld.Overriding.Unknown)
+      Some(Left(s"member may be overridden through a parent outside the sources: ${label(c)}"))
     else None
 
   // A given alias spelled `deferred` is abstract (`Overrides.deferred`) only where the name is
@@ -217,9 +212,9 @@ final private[cardinality] class ReceiverMembers(
     case _ => false
   }
 
-  private lazy val fileOverrides = new FileOverrides(root, levels, resolver)
-
   private lazy val calls = new ReceiverCalls(levels, resolver)
+
+  private def overriding(c: Concrete) = resolver.overriding(root, c.name)
 
   private def label(c: Concrete): String = s"${root.path.mkString(".")}.${c.name}"
 
@@ -665,6 +660,12 @@ private[cardinality] object ReceiverMembers {
     def fixed: Boolean = Concrete.unoverridable(tree)
 
     def field: Boolean = tree.is[Term.Param]
+
+    /** An abstract given (`= deferred`): each class extending its template implements it. */
+    def deferred: Boolean = tree match {
+      case g: Defn.GivenAlias => Overrides.deferred(g)
+      case _                  => false
+    }
 
     /** A field no code outside its level reads. */
     def hidden: Boolean = tree match {

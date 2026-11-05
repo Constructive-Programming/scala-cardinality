@@ -176,11 +176,12 @@ class TastyStubsSpec extends Specification {
       .and(refused(javaMethods(Nil)("j.coin")) must beTrue)
   }
 
-  // An interface has no state: its value is the record of its abstract `flip` and its overridable
-  // default `same`, each Boolean => Boolean (4 behaviors), so 16 values, and 2^16 maps to Boolean.
-  "a Java interface is the record of its overridable methods" in {
-    (throughJava("j.mkToggle") must_== Inhabitation.Count.Finite(16))
-      .and(throughJava("j.toggle") must_== Inhabitation.Count.Finite(65536))
+  // An interface has no state: its value is the record of its abstract `flip`, a Boolean =>
+  // Boolean (4 behaviors). Its default `same` no supplied class overrides (the closed world), so it
+  // is concrete code over flip: 4 values, and 2^4 maps to Boolean (with `same` open: 16 and 2^16).
+  "a Java interface is the record of its abstract methods" in {
+    (throughJava("j.mkToggle") must_== Inhabitation.Count.Finite(4))
+      .and(throughJava("j.toggle") must_== Inhabitation.Count.Finite(16))
   }
 
   // A class's constructors set state no stub ties to their parameters; a sealed interface's

@@ -478,10 +478,12 @@ final private[cardinality] class Measurement(
   ): Unit =
     declaration.pats.foreach { pat =>
       TypeApplications.patVarName.getOption(pat) match {
-        case Some(name) if implemented(name)                        => ()
-        case Some(name) if MemberSyntax.deferredInline(declaration) =>
+        case Some(name) if implemented(name) => ()
+        case Some(name)
+            if MemberSyntax.deferredInline(declaration) &&
+              !DeferredInline.supplied(Some(target.tree)) =>
           val shape = readValue(name, Some(declaration.decltpe), slot, slot.scope)
-          errors ++= DeferredInline.read(shape, slot.member(name), target.tree, resolver)
+          errors ++= DeferredInline.read(shape, slot.member(name), resolver)
         case Some(name) => add(name, Some(declaration.decltpe), slot, slot.scope)
         case None       => errors += "destructured capture not resolved"
       }
@@ -504,10 +506,12 @@ final private[cardinality] class Measurement(
       case Right(Observation.Applied(callable, result)) =>
         val read = resolveIn(_, slot.scope, slot.env ++ callable.binders, slot.receiver)
         MemberSyntax.applied(callable, result, read) match {
-          case Right(None)                                               => ()
-          case Left(reason)                                              => errors += reason
-          case Right(Some(shape)) if MemberSyntax.deferredInline(member) =>
-            errors ++= DeferredInline.refusal(shape, slot.member(name), Some(target.tree), resolver)
+          case Right(None)  => ()
+          case Left(reason) => errors += reason
+          case Right(Some(shape))
+              if MemberSyntax.deferredInline(member) &&
+                !DeferredInline.supplied(Some(target.tree)) =>
+            errors ++= DeferredInline.refusal(shape, slot.member(name), resolver)
           case Right(Some(shape)) => bindMember(slot, name, member, shape)
         }
     }

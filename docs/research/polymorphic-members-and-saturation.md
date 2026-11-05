@@ -79,8 +79,9 @@ constant, a tag, `Boolean ⇒ Boolean`) is inhabited however the atoms are chose
 constrains no instance and is dropped: `def t(c: T): Boolean` with `inline def f[M](x: M): Boolean`
 in `T` is 2. Any other type might be empty together with the rest of the environment (`inline def
 neg: A => Nothing` beside an `a: A` admits no instance, count 1), which this reading does not decide:
-`deferred inline member whose type may be empty: C.m`. For an inline target the member is `deferred
-inline member resolved at each expansion: C.m`.
+`deferred inline member whose type may be empty: C.m`. For an inline target the member counts as an
+abstract `def` does: a capability (owner decision, revising the refusal `deferred inline member
+resolved at each expansion: C.m`).
 
 **C10 — callable sums.** For every supplied producer path `p : P̄ → R` with `R` a nonempty sum or a
 ground type, the solver adds each new neutral `p(t̄)` to the context once per argument tuple and path

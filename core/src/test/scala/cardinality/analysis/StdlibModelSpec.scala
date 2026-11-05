@@ -688,7 +688,7 @@ class StdlibModelSpec extends Specification {
   // non-final case class's method is not exempt.
   def constructorExempt = {
     val code = "import lib.Base\nfinal class Err(m: Boolean) extends RuntimeException\n" +
-      "case class K[A](a: A) extends Base { def g(x: A): A = ??? }\n" +
+      "case class K[A](a: A) extends Base { def g(x: A): A = ??? }\nclass K2 extends K[Int](1)\n" +
       "trait Outer extends Base { final case class In(b: Boolean) }"
     (count(code, "Err.<init>") === Count.Finite(2))
       .and(count(code, "K.<init>") === Count.Finite(1))
@@ -704,7 +704,8 @@ class StdlibModelSpec extends Specification {
   def nestedObject =
     refused(
       count(
-        "import lib.Base\nclass Outer extends Base { object In { def h[A](a: A): A = ??? } }",
+        "import lib.Base\nclass Outer extends Base { object In { def h[A](a: A): A = ??? } }\n" +
+          "class Outer2 extends Outer",
         "Outer.In.h"
       ),
       "inherited parent declaration not supplied: lib.Base"
@@ -778,7 +779,8 @@ class StdlibModelSpec extends Specification {
     val body = "{\n  def iterator: Iterator[Int] = ???\n  override def knownSize: Int = 0\n" +
       "  def g(b: Boolean): String = ???\n}"
     val closed = s"sealed trait P extends IterableOnce[Int] $body\nfinal class D1 extends P"
-    val open = s"sealed trait P extends IterableOnce[Int] $body\nclass D1 extends P"
+    val open =
+      s"sealed trait P extends IterableOnce[Int] $body\nclass D1 extends P\nclass D2 extends D1"
     val overridable = "inherited stdlib member a subclass may override"
     refused(count(closed, "P.g"), "receiver is a sealed family this measurement does not split: P")
       .and(clean(count(closed, "P.g"), overridable))

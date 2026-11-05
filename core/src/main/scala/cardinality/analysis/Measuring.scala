@@ -25,13 +25,14 @@ private[cardinality] object Measuring {
   val TargetWork = 300000L
 
   def rows(
-      targets: List[MethodAnalysis.Input],
-      environment: List[MethodAnalysis.Input] = Nil,
+      sources: List[MethodAnalysis.Input],
+      dependencies: List[MethodAnalysis.Input] = Nil,
       workers: Int = defaultWorkers,
       quota: Long = TargetWork,
       only: String => Boolean = _ => true,
       library: Option[Library] = None
   ): List[MethodAnalysis.Entry] = {
+    val (targets, environment) = ClosedWorld.finals(sources ++ dependencies).splitAt(sources.size)
     val groups = shares(targets.filter(t => only(t.path)), workers)
     // One library for every worker: its packages are solved once, on first use, and each reading
     // notes into a detached copy of what it reads (`Library`).

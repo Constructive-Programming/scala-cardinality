@@ -201,12 +201,13 @@ class TypeMemberBoundarySpec extends Specification {
       def selfy(c: Selfy): Boolean = ???
     """)
     // Each keeps the capability record's own reason (CNothing has no instance — X6 — and its
-    // hidden parameter is what the record cannot witness). Sub's unbounded X opens as the witness
+    // hidden parameter is what the record cannot witness; nothing extends it, so it is final in the
+    // closed world). Sub's unbounded X opens as the witness
     // of the package each value carries: the record's observable content is `b`'s Int, and sub's
     // implementations are the functions from it to Boolean — 2^(2^32); the witness is unobservable
     // and adds nothing.
     val reasons = List(
-      "open class with hidden constructor state: CNothing.n",
+      "final class field not observable injectively: CNothing.n",
       "open class with hidden constructor state: Abs.n",
       "capability record of a template only its scope instantiates: Priv",
       "self type not resolved: Base"

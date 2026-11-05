@@ -286,7 +286,8 @@ class NamespaceScopingSpec extends Specification {
   // `a.W(b: Boolean)`, 2, as `V(w: a.W)` reads it; with `W` imported from a namespace no source
   // supplies, the shape model would count `W` as an argument (|U|^|W|), not the values `U` holds,
   // so `?` naming the import. `U(l: L)` with `L`'s cases `R`, `G` in its companion: 2; with a
-  // class open to extension beside them, not summed, `?`.
+  // plain class `O` beside `R`, which no template extends (final in the closed world, no state):
+  // R or an O, 2 as well.
   def groundSlot = {
     val imported = List(
       "a/W.scala" -> "package a\nfinal case class W(b: Boolean)",
@@ -305,25 +306,20 @@ class NamespaceScopingSpec extends Specification {
       )
       .and(constructor("f.U.<init>", family) === Count.Finite(2))
       .and(
-        constructor("g.U.<init>", open) must beLike {
-          case Count.Unresolved(reasons) =>
-            reasons must contain("sealed family not summed: L (a subtype open to extension: L.O)")
-        }
+        constructor("g.U.<init>", open) === Count.Finite(2)
       )
   }
 
   // `focus: Fam[A]` is over `A`, the shape model's to count — but the estimate refused it for a
-  // family it does not sum (a class open to extension beside `Leaf`), a declaration of the sources:
-  // no number may rest on it.
+  // family it does not sum (a plain class beside `Leaf`, final in the closed world, whose shape it
+  // does not read), a declaration of the sources: no number may rest on it.
   def declarationSlot =
     constructor(
       "f.P.<init>",
       "F.scala" -> "package f\nsealed trait Fam[A]\nobject Fam { final case class Leaf[A](a: A) extends Fam[A]; class Open[A] extends Fam[A] }\nfinal class P[A](steps: List[Boolean], focus: Fam[A])",
     ) must beLike {
       case Count.Unresolved(reasons) =>
-        reasons must contain(
-          "sealed family not summed: Fam (a subtype open to extension: Fam.Open)"
-        )
+        reasons must contain("sealed subtype shape unreadable: Open")
     }
 
   // The refusal of an imported `Int` names the path the import binds (the method side's reason; the

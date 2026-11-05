@@ -180,13 +180,14 @@ Every other inline method is refused with what failed, after the prefix `inline 
 - `uses inline match`, `uses inline if`, `uses scala.compiletime.summonFrom`, `uses a quote or a
   splice`;
 - `calls inline method g, which …` for a callee that fails;
-- `is an abstract inline declaration, with no body to check`, and `implements the abstract inline
-  declaration T.f, which has no body to check` (conservative: the implementation's own body is not
-  read through the declaration);
 - `calls scala.Predef.valueOf, an inline method not supplied`, and a name the reading cannot
   resolve (`reads Lib, a declaration not supplied: ext.Lib (import of Lib)`);
-- `selects f on b, which a call site may type as a subclass of Base that overrides f inline` for a
-  member an expansion may re-select (below).
+- `selects f on b, which a call site may type as a subclass of Base that overrides f inline, and
+  inline method Sub.f uses …` for a member an expansion may re-select (below) where a supplied
+  subclass overrides it (the closed world, register D35) and an inline method of its name fails.
+
+An abstract inline declaration counts as an abstract `def` does, and an implementation of one is
+read through its own body (it was refused as having no body to check).
 
 A definition nested in a passing inline method is read like any nested definition. One nested in a
 failing method keeps the refusal `definition inside an inline method: f uses …, and every
@@ -249,10 +250,13 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   result selected on one, a lambda's parameter when the lambda is applied in place; a local `val`
   (declared or inferred), an ascription `(b: Base)` and a transparent callee's result are not. So
   a member selected on a parameter of the expanded method, on `this` of a template a class may
-  extend, or on a lambda's parameter is refused when a subclass may override it: a non-final,
-  non-private, non-inline member of a class that is not final (an object, a given, an enum and a
-  package's synthetic object are closed), and every member of a function type or `Conversion` (the
-  only library classes the table lists that are open). A field selected that way is read as a value
+  extend, or on a lambda's parameter is refused when a subclass may override it inline with an
+  expansion that differs: a non-final, non-private, non-inline member of a class that is not final
+  (an object, a given, an enum and a package's synthetic object are closed) which a supplied
+  template overrides (the closed world, register D35), and every member of a function type or
+  `Conversion` (the only library classes the table lists that are open) — each only while some
+  supplied inline method of the name fails itself: an override that is not inline is dispatched as
+  the `def` is, and an inline one that passes is that function. A field selected that way is read as a value
   of a type the subclass may narrow, so a member selected on it is checked the same way. `C.this`
   names the template C around the body (fixture review-A6 r2 `o1`: `Outer.this.f(x)` inside a
   final inner class prints 5, then 9 — the call site's `SubOuter` overrides `f` inline). An
@@ -324,10 +328,15 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   clause defines again in a scope found so (an export defines aliases, D11; fixture a6-fix1b
   `ex2`: an exported given and a given local to the body each expand RichR's inline `m`, 2, then
   9); never one local to another method. So an applied selection refuses
-  when such an inline or contextual extension of the name, or any such conversion, exists — the
-  reason says the arguments are not typed, since the member may well apply. A body refuses when
-  such an inline conversion exists, or when a channel outside the sources (an unsupplied wildcard
-  import, parent or self type) is open at the method (`may expand an implicit conversion from
+  when such an inline or contextual extension of the name exists — the reason says the arguments
+  are not typed, since the member may well apply. A conversion is typed where the body is written,
+  as any call is, and the closed world (register D35) supplies every one: an applied selection a
+  conversion may answer refuses only when such an inline conversion, or a supplied inline method of
+  the name, fails itself (`… the implicit conversion c may answer, and inline method R.m uses …`).
+  A body refuses when such an inline conversion fails itself (`may expand the inline conversion c,
+  which uses …`; an instance whose inline `apply` the check does not place, `which this check does
+  not place`), or when a channel outside the sources (an unsupplied wildcard import, parent or self
+  type) is open at the method (`may expand an implicit conversion from
   outside the sources (…)`). The one exception is a body that returns one of the method's
   parameters whose declared type is the declared result, aliases visible there unfolded: nothing is
   inserted around it.

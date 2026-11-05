@@ -12,31 +12,28 @@ import Inhabitation.{Count, Shape}
 /** A deferred (abstract `inline`) method or value of a receiver or a capability record. Only an
   * inline expansion may call one — scalac rejects a call from any other body ("Deferred inline
   * method … cannot be invoked") — and each expansion calls the override of the receiver's static
-  * type. So a body that is not inline has no term of it, but a receiver, or a record built as a
-  * goal, exists only if some instance implements it. A type built from nothing constrains neither
-  * and is dropped; any other might empty the environment or the goal with the rest (`inline def
-  * neg: A => Nothing` beside an `a: A`), which is not decided here, so it is refused.
+  * type. An inline body counts it as it would an abstract `def` (`supplied`): a capability. A body
+  * that is not inline has no term of it, but a receiver, or a record built as a goal, exists only
+  * if some instance implements it. A type built from nothing constrains neither and is dropped; any
+  * other might empty the environment or the goal with the rest (`inline def neg: A => Nothing`
+  * beside an `a: A`), which is not decided here, so it is refused.
   */
 private[cardinality] object DeferredInline {
 
-  /** Why a deferred inline member of type `shape`, seen from `useSite`, is refused; none: dropped.
+  /** Whether a body read at `useSite` may call a deferred inline member: an inline one may. */
+  def supplied(useSite: Option[Tree]): Boolean = useSite.exists(MemberSyntax.inlined)
+
+  /** Why a deferred inline member of type `shape`, which `useSite` may not call, is refused; none:
+    * dropped.
     */
-  def refusal(
-      shape: Shape,
-      name: String,
-      useSite: Option[Tree],
-      resolver: Resolver
-  ): Option[String] =
-    if (useSite.exists(MemberSyntax.inlined))
-      Some(s"deferred inline member resolved at each expansion: $name")
-    else
-      Option.unless(inhabited(shape, resolver))(
-        s"deferred inline member whose type may be empty: $name"
-      )
+  def refusal(shape: Shape, name: String, resolver: Resolver): Option[String] =
+    Option.unless(inhabited(shape, resolver))(
+      s"deferred inline member whose type may be empty: $name"
+    )
 
   /** As `refusal`, for a type that may not have been read. */
-  def read(shape: Resolved, name: String, useSite: Tree, resolver: Resolver): Option[String] =
-    shape.fold(Some(_), refusal(_, name, Some(useSite), resolver))
+  def read(shape: Resolved, name: String, resolver: Resolver): Option[String] =
+    shape.fold(Some(_), refusal(_, name, resolver))
 
   // Built from no values, its atoms rigid: inhabited whatever the atoms are.
   private def inhabited(shape: Shape, resolver: Resolver): Boolean =

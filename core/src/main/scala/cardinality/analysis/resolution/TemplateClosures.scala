@@ -55,19 +55,6 @@ private[cardinality] object TemplateClosures {
     case _             => false
   }
 
-  /** Whether only code of the template's own file may extend it: it is local, it or an enclosing
-    * template is private to a template, or its own constructor is (its companion is in the file). A
-    * top-level `private` template is visible in its whole package, an ancestor's private
-    * constructor closes no public subclass, and a `private[p]` constructor is reached package-wide.
-    */
-  def fileScoped(template: Frame): Boolean =
-    template.chain.exists(frame =>
-      frame.local || (frame.parent.exists(_.isTemplate) && frame.tree.exists(privateTo(_, frame)))
-    ) || template.tree.exists {
-      case c: Defn.Class => confining(c.ctor.mods, template.chain)
-      case _             => false
-    }
-
   private def hiddenScope(template: Frame): Option[Closure] =
     template.chain.collectFirst {
       case frame if frame.local => Closure.Hidden(s"${template.path.last} is local")

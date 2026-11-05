@@ -10,7 +10,8 @@ import org.specs2.execute.Result
 // Re-entry through what the receiver's members run (capabilities C6) where the measured
 // declaration is a local definition, a constructor runs it, or implicit search may select it; and
 // the view sandwich (C6, register D31). Fixtures are valid Scala 3.9.0 (scalac, on session
-// fixtures not retained).
+// fixtures not retained). They are read in the open world (`MethodAnalysis.analyzeOpen`), where
+// each overridable member is open as one a supplied template overrides is in the closed world.
 class ReentrySpec extends Specification {
   import Inhabitation.Count
 
@@ -36,7 +37,9 @@ class ReentrySpec extends Specification {
 
   private def one(code: String): Map[String, Count] =
     MethodAnalysis
-      .analyze(List(MethodAnalysis.Input("Reentry.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyzeOpen(
+        List(MethodAnalysis.Input("Reentry.scala", dialects.Scala3(code).parse[Source].get))
+      )
       .map(entry => entry.name -> entry.count)
       .toMap
 

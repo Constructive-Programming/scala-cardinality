@@ -237,13 +237,15 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(refused(found("Neg.v"), "calls scala.Predef.valueOf, an inline method not supplied"))
   }
 
-  // Fixture a6 r compiles both; Impl.abs prints 3.
+  // Fixture a6 r compiles both; Impl.abs prints 3. An abstract inline declaration counts as an
+  // abstract `def` does, and its implementation through its own body: every Int — 2^32 each (both
+  // were refused, the declaration having no body to check).
   def abstractInline = {
     val found = rows("""trait Abs { inline def abs: Int }
       |object Impl extends Abs { inline def abs: Int = 3 }
       |""".stripMargin)
-    refused(found("Abs.abs"), "is an abstract inline declaration, with no body to check")
-      .and(refused(found("Impl.abs"), "implements the abstract inline declaration Abs.abs"))
+    (found("Abs.abs") === Count.Finite(BigInt(2).pow(32)))
+      .and(found("Impl.abs") === Count.Finite(BigInt(2).pow(32)))
   }
 
   // Fixture il (A5): byVal(1) = 10, byVal(a) = 20 with a == 1; pick[Int] and pick[String] choose
@@ -429,25 +431,43 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
 
   // conv may be inserted wherever an expression's type does not conform (first), and answers an
   // applied selection no member accepts (inc); same returns its parameter of the result's type.
+  // The closed world supplies every conversion, typed where the body is written: one whose own
+  // expansion passes is a call like any other, so first and inc count as their `def` twins; one
+  // that uses a compile-time operation is refused with it.
   def inlineConversion = {
-    val found = rows("""inline given conv: Conversion[Int, String] = _.toString
+    def found(body: String) = rows(s"""inline given conv: Conversion[Int, String] = $body
       |object C {
       |  inline def same[A](a: A): A = a
       |  inline def first(t: (Int, Int)): Int = t._1
+      |  def firstD(t: (Int, Int)): Int = t._1
       |  inline def inc(x: Int): Int = x + 1
+      |  def incD(x: Int): Int = x + 1
       |}""".stripMargin)
-    (found("C.same") === Count.Finite(1))
-      .and(refused(found("C.first"), "may expand the inline conversion conv"))
-      .and(refused(found("C.inc"), "the implicit conversion conv may answer"))
+    val plain = found("_.toString")
+    val compileTime = found("(x: Int) => scala.compiletime.codeOf(x)")
+    (plain("C.same") === Count.Finite(1))
+      .and(plain("C.first") === plain("C.firstD"))
+      .and(plain("C.inc") === plain("C.incD"))
+      .and(
+        refused(
+          compileTime("C.first"),
+          "may expand the inline conversion conv, which uses scala.compiletime.codeOf"
+        )
+      )
+      .and(refused(compileTime("C.inc"), "the implicit conversion conv may answer"))
   }
 
   // An expansion selects a member on its receiver's class at the call site, so an inline override
   // there runs instead (fixtures review-A6 h3, h7, h8: 5 without a given, 9 under `given Int = 9`).
   // A parameter, `this` of an open template, a lambda's parameter (fixture a6-fix1 d1, viaLambda: 9)
-  // and a function parameter's `apply` are refused; a final class's member, a local or an
-  // ascription (whose type the body fixes: d1 prints 5) count as their `def` twins.
+  // are refused where a supplied template overrides the member
+  // inline with an expansion that differs at each call site (Sub, TwiceO, SrcI); a final class's
+  // member, a local or an ascription (whose type the body
+  // fixes: d1 prints 5) count as their `def` twins. So does a function parameter's `apply`: no
+  // supplied inline `apply` differs at each call site. In the closed world, with no override supplied,
+  // Base is final: onParam counts as onFinal does, and so does abstractMember as its `def` twin.
   def overriddenMembers = {
-    val found = rows("""class Base { def f(x: Int): Int = x }
+    val code = """class Base { def f(x: Int): Int = x }
       |final class Fixed { def f(x: Int): Int = x }
       |trait Src { def next(x: Int): Int }
       |trait Twice { def step(x: Int): Int = x; inline def twice(x: Int): Int = step(step(x)) }
@@ -461,14 +481,23 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |  inline def viaAscription(b: Base, x: Int): Int = (b: Base).f(x)
       |  inline def viaLambda(b: Base, x: Int): Int = ((c: Base) => c.f(x))(b)
       |  inline def applyParam(g: Int => Int, x: Int): Int = g(x)
+      |  def applyParamD(g: Int => Int, x: Int): Int = g(x)
       |  inline def applyLiteral(x: Int): Int = ((y: Int) => y + 1)(x)
       |  inline def abstractMember(s: Src, x: Int): Int = s.next(x)
-      |}""".stripMargin)
+      |  def abstractMemberD(s: Src, x: Int): Int = s.next(x)
+      |}""".stripMargin
+    val found = rows(
+      code + """
+      |class Sub extends Base { override inline def f(x: Int): Int = scala.compiletime.codeOf(x).length }
+      |trait TwiceO extends Twice { override inline def step(x: Int): Int = scala.compiletime.codeOf(x).length }
+      |class SrcI extends Src { inline def next(x: Int): Int = scala.compiletime.codeOf(x).length }""".stripMargin
+    )
+    val closed = rows(code)
     val overrides = "which a call site may type as a subclass of"
     refused(found("D.onParam"), s"selects f on b, $overrides Base that overrides f inline")
       .and(refused(found("Twice.twice"), s"selects step on this, $overrides Twice"))
       .and(refused(found("D.viaLambda"), s"selects f on c, $overrides Base"))
-      .and(refused(found("D.applyParam"), s"selects apply on g, $overrides Function1"))
+      .and(found("D.applyParam") === found("D.applyParamD"))
       .and(refused(found("D.abstractMember"), s"selects next on s, $overrides Src"))
       .and(found("D.onFinal") === found("D.onFinalD"))
       .and(found("D.onFinal") === pow2(37))
@@ -476,6 +505,9 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(found("D.viaAscription") === found("D.viaLocalD"))
       .and(found("Closed.twice") === pow2(37))
       .and(found("D.applyLiteral") === pow2(37))
+      .and(closed("D.onParam") === closed("D.onFinal"))
+      .and(closed("Twice.twice") === pow2(37))
+      .and(closed("D.abstractMember") === closed("D.abstractMemberD"))
   }
 
   // Fixtures review-A6 h4 and h7: the given chosen where the body is written is an inline one
@@ -534,7 +566,9 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
 
   // Fixture review-A6 h10 (tag prints "none", then "abcd" under a given String): a `given … with`
   // whose apply is inline, an inline given spelled through an alias or a renaming import, and a
-  // non-inline implicit object are conversions; `ConversionRate` is no conversion.
+  // non-inline implicit object are conversions; `ConversionRate` is no conversion. The inline ones
+  // here use a compile-time operation, so each refuses; the implicit object is typed where the body
+  // is written, a call like any other: succ is every Int => Int, as with no conversion.
   def conversionTypes = {
     def file(code: String): Map[String, Count] = rows(code)
     val withApply = file("""import scala.compiletime.summonFrom
@@ -546,10 +580,10 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |import Conv.given
       |object U { inline def tag(x: Int): Tag = x }""".stripMargin)
     val aliased = file("""type Into[A, B] = Conversion[A, B]
-      |inline given Into[Int, String] = (x: Int) => x.toString
+      |inline given Into[Int, String] = (x: Int) => scala.compiletime.codeOf(x)
       |object U { inline def f(x: Int): String = x }""".stripMargin)
     val renamed = file("""import scala.{Conversion as C}
-      |inline given C[Int, String] = (x: Int) => x.toString
+      |inline given C[Int, String] = (x: Int) => scala.compiletime.codeOf(x)
       |object U { inline def f(x: Int): String = x }""".stripMargin)
     val implicitObject = file("""object Conv {
       |  implicit object toLen extends Conversion[String, Int] { def apply(s: String): Int = s.length }
@@ -566,7 +600,7 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       )
       .and(refused(aliased("U.f"), "may expand the inline conversion given Into[Int, String]"))
       .and(refused(renamed("U.f"), "may expand the inline conversion given C[Int, String]"))
-      .and(refused(implicitObject("U.succ"), "the implicit conversion toLen may answer"))
+      .and(implicitObject("U.succ") === pow2(37))
       .and(named("U.succ") === pow2(37))
   }
 
@@ -583,17 +617,18 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
 
   // Fixture a6-fix1b ex2: `r.m(5)` answered by RichR's inline m through an exported given and a
   // given local to the body (2, then 9 under `given Int = 9`); a method around an inline method is
-  // a scope of it, and an object that only exports another's givens is no implicit scope.
+  // a scope of it, and an object that only exports another's givens is no implicit scope. Each c
+  // here uses a compile-time operation, so where it is visible it refuses.
   def conversionVisibility = {
     val found = rows("""package ex
-      |object Hidden { given c: Conversion[String, Int] = _.length }
+      |object Hidden { inline given c: Conversion[String, Int] = (s: String) => scala.compiletime.codeOf(s).length }
       |object Pub { export Hidden.given }
       |object Use { export Hidden.given; inline def succ(x: Int): Int = x + 1 }
       |object Use2 { import Pub.given; inline def succ(x: Int): Int = x + 1 }
       |object Use3 { inline def succ(x: Int): Int = x + 1 }
       |object Local {
       |  def outer(y: Int): Int = {
-      |    given c: Conversion[String, Int] = (s: String) => s.length
+      |    inline given c: Conversion[String, Int] = (s: String) => scala.compiletime.codeOf(s).length
       |    inline def succ(x: Int): Int = x + 1
       |    succ(y)
       |  }
@@ -637,8 +672,10 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |    1
       |  } else 2).+(y)
       |}""".stripMargin)
-    val anonymous = rows("""inline given Conversion[Int, String] = (x: Int) => x.toString
-      |object Use { inline def s(x: Int): String = x }""".stripMargin)
+    val anonymous = rows(
+      """inline given Conversion[Int, String] = (x: Int) => scala.compiletime.codeOf(x)
+      |object Use { inline def s(x: Int): String = x }""".stripMargin
+    )
     refused(found("Use.f"), "a value whose type is not read: the companion of Foo")
       .and(refused(found("Use.g"), "a value whose type is not read: the function identity"))
       .and(refused(found("Use.k"), "not read: if (y > 0) { 1 } else 2"))

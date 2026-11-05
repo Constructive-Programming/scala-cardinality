@@ -30,8 +30,15 @@ import cardinality.types.{Spelling, TypeApplications}
   */
 final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms) {
 
-  /** A conversion a reason names, whether it is expanded where it is inserted, and its scope. */
-  final case class Candidate(label: String, inline: Boolean, scope: Frame)
+  /** A conversion a reason names, whether it is expanded where it is inserted, its scope, and the
+    * inline method or given alias it expands, where it is one.
+    */
+  final case class Candidate(
+      label: String,
+      inline: Boolean,
+      scope: Frame,
+      expands: Option[Definition] = None
+  )
 
   private lazy val conversions: List[Candidate] =
     resolver.memberScopes.flatMap(scope => scope.stats.flatMap(conversion(_, scope)))
@@ -65,8 +72,42 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       (group.paramClauseGroup.toList.flatMap(_.paramClauses) ++
         MemberSyntax.groups(method).flatMap(_.paramClauses)).exists(MemberSyntax.contextual)
 
-  /** The first inline conversion a body read in `frame` may meet. */
-  def inlineConversion(frame: Frame): Option[Candidate] = candidates(frame).find(_.inline)
+  /** The inline conversions a body read in `frame` may meet. */
+  def inlineConversions(frame: Frame): Iterator[Candidate] = candidates(frame).filter(_.inline)
+
+  /** The supplied inline methods of a name, each with its frame: what a conversion's result may run
+    * when a selection of the name is applied through it.
+    */
+  def inlineMethods(name: String): List[Definition] = inlines.getOrElse(name, Nil)
+
+  private lazy val inlines: Map[String, List[Definition]] =
+    resolver.memberScopes
+      .flatMap(scope =>
+        scope.stats.flatMap {
+          case d: Defn.Def if MemberSyntax.inline(d) => List(expansion(d, scope))
+          case e: Defn.ExtensionGroup                =>
+            val frame = SourceIndex.extensionFrame(e, scope)
+            ScopeTerms.extensionMethods(e).collect {
+              case d: Defn.Def if MemberSyntax.inline(d) => expansion(d, frame)
+            }
+          case _ => Nil
+        }
+      )
+      .groupBy(_.tree match {
+        case d: Defn.Def => d.name.value
+        case _           => ""
+      })
+
+  private def expansion(d: Defn.Def | Defn.GivenAlias, scope: Frame): Definition =
+    Definition(
+      d,
+      SourceIndex.methodFrame(
+        d,
+        MemberSyntax.names(d).headOption.getOrElse(""),
+        MemberSyntax.groups(d),
+        scope
+      )
+    )
 
   /** The first conversion that may answer an applied selection read in `frame`. */
   def conversion(frame: Frame): Option[Candidate] = candidates(frame).nextOption()
@@ -94,7 +135,10 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
 
   private def conversion(stat: Stat, scope: Frame): Option[Candidate] = stat match {
     case g: Defn.GivenAlias if converts(g.decltpe, scope) =>
-      Some(candidate(g.name, g.decltpe, MemberSyntax.inline(g), scope))
+      Some(
+        candidate(g.name, g.decltpe, MemberSyntax.inline(g), scope)
+          .copy(expands = Option.when(MemberSyntax.inline(g))(expansion(g, scope)))
+      )
     case g: Decl.Given if converts(g.decltpe, scope) =>
       Some(candidate(g.name, g.decltpe, expanded = false, scope))
     case g: Defn.Given =>
@@ -109,7 +153,14 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       )
     case d: Defn.Def
         if MemberSyntax.implicitModifier(d.mods) && oneValueClause(d.paramClauseGroups) =>
-      Some(Candidate(d.name.value, MemberSyntax.inline(d), scope))
+      Some(
+        Candidate(
+          d.name.value,
+          MemberSyntax.inline(d),
+          scope,
+          Option.when(MemberSyntax.inline(d))(expansion(d, scope))
+        )
+      )
     case c: Defn.Class if MemberSyntax.implicitModifier(c.mods) =>
       Some(Candidate(c.name.value, inline = false, scope))
     case _ => None

@@ -169,9 +169,11 @@ class PolymorphicMemberSpec extends Specification {
   }
 
   // An inline body may call c.f: each expansion calls the override of the receiver's static type
-  // there (probes/b4fix/inl b.scala), which this reading does not see.
+  // there (probes/b4fix/inl b.scala). It counts as an abstract `def` does, so i reads c's record
+  // (f ≅ Boolean, as U.f) beside a: i is true or false of it — 4, as the ordinary twin `u` (it was
+  // refused as resolved at each expansion).
   def deferredInlineExpansion =
-    refused(inl("inl.W.i"), "deferred inline member resolved at each expansion: inl.T.f")
+    inl("inl.W.i") === Count.Finite(4)
 
   private val poly2 = counts("""package poly2
     |trait Fold[S, A] { def foldMap[M](f: A => M)(s: S): M }

@@ -150,12 +150,13 @@ class GroundEnvironmentSpec extends Specification {
         ) === Count.Finite(4)
       )
 
-  // A subclass of the open Q may override pick with either literal (capabilities C5), so pick is a
+  // R, a subclass of the open Q, overrides pick (either literal may) (capabilities C5), so pick is a
   // supplied Boolean: other is true, false, pick or !pick — 4.
   def openImplemented =
     count(
       "abstract class P { def pick: Boolean }\n" +
-        "class Q extends P { def pick: Boolean = true; def other: Boolean = true }",
+        "class Q extends P { def pick: Boolean = true; def other: Boolean = true }\n" +
+        "class R extends Q { override def pick: Boolean = false }",
       "Q.other"
     ) === Count.Finite(4)
 

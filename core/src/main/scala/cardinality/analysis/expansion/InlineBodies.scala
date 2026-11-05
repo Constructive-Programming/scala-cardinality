@@ -28,7 +28,7 @@ import cardinality.types.Spelling
   */
 final private[cardinality] class InlineBodies(resolver: Resolver) {
 
-  private val terms = new BodyTerms(resolver)
+  private val terms = new BodyTerms(resolver, failing)
   private val conversions = new Conversions(resolver, terms)
   private val walk = new BodyWalk(terms, verdict, fallback, resolver)
   private val restated = new RestatedExtensions(terms, resolver)
@@ -110,13 +110,12 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
 
   private def judged(definition: Definition): Option[String] =
     // The body an inline method or given alias expands; an abstract declaration has none.
-    MemberSyntax.rightHandSide(definition.tree) match {
-      case None       => Some("is an abstract inline declaration, with no body to check")
-      case Some(body) =>
-        implemented(definition)
-          .orElse(contextResult(definition.tree))
-          .orElse(walk.body(body, definition.frame, defaults(definition.tree)))
-          .orElse(inserted(definition))
+    // An abstract declaration has none: it counts as an abstract `def` does, and an override
+    // implementing it is read through its own body.
+    MemberSyntax.rightHandSide(definition.tree).flatMap { body =>
+      contextResult(definition.tree)
+        .orElse(walk.body(body, definition.frame, defaults(definition.tree)))
+        .orElse(inserted(definition))
     }
 
   // A body typed against a result that holds a context function may bind a lambda's parameter
@@ -131,14 +130,19 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
       )
 
   // The compiler may insert an implicit conversion wherever a body's expression does not conform
-  // to its expected type, which this reading does not type: one the sources declare inline, or
-  // one a channel to declarations outside them may bring, would be expanded at each call site.
+  // to its expected type, which this reading does not type. The closed world supplies every
+  // conversion, and one is typed where the body is written, as any call is: only an inline one
+  // whose own expansion fails (or which this check cannot read) differs at each call site, and
+  // so does one a channel to declarations outside the sources may bring.
   private def inserted(definition: Definition): Option[String] =
     if (Unconverted.returnsOwnParameter(definition, terms)) None
     else
       conversions
-        .inlineConversion(definition.frame)
-        .map(c => s"may expand the inline conversion ${c.label}, which this check does not place")
+        .inlineConversions(definition.frame)
+        .flatMap(c =>
+          expands(c).map(why => s"may expand the inline conversion ${c.label}, which $why")
+        )
+        .nextOption()
         .orElse(
           resolver
             .unreadChannel(terms.at(definition.frame, definition.tree.pos.start))
@@ -156,9 +160,10 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
     val name = applied.name
     conversions
       .conversion(frame)
-      .map(c =>
+      .flatMap(c => converted(name, frame).map((label, why) => (c, label, why)))
+      .map((c, label, why) =>
         s"applies $name, whose arguments this reading does not type: if no member accepts them, " +
-          s"the implicit conversion ${c.label} may answer"
+          s"the implicit conversion ${c.label} may answer, and $label$why"
       )
       .orElse {
         val extensions = conversions.extensionsOf(name, frame)
@@ -171,22 +176,29 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
   private def defaults(tree: Tree): List[Term] =
     MemberSyntax.parameters(MemberSyntax.groups(tree)).flatMap(_.default)
 
-  // An inline method implementing an abstract inline declaration of a supplied ancestor is read
-  // through that declaration, which has no body; the reading stays with the declaration.
-  private def implemented(definition: Definition): Option[String] = {
-    val name = definition.name
-    val templates = definition.frame.parent.filter(_.isTemplate).iterator
-    templates
-      .flatMap(terms.levels(_).toOption.iterator.flatten)
-      .flatMap(level =>
-        level.stats.iterator.collect {
-          case declared: Decl.Def if declared.name.value == name && MemberSyntax.inline(declared) =>
-            s"implements the abstract inline declaration ${level.path.mkString(".")}.$name, " +
-              "which has no body to check"
-        }
-      )
+  // Why an inline conversion's expansion differs at each call site: its own body fails, or it is
+  // an instance whose inline `apply` this check does not place.
+  private def expands(c: conversions.Candidate): Option[String] =
+    c.expands.fold(Some("this check does not place"))(verdict)
+
+  // Why a supplied inline method of the name differs at each call site, if one does (the closed
+  // world: an override an expansion may select is one of them).
+  private def failing(name: String): Option[String] =
+    conversions
+      .inlineMethods(name)
+      .iterator
+      .flatMap(d => verdict(d).map(why => s"inline method ${d.frame.path.mkString(".")} $why"))
       .nextOption()
-  }
+
+  // What a conversion's result may run under an applied name whose expansion differs at each call
+  // site (the closed world: a supplied inline method of the name), or a failing inline conversion
+  // that may be inserted: none, and the call is typed where the body is written.
+  private def converted(name: String, frame: Frame): Option[(String, String)] =
+    conversions
+      .inlineConversions(frame)
+      .flatMap(c => expands(c).map(why => s"the inline conversion ${c.label} " -> why))
+      .nextOption()
+      .orElse(failing(name).map("" -> _))
 
 }
 

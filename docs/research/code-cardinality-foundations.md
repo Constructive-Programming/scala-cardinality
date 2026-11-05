@@ -581,8 +581,9 @@ See [stored-value families](stored-value-families.md).
 Mutual recursion between generic families, a match type over another match type's result,
 absorption by an exact 0, an instantiation's recursion through `&` that settles late, negative
 recursion, recursion through an unread constructor or a value's type member, and a match case only
-subtyping would match stay `?`, as the page's limits state. A case-class leaf no `final` closes is
-no closed summand when a subclass may override a member it has (its own — an extension method
+subtyping would match stay `?`, as the page's limits state. In the closed world (D35) a leaf no
+supplied template extends is final. A case-class leaf a supplied class extends is no closed
+summand when a subclass may override a member it has (its own — an extension method
 included —, a source parent's body member or `val` parameter, or one the stdlib model lists): both
 sides refuse the family (`sealed family leaf may be extended: S1 (overridable member m)`); the
 compiler's synthesized case-class members and the leaf's own fields (its first clause and `val`
@@ -598,8 +599,8 @@ parent (imports, enclosing scopes), the stored side reads a class or trait of th
 denotes lexically there, or the stdlib model's parent (one table for both sides,
 `StdlibModel.leafParent`) only where no source binds the name at the clause — an imported source
 `Product` is `(parent not read: Product)`, another package's `Exception` no import brings is not the
-one a leaf extends. A non-final case class with more than its product is refused for what it is
-(`case class open to extension: NC (overridable member hit)`).
+one a leaf extends. A case class a supplied class extends (D35), with more than its product, is
+refused for what it is (`case class open to extension: NC (overridable member hit)`).
 
 ## D16. Library declarations are read from a versioned model; absent ones are reported
 
@@ -1274,27 +1275,36 @@ result but a singleton type. Every name the body calls must resolve, as Scala bi
 Refused besides, because each reaches the call site without a compile-time operation in the
 source:
 
-- a member an expansion may select on a narrower class: one a subclass may override, selected on
-  a parameter of the expanded method, on `this` or `C.this` of a template a class may extend, on
-  a lambda's parameter, or on a field or result selected on one of those (every function type's
-  `apply` included); an argument clause a callee does not take selects `apply` on its result, which
-  is checked the same way (an unread result refuses);
+- a member an expansion may select on a narrower class: one a supplied subclass overrides (the
+  closed world, D35) while some supplied inline method of its name is not one function of its
+  values, selected on a parameter of the expanded method, on `this` or `C.this` of a template a
+  class may extend, on a lambda's parameter, or on a field or result selected on one of those
+  (every function type's `apply` included); an argument clause a callee does not take selects
+  `apply` on its result, which is checked the same way (an unread result refuses);
 - a runtime class an expansion reifies from a type variable: a type test or `classOf` whose
   erased class depends on one, `Array[A]` included;
 - a contextual clause left to implicit search — a callee's, its extension group's, a context
   bound, an eta-expanded method's, a local method's or given's — a value of a context function
   type read without an explicit `using`, `summon` and `implicitly`;
 - an applied selection whose name an inline or contextual extension the body may find also
-  declares, or any applied selection when a conversion the body may find exists;
-- a body when an inline conversion the body may find exists, or when a channel outside the sources
-  is open where the method is written, unless it returns a parameter of the result's own type.
+  declares, or one a conversion the body may find may answer when an inline conversion it may
+  find, or a supplied inline method of the name, fails itself;
+- a body when an inline conversion the body may find fails itself (or is an instance whose inline
+  `apply` this reading does not place), or when a channel outside the sources is open where the
+  method is written, unless it returns a parameter of the result's own type.
+
+A conversion is typed where the body is written, as any call is, and the closed world (D35)
+supplies every one: a conversion that is not inline, or an inline one whose own body passes, is
+the same function at every call site.
 
 Definitions written in the body are read as supplied ones, under their own frames: a local
 method's or given's clauses, defaults and declared types; a local object's members; `this` and the
 inherited names of an anonymous class, a local class or a local given instance (their template,
 not the enclosing one). A local type whose name the reading resolves outside the body refuses.
-Abstract inline declarations and their implementations are refused (no body to check). A
-definition nested in a refused inline method stays refused. With those refused, the body is at
+An abstract inline declaration counts as an abstract `def` does: an inline body that may call it
+reads it as a capability, as any body reads an abstract member, and an implementation is read
+through its own body (owner decision, revising the earlier refusal of both). A definition nested
+in a refused inline method stays refused. With those refused, the body is at
 every call site the same function of its signature's values as the method's own body, up to the
 universal members and reflection the model excludes (D12): boxing lets an expansion read
 `getClass` and `==` on a type variable's values differently from the `def`.
@@ -1361,14 +1371,12 @@ of it) is never taken, since the member applies wherever it would (eo's `Getter.
 `BijectionIso.andThen`, `Review.andThen`: 1); anything less keeps the fallback reason. The
 library table is what the check needs, not the library:
 any member outside it refuses. Untyped lambda parameters, pattern variables and most library
-results are not typed, so a selection on them refuses. A member selected on a parameter of a
-sealed type is refused though every subclass is supplied, and an implementation of an abstract
-inline declaration is refused: both conservative. A local class, trait or enum is read through its
+results are not typed, so a selection on them refuses. A local class, trait or enum is read through its
 companion and its own body only, so a value of its type has no members the reading resolves. A
 passing body is then read by the solver exactly as its `def` twin, polymorphic members (D24) and
-sum elimination (D25) included; but a receiver or record holding a deferred inline member keeps
-D24's refusal in an inline target even when the body never calls the member (conservative). See
-[syntax-features.md](syntax-features.md).
+sum elimination (D25) included; a deferred inline member of a receiver or record is a capability
+of an inline target, as an abstract member is (a body that is not inline still has no term of it,
+D24). See [syntax-features.md](syntax-features.md).
 
 ## D28. Rows beyond defs, each measured by the rule its translation has
 
@@ -1804,6 +1812,46 @@ context-bounded and view-binded binders. The instantiation search — enumeratin
 the environment can witness for the binder (`witness-kind analysis`) — is the feature's open half.
 
 
+## D35. The supplied sources are the whole program (closed world)
+
+**Decision** (owner decision, an idealization like D26). No subclass, override or implementation
+exists outside the supplied sources and dependency declarations. `ClosedWorld` reads the sources
+with a `final` written on every concrete class no supplied template extends (an anonymous `new C
+{ … }` and a given instance included) and on every concrete member of a class or trait no supplied
+template overrides; every rule about final classes and members then applies (D19's derived
+concrete code, final records, closed sealed leaves, fixed receivers). A member a supplied template
+does override varies across receivers, so it stays a free capability, as an abstract member is
+(C5), and its possible re-entry stays a view (C6). Two templates share an instance only where one
+extends the other or a supplied template extends both. Abstract members stay capabilities (plan
+§2), and a goal of an abstract template is still any tuple of them: the counted body is the one
+new piece of code, and it may implement an abstract template, never override concrete code.
+
+**Derivation.** Every receiver and every input is an instance of a supplied class. A member no
+supplied class overrides runs its own body on all of them, so a call of it computes from the
+environment the receiver shares: concrete code, which adds no choice (D19). A class no supplied
+class extends has no instance of another class, so its value is its constructor arguments.
+
+**Evidence.**
+
+- **Executable**: `ClosedWorldSpec` (an override in another file, through an alias, by a mixin;
+  braceless and annotated members; literal and constructor `val`s; a class's value), and the
+  closed twins beside the open fixtures of `CapabilitySpec`, `OwnersAndRecordsSpec`,
+  `PureCodeSpec`, `MethodAnalysisSpec`, `EnvironmentSoundnessSpec`. `ReentrySpec` and
+  `TargetViewsSpec` read the open world (`MethodAnalysis.analyzeOpen`): their open members stand
+  for members a supplied template overrides.
+
+**Boundary.** Templates are matched by the simple name their declaration or parent clause spells,
+aliases followed. A parent outside the sources whose members are not known (all but the markers
+and `Product`, `Equals`) may override anything: a member only such a parent may override is refused
+(`member may be overridden through a parent outside the sources: C.m`). Same-named templates of
+different packages share their subclasses, so a member one of them overrides stays open — the open
+world's reading, which may overcount (open: resolving parent clauses before the index exists). A class with a non-public constructor stays as written (its scope's
+constructions are not enumerated), and so does the refusal of a record only its scope
+instantiates. A constructor `val` and an untyped literal `val` keep their spelling (`final` would
+change the signature or the type): a receiver asks the closed world for them instead
+(`Resolver.overriding`). The closed world does not settle a name the analysis cannot resolve:
+unresolved override identity, a sealed family extended through an alias, and the stored-value
+estimate's open abstractions (a trait any implementation may extend) keep their reasons.
 
 ## How to extend this register
 

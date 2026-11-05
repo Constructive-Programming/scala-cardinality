@@ -2,7 +2,7 @@ package cardinality.request
 
 import scala.meta.*
 
-import cardinality.analysis.{AnalysisWork, MethodAnalysis}
+import cardinality.analysis.{AnalysisWork, ClosedWorld, MethodAnalysis}
 import cardinality.tasty.TastyStubs
 
 import MethodAnalysis.{Entry, Input, Limits}
@@ -53,7 +53,8 @@ object AnalysisQuery {
       try {
         inspectTrees(request, work)
         key = fingerprint(request)
-        val index = new MethodAnalysis.Index(request.inputs, request.limits, Some(work))
+        val index =
+          new MethodAnalysis.Index(ClosedWorld.finals(request.inputs), request.limits, Some(work))
         val targets = index.selected(request.targetPaths, request.targetNames)
         val missing = request.targetNames -- targets.map(_.name)
         if (missing.nonEmpty)
