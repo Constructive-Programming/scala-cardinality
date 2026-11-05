@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.resolution.InheritedTypeMembers
+import cardinality.types.TypeApplications
 
 import MethodAnalysis.Frame
 
@@ -25,9 +26,15 @@ private[cardinality] object ForeignParents {
     if (!templates.headOption.exists(open(_, resolver))) Nil
     else {
       val defined = templates.flatMap(InheritedClosedSlots.concrete).toSet
+      // An abstract stdlib member the sources declare again is theirs: the record reads its type.
+      val declared = defined ++ templates.flatMap(_.stats).flatMap {
+        case d: Decl.Def => List(d.name.value)
+        case d: Decl.Val => TypeApplications.boundNames(d.pats)
+        case _           => Nil
+      }
       templates
         .flatMap(frame => frame.parents.flatMap(resolver.outsideParent(_, frame)))
-        .flatMap(parentReasons(_, defined))
+        .flatMap(parentReasons(_, defined, declared))
         .distinct
     }
 
@@ -35,12 +42,18 @@ private[cardinality] object ForeignParents {
   // it lists; any other entry, or a summary without term members, says why they are unread.
   private def parentReasons(
       parent: InheritedTypeMembers.Outside,
-      defined: Set[String]
+      defined: Set[String],
+      declared: Set[String]
   ): List[String] =
     (parent.shadow, StdlibModel.parent(parent.path)) match {
       case (Some(route), _) => List(absent(parent.path, s"may be bound $route"))
       case (None, Some(summary)) if summary.listed =>
-        unread(StdlibModel.canonical(parent.path).getOrElse(parent.path), summary, defined)
+        unread(
+          StdlibModel.canonical(parent.path).getOrElse(parent.path),
+          summary,
+          defined,
+          declared
+        )
       case (None, _) => List(absent(parent.path, parent.binding))
     }
 
@@ -52,9 +65,10 @@ private[cardinality] object ForeignParents {
   private def unread(
       parent: String,
       summary: StdlibModel.Summary,
-      defined: Set[String]
+      defined: Set[String],
+      declared: Set[String]
   ): List[String] =
-    (summary.abstracts -- defined).toList.sorted.map(member =>
+    (summary.abstracts -- declared).toList.sorted.map(member =>
       s"inherited parent declaration not implemented: $parent.$member"
     ) ++ (summary.overridable -- defined).toList.sorted.map(member =>
       s"inherited stdlib member a subclass may override: $parent.$member"

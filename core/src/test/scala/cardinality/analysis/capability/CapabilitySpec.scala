@@ -708,19 +708,24 @@ class CapabilitySpec extends Specification {
 
   // `java.lang.Comparable[T]` declares one abstract `compareTo(T): Int`. K implements it, so K is
   // the record of x: 2 values, 2^2 maps to Boolean. J leaves it to a subclass, whose compareTo the
-  // sources do not hold: refused by name, not as an unsupplied declaration.
+  // sources do not hold: refused by name, not as an unsupplied declaration. D declares it again, so
+  // it is D's own abstract member, read with its type: not refused for Comparable.
   def comparableParent = {
     val found = one("""
       trait K extends Comparable[K] { def x: Boolean; def compareTo(o: K): Int = 0 }
       trait J extends java.lang.Comparable[J] { def x: Boolean }
+      trait D extends Comparable[D] { def compareTo(o: D): Int }
       object Use { def k(a: K): Boolean = ???; def j(a: J): Boolean = ??? }
+      object UseD { def d(a: D): Boolean = ??? }
     """)
-    (found("Use.k") === Count.Finite(4)).and(
-      refused(
-        found("Use.j"),
-        "inherited parent declaration not implemented: java.lang.Comparable.compareTo"
+    (found("Use.k") === Count.Finite(4))
+      .and(found("UseD.d").toString must not(contain("java.lang.Comparable")))
+      .and(
+        refused(
+          found("Use.j"),
+          "inherited parent declaration not implemented: java.lang.Comparable.compareTo"
+        )
       )
-    )
   }
 
   // Every T is `new P(v) with T` for some v: t.p is a free Boolean — 4 (it read 2).
