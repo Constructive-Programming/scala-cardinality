@@ -29,7 +29,6 @@ class TargetViewsSpec extends Specification {
       a call on a local binding has no declaration read               $boundQualifier
       a block's local given shadows the member of its name            $localGiven
     Enclosing templates
-      `Outer.this.m` of a final outer is another declaration          $finalOuter
       `Outer.this.m` of an open outer may be overridden to re-enter   $openOuter
       an enclosing receiver's call through the object path is a view  $enclosingPath
       an enclosing receiver's call through a nested object may re-enter $enclosingNested
@@ -47,7 +46,6 @@ class TargetViewsSpec extends Specification {
       implicit search selecting a given that re-enters                $implicitSearch
       `super.m` runs a parent's definition                            $superSelection
     Imports that may bring code the compiler inserts
-      an import or export of an extension from outside the sources    $importedExtension
       a block's import reaches the statements after it in the block   $blockImport
   """
 
@@ -189,15 +187,6 @@ class TargetViewsSpec extends Specification {
       def x: Boolean = target(true)
       def m: Boolean = { given x: Boolean = false; x }
     }""")("G.target") === Count.Finite(16)
-
-  // Outer.this.target is the final outer's own method, whose body reads only its parameter: m never
-  // re-enters Inner.target and is a free Boolean — functions of (b, m), 16 (it read 4). An open
-  // outer's target may be overridden to call back into the inner instance: refused.
-  def finalOuter =
-    one("""final class Outer {
-      def target(b: Boolean): Boolean = b
-      trait Inner { def target(b: Boolean): Boolean; def m: Boolean = Outer.this.target(true) }
-    }""")("Outer.Inner.target") === Count.Finite(16)
 
   def openOuter =
     view(
@@ -372,22 +361,6 @@ class TargetViewsSpec extends Specification {
       object helper { def run: Boolean = true }
       def m: Boolean = helper.run
     }""")("T.target") === Count.Finite(16)
-
-  // `foo`, `bar` and `baz` are imported (in the file, in the template) or exported from the
-  // unsupplied `ext`: each may be an extension whose receiver is by name (fixture
-  // probes/b3land/fix: m returns true and never runs target), so m is a possible view — refused,
-  // never 4 (the true count is 2^8: every Boolean function of b, m(true) and m(false)).
-  def importedExtension = {
-    val found = one("""
-      import ext.Syntax.foo
-      trait F { def target(b: Boolean): Boolean; def m(b: Boolean): Boolean = target(b).foo }
-      trait T { import ext.Syntax.bar; def target(b: Boolean): Boolean; def m(b: Boolean): Boolean = target(b).bar }
-      trait E { export ext.Syntax.baz; def target(b: Boolean): Boolean; def m(b: Boolean): Boolean = target(b).baz }
-    """)
-    view(found("F.target"), "F.m")
-      .and(view(found("T.target"), "T.m"))
-      .and(view(found("E.target"), "E.m"))
-  }
 
   // An import in m's block may bring `qux` (wildcard) or `quux` (named) from `ext` as an extension
   // with a by-name receiver: a possible view, refused (true count 2^8, as above). After a wildcard

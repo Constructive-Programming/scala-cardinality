@@ -155,61 +155,27 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("O.<given@9>") === "2")
   }
 
-  // Each name as 3.9.0's `-Xprint:typer` prints it (fixtures `$S/probes/b5-fix2/gname`). The parser
-  // drops the bound of `Ord[? <: String]` (3.9.0: given_Ord_String), so that name is not known.
+  // Each name as 3.9.0's `-Xprint:typer` prints it (fixtures `$S/probes/b5-fix2/gname`). A type
+  // other than a name or an application of names is not spelled, so that given's name is not known.
   def synthesizedNames = {
     val source = dialects
       .Scala3("""|object N {
                  |  given Int = 1
                  |  given Ord[Int] = o
-                 |  given [T](using Ord[T]): Ord[List[T]] = o
                  |  given (Int, String) = p
-                 |  given Ord[(Int, (Long, Short))] = o
-                 |  given (String => Int) = f
-                 |  given ((Int, Long) => String) = f
-                 |  given (() => Int) = f
-                 |  given (Int ?=> String) = f
-                 |  given Ord[Long => String] = o
-                 |  given scala.collection.immutable.Seq[Char] = s
-                 |  given Two[Int, Ord[String]] = t
-                 |  given Ord[Short] & Show[Short] = o
-                 |  given (Boolean | Char) = b
-                 |  given Ord[?] = o
                  |  given Ord[? <: String] = o
-                 |  given Ord[Int Two Long] = o
-                 |  given Ord[[X] =>> Ord[X]] = o
-                 |  given M.x.type = M.x
-                 |  given Ord[M.type] = o
-                 |  given 3 = 3
                  |  given Ord[Char] with {}
                  |  given Ord[Int] with Show[Int] with {}
                  |}""".stripMargin)
       .parse[Source]
       .get
     val givens = source.collect { case g: (Defn.GivenAlias | Defn.Given) => g }
-    (givens.filter(GivenNames.unknown).map(_.pos.text) === List("given Ord[? <: String] = o"))
+    (givens.filter(GivenNames.unknown).map(_.pos.text) ===
+      List("given (Int, String) = p", "given Ord[? <: String] = o"))
       .and(
         givens.flatMap(GivenNames.of) === List(
           "given_Int",
           "given_Ord_Int",
-          "given_Ord_List",
-          "given_Int_String",
-          "given_Ord_Int_Long_Short",
-          "given_String_to_Int",
-          "given_Int_Long_to_String",
-          "given_Int",
-          "given_Int_to_String",
-          "given_Ord_Function",
-          "given_Seq_Char",
-          "given_Two_Int_Ord",
-          "given_&_Ord_Show",
-          "given_|_Boolean_Char",
-          "given_Ord_",
-          "given_Ord_Two",
-          "given_Ord_Ord",
-          "given_x_type",
-          "given_Ord_M_type",
-          "given_",
           "given_Ord_Char",
           "given_Ord_Int_Show_Int"
         )

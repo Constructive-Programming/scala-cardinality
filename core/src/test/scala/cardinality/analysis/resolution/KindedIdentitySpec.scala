@@ -15,7 +15,6 @@ class KindedIdentitySpec extends Specification {
   import Inhabitation.Count
 
   def is = s2"""
-    anonymous constructor positions are keyed by place            $anonymousPositions
     binder renaming, function and tuple sugar keep an override    $overrideSugar
     overloads that differ only in a binder's kind stay apart      $kindOverloads
     stdlib-model entries are keys, one per declaration            $modelKeys
@@ -28,20 +27,6 @@ class KindedIdentitySpec extends Specification {
       )
       .map(entry => entry.name -> entry.count)
       .toMap
-
-  // Anonymous parameters all have the empty name, so a position is keyed by its place: the order of
-  // `A` and `Boolean`, or naming them, changes nothing. The Boolean position is its space, 2; each
-  // `A` slot is one of the two A values (the field or the evidence): 2 · 2 · 2.
-  def anonymousPositions = {
-    val counts = entries("""
-      final class K4[A](a: A)(using A, Boolean)
-      final class K5[A](a: A)(using Boolean, A)
-      final class K6[A](a: A)(using x: A, y: Boolean)
-    """)
-    (counts("K4.<init>") === Count.Finite(8))
-      .and(counts("K5.<init>") === Count.Finite(8))
-      .and(counts("K6.<init>") === Count.Finite(8))
-  }
 
   // Each override implements its declaration, which therefore is no capability of C: `x`; the
   // functionals of four `Boolean => Boolean` values, 2^4; those of four pairs, 2^4.

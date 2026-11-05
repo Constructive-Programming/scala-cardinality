@@ -17,8 +17,6 @@ class OwnersAndRecordsSpec extends Specification {
 
   def is = s2"""
     Inline members of a never-built owner
-      a static object's, a given object's or a file's inline member    $staticInline
-      a class's, a member object's or a plain def keeps one call      $builtOwners
     Captures a member holds
       a readable field or own member that is the capture, or of type 1 $heldAlias
       any other reading, a wider type or an overridden field, refuses  $heldOtherwise
@@ -32,8 +30,6 @@ class OwnersAndRecordsSpec extends Specification {
       a match-type field reduces on the record's tuple argument        $matchField
     Members no subclass overrides
       a given or a final member an inline body selects is fixed        $fixedSelection
-      a deferred given is abstract: every class extending it gives one $deferredGiven
-      a `deferred` nothing imports is no compiletime one               $deferredBare
   """
 
   private def one(code: String): Map[String, Count] =
@@ -44,54 +40,6 @@ class OwnersAndRecordsSpec extends Specification {
 
   private def refused(count: Count, reason: String): Result =
     count must beLike { case Count.Unresolved(reasons) => reasons must contain(reason) }
-
-  // Each owner's body throws, yet an expansion builds none (3.9.0 runs: no `K init`, nor `G init`
-  // for a `given … with` object): each inline member is counted as in a built owner — !b among b's
-  // functions: 4; b && c: 16; pick[A]: y or x, 2; an inline given Int: 2^32; nest's h reads c and
-  // the capture b: 16. Before: 1 each. r reads the owner's z, which supplies nothing (an object
-  // declares no slot): b's functions, 4 — never 1, nor 16 as with z a free Boolean.
-  def staticInline = {
-    val found = one("""
-      object K {
-        val z: Boolean = ???
-        inline def f(b: Boolean): Boolean = !b
-        inline def two(b: Boolean, c: Boolean): Boolean = b && c
-        inline def pick[A](x: A, y: A): A = y
-        extension (b: Boolean) inline def flip: Boolean = !b
-        inline given g: Int = 7
-        inline def nest(b: Boolean): Boolean = { def h(c: Boolean): Boolean = !c; h(b) }
-      }
-      object Outer { object M { val z: Int = ???; inline def f(b: Boolean): Boolean = b } }
-      val topZ: Boolean = ???
-      inline def topF(b: Boolean): Boolean = !b
-      object R { val z: Boolean = ???; inline def r(b: Boolean): Boolean = b && z }
-      trait Base
-      given G: Base with { val z: Int = ???; inline def f(b: Boolean): Boolean = b }
-    """)
-    val flip = found.collectFirst { case (name, count) if name.endsWith(".flip") => count }
-    List("K.f" -> 4, "K.two" -> 16, "K.pick" -> 2, "K.nest" -> 4)
-      .map((name, n) => found(name) === Count.Finite(n))
-      .reduce(_ and _)
-      .and(flip must beSome(Count.Finite(4)))
-      .and(found("K.g") === Count.Finite(BigInt(2).pow(32)))
-      .and(found("K.nest.h") === Count.Finite(16))
-      .and(found("Outer.M.f") === Count.Finite(4))
-      .and(found("topF") === Count.Finite(4))
-      .and(found("R.r") === Count.Finite(4))
-      .and(found("G.f") === Count.Finite(4))
-  }
-
-  // A class or trait owner is the receiver every call needs, and a member object of one is built
-  // with it: never built, no call returns — 1. A def that is not inline needs its owner too.
-  def builtOwners = {
-    val found = one("""
-      class C { val z: Boolean = ???; inline def f(b: Boolean): Boolean = b; object N { inline def f(b: Boolean): Boolean = b } }
-      object K { val z: Boolean = ???; def g(b: Boolean): Boolean = !b }
-    """)
-    (found("C.f") === Count.Finite(1))
-      .and(found("C.N.f") === Count.Finite(1))
-      .and(found("K.g") === Count.Finite(1))
-  }
 
   // Inside each anonymous or local class the capture n (or b, or a1) is hidden — by the inherited
   // field n, an own member n, or m's own parameter — yet a field the template reads passed exactly
@@ -330,45 +278,5 @@ class OwnersAndRecordsSpec extends Specification {
         )
       )
   }
-
-  // `given g: Boolean = deferred` is supplied by each class extending T (3.9.0 run: two classes
-  // with different givens in scope print false and true): other reads a free Boolean g — g, !g,
-  // true, false: 4 (it read 2). TI.f's expansion selects g, which a subclass gives: refused. A
-  // `deferred` another declaration binds — a member of V, X's imported in TX's object, a local
-  // `compiletime` object's selected in TL — is no abstract given.
-  def deferredGiven = {
-    val found = one("""
-      import scala.compiletime.deferred
-      trait T { given g: Boolean = deferred; def other: Boolean = g }
-      trait TI { given g: Boolean = deferred; inline def f: Boolean = g }
-      trait Q { given g: Boolean = scala.compiletime.deferred; def other: Boolean = g }
-      trait V { val deferred: Boolean = true; given g: Boolean = deferred; def other: Boolean = g }
-      object X { val deferred: Boolean = true }
-      object TXs { import X.deferred; trait TX { given g: Boolean = deferred; def other: Boolean = g } }
-      object compiletime { val deferred: Boolean = true }
-      trait TL { given g: Boolean = compiletime.deferred; def other: Boolean = g }
-    """)
-    val other = "given alias of a deferred not resolved to scala.compiletime"
-    (found("T.other") === Count.Finite(4))
-      .and(found("Q.other") === Count.Finite(4))
-      .and(
-        refused(
-          found("TI.f"),
-          "inline method: selects g on this, which a call site may type as a subclass of TI that " +
-            "overrides g inline"
-        )
-      )
-      .and(refused(found("V.other"), s"$other: V.g"))
-      .and(refused(found("TXs.TX.other"), s"$other: TXs.TX.g"))
-      .and(refused(found("TL.other"), s"$other: TL.g"))
-  }
-
-  // A bare `deferred` no import binds (scalac rejects it, E006): this reading does not take it for
-  // scala.compiletime's.
-  def deferredBare =
-    refused(
-      one("trait TB { given g: Boolean = deferred; def other: Boolean = g }")("TB.other"),
-      "given alias of a deferred not resolved to scala.compiletime: TB.g"
-    )
 
 }

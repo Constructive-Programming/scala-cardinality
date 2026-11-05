@@ -25,16 +25,14 @@ encode it.
 **Rule.** Every parameter binds under its own key — owner and position — so neither the empty name
 nor one index in two owners (a method and its local definition, an extension and its method)
 collides. An anonymous parameter is counted only when every other contextual candidate at its level
-or deeper has a type provably unrelated to its own (neither a subtype of the other: distinct
-unbounded binders; a binder and a nominal type; functions or products differing in arity or in an
-unrelated component). Candidates are parameters, given and implicit definitions of those scopes
-(a block's wherever they sit in it), givens declared by supplied parents, and imports or exports
-with any selector but an unimport (unseen candidates, like a parent outside the source set). An
+or deeper has a type provably unrelated to its own: a class type of a template that its own type's
+template neither extends nor is extended by. Candidates are parameters, given and implicit
+definitions of those scopes (a block's wherever they sit in it, read as candidates of unread type),
+givens declared by supplied parents, and imports or exports with any selector but an unimport
+(unseen candidates, like a parent outside the source set). An
 extension group shares its method's level. Then the search for its own type selects it whatever
-the ranking. Two distinct final concrete classes are unrelated whatever their arguments: a shape is
-no identity (`P1[A]` and `P2[A]`, both `final case class _(a: A)`, are selected separately — run).
-Likewise two class types neither of whose templates is a base class of the other, every base class
-of both supplied (a class type conforms to another only through a base class: `Acc[F]` and
+the ranking. Two class types are unrelated when neither of their templates is a base class of the
+other, every base class of both supplied (a class type conforms to another only through a base class: `Acc[F]` and
 `RevAcc[F]` are selected separately — compiled), while a base-class relation is an overlap whatever
 the shapes (a subtrait's capability record is the wider product).
 Otherwise `?`: `ambiguous anonymous evidence: T` (the same type — the same declarations, binders
@@ -42,8 +40,8 @@ and arguments — declared by the same template or method) or `anonymous evidenc
 resolved: T (overlaps U)`. Outer candidates never matter: the parameter is nested deeper and wins.
 
 **Limit.** The exact count would drop an unreachable parameter instead of refusing, and would count
-one that beats an inherited given; both need the ranking. Sums, the empty product (a top type may
-read as one) and paths are assumed related.
+one that beats an inherited given; both need the ranking. Any pair other than two class types is
+assumed related.
 
 ## 2. Import anchoring and package clauses
 
@@ -91,13 +89,8 @@ Declared callables are keyed by declaration and receiver, so overloads are separ
 (`@targetName` is needed when two erase alike). Within one linearization a same-named declaration at
 another level restates the member when its parameter types resolve to the same declarations (each
 name the class, trait, enum or opaque type it denotes, an alias the type it names, a binder its
-identity) — with a refined result, the template's own declaration is the member's type (fixture: a
-covariant result refinement compiles as an override), while a refinement met only between two
-inherited levels is refused (`refined inherited declaration not resolved`). It overloads when the
-parameters read differently or resolve to different declarations (two `final case class P(b:
-Boolean)` of two objects share a shape; fixture: implementing only one is E231), and is refused
-(`overloaded declaration identity not resolved`) when equal shapes have an identity this reading
-does not know (an abstract member, a parameterized alias). A lexically enclosing template's member
+identity). Any other same-named declaration overloads (two `final case class P(b: Boolean)` of two
+objects share a shape; fixture: implementing only one is E231). A lexically enclosing template's member
 is another receiver's, never merged.
 
 A final concrete class, an object or a given instance that implements an inherited declaration in

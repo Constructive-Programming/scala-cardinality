@@ -18,7 +18,6 @@ class HigherKindedRefusalSpec extends Specification {
       a wrong arity is not counted                                  $arity
       a builtin applied at a wrong arity says so in both readings   $builtinArity
       a kind mismatch is not counted                                $kindMismatch
-      a constructor argument of another kind is not counted         $argumentKinds
       a higher-kinded name read as a type                           $properUse
       a wildcard under a rigid binder is not counted                $wildcard
     Unreadable identities
@@ -76,35 +75,6 @@ class HigherKindedRefusalSpec extends Specification {
     refused(counts, "T.direct", "type argument arity: Either")
       .and(refused(counts, "T.keyed", "type argument arity: Either"))
       .and(refused(counts, "T.ground", "type argument arity: Int"))
-  }
-
-  // 3.9.0: "Type argument Option does not have the same kind as its bound [_$1,_$2]", whether or
-  // not the parameter is ever applied. Before: `Phantom[Option]` counted 1, `Box[Either, A]` was
-  // `unresolved type: Either`.
-  def argumentKinds = {
-    val counts = entries(box + """
-      final case class Phantom[F[_, _]]()
-      object T {
-        def make: Phantom[Option] = ???
-        def make2: Phantom[Int] = ???
-        def box[A](a: A): Box[Either, A] = ???
-        def box2[A](a: A): Box[Int, A] = ???
-        def lambda[A](a: A): Box[[x, y] =>> x, A] = ???
-        def fits[A](a: A): Box[Option, A] = ???
-      }
-    """)
-    refused(counts, "T.make", "kind mismatch: Option has kind (*) → *, expected (*, *) → *")
-      .and(refused(counts, "T.make2", "kind mismatch: Int has kind *, expected (*, *) → *"))
-      .and(refused(counts, "T.box", "kind mismatch: Either has kind (*, *) → *, expected (*) → *"))
-      .and(refused(counts, "T.box2", "kind mismatch: Int has kind *, expected (*) → *"))
-      .and(
-        refused(
-          counts,
-          "T.lambda",
-          "kind mismatch: [x, y] =>> x has kind (*, *) → *, expected (*) → *"
-        )
-      )
-      .and(counts("T.fits") === Count.Finite(2))
   }
 
   def properUse =

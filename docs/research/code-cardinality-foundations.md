@@ -1166,15 +1166,11 @@ decision, v1 §2), and every reading obeys it.
      is taken at the record's or receiver's type arguments (`K2[Int]`, `K4 extends K2[Int]`), and
      a subclass whose member only throws counts as its parent with the abstract one;
    - a template whose primary constructor evaluates a parent argument, a strict `val` or `var`
-     initializer or a statement that only throws is never built, by any subclass either: its record
-     is empty (an input vacuous, a goal 0), and a declaration that runs in it — or in a template
-     its instances carry (an outer instance, a local template's receiver, a member object's owning
-     instance, and for a top-level definition its file's synthetic object; not a static object
-     around a template) — is never called: 1. A name there is read in its own level's scope (its
-     parameters, members and inherited members, never a subclass's; the imports before it; the
-     exports of its template); one an unread scope may bind leaves the construction unresolved
-     (`construction not resolved: C`). The measured declaration's own body is excluded, and
-     constructor rows keep their convention. A sealed case, family or enum whose construction
+     initializer or a statement that only throws leaves the construction unresolved (`construction
+     not resolved: C`), and so does a template its instances carry (an outer instance, a local
+     template's receiver, a member object's owning instance, and for a top-level definition its
+     file's synthetic object; not a static object around a template). The measured declaration's
+     own body is excluded, and constructor rows keep their convention. A sealed case, family or enum whose construction
      (every template it extends, and for singleton enum cases the companion) would only throw is
      refused, since that reading resolves no term names (`sealed family construction not
      resolved`, `enum construction not resolved`);
@@ -1438,9 +1434,8 @@ cases and unconditional structural givens are no rows. Details:
   E[A, B]` prints `final case class D[A, B](y: A)` (`$S/probes/b5-fix1`, `-Vprint:typer`); a
   secondary constructor's body reads the class's members and parameters; a context-function
   literal under a context-function result is one closure (no second wrapper); an anonymous given's
-  name is `given_` and its type's names (`given_A`, `given_Ord_List`, `given_Int_String`,
-  `given_String_to_Int`, `given_&_Ord_Show`, …, `$S/probes/b5-fix2/gname`), and `new C[A](x,
-  y).given_A` selects one; matching `case TInt()` makes a method's or a class's type parameter `A`
+  name is `given_` and its type's names (`given_A`, `given_Ord_Int`, `$S/probes/b5-fix2/gname`;
+  any other type's given is not named here), and `new C[A](x, y).given_A` selects one; matching `case TInt()` makes a method's or a class's type parameter `A`
   Int in the arm (`def h: A = 42` compiles), while abstract type members, path-dependent types,
   literal, binder and wildcard patterns refine nothing (`$S/probes/b5-fix2/refine`).
 - **Executable**: `DefinitionInventorySpec`; `MethodAnalysisSpec.abstractCase`,

@@ -17,7 +17,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
     A var is a val
       a var field of an open or final class is a field             $varFields
       a private var field stays hidden state                        $privateVarField
-      an abstract var is a record member, a concrete one a value    $varMembers
       var fields of a sealed family or case class are its product   $varProducts
       a private var field of a sealed subtype stays hidden          $privateVarProduct
       a plain parameter of a sealed leaf is no field                $plainLeafParameter
@@ -34,14 +33,9 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       a bound may supply a binder: such a member is kept            $boundedBinder
       a member without a result type that may override is kept      $overridingResult
       an empty type is read from its structure                      $emptyTypes
-      a constructor that only throws builds no instance             $construction
       an alias nested out of reach does not stand for a parent      $constructionReach
       a fixed member that only throws is concrete code              $fixedThrowing
-      top-level vals are built with their file's definitions        $topLevel
-      a member object carries the instance it belongs to            $memberObjects
-      a level's body binds names in its own scope                   $bindingScope
       a sealed case or enum built by a throwing body is refused      $sealedConstruction
-      a template an object encloses does not build the object       $staticNesting
       an empty block is no throw                                    $emptyBlock
       a throw this reading does not recognize stays unresolved      $throwLimits
       its abstract twin still makes the receiver vacuous            $abstractTwin
@@ -91,23 +85,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       ),
       "open class with hidden constructor state: RVH.x"
     )
-
-  // RAV's record is its getter y (the setter returns Unit, an effect): 4 as input and goal (an
-  // anonymous `new RAV { var y = … }` realizes any choice; it read "capability record with a
-  // mutable member not read"). RCV's concrete `var z` can never be overridden (E164), so it is
-  // derived, not a free Boolean: the record is (w) — 4, not 16.
-  def varMembers = {
-    val found = rows("""trait RAV { var y: Boolean }
-      |trait RCV { var z: Boolean = true; def w: Boolean }
-      |object Use {
-      |  def abstractVar(v: RAV): Boolean = ???
-      |  def abstractGoal(b: Boolean): RAV = ???
-      |  def concreteVar(v: RCV): Boolean = ???
-      |}""".stripMargin)
-    (found("Use.abstractVar") === Count.Finite(4))
-      .and(found("Use.abstractGoal") === Count.Finite(4))
-      .and(found("Use.concreteVar") === Count.Finite(4))
-  }
 
   // |S| = |S1| + |S2| + |S3| = 2 + 2 + 1 = 5, so S => Boolean has 2^5 = 32 (it read "sealed subtype
   // hides a parameter: S1"); CC(var x) is the product (x): 4 each way (it read "abstract type or
@@ -387,12 +364,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       .and(each(found, Count.Finite(4))("H6.m", "AH6.m", "H7.m", "AH7.m"))
   }
 
-  // A strict `val` or `var` initializer, a statement and a parent's argument run in every
-  // constructor, a subclass's included (3.9.0 runs: `new IV { override val x = true }` throws).
-  // A template one of them only throws for is never built: as an input vacuous (1), as a goal
-  // empty (0), and its members are never called (1). A lazy val or a method runs only when
-  // called: LK2 and DK2 are the record (boom, m) of two Booleans, 2^4 = 16. A member named `???`
-  // is no throw: Mem.m ranges over functions of (b, x, ???), never 1.
   // The construction check reads a parent by its simple name, so an alias of that name may stand
   // for any type - but only an alias a bare name can denote there: one nested in an object of
   // another file is named only through that object (an import of it, or an export).
@@ -404,47 +375,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
     val imported = counts(compat, "a.scala" -> s"package na\nimport nlib.Compat.*\n$family")
     (apart("na.U.s") === Count.Finite(2))
       .and(refused(imported("na.U.s"), "sealed family construction not resolved: S"))
-  }
-
-  def construction = {
-    val found = rows("""class OK2 { val boom: Nothing = ???; def m: Boolean = true }
-      |class LK2 { lazy val boom: Boolean = ???; def m: Boolean = true }
-      |class DK2 { def boom: Boolean = ???; def m: Boolean = true }
-      |class OK1 { val x: Boolean = ???; def m(b: Boolean): Boolean = ??? }
-      |final class FK3(val b: Boolean) { val x: Int = ??? }
-      |trait TK { val x: Boolean = ??? }
-      |abstract class BV { val x: Boolean }
-      |class IV extends BV { val x = ??? }
-      |class PA(n: Int)
-      |class CA extends PA(???) { def m(b: Boolean): Boolean = ??? }
-      |class V0 { var v: Int = ???; def m(b: Boolean): Boolean = ??? }
-      |class Stmt { ???; def m(b: Boolean): Boolean = ??? }
-      |class Mem { def ??? : Int = 1; val x: Int = ???; def m(b: Boolean): Boolean = b }
-      |class St { println("x"); def m(b: Boolean): Boolean = ??? }
-      |object Use {
-      |  def ok2(k: OK2): Boolean = ???
-      |  def lk2(k: LK2): Boolean = ???
-      |  def dk2(k: DK2): Boolean = ???
-      |  def ok1(k: OK1): Boolean = ???
-      |  def fk3(k: FK3): Boolean = ???
-      |  def fk3g(b: Boolean): FK3 = ???
-      |  def tk(k: TK): Boolean = ???
-      |  def iv(k: IV): Boolean = ???
-      |}""".stripMargin)
-    List("Use.ok2", "Use.ok1", "Use.fk3", "Use.tk", "Use.iv")
-      .map(name => found(name) === Count.Finite(1))
-      .reduce(_ and _)
-      .and(found("Use.lk2") === Count.Finite(16))
-      .and(found("Use.dk2") === Count.Finite(16))
-      .and(found("Use.fk3g") === Count.Finite(0))
-      .and(found("FK3.<init>") === Count.Finite(2))
-      .and(
-        List("OK2.m", "OK1.m", "CA.m", "V0.m", "Stmt.m")
-          .map(name => found(name) === Count.Finite(1))
-          .reduce(_ and _)
-      )
-      .and(found("St.m") === Count.Finite(4))
-      .and(found("Mem.m").render === "2^(2^65)")
   }
 
   // A member nothing overrides is concrete code (D19): a throw there supplies nothing, so an object
@@ -464,64 +394,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |""".stripMargin)
     each(found, Count.Finite(4))("O.f", "FK.f", "FQ2.f", "OQ.f", "FQ.f", "U.viaFQ")
       .and(found("U.viaP") === Count.Finite(1))
-  }
-
-  // Top-level definitions live in their file's synthetic object, built with every strict val of
-  // the file in that package (a 3.9.0 run: calling f throws): f is never called — 1. A top-level
-  // class is built without it (4), and another file's object is another one: g is 4. A package
-  // object is an object like any: po.f 1, and with a lazy val pq.g 4.
-  def topLevel = {
-    val found = counts(
-      "A.scala" -> """package tp
-        |val boom: Int = ???
-        |def f(b: Boolean): Boolean = ???
-        |class TopC { def m(b: Boolean): Boolean = ??? }
-        |""".stripMargin,
-      "B.scala" -> "package tp\nlazy val later: Int = ???\ndef g(b: Boolean): Boolean = ???\n",
-      "C.scala" -> """package object po { val boom: Int = ???; def f(b: Boolean): Boolean = ??? }
-        |package object pq { lazy val boom: Int = ???; def g(b: Boolean): Boolean = ??? }
-        |""".stripMargin
-    )
-    each(found, Count.Finite(1))("tp.f", "po.f")
-      .and(each(found, Count.Finite(4))("tp.TopC.m", "tp.g", "pq.g"))
-  }
-
-  // A member object of a class or trait is built from the instance it belongs to (3.9.0 runs):
-  // C.O.D needs a C, whose `x` throws, and T.O's own `y` throws — 1. A static object's are built
-  // without it: S.O.D and S.O.P are 4.
-  def memberObjects = {
-    val found = rows("""class C {
-      |  val x: Int = ???
-      |  object O { class D { def m(b: Boolean): Boolean = ??? }; object P { def m(b: Boolean): Boolean = ??? } }
-      |}
-      |object S {
-      |  val x: Int = ???
-      |  object O { class D { def m(b: Boolean): Boolean = ??? }; object P { def m(b: Boolean): Boolean = ??? } }
-      |}
-      |trait T { object O { val y: Int = ???; class D { def m(b: Boolean): Boolean = ??? } } }
-      |""".stripMargin)
-    each(found, Count.Finite(1))("C.O.D.m", "C.O.P.m", "T.O.D.m")
-      .and(each(found, Count.Finite(4))("S.O.D.m", "S.O.P.m"))
-  }
-
-  // A level's body sees its own scope, not a subclass's (3.9.0 runs): TK's `???` throws in every
-  // Sh, so TK, Sh and their members are 1 though Sh defines `???`. An import binds from its
-  // position on: L's `x` runs before it (1), K's after it (K is the record (x, m): m ranges over
-  // functions of (b, x), 2^(2^33)). An export binds throughout its template (O.E: 2^(2^33)), and a
-  // renaming import does not bind the original name (R: 1).
-  def bindingScope = {
-    val found = rows("""object Helpers { def ??? : Int = 1 }
-      |trait TK { val x: Boolean = ??? }
-      |class Sh extends TK { def ??? : Boolean = true; def m(b: Boolean): Boolean = ??? }
-      |class K { import Helpers.???; val x: Int = ???; def m(b: Boolean): Boolean = b }
-      |class L { val x: Int = ???; import Helpers.???; def m(b: Boolean): Boolean = b }
-      |object O { export Helpers.???; class E { val x: Int = ???; def m(b: Boolean): Boolean = b } }
-      |class R { import Helpers.{??? => q}; val x: Int = ???; def m(b: Boolean): Boolean = b }
-      |object V { def tk(t: TK): Boolean = ???; def sh(s: Sh): Boolean = ??? }
-      |""".stripMargin)
-    each(found, Count.Finite(1))("V.tk", "V.sh", "Sh.m", "L.m", "R.m")
-      .and(found("K.m").render === "2^(2^33)")
-      .and(found("O.E.m").render === "2^(2^33)")
   }
 
   // A sealed case, family or enum whose construction only throws has no value — A's case is empty,
@@ -575,24 +447,6 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       .and(refused(found("U.fg"), "enum construction not resolved: F"))
       .and(found("U.c") === Count.Finite(4))
       .and(found("U.l") === Count.Finite(8))
-  }
-
-  // A class or object an object encloses is built without the object (a 3.9.0 run calls O0.C and
-  // O0.I while O0's initializer throws): 4. Calling O0.f builds O0, and In needs its outer
-  // instance: 1.
-  def staticNesting = {
-    val found = rows("""object O0 {
-      |  val x: Int = ???
-      |  class C { def m(b: Boolean): Boolean = ??? }
-      |  object I { def m(b: Boolean): Boolean = ??? }
-      |  def f(b: Boolean): Boolean = ???
-      |}
-      |class Outer0 { val x: Int = ???; class In { def m(b: Boolean): Boolean = ??? } }
-      |""".stripMargin)
-    (found("O0.C.m") === Count.Finite(4))
-      .and(found("O0.I.m") === Count.Finite(4))
-      .and(found("O0.f") === Count.Finite(1))
-      .and(found("Outer0.In.m") === Count.Finite(1))
   }
 
   // `{}` is the Unit value: A's noop is no throw and m the 4 functions of b; O.f's block stays

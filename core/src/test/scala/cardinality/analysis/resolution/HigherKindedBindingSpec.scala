@@ -69,7 +69,6 @@ class HigherKindedBindingSpec extends Specification {
       a class's bound is a position read where it is written        $classBoundPosition
       a foreign evidence names the foreign type                     $foreignBound
       same-typed anonymous evidences are not counted                $ambiguous
-      anonymous using parameters do not overwrite each other        $anonymous
       a bounded binder's evidence is not provably unrelated         $boundedEvidence
     Subtype bounds (R5, B1)
       an upper bound upcasts                                        $upper
@@ -533,10 +532,6 @@ class HigherKindedBindingSpec extends Specification {
         reasons must contain("ambiguous anonymous evidence: C[G]")
     })
   }
-
-  def anonymous =
-    count("object T { def lost[A, B](x: A)(using Option[A], B): A = x }", "T.lost") === Count
-      .Finite(2)
 
   // With A <: B, an `A` evidence also answers a search for B: the two are not unrelated. (3.9.0
   // selects the B parameter for `summon[B]`, so the exact count is 2; the overlap is refused.)

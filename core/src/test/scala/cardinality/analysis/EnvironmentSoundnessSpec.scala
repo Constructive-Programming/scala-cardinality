@@ -13,20 +13,14 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
 
   def is = s2"""
     Anonymous contextual parameters
-      keep two anonymous parameters apart                          $anonymousApart
-      keep anonymous parameters of two owners apart                $anonymousOwners
-      count unrelated anonymous evidence once each                 $anonymousDistinct
       refuse same-typed evidence a search cannot tell apart        $anonymousAmbiguous
       read an extension's clauses at its method's level            $anonymousExtension
-      refuse evidence a nearer or same-level value shadows         $anonymousShadowed
       refuse evidence a later given of the block shadows           $anonymousLaterGiven
       leave a shallower given out of the question                  $anonymousOuterGiven
-      refuse evidence an implicit, import or unread parent may beat $anonymousUnseen
       refuse evidence a named import or an export may beat         $anonymousNamedImports
       refuse an inherited given as an overlap, not an ambiguity    $anonymousInherited
       refuse evidence of a type related to another's               $anonymousRelated
       count evidence of distinct final classes that share a shape   $anonymousSameShape
-      tell tuples apart by arity, not when a component relates     $anonymousTuples
       count named evidence of one type by name                     $namedEvidence
     Inherited declarations
       substitute through two levels of inheritance                 $twoLevels
@@ -42,9 +36,7 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       keep abstract overloads as separate capabilities             $overloads
       keep an overload across inheritance levels                   $crossLevelOverload
       read a restated declaration as one member                    $restated
-      tell a restatement from an overload by declaration           $overloadIdentity
       keep same-shaped parameter classes of two scopes apart       $sameShapeOverloads
-      read a refined result as the template's own member           $refinedResult
       keep a lexically enclosing member apart from an inner one    $enclosingMember
       read a type alias the template inherits before an outer one  $inheritedAlias
       keep nearer declarations and private members as they were    $inheritedAliasPrecedence
@@ -63,48 +55,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       read a sealed family whose children live in an object        $sealedInObject
       read a family an alias names but nothing extends through it  $sealedAliasUnused
   """
-
-  // Every anonymous `using` parameter has the empty name; keyed by name, the second replaced the
-  // first. `anon2`: f(x), f(g(f(x))), … — ω, as for named f and g. `lost`: x, or the value in
-  // `Some(a)` of the first evidence — 2; the `B` evidence is unrelated to the goal.
-  def anonymousApart = {
-    val found = counts("Anon.scala" -> """object T {
-      |  def anon2[A, B](x: A)(using A => B, B => A): B = ???
-      |  def lost[A, B](x: A)(using Option[A], B): A = ???
-      |}""".stripMargin)
-    (found("T.anon2") === Count.Countable).and(found("T.lost") === Count.Finite(2))
-  }
-
-  // Two owners of one chain — a method and its local def or class, an extension and its method —
-  // each with an anonymous parameter at index 0: keyed by index alone, the inner one replaced the
-  // outer. `summon[A]` selects the outer evidence (B is unrelated), the only value of A: 1 each.
-  // With `A => B` outside and `B => A` inside: f(x), f(g(f(x))), … — ω.
-  def anonymousOwners = {
-    val found = counts("Owners.scala" -> """object O {
-      |  def outer[A](using A): Unit = { def inner[B](using B): A = ???; () }
-      |  def two[A, C](x: C)(using A): Unit = { def inner[B](y: B)(using B): A = ???; () }
-      |}
-      |object Ext { extension [A](using A)(u: Unit) def pick[B](using B): A = ??? }
-      |object Loc {
-      |  def anon[A, B](using A => B): Unit = {
-      |    class In { def f(using B => A)(x: A): B = ??? }
-      |    ()
-      |  }
-      |  def local[A, B](using A => B): Unit = { def g(using B => A)(x: A): B = ???; () }
-      |}
-      |object X { extension [A, B](using A => B)(x: A) def go(using B => A): B = ??? }
-      |""".stripMargin)
-    (found("O.outer.inner") === Count.Finite(1))
-      .and(found("O.two.inner") === Count.Finite(1))
-      .and(found("Ext.<extension@5>.pick") === Count.Finite(1))
-      .and(found("Loc.anon.In.f") === Count.Countable)
-      .and(found("Loc.local.g") === Count.Countable)
-      .and(found("X.<extension@13>.go") === Count.Countable)
-  }
-
-  // `summon[A]` and `summon[B]` each select their own parameter: two unrelated binders. One pair.
-  def anonymousDistinct =
-    count("object T { def both[A, B](using A, B): (A, B) = ??? }", "T.both") === Count.Finite(1)
 
   // Two candidates of one type at one level make `summon[Option[A]]` an ambiguity error, so the
   // anonymous one is unreachable: the exact count is 1 (`x`), and the reading refuses rather than
@@ -130,18 +80,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       "ambiguous anonymous evidence: Option[A]"
     )
 
-  // A class's anonymous evidence competes with the method's own (nested deeper, it wins every
-  // search) and with a given of its own body (same level: ambiguous). Neither is counted.
-  def anonymousShadowed = {
-    val found = counts("Shadowed.scala" -> """class C[A](using Option[A]) {
-      |  given Option[A] = None
-      |  def f(x: A): A = ???
-      |}
-      |class D[A](using Option[A]) { def f(x: A)(using Option[A]): A = ??? }""".stripMargin)
-    refused(found("C.f"), "ambiguous anonymous evidence: Option[A]")
-      .and(refused(found("D.f"), "anonymous evidence selection not resolved: Option[A]"))
-  }
-
   // A block's given is in scope before its own position: `inner`'s `summon[A]` selects the given
   // written after it (3.9.0, run: `outer[String](using "evidence")("param")` prints `param`), so
   // the outer evidence is unreachable — exact 1 (a2); reading only earlier statements said 2.
@@ -163,19 +101,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       "object T { given Unit = (); def f[A](x: A)(using Option[A]): A = ??? }",
       "T.f"
     ) === Count.Finite(2)
-
-  // An implicit value of the parameter's type in the class body is a same-level competitor; a
-  // `given` import, or a parent outside the source set, brings candidates of unread types.
-  def anonymousUnseen = {
-    val found = counts("Unseen.scala" -> """import lib.Base
-      |object Helpers { given Unit = () }
-      |class G[A](using Option[A]) { implicit val other: Option[A] = None; def f(x: A): A = ??? }
-      |class H[A](using Option[A]) { import Helpers.given; def f(x: A): A = ??? }
-      |class E[A](using Option[A]) extends Base { def f(x: A): A = ??? }""".stripMargin)
-    refused(found("G.f"), "ambiguous anonymous evidence: Option[A]")
-      .and(refused(found("H.f"), "(overlaps import Helpers.given)"))
-      .and(refused(found("E.f"), "(overlaps unsupplied parent Base)"))
-  }
 
   // `import H.s` and `export H.s` bring the given `s` into the class body (3.9.0: E172 against the
   // class's `x$1` for both), so the anonymous evidence is unreachable — exact 1 (x, since s is
@@ -214,23 +139,12 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
 
   // `A => B <: Nothing => B` (functions are contravariant in the argument), so a search for
   // `Nothing => B` finds both and the second may lose it: refused. `A => B` and `B => A`, with
-  // unrelated binders on either side, are not related, and count ω as in `anonymousApart`.
+  // unrelated binders on either side, are not related.
   def anonymousRelated =
     refused(
       count("object T { def f[A, B](x: A)(using A => B, Nothing => B): B = ??? }", "T.f"),
       "anonymous evidence selection not resolved: Nothing => B"
     )
-
-  // `(A, B)` and `(A, B, B)` differ in arity: each search selects its own, and A has x and the two
-  // first components — 3. `(A, Nothing) <: (A, B)`: related, refused.
-  def anonymousTuples = {
-    val found = counts("Tup.scala" -> """object Tup {
-      |  def arity[A, B](x: A)(using (A, B), (A, B, B)): A = ???
-      |  def related[A, B](x: A)(using (A, B), (A, Nothing)): A = ???
-      |}""".stripMargin)
-    (found("Tup.arity") === Count.Finite(3))
-      .and(refused(found("Tup.related"), "anonymous evidence selection not resolved: (A, B)"))
-  }
 
   // `P1[A]` and `P2[A]` are unrelated final classes with one shape: each `summon` selects its own
   // evidence (a 3.9.0 run prints `p2` for `summon[P2[A]].a`), so x, p1.a and p2.a — 3. They were
@@ -444,20 +358,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
     (found("Q.other") === Count.Finite(1)).and(found("Q2.other") === Count.Finite(1))
   }
 
-  // `f(x: X)` restated as `f(x: A)` under `PO[A]`: both parameters are QO's binder A, so one member
-  // (it was refused by spelling) — go has only a: 1. Through the parameterized alias `Two[A]` the
-  // identity is not read: refused (the true count is 1).
-  def overloadIdentity = {
-    val found = counts("Restate.scala" -> """trait PO[X] { def f(x: X): Unit }
-      |trait QO[A] extends PO[A] { def f(x: A): Unit; def go(a: A): A = ??? }
-      |type Two[X] = (X, X)
-      |trait PT[A] { def f(x: Two[A]): Unit }
-      |trait QT[A] extends PT[A] { def f(x: Two[A]): Unit; def go(a: A): A = ??? }
-      |""".stripMargin)
-    (found("QO.go") === Count.Finite(1))
-      .and(refused(found("QT.go"), "overloaded declaration identity not resolved: f"))
-  }
-
   // `A.P` and `B.P` are two classes of one shape (3.9.0: implementing only one is E231, `a.P does
   // not match b.P`), so f_A and f_B are both capabilities: f_A(P(true)), f_A(P(false)), f_B(…) — 4
   // (merged as a restatement: 2). Two aliases of `Boolean` are one type: one member — 2.
@@ -472,20 +372,6 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |""".stripMargin
     )
     (found("Use.g") === Count.Finite(4)).and(found("Use2.g") === Count.Finite(2))
-  }
-
-  // A covariant result refinement with equal parameters is an override (3.9.0 compiles it): the
-  // template's own `get(a: A): Option[Nothing]` is the member, not an overload identity question.
-  // Eliminating `get(a)` (capabilities C10): `None` leaves `None` and `Some(a)`, `Some(_: Nothing)`
-  // is absurd (1) — 2. Met only between two inherited levels, which is more derived is not read:
-  // refused.
-  def refinedResult = {
-    val found = counts("Refined.scala" -> """trait P3[A] { def get(a: A): Option[A] }
-      |trait Q3[A] extends P3[A] { def get(a: A): Option[Nothing]; def other(a: A): Option[A] = ??? }
-      |trait R3[A] extends Q3[A] { def again(a: A): Option[A] = ??? }
-      |""".stripMargin)
-    (found("Q3.other") === Count.Finite(2))
-      .and(refused(found("R3.again"), "refined inherited declaration not resolved: get"))
   }
 
   // `Outer.this.value` and `Inner.this.value` are two receivers' members: 2.

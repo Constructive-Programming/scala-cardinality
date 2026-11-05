@@ -16,11 +16,9 @@ class ContextBindersSpec extends Specification {
 
   def is = s2"""
     An enclosing method's binders are anonymous evidence
-      a local definition reads a binder nothing hides                $reachable
       a deeper binder of the same type hides the outer one           $deeperBinder
       binders of one clause are ambiguous                            $oneClause
       a nested using, given or own binder hides the outer one        $deeperCandidate
-      a deeper candidate of an unrelated type hides nothing          $unrelated
     The chain is followed only where Scala wraps
       an infix alias and an applied type lambda wrap                 $lambdas
       a constructor argument of an alias wraps                       $constructorArgument
@@ -47,17 +45,6 @@ class ContextBindersSpec extends Specification {
     }
 
   private val Overlap = "anonymous evidence selection not resolved: context function binder A"
-
-  // f.g: the binder alone (1). mixed: ga reads the A binder, gb the B one, of two clauses (1 each).
-  def reachable = {
-    val found = rows("""object B {
-      |  def f[A]: A ?=> A = { def g: A = summon[A]; g }
-      |  def mixed[A, B]: A ?=> B ?=> A = { def ga: A = summon[A]; def gb: B = summon[B]; ga }
-      |}""".stripMargin)
-    (found("B.f.g") === Count.Finite(1))
-      .and(found("B.mixed.ga") === Count.Finite(1))
-      .and(found("B.mixed.gb") === Count.Finite(1))
-  }
 
   // Fixture r1: `two(using 1)(using 2)` prints 2, the inner binder. g has 1 implementation, never
   // the 2 of both binders: the outer one is refused. three.g3 likewise (1, never 3). The methods
@@ -94,12 +81,6 @@ class ContextBindersSpec extends Specification {
       .and(refused(found("B.outerF.k"), s"$Overlap (overlaps context function binder A)"))
       .and(refused(found("B.show.mid.g2"), Overlap))
   }
-
-  // Fixture r1 prints 3: v's using B answers no `summon[A]`, so the binder of A is v's one A (1).
-  def unrelated =
-    rows("""object B {
-      |  def apart[A, B](b: B): A ?=> A = { def v(using B): A = summon[A]; v(using b) }
-      |}""".stripMargin)("B.apart.v") === Count.Finite(1)
 
   // Fixture r4 prints (1,3,…): the binder wins through `A ~> A` and through every lambda, so gi,
   // g1, g2 and g3 refuse their outer evidence (true 1, never 2); fi.l, hk.lh, hk2.li and

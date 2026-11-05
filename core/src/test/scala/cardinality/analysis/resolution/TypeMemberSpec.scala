@@ -23,7 +23,6 @@ class TypeMemberSpec extends Specification {
       a type-only structural value has one value                 $structural
       a bounded or higher-kinded member stays a diagnostic       $boundedMember
       a member no one may pick stays a diagnostic                $fixedMember
-      a value path is a choice only where it can be overridden    $valuePaths
       the compiler keeps paths apart and aliases together         $pathFacts
     Members of the receiver
       inherited declarations read the receiver's alias            $inheritedAlias
@@ -178,34 +177,6 @@ class TypeMemberSpec extends Specification {
     """)
     refused(found("F.g"), "abstract type member X of final template F is never instantiated")
       .and(refused(found("onSealed"), "is fixed by the cases of sealed S"))
-  }
-
-  // An object's `lazy val p: R` is fixed by its definition: no one can supply its X — refused
-  // (true count 1, vacuous). A strict `val p: R = ???` throws while the object is built, so Strict
-  // is never built and v never called: 1 (register D26). An open template's abstract or `val`
-  // field may be narrowed by a subclass (`override val p: R { type X = Int }`): x, y — 2. A final
-  // class's field cannot.
-  def valuePaths = {
-    val found = entries(member + """
-      object Vals:
-        lazy val p: R = ???
-        def v(x: p.X, y: p.X): p.X = ???
-      object Strict:
-        val p: R = ???
-        def v(x: p.X, y: p.X): p.X = ???
-      trait Open:
-        val p: R
-        def v(x: p.X, y: p.X): p.X = ???
-      class C(val p: R):
-        def v(x: p.X, y: p.X): p.X = ???
-      final class F(val p: R):
-        def v(x: p.X, y: p.X): p.X = ???
-      """)
-    refused(found("Vals.v"), "p is not overridable in Vals")
-      .and(found("Strict.v") === Count.Finite(1))
-      .and(found("Open.v") === Count.Finite(2))
-      .and(found("C.v") === Count.Finite(2))
-      .and(refused(found("F.v"), "p is not overridable in F"))
   }
 
   def pathFacts =

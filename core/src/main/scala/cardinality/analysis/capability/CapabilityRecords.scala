@@ -85,10 +85,9 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         .flatMap(_ => walk)
         .flatMap { steps =>
           val table = new ReceiverMembers(template, steps, identity, resolver)
-          // A `final abstract` class is neither instantiated nor extended, and a template whose
-          // construction only throws is never built (register D26): neither has a value.
-          new Construction(resolver, steps).of(table.levels, useSite.tree).built.flatMap { built =>
-            if (!built || template.tree.exists(neverInstantiated)) Right(Shape.Sum(Nil))
+          // A `final abstract` class is neither instantiated nor extended: it has no value.
+          Construction.of(table.levels, useSite.tree).built.flatMap { _ =>
+            if (template.tree.exists(neverInstantiated)) Right(Shape.Sum(Nil))
             else if (template.tree.exists(fixedClass)) finalRecord
             else openRecord(steps, table)
           }
@@ -206,12 +205,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
           s"capability record of a template only its scope instantiates: $key"
       }
       val foreign = ForeignParents.reasons(all, resolver).headOption
-      val unreadMember = all.flatMap(_.stats).collectFirst {
-        case _: Defn.ExtensionGroup =>
-          s"capability record with an extension member not read: $key"
-      }
       val types = unread.map(t => s"capability record with abstract type member not read: $key.$t")
-      restricted.orElse(foreign).orElse(unreadMember).orElse(types.headOption)
+      restricted.orElse(foreign).orElse(types.headOption)
     }
 
     // A type member no level defines, split by what this reading does: bounded or higher-kinded
@@ -248,9 +243,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       signatureTypes.exists(mentions(name, _))
 
     private def mentions(name: String, tpe: Type): Boolean = tpe match {
-      case Type.Select(_, Type.Name(`name`))  => true
-      case Type.Project(_, Type.Name(`name`)) => true
-      case other                              =>
+      case Type.Select(_, Type.Name(`name`)) => true
+      case other                             =>
         other.children.collect { case t: Type => t }.exists(mentions(name, _))
     }
 
@@ -261,14 +255,9 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         case d: Defn.Def        => d.decltpe.toList
         case d: Decl.Def        => List(d.decltpe)
         case v: Defn.Val        => v.decltpe.toList
-        case v: Decl.Val        => List(v.decltpe)
-        case v: Defn.Var        => v.decltpe.toList
-        case v: Decl.Var        => List(v.decltpe)
         case g: Defn.GivenAlias => List(g.decltpe)
         case g: Defn.Given      => g.templ.inits.collect { case i: Init => i.tpe }
         case c: Defn.Class      => c.ctor.paramClauses.flatMap(_.values.flatMap(_.decltpe))
-        case e: Defn.Enum       => e.ctor.paramClauses.flatMap(_.values.flatMap(_.decltpe))
-        case t: Defn.Trait      => t.ctor.paramClauses.flatMap(_.values.flatMap(_.decltpe))
         case _                  => Nil
       }
       parameters ++ result
@@ -332,11 +321,6 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       if (table.universal(stat, level)) Right(None)
       else
         MemberSyntax.names(stat).headOption match {
-          case Some(name) if MemberSyntax.deferredInline(stat) =>
-            observe(stat, level, name, scope).flatMap(
-              _.flatMap(DeferredInline.refusal(_, s"$key.$name", useSite.tree, resolver))
-                .toLeft(None)
-            )
           case Some(name) => observe(stat, level, name, scope)
           case None       => Right(None)
         }

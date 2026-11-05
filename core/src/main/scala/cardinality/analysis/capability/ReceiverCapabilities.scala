@@ -2,7 +2,6 @@ package cardinality.analysis.capability
 
 import scala.meta.*
 
-import cardinality.analysis.expansion.InlineBodies
 import cardinality.analysis.model.{MemberSlot, MemberSyntax}
 import cardinality.analysis.resolution.{InheritedScopes, Linearization, OverrideIdentity}
 import cardinality.analysis.{MethodAnalysis, Resolver}
@@ -67,43 +66,27 @@ final private[cardinality] class ReceiverCapabilities(
     * receiver of the code declaring it, a member object the instance it belongs to — and, for a
     * top-level definition, the object holding its package's top-level definitions. A template a
     * static object (one nested only in objects and packages) encloses is built without the object.
-    * Where one is never built, no call of the declaration returns, so every implementation is the
-    * same one. A constructor builds its instance: its row reads its parameters only.
+    * A constructor builds its instance: its row reads its parameters only.
     */
   lazy val construction: Construction.Verdict =
-    Construction.Verdict.all(verdicts.map(_._2))
+    Construction.Verdict.all(verdicts)
 
-  /** Whether the declaration is never called (register D26): some template it runs in is never
-    * built, and calling it needs that template. An inline member (or a definition inside one) is
-    * expanded where it is called, and an expansion initializes a static object or a file's
-    * top-level holder only by selecting one of its members (Scala 3.9.0 runs): such an owner left
-    * unbuilt does not stop the call, which is then counted as in a built owner whose own members
-    * supply nothing — none is an input anyway: an object or a file declares no slot and has no open
-    * member, so every member it has is concrete code the environment never binds.
+  /** Whether the declaration is never called: not modelled, a template that may never be built
+    * leaves its construction unresolved (`construction`).
     */
-  def neverCalled: Boolean =
-    construction.built == Right(false) &&
-      (!InlineBodies.expanded(target) || unbuilt.exists(expansionBuilds))
-
-  private def unbuilt: List[Frame] =
-    verdicts.collect { case (owner, Construction.Verdict.Never) => owner }
-
-  // Whether calling an inline member builds the owner: not a static object or a package's top-level
-  // holder — a class, trait or member object is the receiver the call needs.
-  private def expansionBuilds(owner: Frame): Boolean = !fileHolder(owner) && !static(owner)
+  def neverCalled: Boolean = false
 
   // The object holding a package's top-level definitions.
   private def fileHolder(owner: Frame): Boolean = resolver.isPackage(owner) && !owner.isTemplate
 
-  private lazy val verdicts: List[(Frame, Construction.Verdict)] =
+  private lazy val verdicts: List[Construction.Verdict] =
     if (target.constructor) Nil
     else {
-      val built = new Construction(resolver, steps)
       needed(target.frame).map { owner =>
-        if (fileHolder(owner)) owner -> built.topLevel(owner, Some(target.tree))
+        if (fileHolder(owner)) Construction.topLevel(owner, Some(target.tree))
         else {
           val levels = new Linearization(owner :: InheritedScopes.levels(steps, owner), resolver)
-          owner -> built.of(levels.order, Some(target.tree))
+          Construction.of(levels.order, Some(target.tree))
         }
       }
     }
@@ -121,7 +104,6 @@ final private[cardinality] class ReceiverCapabilities(
 
   private def module(tree: Tree): Boolean = tree match {
     case _: Defn.Object => true
-    case g: Defn.Given  => g.paramClauseGroups.isEmpty
     case _              => false
   }
 

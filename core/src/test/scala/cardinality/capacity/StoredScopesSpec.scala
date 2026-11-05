@@ -42,8 +42,6 @@ class StoredScopesSpec extends Specification {
 
     An opaque alias is its representation only inside its scope
       a member alias inside its template, refused outside             $opaqueMembers
-      a top-level alias in its file's package object                  $opaqueTopLevel
-      constructor slots outside the scope are refused                 $opaqueLending
     """
 
   private def refusedWith(verdict: String, reason: String): Result =
@@ -584,79 +582,6 @@ class StoredScopesSpec extends Specification {
       .and(found(("op.Box.In", Class)) === "3")
       .and(refusedWith(found(("op.UB", Class)), "opaque type read outside its scope: op.Box.B"))
       .and(found(("op.Ids.Id", Opaque)) === "≤2^32")
-  }
-
-  // A top-level `Flag` is transparent in its file's package object: a top-level alias (2), the
-  // companion of a top-level type (`object Flag`, `object Al` beside `type Al`), and an implicit
-  // class or object, which Scala 3 wraps there too (scalac reads `f: Boolean` in `implicit class
-  // R(f: Flag)`, and in `implicit object IO`): R, R#In and IO.In are 2 — not a top-level class,
-  // another object, or another file of the package (scalac rejects `asBool: Boolean = f` in `V`,
-  // and `Boolean` where `Flag` is expected in `object W`).
-  def opaqueTopLevel = {
-    val found = rowsOf(
-      "f/a.scala" ->
-        """|package f
-           |opaque type Flag = Boolean
-           |type Same = Flag
-           |object Flag { final case class In(f: Flag) }
-           |type Al = Int
-           |object Al { final case class In2(f: Flag) }
-           |final case class V(f: Flag)
-           |object W { final case class V2(f: Flag) }
-           |implicit class R(f: Flag) { final case class In(x: Flag) }
-           |implicit object IO { final case class In(x: Flag) }
-           |""".stripMargin,
-      "f/b.scala" -> "package f\nfinal case class V3(f: Flag)"
-    )
-    val outside = "opaque type read outside its scope: f.Flag"
-    (found(("f.Same", Alias)) === "2")
-      .and(found(("f.Flag.In", Class)) === "2")
-      .and(found(("f.Al.In2", Class)) === "2")
-      .and(found(("f.R", Class)) === "2")
-      .and(found(("f.R#In", Class)) === "2")
-      .and(found(("f.IO.In", Class)) === "2")
-      .and(refusedWith(found(("f.V", Class)), outside))
-      .and(refusedWith(found(("f.W.V2", Class)), outside))
-      .and(refusedWith(found(("f.V3", Class)), outside))
-  }
-
-  // Outside its scope, the method side's own reading is refused too (OpaqueTypeScopeSpec), and the
-  // slot carries the estimate's refusal beside it: it no longer lends a 1. Inside, both read 2^32.
-  // In an implicit class, the method side reads the representation as well: `R(f: Flag)` and
-  // `In(x: Flag)` are 2, and `b: Boolean` over the captured `f` is 2^2 (it was refused on both
-  // sides). So does a `given … with` body, wrapped in the package object too (scalac reads `f` as a
-  // `Boolean` there): `g(f: Flag): Boolean` is 2^2. A plain top-level class of the alias's own
-  // file is outside it (scalac rejects `def h(f: Flag): Boolean = f`): refused.
-  def opaqueLending = {
-    val files = List(
-      "a.scala" ->
-        "package ol\nobject Ids { opaque type Id = Int; final case class Inside(id: Id) }\nfinal case class U(id: Ids.Id)",
-      "b.scala" ->
-        "package ic\nopaque type Flag = Boolean\nimplicit class R(f: Flag) { def b: Boolean = f; final case class In(x: Flag) }",
-      "c.scala" ->
-        """|package gw
-           |opaque type Flag = Boolean
-           |trait Show[A] { def show(a: A): Boolean }
-           |given Show[Int] with { def show(a: Int): Boolean = true; def g(f: Flag): Boolean = f }
-           |class Plain { def h(f: Flag): Boolean = ??? }
-           |""".stripMargin
-    )
-    refusedExactly(
-      constructor("ol.U.<init>", files*),
-      "opaque representation is not visible at use site: ol.Ids.Id",
-      "opaque type read outside its scope: ol.Ids.Id"
-    )
-      .and(constructor("ol.Ids.Inside.<init>", files*) === Count.Finite(BigInt(2).pow(32)))
-      .and(constructor("ic.R.<init>", files*) === Count.Finite(2))
-      .and(constructor("ic.R.In.<init>", files*) === Count.Finite(2))
-      .and(constructor("ic.R.b", files*) === Count.Finite(4))
-      .and(constructor("gw.<given@4>.g", files*) === Count.Finite(4))
-      .and(
-        refusedExactly(
-          constructor("gw.Plain.h", files*),
-          "opaque representation is not visible at use site: gw.Flag"
-        )
-      )
   }
 
 }

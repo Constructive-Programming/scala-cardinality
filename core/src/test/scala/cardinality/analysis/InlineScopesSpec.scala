@@ -32,7 +32,6 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       a given whose type a wildcard may hide is read as its declaration  $doubtedConversions
       a listed namespace's wildcard binds its own terms only            $listedTerms
       a reading cut short decides nothing                               $interrupted
-      a deferred inline member keeps its refusal in an inline body      $deferredMembers
       a passing body is eliminated by the solver like its def twin      $solverTwins
   """
 
@@ -344,26 +343,6 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       case _ => false
     }
     (afterCuts.size === 300).and(stillRefused.size === 300)
-  }
-
-  // Fixture a6-land dip: g(new A) prints true and g(new B) false — each expansion calls the static
-  // type's implementation of the deferred f, and g at a T does not compile. Both readings refuse g.
-  // h never calls f, yet a receiver holding a deferred inline member keeps register D24's refusal
-  // in an inline target (conservative); its def twin d, where f is no term, counts 4.
-  def deferredMembers = {
-    val found = rows("""trait T { inline def f: Boolean }
-      |final class A extends T { inline def f: Boolean = true }
-      |object Use {
-      |  inline def g(t: T): Boolean = t.f
-      |  inline def h(t: T, b: Boolean): Boolean = b
-      |  def d(t: T, b: Boolean): Boolean = b
-      |}""".stripMargin)
-    refused(found("Use.g"), "deferred inline member resolved at each expansion: T.f")
-      .and(
-        refused(found("Use.g"), "calls inline method f, which is an abstract inline declaration")
-      )
-      .and(refused(found("Use.h"), "deferred inline member resolved at each expansion: T.f"))
-      .and(found("Use.d") === Count.Finite(4))
   }
 
   // Fixture a6-land sums (eo's MendTearPrism, PickMendPrism and PickFold shapes): a passing body

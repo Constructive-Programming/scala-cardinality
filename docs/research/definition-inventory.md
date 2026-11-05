@@ -45,15 +45,13 @@ that declaration (the contract's §2: the measured declaration is not its own im
 in an open template too.
 
 An anonymous given is a member of the name 3.9.0 synthesizes from its type: `given_` and the
-simple names the type spells (`given A = a` is `given_A`, `given Ord[List[T]]` is `given_Ord_List`,
-`given (Int, String)` is `given_Int_String`, `given (String => Int)` is `given_String_to_Int`;
-`GivenNames` lists every shape, each checked against `-Xprint:typer`, fixtures
-`$S/probes/b5-fix2/gname`). `new C[A](x, y).given_A` compiles, so that name selects it, and an
+simple names the type spells (`given A = a` is `given_A`, `given Ord[Int]` is `given_Ord_Int`;
+checked against `-Xprint:typer`, fixtures `$S/probes/b5-fix2/gname`). `new C[A](x, y).given_A` compiles, so that name selects it, and an
 anonymous `given A = a` in `final class C[A](a: A, b: A) extends T[A]` implements `T`'s `given
 given_A: A`: the declaration is the given itself (a or b, 2, never 3), and for every other member
-of `C` concrete code. A bounded wildcard in a given alias's type (`given Ord[? <: String]`, named
-`given_Ord_String`) loses its bound in the parser: that given's name is not known, so it may be any
-`given_…` member — its own identity against one is unresolved, and in a final template it is read
+of `C` concrete code. Any other type — a tuple, a function, a wildcard, a path, an argument that is
+itself applied — is not spelled here: that given's name is not known, so it may be any `given_…`
+member — its own identity against one is unresolved, and in a final template it is read
 as implementing one (every inherited declaration of a final template is concrete code wherever it
 is implemented).
 

@@ -14,7 +14,6 @@ class OpaqueTypeScopeSpec extends Specification {
     Opaque representation visibility
       resolve generic wraps in the defining object              $objectScope
       retain visibility in nested defining-object scopes        $nestedScope
-      resolve top-level definitions in the same source           $topLevelScope
       resolve the named top-level companion scope                $companionScope
       count the six Direct-like wrapper signatures               $directLikeSignatures
       keep unrelated same-file objects opaque                   $unrelatedObject
@@ -59,13 +58,6 @@ class OpaqueTypeScopeSpec extends Specification {
       "Owner.Nested.get",
       "Owner.scala" ->
         "object Owner { opaque type T[A] = A; object Nested { def get[A](a: T[A]): A = ??? } }"
-    ) === Count.Finite(1)
-
-  def topLevelScope =
-    count(
-      "wrap",
-      "Top.scala" ->
-        "opaque type T[A] = A; def wrap[A](a: A): T[A] = ???"
     ) === Count.Finite(1)
 
   def companionScope =

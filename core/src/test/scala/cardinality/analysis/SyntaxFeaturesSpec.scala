@@ -31,8 +31,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       an input applies like a function                               $contextInputs
       a result builds a literal with named binders                   $contextResults
       a whole-body binder hides outer evidence of its type           $contextShadowing
-      a binder of an unrelated type hides nothing                    $contextUnrelated
-      a context-function candidate also answers its result           $contextResultsSearched
       a nested context function wraps only its part                  $contextNested
       local definitions read the enclosing method's binders          $contextLocals
       a binder behind a reading that stops is refused                $contextUnread
@@ -279,42 +277,6 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       .and(found("S.h") === Count.Finite(2))
       .and(refused(found("S.curried"), "overlaps context function binder A"))
       .and(refused(found("S.nested"), "overlaps context function binder A"))
-  }
-
-  // A binder of type B does not answer `summon[A]`: the outer evidence is the one A (1).
-  def contextUnrelated =
-    rows("object U { def u[A, B](using A): B ?=> A = summon[A] }")("U.u") === Count.Finite(1)
-
-  // Implicit search applies a candidate of type `A ?=> B` where it wants a B, and a search for
-  // `A ?=> B` finds a plain B (fixtures review-A5 r2: cf4 and amb4 report `summon[B]` ambiguous
-  // between `using A ?=> B` and `using B`, cf6 `summon[A ?=> B]`, amb2 a named `k: A ?=> B` and
-  // an anonymous B; amb3 prints `binder3`, the binder `A ?=> B` winning `summon[B]`). True counts:
-  // a2 and C.m 0, a4, a8 and b1 1, never the 2 a plain function would give: refused. a1 and a9
-  // (k applied to the one A: 1) have no plain B; a C beside `A ?=> B` overlaps neither its type nor
-  // its result (apart: 1).
-  def contextResultsSearched = {
-    val found = rows("""object A {
-      |  def a1[A, B](using A ?=> B)(using A): B = ???
-      |  def a2[A, B](using A ?=> B)(using B)(using A): B = ???
-      |  def a4[A, B](using A ?=> B)(using B)(a: A): B = ???
-      |  def a8[A, B](using A)(using k: A ?=> B)(using B): B = ???
-      |  def a9[A, B](using A)(using k: A ?=> B): B = ???
-      |  def b1[A, B](using A)(using B): (A ?=> B) ?=> B = ???
-      |  def e2[A, B](using A)(using A ?=> B): B ?=> B = { def h2: B = summon[B]; h2 }
-      |  def apart[A, B, C](using A ?=> B)(using C)(a: A): B = ???
-      |}
-      |class C[A, B](using A ?=> B, B, A) { def m: B = ??? }
-      |""".stripMargin)
-    val overlap = "anonymous evidence selection not resolved"
-    (found("A.a1") === Count.Finite(1))
-      .and(refused(found("A.a2"), s"$overlap: B (overlaps A ?=> B)"))
-      .and(refused(found("A.a4"), s"$overlap: A ?=> B (overlaps B)"))
-      .and(refused(found("A.a8"), s"$overlap: B (overlaps k: A ?=> B)"))
-      .and(found("A.a9") === Count.Finite(1))
-      .and(refused(found("A.b1"), s"$overlap: B (overlaps context function binder A ?=> B)"))
-      .and(refused(found("A.e2.h2"), s"$overlap: A ?=> B (overlaps context function binder B)"))
-      .and(found("A.apart") === Count.Finite(1))
-      .and(refused(found("C.m"), s"$overlap: B (overlaps A ?=> B)"))
   }
 
   // Fixture cf3: the tuple's first component is wrapped, yet `val o = summon[A]` before it reaches

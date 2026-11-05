@@ -29,7 +29,6 @@ class ReentrySpec extends Specification {
     Implicit search may select the measured given
       an abstract given a sibling may summon is a possible view        $abstractGiven
       a body returning its parameter of the result type searches none  $settledBody
-      a literal searches only where its type is not the result type    $literalSearch
     The view sandwich
       an upper reading of 0, or of 1 with a lower 1, is the count      $sandwich
       a refused binding, readings that disagree, or ≥ 2 stay `?`       $sandwichRefuses
@@ -178,23 +177,6 @@ class ReentrySpec extends Specification {
       .map(c => view(found(s"$c.h"), s"$c.other"))
       .reduce(_ and _)
       .and(found("K.h") === Count.Finite(256))
-  }
-
-  // `def other: Boolean = 5` is `conv(5)` (3.9.0 run: an implementation of conv returning other
-  // overflows): other may re-enter conv — `?`, not 2^(2^33) (the true count is 2^(2^32)). A literal
-  // of the result type (U), or at `Any` (V), inserts nothing: U's conv reads i and a free other —
-  // 2^(2^33); V's other has one value — 2^(2^32). An Int literal at Long may search: `?`.
-  def literalSearch = {
-    val found = one("""
-      trait T { implicit def conv(i: Int): Boolean; def other: Boolean = 5 }
-      trait U { implicit def conv(i: Int): Boolean; def other: Boolean = true }
-      trait V { implicit def conv(i: Int): Boolean; def other: Any = 5 }
-      trait W { implicit def conv(i: Int): Boolean; def other: Long = 5 }
-    """)
-    view(found("T.conv"), "T.other")
-      .and(found("U.conv").render === "2^(2^33)")
-      .and(found("V.conv").render === "2^(2^32)")
-      .and(view(found("W.conv"), "W.other"))
   }
 
   // `summon[Boolean]` and an implicitly filled `using` clause may select g itself: other (T3) and

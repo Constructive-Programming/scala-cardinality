@@ -2,9 +2,8 @@ package cardinality.analysis.capability
 
 import scala.meta.*
 
+import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.model.Throws
-import cardinality.analysis.resolution.{InheritedScopes, TermBinding, TermBindings}
-import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.TypeApplications
 
 import MethodAnalysis.Frame
@@ -12,20 +11,29 @@ import MethodAnalysis.Frame
 /** Whether instances of a template are ever built (register D26). Every constructor, a subclass's
   * included, runs the primary constructor of each level of the template's linearization: its
   * parents' arguments, each strict `val`/`var` initializer and each statement (`Throws`). Where one
-  * of them only throws, no instance exists.
-  *
-  * A simple name there is the root imports' only where nothing binds it at that point: the level's
-  * parameters, members and inherited members (a subclass's never), the scopes around the level, and
-  * the imports written before the statement — an import binds from its position on, an export
-  * throughout. A parent's arguments see no member: no `this` exists yet. Where a wildcard import,
-  * an unsupplied parent, an unread ancestor or a self type may bind the name, a statement that
-  * throws if the name is the root imports' leaves the construction unresolved.
+  * of them may only throw, whether an instance exists is not resolved here.
   */
-final private[cardinality] class Construction(
-    resolver: Resolver,
-    steps: List[InheritedScopes.Step]
-) {
-  import Construction.Verdict
+private[cardinality] object Construction {
+
+  enum Verdict {
+    case Built
+    case Unresolved(reason: String)
+
+    /** Whether instances exist, or why that is unknown. */
+    def built: Either[String, Unit] = this match {
+      case Built              => Right(())
+      case Unresolved(reason) => Left(reason)
+    }
+
+  }
+
+  object Verdict {
+
+    /** Every part runs: the first that is not resolved decides. */
+    def all(parts: List[Verdict]): Verdict =
+      parts.collectFirst { case u: Unresolved => u }.getOrElse(Built)
+
+  }
 
   /** Whether a template whose linearization is `levels` (itself first) is built. `excluded` is the
     * measured declaration, whose body is the choice being counted, not a fixed fact.
@@ -39,15 +47,12 @@ final private[cardinality] class Construction(
     */
   def topLevel(pkg: Frame, excluded: Option[Tree]): Verdict =
     if (templateOf(pkg).nonEmpty) level(pkg, excluded)
-    else Verdict.all(Throws.evaluated(pkg.stats, excluded).map(judge(_, pkg.chain, Set.empty, pkg)))
+    else Verdict.all(Throws.evaluated(pkg.stats, excluded).map(judge(_, pkg)))
 
   private def level(frame: Frame, excluded: Option[Tree]): Verdict =
     templateOf(frame).fold(Verdict.Built) { template =>
-      val parameters = frame.params.map(_.name.value).toSet
-      val arguments =
-        Throws.arguments(template.inits).map(judge(_, frame.chain.tail, parameters, frame))
-      val body =
-        Throws.evaluated(template.body.stats, excluded).map(judge(_, frame.chain, Set.empty, frame))
+      val arguments = Throws.arguments(template.inits).map(judge(_, frame))
+      val body = Throws.evaluated(template.body.stats, excluded).map(judge(_, frame))
       Verdict.all(arguments ++ body)
     }
 
@@ -56,75 +61,11 @@ final private[cardinality] class Construction(
     case other         => TypeApplications.template(other)
   }
 
-  // Certain where every name the term would throw through is the root imports'; unresolved where
-  // only a binding this reading does not enumerate keeps it from that.
-  private def judge(term: Term, chain: List[Frame], parameters: Set[String], owner: Frame) =
+  private def judge(term: Term, owner: Frame): Verdict =
     if (!Throws.only(term, _ => true)) Verdict.Built
-    else {
-      val open = chain.exists(unread)
-      val binding = (name: String) =>
-        if (parameters(name)) TermBinding.Parameter
-        else terms.nearest(name, chain, Some(term.pos.start))
-      if (Throws.only(term, name => !open && binding(name) == TermBinding.Unbound)) Verdict.Never
-      else if (Throws.only(term, name => mayBeRoot(binding(name))))
-        Verdict.Unresolved(s"construction not resolved: ${label(owner)}")
-      else Verdict.Built
-    }
-
-  private def mayBeRoot(binding: TermBinding): Boolean = binding match {
-    case TermBinding.Unbound           => true
-    case TermBinding.Bound(_, certain) => !certain
-    case _                             => false
-  }
-
-  private val ancestors = scala.collection.mutable.Map.empty[String, Option[List[Frame]]]
-
-  // A template's supplied ancestors: the walk the measurement read, or one of its own.
-  private def ancestorsOf(frame: Frame): Option[List[Frame]] =
-    ancestors.getOrElseUpdate(
-      frame.id,
-      if (templateOf(frame).isEmpty) Some(Nil)
-      else if (steps.exists(_.root.id == frame.id)) Some(InheritedScopes.levels(steps, frame))
-      else InheritedScopes.ancestors(frame, resolver)
-    )
-
-  private val terms = new TermBindings(ancestorsOf(_).getOrElse(Nil), resolver)
-
-  // A scope whose members this reading cannot list: an ancestor not read, a self type's, or a
-  // package object's parents (which its frame does not record).
-  private def unread(frame: Frame): Boolean =
-    ancestorsOf(frame).isEmpty || templateOf(frame).exists { template =>
-      template.body.selfOpt.exists(_.decltpe.nonEmpty) ||
-      (frame.tree.exists(_.is[Pkg.Object]) && template.inits.nonEmpty)
-    }
+    else Verdict.Unresolved(s"construction not resolved: ${label(owner)}")
 
   private def label(frame: Frame): String =
     if (frame.path.isEmpty) "<empty package>" else frame.path.mkString(".")
-
-}
-
-private[cardinality] object Construction {
-
-  enum Verdict {
-    case Built, Never
-    case Unresolved(reason: String)
-
-    /** Whether instances exist, or why that is unknown. */
-    def built: Either[String, Boolean] = this match {
-      case Built              => Right(true)
-      case Never              => Right(false)
-      case Unresolved(reason) => Left(reason)
-    }
-
-  }
-
-  object Verdict {
-
-    /** Every part runs: one that never completes leaves no instance, whatever the others do. */
-    def all(parts: List[Verdict]): Verdict =
-      if (parts.contains(Never)) Never
-      else parts.collectFirst { case u: Unresolved => u }.getOrElse(Built)
-
-  }
 
 }

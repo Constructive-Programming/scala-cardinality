@@ -12,18 +12,15 @@ import Inhabitation.Shape
   *
   * One declaration reached from two receivers is two slots. Within one linearization, two
   * declarations of a name at one level overload; at different levels, parameter types that resolve
-  * to the same declarations restate the member — the template's own declaration giving its result,
-  * while a refinement met only between two inherited levels is refused. Parameter types that read
-  * differently, or resolve to different declarations, overload; equal shapes whose declarations are
-  * not known are refused.
+  * to the same declarations restate the member. Any other declaration overloads.
   */
 final private[cardinality] class DeclaredMembers {
   import DeclaredMembers.Declared
 
   private val seen = mutable.Map.empty[String, List[(Tree, String, Declared)]]
 
-  /** `Some(key)` binds the declaration, `None` is a member already bound, `Left` an identity this
-    * reading cannot settle. A declaration read twice for one template keeps its first key.
+  /** `Some(key)` binds the declaration, `None` is a member already bound. A declaration read twice
+    * for one template keeps its first key.
     */
   def key(name: String, declaration: Tree, declared: Declared): Either[String, Option[String]] = {
     val prior = seen.getOrElse(name, Nil)
@@ -37,11 +34,8 @@ final private[cardinality] class DeclaredMembers {
               arguments(p.shape) == arguments(declared.shape)
           )
         alike.find(p => known(p, declared).forall(_.contains(true))) match {
-          case Some(p) if p.shape == declared.shape || p.level == p.template => Right(None)
-          case Some(_) => Left(s"refined inherited declaration not resolved: $name")
-          case None if alike.exists(p => !known(p, declared).exists(_.contains(false))) =>
-            Left(s"overloaded declaration identity not resolved: $name")
-          case None =>
+          case Some(_) => Right(None)
+          case None    =>
             val key = if (prior.isEmpty) name else s"$name#${prior.size + 1}"
             seen.update(name, prior :+ (declaration, key, declared))
             Right(Some(key))

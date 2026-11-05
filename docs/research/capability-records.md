@@ -91,11 +91,7 @@ Only the template's own file may extend it when it is local, when it or an enclo
 private to a template, or when its own constructor is private (unqualified, `this`, or qualified
 by a template: its companion is in the file). There an overridable member is derived unless
 another template of the file (of the enclosing block, for a local one) defines its name — in its
-body, as a pattern binder or as a constructor parameter — or a template of the file that may
-extend the receiver (naming it, a subclass of it or an alias of either among its parents) mixes in
-a parent written outside that scope whose supplied linearization defines the name, or that this
-reading cannot follow: `class D extends C with T2` overrides C's `m` with T2's wherever T2 is
-written. Then it is refused, since this reading does not enumerate those subclasses. An ancestor's private constructor closes no public subclass, a
+body, as a pattern binder or as a constructor parameter. Then it is refused, since this reading does not enumerate those subclasses. An ancestor's private constructor closes no public subclass, a
 top-level `private` template is visible in its whole package, and a `private[p]` constructor is
 reached package-wide: those templates are open.
 
@@ -274,7 +270,7 @@ number of binders or parameters per clause is always another slot.
 | Final-class parameter no member observes injectively | `final class field not observable injectively: C.p` |
 | Non-public constructor or class, local or private template | `receiver fields constrained by …: C` / `capability record of a template only its scope instantiates: C` |
 | Member hidden at the use site | `capability record with members hidden at the use site: C` |
-| Extension or pattern-defined member (a `var` is its value, register D26: an abstract one its getter, a concrete one derived) | `capability record with an extension member not read: C`, `destructured member of an open receiver not read: C` |
+| Pattern-defined member of an open receiver | `destructured member of an open receiver not read: C` |
 | Trait parameters | `capability record with trait parameters not read: C` |
 | Recursive record (a member's type mentions the record) | `recursive type not read: C` (the type reading's own guard) |
 | Polymorphic open member not reduced | `polymorphic capability binder: M (…)` ([PB0–PB4](polymorphic-members-and-saturation.md)) |

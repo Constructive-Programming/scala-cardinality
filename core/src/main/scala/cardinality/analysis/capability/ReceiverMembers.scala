@@ -81,13 +81,12 @@ final private[cardinality] class ReceiverMembers(
   def open(measured: Option[Measured], mode: ViewMode): List[Either[Refusal, Concrete]] = {
     val closures = TemplateClosures.of(root, levels)
     val views = measured.fold(Map.empty[Concrete, View])(viewsOf)
-    val refused = (destructured(closures) ++ hiddenParameters).map(reason => Left(Refusal(reason)))
+    val refused = destructured(closures).map(reason => Left(Refusal(reason)))
     refused ++ concretes.flatMap { c =>
       overridden(c) match {
-        case Left(reason)                => List(Left(Refusal(reason)))
-        case Right(true) if freeState(c) => List(Left(Refusal(hiddenState(c.level, c.name))))
-        case Right(true)                 => Nil
-        case Right(false)                =>
+        case Left(reason) => List(Left(Refusal(reason)))
+        case Right(true)  => Nil
+        case Right(false) =>
           if (measured.exists(_.is(c))) Nil
           else verdict(c, closures, mode.effective(views.getOrElse(c, View.Free)))
       }
@@ -116,17 +115,6 @@ final private[cardinality] class ReceiverMembers(
   // A field of a level no class of the linearization passes arguments to: every value of its type,
   // whichever class finally extends the receiver passes it.
   private def freeState(c: Concrete): Boolean = c.field && !passed(c.level)
-
-  // The constructor parameters of unpassed levels that no field observes: free state hidden from
-  // every member but the level's own code.
-  private def hiddenParameters: List[String] =
-    levels.drop(1).filterNot(passed).flatMap { level =>
-      val fields = fieldParams(level)
-      level.params.filterNot(p => fields.exists(_ eq p)).map(p => hiddenState(level, p.name.value))
-    }
-
-  private def hiddenState(level: Frame, name: String): String =
-    s"open class with hidden constructor state: ${level.path.mkString(".")}.$name"
 
   // Some class of the linearization names the level among its parents: a class passes every
   // parameterized parent its arguments, explicitly or by default.
@@ -182,9 +170,7 @@ final private[cardinality] class ReceiverMembers(
       c: Concrete,
       closures: List[TemplateClosures.Closure]
   ): Option[Either[String, Unit]] =
-    if (freeState(c)) Option.when(c.hidden)(Left(hiddenState(c.level, c.name)))
-    else if (deferredElsewhere(c))
-      Some(Left(s"given alias of a deferred not resolved to scala.compiletime: ${label(c)}"))
+    if (freeState(c)) None
     else if (
       resolver.fixedTemplate(root) || closures.contains(TemplateClosures.Closure.Final) || c.fixed
     )
@@ -199,25 +185,7 @@ final private[cardinality] class ReceiverMembers(
       )
     else None
 
-  // A given alias spelled `deferred` is abstract (`Overrides.deferred`) only where the name is
-  // scala.compiletime's: a bare one an import of it binds, a selected one no source rebinds the path
-  // of. A term of the name around the member — a member of the receiver, a definition or parameter
-  // of a scope around it — or an import of another declaration makes it a fixed given, which this
-  // reading does not tell apart.
-  private def deferredElsewhere(c: Concrete): Boolean = c.tree match {
-    case g: Defn.GivenAlias if Overrides.deferred(g) =>
-      val head = g.body.collect { case Term.Name(name) => name }.headOption.getOrElse("")
-      val context = contextAt(c.level, g.body.pos.start)
-      (levels ++ c.level.chain).exists(definesOrTakes(_, head)) ||
-      (resolver.resolveName(g.body.syntax, context) match {
-        case Found.Foreign(path, _) => path != "scala.compiletime.deferred"
-        case Found.Absent           => g.body.is[Term.Name]
-        case _                      => true
-      })
-    case _ => false
-  }
-
-  private lazy val fileOverrides = new FileOverrides(root, levels, resolver)
+  private lazy val fileOverrides = new FileOverrides(root, levels)
 
   private lazy val calls = new ReceiverCalls(levels, resolver)
 
@@ -445,7 +413,6 @@ final private[cardinality] class ReceiverMembers(
       // supplied class's.
       def constructed(constructs: TargetViews.Constructs, at: Int): Set[Int] =
         constructs match {
-          case TargetViews.Constructs.Own => Slots.this.constructed(linearization.bases(level.id))
           case TargetViews.Constructs.Unfollowed                          => unknown
           case TargetViews.Constructs.Named(tpe, name, imported, creator) =>
             val context = contextAt(level, at)
@@ -459,25 +426,12 @@ final private[cardinality] class ReceiverMembers(
                   .filter(_.complete)
                   .flatMap(lineage => building(entry, lineage.bases))
                   .getOrElse(unknown)
-              case _ if creator        => Set.empty
-              case Found.Foreign(_, _) => Set.empty
-              case Found.Absent        =>
+              case _ if creator => Set.empty
+              case Found.Absent =>
                 if (resolver.builtin(name, context).isRight) Set.empty else unknown
-              case _: Found.Blocked => unknown
+              case _ => unknown
             }
         }
-
-      def conforms(literal: Lit, result: Type): Boolean =
-        (result.is[Lit] && result.syntax == literal.syntax) || (result match {
-          case named: (Type.Name | Type.Select) =>
-            val context = contextAt(level, named.pos.start)
-            resolver.declaration(named, named.syntax, context) == Found.Absent &&
-            resolver
-              .builtin(named.syntax, context)
-              .toOption
-              .exists(InferredResults.literalTypes(literal))
-          case _ => false
-        })
 
       def enclosing(name: String): Option[String] =
         level.chain.tail
@@ -485,10 +439,9 @@ final private[cardinality] class ReceiverMembers(
           .flatMap(_.path.lastOption)
 
       def outer(template: String, name: String): Boolean =
-        level.chain.tail.find(f => f.isTemplate && f.path.lastOption.contains(template)) match {
-          case None        => true
-          case Some(frame) => reaches(frame, name)
-        }
+        level.chain.tail
+          .find(f => f.isTemplate && f.path.lastOption.contains(template))
+          .forall(reaches(_, name))
 
       def byValue(head: Term, contextual: List[Boolean], typed: Boolean): List[Boolean] =
         calls
@@ -510,18 +463,10 @@ final private[cardinality] class ReceiverMembers(
           at: Int
       ): Boolean =
         TargetViews.anyMembers(name) || member.exists(calls.declares(_, name, applied, visible)) ||
-          !(converts || resolver.insertions.extensions(name) || imported(name, at))
+          !(converts || resolver.insertions.extensions(name))
 
       def deferredOperand(op: String): Boolean =
         unread || resolver.insertions.byName(op) || resolver.insertions.extensions(op)
-
-      // A name an import or export binds outside the sources where the body reads it (an import
-      // binds only after itself), or one the lookup cannot follow: it may be an extension.
-      private def imported(name: String, at: Int): Boolean =
-        resolver.resolveName(name, contextAt(level, at)) match {
-          case _: Found.Failed => true
-          case _               => false
-        }
 
       // Whether an enclosing template's member may evaluate the declaration: unknown unless every
       // definition of it there is fixed code whose body names no member, no `this` and not the
@@ -534,7 +479,6 @@ final private[cardinality] class ReceiverMembers(
           name.isEmpty || definitions.isEmpty || definitions.exists { d =>
             (!fixed && !Concrete.unoverridable(d)) || !d.is[Defn] || bodyOf(d)._1.collect {
               case Term.Name(n) if n == measured.name || definesOrTakes(frame, n) => ()
-              case _: Term.This                                                   => ()
             }.nonEmpty
           }
       }
@@ -665,12 +609,6 @@ private[cardinality] object ReceiverMembers {
     def fixed: Boolean = Concrete.unoverridable(tree)
 
     def field: Boolean = tree.is[Term.Param]
-
-    /** A field no code outside its level reads. */
-    def hidden: Boolean = tree match {
-      case p: Term.Param => p.mods.exists(_.is[Mod.Private])
-      case _             => false
-    }
 
   }
 
