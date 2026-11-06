@@ -116,10 +116,7 @@ private[cardinality] object TypeIdentities {
     callee match {
       case n: Type.Name if context.variables.contains(n.value) => None
       case _: (Type.Name | Type.Select)                        =>
-        resolver.declaration(callee, callee.syntax, context) match {
-          case Found.Entry(entry) => Some(entry)
-          case _                  => None
-        }
+        resolver.declaration(callee, callee.syntax, context).declared
       case _ => None
     }
   }

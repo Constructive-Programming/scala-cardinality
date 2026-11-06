@@ -61,7 +61,7 @@ private[cardinality] object StdlibModel {
     case Tabulated(shape: List[Shape] => Shape)
 
     /** Outside the counting model, for the reason given. */
-    case Excluded(why: String)
+    case Excluded(reason: Exclusion)
 
     /** An open class or interface whose members the model does not hold. */
     case Unmodelled
@@ -70,7 +70,18 @@ private[cardinality] object StdlibModel {
     case Transparent
   }
 
+  /** Why an entry is outside the counting model: a closed set of reasons. */
+  enum Exclusion(val why: String) {
+    case Reflection extends Exclusion("compile-time reflection")
+
+    case Revealing
+        extends Exclusion("type-revealing evidence: it tells instantiations apart at run time")
+
+    case Collected extends Exclusion("garbage-collector state")
+  }
+
   import Reading.*
+  import Exclusion.{Collected, Reflection, Revealing}
 
   /** One declaration: its fully qualified name, its type parameters, its reading, and the shape its
     * values have spelled over those parameters (the body of the type lambda an unapplied spelling
@@ -113,8 +124,8 @@ private[cardinality] object StdlibModel {
   private def sequence(fqn: String): Entry =
     Entry(fqn, List("E"), Sequence(fqn == "scala.Array"), "Σₙ Eⁿ")
 
-  private def excluded(why: String)(fqn: String, arity: Int): Entry =
-    Entry(fqn, numbered("T", arity), Excluded(why), "")
+  private def excluded(reason: Exclusion)(fqn: String, arity: Int): Entry =
+    Entry(fqn, numbered("T", arity), Excluded(reason), "")
 
   private def unmodelled(fqn: String): Entry = Entry(fqn, Nil, Unmodelled, "")
 
@@ -208,9 +219,6 @@ private[cardinality] object StdlibModel {
     Entry(fqn, Nil, Structural(_ => Shape.Repeated(BuiltinTypes.byte)), "Σₙ Byteⁿ")
 
   private val unit = Shape.Product(Nil)
-  private val Reflection = "compile-time reflection"
-  private val Revealing = "type-revealing evidence: it tells instantiations apart at run time"
-  private val Collected = "garbage-collector state"
 
   // Evidence whose methods test a value's class or enumerate a type's cases and fields: a body
   // holding `ClassTag[A]` (or a `Manifest`) can match `case a: A` and so tell `A = Int` from
@@ -485,7 +493,7 @@ private[cardinality] object StdlibModel {
 
   /** What a model spelling applied to these arguments denotes, or why it is not counted. */
   def read(entry: Entry, args: List[Shape]): Either[String, Shape] = entry.reading match {
-    case Excluded(why)                                  => Left(outside(entry, why))
+    case Excluded(reason)                               => Left(outside(entry, reason.why))
     case Unmodelled                                     => Left(unmodelled(entry))
     case _ if args.isEmpty && entry.parameters.nonEmpty =>
       Left(

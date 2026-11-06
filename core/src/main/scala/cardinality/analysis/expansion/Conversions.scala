@@ -8,6 +8,7 @@ import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.analysis.resolution.Found
 import cardinality.analysis.{Resolver, SourceIndex}
 import cardinality.types.{Spelling, TypeApplications}
+import cats.syntax.traverse.toTraverseOps
 
 /** The implicit conversions and extensions of the sources an inline body may meet (register D27).
   *
@@ -217,9 +218,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private def isObject(frame: Frame): Boolean = frame.tree.exists(_.is[Defn.Object])
 
   private def all[A, B](items: List[A])(f: A => Option[List[B]]): Option[List[B]] =
-    items.foldLeft(Option(List.empty[B]))((acc, item) =>
-      acc.flatMap(done => f(item).map(done ++ _))
-    )
+    items.flatTraverse(f)
 
   /** The extensions of the name, inline or contextual, a selection in `frame` may meet, each with
     * the scope declaring it; unknown when one is local to a method around the body (no scope this

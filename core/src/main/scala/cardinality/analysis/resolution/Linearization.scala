@@ -1,9 +1,8 @@
 package cardinality.analysis.resolution
 
-import scala.annotation.tailrec
-
 import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.Resolver
+import cardinality.types.Graphs
 
 /** One receiver's supplied levels in Scala's linearization order, and their base-class relation.
   *
@@ -41,16 +40,9 @@ final private[cardinality] class Linearization(levels: List[Frame], resolver: Re
     order.takeWhile(_.id != id).map(_.id).toSet
 
   /** A level and every level it extends: what a body written there sees as `this`'s members. */
-  def bases(id: String): Set[String] = {
-    @tailrec
-    def from(pending: List[String], seen: Set[String]): Set[String] = pending match {
-      case Nil          => seen
-      case next :: rest =>
-        val fresh = parents.getOrElse(next, Nil).filterNot(seen)
-        from(fresh ++ rest, seen ++ fresh)
-    }
-    from(List(id), Set(id))
-  }
+  def bases(id: String): Set[String] = Graphs.reachable(parentSets, Set(id))
+
+  private lazy val parentSets: Map[String, Set[String]] = parents.view.mapValues(_.toSet).toMap
 
   // A cyclic `extends` is no Scala program; the guard only keeps the reading finite.
   private def linearize(id: String, visiting: Set[String]): List[String] =

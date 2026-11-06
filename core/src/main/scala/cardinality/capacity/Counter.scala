@@ -440,8 +440,8 @@ object Counter {
   // `scala.Int`, `scala.Option`, `java.lang.String`, `java.lang.Object`: the base types the
   // standard library spells in full, when no source namespace has that path.
   private def standard(select: Type.Select): Option[Size] =
-    if (Namespaces.standardQualifier(select.qual)) BaseTypes.get(select.name.value)
-    else if (Namespaces.javaLang(select)) BaseTypes.get(select.name.value)
+    if (Namespaces.standardQualifier(select.qual) || Namespaces.javaLang(select))
+      BaseTypes.get(select.name.value)
     else None
 
   // A member a namespace solved, read with the reasons its value rests on: a qualified reference

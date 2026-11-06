@@ -3,6 +3,7 @@ package cardinality.analysis.inhabitation
 import scala.collection.mutable
 
 import cardinality.types.Traversals
+import cats.syntax.traverse.toTraverseOps
 
 import Inhabitation.Shape
 import Shape.*
@@ -110,12 +111,7 @@ private[cardinality] object NeutralSaturation {
   }
 
   private def tuples(arguments: List[List[Neutral]]): List[List[Neutral]] =
-    arguments.foldRight(List(List.empty[Neutral]))((options, rest) =>
-      for {
-        first <- options
-        others <- rest
-      } yield first :: others
-    )
+    arguments.sequence
 
   // The neutral terms of a first-order type: its variables, and the applications of the producers
   // that build it. A type met again while it is being enumerated has an unbounded family unless it

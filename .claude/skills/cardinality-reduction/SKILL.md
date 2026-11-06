@@ -18,7 +18,7 @@ sbt cardinalityReport   # per-module report; also written to target/out/jvm/scal
 - Reports are **per module** (`scala-cardinality` = core, `sbt-cardinality` = plugin); the root
   aggregates and has no sources of its own.
 - Narrow a single signature with `sbt 'cardinalityReportSelected <fqcn>'`.
-- The checked-in baseline is `docs/baselines/self-2026-11-03.txt` (analyzer rev 613f655).
+- The checked-in baseline is `docs/baselines/self-2026-11-06.txt` (analyzer at e57a10f plus that pass).
   Diff a new run against it; refresh the baseline only when a change lands.
 
 ### Reading rows

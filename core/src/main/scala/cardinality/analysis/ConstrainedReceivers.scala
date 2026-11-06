@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Natural}
 import cardinality.analysis.model.MemberSyntax
 import cardinality.types.Traversals
+import cats.syntax.foldable.toFoldableOps
 
 import MethodAnalysis.{Frame, Resolved}
 
@@ -87,9 +88,7 @@ private[cardinality] object ConstrainedReceivers {
       if (bounded.contains(Some(whole))) Some(whole)
       else
         Traversals.defined(bounded).flatMap { spaces =>
-          spaces.tail.foldLeft(Option(spaces.head))((acc, p) =>
-            acc.flatMap(a => compare(a, p).map(c => if (c < 0) p else a))
-          )
+          spaces.tail.foldLeftM(spaces.head)((a, p) => compare(a, p).map(c => if (c < 0) p else a))
         }
     }
 

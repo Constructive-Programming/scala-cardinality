@@ -1,6 +1,6 @@
 package cardinality.analysis.resolution
 
-import scala.meta.Type
+import scala.meta.{Type, XtensionSyntax}
 
 import cardinality.analysis.MethodAnalysis.TypeEntry
 import cardinality.analysis.Resolver
@@ -10,7 +10,15 @@ import cardinality.analysis.model.ResolutionContext
   * reason, a declaration outside the source set, or nothing — which is where the model's own
   * vocabulary may still answer.
   */
-sealed private[cardinality] trait Found
+sealed private[cardinality] trait Found {
+
+  /** The supplied declaration reached, if the resolution reached one. */
+  def declared: Option[TypeEntry] = this match {
+    case Found.Entry(entry) => Some(entry)
+    case _                  => None
+  }
+
+}
 
 private[cardinality] object Found {
   final case class Entry(entry: TypeEntry) extends Found
@@ -26,7 +34,7 @@ private[cardinality] object Found {
   object Blocked {
 
     def hiding(reason: String, found: Option[Found]): Blocked =
-      Blocked(reason, found.collect { case Entry(entry) => entry })
+      Blocked(reason, found.flatMap(_.declared))
 
   }
 
@@ -52,5 +60,9 @@ private[cardinality] object Found {
       case _: Type.Name | _: Type.Select => Some(resolver.declaration(tpe, name, context))
       case _                             => None
     }
+
+  /** The supplied declaration a type written as a name means where it is read. */
+  def declared(resolver: Resolver, tpe: Type, context: ResolutionContext): Option[TypeEntry] =
+    named(resolver, tpe, tpe.syntax, context).flatMap(_.declared)
 
 }

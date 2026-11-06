@@ -3,7 +3,7 @@ package cardinality.analysis.resolution
 import scala.annotation.tailrec
 import scala.meta.{dialects, Decl, Defn, Dialect, Tree, Type, XtensionSyntax}
 
-import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
+import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.inhabitation.{EvidenceAnalysis, ExistentialInputs}
 import cardinality.analysis.model.ResolutionContext
@@ -114,7 +114,7 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
   // A bound declared without a sealed structure — an open trait or class, an abstract member — is
   // known by its members alone: its values are read through them, as capabilities.
   private def membersOnly(bound: Type, context: ResolutionContext): Boolean =
-    declaration(head(bound), context).exists(entry => open(entry.tree))
+    Found.declared(resolver, head(bound), context).exists(entry => open(entry.tree))
 
   private def open(declaration: Tree): Boolean = declaration match {
     case t: Defn.Trait => !Counter.isSealed(t)
@@ -135,7 +135,7 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
     }
 
   private def named(tpe: Type, context: ResolutionContext, seen: Set[String]): Option[String] =
-    declaration(tpe, context) match {
+    Found.declared(resolver, tpe, context) match {
       case Some(entry) if seen(entry.key) => None
       case Some(entry)                    =>
         entry.tree match {
@@ -157,9 +157,6 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
           .flatMap(BuiltinTypes.canonical)
           .flatMap(builtinClass)
     }
-
-  private def declaration(named: Type, context: ResolutionContext): Option[TypeEntry] =
-    Found.named(resolver, named, named.syntax, context).collect { case Found.Entry(entry) => entry }
 
   // `AnyRef` (or `Object`), `AnyVal` or `Matchable` above, when the name is the builtin's where it
   // is read: past every channel that may rebind a top name (`TopTypes.denoted`), as `Any` above

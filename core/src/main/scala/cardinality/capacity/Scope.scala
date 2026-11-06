@@ -479,7 +479,7 @@ final private[cardinality] class Scope(
           recursion = session.recursion,
           saturating = session.saturating,
           recording = session.recording,
-          taint = if (session.recording) Some(session.taint.getOrElse(new Taint)) else None,
+          taint = Option.when(session.recording)(session.taint.getOrElse(new Taint)),
         ),
       ),
       other.outer,

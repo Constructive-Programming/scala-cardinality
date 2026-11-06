@@ -345,7 +345,7 @@ a later run can be diffed against it.
 The plugin also measures this repository itself: `project/plugins.sbt` adds the locally
 published plugin (`sbt publishLocal` first), so `sbt cardinalityReport` reports on `core` and
 `plugin`. That self-measurement is checked in at
-[`docs/baselines/self-2026-11-03.txt`](docs/baselines/self-2026-11-03.txt); the reduction
+[`docs/baselines/self-2026-11-06.txt`](docs/baselines/self-2026-11-06.txt); the reduction
 workflow that consumes it — including the ranked stage hierarchy from the TPC articles — is in
 [`.claude/skills/cardinality-reduction/SKILL.md`](.claude/skills/cardinality-reduction/SKILL.md).
 

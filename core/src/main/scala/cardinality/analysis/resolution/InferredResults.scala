@@ -234,7 +234,7 @@ private[cardinality] object InferredResults {
             .find(_ == Singleton)
             .orElse(Some("union"))
         case _ =>
-          declared(tpe, context).flatMap { entry =>
+          Found.declared(resolver, tpe, context).flatMap { entry =>
             (entry.tree, TypeIdentities.key(entry)) match {
               case (alias: Defn.Type, key) if alias.tparamClause.values.isEmpty && !seen(key) =>
                 val scope = ResolutionContext(entry.owner, Map.empty, Set.empty)
@@ -243,10 +243,6 @@ private[cardinality] object InferredResults {
             }
           }
       }
-
-    // The source declaration a type written as a name means where it is read.
-    private def declared(tpe: Type, context: ResolutionContext): Option[MethodAnalysis.TypeEntry] =
-      Found.named(resolver, tpe, tpe.syntax, context).collect { case Found.Entry(entry) => entry }
 
     // `new C[T](…)` is a `C[T]`, `new C(…)` a `C` when the class takes no type parameters. A class
     // outside the sources is read as written, so its reading counts it or names what is absent;
@@ -288,7 +284,7 @@ private[cardinality] object InferredResults {
       constructor(call).getOrElse(method(call))
 
     private def constructor(call: Call): Option[Either[String, Inferred]] =
-      declared(Type.Name(call.callee), here(call.at)).flatMap { entry =>
+      Found.declared(resolver, Type.Name(call.callee), here(call.at)).flatMap { entry =>
         entry.tree match {
           case c: Defn.Class if call.clauses > 0 && c.ctor.paramClauses.size == call.clauses =>
             Some(
