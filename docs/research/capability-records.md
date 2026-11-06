@@ -282,7 +282,7 @@ number of binders or parameters per clause is always another slot.
 | Abstract type member in a record that does not open: bounded or higher-kinded ones, and any the measured signature names through a path (`p.X`, `T#X`) — the opened witness and the path atom would have to be one ([D32](code-cardinality-foundations.md)) | `capability record with abstract type member not read: C.X` |
 | Self type | `self type not resolved: T` |
 | Hidden constructor state of an open class (X6: `class CNothing(n: Nothing)` has no instance), of a parameterized parent no class passes arguments to, or a free field a nearer `val` overrides | `open class with hidden constructor state: C.p` |
-| Final-class parameter no member observes injectively | `final class field not observable injectively: C.p` |
+| Final-class parameter nothing observes injectively at the use site: no field it reaches (a `private[p]` field is reached inside `p`, a `private` one in its class), no public η-alias, no parent constructor it passes the parameter to verbatim that observes it in turn without a nearer override (an access fact, never mutation: a `var` is its value) | `final class field not observable injectively: C.p` |
 | No public constructor (rule B: a non-public class's own restriction is disregarded), or a public secondary over a space not closed | `receiver has no public constructor: C` / `receiver space of its public secondary constructors not compared: C` |
 | Open template whose subclasses only its scope may declare | `capability record of a template only its scope instantiates: C` |
 | Member hidden at the use site | `capability record with members hidden at the use site: C` |

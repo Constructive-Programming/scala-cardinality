@@ -58,6 +58,7 @@ class CapabilitySpec extends Specification {
       a Comparable parent declares its compareTo                    $comparableParent
       a parameterized parent's public fields are a trait's fields   $parentFields
       a passed parent's field nothing overrides is its argument       $passedParentField
+      a final class field observed where its qualifier reaches        $reachedFinalFields
     Records the reading refuses
       a member hidden at the use site                               $hiddenMember
       a field no member observes injectively                        $unexposedField
@@ -352,6 +353,54 @@ class CapabilitySpec extends Specification {
       """)("U.prot"),
       "capability record with members hidden at the use site: Prot"
     )
+
+  // A final class's parameter is observed wherever the use site may read it: eo's shapes.
+  //  - Lens (SimpleLens): get, split and combine are plain parameters passed verbatim to Split's
+  //    constructor, which observes read through its alias get(s) and split, combine as public
+  //    vals nothing overrides. first's record is ((A, B) => A) × ((A, B) => (B, A)) × ((B, A) =>
+  //    (A, B)), one term each: 1.
+  //  - Unfold: vestigialTo is private[p], read in p. into keeps vestigialTo and builds fb => g(embed(fb)):
+  //    1; algebra has no source of F[Unit] for the second field: 0 (eo's body throws there).
+  //  - Buf: a private field read in its own class. flip's goal Buf(x) over the receiver's x:
+  //    Boolean^Boolean = 4. Outside the class nothing reads x: refused.
+  //  - Shadow: Split's alias get, which would observe get0, is overridden by code no alias of
+  //    get0, and split's argument is no verbatim get0: refused.
+  def reachedFinalFields = {
+    val found = counts(
+      "Lens.scala" -> """package p
+        class Split[S, A, X](read: S => A, val split: S => (X, A), val combine: (X, A) => S) {
+          def get(s: S): A = read(s)
+        }
+        final class SimpleLens[S, A, X](get: S => A, split: S => (X, A), combine: (X, A) => S)
+            extends Split[S, A, X](get, split, combine)
+        final class Shadow[S, A](get0: S => A) extends Split[S, A, Unit](get0, s => ((), get0(s)), (_, _) => ???) {
+          override def get(s: S): A = split(s)._2
+        }
+        object Lens {
+          def first[A, B] = new SimpleLens[(A, B), A, B](_._1, _.swap, (b, a) => (a, b))
+          def shadow[S, A](l: Shadow[S, A]): Boolean = ???
+        }
+        final class Unfold[T, B, F[_]] private (val embed: F[B] => T, private[p] val vestigialTo: () => F[Unit]) {
+          private[p] def into[U](g: T => U): Unfold[U, B, F] = ???
+        }
+        object Unfold {
+          def algebra[T, B, F[_]](embed: F[B] => T): Unfold[T, B, F] = ???
+        }
+        final class Buf(private val x: Boolean) { def flip: Buf = ??? }
+        object UseBuf { def f(b: Buf): Boolean = ??? }"""
+    )
+    (found("p.Lens.first") === Count.Finite(1))
+      .and(found("p.Unfold.into") === Count.Finite(1))
+      .and(found("p.Unfold.algebra") === Count.Finite(0))
+      .and(found("p.Buf.flip") === Count.Finite(4))
+      .and(refused(found("p.UseBuf.f"), "final class field not observable injectively: p.Buf.x"))
+      .and(
+        refused(
+          found("p.Lens.shadow"),
+          "final class field not observable injectively: p.Shadow.get0"
+        )
+      )
+  }
 
   // twice reads secret but is no alias of it; get observes read only on Ints, not injectively.
   def unexposedField = {
