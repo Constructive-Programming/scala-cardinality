@@ -17,11 +17,12 @@ import MethodAnalysis.{Frame, Resolved}
   *
   * Every secondary constructor delegates to the primary, so a public primary builds the fields'
   * whole space and the fields hold any values of their types. Otherwise the class is counted by
-  * what the site may call to build one: each public secondary and each public factory
-  * (`ReceiverFactories`) builds at most its parameters' space and at most the fields', the smaller
-  * of the two, and the receiver's space is the largest of these — the fields' space as soon as one
-  * reaches it, else the largest where every bound is known and comparable. A class nothing public
-  * builds (no secondary, no factory) has no space this reading knows.
+  * what the site may call to build one, over the fields the site observes (a field it may select,
+  * or one a member it may call reads; none: one value): each public secondary and each public
+  * factory (`ReceiverFactories`) builds at most its parameters' space and at most those fields',
+  * the smaller of the two, and the receiver's space is the largest of these — the fields' space as
+  * soon as one reaches it, else the largest where every bound is known and comparable. A class
+  * nothing public builds (no secondary, no factory) has no space this reading knows.
   */
 private[cardinality] object ConstrainedReceivers {
 
@@ -59,7 +60,10 @@ private[cardinality] object ConstrainedReceivers {
           Left(s"receiver has no public constructor: $path")
         else
           largest(
-            closed(SecondaryConstructors.primaryArguments(d), resolve),
+            closed(
+              SecondaryConstructors.arguments(ReceiverFactories.observed(owner, d, from, resolver)),
+              resolve
+            ),
             secondaries ++ factories
           )
             .map(Some(_))

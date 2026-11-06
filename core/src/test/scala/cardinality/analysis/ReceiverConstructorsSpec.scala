@@ -23,6 +23,8 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
       two factories: the largest space they build, not their sum           $twoFactories
       a factory whose body is read as no construction counts 1             $unreadFactory
       no factory and no public constructor: no space                       $noFactory
+      fields nothing the site may call reads: one value                    $hiddenFields
+      a factory read through one and two delegating calls, not three       $delegation
     Sealed families
       a leaf is a summand where a constructor of it may be called      $sealedLeaves
       a hidden leaf built inside a family-typed factory is its space   $familyFactory
@@ -134,6 +136,58 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
     (factories("fy.Use.cached") === Count.Finite(2))
       .and(factories("fy.Use.hidden") === Count.Finite(2))
 
+  private val delegating = rows(
+    """package fz
+      |final class Mute private (private val a: Boolean)
+      |object Mute { def of(a: Boolean): Mute = new Mute(a) }
+      |final class Told private (private val a: Boolean) { def get: Boolean = a }
+      |object Told { def of(a: Boolean): Told = new Told(a) }
+      |final class Half private (val a: Boolean, b: Boolean) { private def peek: Boolean = b }
+      |object Half { def of(a: Boolean, b: Boolean): Half = new Half(a, b) }
+      |final class One private (val b: Boolean)
+      |object One { def of(b: Boolean): One = build(b); private def build(b: Boolean): One = new One(b) }
+      |final class Two private (val b: Boolean)
+      |object Two {
+      |  def of(b: Boolean): Two = l1(b)
+      |  private def l1(b: Boolean): Two = l2(b)
+      |  private def l2(b: Boolean): Two = new Two(b)
+      |}
+      |final class Three private (val b: Boolean)
+      |object Three {
+      |  def of(b: Boolean): Three = l1(b)
+      |  private def l1(b: Boolean): Three = l2(b)
+      |  private def l2(b: Boolean): Three = l3(b)
+      |  private def l3(b: Boolean): Three = new Three(b)
+      |}
+      |object Use {
+      |  def mute(x: Mute): Boolean = ???
+      |  def told(x: Told): Boolean = ???
+      |  def half(x: Half): Boolean = ???
+      |  def one(x: One): Boolean = ???
+      |  def two(x: Two): Boolean = ???
+      |  def three(x: Three): Boolean = ???
+      |}
+      |""".stripMargin
+  )
+
+  // `Mute.of` builds min(2, |a|) values, but nothing `Use` may call reads `a`: its values are not
+  // told apart there, so the fields it observes are none, one value, and `mute` is 2^1 = 2.
+  // `Told.get` reads `a`: 2 values, `told` 2^2 = 4. `Half` shows `a` (a public field) and hides `b`
+  // (read only by a private member): 2 observed values of `of`'s 4 arguments, `half` 2^2 = 4.
+  def hiddenFields =
+    (delegating("fz.Use.mute") === Count.Finite(2))
+      .and(delegating("fz.Use.told") === Count.Finite(4))
+      .and(delegating("fz.Use.half") === Count.Finite(4))
+
+  // `One.of` returns `build(b)`, which constructs: read through it, min(|Boolean|, 2) = 2 values,
+  // `one` 2^2 = 4. `Two.of` reaches `new` through `l1` and `l2`, two calls: 4. `Three.of` needs a
+  // third call (`l3`), past the depth followed: a factory whose body is not read, 1 value,
+  // `three` 2^1 = 2.
+  def delegation =
+    (delegating("fz.Use.one") === Count.Finite(4))
+      .and(delegating("fz.Use.two") === Count.Finite(4))
+      .and(delegating("fz.Use.three") === Count.Finite(2))
+
   // `None` has neither a public constructor nor a factory: no space.
   def noFactory = refused(factories("fy.Use.none"), "receiver has no public constructor: fy.None")
 
@@ -163,8 +217,9 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
   }
 
   // `V = E + Two`, `Two` built only inside `fx` (its constructor and fields are `private[fx]`), as
-  // eo's `PSVec.Slice` is. From `out` the family-typed `V.of` is `Two`'s factory: its `else` branch
-  // builds min(|Boolean|, 4) = 2 of `Two`'s values, so `V` is 1 + 2 = 3 and `f` is 2^3 = 8. Inside
+  // eo's `PSVec.Slice` is. From `out` the family-typed `V.of` is `Two`'s factory, and `out` observes
+  // only `a` (through `first`; `b` nothing it may call reads): the `else` branch builds
+  // min(|Boolean|, 2) = 2 of the values `out` tells apart, so `V` is 1 + 2 = 3 and `f` is 2^3 = 8. Inside
   // `fx` the constructor is callable and the fields readable: 1 + 4 = 5, `g` is 2^5 = 32.
   def familyFactory = {
     val found = counts(
@@ -172,7 +227,9 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
         |sealed trait V
         |object V {
         |  case object E extends V
-        |  final class Two private[fx] (private[fx] val a: Boolean, private[fx] val b: Boolean) extends V
+        |  final class Two private[fx] (private[fx] val a: Boolean, private[fx] val b: Boolean) extends V {
+        |    def first: Boolean = a
+        |  }
         |  def of(a: Boolean): V = if (a) E else new V.Two(a, true)
         |}
         |object Use { def g(v: V): Boolean = ??? }

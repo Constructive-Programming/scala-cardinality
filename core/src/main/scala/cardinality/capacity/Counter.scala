@@ -70,11 +70,26 @@ object Counter {
       case d: Defn.Enum =>
         Some(Walk.named(d) -> built(d, enumSize(_)(d)))
       case d: Defn.Class if isConcreteClass(d) =>
-        Some(Walk.named(d) -> built(d, stored(_)(d.tparamClause.values, d.ctor)))
+        Some(Walk.named(d) -> built(d, builders(d)))
       case _ => None
     }
     types
   }
+
+  // What a class's values are: what its constructor stores, or, where the constructor is
+  // restricted, what its public secondaries and factories build (rule B, `Factories`).
+  private def builders(d: Defn.Class): Scope => Size = sc =>
+    Factories.bound(
+      d.parent.toList.flatMap(_.children).collect { case s: Stat => s },
+      d,
+      paramIn(sc)
+    ) match {
+      case None              => stored(sc)(d.tparamClause.values, d.ctor)
+      case Some(Right(size)) => size
+      case Some(Left(why))   =>
+        sc.note(Definition.Unbound.Refusal(why))
+        EffectiveOmega
+    }
 
   // A class or enum: what it stores, read with its own binders — and, while a value row reads it,
   // why an instance is not known to be built, since what it stores is no evidence that one is
@@ -151,7 +166,7 @@ object Counter {
     // Abstract classes contribute no inhabitants of their own; only their concrete
     // subclasses do.
     case c: Defn.Class if c.mods.exists(_.is[Mod.Abstract]) => NothingSize
-    case c: Defn.Class => stored(scope)(c.tparamClause.values, c.ctor)
+    case c: Defn.Class                                      => builders(c)(scope)
     // An enum's cardinality is the sum over its cases; the enum's own constructor
     // arguments are shared state, not extra inhabitants.
     case e: Defn.Enum => enumSize(scope)(e)

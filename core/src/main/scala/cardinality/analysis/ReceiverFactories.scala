@@ -3,17 +3,17 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, Inhabitation}
-import cardinality.analysis.model.ContextBounds
+import cardinality.analysis.model.{ContextBounds, FactorySyntax, MemberSyntax}
 
 import MethodAnalysis.{Frame, Resolved}
 
 /** The public factories of a class no constructor callable from the measured declaration's site
-  * builds (v1.md §2, rule B): the methods and `val`s callable there that construct it. A definition
-  * constructs the class where its result — through blocks, local `val`s, `if` and `match` branches
-  * and ascriptions — is a direct construction of it (`new C(…)`, a creator application `C(…)`, a
-  * case class's `apply`), whatever type it declares: a family-typed `PSVec.of` constructs the case
-  * `Slice` it builds. One declaring the class as its result whose body is read as no construction
-  * (it delegates, or returns a value it was given) is a factory whose body is not read.
+  * builds (v1.md §2, rule B, register D42): the methods and `val`s callable there that construct it
+  * (`FactorySyntax`). A construction is `new C(…)`, a creator application `C(…)` or a case class's
+  * `apply`, whatever type the definition declares: a family-typed `PSVec.of` constructs the case
+  * `Slice` it builds. A result that calls another method (callable or not) is read through that
+  * method's body, and through one more call; past that, one declaring the class as its result is a
+  * factory whose body is not read.
   *
   * Each factory is one bound: its parameters' space where it is closed (a readable body), unknown
   * where it is not or where the factory runs on a receiver of a class or trait (its receiver is an
@@ -30,13 +30,18 @@ private[cardinality] object ReceiverFactories {
       closed: (Type, Frame, Map[String, Resolved]) => Option[Card]
   ): List[Option[Card]] =
     owner.name.toList.flatMap { name =>
+      val index = definitions(resolver)
+      val builds = (term: Term, scope: Frame) => constructs(term, owner, name, scope, resolver)
+      val callees = (call: Term, scope: Frame) => calleesOf(call, scope, index)
       // The syntactic reading first: accessibility is asked only of a definition that builds or
       // declares the class.
       for {
-        scope <- resolver.memberScopes
-        stat <- scope.stats
-        (body, declared) <- definition(stat).toList
-        readable <- factory(body, declared, owner, name, scope, resolver).toList
+        (stat, scope) <- index.values.flatten.toList
+        (body, declared) <- FactorySyntax.definition(stat).toList
+        readable <- (
+          if (FactorySyntax.constructs(body, scope, builds, callees)) Some(true)
+          else Option.when(declared.exists(names(_, owner, name, scope, resolver)))(false)
+        ).toList
         if !measured(stat, from) && resolver.accessible(stat, scope, from) &&
           reachable(scope, from, resolver)
       } yield
@@ -60,37 +65,57 @@ private[cardinality] object ReceiverFactories {
           }
     }
 
-  // A method's or a single `val`'s body and declared result.
-  private def definition(stat: Stat): Option[(Term, Option[Type])] = stat match {
-    case d: Defn.Def                     => Some(d.body -> d.decltpe)
-    case v: Defn.Val if v.pats.size == 1 => Some(v.rhs -> v.decltpe)
-    case _                               => None
+  /** The class's constructor parameters the site observes: a field it may select, or one a member
+    * it may call reads.
+    */
+  def observed(owner: Frame, d: Defn.Class, from: Frame, resolver: Resolver): List[Term.Param] = {
+    val fields = MemberSyntax.fieldParams(d)
+    FactorySyntax.observed(
+      d,
+      stat => resolver.accessible(stat, owner, from),
+      p => fields.exists(_ eq p) && resolver.reaches(p.mods, owner, from)
+    )
   }
 
-  // Some(readable) where the definition is a factory of the class: Some(true) where its result
-  // constructs it, Some(false) where it only declares it.
-  private def factory(
-      body: Term,
-      declared: Option[Type],
-      owner: Frame,
-      name: String,
+  // Every method and single `val` of a member scope, by name, with its scope; built once per index.
+  private val indexes = new java.util.WeakHashMap[Resolver, Map[String, List[(Stat, Frame)]]]()
+
+  private def definitions(resolver: Resolver): Map[String, List[(Stat, Frame)]] =
+    indexes.synchronized {
+      Option(indexes.get(resolver)).getOrElse {
+        val built = resolver.memberScopes
+          .flatMap(scope =>
+            scope.stats.collect {
+              case stat if FactorySyntax.definition(stat).nonEmpty =>
+                MemberSyntax.defined(stat).map(_ -> (stat, scope))
+            }.flatten
+          )
+          .groupMap(_._1)(_._2)
+        indexes.put(resolver, built)
+        built
+      }
+    }
+
+  // The bodies a call may run: a definition of its name around the caller for a bare name or one
+  // on `this`, or one of a template named as its qualifier's last segment.
+  private def calleesOf(
+      call: Term,
       scope: Frame,
-      resolver: Resolver
-  ): Option[Boolean] =
-    if (results(body, Map.empty).exists(constructs(_, owner, name, scope, resolver))) Some(true)
-    else Option.when(declared.exists(names(_, owner, name, scope, resolver)))(false)
-
-  // The terms a body may evaluate to: its result through blocks, local vals and branches.
-  private def results(term: Term, locals: Map[String, Term]): List[Term] = term match {
-    case Term.Block(stats :+ (last: Term)) =>
-      val vals = stats.collect { case Defn.Val(_, List(Pat.Var(n)), _, rhs) => n.value -> rhs }
-      results(last, locals -- stats.flatMap(model.MemberSyntax.defined) ++ vals)
-    case Term.If.After_4_4_0(_, yes, no, _)  => results(yes, locals) ++ results(no, locals)
-    case Term.Match.After_4_9_9(_, cases, _) => cases.cases.flatMap(c => results(c.body, locals))
-    case Term.Ascribe(inner, _)              => results(inner, locals)
-    case Term.Name(n) if locals.contains(n)  => results(locals(n), locals - n)
-    case other                               => List(other)
-  }
+      index: Map[String, List[(Stat, Frame)]]
+  ): List[(Term, Frame)] =
+    FactorySyntax.callee(call).toList.flatMap { (qualifier, name) =>
+      val around = scope.chain.map(_.id).toSet
+      index
+        .getOrElse(name, Nil)
+        .collect {
+          case (stat, at) if qualifier.fold(around(at.id)) {
+                case _: Term.This => around(at.id)
+                case q            => at.name.contains(q.syntax.split('.').last)
+              } =>
+            FactorySyntax.definition(stat).map(_._1 -> at)
+        }
+        .flatten
+    }
 
   private def constructs(
       term: Term,
