@@ -614,7 +614,15 @@ object MethodAnalysis {
           val scoped =
             context.inScope(entry.owner, scope ++ replacements).written(written).enter(key)
           Traversals
-            .sequence(cases.map(fields => Traversals.sequence(fields.map(scoped.read(_, this)))))
+            .sequence(
+              cases.map(fields =>
+                Traversals.sequence(
+                  fields.map(field =>
+                    representations.ground(field).fold(scoped.read(field, this))(Right(_))
+                  )
+                )
+              )
+            )
             .map(shapeOf(entry, _))
         }
     }

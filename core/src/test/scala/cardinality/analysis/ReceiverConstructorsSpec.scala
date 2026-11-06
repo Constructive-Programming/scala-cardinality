@@ -17,10 +17,15 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
       several public secondaries: the largest space they build             $largestSecondary
       a secondary over a larger space builds no more than the fields hold  $widerSecondary
       a non-public class or trait is read as public                        $nonPublicClass
-      no public constructor: no space                                      $noPublic
+      no public constructor: its factory builds it                         $noPublic
       a public secondary over a type parameter: not compared               $parametric
+    Public factories build a class no constructor the site may call builds
+      two factories: the largest space they build, not their sum           $twoFactories
+      a factory whose body is read as no construction counts 1             $unreadFactory
+      no factory and no public constructor: no space                       $noFactory
     Sealed families
       a leaf is a summand where a constructor of it may be called      $sealedLeaves
+      a hidden leaf built inside a family-typed factory is its space   $familyFactory
   """
 
   private val code =
@@ -79,19 +84,58 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
       .and(found("rc.Use.pkg") === Count.Finite(4))
       .and(found("rc.Tr.get") === Count.Finite(4))
 
-  // Outside `Factory` only `Factory.on` builds one (`b` is always true): no constructor the caller
-  // may call says which values its fields hold. Inside, the private primary is callable: 4.
+  // Outside `Factory` only its factory `Factory.on` builds one: no parameters, min(1, 2) = 1 value
+  // (`b` is always true), so a function of a `Factory` is 2^1 = 2. Inside, the private primary is
+  // callable: 4.
   def noPublic =
-    refused(found("rc.Use.factory"), "receiver has no public constructor: rc.Factory")
-      .and(found("rc.Factory.get") === Count.Finite(4))
+    (found("rc.Use.factory") === Count.Finite(2)).and(found("rc.Factory.get") === Count.Finite(4))
 
   // Outside `Gen`, its public secondary takes an `A`, a choice of supplied values, not a value
   // space.
   def parametric =
     refused(
       found("rc.Use.gen"),
-      "receiver space of its public secondary constructors not compared: rc.Gen"
+      "receiver space of its public constructors and factories not compared: rc.Gen"
     )
+
+  private val factories = rows(
+    """package fy
+      |final case class Pair private (a: Boolean, b: Boolean)
+      |object Pair {
+      |  def same(x: Boolean): Pair = new Pair(x, x)
+      |  def fixed: Pair = { val p = Pair(true, false); p }
+      |}
+      |final class Cached private (val b: Boolean)
+      |object Cached {
+      |  private val one = new Cached(true)
+      |  def make(s: String): Cached = one
+      |}
+      |final class Hidden private (val b: Boolean)
+      |object Hidden { def copy(h: Hidden): Hidden = h }
+      |final class None private (val b: Boolean)
+      |object Use {
+      |  def pair(x: Pair): Boolean = ???
+      |  def cached(x: Cached): Boolean = ???
+      |  def hidden(x: Hidden): Boolean = ???
+      |  def none(x: None): Boolean = ???
+      |}
+      |""".stripMargin
+  )
+
+  // `Pair`'s fields hold 4 values; `same` builds min(|Boolean|, 4) = 2 of them (through `new`),
+  // `fixed` min(1, 4) = 1 (a case class `apply` through a local `val`). The class holds the
+  // largest, 2 (not the sum 3, not the fields' 4): a function of a `Pair` is 2^2 = 4.
+  def twoFactories = factories("fy.Use.pair") === Count.Finite(4)
+
+  // `Cached.make` declares a `Cached` but returns a value it did not build (its private `one`, so
+  // `b` is always true): a factory whose body is read as no construction, 1 value. A function of
+  // a `Cached` is 2^1 = 2. `Hidden.copy` is one too: 2^1 = 2.
+  def unreadFactory =
+    (factories("fy.Use.cached") === Count.Finite(2))
+      .and(factories("fy.Use.hidden") === Count.Finite(2))
+
+  // `None` has neither a public constructor nor a factory: no space.
+  def noFactory = refused(factories("fy.Use.none"), "receiver has no public constructor: fy.None")
 
   // `S` sums a private leaf (its restriction disregarded: 2 values) and `Z` (1): 3, so `f` is
   // 2^3 = 8. `L`'s leaf `M` has only a private constructor: no space, so `g` has none either. `R`'s
@@ -116,6 +160,26 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
       .and(refused(found("sl.Use.g"), "receiver has no public constructor: sl.M"))
       .and(found("sl.Use.h") === Count.Finite(8))
       .and(refused(found("out.Use.h"), "receiver has no public constructor: sl.Q"))
+  }
+
+  // `V = E + Two`, `Two` built only inside `fx` (its constructor and fields are `private[fx]`), as
+  // eo's `PSVec.Slice` is. From `out` the family-typed `V.of` is `Two`'s factory: its `else` branch
+  // builds min(|Boolean|, 4) = 2 of `Two`'s values, so `V` is 1 + 2 = 3 and `f` is 2^3 = 8. Inside
+  // `fx` the constructor is callable and the fields readable: 1 + 4 = 5, `g` is 2^5 = 32.
+  def familyFactory = {
+    val found = counts(
+      "a.scala" -> """package fx
+        |sealed trait V
+        |object V {
+        |  case object E extends V
+        |  final class Two private[fx] (private[fx] val a: Boolean, private[fx] val b: Boolean) extends V
+        |  def of(a: Boolean): V = if (a) E else new V.Two(a, true)
+        |}
+        |object Use { def g(v: V): Boolean = ??? }
+        |""".stripMargin,
+      "b.scala" -> "package out\nobject Use { def f(v: fx.V): Boolean = ??? }"
+    )
+    (found("out.Use.f") === Count.Finite(8)).and(found("fx.Use.g") === Count.Finite(32))
   }
 
 }

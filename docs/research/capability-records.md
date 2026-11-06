@@ -283,8 +283,8 @@ number of binders or parameters per clause is always another slot.
 | Self type | `self type not resolved: T` |
 | Hidden constructor state of an open class (X6: `class CNothing(n: Nothing)` has no instance), of a parameterized parent no class passes arguments to, or a free field a nearer `val` overrides | `open class with hidden constructor state: C.p` |
 | Final-class parameter nothing observes injectively at the use site: no field it reaches (a `private[p]` field is reached inside `p`, a `private` one in its class), no public η-alias, no parent constructor it passes the parameter to verbatim that observes it in turn without a nearer override (an access fact, never mutation: a `var` is its value) | `final class field not observable injectively: C.p` |
-| No public constructor (rule B: a non-public class's own restriction is disregarded), or a public secondary over a space not closed | `receiver has no public constructor: C` / `receiver space of its public secondary constructors not compared: C` |
-| Open template whose subclasses only its scope may declare | `capability record of a template only its scope instantiates: C` |
+| Neither a public constructor nor a public factory (rule B, register D42: a non-public class's own restriction is disregarded), or a secondary or factory over a space not closed | `receiver has no public constructor: C` / `receiver space of its public constructors and factories not compared: C` |
+| Open template whose subclasses only its scope may declare (a supplied one does; else it is final, D42) | `capability record of a template only its scope instantiates: C` |
 | Member hidden at the use site | `capability record with members hidden at the use site: C` |
 | Extension or pattern-defined member (a `var` is its value, register D26: an abstract one its getter, a concrete one derived) | `capability record with an extension member not read: C`, `destructured member of an open receiver not read: C` |
 | Trait parameters | `capability record with trait parameters not read: C` |

@@ -116,9 +116,9 @@ it:
 (type-arithmetic.md §7: for `List` the shapes are lengths), so an implementation is a family
 `(f_n̄)` with `f_n̄` an inhabitant of `Γ(n̄)`, selected by a total length test and positional
 patterns. (1) The empty input is admissible, so `c(0̄) = 0` leaves no total family — which is why
-the fields of a receiver no public constructor builds are refused outright
-(`receiver has no public constructor: NonEmpty`): its factories decide which
-field values exist, and `NonEmpty.of(a, rest*)` never builds `Nil`. (2) Weakening
+the fields of a receiver no public constructor builds are what its factories build (register
+D42), and `NonEmpty.of(a, rest*)` never builds `Nil`: its type parameter leaves its space not
+compared, so the row stays refused. (2) Weakening
 carries existence to every length: an inhabitant of `Γ(0̄)` is one of every `Γ(n̄)` that ignores the
 elements. Distinctness needs more: two inhabitants of `Γ(k̄)` told apart by some valuation stay
 apart in `Γ(k̄ + eᵢ)` when `kᵢ ≥ 1`, because the valuation extends by repeating an element `i`

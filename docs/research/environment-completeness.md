@@ -26,8 +26,8 @@ through readable types. For ground goals it is ground-scalar-types' Lemma O: a c
 transparent values is one of the functions the literal-built branches already enumerate.
 
 **Readability is the premise.** The rule never speaks where a concrete producer could matter: a
-class no public constructor builds (`receiver has no public constructor`), a callable whose
-transparent result the solver does not eliminate (`Elimination of an opaque … callable … is
+class neither a public constructor nor a factory builds (`receiver has no public constructor`), a
+callable whose transparent result the solver does not eliminate (`Elimination of an opaque … callable … is
 unsupported`), a name outside the sources (`declaration not supplied`) all stay `?` on their own.
 An opaque type outside its scope is one value, and a non-public class is built by its
 constructors as a public one (v1.md §2, modelling conventions; register D35).
@@ -174,8 +174,8 @@ fixtures, but without compiler metadata it is not syntax) and is not done.
   Optional`): the environment memo reads it as an existential summand, but no eo count can move
   (the summand's existential sits in result positions, which stay `?`), so the sound refusal stays.
 - `Slice`'s `private[data]` constructor: callable inside `data`, where its fields are read; elsewhere
-  no constructor builds it (rule B, `receiver has no public constructor: …Slice`); the polarity
-  refinement frees no eo row (the fields are hidden too).
+  its public factories build it (rule B, register D42): `fromArraySlice` takes the fields' own
+  space, so outside `data` `Slice` is one summand of ω values.
 - A package-level export of another file is not followed (a builtin it may rebind is refused).
 - Exported or imported term names that may hide a local capture, inherited members a parent outside
   the sources may declare under its name, the names an ancestor's export clauses define, and the

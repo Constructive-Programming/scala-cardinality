@@ -71,7 +71,8 @@ subclass, override or implementation exists outside them.
   final. `ClosedWorld` writes those `final` modifiers into the sources before anything reads them,
   so every rule about final classes and members applies from there. A constructor `val` and an
   untyped literal `val` keep their spelling; a receiver asks `Resolver.overriding` for them.
-  A class with a non-public constructor stays as written.
+  A class with a non-public constructor is final too where nothing supplied extends it: only its
+  scope may extend it, and its values are what its public factories build (Rule B).
 - A member a supplied template does override varies across receivers, so it stays a free
   capability, as an abstract member is.
 - Abstract members stay capabilities (v1.md §2), and a goal of an abstract template is still any
@@ -103,7 +104,14 @@ Two conventions sit beside these assumptions (v1.md §2, "Modelling conventions"
   or trait itself, on a template around it, or a class local to a block is disregarded: its
   constructors count as public. A public primary builds every field value. A public secondary
   builds at most min(its parameters' space, the fields' space), read only where both are closed.
-  No public constructor (only a factory builds it) is `?`: `receiver has no public constructor`.
+  A class (or sealed case) with no constructor callable from the site is counted by its public
+  factories too: the methods and `val`s callable there whose result (through blocks, local `val`s
+  and branches) is a direct construction of it (`new C(…)`, `C(…)`), a family-typed factory
+  constructing the case it builds. Each builds at most min(its parameters' space, the fields'
+  space); one declaring the class whose body is read as no construction counts 1; the class is the
+  MAX over them (a sealed case: one summand of that space). Neither a public constructor nor a
+  factory is `?`: `receiver has no public constructor`. A class with a non-public constructor that
+  nothing supplied extends is final in the closed world.
 - **Rule F, an opaque type outside its scope is one value.** Where its representation is hidden,
   an opaque type counts 1 on both sides (it reads as `Unit`; as a type argument it keeps its own
   nominal identity). Inside its scope the representation is read as before. Never refuse a count

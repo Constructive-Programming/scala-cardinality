@@ -2,6 +2,8 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
+import cardinality.analysis.inhabitation.Card
+import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberSyntax, Throws}
 import cardinality.analysis.{
   ConstrainedReceivers,
@@ -214,14 +216,15 @@ final private[cardinality] class Representations(
   // The fields a concrete leaf stores, read as a product: one parameter clause, every parameter
   // declared, built by a public constructor, and each field permitted at the use site. The values
   // a leaf holds are what its public constructors build (`ConstrainedReceivers`): a restriction on
-  // the leaf itself is disregarded, a restricted constructor ignored, and a leaf no public
-  // constructor builds whole is refused. A field's qualifier decides whether this reading may
-  // project it at all: an unqualified `private`, `protected` or `implicit` refuses the family, and
-  // so does a plain class's parameter written without `val` or `var`: it is no member (E173), so
-  // values that differ only there may be one value. A `var` field holds the argument it was given, as a `val` does (the
-  // model has no mutation). A case class body may hold methods — members add no
-  // values to the space — but a plain class must carry `final`, or outside subtypes would extend
-  // the family past its file.
+  // the leaf itself is disregarded, and a leaf whose primary the use site may not call is counted
+  // by its public secondaries and factories, one summand of the space they build (`built`), its
+  // fields read through them, not projected. Otherwise a field's qualifier decides whether this
+  // reading may project it at all: an unqualified `private`, `protected` or `implicit` refuses the
+  // family, and so does a plain class's parameter written without `val` or `var`: it is no member
+  // (E173), so values that differ only there may be one value. A `var` field holds the argument it
+  // was given, as a `val` does (the model has no mutation). A case class body may hold methods —
+  // members add no values to the space — but a plain class must carry `final`, or outside subtypes
+  // would extend the family past its file.
   private def sealedLeaf(
       c: Defn.Class,
       child: TypeEntry,
@@ -229,27 +232,40 @@ final private[cardinality] class Representations(
   ): Either[String, List[List[Type]]] =
     if (c.ctor.paramClauses.size != 1)
       Left(s"sealed subtype shape unreadable: ${c.name.value}")
-    else {
-      val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
-      val fields = Representations.caseClass(c) || parameters.forall(MemberSyntax.keptParameter)
-      if (!fields || parameters.exists(p => !usableWhere(p.mods, child.owner, useSite)))
-        Left(s"sealed subtype hides a parameter: ${c.name.value}")
-      else
-        built(child, useSite).flatMap(_ => declaredFields(parameters, c.name.value).map(List(_)))
-    }
+    else
+      built(child, useSite).flatMap {
+        case Some(space) => Right(List(List(ground(child.key, space))))
+        case None        =>
+          val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
+          val fields = Representations.caseClass(c) || parameters.forall(MemberSyntax.keptParameter)
+          if (!fields || parameters.exists(p => !usableWhere(p.mods, child.owner, useSite)))
+            Left(s"sealed subtype hides a parameter: ${c.name.value}")
+          else declaredFields(parameters, c.name.value).map(List(_))
+      }
 
-  // Whether a leaf's public constructors build its whole field space, or why not.
-  private def built(child: TypeEntry, useSite: Frame): Either[String, Unit] =
-    child.self.fold(Right(())) { frame =>
+  // The space a leaf's public secondaries and factories build, where its primary is not callable.
+  private def built(child: TypeEntry, useSite: Frame): Either[String, Option[Card]] =
+    child.self.fold(Right(None)) { frame =>
       ConstrainedReceivers
         .space(frame, useSite, resolver, resolver.resolve(_, frame, resolver.typeParameters(frame)))
-        .flatMap(
-          _.map(_ =>
-            s"sealed subtype built by public constructors with fewer values: ${child.name}"
-          )
-            .toLeft(())
-        )
     }
+
+  // Each summand by the field type standing for it: the leaf's key and the space, both spelled in
+  // the name, so a leaf read from two sites with two spaces stands for each under its own name.
+  private val grounds = scala.collection.concurrent.TrieMap.empty[String, Shape]
+
+  // A field type standing for a summand of `space` values, read back by `ground(tpe)`.
+  private def ground(key: String, space: Card): Type = {
+    val name = s"<built $key: $space>"
+    grounds.getOrElseUpdate(name, Shape.Ground(key, space))
+    Type.Name(name)
+  }
+
+  /** The summand a field type stands for, where it stands for a leaf counted by its builders. */
+  def ground(field: Type): Option[Shape] = field match {
+    case Type.Name(name) => grounds.get(name)
+    case _               => None
+  }
 
   // Mods that grant their declaration to an enclosing package are readable wherever that package
   // reaches; anything else that restricts access is a refusal here.
