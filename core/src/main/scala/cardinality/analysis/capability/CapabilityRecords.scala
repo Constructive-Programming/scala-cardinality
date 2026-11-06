@@ -59,8 +59,9 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
             template,
             env,
             args.proper(template.typeParams).toMap,
-            context.enter(key),
-            key
+            context.copy(preceding = None).enter(key),
+            key,
+            context.preceding.nonEmpty
           ).record
         }
     }
@@ -74,7 +75,8 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
       env: Map[String, Resolved],
       written: Map[String, (Type, ResolutionContext)],
       context: ResolutionContext,
-      key: String
+      key: String,
+      preceding: Boolean
   ) {
     private val useSite = context.useSite
 
@@ -167,9 +169,11 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
 
     // A value of the record may be the measured declaration's own receiver when some instance is of
     // both templates, so a member of its name and arity may be the declaration itself: calling it
-    // re-enters the declaration (capabilities C6), which this reading does not split.
+    // re-enters the declaration (capabilities C6), which this reading does not split. A value built
+    // before that receiver (`preceding`) is never it: its member runs on another, earlier value.
     private def selfView(members: List[Tree], all: List[Frame]): Option[String] =
       useSite.tree
+        .filter(_ => !preceding)
         .flatMap(measured)
         .filter(_ => useSite.parent.exists(shareInstance(_, all)))
         .flatMap { (name, arity) =>

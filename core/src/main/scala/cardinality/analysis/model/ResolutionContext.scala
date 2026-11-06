@@ -26,13 +26,20 @@ final private[cardinality] case class ResolutionContext(
     arguments: Map[String, (Type, ResolutionContext)] = Map.empty,
     // The value whose refinement is being read: inside `p: T { … }`, `this` and the members the
     // refinement or T declares are p's.
-    refinedThis: Option[MemberPath] = None
+    refinedThis: Option[MemberPath] = None,
+    // The reference, as (source, offset), of a value's declared type when the value is built before
+    // the measured declaration's receiver, so it is never that receiver (capabilities C6). Only a
+    // read at that very reference keeps it (`referencing`): a part of the type is another value.
+    preceding: Option[(String, Int)] = None
 ) {
 
   def useSite: Frame = observer.getOrElse(frame)
 
   /** This context read at `tpe`'s own reference. */
-  def referencing(tpe: Type): ResolutionContext = copy(at = referenceAt(tpe))
+  def referencing(tpe: Type): ResolutionContext = {
+    val here = referenceAt(tpe)
+    copy(at = here, preceding = preceding.filter(p => tpe.pos.start >= 0 && here.contains(p)))
+  }
 
   private def referenceAt(tpe: Type): Option[(String, Int)] =
     val file = frame.input

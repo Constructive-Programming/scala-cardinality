@@ -33,6 +33,8 @@ class ReentrySpec extends Specification {
       a literal searches only where its type is not the result type    $literalSearch
     The view sandwich
       a refused binding, readings that disagree, or ≥ 2 stay `?`       $sandwichRefuses
+    A value built before the receiver is not the receiver
+      an enclosing parameter or a plain constructor parameter         $builtBefore
   """
 
   private def one(code: String): Map[String, Count] =
@@ -245,6 +247,37 @@ class ReentrySpec extends Specification {
       .and(view(found("E.to"), "E.m"))
       .and(view(found("E3.to"), "E3.m"))
       .and(view(found("Opt.to"), "Opt.andThen"))
+  }
+
+  // dimap's anonymous Opt and Wrap read o built before their receiver: o is another value, never
+  // the receiver, so o.to is a capability S => B, and B's only producer is o.to(f(r)) (o.to(s)):
+  // 1. A by-name o (later) is evaluated where it is read and may be the receiver; a constructor
+  // `val` (Field) is a member a subclass may override with the receiver; a member's own parameter
+  // (Pick's other) may be the receiver: each keeps the reason.
+  def builtBefore = {
+    val found = one("""
+      trait Opt[S, B] { def to(s: S): B }
+      object Ops {
+        def dimap[S, R, B](o: Opt[S, B], f: R => S): Opt[R, B] = new Opt[R, B] { def to(r: R): B = o.to(f(r)) }
+        def later[S, R, B](o: => Opt[S, B], f: R => S): Opt[R, B] = new Opt[R, B] { def to(r: R): B = o.to(f(r)) }
+      }
+      class Wrap[S, B](o: Opt[S, B]) extends Opt[S, B] { def to(s: S): B = o.to(s) }
+      class Field[S, B](val o: Opt[S, B]) extends Opt[S, B] { def to(s: S): B = o.to(s) }
+      trait Pick[B] { def pick(b: B, other: Pick[B]): B }
+      class P[B] extends Pick[B] { def pick(b: B, other: Pick[B]): B = other.pick(b, other) }
+    """)
+    def self(count: Count, member: String): Result =
+      count must beLike {
+        case Count.Unresolved(reasons) =>
+          reasons must contain(
+            s"capability record member may be the measured declaration on its receiver: $member"
+          )
+      }
+    (found("Ops.dimap.<new#1>.to") === Count.Finite(1))
+      .and(found("Wrap.to") === Count.Finite(1))
+      .and(self(found("Ops.later.<new#1>.to"), "Opt.to"))
+      .and(self(found("Field.to"), "Opt.to"))
+      .and(self(found("P.pick"), "Pick.pick"))
   }
 
 }

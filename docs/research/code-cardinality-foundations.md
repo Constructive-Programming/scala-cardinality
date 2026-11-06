@@ -2013,6 +2013,50 @@ change the signature or the type): a receiver asks the closed world for them ins
 unresolved override identity, a sealed family extended through an alias, and the stored-value
 estimate's open abstractions (a trait any implementation may extend) keep their reasons.
 
+## D40. A value built before the receiver is not the receiver
+
+**Decision.** A record value whose template may share an instance with the measured declaration's
+keeps the reason `capability record member may be the measured declaration on its receiver` only
+where the value may be that receiver (`this`). A value built before the receiver is not: a by-value
+parameter of the receiver template's constructor that is no field, or of any definition lexically
+around the template. Its member of the measured name is the declaration run on another, earlier
+value, read as the closed world reads every member a supplied template overrides (D39): a free
+capability. eo's anonymous optics (`outerProfunctor.dimap`, `innerProfunctor.dimap`, `reverse`,
+the `Composer`, `Affine` and `MultiFocusK` conversions) lose the reason; their `Optic` record is then
+refused as recursive (`recursive type not read`, parked).
+
+**Derivation.** Evaluation is strict and effect-free (plan §2): a by-value argument is a finished
+value when the call or `new` that receives it starts, so it was built before the instance that call
+creates, and a finished value never contains an instance built after it (values are acyclic without
+mutation or laziness). A class nested in a definition is instantiated while the definition runs, after
+its parameters are evaluated; a template's constructor arguments are evaluated before it runs, and
+Scala rejects `this` in a superclass constructor's arguments ("this can be used only in a class,
+object, or template", scalac 3.8.3 on `class Sub2 extends Wrap2[Int, Int](this)`). A call of the
+measured member on such a value runs on a receiver other than `this`, with the receiver's arguments:
+no evaluation of the measured body re-enters itself on the same receiver through it. A by-name or
+inline parameter is evaluated where it is read and may denote the receiver (`lazy val r: Opt[Int,
+Int] = Ops.later(r, identity)` compiles, and `r.to` then calls itself); a constructor `val` is a
+member a subclass may override with `this`; a parameter of the measured member itself may be `this`
+at a call site. Those keep the reason.
+
+**Evidence.**
+
+- First principles (above), over D4's exclusion of a declaration's own implementation and D39.
+- **Compiler fixtures** (scalac 3.8.3, `/tmp` fixtures, not retained): the `ReentrySpec`
+  `builtBefore` source compiles, `Loop.r` included; `this` passed to a superclass constructor is
+  rejected.
+- **Executable**: `ReentrySpec.builtBefore` (dimap's and `Wrap`'s `to`: 1; a by-name `o`, a `val`
+  field and the member's own parameter keep the reason), `CapabilitySpec.selfView`,
+  `RecursionProbeSpec`.
+
+**Boundary.** Only the record the value's declared type spells at its own reference is exempt: a
+record reached through it (a member's result, a type argument, a function's result, an alias's body)
+may be built from the receiver and keeps the reason. A captured strict local `val` and an enclosing template's
+`this` are built before too, but this reading does not claim them; an enclosing template's member
+may be overridden with the receiver. The rule does not
+touch possible views of the receiver's own members (C6, D31): eo's `Optic.to` and `Optic.from` stay
+`?` through `andThen`, whose supplied `ReadCompose` instances do run `outer.to`.
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its

@@ -95,6 +95,21 @@ A member a supplied template does override varies across receivers: it stays an 
 as an abstract one is (it was refused where only the template's file could extend it, this reading
 not enumerating those subclasses).
 
+**C6a — a record value that may be the receiver.** A value of a record whose template shares an
+instance with the measured declaration's (one extends the other, or a supplied template extends
+both) may be that declaration's own receiver: its member of the declaration's name and arity may be
+the declaration on `this`, so calling it may re-enter it (`capability record member may be the
+measured declaration on its receiver: C.m`). A value built before the receiver is never it (register
+D40): a by-value parameter of the receiver template's constructor that is no field (Scala rejects
+`this` passed to a superclass constructor), or of a definition around the template (dimap's `o` in
+`def dimap(o: Opt[S, B], f: R => S) = new Opt[R, B] { def to(r: R) = o.to(f(r)) }`). Its member runs
+on that earlier value, and the closed world reads it as the free capability every overridden
+member is: dimap's `to` is `o.to(f(r))`, 1. A by-name or inline parameter is evaluated where it is
+read (`lazy val r = later(r, f)` makes `o` the receiver), a constructor `val` is a member a subclass
+may override with the receiver, and the measured member's own parameters may be the receiver (`p.pick(b,
+p)`): each keeps the reason. Only the record the value's declared type spells is exempt; a record
+reached through it (a member's result, a type argument, a function's result) may be the receiver.
+
 **C6 — target views.** The model counts recursion-free implementations: none re-enters the
 measured declaration in any admissible receiver, and a receiver that overrides nothing is
 admissible. A member whose default body evaluates the declaration whenever the member is
@@ -276,7 +291,7 @@ number of binders or parameters per clause is always another slot.
 | Recursive record (a member's type mentions the record) | `recursive type not read: C` (the type reading's own guard) |
 | Polymorphic open member not reduced | `polymorphic capability binder: M (…)` ([PB0–PB4](polymorphic-members-and-saturation.md)) |
 | Possible view of a member a supplied template overrides | `overridable member may re-enter the measured declaration: C.m` |
-| Record member that may be the declaration on its receiver | `capability record member may be the measured declaration on its receiver: C.m` |
+| Record member that may be the declaration on its receiver (C6a: not for a value built before the receiver) | `capability record member may be the measured declaration on its receiver: C.m` |
 | Inherited identity unknown | `inherited declaration identity not resolved: m` / `inherited override identity not resolved: m` |
 | Overridable concrete member without a declared type | `overridable member's result type is inferred: m` |
 | A view through code the compiler inserts: a by-name extension receiver, conversion or `==` overload, a context-function parameter, a SAM-converted lambda, implicit search reaching a given that may re-enter, `super.m` | `overridable member may re-enter the measured declaration: C.m` |

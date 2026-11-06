@@ -7,6 +7,7 @@ import cardinality.analysis.capability.{
   DeferredInline,
   PassedState,
   ReceiverCapabilities,
+  ReceiverMembers,
   TargetViews
 }
 import cardinality.analysis.inhabitation.Inhabitation
@@ -347,9 +348,34 @@ final private[cardinality] class Measurement(
           else p.name.value,
           p.decltpe,
           MemberSlot(owner, resolver.typeParameters(owner), owner),
-          ParameterScope.of(owner)
+          ParameterScope.of(owner),
+          builtBefore(p, owner)
         )
     }
+
+  // Whether a parameter holds a value built before the measured declaration's receiver, so never
+  // that receiver (capabilities C6): one of the receiver template's constructor or of a frame
+  // around it, evaluated once before the receiver is built — not by name or inline (re-evaluated
+  // where it is read), and no field a subclass may override with the receiver. Scala rejects a
+  // self reference passed to a superclass constructor by value, so even the receiver template's
+  // own constructor parameter is not it. The member's own parameters may be.
+  private def builtBefore(p: Term.Param, owner: Frame): Boolean =
+    receiverChain(owner.id) &&
+      !p.decltpe.exists(_.is[Type.ByName]) &&
+      !p.mods.exists(_.is[Mod.Inline]) &&
+      !(owner.isTemplate && ReceiverMembers.fieldParams(owner).exists(_ eq p))
+
+  // A type spelled as a class applied or not: no other part of it starts where it does, but an
+  // infix, union, function or annotated type starts with an operand.
+  private def named(tpe: Type): Boolean =
+    tpe.pos.start >= 0 && (tpe match {
+      case _: (Type.Name | Type.Select | Type.Apply) => true
+      case _                                         => false
+    })
+
+  // The measured member's receiver template and the frames around it.
+  private lazy val receiverChain: Set[String] =
+    target.frame.parent.filter(_.isTemplate).fold(Set.empty[String])(_.chain.map(_.id).toSet)
 
   // An enclosing receiver's fields, as its public constructors build them (`ConstrainedReceivers`):
   // closed fields holding fewer values together than their types are one value of that space.
@@ -452,8 +478,14 @@ final private[cardinality] class Measurement(
   // A declaration is read where its slot declares it; a parameter, where its owner types it. A
   // stable value's type-only refinement pins members of its path, which its path's reading follows:
   // the value itself is a value of the refined type.
-  private def add(name: String, tpe: Option[Type], slot: MemberSlot, reading: Frame): Unit =
-    readValue(name, tpe, slot, reading) match {
+  private def add(
+      name: String,
+      tpe: Option[Type],
+      slot: MemberSlot,
+      reading: Frame,
+      preceding: Boolean = false
+  ): Unit =
+    readValue(name, tpe, slot, reading, preceding) match {
       case Left(reason) => errors += reason
       case Right(shape) => bindSlot(slot, name, shape)
     }
@@ -462,12 +494,21 @@ final private[cardinality] class Measurement(
       name: String,
       tpe: Option[Type],
       slot: MemberSlot,
-      reading: Frame
+      reading: Frame,
+      preceding: Boolean = false
   ): Resolved =
     tpe
       .toRight(s"missing type of accessible value: $name")
       .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
-      .flatMap(resolveIn(_, reading, slot.env, slot.receiver))
+      .flatMap { tpe =>
+        val context = readingContext(reading, slot.env, slot.receiver)
+        resolver.resolve(
+          tpe,
+          if (preceding && named(tpe))
+            context.copy(preceding = Some(reading.input -> tpe.pos.start))
+          else context
+        )
+      }
 
   // A scope's declarations by kind: a declaration binds a slot, a concrete value or variable is
   // read through `Aliases`, and an import only matters where it may rebind a builtin name. The
