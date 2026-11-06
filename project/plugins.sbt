@@ -39,6 +39,13 @@ libraryDependencies +=
 // `sbt "bench/Jmh/run"` and the inputs named in bench/README.md.
 addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.8")
 
-// Self-measurement: this build runs its own plugin on itself (`sbt cardinalityReport`).
-// Resolves from ~/.ivy2/local, so run `sbt publishLocal` after changing `core`/`plugin`.
-addSbtPlugin("io.github.constructive-programming" % "sbt-cardinality" % "0.1.0-SNAPSHOT")
+// Signing for Maven Central (`publishSigned`; the release workflow imports the key).
+addSbtPlugin("com.github.sbt" % "sbt-pgp" % "2.3.2")
+
+// Self-measurement: this build runs its own plugin on itself, on request only, so a clean
+// checkout (CI) never needs a plugin it has not published. Run `sbt publishLocal`, then
+// `sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport` (any published version works).
+sys.props
+  .get("cardinality.self")
+  .toSeq
+  .map(v => addSbtPlugin("dev.constructive" % "sbt-cardinality" % v))

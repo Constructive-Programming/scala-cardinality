@@ -20,12 +20,14 @@ Terms used below:
 
 ```bash
 sbt publishLocal        # only needed after changing core/ or plugin/ sources
-sbt cardinalityReport   # writes target/**/<module>/cardinality/report.txt per module
+sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport   # target/**/<module>/cardinality/report.txt
 ```
+
+- The build loads its own plugin only when `-Dcardinality.self=<version>` is set (CI never does).
 
 - Reports are per module (`scala-cardinality` = core, `sbt-cardinality` = plugin); the root
   aggregates and has no sources of its own.
-- Narrow a single signature with `sbt 'cardinalityReportSelected <fqcn>'`.
+- Narrow a single signature with `sbt -Dcardinality.self=0.1.0-SNAPSHOT 'cardinalityReportSelected <fqcn>'`.
 - Diff each run against the baseline.
 
 ### Reading sizes

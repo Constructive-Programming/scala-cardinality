@@ -1,8 +1,25 @@
 // Bare settings are sbt 2 common settings: they apply to every subproject, so
 // only cross-cutting values live here. Anything module-specific (name,
 // dependencies, gates) sits on its project below.
-version := "0.1.0-SNAPSHOT"
-organization := "io.github.constructive-programming"
+// A release build gets its version from the tag (`.github/workflows/release.yml`).
+version := sys.env.getOrElse("RELEASE_VERSION", "0.1.0-SNAPSHOT")
+organization := "dev.constructive"
+organizationName := "Constructive"
+homepage := Some(uri("https://github.com/Constructive-Programming/scala-cardinality"))
+licenses := Seq("GPL-2.0-only" -> uri("https://www.gnu.org/licenses/old-licenses/gpl-2.0.html"))
+scmInfo := Some(
+  ScmInfo(
+    uri("https://github.com/Constructive-Programming/scala-cardinality"),
+    "scm:git:https://github.com/Constructive-Programming/scala-cardinality.git",
+    Some("scm:git:git@github.com:Constructive-Programming/scala-cardinality.git")
+  )
+)
+developers := List(
+  Developer("kryptt", "Rodolfo Hansen", "@kryptt", uri("https://github.com/kryptt"))
+)
+// Maven Central through sbt's own Central Portal support: `publishSigned` stages the signed
+// artifacts here, `sonaRelease` uploads and releases them (SONATYPE_USERNAME / SONATYPE_PASSWORD).
+publishTo := localStaging.value
 
 // Pinned to the Scala version sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is
 // 3.9.0, matching cats-eo 1.2.1): the sbt plugin — and `core`, which it loads — must
@@ -23,6 +40,7 @@ lazy val root = (project in file("."))
 lazy val core = project
   .settings(
     name := "scala-cardinality",
+    description := "Counts the values of Scala types and the implementations of Scala signatures",
     libraryDependencies ++= Seq(
       "dev.constructive" %% "cats-eo" % "1.2.1",
       "dev.constructive" %% "cats-eo-generics" % "1.2.1",
@@ -62,6 +80,7 @@ lazy val plugin = project
   .dependsOn(core)
   .settings(
     name := "sbt-cardinality",
+    description := "sbt plugin reporting the cardinality of a project's definitions and methods",
     // scripted boots a fresh sbt per test project and resolves the plugin by
     // version, so the tests pass it through a system property.
     scriptedLaunchOpts += s"-Dplugin.version=${version.value}",

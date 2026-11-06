@@ -254,6 +254,14 @@ inside sbt, and Scala 3 binary compatibility is backward only.
 
 ## Reports
 
+The plugin is on Maven Central for sbt 2; add it to `project/plugins.sbt`:
+
+```scala
+addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.1")
+```
+
+The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.1"`.
+
 `sbt cardinalityReport` measures every definition the project's `Compile`
 sources introduce — nested definitions included — and logs a report: what each
 generic method or constructor can be, then the stored-value estimate over the
@@ -342,9 +350,9 @@ The full run is checked in at
 revision, the sources jar's SHA-256, the tool versions and the analysis limits in its header, so
 a later run can be diffed against it.
 
-The plugin also measures this repository itself: `project/plugins.sbt` adds the locally
-published plugin (`sbt publishLocal` first), so `sbt cardinalityReport` reports on `core` and
-`plugin`. That self-measurement is checked in at
+The plugin also measures this repository itself: with `-Dcardinality.self=<version>`,
+`project/plugins.sbt` adds that published plugin (`sbt publishLocal` first for the snapshot), so
+`sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport` reports on `core` and `plugin`. That self-measurement is checked in at
 [`docs/baselines/self-2026-11-06.txt`](docs/baselines/self-2026-11-06.txt); the reduction
 workflow that consumes it — including the ranked stage hierarchy from the TPC articles — is in
 [`.claude/skills/cardinality-reduction/SKILL.md`](.claude/skills/cardinality-reduction/SKILL.md).
