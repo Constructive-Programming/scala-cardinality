@@ -30,7 +30,8 @@ import Shape.*
   * from above (quotienting only merges) and only 0 or 1 is reported; a bare-binder result may be
   * instantiated at a compound type and eliminated, so beside one no finite count is (`uncovered`).
   * A member whose result meets no goal is irrelevant there (PB3); one whose binders the goal does
-  * not fix keeps a reason (PB4).
+  * not fix keeps a reason (PB4), unless an applied parameter's supplied values fix them (PB5,
+  * `supplied`).
   */
 private[cardinality] object PolymorphicMembers {
 
@@ -202,12 +203,110 @@ private[cardinality] object PolymorphicMembers {
     * may be instantiated at a compound type and eliminated afterwards, which matching at goals
     * never searches (PB2's boundary).
     */
-  def uncovered(poly: Poly): Option[String] =
+  def uncovered(poly: Poly, env: List[Shape]): Option[String] =
     GoalSolver.producerPaths
       .get(poly.body)(Nil)
-      .flatMap(producer => poly.binders.find(b => producer.output == Atom(b.id)))
+      .flatMap { producer =>
+        poly.binders.find(b => producer.output == Atom(b.id)).flatMap { binder =>
+          supplied(poly.binders, producer, env) match {
+            case Some(Right(_))  => None
+            case Some(Left(why)) => Some(why)
+            case None => Some(reason(binder, "instantiations at compound types not searched for"))
+          }
+        }
+      }
       .headOption
-      .map(reason(_, "instantiations at compound types not searched for"))
+
+  /** PB5: a path each of whose binders occurs in an applied parameter (`get[X, A](fa: F[X, A])`) is
+    * called only at the types of the applied values its environment supplies. An applied type is
+    * built by nothing but a value or a producer, so those values — the context's own, its fields,
+    * and the results of its monomorphic producers (`outer.to(s): F[outer.X, A]`) — fix every
+    * instantiation, each a monomorphic instance of the path. `None` where the path is not of that
+    * form. The set is open, and the path refused, when a polymorphic producer that can be applied
+    * builds such a value at a type its own binders choose (`make[X, A](a: A): F[X, A]`).
+    */
+  def supplied(
+      binders: List[Binder],
+      producer: Producer,
+      env: List[Shape]
+  ): Option[Either[String, List[Shape]]] = {
+    val bound = mentioned(binders, producer)
+    val ids = bound.map(_.id).toSet
+    val patterns = producer.parameters.collect { case p: Applied if !free(p, ids) => p }
+    val (fixed, rest) = bound.partition(b => patterns.exists(occurs(_, b)))
+    Option.when(fixed.nonEmpty) {
+      val heads = patterns.map(_.head).toSet
+      val paths = env.flatMap(pathsOf)
+      if (opens(env, paths, heads))
+        Left(
+          reason(
+            fixed.head,
+            "instantiations not closed: a polymorphic producer builds an argument of"
+          )
+        )
+      else {
+        val candidates =
+          (env ++ paths.collect { case (own, p) if free(p.output, own) => p.output }).collect {
+            case a: Applied if heads(a.head) => a
+          }.distinct
+        val fixes = patterns.foldLeft(List(Map.empty[String, Shape])) { (found, pattern) =>
+          for {
+            sofar <- found
+            candidate <- candidates
+            next <- matching(pattern, candidate, fixed.map(_.id).toSet)
+            if next.forall((b, s) => sofar.get(b).forall(_ == s))
+          } yield sofar ++ next
+        }
+        Right(fixes.distinct.map { fix =>
+          val instance = at(fix)
+          val callable = Function(producer.parameters.map(instance), instance(producer.output))
+          if (rest.isEmpty) callable else Poly(rest, callable)
+        })
+      }
+    }
+  }
+
+  // Every producer path of a context value, with the binders it is polymorphic in.
+  private def pathsOf(shape: Shape): List[(Set[String], Producer)] = shape match {
+    case f: Function         => GoalSolver.producerPaths.get(f)(Nil).map(Set.empty -> _)
+    case Poly(binders, body) =>
+      GoalSolver.producerPaths.get(body)(Nil).map(binders.map(_.id).toSet -> _)
+    case _ => Nil
+  }
+
+  // Whether a polymorphic path builds a value of one of `heads` at a type its binders choose, once
+  // its own applied arguments can be had: the heads available grow from the context's values to a
+  // least fixed point (a parameter of any other form is taken as available).
+  private def opens(
+      env: List[Shape],
+      paths: List[(Set[String], Producer)],
+      heads: Set[Head]
+  ): Boolean = {
+    def applicable(p: Producer, found: Set[Head]) =
+      p.parameters.collect { case a: Applied => a.head }.forall(found)
+    def grow(found: Set[Head]): Set[Head] = {
+      val next = found ++ paths.collect {
+        case (_, p @ Producer(_, Applied(head, _))) if applicable(p, found) => head
+      }
+      if (next == found) found else grow(next)
+    }
+    val available = grow(env.collect { case Applied(head, _) => head }.toSet)
+    paths.exists((own, p) => chooses(p.output, own, heads) && applicable(p, available))
+  }
+
+  // Whether a result holds a value of one of `heads` at a type its call chooses: one of its own
+  // binders, or a witness each call opens afresh.
+  private def chooses(output: Shape, own: Set[String], heads: Set[Head]): Boolean = {
+    def headed(shape: Shape) = Shape.exists(shape) {
+      case Applied(head, _) => heads(head)
+      case _                => false
+    }
+    Shape.exists(output) {
+      case applied: Applied   => headed(applied) && !free(applied, own)
+      case Existential(_, in) => headed(in)
+      case _                  => false
+    }
+  }
 
   /** Whether a producer path of a member mentions none of its binders. */
   def monomorphic(binders: List[Binder], producer: Producer): Boolean =

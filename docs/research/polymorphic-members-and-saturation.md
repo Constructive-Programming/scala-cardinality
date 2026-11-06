@@ -9,7 +9,7 @@ and
 Design memo: capabilities.md C8, C10 and C11 (restricted as SYNTHESIS D-capabilities and crosscheck
 X3 require; X7 and X8 are answered below). Regressions: `PolymorphicMemberSpec`,
 `NeutralSaturationSpec` (fixtures compiled with scalac 3.9.0; the C11 fixture is the crosscheck's
-`c11`), and the updated `OpaqueSumForwardingSpec`, `InhabitationSpec`, `GroundTypesSpec`.
+`c11`), `EnvironmentBinderSpec` (PB5; compiled with scalac 3.9.0), and the updated `OpaqueSumForwardingSpec`, `InhabitationSpec`, `GroundTypesSpec`.
 
 ## Rules
 
@@ -56,6 +56,28 @@ its binders are fresh rigid atoms. As an input, each producer path is matched ag
   C.m)` wherever the path is relevant (PB4). An instantiation the goal fixes at an eliminated type
   keeps the quotient reason.
 
+**PB5 — binders the environment supplies** (owner decision 2026-11). A binder that occurs in an
+applied parameter (`get[X, A](fa: F[X, A]): A`, `getOption[X, A](fa: F[X, A]): Option[A]`) is
+fixed by the values that parameter can be given. The search builds an applied type only from a
+value or a producer, never by a constructor of its own, so those values are the context's applied
+values (its fields included), the results of its monomorphic producers (`outer.to(s): F[outer.X,
+A]` fixes `X := outer.X`) and, in turn, the results of the instances themselves (`get[A](fa: F[A])`
+on `ffb: F[F[B]]` at `A := F[B]` supplies an `F[B]`, at which it applies again). Each distinct
+instantiation the matches give is one monomorphic callable joined to the context, cased and applied
+like any other (C10 included); binders no applied parameter mentions stay polymorphic in it and are
+read by PB2–PB4 at the goal. The member itself then offers nothing further: no reason, and no PB2
+boundary for its bare-binder result, since every instantiation of it is enumerated. A member none of
+whose applied parameters any value matches is applied at no type and builds nothing
+(`ForgetfulApplicative.pure` beside `map`, with no `F` value: 0).
+
+The set is open, and the path keeps a refusal, when a producer that can be applied builds a value of
+one of those applied types at a type it chooses itself: one of its own binders (`make[X, A](a: A):
+F[X, A]`, or `map`'s `F[X, B]` once an `F` value exists) or a witness each call opens afresh.
+"Can be applied" is a least fixed point over heads: a head is available once a context value has it
+or a producer whose applied parameters are all available builds it (any other parameter counts as
+available). The reason is `polymorphic capability binder: X (instantiations not closed: a polymorphic
+producer builds an argument of C.m)`; it replaces PB4's and the boundary's reason for that path.
+
 A bounded binder that occurs, any view-bounded one and any with two bounds is
 `polymorphic capability binder: M (bounded)`; a higher-kinded one `polymorphic capability binder:
 G[_] (higher-kinded)`. A context bound bounds nothing: `[M: C]` is the `using C[M]` clause it stands
@@ -70,7 +92,8 @@ whose value is then applied, projected or cased (`run[(B, B)](swap, (b1, b2))._1
 instantiation at a goal represents (derivation below). With such a member in the context only ω,
 which such terms cannot lower, and a context proved absurd, which they cannot make consistent, are
 reported; any other count is `polymorphic capability binder: M (instantiations at compound types
-not searched for C.m)`.
+not searched for C.m)`. PB5 lifts the boundary for a path whose binders it fixes: the result's
+instantiation is then a part of a supplied value's type, never a free choice.
 
 Cats evidence (`Monoid`, `Functor`, `Applicative`) is never reduced by laws: it is a foreign
 declaration, and a source algebra (`combine: (M, M) → M`) fails PB1's polarity test.
@@ -152,6 +175,21 @@ missed terms only add to a set that is already infinite, and a context proved ab
 derivation of the empty type is a real term. (Round 1 claimed coverage for every member; that
 lemma was false.)
 
+*PB5.* Coverage: every application of the member in a long normal form has its applied arguments
+built, and an applied value is built only by a variable, a field, or a producer's result. When no
+applicable producer chooses the type of such a result (the closedness test), each argument's type is
+one of the enumerated candidates, so each application is an application of one enumerated instance,
+and every binder of the path is fixed — a bare-binder result included, which is why the boundary
+does not apply. The candidates are finite: an instance's new applied result is a part of a candidate
+(a bare binder's instantiation) or a type the member spells with no binder; a result that spells a
+binder under one of the heads makes that member an opener, which refuses the path. Exactness above
+1, unlike PB2: each instance is an ordinary callable of the supplied values, and terms differing in
+which instance they apply, or to which values, are counted as distinct, as for any free callable.
+Where the head is a rigid type constructor this is a separating supply: the supply picks the
+constructor, so a value can carry its components and a token the parametric member reads. The owner
+adopted the reading for every applied head (2026-11, "each distinct instantiation is a separate
+callable instance"). Binders left to the goal keep PB2's 0-or-1 limit.
+
 *C10.* Pure and total, a case commutes with every context, and casing twice on one scrutinee is
 redundant (β and η for sums), so every term equals one that cases on each neutral of its context
 exactly once, as soon as its arguments exist: the saturated normal forms of focused proof search.
@@ -169,8 +207,9 @@ finite (register D2).
 
 ## Limits (each stays `?` with the reason given)
 
-- Non-reducible polymorphic members whose naive count exceeds 1, members whose binders the goal
-  does not fix, bounded and view-bounded binders (reasons above).
+- Non-reducible polymorphic members whose naive count exceeds 1, members whose binders neither the
+  goal nor a supplied applied value fixes, members whose applied arguments an open producer builds
+  (PB5), bounded and view-bounded binders (reasons above).
 - A higher-kinded member binder no longer refuses the record: it is read as the rigid constructor
   `TypeOperators.rigid` binds (`register D34`), the member's type applying it uninterpreted — the
   way a method's own higher-kinded binder reads. A member whose *result* instantiates its own
@@ -185,8 +224,8 @@ finite (register D2).
   model count is ω).
 - C11 never fires through a polymorphic instantiation, a reason-carrying rule, or a goal whose
   context may be absurd.
-- A context holding a member whose result is a bare binder has no finite count, even where the true
-  count is 0 (`def zero[A](c: Church): A`).
+- A context holding a member whose result is a bare binder PB5 does not fix has no finite count,
+  even where the true count is 0 (`def zero[A](c: Church): A`).
 - A member whose result is a bare binder matches every goal; beside a type constructor it grows the
   goals without end (`trait W[F[_]] { def wrap[A](a: A): F[A]; def unwrap[A](fa: F[A]): A }`: at
   the goal `F[B]`, `unwrap` at `A := F[B]` needs `F[F[B]]`, …), so `cyc[F[_], B](w: W[F], b: B):

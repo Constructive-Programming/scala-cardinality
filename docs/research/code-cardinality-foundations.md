@@ -1034,9 +1034,15 @@ fresh rigid binders; as an input, a path that mentions none of its binders is an
 and any other is instantiated only where matching its result against a goal fixes every binder it
 mentions (PB2), and then only a count of 0 or 1 is reported; a result no goal meets builds nothing
 (PB3); a binder no goal fixes, or a result eliminated by cases, keeps `polymorphic capability
-binder: M (not determined by the result of C.m)` (PB4). A member with a path whose result is a bare
-binder leaves only ω and absurd contexts reported (`… (instantiations at compound types not
-searched for C.m)`): a normal form may instantiate it at a compound type and eliminate the value. A
+binder: M (not determined by the result of C.m)` (PB4). A binder that occurs in an applied
+parameter is fixed by the applied values the environment supplies — its values and fields, its
+monomorphic producers' results and the instances' own results — each distinct instantiation one
+monomorphic callable, counted like any other (PB5, owner decision 2026-11); a producer that can be
+applied and builds such a value at a type it chooses keeps the path refused (`… (instantiations not
+closed: a polymorphic producer builds an argument of C.m)`). A member with a path whose result is a
+bare binder PB5 does not fix leaves only ω and absurd contexts reported (`… (instantiations at
+compound types not searched for C.m)`): a normal form may instantiate it at a compound type and
+eliminate the value. A
 context bound is the `using` parameter it stands for (D14; higher-kinded binders R4), spelled into
 the member's callable; bounded, view-bounded and higher-kinded binders keep their own reasons. A deferred (abstract) `inline`
 member is no term of a body that is not inline — the compiler rejects the call — so it is dropped
