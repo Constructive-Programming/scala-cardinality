@@ -36,7 +36,7 @@ class PolymorphicMemberSpec extends Specification {
       an algebra premise (Monoid-like evidence) is never reduced    $algebra
       a goal's binders are fresh rigid atoms                        $skolem
       bounded and higher-kinded binders keep their reasons          $boundedAndKinded
-      a context-bound binder is bounded                              $contextBound
+      a context-bound binder is its evidence parameter               $contextBound
       a bare-binder result that grows every goal exhausts the budget $growingChain
       a bare-binder result's compound instantiations are not searched $compoundInstantiation
     Deferred inline members (no term of a body that is not inline)
@@ -75,6 +75,9 @@ class PolymorphicMemberSpec extends Specification {
     |trait L[A] { def f[M >: Int](a: A): A }
     |trait Ord[M] { def le(x: M, y: M): Boolean }
     |trait CB { def fold[M: Ord](m: M): M }
+    |trait Mon[M] { def combine(x: M, y: M): M }
+    |trait CBM { def fold[M: Mon](m: M): M }
+    |trait EvM { def fold[M](m: M)(using Mon[M]): M }
     |trait Mk { def make[M](f: (Int, Boolean) => M): Option[M] }
     |trait Pairs { def choose[M](both: (M, M)): M }
     |trait Seesaw[F[_]] { def wrap[A](a: A): F[A]; def unwrap[A](fa: F[A]): A }
@@ -83,6 +86,8 @@ class PolymorphicMemberSpec extends Specification {
     |  def v[A](c: V[A], a: A): A = a
     |  def l[A](c: L[A], a: A): A = a
     |  def useCb[A](c: CB, a: A): A = a
+    |  def useCbm[A](c: CBM, a: A): A = a
+    |  def useEvm[A](c: EvM, a: A): A = a
     |  def made(m: Mk): Option[(Int, Boolean)] = None
     |  def pick[B](c: Pairs, a: B, b: B): B = a
     |  def cyc[F[_], B](w: Seesaw[F], b: B): F[B] = w.wrap(b)
@@ -105,9 +110,15 @@ class PolymorphicMemberSpec extends Specification {
     (bounds("bounds.U.made").render === "8589934593^8589934593")
       .and(bounds("bounds.U.pick") === Count.Finite(4))
 
-  // fold needs an Ord[M] the member's clauses do not spell: refused (true count 1: no Ord in scope).
+  // `fold[M: Ord](m: M): M` is `fold[M](m: M)(using Ord[M]): M` (hkt R4). Ord[M] is (M, M) =>
+  // Boolean, M positive in the rest beside its generator m, so PB1 reduces fold to Ord[1] => 1: it
+  // builds Unit and is irrelevant — a alone, 1 (it was refused as bounded; true count 1).
+  // With Mon[M] (combine meets M on both sides) no reduction applies, and the bound reads exactly
+  // as the `using` clause it stands for: refused alike (building a Mon[A] to pass is a function).
   def contextBound =
-    refused(bounds("bounds.U.useCb"), "polymorphic capability binder: M (bounded)")
+    (bounds("bounds.U.useCb") === Count.Finite(1))
+      .and(bounds("bounds.U.useCbm") === bounds("bounds.U.useEvm"))
+      .and(refused(bounds("bounds.U.useCbm"), "Higher-order application is unsupported"))
 
   // unwrap's result A meets every goal, F[B] first: at A := F[B] it needs F[F[B]], and so on — the
   // goals never repeat. True count 1 (unwrap ∘ wrap is ∀A. A → A, the identity, so wrap(b) is the

@@ -48,19 +48,20 @@ private[cardinality] object PolymorphicMembers {
     else Right(rigid(Binder(member, parameter.name.value).id, Kinds.of(parameter)))
   }
 
-  /** A member's type with its binders read (PB0, PB1), or kept for the solver. A bound restricts
-    * the instantiations a reading would need — a context or view bound is an evidence parameter the
-    * member's clauses do not spell — so a bounded binder is read only when its type never meets it.
-    * Even then the bound must be met by some type, or no call of the member typechecks: a one-sided
-    * bound always is (`Nothing` below an upper bound, `Any` above a lower one, whatever other
-    * binders it mentions), a two-sided one need not be (`M >: Int <: String`, or `M >: X <: String`
-    * for a rigid `X`), so it is refused rather than dropped.
+  /** A member's type with its binders read (PB0, PB1), or kept for the solver. A context bound is
+    * the evidence parameter the callable already spells (`MemberSyntax`), so it bounds nothing. A
+    * view bound, or a subtype bound, restricts the instantiations a reading would need, so such a
+    * binder is read only when its type never meets it. Even then the bound must be met by some
+    * type, or no call of the member typechecks: a one-sided bound always is (`Nothing` below an
+    * upper bound, `Any` above a lower one, whatever other binders it mentions), a two-sided one
+    * need not be (`M >: Int <: String`, or `M >: X <: String` for a rigid `X`), so it is refused
+    * rather than dropped.
     */
   def close(member: String, parameters: List[Type.Param], shape: Shape): Either[String, Shape] = {
     val binders = parameters.map(p => p -> Binder(member, p.name.value))
     val occurring = binders.filter((_, binder) => occurs(shape, binder))
     val applied = binders.find((_, binder) => appliesResult(shape, binder))
-    val evidence = parameters.find(p => (p.bounds.context ++ p.bounds.view).nonEmpty)
+    val evidence = parameters.find(p => p.bounds.view.nonEmpty)
     val twoSided = parameters.find(p => p.bounds.lo.nonEmpty && p.bounds.hi.nonEmpty)
     val bounded = occurring.collectFirst {
       case (p, _) if p.bounds.lo.nonEmpty || p.bounds.hi.nonEmpty => p

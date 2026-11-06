@@ -313,7 +313,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
     each(found, Count.Finite(1))("U.viaP", "U.viaQ", "K3.use", "K3a.use")
   }
 
-  // `zero[A >: Int]` has an override (`1`), and `unit[A: Ordering]` may read its evidence. `pick[A,
+  // `zero[A >: Int]` has an override (`1`), and `unit[A: Ordering]` is `unit[A](using Ordering[A])`,
+  // whose evidence the stdlib model does not declare (it was refused as bounded). `pick[A,
   // B <: A](x: B, y: B): A` returns x or y (B is an A), `first[A, B <: (A, A)](b: B): A` b._1 or
   // b._2, and `pick[A, B >: A <: A]` x or y: each is a Boolean an override chooses, so Use.g ranges
   // over all 2^(2·2) = 16 functions of (pick, a). None is dropped, so each keeps the bounded binder's
@@ -337,7 +338,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |}""".stripMargin
     )
     refused(found("Lower.m"), "polymorphic capability binder")
-      .and(refused(found("Evidence.m"), "polymorphic capability binder"))
+      .and(refused(found("Evidence.m"), "declaration not supplied: Ordering"))
       .and(refused(found("Use.g"), "polymorphic capability binder: B"))
       .and(refused(found("Use.h"), "polymorphic capability binder: B"))
       .and(refused(found("Use.eqb"), "polymorphic capability binder: B"))

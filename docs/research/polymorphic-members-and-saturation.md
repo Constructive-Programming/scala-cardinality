@@ -56,9 +56,14 @@ its binders are fresh rigid atoms. As an input, each producer path is matched ag
   C.m)` wherever the path is relevant (PB4). An instantiation the goal fixes at an eliminated type
   keeps the quotient reason.
 
-A bounded binder that occurs, any context- or view-bounded one and any with two bounds is
+A bounded binder that occurs, any view-bounded one and any with two bounds is
 `polymorphic capability binder: M (bounded)`; a higher-kinded one `polymorphic capability binder:
-G[_] (higher-kinded)`.
+G[_] (higher-kinded)`. A context bound bounds nothing: `[M: C]` is the `using C[M]` clause it stands
+for (higher-kinded binders R4), one more parameter of the member's callable, read by PB0–PB4 like
+a spelled one. `fold[M: Ord](m: M): M` is `fold[M](m: M)(using Ord[M]): M`; Ord's `(M, M) =>
+Boolean` leaves M positive in the rest, so PB1 reduces it to `Ord[1] => 1`: it builds Unit (it read
+`(bounded)`; `PolymorphicMemberSpec.contextBound`). In eo the bounds are cats' `Monoid`,
+`Applicative` and `Functor`, whose records are recursive: those rows now say so.
 
 **PB2's boundary.** A path whose result is a bare binder `M` can be instantiated at a compound type
 whose value is then applied, projected or cased (`run[(B, B)](swap, (b1, b2))._1`), a term no
@@ -165,7 +170,7 @@ finite (register D2).
 ## Limits (each stays `?` with the reason given)
 
 - Non-reducible polymorphic members whose naive count exceeds 1, members whose binders the goal
-  does not fix, bounded, context-bounded and view-bounded binders (reasons above).
+  does not fix, bounded and view-bounded binders (reasons above).
 - A higher-kinded member binder no longer refuses the record: it is read as the rigid constructor
   `TypeOperators.rigid` binds (`register D34`), the member's type applying it uninterpreted — the
   way a method's own higher-kinded binder reads. A member whose *result* instantiates its own

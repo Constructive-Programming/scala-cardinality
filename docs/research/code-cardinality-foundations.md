@@ -1036,8 +1036,9 @@ mentions (PB2), and then only a count of 0 or 1 is reported; a result no goal me
 (PB3); a binder no goal fixes, or a result eliminated by cases, keeps `polymorphic capability
 binder: M (not determined by the result of C.m)` (PB4). A member with a path whose result is a bare
 binder leaves only ω and absurd contexts reported (`… (instantiations at compound types not
-searched for C.m)`): a normal form may instantiate it at a compound type and eliminate the value. Bounded,
-context-bounded and higher-kinded binders keep their own reasons. A deferred (abstract) `inline`
+searched for C.m)`): a normal form may instantiate it at a compound type and eliminate the value. A
+context bound is the `using` parameter it stands for (D14; higher-kinded binders R4), spelled into
+the member's callable; bounded, view-bounded and higher-kinded binders keep their own reasons. A deferred (abstract) `inline`
 member is no term of a body that is not inline — the compiler rejects the call — so it is dropped
 when its type is built from nothing (it then constrains no instance), and refused otherwise (`deferred
 inline member whose type may be empty: C.m`); in an inline body each expansion calls the override

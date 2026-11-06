@@ -284,7 +284,10 @@ private[cardinality] object MemberSyntax {
       result: Type,
       rigid: (String, Kind) => Shape
   ): Either[String, Callable] = {
-    val params = parameters(groups)
+    val binders = groups.flatMap(_.tparamClause.values)
+    // A context bound is the `using` clause it stands for (hkt R4): `[M: C](m: M)` is `[M](m: M)(using
+    // C[M])`, its evidence one more parameter of the callable.
+    val params = parameters(groups) ++ ContextBounds.evidence(binders)
     if (!params.forall(_.decltpe.isDefined)) Left(s"missing callable parameter type: $name")
     else
       Right(
@@ -296,7 +299,7 @@ private[cardinality] object MemberSyntax {
             )
           ),
           member,
-          groups.flatMap(_.tparamClause.values),
+          binders,
           rigid
         )
       )
