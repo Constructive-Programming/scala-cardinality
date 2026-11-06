@@ -243,7 +243,14 @@ object Inhabitation {
 
   import Count.*
 
-  private[inhabitation] class Limit(message: String) extends RuntimeException(message)
+  /** The solver budget a search exhausted. */
+  private[inhabitation] enum Budget(val message: String) {
+    case Depth extends Budget("solver depth budget exhausted")
+    case TraversalDepth extends Budget("solver traversal depth budget exhausted")
+    case States(max: Int) extends Budget(s"Inhabitation state budget exceeded ($max)")
+  }
+
+  private[inhabitation] class Limit(budget: Budget) extends RuntimeException(budget.message)
 
   private[inhabitation] class Unsupported(message: String) extends RuntimeException(message)
 

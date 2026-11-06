@@ -134,7 +134,7 @@ final private[inhabitation] class Live(
     val finished = mutable.Set.empty[Int]
     def visit(id: Int, depth: Int): Unit = {
       inspect(mode.step)
-      if (depth >= maxDepth) throw new Inhabitation.Limit("solver traversal depth budget exhausted")
+      if (depth >= maxDepth) throw new Inhabitation.Limit(Inhabitation.Budget.TraversalDepth)
       if (onPath(id)) repeat(id)
       else if (!mode.skipFinished || !finished(id)) {
         onPath += id
@@ -166,7 +166,7 @@ private[inhabitation] object Live {
       (live, id, depth) => {
         live.inspect("solver count")
         if (depth >= live.maxDepth)
-          throw new Inhabitation.Limit("solver traversal depth budget exhausted")
+          throw new Inhabitation.Limit(Inhabitation.Budget.TraversalDepth)
         if (live.totals.contains(id)) Nil
         else live.rules(id).flatMap(_.children).map(child => (live, child, depth + 1))
       },

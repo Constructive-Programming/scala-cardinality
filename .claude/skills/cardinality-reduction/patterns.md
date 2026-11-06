@@ -30,6 +30,9 @@ Entry shape:
 - Boundary: a String that embeds open names (rendered refusal reasons, type syntax) stays.
 - Evidence: 331b579, `StdlibModel.Reading.Excluded(why: String)` → `Excluded(Exclusion)`;
   `Reading` `2ε₀ + ω + 4` → `2ε₀ + 7`.
+  Same shape in an exception's message: `Natural.Exceeded(limit: String)` (three templates over
+  constants) → `Exceeded(Breach)`, ω → 3; `Inhabitation.Limit(message: String)` → `Limit(Budget)`
+  with `Budget.States(max: Int)` keeping the one open number: ω → ≤2^33 (`<init>` 2^32 + 2).
 
 ### R2 Correlated fields in a product — confirmed
 - Signal (R): `ω` row with generic fields (`budget`, `frontier`, `message`) where one field's
