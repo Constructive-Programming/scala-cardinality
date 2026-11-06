@@ -162,12 +162,13 @@ that tier.
   transparent values, which the split already counts), but removing `Boolean` from that set is the
   environment-completeness decision.
 - A member of an enum or a sealed template reads `this`, one of the family's cases, and an enum's
-  class parameters are fixed by the case; neither is bound yet. Its count stands only for a terminal
-  goal (1 in every environment) and for a goal with infinitely many literals in an enum with a case
-  built from nothing (ω: the solver's ω shows the rest of the context is not absurd, the receiver
-  keeps it so, and finite programs bound it). Anything else is refused: `receiver is a sealed
-  family this measurement does not split: F` (`enum E { case A(x: Int); case B; def f: Int }` is
-  truly `(2^32)^(2^32 + 1)`; with `case A(n: Nothing)` only, 1).
+  class parameters are fixed by the case. Where the family reads as a sum, `this` is an input of
+  it and the family's members are its cases' concrete code (register D41): `enum E { case A(x:
+  Int); case B; def f: Int }` is `(2^32)^(2^32 + 1)`; with `case A(n: Nothing)` only, 1. Where it
+  does not, the count stands only for a terminal goal (1 in every environment) and for a goal with
+  infinitely many literals in an enum with a case built from nothing (ω: the solver's ω shows the
+  rest of the context is not absurd, the receiver keeps it so, and finite programs bound it).
+  Anything else is refused: `receiver is a sealed family this measurement does not split: F`.
 - A builtin comes from the root import `scala.*`, the weakest binding there is, so any supplied
   declaration a reference reaches by its simple name shadows it. Lookup reads lexical
   declarations, package members, imports and (environment readings §3) what an enclosing

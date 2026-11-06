@@ -216,7 +216,7 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
   def insertions(source: Source): List[(Int, String)] =
     source.collect {
       case c: Defn.Class
-          if open(c.mods) && c.ctor.mods.isEmpty && !abstractMembers(c.templ) &&
+          if open(c.mods) && !abstractMembers(c.templ) &&
             !extended(c.name.value) =>
         at(c, c.mods).toList
       case c: Defn.Class if !c.mods.exists(_.is[Mod.Final]) => members(c.name.value, c.templ)
@@ -251,9 +251,10 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
         .fold(tree.pos.start -> "final ")(_ -> " final")
     )
 
-  // A class with a non-public constructor is built only where its scope says, which no reading
-  // enumerates, so it stays as written. A class declaring an abstract member is abstract in all but
-  // name: whoever builds one implements it, as an abstract class's subclass does.
+  // A class with a non-public constructor is final too where nothing supplied extends it: only its
+  // scope may extend it, and that scope is supplied; its values are what its public factories build
+  // (`ReceiverFactories`). A class declaring an abstract member is abstract in all but name: whoever
+  // builds one implements it, as an abstract class's subclass does.
   private def abstractMembers(template: Template): Boolean =
     template.body.stats.exists(_.is[Decl])
 

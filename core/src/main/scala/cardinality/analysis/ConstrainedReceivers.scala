@@ -13,20 +13,21 @@ import MethodAnalysis.{Frame, Resolved}
   * class local to a block, are disregarded: such a class has no use site outside its scope, so its
   * constructors are public wherever it is used. A constructor is public where the measured
   * declaration may call it: one with no restriction, a `private[p]` one inside `p`, a `private` or
-  * `protected` one inside its class, and a `private` one in its companion. Any other is ignored;
-  * the receiver's space is the largest any public constructor builds.
+  * `protected` one inside its class, and a `private` one in its companion. Any other is ignored.
   *
   * Every secondary constructor delegates to the primary, so a public primary builds the fields'
-  * whole space and the fields hold any values of their types. Otherwise a public secondary builds
-  * at most its parameters' space and at most the fields', the smaller of the two; where the
-  * parameters and the fields are closed, the largest of these is the receiver's space. A receiver
-  * with no public constructor (only a factory builds it, `NonEmpty.of`) has no space this reading
-  * knows, and neither has one whose spaces are not closed or not comparable.
+  * whole space and the fields hold any values of their types. Otherwise the class is counted by
+  * what the site may call to build one: each public secondary and each public factory
+  * (`ReceiverFactories`) builds at most its parameters' space and at most the fields', the smaller
+  * of the two, and the receiver's space is the largest of these — the fields' space as soon as one
+  * reaches it, else the largest where every bound is known and comparable. A class nothing public
+  * builds (no secondary, no factory) has no space this reading knows.
   */
 private[cardinality] object ConstrainedReceivers {
 
-  /** None where the fields hold any values of their types; Some(space) where the receiver's closed
-    * fields hold `space` values together; a reason where the receiver's space is unknown.
+  /** None where a public primary constructor builds every value of the fields' types; Some(space)
+    * where only secondaries and factories build the receiver, its closed fields holding `space`
+    * values together; a reason where the receiver's space is unknown.
     */
   def space(
       owner: Frame,
@@ -39,19 +40,30 @@ private[cardinality] object ConstrainedReceivers {
       !mods.exists(MemberSyntax.restricted) || resolver.reaches(mods, owner, from) ||
         !mods.exists(_.is[Mod.Protected]) && companion(owner, from)
     owner.tree match {
-      case Some(d: Defn.Class) if owner.params.nonEmpty && !callable(d.ctor.mods) =>
+      case Some(d: Defn.Class) if !callable(d.ctor.mods) =>
         val path = owner.path.mkString(".")
-        val public = d.templ.body.stats.collect {
+        val secondaries = d.templ.body.stats.collect {
           case c: Ctor.Secondary if callable(c.mods) =>
             closed(
               SecondaryConstructors.arguments(c.paramClauses.toList.flatMap(_.values)),
               resolve
             )
         }
-        if (public.isEmpty) Left(s"receiver has no public constructor: $path")
+        val factories = ReceiverFactories.of(
+          owner,
+          from,
+          resolver,
+          (tpe, scope, bindings) => closed(tpe, resolver.resolve(_, scope, bindings))
+        )
+        if (secondaries.isEmpty && factories.isEmpty)
+          Left(s"receiver has no public constructor: $path")
         else
-          largest(closed(SecondaryConstructors.primaryArguments(d), resolve), public)
-            .toRight(s"receiver space of its public secondary constructors not compared: $path")
+          largest(
+            closed(SecondaryConstructors.primaryArguments(d), resolve),
+            secondaries ++ factories
+          )
+            .map(Some(_))
+            .toRight(s"receiver space of its public constructors and factories not compared: $path")
       case _ => Right(None)
     }
   }
@@ -63,18 +75,19 @@ private[cardinality] object ConstrainedReceivers {
         f.tree.exists(_.is[Defn.Object])
     )
 
-  // The largest of min(a secondary's space, the fields'), None when it is the fields' own.
-  private def largest(fields: Option[Card], built: List[Option[Card]]): Option[Option[Card]] =
-    for {
-      whole <- fields
-      spaces <- Traversals.defined(built)
-      bounded <- Traversals.defined(
-        spaces.map(p => compare(p, whole).map(c => if (c < 0) p else whole))
-      )
-      top <- bounded.tail.foldLeft(Option(bounded.head))((acc, p) =>
-        acc.flatMap(a => compare(a, p).map(c => if (c < 0) p else a))
-      )
-    } yield Option.unless(top == whole)(top)
+  // The largest of min(a constructor's or factory's space, the fields'): the fields' own as soon as
+  // one reaches it, else the largest where each is known and comparable.
+  private def largest(fields: Option[Card], built: List[Option[Card]]): Option[Card] =
+    fields.flatMap { whole =>
+      val bounded = built.map(_.flatMap(p => compare(p, whole).map(c => if (c < 0) p else whole)))
+      if (bounded.contains(Some(whole))) Some(whole)
+      else
+        Traversals.defined(bounded).flatMap { spaces =>
+          spaces.tail.foldLeft(Option(spaces.head))((acc, p) =>
+            acc.flatMap(a => compare(a, p).map(c => if (c < 0) p else a))
+          )
+        }
+    }
 
   private def closed(tpe: Type, resolve: Type => Resolved): Option[Card] =
     resolve(tpe).toOption

@@ -91,7 +91,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
           // construction only throws is never built (register D26): neither has a value.
           new Construction(resolver, steps).of(table.levels, useSite.tree).built.flatMap { built =>
             if (!built || template.tree.exists(neverInstantiated)) Right(Shape.Sum(Nil))
-            else if (template.tree.exists(fixedClass)) finalRecord
+            else if (template.tree.exists(fixedClass)) finalRecord(Scope(steps, Map.empty))
             else openRecord(steps, table)
           }
         }
@@ -102,11 +102,12 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     // A final class: its observable constructor parameters, each an argument a public
     // constructor takes freely, or the closed space its public constructors build
     // (`ConstrainedReceivers`).
-    private def finalRecord: Resolved =
+    private def finalRecord(scope: Scope): Resolved =
       ConstrainedReceivers
         .space(template, useSite, resolver, read(_, template, Scope.empty))
         .flatMap {
-          case None => Traversals.sequence(template.params.map(observable)).map(Shape.Product(_))
+          case None =>
+            Traversals.sequence(template.params.map(observable(_, scope))).map(Shape.Product(_))
           case Some(space) => Right(Shape.Ground(key, space))
         }
 
@@ -115,27 +116,66 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
         .toRight(s"missing field type: $key")
         .flatMap(read(_, template, scope))
 
-    private def observable(parameter: Term.Param): Resolved =
+    private def observable(parameter: Term.Param, scope: Scope): Resolved =
       fieldType(parameter).flatMap { field =>
-        if (publicField(parameter, template)) Right(field)
-        else
-          Either.cond(
-            exposures(parameter.name.value).exists(alias => observed(alias).contains(field)),
-            field,
-            s"final class field not observable injectively: $key.${parameter.name.value}"
-          )
+        Either.cond(
+          observes(template, parameter, field, scope, Nil),
+          field,
+          s"final class field not observable injectively: $key.${parameter.name.value}"
+        )
+      }
+
+    // Whether the use site observes a constructor parameter of `level` injectively, as a value of
+    // `field`: as a field it reaches, through a public η-alias of that type, or as the argument a
+    // parent's constructor takes verbatim and observes in turn. An observer a `nearer` level (the
+    // template or a level between it and `level`) declares again is overridden there.
+    private def observes(
+        level: Frame,
+        parameter: Term.Param,
+        field: Shape,
+        scope: Scope,
+        nearer: List[Frame]
+    ): Boolean = {
+      def kept(name: String) = !nearer.exists(_.stats.exists(MemberSyntax.names(_).contains(name)))
+      val name = parameter.name.value
+      (reachedField(parameter, level) && kept(name) &&
+        parameter.decltpe.exists(read(_, level, scope).contains(field))) ||
+      exposures(level, name).exists(alias =>
+        kept(alias.name.value) && observed(alias, level, scope).contains(field)
+      ) ||
+      passed(level, name, scope).exists((parent, passedTo) =>
+        observes(parent, passedTo, field, scope, level :: nearer)
+      )
+    }
+
+    // A constructor field of `level` the use site may read: one no modifier restricts, or one whose
+    // qualifier grants the use site (a `private[p]` field inside `p`, a `private` one in its class).
+    private def reachedField(parameter: Term.Param, level: Frame): Boolean =
+      ReceiverMembers.fieldParams(level).exists(_ eq parameter) &&
+        !parameter.mods.exists {
+          case Mod.Private(_: Term.This) | Mod.Protected(_: Term.This) => true
+          case _                                                       => false
+        } && resolver.reaches(parameter.mods, level, useSite)
+
+    // The parent constructor parameters `level` passes its parameter `name` to, as written.
+    private def passed(level: Frame, name: String, scope: Scope): List[(Frame, Term.Param)] =
+      scope.steps.filter(_.from.id == level.id).flatMap { step =>
+        step.parent.argClauses.toList
+          .zip(ReceiverMembers.constructorClauses(step.declared))
+          .flatMap((arguments, parameters) => arguments.values.zip(parameters))
+          .collect { case (Term.Name(`name`), p) => step.declared -> p }
       }
 
     // What an alias observes: a parameterless one its result, an η-expansion its callable.
-    private def observed(alias: Defn.Def): Option[Shape] =
+    private def observed(alias: Defn.Def, level: Frame, scope: Scope): Option[Shape] =
       if (alias.paramClauseGroups.isEmpty)
-        alias.decltpe.flatMap(read(_, template, Scope.empty).toOption)
-      else observe(alias, template, alias.name.value, Scope.empty).toOption.flatten
+        alias.decltpe.flatMap(read(_, level, scope).toOption)
+      else observe(alias, level, alias.name.value, scope).toOption.flatten
 
-    // The public members whose body is the parameter itself or its η-expansion.
-    private def exposures(parameter: String): List[Defn.Def] =
-      template.stats.collect {
-        case d: Defn.Def if visible(d, template) && alias(d, parameter) => d
+    // The public members of `level` whose body is the parameter itself or its η-expansion.
+    private def exposures(level: Frame, parameter: String): List[Defn.Def] =
+      level.stats.collect {
+        case d: Defn.Def if visible(d, level) && alias(d, parameter) => d
       }
 
     // An open template: its own `val` fields and its open members — a parent's overridable fields

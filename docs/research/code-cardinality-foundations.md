@@ -693,8 +693,9 @@ rule cannot reach (in a supplied sum, a callable's result, a built function's pa
 
 **Boundary.** Lengths up to 2 decide only ω or 0; a count that stays finite and above 1 (the true 2
 of `varAbsurd`) is `?`. Premise (1) needs the empty sequence to be an admissible input: the fields
-of a receiver whose class has a non-public constructor are refused, since its factories may never
-build one (`NonEmpty.head`, true ω). Infinite `Seq` inputs are covered by continuity (a total
+of a receiver whose class has a non-public constructor are what its factories build (D42), which
+may never build one (`NonEmpty.of(a, rest*)` takes a type parameter, so its space is not compared and
+`NonEmpty.head`, true ω, stays refused). Infinite `Seq` inputs are covered by continuity (a total
 program reads a finite prefix), not by a separate rule. See [stdlib-model.md](stdlib-model.md).
 
 ## D18. An abstract member of a stable path is a rigid atom
@@ -821,7 +822,8 @@ class, an object's singleton kept, any other singleton refused). Details:
   `EnvironmentSoundnessSpec.varParameter`, `GroundEnvironmentSpec` (exports and inherited members
   through imports).
 
-**Boundary.** The premise is readability: classes no public constructor builds (D35), opaque
+**Boundary.** The premise is readability: classes neither a public constructor nor a factory
+builds (D35, D42), opaque
 callables with transparent results and names outside the sources
 keep their own reasons, which is where a concrete producer could matter. The premise also needs
 the values: a capture the target cannot name (hidden by a member, an inherited member or its own
@@ -854,8 +856,11 @@ included — is a free capability of its type; a member none may replace (`final
 `inline`, a given or member object, any member of a final class, object or given) is concrete code
 over the receiver's observable state and adds no choice. So an open trait, or an open class whose
 constructor parameters are all public `val`s, is the product of its open members and fields, as
-input and as goal; a final class with a public constructor whose every parameter is a public `val`
-or exposed by an η-alias member is the product of its parameters; a `final abstract` class is the
+input and as goal; a final class with a public constructor whose every parameter is a `val` the
+use site reaches (unrestricted, or a `private[p]` one inside `p`, a `private` one in its class),
+exposed by an η-alias member, or passed verbatim to a parent's constructor parameter observed so
+in turn (no nearer level overriding the observer) is the product of its parameters (eo's
+`SimpleLens`, `Unfold`; privacy, never mutation, hides a field); a `final abstract` class is the
 empty sum. On the measured declaration's own receiver (and on enclosing ones) the same
 classification holds for its own and inherited concrete members (a member is overridden by the
 levels before it in the receiver's linearization). A member whose default evaluates the declaration
@@ -1845,7 +1850,7 @@ public primary builds every field value; otherwise a public secondary builds at 
 `min(|its parameters|, |the fields|)`, read where both are closed, and the receiver is one value of
 the largest such space (`ConstrainedReceivers`). No public constructor refuses (`receiver has no
 public constructor: C`); a public secondary over a non-closed space refuses (`receiver space of its
-public secondary constructors not compared: C`). (F) Outside its scope an opaque type counts 1: the
+public constructors and factories not compared: C`, D42). (F) Outside its scope an opaque type counts 1: the
 method side reads it as `Unit` (`OpaqueTypes.single`) and keys it as its own declaration
 (`NominalKeys`), the stored side as `UnitSize` (`Counter.hidden`). This supersedes D30 (1)'s
 refusal of a reference outside the scope, and the refusals `receiver fields constrained by …`,
@@ -1870,7 +1875,7 @@ values of an opaque type are identified, and an upper bound (`opaque type T[A] <
   `OpaqueTypeScopeSpec.oneValue` (`f(a: Id, b: Id): Id` 1, `g(a: Id): Boolean` 2);
   `StoredScopesSpec.opaqueMembers`, `opaqueTopLevel`, `opaqueLending`; `ReportSpec.crossSourceOpaque`.
 
-**Boundary.** Companion factories are not read, so a class built only by one stays `?`. A public
+**Boundary.** A class built only by factories is read by D42, which extends (B) to them. A public
 secondary's space is compared only where it and the fields are closed. (F) gives counts the
 representation would not: `def get[A](t: Box[A]): A` outside `Box`'s scope is 0 even where
 `Box`'s companion offers an unwrapping member, as for any member of another object that is not in
@@ -2025,9 +2030,9 @@ same-named one of another package. A parent outside the sources whose members ar
 and `Product`, `Equals`) may override anything: a member only such a parent may override is refused
 (`member may be overridden through a parent outside the sources: C.m`). Same-named templates of
 different packages share their subclasses, so a member one of them overrides stays open — the open
-world's reading, which may overcount (open: resolving parent clauses before the index exists). A class with a non-public constructor stays as written (its scope's
-constructions are not enumerated), and so does the refusal of a record only its scope
-instantiates. A constructor `val` and an untyped literal `val` keep their spelling (`final` would
+world's reading, which may overcount (open: resolving parent clauses before the index exists). A class with a non-public constructor that no supplied template extends is final
+too (D42: its scope is supplied, and its public factories say what it holds); one a supplied
+template does extend keeps the refusal of a record only its scope instantiates. A constructor `val` and an untyped literal `val` keep their spelling (`final` would
 change the signature or the type): a receiver asks the closed world for them instead
 (`Resolver.overriding`). The closed world does not settle a name the analysis cannot resolve:
 unresolved override identity, a sealed family extended through an alias, and the stored-value
@@ -2076,6 +2081,101 @@ may be built from the receiver and keeps the reason. A captured strict local `va
 may be overridden with the receiver. The rule does not
 touch possible views of the receiver's own members (C6, D31): eo's `Optic.to` and `Optic.from` stay
 `?` through `andThen`, whose supplied `ReadCompose` instances do run `outer.to`.
+
+## D41. A sealed family's own receiver is an input of its sum
+
+**Decision.** A member declared in a sealed trait, sealed abstract class or enum (or a definition
+nested in one) reads `this`, which is one of the family's cases. Where the family reads as a tagged
+sum at the declaration (D15: every case closed, its fields readable there), `this` is an input of
+that sum (`SealedReceivers.split`): its implementations are functions of the case and of its
+fields, so the count is the solver's over that input. No member of the family's own template, nor
+one it inherits, binds a capability of its own: every case is a final, supplied template (D39), so
+each member is concrete code over the case's fields (D19), and an enum's class parameters are
+fixed by each case. Where the family does not read as a sum (a hidden field, an open leaf, an
+anonymous instance), the receiver is not split and the earlier rule stands: the count only for a
+terminal goal or ω over an inhabited enum, else `receiver is a sealed family this measurement does
+not split: F`.
+
+**Derivation.** A body in the family runs on an instance of exactly one case, and by D39 there is
+no other. Pattern matching on `this` reaches each case and its readable fields, so every function
+of the sum is a body; a case member computes from the fields, so nothing else distinguishes two
+receivers. `enum E { case A(x: Int); case B; def f: Int }` is Int^(2^32 + 1); an enum whose only
+case holds a `Nothing` has the empty sum, and each member the one vacuous implementation. eo's
+`PSVec[B] = Empty + Single(b: B) + Slice(arr: Array[Any], offset: Int, length: Int)`: `apply` and
+`head` are 0 (the `Empty` case holds no `B`; `Slice`'s is a cast, outside the model), `length` ω.
+
+**Evidence.**
+
+- \[30\] Scala 3 draft specification, ch. 5, and \[24\] *Translation of Enums and ADTs*
+  (**Inspected**, as D15): every direct subtype of a sealed template is in its file; enum cases
+  are its cases.
+- **Compiler fixture** (Scala 3.9.0, this session): every fixture of `splitMembers`,
+  `receiverRefused`, `uninhabited` (`GroundEnvironmentSpec`) and `sealedReceiver`
+  (`TypeMemberSpec`) compiles.
+- **Executable**: those examples.
+
+**Boundary.** A family nested in another is split only where each reads as a sum. A constructor
+of a family reads its parameters only. The stored side is unchanged (D15).
+
+## D42. A class no callable constructor builds is counted by its public factories
+
+**Decision.** (User decision, 2026-11-06, extending D35 (B); [v1.md §2, "Modelling
+conventions"](../plans/v1.md).) A class or sealed case with no constructor callable from the measured
+declaration's site is counted by its public factories as well as its public secondaries: the
+methods and single `val`s callable from that site (every template around them accessible there)
+whose result — through blocks, local `val`s, `if` and `match` branches and ascriptions — is a direct
+construction of it: `new C(…)`, a creator application `C(…)` or `C[T](…)`, a case class's
+`apply` (`ReceiverFactories`). The declared result does not decide: a factory typed as the family
+(`PSVec.of[B](b0, b1): PSVec[B]`, `unsafeWrap`'s `case _ => new Slice(…)` branch) constructs the
+case it builds. The constructed name is resolved where the factory is written (or selected through
+the class's enclosing template). Each factory builds at most `min(|its parameters|, |the fields|)`,
+its own type parameters read as atoms (so a parameter mentioning one is not closed); one running on
+a receiver of a class or trait has that receiver as an input too, so its space is not known; one
+declaring the class as its result whose body is read as no construction (a delegation, a value it
+was given) counts 1; the measured declaration is no factory (its body is the choice counted). The
+class holds the largest of these: the fields' space as soon as one reaches it, else the largest
+where all are closed and comparable, else `receiver space of its public constructors and factories
+not compared: C`; with neither a secondary nor a factory, `receiver has no public constructor: C`.
+The space is bound as one ground value (`Shape.Ground`), whether or not the fields are readable at
+the site: a final class's record, an enclosing receiver, and a sealed case, which becomes one
+summand of that space (so `sealed subtype hides a parameter` no longer applies to it). A class with
+a non-public constructor that nothing supplied extends is final in the closed world (D39): only its
+scope may extend it, and the scope is supplied.
+
+**Derivation.** A factory is a pure function of its arguments (and of a receiver, where it has one),
+so it returns at most as many values as its inputs have, and never more than the fields hold: the
+secondary-constructor argument of D35 applied to any definition that constructs the class. In the
+closed world every value of the class comes from some construction in the sources, and a site that
+cannot call the constructor obtains one only through what it can call. Taking the largest factory
+rather than the union is the user's convention, as for secondaries. eo's `PSVec.Slice` read from
+package `optics`: its constructor and `arr`, `offset` are `private[data]`; its factories are
+`PSVec.of[B](b0: B, b1: B)` (`B²`, not closed), `PSVec.unsafeWrap[B](arr: Array[Any])`,
+`Slice.slice` (on a `Slice` receiver: not known) and `MultiFocus.forPSVec.fromArraySlice[A](arr:
+Array[Any], from: Int, size: Int)` (a parameterless given), which takes `Array[Any] × Int × Int`, the
+fields' own space (ω): `Slice` is ω values and `PSVec[S] = 1 + S + ω`. `def g[S](v: PSVec[S]):
+Option[S]` is 2 (`None`; the `Single` element), and `selfChildren`'s `from(pair: MultiFocus[PSVec][X,
+S]): S` is 0 (rule F: the opaque `MultiFocusK` is one value, and no capture yields an `S` without
+one). In os-lib `RelPath` and `SubPath` (`private[os]` constructors, nothing supplied extends them)
+are final: inside `os` their constructors are callable and their `toString`, `segments`, `make`,
+`equals`, `hashCode`, `os.sub` read ω (`String` and `Array[String]` state). `os.Path` keeps
+`capability record of a template only its scope instantiates`: `ZipRoot` extends it.
+
+**Evidence.**
+
+- First principles (above), over D35 and D39.
+- **Executable**: `ReceiverConstructorsSpec` (`twoFactories`: factories building 2 and 1 of 4
+  values, 2^2 = 4; `unreadFactory`: a factory returning its private cached value and one returning
+  its argument, 2 each; `noFactory` refused; `noPublic`: `Factory.on`, 2; `familyFactory`: a hidden
+  sealed case built in a family-typed factory's branch, 8 outside its package, 32 inside),
+  `EnvironmentCompletenessSpec.privateConstructor` (a `val` factory: 1),
+  `TypeMemberBoundarySpec.typesOnly` (`class Priv private ()`: final, no factory, refused).
+
+**Boundary.** The max is not the union: values two factories build apart are counted once by the
+larger. A factory whose body delegates counts 1 though the method it calls may build more (the
+user's convention); a factory on a class receiver is not known. Constructions are recognized only
+syntactically in result position: one reached through a call, a `try`, a lambda or a pattern
+binder is not. The stored-value estimate does not read factories: its private-constructor class is
+still unread (`Builds`).
 
 ## How to extend this register
 

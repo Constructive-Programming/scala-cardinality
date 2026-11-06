@@ -73,8 +73,10 @@ Two conventions complete the model:
   measured code may call it (a `private[pkg]` one inside `pkg`, a `private` one inside its class or
   companion) and is ignored elsewhere. A class that is itself non-public (`private[pkg]`, nested in a private
   object, local to a block) has no use site outside its scope, so its constructors count as
-  public. A class with no public constructor at all, built only by a factory such as
-  `NonEmpty.of`, stays `?` with `receiver has no public constructor`.
+  public. A class with no public constructor is counted by its public factories, the methods
+  that construct it (`Factory.on: Factory = new Factory(true)` builds one value): the largest space
+  any of them builds. With no factory either it stays `?` with `receiver has no public
+  constructor`.
 - **An opaque type outside its scope is one value.** Where its representation is hidden, an
   opaque type counts `1`, for data types and for methods alike: `final case class U(id: Ids.Id)`
   is `1`, and `def f(a: Ids.Id, b: Ids.Id): Ids.Id` has one implementation. Inside its scope the

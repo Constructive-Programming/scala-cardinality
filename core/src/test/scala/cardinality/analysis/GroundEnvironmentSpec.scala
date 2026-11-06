@@ -30,6 +30,7 @@ class GroundEnvironmentSpec extends Specification {
     Enum and sealed receivers
       a member reading the receiver is refused                       $receiverRefused
       an uninhabited enum's member is not ω                          $uninhabited
+      a split receiver's members are its cases' concrete code        $splitMembers
       terminal and String goals of an inhabited enum keep their count $receiverCertified
     Shadowed builtin names
       a member type named like a builtin is not the builtin          $inheritedBuiltin
@@ -239,32 +240,38 @@ class GroundEnvironmentSpec extends Specification {
       )
   }
 
-  // True counts (2^32)^(2^32 + 1) for E.f and 4 for Color.f: a body matches on `this`.
+  // A body matches on `this`, so the receiver is an input of the family's sum (`SealedReceivers`):
+  // E = A(Int) + B has 2^32 + 1 values, so f: Int has (2^32)^(2^32 + 1) = 2^(32·(2^32 + 1)); Color
+  // = Red + Green (rgb fixed by each case) gives Boolean^2 = 4; S = SA(Int) + SB reads as E; Gen[A]
+  // = Has(A) gives a String goal ω. Where the family does not read as a sum (H1's field is private
+  // to H1), the receiver is not split and the count refused.
   def receiverRefused = {
     val reason = "receiver is a sealed family this measurement does not split: "
-    unresolvedOn(count("enum E { case A(x: Int); case B; def f: Int = 0 }", "E.f"), reason)
+    val intOverReceiver = Count.Symbolic(pow(2, 32 * (BigInt(2).pow(32) + 1)))
+    (count("enum E { case A(x: Int); case B; def f: Int = 0 }", "E.f") === intOverReceiver)
       .and(
-        unresolvedOn(
-          count(
-            "enum Color(val rgb: Int) { case Red extends Color(1); case Green extends Color(2); " +
-              "def f: Boolean = true }",
-            "Color.f"
-          ),
-          reason
-        )
+        count(
+          "enum Color(val rgb: Int) { case Red extends Color(1); case Green extends Color(2); " +
+            "def f: Boolean = true }",
+          "Color.f"
+        ) === Count.Finite(4)
+      )
+      .and(
+        count(
+          "sealed trait S { def h: Int = 0 }\nfinal case class SA(x: Int) extends S\ncase object SB extends S",
+          "S.h"
+        ) === intOverReceiver
+      )
+      .and(
+        count("enum Gen[A] { case Has(a: A); def show: String = \"\" }", "Gen.show") ===
+          Count.Countable
       )
       .and(
         unresolvedOn(
           count(
-            "sealed trait S { def h: Int = 0 }\nfinal case class SA(x: Int) extends S\ncase object SB extends S",
-            "S.h"
+            "sealed trait H { def h: Boolean = true }\nfinal class H1(private val x: Boolean) extends H",
+            "H.h"
           ),
-          reason
-        )
-      )
-      .and(
-        unresolvedOn(
-          count("enum Gen[A] { case Has(a: A); def show: String = \"\" }", "Gen.show"),
           reason
         )
       )
@@ -276,13 +283,62 @@ class GroundEnvironmentSpec extends Specification {
       )
   }
 
-  // No E exists, so the true count is 1; a free reading would say ω and 2^32.
+  // eo's PSVec: V[B] = Empty + Single(b: B) + Slice(arr: Array[Any], offset: Int, length: Int),
+  // Slice's fields private[data] and read in data. apply and head: the Empty case holds no B, and
+  // no case member is a B of its own (Slice's is a cast) — 0; next in the anonymous iterator reads
+  // the same receiver — 0. length: Int over an infinite receiver space — ω. S.pick: S1(Boolean) +
+  // S2 is 3 values, (3 × 2) → 2 is 2^6 = 64.
+  def splitMembers = {
+    val rows = counts(
+      "V.scala" -> """package data
+        sealed trait V[+B] {
+          def length: Int
+          def apply(i: Int): B
+          def head: B
+          def slice(from: Int, until: Int): V[B]
+          def iterator: Iterator[B] = new Iterator[B] { def hasNext: Boolean = true; def next(): B = ??? }
+        }
+        object V {
+          case object Empty extends V[Nothing] {
+            def length: Int = 0
+            def apply(i: Int): Nothing = throw new IndexOutOfBoundsException("V")
+            def head: Nothing = throw new NoSuchElementException("V")
+            def slice(from: Int, until: Int): V[Nothing] = Empty
+          }
+          final class Single[+B](val b: B) extends V[B] {
+            def length: Int = 1
+            def apply(i: Int): B = b
+            def head: B = b
+            def slice(from: Int, until: Int): V[B] = this
+          }
+          final class Slice[+B] private[data] (
+              private[data] val arr: Array[Any],
+              private[data] val offset: Int,
+              val length: Int
+          ) extends V[B] {
+            def apply(i: Int): B = arr(offset + i).asInstanceOf[B]
+            def head: B = arr(offset).asInstanceOf[B]
+            def slice(from: Int, until: Int): V[B] = new Slice[B](arr, offset + from, until - from)
+          }
+        }
+        sealed trait S { def pick(b: Boolean): Boolean }
+        final case class S1(x: Boolean) extends S { def pick(b: Boolean): Boolean = x }
+        case object S2 extends S { def pick(b: Boolean): Boolean = b }"""
+    )
+    (rows("data.V.apply") === Count.Finite(0))
+      .and(rows("data.V.head") === Count.Finite(0))
+      .and(rows("data.V.iterator.<new#1>.next") === Count.Finite(0))
+      .and(rows("data.V.length") === Count.Countable)
+      .and(rows("data.S.pick") === Count.Finite(64))
+  }
+
+  // No E exists: the split receiver is the empty sum, so each member has its one (vacuous)
+  // implementation; a free reading would say ω and 2^32.
   def uninhabited = {
     val rows = counts(
       "Example.scala" -> "enum E { case A(n: Nothing); def m: String = \"\"; def k: Int = 0 }"
     )
-    val reason = "receiver is a sealed family this measurement does not split: E"
-    unresolvedOn(rows("E.m"), reason).and(unresolvedOn(rows("E.k"), reason))
+    (rows("E.m") === Count.Finite(1)).and(rows("E.k") === Count.Finite(1))
   }
 
   def receiverCertified = {

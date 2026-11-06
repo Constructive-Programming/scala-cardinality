@@ -55,8 +55,8 @@ final private[cardinality] class ReceiverCapabilities(
   /** Each open owner's effective open members and free fields, with the slot each is read in, or
     * why one leaves the environment unread.
     */
-  def members: List[Either[ReceiverMembers.Refusal, Member]] =
-    tables.flatMap { (root, table) =>
+  def members(skipped: Frame => Boolean): List[Either[ReceiverMembers.Refusal, Member]] =
+    tables.filterNot((root, _) => skipped(root)).flatMap { (root, table) =>
       table
         .open(measured(root), mode)
         .map(_.map(c => Member(slot(root, c.level), c.tree, c.name)))

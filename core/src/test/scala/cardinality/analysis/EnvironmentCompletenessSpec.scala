@@ -19,7 +19,7 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       a polymorphic module member adds nothing to a Boolean result   $polymorphicProducer
       a constructor's value spaces ignore outside modules            $constructorPositions
       an opaque type outside its scope is one value                  $opaqueOutside
-      a class with no public constructor stays unread                $privateConstructor
+      a class with no public constructor is what its factories build $privateConstructor
       a supplied callable's Boolean result is eliminated             $opaqueCallable
       a final template's member is its own concrete code             $finalMembers
       an open class's member is a capability (X5)                    $overridableMembers
@@ -93,16 +93,16 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       "h"
     ) === Count.Finite(1)
 
-  // Outside `Secret` (and its companion) `Secret.on` is the only way to one: no constructor `f` may
-  // call says what its record holds (rule B). Inside, the private primary is callable: `get` is
-  // 2^2 = 4.
+  // Outside `Secret` (and its companion) `Secret.on` is the only way to one (rule B, factories): a
+  // `val` builds min(1, 2) = 1 value, so `f` has one implementation. Inside, the private primary
+  // is callable: `get` is 2^2 = 4.
   def privateConstructor = {
     val found = rows(
       "final case class Secret private (b: Boolean) { def get: Boolean = b }\n" +
         "object Secret { val on: Secret = new Secret(true) }\ndef f(): Secret = Secret.on"
     )
     (found("Secret.get") === Count.Finite(4))
-      .and(refused(found("f"), "receiver has no public constructor: Secret"))
+      .and(found("f") === Count.Finite(1))
   }
 
   // `g(a)` is eliminated once (capabilities C10) and the helper `M.not` adds no new function of it:
