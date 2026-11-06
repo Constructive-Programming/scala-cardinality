@@ -1306,8 +1306,9 @@ is converted, or answered by an extension, only with an implicit of the scopes a
 reference, *Changes in Implicit Resolution*: the companions of its anchors and the objects those
 are members of): where `e` is a path whose declared type the reading resolves — its parts, their
 supplied base classes, a type parameter's upper bound — only those scopes' candidates count; any
-other qualifier, or a part not resolved, keeps every visible candidate. A body's own expressions,
-whose types this reading does not compute, keep every visible conversion.
+other qualifier, or a part not resolved, keeps the candidates of the implicit scope of the types the
+body can reach (D41). A body's own expressions, whose types this reading does not compute, meet
+those candidates too: the scopes around the body and the implicit scope of what the body can reach.
 
 Definitions written in the body are read as supplied ones, under their own frames: a local
 method's or given's clauses, defaults and declared types; a local object's members; `this` and the
@@ -2070,6 +2071,77 @@ may be built from the receiver and keeps the reason. A captured strict local `va
 may be overridden with the receiver. The rule does not
 touch possible views of the receiver's own members (C6, D31): eo's `Optic.to` and `Optic.from` stay
 `?` through `andThen`, whose supplied `ReadCompose` instances do run `outer.to`.
+
+## D41. A conversion is a candidate only where the body may find it
+
+**Decision** (owner decision, adopted idealization; v1.md §2). A conversion counts as a candidate
+for an inline body only if (1) it is in the body's lexical scope — a definition around it or an
+import — or (2) its object is in the implicit scope of a type the body can reach. The types a body
+can reach are the types written in it, the enclosing signatures, and the signatures of every
+declaration it references or given it may summon, repeated until nothing new is added (a fixed
+point). The implicit scope is the companions of those types' parts and of their supplied base
+classes, the objects those classes are members of, and what those objects extend (the notion D27
+already uses for a typed qualifier).
+
+**Derivation.** Scala inserts a conversion only from the scopes around the expression or the
+implicit scope of the types involved (the expression's type and the expected type). In well-typed
+code every inferred type is built from the signatures named above: an expression's type is a
+declaration's declared type, instantiated with types the body writes or infers in turn, and a least
+upper bound is a supertype of the branch types, whose companions are reached through their base
+classes. So the candidates of rule (2) contain every conversion of the implicit scope Scala
+searches, and rule (1) every one of the scopes around the body.
+
+**Reading.** `expansion.Reachable` computes the fixed point per inline body, cached per target, and
+`InlineBodies` passes its scopes to the conversion candidates (`Conversions.visible`); an applied
+selection whose qualifier's own implicit scope is not read waits for the body's. It reads:
+
+- the types written in the body and in the signatures around it (methods, extension groups,
+  templates' parents, constructor and type parameters), and each template around it;
+- the meanings the body walk resolved (values' declared types, methods' signatures, objects,
+  templates), a constructor a `new` in the body calls, and the members of a reached template or a
+  scope found that a name the body selects may denote (a conversion's result);
+- the implicits of every scope found so far, lexically or in the implicit scope: givens it may
+  summon, a given instance's own template included.
+
+A type is read by the names it spells, resolved as Scala's scoping does without typing: a name a
+type parameter around it binds brings that parameter's bounds; a type member of a template or
+refinement around it, that member; a selected path, every supplied template or type member whose
+path ends with it (a path none ends with selects through a value: every type member of the name and
+every class nested in a class); a simple name, what the templates around it declare or inherit
+(by their parents' names), what an import or export around it brings, and the members of its
+packages, and otherwise a root import's — a library type, which anchors no supplied scope. A name
+in a tree no source holds, or under an import this reading cannot follow, stands for every
+declaration of the name. A template brings its parents, its companion and the objects it is a
+member of (and what they extend); an alias its body; an opaque or abstract type its body or bounds
+and the object of its name. Matching by name is a superset of resolution, so the scope found is a
+superset of the implicit scope (sound). A declaration outside the body without a declared type, a
+value whose singleton type is spelled and whose declaration is untyped, or a name the walk did not
+resolve leaves the scope unknown, and every candidate is kept.
+
+The lexical branch also finds a class or trait an imported object (or a value it imports) inherits:
+a conversion an imported `object functor extends FunctorSyntax` brings is declared in
+`FunctorSyntax` (eo's `toFunctorOps`). Before, a typed qualifier's anchored candidates missed it.
+
+**Evidence.**
+
+- Scala 3 reference, *Changes in Implicit Resolution* and *Implicit Conversions* — **classical**
+  (not re-verified here): the implicit scope of a type is its anchors' companions and the objects
+  they are members of; a conversion is searched in the scopes around the expression and in the
+  implicit scope of the types involved.
+- **Executable**: `ConversionClosureSpec` (an inline conversion in an unrelated object's companion
+  is no candidate, the body counting as its `def` twin, 2^(2^69); one in the companion of a type the
+  body writes, reaches through a referenced member's declared type, through a given it may summon,
+  or through a given of a reached companion, or one imported, still refuses),
+  `InlineScopesSpec.privateConversions`, `InlineScopesSpec.anchoredConversions`.
+- **Corpus**: eo-core's optics no longer meet specs2's `FileName.ToFileName` (a test library's
+  companion on the build's classpath, which no eo signature reaches); 16 rows become counts, each
+  derived by hand (the eo-closure report).
+
+**Boundary.** The rule narrows conversions only; an extension is still found as before (an applied
+selection whose qualifier's implicit scope is not read keeps every visible extension). Names are
+matched, not typed: a simple name collision in a reached scope brings that scope in, which can keep a
+candidate Scala would not consider (a refusal, never a wrong count). A given instance anywhere in the
+program is no longer a scope a body finds by itself: it is found when the scope declaring it is.
 
 ## How to extend this register
 

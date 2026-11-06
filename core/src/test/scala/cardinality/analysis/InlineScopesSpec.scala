@@ -395,9 +395,10 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       .and(found("PF.andThenD") === Count.Finite(2))
   }
 
-  // Scala never inserts an inaccessible implicit: conv, `private[lib]`, is no candidate in `app`,
-  // so first counts as its `def` twin (every (Int, Int) => Int, 2^(2^69)); public, it may be
-  // inserted where an expression does not conform, and its expansion reads the call site: refused.
+  // Scala never inserts an inaccessible implicit: conv, `private[lib]`, is no candidate in `app`
+  // even under a wildcard import of R, so first counts as its `def` twin (every (Int, Int) => Int,
+  // 2^(2^69)); public, the import brings it, it may be inserted where an expression does not
+  // conform, and its expansion reads the call site: refused.
   def privateConversions = {
     def lib(access: String) = "lib.scala" -> s"""package lib
       |object R {
@@ -405,6 +406,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       |  ${access}implicit inline def conv(x: Int): String = scala.compiletime.codeOf(x)
       |}""".stripMargin
     val app = "app.scala" -> """package app
+      |import lib.R.*
       |object C {
       |  inline def first(t: (Int, Int)): Int = t._1
       |  def firstD(t: (Int, Int)): Int = t._1

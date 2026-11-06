@@ -32,6 +32,12 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
   private val conversions = new Conversions(resolver, terms)
   private val walk = new BodyWalk(terms, verdict, fallback, resolver)
   private val restated = new RestatedExtensions(terms, resolver)
+  private val reachable = new Reachable(resolver, conversions)
+
+  // The conversion checks of each body under way that wait for its reachable types: an applied
+  // selection whose qualifier's implicit scope is not read (`fallback`).
+  private val deferred =
+    mutable.Stack.empty[mutable.ListBuffer[Option[Set[String]] => Option[String]]]
 
   // Verdicts by definition. A call back into a definition still being read (a cycle of inline
   // calls) adds nothing the walk does not reach anyway, so it passes for now; the cycle is one
@@ -113,9 +119,16 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
     // An abstract declaration has none: it counts as an abstract `def` does, and an override
     // implementing it is read through its own body.
     MemberSyntax.rightHandSide(definition.tree).flatMap { body =>
-      contextResult(definition.tree)
-        .orElse(walk.body(body, definition.frame, defaults(definition.tree)))
-        .orElse(inserted(definition))
+      contextResult(definition.tree).orElse {
+        deferred.push(mutable.ListBuffer.empty)
+        val ((found, heard), waiting) =
+          try (walk.read(body, definition.frame, defaults(definition.tree)), deferred.head.toList)
+          finally deferred.pop(): Unit
+        lazy val anchors = reachable.scopes(definition, heard)
+        found
+          .orElse(waiting.iterator.flatMap(_(anchors)).nextOption())
+          .orElse(inserted(definition, anchors))
+      }
     }
 
   // A body typed against a result that holds a context function may bind a lambda's parameter
@@ -134,11 +147,13 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
   // conversion, and one is typed where the body is written, as any call is: only an inline one
   // whose own expansion fails (or which this check cannot read) differs at each call site, and
   // so does one a channel to declarations outside the sources may bring.
-  private def inserted(definition: Definition): Option[String] =
+  // A conversion is a candidate where it is in the body's lexical scope or in the implicit scope of
+  // a type the body can reach (`anchors`, `Reachable`).
+  private def inserted(definition: Definition, anchors: => Option[Set[String]]): Option[String] =
     if (Unconverted.returnsOwnParameter(definition, terms)) None
     else
       conversions
-        .inlineConversions(definition.frame)
+        .inlineConversions(definition.frame, anchors)
         .flatMap(c =>
           expands(c).map(why => s"may expand the inline conversion ${c.label}, which $why")
         )
@@ -163,6 +178,25 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
   ): Option[String] = {
     val name = applied.name
     val anchors = conversions.anchored(qualifier)
+    val extended = {
+      val extensions = conversions.extensionsOf(name, frame, anchors)
+      Option.when(extensions.any && !applied.call.exists(restated.answered(_, extensions)))(
+        s"applies $name, which an extension of that name may answer when no member applies"
+      )
+    }
+    // A qualifier whose implicit scope is not read converts through the body's reachable types,
+    // read once the walk has resolved every name of the body.
+    if (anchors.isEmpty && deferred.nonEmpty) {
+      deferred.head += (reached => convertedApply(name, frame, reached).orElse(extended))
+      None
+    } else convertedApply(name, frame, anchors).orElse(extended)
+  }
+
+  private def convertedApply(
+      name: String,
+      frame: Frame,
+      anchors: Option[Set[String]]
+  ): Option[String] =
     conversions
       .conversion(frame, anchors)
       .flatMap(c => converted(name, frame, anchors).map((label, why) => (c, label, why)))
@@ -170,13 +204,6 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
         s"applies $name, whose arguments this reading does not type: if no member accepts them, " +
           s"the implicit conversion ${c.label} may answer, and $label$why"
       )
-      .orElse {
-        val extensions = conversions.extensionsOf(name, frame, anchors)
-        Option.when(extensions.any && !applied.call.exists(restated.answered(_, extensions)))(
-          s"applies $name, which an extension of that name may answer when no member applies"
-        )
-      }
-  }
 
   private def defaults(tree: Tree): List[Term] =
     MemberSyntax.parameters(MemberSyntax.groups(tree)).flatMap(_.default)
