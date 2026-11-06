@@ -414,11 +414,14 @@ object MethodAnalysis {
 
     def fixedTemplate(frame: Frame): Boolean = FinalImplementations.fixed(frame, indexer)
 
-    private lazy val world = new ClosedWorld(inputs.map(_.tree))
+    private lazy val world = new ClosedWorld(inputs)
 
     // In the open world any two templates may share an instance and any member be overridden.
     def mixed(left: Frame, right: Frame): Boolean =
       !closed || left.name.zip(right.name).exists(world.mixes(_, _))
+
+    def mayExtend(child: Frame, ancestor: Frame): Boolean =
+      !closed || ancestor.name.zip(child.name).forall(world.descends(_, _))
 
     def overriding(template: Frame, name: String): ClosedWorld.Overriding =
       template.name

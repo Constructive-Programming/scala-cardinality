@@ -37,11 +37,14 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       label: String,
       inline: Boolean,
       scope: Frame,
-      expands: Option[Definition] = None
+      expands: Option[Definition] = None,
+      declared: Option[Stat] = None
   )
 
   private lazy val conversions: List[Candidate] =
-    resolver.memberScopes.flatMap(scope => scope.stats.flatMap(conversion(_, scope)))
+    resolver.memberScopes.flatMap(scope =>
+      scope.stats.flatMap(stat => conversion(stat, scope).map(_.copy(declared = Some(stat))))
+    )
 
   private lazy val extensions: List[Extension] =
     resolver.memberScopes.flatMap(scope => extensionsIn(scope.stats, scope))
@@ -123,7 +126,23 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   // The body's own conversions and those of the methods around it, then the visible ones.
   private def candidates(frame: Frame): Iterator[Candidate] =
     local(frame).iterator.flatMap(conversion(_, frame)) ++
-      conversions.iterator.filter(c => visible(c.scope, frame))
+      conversions.iterator.filter(c => visible(c.scope, frame) && granted(c, frame))
+
+  // A conversion `private[p]` to a package `p` is inserted only inside `p`: Scala never selects an
+  // inaccessible implicit. Another restriction is kept (its grant is not read here).
+  private def granted(c: Candidate, frame: Frame): Boolean =
+    c.declared.forall {
+      case stat: Stat.WithMods if packagePrivate(stat.mods, c.scope) =>
+        resolver.accessible(stat, c.scope, frame)
+      case _ => true
+    }
+
+  private def packagePrivate(mods: List[Mod], scope: Frame): Boolean =
+    mods.exists {
+      case Mod.Private(within: Name) if !within.is[Name.Anonymous] =>
+        scope.chain.exists(f => resolver.isPackage(f) && f.path.contains(within.value))
+      case _ => false
+    }
 
   // The statements of the methods around a body, its own method included: what they define is
   // visible inside them alone.

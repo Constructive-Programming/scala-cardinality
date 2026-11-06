@@ -182,13 +182,22 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
     c.expands.fold(Some("this check does not place"))(verdict)
 
   // Why a supplied inline method of the name differs at each call site, if one does (the closed
-  // world: an override an expansion may select is one of them).
-  private def failing(name: String): Option[String] =
+  // world: an override an expansion may select is one of them). An override of a member of
+  // `below` is a member of a template that may extend it: an extension method or a member of an
+  // unrelated template is never selected for it.
+  private def failing(name: String, below: Option[Frame]): Option[String] =
     conversions
       .inlineMethods(name)
       .iterator
+      .filter(d => below.forall(overrides(d, _)))
       .flatMap(d => verdict(d).map(why => s"inline method ${d.frame.path.mkString(".")} $why"))
       .nextOption()
+
+  private def overrides(d: Definition, template: Frame): Boolean =
+    d.frame.parent.exists(owner =>
+      owner.isTemplate && !owner.tree.exists(_.is[Defn.ExtensionGroup]) &&
+        resolver.mayExtend(owner, template)
+    )
 
   // What a conversion's result may run under an applied name whose expansion differs at each call
   // site (the closed world: a supplied inline method of the name), or a failing inline conversion
@@ -198,7 +207,7 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
       .inlineConversions(frame)
       .flatMap(c => expands(c).map(why => s"the inline conversion ${c.label} " -> why))
       .nextOption()
-      .orElse(failing(name).map("" -> _))
+      .orElse(failing(name, None).map("" -> _))
 
 }
 

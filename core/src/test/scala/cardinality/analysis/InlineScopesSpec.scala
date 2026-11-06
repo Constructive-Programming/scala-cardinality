@@ -34,6 +34,8 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       a reading cut short decides nothing                               $interrupted
       a deferred inline member is an inline body's capability          $deferredMembers
       a passing body is eliminated by the solver like its def twin      $solverTwins
+      a conversion private to another package is never inserted        $privateConversions
+      only a template extending the receiver overrides its member       $overridingInlines
   """
 
   private def parsed(code: String): MethodAnalysis.Input =
@@ -390,6 +392,43 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       .and(found("PM.replaceD") === Count.Finite(16))
       .and(found("PF.andThen") === Count.Finite(2))
       .and(found("PF.andThenD") === Count.Finite(2))
+  }
+
+  // Scala never inserts an inaccessible implicit: conv, `private[lib]`, is no candidate in `app`,
+  // so inc counts as its `def` twin (every Int => Int, 2^(2^37)); public, it may answer inc's `+`
+  // and its expansion reads the call site: refused.
+  def privateConversions = {
+    def lib(access: String) = "lib.scala" -> s"""package lib
+      |object R {
+      |  final class T
+      |  ${access}implicit inline def conv(x: Int): String = scala.compiletime.codeOf(x)
+      |}""".stripMargin
+    val app = "app.scala" -> """package app
+      |object C {
+      |  inline def inc(x: Int): Int = x + 1
+      |  def incD(x: Int): Int = x + 1
+      |}""".stripMargin
+    val hidden = counts(lib("private[lib] "), app)
+    (hidden("app.C.inc") === hidden("app.C.incD"))
+      .and(hidden("app.C.inc") === pow2(37))
+      .and(refused(counts(lib(""), app)("app.C.inc"), "the implicit conversion conv may answer"))
+  }
+
+  // An expansion selects f on b's class at the call site: Sub overrides f, but not inline, and
+  // Other's inline f overrides nothing of Base's, so onParam is b.f's functions of x as its `def`
+  // twin; with Other extending Base, its f is the override an expansion may select: refused.
+  def overridingInlines = {
+    def found(other: String) = rows(s"""class Base { def f(x: Int): Int = x }
+      |class Sub extends Base { override def f(x: Int): Int = x + 1 }
+      |class Other$other { ${if (other.isEmpty) "" else "override "}inline def f(x: Int): Int = scala.compiletime.codeOf(x).length }
+      |object D {
+      |  inline def onParam(b: Base, x: Int): Int = b.f(x)
+      |  def onParamD(b: Base, x: Int): Int = b.f(x)
+      |}""".stripMargin)
+    (found("")("D.onParam") === found("")("D.onParamD"))
+      .and(
+        refused(found(" extends Base")("D.onParam"), "inline method Other.f uses scala.compiletime")
+      )
   }
 
 }

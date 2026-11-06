@@ -4,6 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.model.MemberSyntax
+import cardinality.tasty.TastyStubs
 import cardinality.types.{Overrides, TypeApplications, TypeName}
 
 /** The closed world (docs/plans/v1.md §2): the supplied sources and dependency declarations are the
@@ -20,41 +21,60 @@ import cardinality.types.{Overrides, TypeApplications, TypeName}
   * with no type, which `final` would type as the literal: a receiver's members ask
   * `Resolver.overriding` instead.
   */
-final private[cardinality] class ClosedWorld(sources: List[Source]) {
+final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input]) {
   import ClosedWorld.*
 
-  // A template: its name (none for an anonymous one), the parents it names, what it defines.
+  // A parent as a template names it: its simple name, and for a compiled stub the qualified name
+  // the compiler resolved it to (`exact`), when the stub spells one.
+  final private case class Ref(name: String, exact: Option[String])
+
+  // A template: its name (none for an anonymous one), the parents it names, what it defines, and
+  // the qualified name of a compiled stub's template.
   final private class Node(
       val name: Option[String],
-      val parents: List[String],
-      val defines: Set[String]
+      val parents: List[Ref],
+      val defines: Set[String],
+      val full: Option[String]
   )
 
-  private val nodes: List[Node] = sources.flatMap(_.collect {
-    case c: Defn.EnumCase => node(Some(c.name.value), c.inits, Nil, Nil)
-    case tree if TypeApplications.template(tree).nonEmpty =>
-      val template = TypeApplications.template(tree).get
-      node(
-        MemberSyntax.templateName(tree),
-        template.inits,
-        template.body.stats,
-        MemberSyntax.fieldParams(tree)
-      )
-  })
+  private val nodes: List[Node] = inputs.flatMap { input =>
+    val compiled = input.path.startsWith(TastyStubs.Prefix)
+    input.tree.collect {
+      case c: Defn.EnumCase => node(Some(c.name.value), c.inits, Nil, Nil, compiled, c)
+      case tree if TypeApplications.template(tree).nonEmpty =>
+        val template = TypeApplications.template(tree).get
+        node(
+          MemberSyntax.templateName(tree),
+          template.inits,
+          template.body.stats,
+          MemberSyntax.fieldParams(tree),
+          compiled,
+          tree
+        )
+    }
+  }
 
   private def node(
       name: Option[String],
       inits: List[Init],
       stats: List[Stat],
-      params: List[Term.Param]
-  ) =
+      params: List[Term.Param],
+      compiled: Boolean,
+      tree: Tree
+  ) = {
+    val place = if (compiled) placeOf(tree) else None
+    val full = name.flatMap(n => place.map((pkg, owners) => (pkg ++ owners :+ n).mkString(".")))
     Node(
       name,
-      inits.map(TypeApplications.parentName),
+      inits.map(init =>
+        Ref(TypeApplications.parentName(init), place.flatMap((pkg, _) => exact(init, pkg)))
+      ),
       (stats.flatMap(stat => MemberSyntax.defined(stat) ++ typeName(stat)) ++ params.map(
         _.name.value
-      )).toSet
+      )).toSet,
+      full
     )
+  }
 
   private def typeName(stat: Stat): Option[String] = stat match {
     case d: Defn.Type => Some(d.name.value)
@@ -65,12 +85,23 @@ final private[cardinality] class ClosedWorld(sources: List[Source]) {
   private val named: Map[String, List[Node]] =
     nodes.flatMap(n => n.name.map(_ -> n)).groupMap(_._1)(_._2)
 
-  // The templates naming each parent, and the aliases whose body mentions each word.
-  private val children: Map[String, List[Node]] =
-    nodes.flatMap(n => n.parents.distinct.map(_ -> n)).groupMap(_._1)(_._2)
+  private val qualifiedNodes: Map[String, List[Node]] =
+    nodes.flatMap(n => n.full.map(_ -> n)).groupMap(_._1)(_._2)
 
-  private val aliases: Map[String, List[String]] = sources
-    .flatMap(_.collect {
+  // What a parent reference denotes: the stub templates of its qualified name, when some stub
+  // declares it; otherwise any template of its simple name.
+  private def key(ref: Ref): String = ref.exact.filter(qualifiedNodes.contains).getOrElse(ref.name)
+
+  private def denoted(key: String): Option[List[Node]] =
+    qualifiedNodes.get(key).orElse(named.get(key))
+
+  // The templates naming each parent (by simple or qualified key), and the aliases whose body
+  // mentions each word.
+  private val children: Map[String, List[Node]] =
+    nodes.flatMap(n => n.parents.map(key).distinct.map(_ -> n)).groupMap(_._1)(_._2)
+
+  private val aliases: Map[String, List[String]] = inputs
+    .flatMap(_.tree.collect {
       case d: Defn.Type => TypeName.words(d.body).distinct.map(_ -> d.name.value)
     })
     .flatten
@@ -78,8 +109,10 @@ final private[cardinality] class ClosedWorld(sources: List[Source]) {
 
   private val extending = mutable.Map.empty[String, (Set[String], List[Node])]
 
-  /** The names standing for `name` or a template extending it (aliases included), and the templates
-    * extending it at any depth.
+  /** The names standing for `name` or a template extending it (aliases included, and a stub's
+    * qualified name), and the templates extending it at any depth. A template spelling a parent by
+    * simple name may extend any template of that name; a stub spelling a qualified one extends only
+    * the template the compiler resolved.
     */
   private def below(name: String): (Set[String], List[Node]) =
     extending.getOrElseUpdate(
@@ -87,13 +120,13 @@ final private[cardinality] class ClosedWorld(sources: List[Source]) {
         val found = mutable.LinkedHashSet(name)
         val below = mutable.LinkedHashSet.empty[Node]
         val queue = mutable.Queue(name)
+        def reach(n: Node): Unit =
+          if (below.add(n)) (n.name ++ n.full).filter(found.add).foreach(queue.enqueue)
+        named.getOrElse(name, Nil).flatMap(_.full).filter(found.add).foreach(queue.enqueue)
         while (queue.nonEmpty) {
           val next = queue.dequeue()
-          val reached = aliases.getOrElse(next, Nil) ++ children.getOrElse(next, Nil).flatMap { n =>
-            below += n
-            n.name
-          }
-          reached.filter(found.add).foreach(queue.enqueue)
+          aliases.getOrElse(next, Nil).filter(found.add).foreach(queue.enqueue)
+          children.getOrElse(next, Nil).foreach(reach)
         }
         found.toSet -> below.toList
       }
@@ -102,22 +135,28 @@ final private[cardinality] class ClosedWorld(sources: List[Source]) {
   /** Whether some supplied template extends a template of this name. */
   def extended(name: String): Boolean = below(name)._2.nonEmpty
 
+  /** Whether a template of the name `child` may be one of `owner` or extend it. */
+  def descends(owner: String, child: String): Boolean =
+    owner == child || below(owner)._2.exists(_.name.contains(child))
+
   /** Whether some supplied template extends both named templates: an instance may be of both. */
   def mixes(left: String, right: String): Boolean = {
     val others = below(right)._2
     below(left)._2.exists(n => others.exists(_ eq n))
   }
 
-  // The names a template of this name inherits from, at any depth.
+  // The keys a template of this name inherits from, at any depth: the simple name of each, and the
+  // qualified one of a stub.
   private def ancestors(name: String): Set[String] =
     inherited.getOrElseUpdate(
       name, {
         val found = mutable.LinkedHashSet.empty[String]
         val queue = mutable.Queue(name)
         while (queue.nonEmpty)
-          named
-            .getOrElse(queue.dequeue(), Nil)
+          denoted(queue.dequeue())
+            .getOrElse(Nil)
             .flatMap(_.parents)
+            .flatMap(ref => List(key(ref), ref.name))
             .filter(found.add)
             .foreach(queue.enqueue)
         found.toSet
@@ -152,14 +191,14 @@ final private[cardinality] class ClosedWorld(sources: List[Source]) {
     def visit(nodes: List[Node]): Overriding =
       if (nodes.exists(_.defines(member))) Overriding.Supplied
       else {
-        nodes.foreach(_.parents.filter(seen.add).foreach(queue.enqueue))
+        nodes.foreach(_.parents.map(key).filter(seen.add).foreach(queue.enqueue))
         Overriding.No
       }
     var found = visit(from)
     while (queue.nonEmpty && found != Overriding.Supplied) {
       val parent = queue.dequeue()
-      val here = named.get(parent) match {
-        case Some(nodes) => visit(nodes)
+      val here = denoted(parent) match {
+        case Some(nodes) => visit(nodes.filterNot(_.full.exists(stop)))
         case None        =>
           library
             .get(parent)
@@ -228,13 +267,38 @@ private[cardinality] object ClosedWorld {
     case No, Unknown, Supplied
   }
 
+  // Where a stub declares a template: its package, and the templates around it; none inside a
+  // method or a block.
+  private def placeOf(tree: Tree): Option[(List[String], List[String])] = tree.parent match {
+    case None | Some(_: Source) => Some(Nil -> Nil)
+    case Some(p: Pkg)           =>
+      placeOf(p).map((pkg, owners) => (pkg ++ p.ref.syntax.split('.').toList) -> owners)
+    case Some(o: Pkg.Object) => placeOf(o).map((pkg, owners) => (pkg :+ o.name.value) -> owners)
+    case Some(d: (Defn.Object | Defn.Class | Defn.Trait | Defn.Enum)) =>
+      placeOf(d).map((pkg, owners) => pkg -> (owners :+ d.name.value))
+    case Some(p @ (_: Pkg.Body | _: Template | _: Template.Body)) => placeOf(p)
+    case _                                                        => None
+  }
+
+  // The qualified name of the template a stub's parent clause resolves to. The stub renderer spells
+  // a parent by its full path from the root, except a top-level template of the stub's own package,
+  // which it spells by its simple name (`StubDeclarations.parentName`). A parent through `this`, a
+  // projection or a term's type has no such name.
+  private def exact(init: Init, pkg: List[String]): Option[String] =
+    TypeApplications.headAndArguments(init.tpe)._1 match {
+      case n: Type.Name => Some((pkg :+ n.value).mkString("."))
+      case s: Type.Select if !s.syntax.contains("this.") =>
+        Some(s.syntax.stripPrefix("_root_."))
+      case _ => None
+    }
+
   private def strongest(found: List[Overriding]): Overriding =
     found.maxByOption(_.ordinal).getOrElse(Overriding.No)
 
   /** The inputs as the closed world reads them: every class and member it closes written `final`.
     */
   def finals(inputs: List[MethodAnalysis.Input]): List[MethodAnalysis.Input] = {
-    val world = new ClosedWorld(inputs.map(_.tree))
+    val world = new ClosedWorld(inputs)
     inputs.map { input =>
       world.insertions(input.tree).distinct.sorted.reverse match {
         case Nil     => input
