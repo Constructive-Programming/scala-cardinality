@@ -1042,7 +1042,8 @@ mentions (PB2), and then only a count of 0 or 1 is reported; a result no goal me
 binder: M (not determined by the result of C.m)` (PB4). A binder that occurs in an applied
 parameter is fixed by the applied values the environment supplies — its values and fields, its
 monomorphic producers' results and the instances' own results — each distinct instantiation one
-monomorphic callable, counted like any other (PB5, owner decision 2026-11); a producer that can be
+monomorphic callable, counted like any other, whether the applied head is a rigid or a concrete
+type constructor (PB5, owner decision 2026-11, restated 2026-11-06); a producer that can be
 applied and builds such a value at a type it chooses keeps the path refused (`… (instantiations not
 closed: a polymorphic producer builds an argument of C.m)`). A member with a path whose result is a
 bare binder PB5 does not fix leaves only ω and absurd contexts reported (`… (instantiations at
@@ -2129,11 +2130,15 @@ construction of it: `new C(…)`, a creator application `C(…)` or `C[T](…)`,
 `apply` (`ReceiverFactories`). The declared result does not decide: a factory typed as the family
 (`PSVec.of[B](b0, b1): PSVec[B]`, `unsafeWrap`'s `case _ => new Slice(…)` branch) constructs the
 case it builds. The constructed name is resolved where the factory is written (or selected through
-the class's enclosing template). Each factory builds at most `min(|its parameters|, |the fields|)`,
+the class's enclosing template). A result calling another method (callable or not) whose result
+constructs the class is read through it, and through one more call (two levels, user decision
+2026-11-06). The fields are those the site observes: a field it may select, or one a member it may
+call reads, directly or through members it may not call (`FactorySyntax.observed`); none observed is
+one value. Each factory builds at most `min(|its parameters|, |the observed fields|)`,
 its own type parameters read as atoms (so a parameter mentioning one is not closed); one running on
 a receiver of a class or trait has that receiver as an input too, so its space is not known; one
-declaring the class as its result whose body is read as no construction (a delegation, a value it
-was given) counts 1; the measured declaration is no factory (its body is the choice counted). The
+declaring the class as its result whose body is read as no construction (a value it was given, a
+delegation deeper than two calls) counts 1; the measured declaration is no factory (its body is the choice counted). The
 class holds the largest of these: the fields' space as soon as one reaches it, else the largest
 where all are closed and comparable, else `receiver space of its public constructors and factories
 not compared: C`; with neither a secondary nor a factory, `receiver has no public constructor: C`.
@@ -2147,8 +2152,11 @@ scope may extend it, and the scope is supplied.
 so it returns at most as many values as its inputs have, and never more than the fields hold: the
 secondary-constructor argument of D35 applied to any definition that constructs the class. In the
 closed world every value of the class comes from some construction in the sources, and a site that
-cannot call the constructor obtains one only through what it can call. Taking the largest factory
-rather than the union is the user's convention, as for secondaries. eo's `PSVec.Slice` read from
+cannot call the constructor obtains one only through what it can call. Two values that differ only
+in fields nothing the site may call reads give every body there the same observations, so they are
+one value (observational equivalence, as rule F identifies an opaque type's values). Taking the
+largest factory rather than the union is the user's convention (2026-11-06): a value is one object
+whichever factory built it, and which factory built it is no choice the measured code makes. eo's `PSVec.Slice` read from
 package `optics`: its constructor and `arr`, `offset` are `private[data]`; its factories are
 `PSVec.of[B](b0: B, b1: B)` (`B²`, not closed), `PSVec.unsafeWrap[B](arr: Array[Any])`,
 `Slice.slice` (on a `Slice` receiver: not known) and `MultiFocus.forPSVec.fromArraySlice[A](arr:
@@ -2166,17 +2174,24 @@ are final: inside `os` their constructors are callable and their `toString`, `se
 - First principles (above), over D35 and D39.
 - **Executable**: `ReceiverConstructorsSpec` (`twoFactories`: factories building 2 and 1 of 4
   values, 2^2 = 4; `unreadFactory`: a factory returning its private cached value and one returning
-  its argument, 2 each; `noFactory` refused; `noPublic`: `Factory.on`, 2; `familyFactory`: a hidden
-  sealed case built in a family-typed factory's branch, 8 outside its package, 32 inside),
+  its argument, 2 each; `noFactory` refused; `noPublic`: `Factory.on`, 2; `familyFactory`: a
+  sealed case built in a family-typed factory's branch, one of its two hidden fields read by a
+  public member, 8 outside its package, 32 inside; `hiddenFields`: no field read, 2; one read, 4;
+  `delegation`: one and two delegating calls 4, three 2), `StoredFactoriesSpec` (definitions rows:
+  a factory read through a private one, 2 of 4; hidden fields, 1; no factory refused),
   `EnvironmentCompletenessSpec.privateConstructor` (a `val` factory: 1),
   `TypeMemberBoundarySpec.typesOnly` (`class Priv private ()`: final, no factory, refused).
 
 **Boundary.** The max is not the union: values two factories build apart are counted once by the
-larger. A factory whose body delegates counts 1 though the method it calls may build more (the
-user's convention); a factory on a class receiver is not known. Constructions are recognized only
-syntactically in result position: one reached through a call, a `try`, a lambda or a pattern
-binder is not. The stored-value estimate does not read factories: its private-constructor class is
-still unread (`Builds`).
+larger. A factory delegating deeper than two calls counts 1 though the method it reaches may build more
+(the user's convention); a factory on a class receiver is not known. Constructions are recognized
+only syntactically in result position, and a call's callee by its name (a bare name around the
+caller, or a template named as its qualifier's last segment): one reached through a `try`, a lambda
+or a pattern binder is not. Observation is read syntactically too: a member mentioning a field's
+name observes it, a parameter or local of the same name included. The stored-value side reads only
+the factories of the class's companion and body, and keeps the fields' product for a class with
+type parameters; a value row still notes a private constructor's construction as unread
+(`Builds`).
 ## D43. A conversion is a candidate only where the body may find it
 
 **Decision** (owner decision, adopted idealization; v1.md §2). A conversion counts as a candidate

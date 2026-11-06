@@ -188,7 +188,9 @@ which instance they apply, or to which values, are counted as distinct, as for a
 Where the head is a rigid type constructor this is a separating supply: the supply picks the
 constructor, so a value can carry its components and a token the parametric member reads. The owner
 adopted the reading for every applied head (2026-11, "each distinct instantiation is a separate
-callable instance"). Binders left to the goal keep PB2's 0-or-1 limit.
+callable instance"): a concrete type constructor (a supplied or library class, `List[A]`,
+`Box[X, A]`) fixes its binders from the supplied values exactly as a rigid one does, and that is
+what PB5 implements (owner, 2026-11-06). Binders left to the goal keep PB2's 0-or-1 limit.
 
 *C10.* Pure and total, a case commutes with every context, and casing twice on one scrutinee is
 redundant (β and η for sums), so every term equals one that cases on each neutral of its context

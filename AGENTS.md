@@ -107,11 +107,16 @@ Two conventions sit beside these assumptions (v1.md §2, "Modelling conventions"
   A class (or sealed case) with no constructor callable from the site is counted by its public
   factories too: the methods and `val`s callable there whose result (through blocks, local `val`s
   and branches) is a direct construction of it (`new C(…)`, `C(…)`), a family-typed factory
-  constructing the case it builds. Each builds at most min(its parameters' space, the fields'
-  space); one declaring the class whose body is read as no construction counts 1; the class is the
-  MAX over them (a sealed case: one summand of that space). Neither a public constructor nor a
-  factory is `?`: `receiver has no public constructor`. A class with a non-public constructor that
-  nothing supplied extends is final in the closed world.
+  constructing the case it builds. A result calling a method that constructs it is read through
+  that method and one more call (two levels). Only the fields the site observes count (a field it
+  may select, or one a member it may call reads); none observed is one value. Each factory builds
+  at most min(its parameters' space, the observed fields' space); one declaring the class whose
+  body is read as no construction (deeper than two calls, unreadable) counts 1; the class is the
+  MAX over them, not the union: it is one object whichever factory built it (a sealed case: one
+  summand of that space). Neither a public constructor nor a factory is `?`: `receiver has no
+  public constructor`. The stored-value side (definitions row) counts a restricted-constructor
+  class the same way from its companion's and body's public factories. A class with a non-public
+  constructor that nothing supplied extends is final in the closed world.
 - **Rule F, an opaque type outside its scope is one value.** Where its representation is hidden,
   an opaque type counts 1 on both sides (it reads as `Unit`; as a type argument it keeps its own
   nominal identity). Inside its scope the representation is read as before. Never refuse a count

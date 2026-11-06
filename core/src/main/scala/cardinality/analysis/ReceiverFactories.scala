@@ -30,18 +30,8 @@ private[cardinality] object ReceiverFactories {
       closed: (Type, Frame, Map[String, Resolved]) => Option[Card]
   ): List[Option[Card]] =
     owner.name.toList.flatMap { name =>
-      val index = definitions(resolver)
-      val builds = (term: Term, scope: Frame) => constructs(term, owner, name, scope, resolver)
-      val callees = (call: Term, scope: Frame) => calleesOf(call, scope, index)
-      // The syntactic reading first: accessibility is asked only of a definition that builds or
-      // declares the class.
       for {
-        (stat, scope) <- index.values.flatten.toList
-        (body, declared) <- FactorySyntax.definition(stat).toList
-        readable <- (
-          if (FactorySyntax.constructs(body, scope, builds, callees)) Some(true)
-          else Option.when(declared.exists(names(_, owner, name, scope, resolver)))(false)
-        ).toList
+        (stat, scope, readable) <- found(owner, name, resolver)
         if !measured(stat, from) && resolver.accessible(stat, scope, from) &&
           reachable(scope, from, resolver)
       } yield
@@ -77,33 +67,69 @@ private[cardinality] object ReceiverFactories {
     )
   }
 
-  // Every method and single `val` of a member scope, by name, with its scope; built once per index.
-  private val indexes = new java.util.WeakHashMap[Resolver, Map[String, List[(Stat, Frame)]]]()
+  // Every method and single `val` of a member scope with its scope: by the name it defines, and by
+  // each name it mentions; and each class's factories once found. Built once per index.
+  final private class Index(
+      val defined: Map[String, List[(Stat, Frame)]],
+      val mentioning: Map[String, List[(Stat, Frame)]],
+      val factories: scala.collection.mutable.Map[String, List[(Stat, Frame, Boolean)]]
+  )
 
-  private def definitions(resolver: Resolver): Map[String, List[(Stat, Frame)]] =
+  private val indexes = new java.util.WeakHashMap[Resolver, Index]()
+
+  private def index(resolver: Resolver): Index =
     indexes.synchronized {
       Option(indexes.get(resolver)).getOrElse {
-        val built = resolver.memberScopes
-          .flatMap(scope =>
-            scope.stats.collect {
-              case stat if FactorySyntax.definition(stat).nonEmpty =>
-                MemberSyntax.defined(stat).map(_ -> (stat, scope))
-            }.flatten
-          )
-          .groupMap(_._1)(_._2)
+        val all = resolver.memberScopes.flatMap(scope =>
+          scope.stats.collect { case stat if FactorySyntax.definition(stat).nonEmpty => stat -> scope }
+        )
+        val built = new Index(
+          all.flatMap((stat, scope) => MemberSyntax.defined(stat).map(_ -> (stat, scope)))
+            .groupMap(_._1)(_._2),
+          all.flatMap((stat, scope) =>
+            stat.collect { case n: Name => n.value }.distinct.map(_ -> (stat, scope))
+          ).groupMap(_._1)(_._2),
+          scala.collection.mutable.Map.empty
+        )
         indexes.put(resolver, built)
         built
       }
     }
+
+  // The definitions of the class's factories, whatever the site, each readable or not. Only a
+  // definition that mentions the class, or a method one does through at most two calls, can be.
+  private def found(owner: Frame, name: String, resolver: Resolver): List[(Stat, Frame, Boolean)] = {
+    val idx = index(resolver)
+    idx.synchronized(idx.factories.get(owner.id)).getOrElse {
+      def named(defs: List[(Stat, Frame)]) = defs.flatMap(d => MemberSyntax.defined(d._1)).toSet
+      def mentioning(names: Set[String]) = names.toList.flatMap(idx.mentioning.getOrElse(_, Nil))
+      val m0 = idx.mentioning.getOrElse(name, Nil)
+      val m1 = mentioning(named(m0))
+      val m2 = mentioning(named(m1))
+      val reachable = named(m0) ++ named(m1)
+      val builds = (term: Term, scope: Frame) => constructs(term, owner, name, scope, resolver)
+      val callees = (call: Term, scope: Frame) => calleesOf(call, scope, idx.defined, reachable)
+      val result = (m0 ++ m1 ++ m2).distinctBy(_._1).flatMap { (stat, scope) =>
+        FactorySyntax.definition(stat).flatMap { (body, declared) =>
+          if (FactorySyntax.constructs(body, scope, builds, callees)) Some((stat, scope, true))
+          else
+            Option.when(declared.exists(names(_, owner, name, scope, resolver)))((stat, scope, false))
+        }
+      }
+      idx.synchronized(idx.factories.update(owner.id, result))
+      result
+    }
+  }
 
   // The bodies a call may run: a definition of its name around the caller for a bare name or one
   // on `this`, or one of a template named as its qualifier's last segment.
   private def calleesOf(
       call: Term,
       scope: Frame,
-      index: Map[String, List[(Stat, Frame)]]
+      index: Map[String, List[(Stat, Frame)]],
+      reachable: Set[String]
   ): List[(Term, Frame)] =
-    FactorySyntax.callee(call).toList.flatMap { (qualifier, name) =>
+    FactorySyntax.callee(call).toList.filter((_, name) => reachable(name)).flatMap { (qualifier, name) =>
       val around = scope.chain.map(_.id).toSet
       index
         .getOrElse(name, Nil)
