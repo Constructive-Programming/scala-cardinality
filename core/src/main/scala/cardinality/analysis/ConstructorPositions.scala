@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
 import cardinality.analysis.model.{ContextBounds, ContextualEvidence, ResolutionContext}
-import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes}
+import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes, WrittenType}
 import cardinality.capacity.{Definition, FinitePart, Size}
 import cardinality.types.{Spelling, TypeSubstitution}
 
@@ -107,8 +107,9 @@ final private[cardinality] class ConstructorPositions(
       // side answers — but a name the estimate cannot bind still declines the position, read as
       // written.
       val context = ResolutionContext(owner, variables, Set.empty)
-      val unread = TopTypes.unestimable(tpe, context, resolver)
-      val slot = Option.unless(unread)(TopTypes.implementationSlot(tpe, context, resolver)).flatten
+      val position = WrittenType(tpe, context, resolver)
+      val unread = TopTypes.unestimable(position)
+      val slot = Option.unless(unread)(TopTypes.implementationSlot(position)).flatten
       val written = ContextBounds.written(param, tpe, owner.typeParams)
       val reading = resolver.reading(target.input).read(slot.getOrElse(tpe), written)
       // A slot is a parameter of the constructor, an input: a bare top in it is one value (v1.md §2).

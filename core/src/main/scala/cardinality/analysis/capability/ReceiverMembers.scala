@@ -138,9 +138,11 @@ final private[cardinality] class ReceiverMembers(
   def universal(member: Tree, level: Frame): Boolean =
     MemberSyntax.universal(member)(tpe =>
       TopTypes.isAny(
-        tpe,
-        ResolutionContext(level, resolver.typeParameters(level), Set.empty),
-        resolver
+        WrittenType(
+          tpe,
+          ResolutionContext(level, resolver.typeParameters(level), Set.empty),
+          resolver
+        )
       )
     )
 
@@ -449,7 +451,7 @@ final private[cardinality] class ReceiverMembers(
               case _ if imported                                               => unknown
               case Found.Entry(entry)                                          =>
                 TypeIdentities
-                  .lineage(tpe, context, resolver)
+                  .lineage(WrittenType(tpe, context, resolver))
                   .filter(_.complete)
                   .flatMap(lineage => building(entry, lineage.bases))
                   .getOrElse(unknown)

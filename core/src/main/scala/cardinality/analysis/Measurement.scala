@@ -456,7 +456,7 @@ final private[cardinality] class Measurement(
     visibleIn,
     resolveIn(_, _, _).toOption,
     (tpe, owner, env, shape) =>
-      ContextFunctions.results(tpe, shape, readingContext(owner, env), resolver),
+      ContextFunctions.results(WrittenType(tpe, readingContext(owner, env), resolver), shape),
     identify,
     positions.leftToShape,
     resolver.unsuppliedParent,
@@ -464,7 +464,7 @@ final private[cardinality] class Measurement(
   )
 
   private def identify(tpe: Type, owner: Frame, env: Map[String, Resolved]) =
-    TypeIdentities.nominal(tpe, readingContext(owner, env), resolver)
+    TypeIdentities.nominal(WrittenType(tpe, readingContext(owner, env), resolver))
 
   private def bind(name: String, binding: Binding, owner: Frame): Unit = {
     values.update(name, binding)
@@ -587,7 +587,7 @@ final private[cardinality] class Measurement(
     val identities = MemberSyntax
       .parameters(MemberSyntax.groups(declaration))
       .flatMap(_.decltpe)
-      .map(TypeIdentities.of(_, context, resolver))
+      .map(tpe => TypeIdentities.of(WrittenType(tpe, context, resolver)))
     val member = DeclaredMembers.Declared(slot.template.id, slot.scope.id, shape, identities)
     declaredMembers.key(name, declaration, member) match {
       case Left(reason)     => errors += reason

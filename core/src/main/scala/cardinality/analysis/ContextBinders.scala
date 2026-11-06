@@ -49,7 +49,7 @@ final private[cardinality] class ContextBinders(
     else
       inferred.fold(
         _ => Right(Nil),
-        result => ContextFunctions.binders(result.tpe, result.context, resolver)
+        result => ContextFunctions.binders(WrittenType(result.tpe, result.context, resolver))
       )
 
   // A member value or given alias wraps its right-hand side as a method does its body (an
@@ -100,21 +100,18 @@ final private[cardinality] class ContextBinders(
 
   // Nothing else reads an enclosing method's result: a name it cannot see behind refuses.
   private def enclosed(tpe: Type, context: ResolutionContext) =
-    ContextFunctions.required(tpe, context, resolver)
+    ContextFunctions.required(WrittenType(tpe, context, resolver))
 
   // Binders are nameless: each is bound under its owner and position.
   private def read(owner: Frame, binder: Binder, index: Int): Read = {
     val shape = resolver.resolve(binder.tpe, binder.context)
+    val written = WrittenType(binder.tpe, binder.context, resolver)
     Read(
       binder.clause,
       s"context function binder ${Spelling.of(binder.tpe)}",
       shape,
-      shape.toOption.toList
-        .flatMap(ContextFunctions.results(binder.tpe, _, binder.context, resolver)),
-      Nominal(
-        TypeIdentities.of(binder.tpe, binder.context, resolver),
-        TypeIdentities.finalClass(binder.tpe, binder.context, resolver)
-      ),
+      shape.toOption.toList.flatMap(ContextFunctions.results(written, _)),
+      Nominal(TypeIdentities.of(written), TypeIdentities.finalClass(written)),
       s"<context#$index@${owner.path.mkString(".")}>"
     )
   }

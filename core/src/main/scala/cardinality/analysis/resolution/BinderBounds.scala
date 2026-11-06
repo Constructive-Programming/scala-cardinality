@@ -81,18 +81,22 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
   private def read(scope: Frame, parameter: Type.Param): Either[String, Declared] = {
     val context =
       ResolutionContext(scope, resolver.typeParameters(scope), Set.empty, Some(observer))
-    val upper = parameter.bounds.hi.filterNot(TopTypes.isAny(_, context, resolver)).map { bound =>
-      classBound(bound, context) match {
-        case Some(name) => Right(Bound.Class(name))
-        case None       => read(bound, context, parameter, upper = true).map(Bound.Upper(_))
+    val upper =
+      parameter.bounds.hi.filterNot(hi => TopTypes.isAny(WrittenType(hi, context, resolver))).map {
+        bound =>
+          classBound(bound, context) match {
+            case Some(name) => Right(Bound.Class(name))
+            case None       => read(bound, context, parameter, upper = true).map(Bound.Upper(_))
+          }
       }
-    }
     val lower =
-      parameter.bounds.lo.filterNot(TopTypes.isNothing(_, context, resolver)).map { bound =>
-        read(bound, context, parameter, upper = false).map(
-          Bound.Lower(_, instanceClass(bound, context))
-        )
-      }
+      parameter.bounds.lo
+        .filterNot(lo => TopTypes.isNothing(WrittenType(lo, context, resolver)))
+        .map { bound =>
+          read(bound, context, parameter, upper = false).map(
+            Bound.Lower(_, instanceClass(bound, context))
+          )
+        }
     Traversals.sequence(upper.toList ++ lower.toList).map(Declared(parameter, _))
   }
 
@@ -114,7 +118,7 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
   // A bound declared without a sealed structure — an open trait or class, an abstract member — is
   // known by its members alone: its values are read through them, as capabilities.
   private def membersOnly(bound: Type, context: ResolutionContext): Boolean =
-    Found.declared(resolver, head(bound), context).exists(entry => open(entry.tree))
+    Found.declared(WrittenType(head(bound), context, resolver)).exists(entry => open(entry.tree))
 
   private def open(declaration: Tree): Boolean = declaration match {
     case t: Defn.Trait => !Counter.isSealed(t)
@@ -135,7 +139,7 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
     }
 
   private def named(tpe: Type, context: ResolutionContext, seen: Set[String]): Option[String] =
-    Found.declared(resolver, tpe, context) match {
+    Found.declared(WrittenType(tpe, context, resolver)) match {
       case Some(entry) if seen(entry.key) => None
       case Some(entry)                    =>
         entry.tree match {
@@ -153,7 +157,9 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
       // A name no declaration takes is the builtin it spells, if it spells one.
       case None =>
         Option
-          .when(Found.named(resolver, tpe, tpe.syntax, context).contains(Found.Absent))(tpe.syntax)
+          .when(
+            Found.named(WrittenType(tpe, context, resolver), tpe.syntax).contains(Found.Absent)
+          )(tpe.syntax)
           .flatMap(BuiltinTypes.canonical)
           .flatMap(builtinClass)
     }
@@ -162,7 +168,10 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
   // is read: past every channel that may rebind a top name (`TopTypes.denoted`), as `Any` above
   // and `Nothing` below are.
   private def classBound(bound: Type, context: ResolutionContext): Option[String] =
-    TopTypes.denoted(bound, context, resolver).filterNot(_ == TopTypes.Kind.Universal).map(_.label)
+    TopTypes
+      .denoted(WrittenType(bound, context, resolver))
+      .filterNot(_ == TopTypes.Kind.Universal)
+      .map(_.label)
 
 }
 

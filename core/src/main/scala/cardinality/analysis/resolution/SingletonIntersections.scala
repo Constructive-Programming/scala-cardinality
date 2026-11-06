@@ -212,11 +212,12 @@ private[cardinality] object SingletonIntersections {
       resolver: Resolver
   ): Resolved = {
     // `Any` (`AnyRef`, `Matchable`) is the unit of intersection: `T & Any` is `T`, whatever `T` is.
-    if (TopTypes.absorbs(left, context, resolver)) context.read(right, resolver)
-    else if (TopTypes.absorbs(right, context, resolver)) context.read(left, resolver)
+    val (l, r) = (WrittenType(left, context, resolver), WrittenType(right, context, resolver))
+    if (TopTypes.absorbs(l)) context.read(right, resolver)
+    else if (TopTypes.absorbs(r)) context.read(left, resolver)
     else if (left.structure == right.structure) context.read(left, resolver)
-    else if (marker(left, context, resolver)) context.read(right, resolver).flatMap(singletonOnly)
-    else if (marker(right, context, resolver)) context.read(left, resolver).flatMap(singletonOnly)
+    else if (marker(l)) context.read(right, resolver).flatMap(singletonOnly)
+    else if (marker(r)) context.read(left, resolver).flatMap(singletonOnly)
     else
       for {
         a <- context.read(left, resolver)
@@ -233,12 +234,12 @@ private[cardinality] object SingletonIntersections {
   // namespace no source supplies may (Scala 3.9.0 reads `O.type & Singleton` as `Nothing` under a
   // `zzz` declaring `type Singleton = Nothing`), and `quotes.reflect.*` does: reflect's own
   // `Singleton` (probes/review-A7q).
-  private def marker(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
-    tpe.syntax match {
+  private def marker(written: WrittenType): Boolean =
+    written.tpe.syntax match {
       case spelled @ ("scala.Singleton" | "Singleton") =>
-        Found.named(resolver, tpe, spelled, context).contains(Found.Absent) &&
-        resolver.rootShadow(spelled, context).isEmpty &&
-        (spelled.contains('.') || unshadowedMarker(context))
+        Found.named(written, spelled).contains(Found.Absent) &&
+        written.resolver.rootShadow(spelled, written.context).isEmpty &&
+        (spelled.contains('.') || unshadowedMarker(written.context))
       case _ => false
     }
 

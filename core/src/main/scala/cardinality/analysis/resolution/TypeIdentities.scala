@@ -22,14 +22,15 @@ private[cardinality] object TypeIdentities {
     * identity. None when a name is an abstract member, a parameterized alias or unresolved, or a
     * binder stands for an instantiation — an identity this reading does not know.
     */
-  def of(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
-    Reader(resolver, closures = false).of(tpe, context)
+  def of(written: WrittenType): Option[String] =
+    Reader(written.resolver, closures = false).of(written.tpe, written.context)
 
   /** A parameter type's identity where an overriding member is matched against the one it may
     * override: as `of`, and also through a higher-kinded binder an `extends` clause binds to a
     * written constructor (`F` given `Either` is `Either`), with a by-name or repeated marker kept.
     */
-  def parameter(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] = {
+  def parameter(written: WrittenType): Option[String] = {
+    val WrittenType(tpe, context, resolver) = written
     val reader = Reader(resolver, closures = true)
     tpe match {
       case Type.ByName(inner)   => reader.of(inner, context).map(id => s"=> $id")
@@ -47,9 +48,9 @@ private[cardinality] object TypeIdentities {
           case Some(Right(constructor @ Shape.Constructor(token))) =>
             if (resolver.operators.isRigid(constructor)) Some(token) else closure(n, context)
           case Some(_) => None
-          case None    => named(tpe, n.value, context, resolver)
+          case None    => named(WrittenType(tpe, context, resolver), n.value)
         }
-      case s: Type.Select     => named(tpe, s.syntax, context, resolver)
+      case s: Type.Select     => named(WrittenType(tpe, context, resolver), s.syntax)
       case a: Type.Apply      => applied(a.tpe, a.argClause.values, context)
       case a: Type.ApplyInfix => applied(a.op, List(a.lhs, a.rhs), context)
       // Tuple and arrow syntax are `scala.TupleN` and `scala.FunctionN` applied: one spelling each.
@@ -77,18 +78,14 @@ private[cardinality] object TypeIdentities {
   }
 
   /** What implicit search can tell of a type beyond its shape (`ContextualEvidence`). */
-  def nominal(tpe: Type, context: ResolutionContext, resolver: Resolver): Nominal =
-    Nominal(
-      of(tpe, context, resolver),
-      finalClass(tpe, context, resolver),
-      lineage(tpe, context, resolver)
-    )
+  def nominal(written: WrittenType): Nominal =
+    Nominal(of(written), finalClass(written), lineage(written))
 
   /** The declaration of a final concrete class a type applies, when it is one: no other type is a
     * subtype of it, so two distinct ones are unrelated whatever their arguments.
     */
-  def finalClass(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
-    head(tpe, context, resolver).collect {
+  def finalClass(written: WrittenType): Option[String] =
+    head(written).collect {
       case entry if entry.tree.is[Defn.Class] && FinalImplementations.isFinal(entry.tree) =>
         key(entry)
     }
@@ -96,11 +93,11 @@ private[cardinality] object TypeIdentities {
   /** The class or trait a type applies, by frame, with its supplied base classes: a class type
     * conforms to another only through a base class, whatever the arguments.
     */
-  def lineage(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[Lineage] =
-    head(tpe, context, resolver)
+  def lineage(written: WrittenType): Option[Lineage] =
+    head(written)
       .flatMap(classFrame)
       .map { frame =>
-        val (bases, complete) = resolver.baseClasses(frame)
+        val (bases, complete) = written.resolver.baseClasses(frame)
         Lineage(frame.id, bases, complete)
       }
 
@@ -109,7 +106,8 @@ private[cardinality] object TypeIdentities {
     entry.self.filter(_ => entry.tree.is[Defn.Class] || entry.tree.is[Defn.Trait])
 
   // The source declaration a type's head names, where the head is a name or a path, not a binder.
-  private def head(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[TypeEntry] = {
+  private def head(written: WrittenType): Option[TypeEntry] = {
+    val WrittenType(tpe, context, resolver) = written
     val callee = tpe match {
       case a: Type.Apply => a.tpe
       case other         => other
@@ -122,14 +120,9 @@ private[cardinality] object TypeIdentities {
     }
   }
 
-  private def named(
-      tpe: Type,
-      name: String,
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Option[String] =
-    resolver.declaration(tpe, name, context) match {
-      case Found.Entry(entry) => declared(entry, context, resolver)
+  private def named(written: WrittenType, name: String): Option[String] =
+    written.resolver.declaration(written.tpe, name, written.context) match {
+      case Found.Entry(entry) => declared(entry, written.context, written.resolver)
       // One key per declaration: `Either` and `scala.util.Either` are the model's one entry.
       case Found.Absent => BuiltinTypes.canonical(name)
       case _            => None
@@ -148,7 +141,7 @@ private[cardinality] object TypeIdentities {
         .when(d.tparamClause.values.isEmpty && !context.visiting(k))(
           context.inScope(entry.owner, resolver.typeParameters(entry.owner)).enter(k)
         )
-        .flatMap(of(d.body, _, resolver))
+        .flatMap(scope => of(WrittenType(d.body, scope, resolver)))
     case _: Decl.Type => None
     case _            => Some(key(entry))
   }

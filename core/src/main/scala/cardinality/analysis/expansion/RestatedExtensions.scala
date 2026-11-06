@@ -3,7 +3,7 @@ package cardinality.analysis.expansion
 import scala.meta.*
 
 import cardinality.analysis.model.*
-import cardinality.analysis.resolution.{Found, TypeIdentities}
+import cardinality.analysis.resolution.{Found, TypeIdentities, WrittenType}
 import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.{TypeApplications, Variance}
 
@@ -149,8 +149,10 @@ final private[expansion] class RestatedExtensions(terms: BodyTerms, resolver: Re
       inClass: ResolutionContext
   ): Boolean =
     theirs.name.value == ours.name.value && theirs.decltpe.zip(ours.decltpe).exists { (t, o) =>
-      val identity = TypeIdentities.parameter(o, inClass, resolver)
-      identity.nonEmpty && TypeIdentities.parameter(t, inExtension, resolver) == identity
+      val identity = TypeIdentities.parameter(WrittenType(o, inClass, resolver))
+      identity.nonEmpty && TypeIdentities.parameter(
+        WrittenType(t, inExtension, resolver)
+      ) == identity
     }
 
   // The arguments the class's base type gives a base class: its own binders for itself, its

@@ -65,7 +65,7 @@ final private[cardinality] class Callees(resolver: Resolver, bind: TypeOperators
     val name = TypeApplications.spelled(head)
     val notAlias =
       s"partially applied constructor is not a type-lambda alias: ${Spelling.of(applied)}"
-    Found.named(resolver, head, name, context) match {
+    Found.named(WrittenType(head, context, resolver), name) match {
       // An inherited alias reads under its parent's instantiation, which this scope lacks.
       case Some(Found.Entry(_)) if resolver.inheritsName(head, name, context) =>
         Left(s"partially applied inherited type member not resolved: $name")

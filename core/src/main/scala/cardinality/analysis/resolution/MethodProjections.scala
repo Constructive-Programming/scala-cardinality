@@ -21,9 +21,9 @@ private[cardinality] object MethodProjections {
     case _                                             => None
   }
 
-  def accepts(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean = tpe match {
+  def accepts(written: WrittenType): Boolean = written.tpe match {
     case _: Type.Match                 => true
-    case _: Type.Name | _: Type.Select => alias(tpe, context, resolver).nonEmpty
+    case _: Type.Name | _: Type.Select => alias(written).nonEmpty
     case _                             => false
   }
 
@@ -32,12 +32,12 @@ private[cardinality] object MethodProjections {
     * by kind (`ConstructorApplications`), not by this normalizer, which freezes every argument as a
     * type.
     */
-  def alias(
-      callee: Type,
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Option[(TypeEntry, Defn.Type)] =
-    resolver.declaration(callee, TypeApplications.spelled(callee), context) match {
+  def alias(callee: WrittenType): Option[(TypeEntry, Defn.Type)] =
+    callee.resolver.declaration(
+      callee.tpe,
+      TypeApplications.spelled(callee.tpe),
+      callee.context
+    ) match {
       case Found.Entry(entry) =>
         ResolutionOptics.entryTypeDefinition
           .getOption(entry)
@@ -50,12 +50,8 @@ private[cardinality] object MethodProjections {
       case _ => None
     }
 
-  def resolve(
-      tpe: Type,
-      context: ResolutionContext,
-      resolver: Resolver,
-      sourceNames: Set[String]
-  ): Resolved = {
+  def resolve(written: WrittenType, sourceNames: Set[String]): Resolved = {
+    val WrittenType(tpe, context, resolver) = written
     val normalizer = new Normalizer(resolver, sourceNames)
     normalizer
       .syntax(tpe, context)
@@ -241,7 +237,7 @@ private[cardinality] object MethodProjections {
             val definition =
               if (context.variables.contains(name) || resolver.inheritsName(tpe, name, context))
                 None
-              else alias(callee, context, resolver)
+              else alias(WrittenType(callee, context, resolver))
             definition match {
               case Some(declaration) => applyAlias(name, args, declaration, context)
               case None              => freeze(tpe, context)

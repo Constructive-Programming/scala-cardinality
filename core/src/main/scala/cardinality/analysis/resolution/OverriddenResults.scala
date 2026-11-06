@@ -154,8 +154,8 @@ final private[cardinality] class OverriddenResults(
       .zip(parameters(candidate.groups))
       .map((own, other) =>
         (
-          own.flatMap(TypeIdentities.parameter(_, ownContext, resolver)),
-          other.flatMap(TypeIdentities.parameter(_, theirs, resolver))
+          own.flatMap(tpe => TypeIdentities.parameter(WrittenType(tpe, ownContext, resolver))),
+          other.flatMap(tpe => TypeIdentities.parameter(WrittenType(tpe, theirs, resolver)))
         )
       )
     val differs = pairs.exists { case (Some(own), Some(other)) => own != other; case _ => false }

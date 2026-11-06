@@ -3,8 +3,6 @@ package cardinality.analysis.resolution
 import scala.meta.{Type, XtensionSyntax}
 
 import cardinality.analysis.MethodAnalysis.TypeEntry
-import cardinality.analysis.Resolver
-import cardinality.analysis.model.ResolutionContext
 
 /** What a simple-name resolution reached: one declaration, a refusal to read past the name with the
   * reason, a declaration outside the source set, or nothing — which is where the model's own
@@ -50,19 +48,15 @@ private[cardinality] object Found {
 
   /** What a type written as a name (`T`, `p.T`) denotes where it is read; None for any other type.
     */
-  def named(
-      resolver: Resolver,
-      tpe: Type,
-      name: String,
-      context: ResolutionContext
-  ): Option[Found] =
-    tpe match {
-      case _: Type.Name | _: Type.Select => Some(resolver.declaration(tpe, name, context))
-      case _                             => None
+  def named(written: WrittenType, name: String): Option[Found] =
+    written.tpe match {
+      case _: Type.Name | _: Type.Select =>
+        Some(written.resolver.declaration(written.tpe, name, written.context))
+      case _ => None
     }
 
   /** The supplied declaration a type written as a name means where it is read. */
-  def declared(resolver: Resolver, tpe: Type, context: ResolutionContext): Option[TypeEntry] =
-    named(resolver, tpe, tpe.syntax, context).flatMap(_.declared)
+  def declared(written: WrittenType): Option[TypeEntry] =
+    named(written, written.tpe.syntax).flatMap(_.declared)
 
 }

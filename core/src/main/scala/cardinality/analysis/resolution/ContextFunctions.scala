@@ -46,41 +46,38 @@ private[cardinality] object ContextFunctions {
     * shape it was bound to.
     */
   def binders(
-      tpe: Type,
-      context: ResolutionContext,
-      resolver: Resolver,
+      result: WrittenType,
       written: List[(String, Type, ResolutionContext)] = Nil
   ): Either[String, List[Binder]] = {
     val arguments =
       written.map((name, arg, scope) => name -> Argument(arg, Site(scope, NoArguments)))
-    chain(tpe, Site(context, Arguments(arguments.toMap)), new Chain(resolver, strict = false))
+    chain(
+      result.tpe,
+      Site(result.context, Arguments(arguments.toMap)),
+      new Chain(result.resolver, strict = false)
+    )
   }
 
   /** The binders as `binders` reads them, where nothing else reads the type: a name not supplied
     * stops the chain with its reason.
     */
-  def required(
-      tpe: Type,
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Either[String, List[Binder]] =
-    chain(tpe, Site(context, NoArguments), new Chain(resolver, strict = true))
+  def required(written: WrittenType): Either[String, List[Binder]] =
+    chain(
+      written.tpe,
+      Site(written.context, NoArguments),
+      new Chain(written.resolver, strict = true)
+    )
 
-  /** The types besides its own that a value of `tpe`, read as `shape`, answers implicit search for:
-    * Scala applies a candidate of type `A ?=> B ?=> C` to the givens it finds where a search wants
-    * `B ?=> C` or `C` (fixtures review-A5 r2 cf4, amb2: `using A ?=> B` and `using B` are ambiguous
-    * for `summon[B]`). A chain this reading does not follow may be one: then each function the
-    * shape starts with is taken as a context function.
+  /** The types besides its own that a value of `written`, read as `shape`, answers implicit search
+    * for: Scala applies a candidate of type `A ?=> B ?=> C` to the givens it finds where a search
+    * wants `B ?=> C` or `C` (fixtures review-A5 r2 cf4, amb2: `using A ?=> B` and `using B` are
+    * ambiguous for `summon[B]`). A chain this reading does not follow may be one: then each
+    * function the shape starts with is taken as a context function.
     */
-  def results(
-      tpe: Type,
-      shape: Shape,
-      context: ResolutionContext,
-      resolver: Resolver
-  ): List[Shape] =
+  def results(written: WrittenType, shape: Shape): List[Shape] =
     shape match {
       case _: Shape.Function =>
-        val clauses = required(tpe, context, resolver).toOption
+        val clauses = required(written).toOption
           .map(_.map(_.clause + 1).maxOption.getOrElse(0))
         peeled(shape, clauses)
       case _ => Nil

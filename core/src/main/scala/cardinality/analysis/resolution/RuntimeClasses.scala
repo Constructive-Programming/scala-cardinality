@@ -121,7 +121,7 @@ final private[cardinality] class RuntimeClasses(
       case _ if RefinedMembers.throughValue(head, context.frame) =>
         Left(s"$name has no runtime class (path-dependent member)")
       case _ =>
-        Found.named(resolver, head, name, context) match {
+        Found.named(WrittenType(head, context, resolver), name) match {
           case Some(Found.Entry(entry))   => declaration(entry, name, context)
           case Some(Found.Absent)         => builtin(name, whole, context)
           case Some(failed: Found.Failed) => Left(failed.reason)

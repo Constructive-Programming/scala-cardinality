@@ -217,7 +217,7 @@ private[cardinality] object InferredResults {
         form: => String,
         written: List[(String, Type, ResolutionContext)] = Nil
     ): Either[String, Unit] =
-      ContextFunctions.binders(tpe, context, resolver, written).flatMap {
+      ContextFunctions.binders(WrittenType(tpe, context, resolver), written).flatMap {
         case Nil => Right(())
         case _   => Left(s"$Unresolved: $form, whose context function result is applied")
       }
@@ -234,7 +234,7 @@ private[cardinality] object InferredResults {
             .find(_ == Singleton)
             .orElse(Some("union"))
         case _ =>
-          Found.declared(resolver, tpe, context).flatMap { entry =>
+          Found.declared(WrittenType(tpe, context, resolver)).flatMap { entry =>
             (entry.tree, TypeIdentities.key(entry)) match {
               case (alias: Defn.Type, key) if alias.tparamClause.values.isEmpty && !seen(key) =>
                 val scope = ResolutionContext(entry.owner, Map.empty, Set.empty)
@@ -251,7 +251,7 @@ private[cardinality] object InferredResults {
       case applied: Type.Apply                     => Right(Inferred(applied, here(applied)))
       case named @ (_: Type.Name | _: Type.Select) =>
         val needing = s"$Unresolved: instance creation needing type arguments"
-        Found.named(resolver, named, named.syntax, here(named)) match {
+        Found.named(WrittenType(named, here(named), resolver), named.syntax) match {
           case Some(Found.Entry(entry)) =>
             entry.tree match {
               case c: Defn.Class if c.tparamClause.values.isEmpty =>
@@ -284,18 +284,19 @@ private[cardinality] object InferredResults {
       constructor(call).getOrElse(method(call))
 
     private def constructor(call: Call): Option[Either[String, Inferred]] =
-      Found.declared(resolver, Type.Name(call.callee), here(call.at)).flatMap { entry =>
-        entry.tree match {
-          case c: Defn.Class if call.clauses > 0 && c.ctor.paramClauses.size == call.clauses =>
-            Some(
-              if (c.tparamClause.values.size != call.targs.size)
-                Left(s"$Unresolved: creator application of ${call.callee} needing type arguments")
-              else if (factory(entry) || shadowed(call.callee, entry.owner))
-                Left(s"$Unresolved: application of ${call.callee}, which may name another term")
-              else Right(Inferred(created(call), here(call.at)))
-            )
-          case _ => None
-        }
+      Found.declared(WrittenType(Type.Name(call.callee), here(call.at), resolver)).flatMap {
+        entry =>
+          entry.tree match {
+            case c: Defn.Class if call.clauses > 0 && c.ctor.paramClauses.size == call.clauses =>
+              Some(
+                if (c.tparamClause.values.size != call.targs.size)
+                  Left(s"$Unresolved: creator application of ${call.callee} needing type arguments")
+                else if (factory(entry) || shadowed(call.callee, entry.owner))
+                  Left(s"$Unresolved: application of ${call.callee}, which may name another term")
+                else Right(Inferred(created(call), here(call.at)))
+              )
+            case _ => None
+          }
       }
 
     private def created(call: Call): Type =
@@ -449,7 +450,7 @@ private[cardinality] object InferredResults {
     // A head naming a class — a source class, trait or enum, or a builtin or library one.
     private def classHead(head: Type, context: ResolutionContext): Boolean =
       !context.variables.contains(TypeApplications.name(head)) &&
-        (Found.named(resolver, head, head.syntax, context) match {
+        (Found.named(WrittenType(head, context, resolver), head.syntax) match {
           case Some(Found.Entry(entry)) =>
             entry.tree.is[Defn.Class] || entry.tree.is[Defn.Trait] || entry.tree.is[Defn.Enum]
           case Some(Found.Absent)           => true

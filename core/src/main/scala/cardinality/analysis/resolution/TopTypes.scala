@@ -2,9 +2,9 @@ package cardinality.analysis.resolution
 
 import scala.meta.*
 
+import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
 import cardinality.analysis.model.*
-import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.{TypeApplications, TypeSubstitution, Universe}
 import dev.constructive.eo.optics.Plated
 
@@ -122,40 +122,33 @@ private[cardinality] object TopTypes {
   /** The top type a builtin spelling denotes. */
   def named(name: String): Option[Kind] = spellings.get(name.stripPrefix("scala."))
 
-  /** The top type `tpe` denotes where it is read: a top spelling no binder, declaration, import or
-    * inherited member gives another meaning.
+  /** The top type `written` denotes where it is read: a top spelling no binder, declaration, import
+    * or inherited member gives another meaning.
     */
-  def denoted(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[Kind] =
-    builtinNamed(tpe, context, resolver)(Builtin(named, terminal))
+  def denoted(written: WrittenType): Option[Kind] =
+    builtinNamed(written)(Builtin(named, terminal))
 
-  /** Whether `tpe` is `Any` itself where it is read: the unit of `&` and the absorbing alternative
-    * of `|`.
+  /** Whether `written` is `Any` itself where it is read: the unit of `&` and the absorbing
+    * alternative of `|`.
     */
-  def isAny(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
-    denoted(tpe, context, resolver).contains(Kind.Universal)
+  def isAny(written: WrittenType): Boolean = denoted(written).contains(Kind.Universal)
 
   /** Whether a top absorbs a union and is the unit of `&`: `Any`, and `AnyRef` (`Object`) and
     * `Matchable`, which the model reads exactly as `Any` (v1.md §2). `AnyVal` does not.
     */
   def absorbing(kind: Kind): Boolean = kind != Kind.Values
 
-  /** Whether `tpe` is an absorbing top where it is read (`absorbing`). */
-  def absorbs(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
-    denoted(tpe, context, resolver).exists(absorbing)
+  /** Whether `written` is an absorbing top where it is read (`absorbing`). */
+  def absorbs(written: WrittenType): Boolean = denoted(written).exists(absorbing)
 
-  /** Whether `tpe` is the builtin `Null` where it is read. */
-  def isNull(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
-    denotes(NullType)(tpe, context, resolver)
+  /** Whether `written` is the builtin `Null` where it is read. */
+  def isNull(written: WrittenType): Boolean = denotes(NullType)(written)
 
-  /** Whether `tpe` is the builtin `Nothing` where it is read. */
-  def isNothing(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
-    denotes(NothingType)(tpe, context, resolver)
+  /** Whether `written` is the builtin `Nothing` where it is read. */
+  def isNothing(written: WrittenType): Boolean = denotes(NothingType)(written)
 
-  private def denotes(empty: Builtin[Unit])(
-      tpe: Type,
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Boolean = builtinNamed(tpe, context, resolver)(empty).nonEmpty
+  private def denotes(empty: Builtin[Unit])(written: WrittenType): Boolean =
+    builtinNamed(written)(empty).nonEmpty
 
   // A builtin's spellings, and the shape a read that reaches it gives.
   final private case class Builtin[+A](spelled: String => Option[A], reading: Shape)
@@ -168,9 +161,8 @@ private[cardinality] object TopTypes {
 
   private val NothingType = empty("Nothing")
 
-  private def builtinNamed[A](tpe: Type, context: ResolutionContext, resolver: Resolver)(
-      builtin: Builtin[A]
-  ): Option[A] =
+  private def builtinNamed[A](written: WrittenType)(builtin: Builtin[A]): Option[A] = {
+    val WrittenType(tpe, context, resolver) = written
     spelling(tpe)
       .filterNot(context.variables.contains)
       .flatMap(name =>
@@ -181,6 +173,7 @@ private[cardinality] object TopTypes {
               resolver.resolve(tpe, context) == Right(builtin.reading)
           )
       )
+  }
 
   private def spelling(tpe: Type): Option[String] =
     Option.when(tpe.is[Type.Name] || tpe.is[Type.Select])(TypeApplications.name(tpe))
@@ -201,8 +194,7 @@ private[cardinality] object TopTypes {
     * whose arguments' places the rewrite does not know. A constructor is a method: the estimate is
     * never handed a top (v1.md §2).
     */
-  def unestimable(tpe: Type, context: ResolutionContext, resolver: Resolver): Boolean =
-    aliased(tpe, context, resolver) || merging(tpe, context, resolver).nonEmpty
+  def unestimable(written: WrittenType): Boolean = aliased(written) || merging(written).nonEmpty
 
   /** A constructor position's type in the implementation model, for the stored-value estimate: a
     * top type is the one value `()` — its reading in an input; a top in a function's output, ω, is
@@ -211,18 +203,14 @@ private[cardinality] object TopTypes {
     * bound — and so is a slot where `Nothing`, the name the rewrite writes the empty type with,
     * means a binder or a declaration of the sources.
     */
-  def implementationSlot(
-      tpe: Type,
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Option[Type] = {
-    val rewritten = new Slot(context, resolver).rewrite(tpe)
-    val written = Plated.universe(rewritten)
+  def implementationSlot(written: WrittenType): Option[Type] = {
+    val rewritten = new Slot(written).rewrite(written.tpe)
+    val parts = Plated.universe(rewritten)
     // Rebuilding a tree copies a child that already has a parent, so the written `Nothing` is
     // recognised by its spelling, not by identity.
     Option.unless(
-      written.exists(connective) ||
-        (written.exists(spellsNothing) && !isNothing(Type.Name("Nothing"), context, resolver))
+      parts.exists(connective) ||
+        (parts.exists(spellsNothing) && !isNothing(written.at(Type.Name("Nothing"))))
     )(rewritten)
   }
 
@@ -236,15 +224,12 @@ private[cardinality] object TopTypes {
     case _                    => false
   }
 
-  // Whether a top type or `Null` sits behind a source alias `tpe` names: the rewrite reads
+  // Whether a top type or `Null` sits behind a source alias the type names: the rewrite reads
   // spellings, so the estimate would still see the alias's `Any` as everything.
-  private def aliased(tpe: Type, scope: ResolutionContext, resolver: Resolver): Boolean =
-    namedParts(tpe).exists(
-      behind(_, scope, resolver, (t, at) => top(resolver)(t, at) || isNull(t, at, resolver))
+  private def aliased(written: WrittenType): Boolean =
+    namedParts(written.tpe).exists(part =>
+      behind(written.at(part), at => denoted(at).nonEmpty || isNull(at))
     )
-
-  private def top(resolver: Resolver)(tpe: Type, context: ResolutionContext): Boolean =
-    denoted(tpe, context, resolver).nonEmpty
 
   private def namedParts(tpe: Type): List[Type] = Universe.select(tpe) {
     case named @ (_: Type.Name | _: Type.Select) => Some(named)
@@ -252,34 +237,25 @@ private[cardinality] object TopTypes {
   }
 
   // Whether `sought` holds of `named`'s alias body, read in the alias's own scope.
-  private def behind(
-      named: Type,
-      scope: ResolutionContext,
-      resolver: Resolver,
-      sought: (Type, ResolutionContext) => Boolean
-  ): Boolean = {
-    val name = TypeApplications.name(named)
+  private def behind(named: WrittenType, sought: WrittenType => Boolean): Boolean = {
+    val WrittenType(tpe, scope, resolver) = named
+    val name = TypeApplications.name(tpe)
     Option
-      .unless(scope.variables.contains(name))(resolver.declaration(named, name, scope))
+      .unless(scope.variables.contains(name))(resolver.declaration(tpe, name, scope))
       .collect {
         case Found.Entry(entry @ TypeEntry(_, alias: Defn.Type, _, _)) => entry -> alias
       }
       .exists((entry, alias) =>
         scope
           .enterAlias(entry, resolver.typeParameters(entry.owner), AliasReading.Slot)
-          .exists(reaches(alias.body, _, resolver, sought))
+          .exists(inAlias => reaches(WrittenType(alias.body, inAlias, resolver), sought))
       )
   }
 
-  // Whether `sought` holds of a part of `tpe`, or of a source alias it names.
-  private def reaches(
-      tpe: Type,
-      scope: ResolutionContext,
-      resolver: Resolver,
-      sought: (Type, ResolutionContext) => Boolean
-  ): Boolean =
-    Universe.exists(tpe)(sought(_, scope)) ||
-      namedParts(tpe).exists(behind(_, scope, resolver, sought))
+  // Whether `sought` holds of a part of the type, or of a source alias it names.
+  private def reaches(written: WrittenType, sought: WrittenType => Boolean): Boolean =
+    Universe.exists(written.tpe)(part => sought(written.at(part))) ||
+      namedParts(written.tpe).exists(part => behind(written.at(part), sought))
 
   // The library constructors whose arguments take the constructor's own place, at the argument
   // indexes they do: a sequence's elements, an option's value, a set's elements, a map's keys and
@@ -301,43 +277,38 @@ private[cardinality] object TopTypes {
   )
 
   // The first constructor around a top type that does not pass its place on, as spelled.
-  private def merging(tpe: Type, context: ResolutionContext, resolver: Resolver): Option[String] =
-    tpe match {
-      case a: Type.Apply => applied(a.tpe, a.argClause.values, context, resolver)
-      case i: Type.ApplyInfix if !connective(i) =>
-        applied(i.op, List(i.lhs, i.rhs), context, resolver)
-      case other =>
+  private def merging(written: WrittenType): Option[String] =
+    written.tpe match {
+      case a: Type.Apply                        => applied(written.at(a.tpe), a.argClause.values)
+      case i: Type.ApplyInfix if !connective(i) => applied(written.at(i.op), List(i.lhs, i.rhs))
+      case other                                =>
         TypeSubstitution.localPlate
           .childrenVec(other)
           .toList
           .iterator
-          .flatMap(merging(_, context, resolver))
+          .flatMap(part => merging(written.at(part)))
           .nextOption()
     }
 
-  private def applied(
-      head: Type,
-      args: List[Type],
-      context: ResolutionContext,
-      resolver: Resolver
-  ): Option[String] = {
-    val name = TypeApplications.name(head)
+  private def applied(head: WrittenType, args: List[Type]): Option[String] = {
+    val WrittenType(callee, context, resolver) = head
+    val name = TypeApplications.name(callee)
     val kept = Option
       .when(
         !context.variables.contains(name) &&
-          resolver.declaration(head, name, context) == Found.Absent
+          resolver.declaration(callee, name, context) == Found.Absent
       )(name.stripPrefix("scala."))
       .flatMap(positional.get)
       .getOrElse(Set.empty)
     args.zipWithIndex.iterator
       .flatMap { (arg, index) =>
-        if (kept(index)) merging(arg, context, resolver)
-        else Option.when(Universe.exists(arg)(denoted(_, context, resolver).nonEmpty))(name)
+        if (kept(index)) merging(head.at(arg))
+        else Option.when(Universe.exists(arg)(part => denoted(head.at(part)).nonEmpty))(name)
       }
       .nextOption()
   }
 
-  final private class Slot(context: ResolutionContext, resolver: Resolver) {
+  final private class Slot(written: WrittenType) {
 
     // The empty type, as the estimate reads it: one tree per rewrite, so a union can tell the
     // operand it wrote from a `Nothing` the source spells.
@@ -346,8 +317,8 @@ private[cardinality] object TopTypes {
     // Tops become `()`, `Null` the empty type, and a union drops its empty alternatives.
     val rewrite: Type => Type = TypeSubstitution.localCata[Type] { (node, kids, rebuild) =>
       node match {
-        case top if denoted(top, context, resolver).nonEmpty => Lit.Unit()
-        case read if isNull(read, context, resolver)         => empty
+        case top if denoted(written.at(top)).nonEmpty => Lit.Unit()
+        case read if isNull(written.at(read))         => empty
         // The operands are the first and last children in either spelling; a rewritten operand is
         // still the tree returned for it, not yet a copy under a new parent.
         case Union(_, _) if kids.head eq empty => kids.last

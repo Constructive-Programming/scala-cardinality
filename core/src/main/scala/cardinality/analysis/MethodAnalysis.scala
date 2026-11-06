@@ -348,8 +348,9 @@ object MethodAnalysis {
           SingletonIntersections.resolve(syntax, context, this)
         case n: Type.Name if variables.contains(n.value) => proper(n.value, variables(n.value))
         case TypeSubstitution.Union(_, _)                => unions.resolve(tpe, context)
-        case MethodProjections(projected) if MethodProjections.accepts(projected, context, this) =>
-          MethodProjections.resolve(projected, context, this, sourceNames)
+        case MethodProjections(projected)
+            if MethodProjections.accepts(WrittenType(projected, context, this)) =>
+          MethodProjections.resolve(WrittenType(projected, context, this), sourceNames)
         // A named tuple is its fields' product; it is still no tuple to a match type.
         case NamedTuples(fields) =>
           Traversals

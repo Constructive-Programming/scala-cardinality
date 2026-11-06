@@ -46,9 +46,7 @@ final private[cardinality] class ConstructorApplications(
       case None =>
         if (projectable(callee, arguments, context))
           MethodProjections.resolve(
-            Type.Apply(callee, Type.ArgClause(arguments)),
-            context,
-            resolver,
+            WrittenType(Type.Apply(callee, Type.ArgClause(arguments)), context, resolver),
             sourceNames
           )
         else applyCallee(callee, context, arguments, context)
@@ -95,7 +93,7 @@ final private[cardinality] class ConstructorApplications(
     if (arguments.exists(_.is[Type.Wildcard])) false
     else if (context.variables.contains(name)) false
     else if (resolver.inheritsName(callee, name, context)) false
-    else MethodProjections.alias(callee, context, resolver).nonEmpty
+    else MethodProjections.alias(WrittenType(callee, context, resolver)).nonEmpty
   }
 
   // The callee read where it was written, the arguments where the application is.
