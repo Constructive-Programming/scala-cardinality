@@ -29,7 +29,7 @@ in code, tests and docs:
   Divergence, a `null` the type does not declare, unsafe casts, reflection and unrestricted
   runtime type or equality tests are outside the model too.
 
-Three further idealizations stand beside it (v1.md §2):
+Further idealizations stand beside it (v1.md §2):
 
 - **Key equality is lawful; a single-pass read is replayable.** A `Map` or `Set` is its abstract
   value (a finite partial function, a finite subset), counted over closed arguments; an
@@ -136,6 +136,17 @@ Count an `inline def` exactly like a `def` unless its body uses a compile-time o
   closed world supplies every conversion, so one refuses only when it is inline and its own
   expansion fails. That includes an applied selection a conversion may answer: it refuses only when
   a supplied inline method of that name fails.
+- A conversion is a candidate for a body only where the body may find it (contract rule, v1.md
+  §2, register D43):
+  - in its lexical scope: a definition around it or an import; or
+  - as a member of an object in the implicit scope of a type the body can reach: the types written
+    in the body, the enclosing signatures, and the signatures of every declaration the body
+    references or given it may summon, repeated to a fixed point. Implicit scope = the companions of
+    those types' parts and of their supplied base classes, the objects those classes are members of,
+    and what those objects extend.
+  - Every inferred type is built from those signatures, so nothing Scala may insert is missed. A
+    type the reading cannot resolve, or a declaration outside the body without a declared type,
+    keeps every candidate.
 - Other channels to the call site without a compile-time operation still refuse:
   - a member a supplied subclass overrides with an inline method whose expansion fails, selected
     on a parameter or on `this` / `C.this` (a function parameter's `apply` included, and the

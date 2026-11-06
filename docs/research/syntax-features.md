@@ -379,10 +379,11 @@ extensions also declare). Lambda parameters without a type, pattern variables an
 library methods outside a small result table are not typed, so a selection on them refuses. A
 member of a sealed class selected on a parameter is refused although every subclass is supplied
 (conservative: the subclasses' overrides are not read). A conversion's visibility is
-over-approximated (an import is matched by its last segment; for a body's own expressions, and a
-qualifier the reading does not type, every class's, trait's and given's members count), so some
-bodies refuse for a conversion Scala would not consider (eo's optics against an inline conversion
-of a test library's companion, specs2's `FileName.ToFileName`, on the whole build's classpath). A transparent
+over-approximated (an import is matched by its last segment; a body's own expressions, and a
+qualifier the reading does not type, meet the scopes around the body and the implicit scope of the
+types the body can reach, matched by name: D43), so some bodies refuse for a conversion Scala would
+not consider; one no type the body reaches anchors is no candidate (eo's optics no longer meet
+specs2's `FileName.ToFileName`, a test library's companion on the build's classpath). A transparent
 result is refused unless its type is a singleton, even where no stable path of the type exists. A
 local class, trait or enum is read through its companion and its own body only: a value of its
 type has no members this reading resolves, so a selection on one refuses. A passing body goes to

@@ -1,5 +1,6 @@
 package cardinality.analysis.expansion
 
+import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.model.MemberSyntax
@@ -57,6 +58,23 @@ final private[expansion] class BodyWalk(
   def body(term: Term, frame: Frame, defaults: List[Term]): Option[String] = {
     val scope = Scope(frame, Map.empty, frame.chain.flatMap(_.typeParams).map(_.name.value).toSet)
     all(defaults)(walk(_, scope)).orElse(walk(term, scope))
+  }
+
+  // The meanings each walk under way resolved, innermost first: what its body references.
+  private val heard = mutable.Stack.empty[mutable.ListBuffer[Meaning]]
+
+  private def noted(meaning: Meaning): Meaning = {
+    heard.headOption.foreach(_ += meaning)
+    meaning
+  }
+
+  /** `body`, with the meanings of the names and paths the walk resolved on the way. */
+  def read(term: Term, frame: Frame, defaults: List[Term]): (Option[String], List[Meaning]) = {
+    heard.push(mutable.ListBuffer.empty)
+    try {
+      val found = body(term, frame, defaults)
+      (found, heard.head.toList)
+    } finally heard.pop(): Unit
   }
 
   /** Whether a type spells a context function type, or names an alias of one. */
@@ -223,7 +241,7 @@ final private[expansion] class BodyWalk(
     * A clause the callee does not take applies its result's `apply` (`further`).
     */
   private def check(meaning: Meaning, clauses: List[Boolean], scope: Scope): Option[String] =
-    meaning match {
+    noted(meaning) match {
       case value @ Meaning.Value(Some(tpe), _, _) if contextual(tpe) =>
         contextValue(value, tpe, clauses, scope)
       case Meaning.Methods(definitions)   => all(definitions)(definition(_, clauses, scope))
@@ -415,13 +433,13 @@ final private[expansion] class BodyWalk(
     }
 
   // A qualifier that is a name or a path of names: what it denotes, package or value.
-  private def pathMeaning(qual: Term, scope: Scope): Option[Meaning] = qual match {
+  private def pathMeaning(qual: Term, scope: Scope): Option[Meaning] = (qual match {
     case Term.Name(SourceIndex.Root) => Some(Meaning.Package(Nil, supplied = true))
     case n: Term.Name                => Some(meaning(n, scope))
     case t: Term.This                => Some(Meaning.Instance(enclosing(scope, t.qual)))
     case s: Term.Select => pathMeaning(s.qual, scope).map(terms.select(_, s.name.value))
     case _              => None
-  }
+  }).map(noted)
 
   // `this` is the innermost template's, `C.this` the template named C around the body (an open
   // one may be a subclass at the call site, fixture review-A6 r2 o1).

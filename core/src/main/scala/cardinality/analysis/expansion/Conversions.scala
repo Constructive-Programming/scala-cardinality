@@ -1,5 +1,6 @@
 package cardinality.analysis.expansion
 
+import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
@@ -26,7 +27,9 @@ import cardinality.types.{Spelling, TypeApplications}
   * top-level wrapper is the opaque type's implicit scope), and what an export clause defines again
   * in a scope found so (an export defines aliases, register D11). A definition local to another
   * method is visible nowhere else. A class outside the sources is not read as a conversion (its
-  * parents are not supplied; the view rule's assumption, register D20).
+  * parents are not supplied; the view rule's assumption, register D20). Given the implicit scope a
+  * qualifier's type or the body's reachable types make (`anchors`, `Reachable`, register D43), an
+  * implicit-scope member counts only when its scope is in it.
   */
 final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms) {
 
@@ -189,7 +192,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       .nextOption()
 
   private def bounds(param: Type.Param, owner: Frame, seen: Set[String]): Option[List[Frame]] =
-    all(param.bounds.hi.toList)(anchors(_, owner, seen))
+    all(param.bounds.lo.toList ++ param.bounds.hi.toList)(anchors(_, owner, seen))
 
   // The scopes of the anchors' implicit scope: their companions and the objects they are members
   // of, with every template those objects extend.
@@ -252,7 +255,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
 
   // The statements of the methods around a body, its own method included: what they define is
   // visible inside them alone.
-  private def local(frame: Frame): List[Stat] =
+  def local(frame: Frame): List[Stat] =
     frame.chain
       .flatMap(_.tree)
       .collect { case method: (Defn.Def | Defn.GivenAlias) => method }
@@ -381,8 +384,16 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       }
     )
 
-  private def visible(scope: Frame, frame: Frame, anchors: Option[Set[String]]): Boolean =
-    reached(scope, frame, Set.empty, anchors)
+  /** Whether a member of `scope` may be found from a body read in `frame` (`reached`); a given
+    * instance found only as one, when `givens`.
+    */
+  def visible(
+      scope: Frame,
+      frame: Frame,
+      anchors: Option[Set[String]],
+      givens: Boolean = true
+  ): Boolean =
+    reached(scope, frame, Set.empty, anchors, givens)
 
   /** Whether a member of `scope` may be found from a body read in `frame`: the scope encloses it,
     * an import around it names the scope, the scope is some type's implicit scope, or an export
@@ -393,16 +404,60 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       scope: Frame,
       frame: Frame,
       asked: Set[String],
-      anchors: Option[Set[String]]
+      anchors: Option[Set[String]],
+      givens: Boolean
   ): Boolean =
     enclosing(scope, frame) || imported(scope, frame) ||
-      (implicitScope(scope) && anchors.forall(ids => ids(scope.id) || isGiven(scope))) ||
+      (implicitScope(scope) && anchors.forall(ids =>
+        ids(scope.id) || (givens && isGiven(scope)) || inherited(scope, frame)
+      )) ||
       exports.exists((owner, importers) =>
         !asked(owner.id) && names(importers, scope) &&
-          reached(owner, frame, asked + scope.id, anchors)
+          reached(owner, frame, asked + scope.id, anchors, givens)
       )
 
   private def isGiven(scope: Frame): Boolean = scope.tree.exists(_.is[Defn.Given])
+
+  // A class or trait a body finds members of by inheritance: an ancestor of a template around it,
+  // of an object an import around it names or of the type of a value it imports; any, when one of
+  // those ancestries is not read.
+  private def inherited(scope: Frame, frame: Frame): Boolean =
+    scope.tree.exists {
+      case _: (Defn.Class | Defn.Trait | Defn.Enum) => true
+      case _                                        => false
+    } && lexicalBases(frame).forall(_(scope.id))
+
+  private val lexical = mutable.Map.empty[String, Option[Set[String]]]
+
+  private def lexicalBases(frame: Frame): Option[Set[String]] =
+    lexical.getOrElseUpdate(
+      frame.id, {
+        val importers =
+          (frame.chain.flatMap(_.stats) ++ local(frame)).collect { case i: Import => i.importers }
+        all(importers.flatten)(importedTemplates(_, frame))
+          .map(frame.chain.filter(_.isTemplate) ++ _)
+          .flatMap(all(_)(t => terms.levels(t).toOption.map(t :: _)))
+          .map(_.map(_.id).toSet)
+      }
+    )
+
+  // The templates an import clause names; the type of a value it names.
+  private def importedTemplates(importer: Importer, frame: Frame): Option[List[Frame]] =
+    resolver.memberScopes.filter(s => names(List(importer), s)) match {
+      case Nil =>
+        SourceIndex.importPath(importer.ref).flatMap {
+          case head :: rest =>
+            rest.foldLeft(terms.named(head, frame, importer.pos.start))(terms.select) match {
+              case _: (Meaning.Package | Meaning.Library) => Some(Nil)
+              case Meaning.Module(module)                 => Some(List(module))
+              case Meaning.Value(Some(tpe), scope, _)     => anchors(tpe, scope)
+              case Meaning.Instance(Receiver.Template(t)) => Some(List(t))
+              case _                                      => None
+            }
+          case Nil => None
+        }
+      case named => Some(named.filter(_.isTemplate))
+    }
 
   private def enclosing(scope: Frame, frame: Frame): Boolean =
     frame.chain.exists(around =>
