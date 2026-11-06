@@ -20,6 +20,10 @@ class ConversionClosureSpec extends Specification with InventoryFixtures {
       reached through the signature of a given the body may summon           $summoned
       reached through a given of a reached companion, transitively            $transitive
       imported into the body's scope                                          $imported
+    An inline extension is a candidate for a body only where the body may find it
+      in the companion of a type the body never reaches: not a candidate     $extensionUnrelated
+      in the companion of a type the body's signature writes                 $extensionWritten
+      imported into the body's scope                                          $extensionImported
   """
 
   private val lib = "lib.scala" -> """package lib
@@ -65,5 +69,35 @@ class ConversionClosureSpec extends Specification with InventoryFixtures {
   def transitive = meets("", "inline def first(t: (Int, Int), m: lib.Mid): Int = t._1")
 
   def imported = meets("import lib.Far.toS", "inline def first(t: (Int, Int)): Int = t._1")
+
+  // `n + y` on an untyped local (a qualifier whose own implicit scope is not read): an inline
+  // extension + in Far's companion may answer when no member accepts the arguments, and reads its
+  // call site. Unreached, firstE counts as its `def` twin (every Int => Int, 2^(2^37)).
+  private val extLib = "lib.scala" -> """package lib
+    |final class Far
+    |object Far {
+    |  extension (i: Int) inline def +(z: Long): Int = scala.compiletime.codeOf(z).length
+    |}""".stripMargin
+
+  private def extApp(imports: String, params: String) = "app.scala" -> s"""package app
+    |$imports
+    |object E {
+    |  inline def firstE(y: Int$params): Int = { val n = y; n + y }
+    |  def firstD(y: Int): Int = { val n = y; n + y }
+    |}""".stripMargin
+
+  private val extended = "which an extension of that name may answer"
+
+  def extensionUnrelated = {
+    val found = counts(extLib, extApp("", ""))
+    (found("app.E.firstE") === found("app.E.firstD"))
+      .and(found("app.E.firstE") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))))
+  }
+
+  def extensionWritten =
+    refused(counts(extLib, extApp("", ", f: lib.Far"))("app.E.firstE"), extended)
+
+  def extensionImported =
+    refused(counts(extLib, extApp("import lib.Far.*", ""))("app.E.firstE"), extended)
 
 }
