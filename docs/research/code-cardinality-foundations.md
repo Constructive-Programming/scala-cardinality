@@ -854,8 +854,11 @@ included — is a free capability of its type; a member none may replace (`final
 `inline`, a given or member object, any member of a final class, object or given) is concrete code
 over the receiver's observable state and adds no choice. So an open trait, or an open class whose
 constructor parameters are all public `val`s, is the product of its open members and fields, as
-input and as goal; a final class with a public constructor whose every parameter is a public `val`
-or exposed by an η-alias member is the product of its parameters; a `final abstract` class is the
+input and as goal; a final class with a public constructor whose every parameter is a `val` the
+use site reaches (unrestricted, or a `private[p]` one inside `p`, a `private` one in its class),
+exposed by an η-alias member, or passed verbatim to a parent's constructor parameter observed so
+in turn (no nearer level overriding the observer) is the product of its parameters (eo's
+`SimpleLens`, `Unfold`; privacy, never mutation, hides a field); a `final abstract` class is the
 empty sum. On the measured declaration's own receiver (and on enclosing ones) the same
 classification holds for its own and inherited concrete members (a member is overridden by the
 levels before it in the receiver's linearization). A member whose default evaluates the declaration
@@ -2012,6 +2015,41 @@ change the signature or the type): a receiver asks the closed world for them ins
 (`Resolver.overriding`). The closed world does not settle a name the analysis cannot resolve:
 unresolved override identity, a sealed family extended through an alias, and the stored-value
 estimate's open abstractions (a trait any implementation may extend) keep their reasons.
+
+## D40. A sealed family's own receiver is an input of its sum
+
+**Decision.** A member declared in a sealed trait, sealed abstract class or enum (or a definition
+nested in one) reads `this`, which is one of the family's cases. Where the family reads as a tagged
+sum at the declaration (D15: every case closed, its fields readable there), `this` is an input of
+that sum (`SealedReceivers.split`): its implementations are functions of the case and of its
+fields, so the count is the solver's over that input. No member of the family's own template, nor
+one it inherits, binds a capability of its own: every case is a final, supplied template (D39), so
+each member is concrete code over the case's fields (D19), and an enum's class parameters are
+fixed by each case. Where the family does not read as a sum (a hidden field, an open leaf, an
+anonymous instance), the receiver is not split and the earlier rule stands: the count only for a
+terminal goal or ω over an inhabited enum, else `receiver is a sealed family this measurement does
+not split: F`.
+
+**Derivation.** A body in the family runs on an instance of exactly one case, and by D39 there is
+no other. Pattern matching on `this` reaches each case and its readable fields, so every function
+of the sum is a body; a case member computes from the fields, so nothing else distinguishes two
+receivers. `enum E { case A(x: Int); case B; def f: Int }` is Int^(2^32 + 1); an enum whose only
+case holds a `Nothing` has the empty sum, and each member the one vacuous implementation. eo's
+`PSVec[B] = Empty + Single(b: B) + Slice(arr: Array[Any], offset: Int, length: Int)`: `apply` and
+`head` are 0 (the `Empty` case holds no `B`; `Slice`'s is a cast, outside the model), `length` ω.
+
+**Evidence.**
+
+- \[30\] Scala 3 draft specification, ch. 5, and \[24\] *Translation of Enums and ADTs*
+  (**Inspected**, as D15): every direct subtype of a sealed template is in its file; enum cases
+  are its cases.
+- **Compiler fixture** (Scala 3.9.0, this session): every fixture of `splitMembers`,
+  `receiverRefused`, `uninhabited` (`GroundEnvironmentSpec`) and `sealedReceiver`
+  (`TypeMemberSpec`) compiles.
+- **Executable**: those examples.
+
+**Boundary.** A family nested in another is split only where each reads as a sum. A constructor
+of a family reads its parameters only. The stored side is unchanged (D15).
 
 ## How to extend this register
 

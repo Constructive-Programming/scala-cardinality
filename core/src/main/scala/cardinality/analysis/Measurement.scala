@@ -52,7 +52,12 @@ final private[cardinality] class Measurement(
   private val positions =
     new ConstructorPositions(target, resolver, variables, (tpe, owner) => resolveIn(tpe, owner))
 
-  private val receivers = new SealedReceivers(target, resolver)
+  private val receivers =
+    new SealedReceivers(target, resolver, (tpe, family) => resolveIn(tpe, family))
+
+  // Whether `this` of a template is a split sealed family: an input of its sum, whose members are
+  // concrete code over a case's fields and bind nothing of their own (`SealedReceivers`).
+  private def split(template: Frame): Boolean = receivers.split.contains(template.id)
 
   private val bounded = new BinderBounds(resolver, target.frame)
 
@@ -132,10 +137,10 @@ final private[cardinality] class Measurement(
   private def scanParents(): Unit = {
     walked.foreach(_.left.foreach(errors += _))
     val ancestors = steps.groupMap(_.root.id)(_.declared).withDefaultValue(Nil)
-    steps.foreach(step =>
-      inherited(step, step.root :: ancestors(step.root.id), steps, capabilities)
-    )
-    capabilities.members.foreach {
+    steps
+      .filterNot(step => split(step.root))
+      .foreach(step => inherited(step, step.root :: ancestors(step.root.id), steps, capabilities))
+    capabilities.members(split).foreach {
       case Left(refusal) =>
         errors += refusal.reason
         if (refusal.view) views += refusal.reason
@@ -149,7 +154,7 @@ final private[cardinality] class Measurement(
     owners.foreach { root =>
       judge(root)
       // A constructor chooses only its parameters: no owner's parents add a choice to it.
-      if (!target.constructor) {
+      if (!target.constructor && !split(root)) {
         errors ++= ForeignParents.reasons(root :: ancestors(root.id), resolver)
         if (root.isTemplate) errors ++= PassedState.reasons(root, ancestors(root.id), resolver)
       }
@@ -282,13 +287,18 @@ final private[cardinality] class Measurement(
   private def scan(owner: Frame): Unit = {
     errors ++= owner.refusals
     val outer = values.keySet.toSet -- owner.params.map(_.name.value)
-    receiverSpace(owner)
+    receivers.split.get(owner.id) match {
+      case Some(sum) => bindSlot(MemberSlot(owner, Map.empty, owner), receiverName(owner), sum)
+      case None      => receiverSpace(owner)
+    }
     if (owner.id != target.frame.id) bindContext(owner)
     frames(owner).foreach(scope => hide(scope.stats))
     hideInherited(owner, outer)
     hideImported(owner, outer)
     frames(owner).foreach(scanFrame)
   }
+
+  private def receiverName(owner: Frame): String = s"<receiver ${owner.path.mkString(".")}>"
 
   // A name the scope defines hides an outer binding of it everywhere inside the scope. One a
   // qualified path reaches (`Outer.this.seed`) stays in the environment; a local owner's has no such
@@ -360,7 +370,7 @@ final private[cardinality] class Measurement(
         case Left(reason)       => errors += reason
         case Right(None)        => bindParams(owner)
         case Right(Some(space)) =>
-          val name = s"<receiver ${owner.path.mkString(".")}>"
+          val name = receiverName(owner)
           bindSlot(
             MemberSlot(owner, resolver.typeParameters(owner), owner),
             name,
@@ -398,10 +408,13 @@ final private[cardinality] class Measurement(
   private def scanFrame(scope: Frame): Unit = {
     resolver.inspect("scope")
     val visible = scope.stats.filter(visibleIn(scope, _))
-    new CaptureAliases(visible, values.get, resolveIn(_, scope), resolver).bindings.foreach(
-      (name, binding) => bind(name, binding, scope)
-    )
-    visible.foreach(flagStat(scope, _))
+    if (split(scope)) visible.foreach { case i: Import => flagShadowing(i); case _ => () }
+    else {
+      new CaptureAliases(visible, values.get, resolveIn(_, scope), resolver).bindings.foreach(
+        (name, binding) => bind(name, binding, scope)
+      )
+      visible.foreach(flagStat(scope, _))
+    }
   }
 
   private def visibleIn(scope: Frame, stat: Stat): Boolean =

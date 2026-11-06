@@ -451,21 +451,18 @@ class TypeMemberSpec extends Specification {
         ) must beTrue
       )
 
-  // fold's derived count is 1 (split this: onMiss(fst), onHit(snd, b)); unsplit, the projections
-  // would read 0.
+  // fold splits this: Miss(fst) has only onMiss(fst), Hit(snd, b) only onHit(snd, b), so 1 × 1 =
+  // 1; unsplit, the projections would read 0.
   def sealedReceiver =
-    refused(
-      count(
-        projectionTypes + """
+    count(
+      projectionTypes + """
         sealed trait Affine[A, +B]:
           def fold[C](onMiss: Fst[A] => C, onHit: (Snd[A], B) => C): C = ???
         final class Miss[A](val fst: Fst[A]) extends Affine[A, Nothing]
         final class Hit[A, +B](val snd: Snd[A], val b: B) extends Affine[A, B]
         """,
-        "Affine.fold"
-      ),
-      "receiver is a sealed family this measurement does not split: Affine"
-    )
+      "Affine.fold"
+    ) === Count.Finite(1)
 
   // Mid implements Q's to and from (identities on A), so in the final D they are that code: other
   // has a — 1 (left free, to: A => A gives ω). D2 implements them itself — 1. The open O may be
