@@ -42,6 +42,15 @@ private[cardinality] object FactorySyntax {
       })
     }
 
+  /** Whether a body is a compiled dependency stub's, which the sources do not supply: its factory
+    * builds what the dependency builds, which no reading here knows.
+    */
+  def compiled(body: Term): Boolean = body match {
+    case Term.Name("compiledBodyNotRead")                 => true
+    case Term.Select(_, Term.Name("compiledBodyNotRead")) => true
+    case _                                                => false
+  }
+
   /** A call's callee: its qualifier, if any, and the method's name. */
   def callee(term: Term): Option[(Option[Term], String)] = term match {
     case Term.Apply.After_4_6_0(fun, _)             => callee(fun)

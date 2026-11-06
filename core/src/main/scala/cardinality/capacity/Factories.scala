@@ -49,7 +49,10 @@ private[capacity] object Factories {
             (term, declared) =>
               if (FactorySyntax.constructs(term, (), builds, callees))
                 Some(if (singleton) space(stat, size) else None)
-              else Option.when(declared.exists(names(_, name)))(Some(UnitSize: Size))
+              else
+                Option.when(declared.exists(names(_, name)))(
+                  Option.unless(FactorySyntax.compiled(term))(UnitSize: Size)
+                )
           }
         })
       }

@@ -16,9 +16,9 @@ import MethodAnalysis.{Frame, Resolved}
   * factory whose body is not read.
   *
   * Each factory is one bound: its parameters' space where it is closed (a readable body), unknown
-  * where it is not or where the factory runs on a receiver of a class or trait (its receiver is an
-  * input too), and 1 for a body not read. The measured declaration is no factory: its body is the
-  * choice being counted.
+  * where it is not, where the factory runs on a receiver of a class or trait (its receiver is an
+  * input too) or where its body is a compiled dependency's (not supplied), and 1 for a body read as
+  * no construction. The measured declaration is no factory: its body is the choice being counted.
   */
 private[cardinality] object ReceiverFactories {
 
@@ -35,7 +35,8 @@ private[cardinality] object ReceiverFactories {
         if !measured(stat, from) && resolver.accessible(stat, scope, from) &&
           reachable(scope, from, resolver)
       } yield
-        if (!readable) Some(Card.one)
+        if (readable.isEmpty) None
+        else if (readable.contains(false)) Some(Card.one)
         else if (!singleton(scope)) None
         else
           stat match {
@@ -72,7 +73,7 @@ private[cardinality] object ReceiverFactories {
   final private class Index(
       val defined: Map[String, List[(Stat, Frame)]],
       val mentioning: Map[String, List[(Stat, Frame)]],
-      val factories: scala.collection.mutable.Map[String, List[(Stat, Frame, Boolean)]]
+      val factories: scala.collection.mutable.Map[String, List[(Stat, Frame, Option[Boolean])]]
   )
 
   private val indexes = new java.util.WeakHashMap[Resolver, Index]()
@@ -81,14 +82,19 @@ private[cardinality] object ReceiverFactories {
     indexes.synchronized {
       Option(indexes.get(resolver)).getOrElse {
         val all = resolver.memberScopes.flatMap(scope =>
-          scope.stats.collect { case stat if FactorySyntax.definition(stat).nonEmpty => stat -> scope }
+          scope.stats.collect {
+            case stat if FactorySyntax.definition(stat).nonEmpty => stat -> scope
+          }
         )
         val built = new Index(
-          all.flatMap((stat, scope) => MemberSyntax.defined(stat).map(_ -> (stat, scope)))
+          all
+            .flatMap((stat, scope) => MemberSyntax.defined(stat).map(_ -> (stat, scope)))
             .groupMap(_._1)(_._2),
-          all.flatMap((stat, scope) =>
-            stat.collect { case n: Name => n.value }.distinct.map(_ -> (stat, scope))
-          ).groupMap(_._1)(_._2),
+          all
+            .flatMap((stat, scope) =>
+              stat.collect { case n: Name => n.value }.distinct.map(_ -> (stat, scope))
+            )
+            .groupMap(_._1)(_._2),
           scala.collection.mutable.Map.empty
         )
         indexes.put(resolver, built)
@@ -98,7 +104,11 @@ private[cardinality] object ReceiverFactories {
 
   // The definitions of the class's factories, whatever the site, each readable or not. Only a
   // definition that mentions the class, or a method one does through at most two calls, can be.
-  private def found(owner: Frame, name: String, resolver: Resolver): List[(Stat, Frame, Boolean)] = {
+  private def found(
+      owner: Frame,
+      name: String,
+      resolver: Resolver
+  ): List[(Stat, Frame, Option[Boolean])] = {
     val idx = index(resolver)
     idx.synchronized(idx.factories.get(owner.id)).getOrElse {
       def named(defs: List[(Stat, Frame)]) = defs.flatMap(d => MemberSyntax.defined(d._1)).toSet
@@ -111,9 +121,12 @@ private[cardinality] object ReceiverFactories {
       val callees = (call: Term, scope: Frame) => calleesOf(call, scope, idx.defined, reachable)
       val result = (m0 ++ m1 ++ m2).distinctBy(_._1).flatMap { (stat, scope) =>
         FactorySyntax.definition(stat).flatMap { (body, declared) =>
-          if (FactorySyntax.constructs(body, scope, builds, callees)) Some((stat, scope, true))
+          if (FactorySyntax.constructs(body, scope, builds, callees))
+            Some((stat, scope, Some(true)))
           else
-            Option.when(declared.exists(names(_, owner, name, scope, resolver)))((stat, scope, false))
+            Option.when(declared.exists(names(_, owner, name, scope, resolver)))(
+              (stat, scope, Option.unless(FactorySyntax.compiled(body))(false))
+            )
         }
       }
       idx.synchronized(idx.factories.update(owner.id, result))
@@ -129,18 +142,19 @@ private[cardinality] object ReceiverFactories {
       index: Map[String, List[(Stat, Frame)]],
       reachable: Set[String]
   ): List[(Term, Frame)] =
-    FactorySyntax.callee(call).toList.filter((_, name) => reachable(name)).flatMap { (qualifier, name) =>
-      val around = scope.chain.map(_.id).toSet
-      index
-        .getOrElse(name, Nil)
-        .collect {
-          case (stat, at) if qualifier.fold(around(at.id)) {
-                case _: Term.This => around(at.id)
-                case q            => at.name.contains(q.syntax.split('.').last)
-              } =>
-            FactorySyntax.definition(stat).map(_._1 -> at)
-        }
-        .flatten
+    FactorySyntax.callee(call).toList.filter((_, name) => reachable(name)).flatMap {
+      (qualifier, name) =>
+        val around = scope.chain.map(_.id).toSet
+        index
+          .getOrElse(name, Nil)
+          .collect {
+            case (stat, at) if qualifier.fold(around(at.id)) {
+                  case _: Term.This => around(at.id)
+                  case q            => at.name.contains(q.syntax.split('.').last)
+                } =>
+              FactorySyntax.definition(stat).map(_._1 -> at)
+          }
+          .flatten
     }
 
   private def constructs(
