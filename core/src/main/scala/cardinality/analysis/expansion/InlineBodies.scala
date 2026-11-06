@@ -7,7 +7,7 @@ import scala.util.control.NonFatal
 import cardinality.analysis.MethodAnalysis.{Frame, Target}
 import cardinality.analysis.Resolver
 import cardinality.analysis.model.MemberSyntax
-import cardinality.types.Spelling
+import cardinality.types.{Spelling, TypeApplications}
 
 /** Which inline methods count as methods (register D27).
   *
@@ -156,17 +156,22 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
     * arguments, which this reading does not type — unless every extension restates the member
     * (`RestatedExtensions`).
     */
-  private def fallback(applied: RestatedExtensions.Applied, frame: Frame): Option[String] = {
+  private def fallback(
+      applied: RestatedExtensions.Applied,
+      frame: Frame,
+      qualifier: Option[Meaning]
+  ): Option[String] = {
     val name = applied.name
+    val anchors = conversions.anchored(qualifier)
     conversions
-      .conversion(frame)
-      .flatMap(c => converted(name, frame).map((label, why) => (c, label, why)))
+      .conversion(frame, anchors)
+      .flatMap(c => converted(name, frame, anchors).map((label, why) => (c, label, why)))
       .map((c, label, why) =>
         s"applies $name, whose arguments this reading does not type: if no member accepts them, " +
           s"the implicit conversion ${c.label} may answer, and $label$why"
       )
       .orElse {
-        val extensions = conversions.extensionsOf(name, frame)
+        val extensions = conversions.extensionsOf(name, frame, anchors)
         Option.when(extensions.any && !applied.call.exists(restated.answered(_, extensions)))(
           s"applies $name, which an extension of that name may answer when no member applies"
         )
@@ -182,23 +187,60 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
     c.expands.fold(Some("this check does not place"))(verdict)
 
   // Why a supplied inline method of the name differs at each call site, if one does (the closed
-  // world: an override an expansion may select is one of them).
-  private def failing(name: String): Option[String] =
+  // world: an override an expansion may select is one of them). An override of a member of
+  // `below` (a supplied template, or a library class by its key) is a member of a template that
+  // may extend it: an extension method or a member of an unrelated template is never selected for
+  // it.
+  private def failing(name: String, below: Option[Either[String, Frame]]): Option[String] =
     conversions
       .inlineMethods(name)
       .iterator
+      .filter(d => below.forall(overrides(d, _)))
       .flatMap(d => verdict(d).map(why => s"inline method ${d.frame.path.mkString(".")} $why"))
       .nextOption()
+
+  private def overrides(d: Definition, below: Either[String, Frame]): Boolean =
+    d.frame.parent.exists(owner =>
+      owner.isTemplate && !owner.tree.exists(_.is[Defn.ExtensionGroup]) &&
+        below.fold(libraryParent(owner, _), resolver.mayExtend(owner, _))
+    )
+
+  // Whether a template may extend a library class (a function class, by its key): some class on
+  // its ancestry is outside the sources, or a supplied one names a function type as a parent.
+  private def libraryParent(owner: Frame, key: String): Boolean = {
+    val (bases, complete) = resolver.baseClasses(owner)
+    !complete || bases.exists(functionParents.getOrElse(_, Set.empty)(key.stripPrefix("scala.")))
+  }
+
+  // The library classes each supplied template names as a parent: a function type as its class.
+  private lazy val functionParents: Map[String, Set[String]] =
+    resolver.memberScopes
+      .map(f =>
+        f.id -> f.parents
+          .map(init =>
+            init.tpe match {
+              case t: Type.Function        => s"Function${t.paramClause.values.size}"
+              case t: Type.ContextFunction => s"Function${t.paramClause.values.size}"
+              case _                       => TypeApplications.parentName(init)
+            }
+          )
+          .toSet
+      )
+      .toMap
 
   // What a conversion's result may run under an applied name whose expansion differs at each call
   // site (the closed world: a supplied inline method of the name), or a failing inline conversion
   // that may be inserted: none, and the call is typed where the body is written.
-  private def converted(name: String, frame: Frame): Option[(String, String)] =
+  private def converted(
+      name: String,
+      frame: Frame,
+      anchors: Option[Set[String]]
+  ): Option[(String, String)] =
     conversions
-      .inlineConversions(frame)
+      .inlineConversions(frame, anchors)
       .flatMap(c => expands(c).map(why => s"the inline conversion ${c.label} " -> why))
       .nextOption()
-      .orElse(failing(name).map("" -> _))
+      .orElse(failing(name, None).map("" -> _))
 
 }
 

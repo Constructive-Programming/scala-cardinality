@@ -37,11 +37,14 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       label: String,
       inline: Boolean,
       scope: Frame,
-      expands: Option[Definition] = None
+      expands: Option[Definition] = None,
+      declared: Option[Stat] = None
   )
 
   private lazy val conversions: List[Candidate] =
-    resolver.memberScopes.flatMap(scope => scope.stats.flatMap(conversion(_, scope)))
+    resolver.memberScopes.flatMap(scope =>
+      scope.stats.flatMap(stat => conversion(stat, scope).map(_.copy(declared = Some(stat))))
+    )
 
   private lazy val extensions: List[Extension] =
     resolver.memberScopes.flatMap(scope => extensionsIn(scope.stats, scope))
@@ -72,8 +75,11 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       (group.paramClauseGroup.toList.flatMap(_.paramClauses) ++
         MemberSyntax.groups(method).flatMap(_.paramClauses)).exists(MemberSyntax.contextual)
 
-  /** The inline conversions a body read in `frame` may meet. */
-  def inlineConversions(frame: Frame): Iterator[Candidate] = candidates(frame).filter(_.inline)
+  /** The inline conversions a body read in `frame` may meet; of a qualifier whose implicit scope is
+    * `anchors` (`anchored`), when it is read.
+    */
+  def inlineConversions(frame: Frame, anchors: Option[Set[String]] = None): Iterator[Candidate] =
+    candidates(frame, anchors).filter(_.inline)
 
   /** The supplied inline methods of a name, each with its frame: what a conversion's result may run
     * when a selection of the name is applied through it.
@@ -109,21 +115,140 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       )
     )
 
-  /** The first conversion that may answer an applied selection read in `frame`. */
-  def conversion(frame: Frame): Option[Candidate] = candidates(frame).nextOption()
+  /** The first conversion that may answer an applied selection read in `frame`, on a qualifier
+    * whose implicit scope is `anchors` when it is read.
+    */
+  def conversion(frame: Frame, anchors: Option[Set[String]]): Option[Candidate] =
+    candidates(frame, anchors).nextOption()
+
+  /** The scopes whose members are in the implicit scope of a qualifier's static type, when the
+    * qualifier is a path whose declared type this reading resolves; None when it is not.
+    *
+    * Scala converts a qualifier `e: T` with an implicit of the scopes around the body (declared,
+    * inherited, imported, exported) or of T's implicit scope: the companion objects of T's anchors
+    * — the classes its parts (type arguments included) name, their base classes, and a type
+    * parameter's upper bound — and the objects those classes are members of (reference, *Changes in
+    * Implicit Resolution*). A trait or class such an object extends brings its members along. A
+    * part this reading does not resolve, an alias it does not follow, an abstract or opaque type or
+    * a type outside a plain name or path leaves the scope unknown.
+    */
+  def anchored(qualifier: Option[Meaning]): Option[Set[String]] =
+    qualifier
+      .flatMap {
+        case Meaning.Value(Some(tpe), scope, _)                           => anchors(tpe, scope)
+        case Meaning.Instance(Receiver.Template(frame))                   => self(frame)
+        case Meaning.Instance(Receiver.Open(Receiver.Template(frame), _)) => self(frame)
+        case _                                                            => None
+      }
+      .flatMap(implicitScopes)
+
+  // `this` of a template: the template, and its type parameters' bounds.
+  private def self(frame: Frame): Option[List[Frame]] =
+    all(frame.typeParams)(bounds(_, frame, Set.empty)).map(frame :: _)
+
+  private def anchors(tpe: Type, scope: Frame, seen: Set[String] = Set.empty): Option[List[Frame]] =
+    parts(tpe).flatMap(all(_)(anchor(_, scope, seen)))
+
+  // The type names and paths a type is built from; None when it holds another form.
+  private def parts(tpe: Tree): Option[List[Type]] = tpe match {
+    case named: (Type.Name | Type.Select) => Some(List(named))
+    case Type.Annotate(inner, _)          => parts(inner)
+    case p: Type.TypedParam               => parts(p.typ)
+    case _: (Type.Singleton | Type.Project | Type.Match | Type.Lambda | Type.PolyFunction |
+          Type.Macro | Type.Refine | Type.Existential) =>
+      None
+    case other => all(other.children.filterNot(_.is[Term]))(parts)
+  }
+
+  private def anchor(named: Type, scope: Frame, seen: Set[String]): Option[List[Frame]] =
+    named match {
+      case Type.Name(name) if typeParam(name, scope).nonEmpty =>
+        typeParam(name, scope).flatMap((param, owner) => bounds(param, owner, seen))
+      case _ =>
+        val (found, context) = terms.typeDeclaration(named, scope)
+        found match {
+          case Found.Entry(entry) =>
+            entry.tree match {
+              case _: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) =>
+                entry.self.map(List(_))
+              case alias: Defn.Type
+                  if !alias.mods.exists(_.is[Mod.Opaque]) && alias.tparamClause.values.isEmpty &&
+                    !seen(entry.key) =>
+                anchors(alias.body, entry.owner, seen + entry.key)
+              case _ => None
+            }
+          case Found.Foreign(_, _) => Some(Nil)
+          case Found.Absent        => resolver.builtin(named.syntax, context).toOption.map(_ => Nil)
+          case _                   => None
+        }
+    }
+
+  private def typeParam(name: String, scope: Frame): Option[(Type.Param, Frame)] =
+    scope.chain.iterator
+      .flatMap(f => f.typeParams.find(_.name.value == name).map(_ -> f))
+      .nextOption()
+
+  private def bounds(param: Type.Param, owner: Frame, seen: Set[String]): Option[List[Frame]] =
+    all(param.bounds.hi.toList)(anchors(_, owner, seen))
+
+  // The scopes of the anchors' implicit scope: their companions and the objects they are members
+  // of, with every template those objects extend.
+  private def implicitScopes(anchors: List[Frame]): Option[Set[String]] =
+    all(anchors)(baseFrames).flatMap { bases =>
+      val objects =
+        bases.flatMap(b => companions.getOrElse(b.path, Nil) ++ b.chain.drop(1).filter(isObject))
+      all(objects.distinct)(baseFrames).map(inherited => (objects ++ inherited).map(_.id).toSet)
+    }
+
+  // A template's supplied base classes, itself included, when they are all supplied.
+  private def baseFrames(frame: Frame): Option[List[Frame]] = {
+    val (ids, complete) = resolver.baseClasses(frame)
+    Option.when(complete)(ids.toList.map(byId.get)).flatMap(found => all(found)(_.map(List(_))))
+  }
+
+  private lazy val byId: Map[String, Frame] = resolver.memberScopes.map(f => f.id -> f).toMap
+
+  private lazy val companions: Map[List[String], List[Frame]] =
+    resolver.memberScopes.filter(isObject).groupBy(_.path)
+
+  private def isObject(frame: Frame): Boolean = frame.tree.exists(_.is[Defn.Object])
+
+  private def all[A, B](items: List[A])(f: A => Option[List[B]]): Option[List[B]] =
+    items.foldLeft(Option(List.empty[B]))((acc, item) =>
+      acc.flatMap(done => f(item).map(done ++ _))
+    )
 
   /** The extensions of the name, inline or contextual, a selection in `frame` may meet, each with
     * the scope declaring it; unknown when one is local to a method around the body (no scope this
     * reading resolves it in).
     */
-  def extensionsOf(name: String, frame: Frame): Extensions =
+  def extensionsOf(name: String, frame: Frame, anchors: Option[Set[String]]): Extensions =
     if (extensionsIn(local(frame), frame).exists(_.name == name)) Extensions.Unknown
-    else Extensions.Known(extensions.filter(e => e.name == name && visible(e.scope, frame)))
+    else
+      Extensions.Known(
+        extensions.filter(e => e.name == name && visible(e.scope, frame, anchors))
+      )
 
   // The body's own conversions and those of the methods around it, then the visible ones.
-  private def candidates(frame: Frame): Iterator[Candidate] =
+  private def candidates(frame: Frame, anchors: Option[Set[String]]): Iterator[Candidate] =
     local(frame).iterator.flatMap(conversion(_, frame)) ++
-      conversions.iterator.filter(c => visible(c.scope, frame))
+      conversions.iterator.filter(c => visible(c.scope, frame, anchors) && granted(c, frame))
+
+  // A conversion `private[p]` to a package `p` is inserted only inside `p`: Scala never selects an
+  // inaccessible implicit. Another restriction is kept (its grant is not read here).
+  private def granted(c: Candidate, frame: Frame): Boolean =
+    c.declared.forall {
+      case stat: Stat.WithMods if packagePrivate(stat.mods, c.scope) =>
+        resolver.accessible(stat, c.scope, frame)
+      case _ => true
+    }
+
+  private def packagePrivate(mods: List[Mod], scope: Frame): Boolean =
+    mods.exists {
+      case Mod.Private(within: Name) if !within.is[Name.Anonymous] =>
+        scope.chain.exists(f => resolver.isPackage(f) && f.path.contains(within.value))
+      case _ => false
+    }
 
   // The statements of the methods around a body, its own method included: what they define is
   // visible inside them alone.
@@ -256,18 +381,28 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       }
     )
 
-  private def visible(scope: Frame, frame: Frame): Boolean = reached(scope, frame, Set.empty)
+  private def visible(scope: Frame, frame: Frame, anchors: Option[Set[String]]): Boolean =
+    reached(scope, frame, Set.empty, anchors)
 
   /** Whether a member of `scope` may be found from a body read in `frame`: the scope encloses it,
     * an import around it names the scope, the scope is some type's implicit scope, or an export
     * clause defines the member again in a scope found so. Reachability is the least answer, so a
     * scope already asked on the way (`asked`, an export cycle) adds nothing.
     */
-  private def reached(scope: Frame, frame: Frame, asked: Set[String]): Boolean =
-    enclosing(scope, frame) || imported(scope, frame) || implicitScope(scope) ||
+  private def reached(
+      scope: Frame,
+      frame: Frame,
+      asked: Set[String],
+      anchors: Option[Set[String]]
+  ): Boolean =
+    enclosing(scope, frame) || imported(scope, frame) ||
+      (implicitScope(scope) && anchors.forall(ids => ids(scope.id) || isGiven(scope))) ||
       exports.exists((owner, importers) =>
-        !asked(owner.id) && names(importers, scope) && reached(owner, frame, asked + scope.id)
+        !asked(owner.id) && names(importers, scope) &&
+          reached(owner, frame, asked + scope.id, anchors)
       )
+
+  private def isGiven(scope: Frame): Boolean = scope.tree.exists(_.is[Defn.Given])
 
   private def enclosing(scope: Frame, frame: Frame): Boolean =
     frame.chain.exists(around =>

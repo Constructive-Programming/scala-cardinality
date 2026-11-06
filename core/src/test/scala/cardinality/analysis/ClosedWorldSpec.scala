@@ -15,6 +15,7 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
     A member no supplied template overrides is final
       in any file, through an alias, or by a mixin of another parent  $overrides
       a parent outside the sources may override it: refused            $unknownParent
+      a compiled stub's parent is the template its qualified name is   $stubParents
       in a braceless body or after an annotation                      $layout
       a literal `val` with no type, and a constructor `val`           $values
     A class no supplied template extends is final
@@ -54,6 +55,25 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
       )("C.target"),
       "member may be overridden through a parent outside the sources: C.m"
     )
+
+  // A compiled stub names the parent the compiler resolved: q.D extends q.S, not p.S, so nothing
+  // below p.T reaches D's parent outside the sources, and m is final: t carries nothing, and target
+  // ranges over the functions of b, 4. A source spelling `S` may mean either, so with a source D
+  // the parent outside the sources may override m: refused.
+  def stubParents = {
+    val p = "tasty/p.jar/p/T.scala" ->
+      "package p\ntrait T { def m: Boolean = true }\ntrait S extends T\n"
+    val q = "tasty/q.jar/q/D.scala" ->
+      "package q\ntrait S\ntrait D extends S, _root_.SignatureNotRead\n"
+    val u = "u.scala" -> "object U { def target(t: p.T)(b: Boolean): Boolean = ??? }"
+    (counts(p, q, u)("U.target") === Count.Finite(4))
+      .and(
+        refused(
+          counts(p, q.copy(_1 = "q.scala"), u)("U.target"),
+          "member may be overridden through a parent outside the sources"
+        )
+      )
+  }
 
   // `final` is written before the keyword, so the indentation a braceless body reads is kept, and
   // after an annotation: m is final in both — 4.

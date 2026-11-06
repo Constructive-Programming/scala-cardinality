@@ -51,6 +51,11 @@ private[cardinality] trait Resolver {
     */
   def overriding(template: Frame, name: String): ClosedWorld.Overriding
 
+  /** Whether a supplied template may extend another (the closed world, matched as `overriding`
+    * matches templates): only then may its member override the other's.
+    */
+  def mayExtend(child: Frame, ancestor: Frame): Boolean
+
   /** The builtin or stdlib-model key of a name no supplied declaration binds, or why it is none. */
   def builtin(written: String, context: ResolutionContext): Either[String, String]
 

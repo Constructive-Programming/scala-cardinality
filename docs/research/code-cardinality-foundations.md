@@ -1279,8 +1279,9 @@ Refused besides, because each reaches the call site without a compile-time opera
 source:
 
 - a member an expansion may select on a narrower class: one a supplied subclass overrides (the
-  closed world, D39) while some supplied inline method of its name is not one function of its
-  values, selected on a parameter of the expanded method, on `this` or `C.this` of a template a
+  closed world, D39) while an inline method of its name in a supplied template that may extend
+  the receiver's class (never an extension method, nor a member of an unrelated template) is not
+  one function of its values, selected on a parameter of the expanded method, on `this` or `C.this` of a template a
   class may extend, on a lambda's parameter, or on a field or result selected on one of those
   (every function type's `apply` included); an argument clause a callee does not take selects
   `apply` on its result, which is checked the same way (an unread result refuses);
@@ -1298,7 +1299,15 @@ source:
 
 A conversion is typed where the body is written, as any call is, and the closed world (D39)
 supplies every one: a conversion that is not inline, or an inline one whose own body passes, is
-the same function at every call site.
+the same function at every call site. Scala inserts only an accessible implicit, so a conversion
+`private[p]` to a package `p` is no candidate outside `p`. A qualifier `e` of an applied selection
+is converted, or answered by an extension, only with an implicit of the scopes around the body
+(declared, inherited, imported, exported) or of the implicit scope of `e`'s static type (Scala 3
+reference, *Changes in Implicit Resolution*: the companions of its anchors and the objects those
+are members of): where `e` is a path whose declared type the reading resolves — its parts, their
+supplied base classes, a type parameter's upper bound — only those scopes' candidates count; any
+other qualifier, or a part not resolved, keeps every visible candidate. A body's own expressions,
+whose types this reading does not compute, keep every visible conversion.
 
 Definitions written in the body are read as supplied ones, under their own frames: a local
 method's or given's clauses, defaults and declared types; a local object's members; `this` and the
@@ -1995,14 +2004,18 @@ class extends has no instance of another class, so its value is its constructor 
 **Evidence.**
 
 - **Executable**: `ClosedWorldSpec` (an override in another file, through an alias, by a mixin;
-  braceless and annotated members; literal and constructor `val`s; a class's value), and the
+  braceless and annotated members; literal and constructor `val`s; a class's value; a compiled
+  stub's parent read by its qualified name), and the
   closed twins beside the open fixtures of `CapabilitySpec`, `OwnersAndRecordsSpec`,
   `PureCodeSpec`, `MethodAnalysisSpec`, `EnvironmentSoundnessSpec`. `ReentrySpec` and
   `TargetViewsSpec` read the open world (`MethodAnalysis.analyzeOpen`): their open members stand
   for members a supplied template overrides.
 
 **Boundary.** Templates are matched by the simple name their declaration or parent clause spells,
-aliases followed. A parent outside the sources whose members are not known (all but the markers
+aliases followed. A compiled dependency stub names the parent the compiler resolved: its full
+path, or the simple name of a top-level template of its own package (`StubDeclarations`), so a
+stub's parent that some stub declares under that qualified name is that template alone, never a
+same-named one of another package. A parent outside the sources whose members are not known (all but the markers
 and `Product`, `Equals`) may override anything: a member only such a parent may override is refused
 (`member may be overridden through a parent outside the sources: C.m`). Same-named templates of
 different packages share their subclasses, so a member one of them overrides stays open — the open

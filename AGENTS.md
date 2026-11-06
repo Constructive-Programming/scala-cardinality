@@ -86,7 +86,9 @@ subclass, override or implementation exists outside them.
   may define anything: a member only such a parent may override is refused
   (`member may be overridden through a parent outside the sources`). Two same-named templates in
   different packages share their subclasses, so a member one of them overrides stays open: the
-  open-world reading, which can overcount. Resolve parents before relying on such a row.
+  open-world reading, which can overcount. Resolve parents before relying on such a row. A
+  compiled dependency stub is the exception: it spells the parent the compiler resolved, so a
+  stub's parent that a stub declares under that qualified name is that template alone.
 
 The analyzer does not certify that a body obeys the assumptions. A `0` means "no pure, total,
 parametric implementation", not "no Scala body compiles".
