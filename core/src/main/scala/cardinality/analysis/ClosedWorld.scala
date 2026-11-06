@@ -16,10 +16,11 @@ import cardinality.types.{Overrides, TypeApplications, TypeName}
   * Templates are matched by the simple name their declaration or parent clause spells, through
   * aliases (`type SA = S`), so two same-named templates share their subclasses and a parent this
   * reading cannot name may define anything: either only leaves a class or member open (a member
-  * open only through such a parent is refused where a receiver reads it). A constructor parameter
-  * is left as written (its modifiers are the signature's spelling), and so is a `val` of a literal
-  * with no type, which `final` would type as the literal: a receiver's members ask
-  * `Resolver.overriding` instead.
+  * open only through such a parent is refused where a receiver reads it). A compiled stub
+  * (`TastyStubs.Prefix`) spells the parent the compiler resolved, so one some stub declares under
+  * that qualified name is that template alone. A constructor parameter is left as written (its
+  * modifiers are the signature's spelling), and so is a `val` of a literal with no type, which
+  * `final` would type as the literal: a receiver's members ask `Resolver.overriding` instead.
   */
 final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input]) {
   import ClosedWorld.*
@@ -286,7 +287,7 @@ private[cardinality] object ClosedWorld {
   // projection or a term's type has no such name.
   private def exact(init: Init, pkg: List[String]): Option[String] =
     TypeApplications.headAndArguments(init.tpe)._1 match {
-      case n: Type.Name => Some((pkg :+ n.value).mkString("."))
+      case n: Type.Name                                  => Some((pkg :+ n.value).mkString("."))
       case s: Type.Select if !s.syntax.contains("this.") =>
         Some(s.syntax.stripPrefix("_root_."))
       case _ => None

@@ -254,9 +254,12 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   expansion that differs: a non-final, non-private, non-inline member of a class that is not final
   (an object, a given, an enum and a package's synthetic object are closed) which a supplied
   template overrides (the closed world, register D39), and every member of a function type or
-  `Conversion` (the only library classes the table lists that are open) — each only while some
-  supplied inline method of the name fails itself: an override that is not inline is dispatched as
-  the `def` is, and an inline one that passes is that function. A field selected that way is read as a value
+  `Conversion` (the only library classes the table lists that are open) — each only while an
+  inline method of the name fails itself in a supplied template that may extend the receiver's
+  class (by the closed world's matching; for a function class, one whose ancestry names a function
+  type or leaves a parent unread): an override that is not inline is dispatched as the `def` is, an
+  inline one that passes is that function, and an extension method or an unrelated template's
+  member is never selected as the override. A field selected that way is read as a value
   of a type the subclass may narrow, so a member selected on it is checked the same way. `C.this`
   names the template C around the body (fixture review-A6 r2 `o1`: `Outer.this.f(x)` inside a
   final inner class prints 5, then 9 — the call site's `SubOuter` overrides `f` inline). An
@@ -327,7 +330,14 @@ the check refuses each (review round 2 found the last forms of each; `InlineScop
   declaring an opaque type — and one the body or a method around it declares, and what an export
   clause defines again in a scope found so (an export defines aliases, D11; fixture a6-fix1b
   `ex2`: an exported given and a given local to the body each expand RichR's inline `m`, 2, then
-  9); never one local to another method. So an applied selection refuses
+  9); never one local to another method, nor one `private[p]` to a package `p` the body is
+  outside (Scala inserts only an accessible implicit). For an applied selection whose qualifier is
+  a path with a declared type the reading resolves, the implicit scope is that type's own (Scala 3
+  reference, *Changes in Implicit Resolution*): the companions of the classes its parts name and
+  of their supplied base classes, a type parameter read as its upper bound, the objects those
+  classes are members of, and the templates those objects extend; a qualifier it does not type, or
+  a part it does not resolve (an abstract or opaque type, an alias with parameters, a singleton,
+  projection or refinement), keeps every implicit scope above. So an applied selection refuses
   when such an inline or contextual extension of the name exists — the reason says the arguments
   are not typed, since the member may well apply. A conversion is typed where the body is written,
   as any call is, and the closed world (register D39) supplies every one: an applied selection a
@@ -369,8 +379,10 @@ extensions also declare). Lambda parameters without a type, pattern variables an
 library methods outside a small result table are not typed, so a selection on them refuses. A
 member of a sealed class selected on a parameter is refused although every subclass is supplied
 (conservative: the subclasses' overrides are not read). A conversion's visibility is
-over-approximated (an import is matched by its last segment; every class's, trait's and given's
-members count), so some bodies refuse for a conversion Scala would not consider. A transparent
+over-approximated (an import is matched by its last segment; for a body's own expressions, and a
+qualifier the reading does not type, every class's, trait's and given's members count), so some
+bodies refuse for a conversion Scala would not consider (eo's optics against an inline conversion
+of a test library's companion, specs2's `FileName.ToFileName`, on the whole build's classpath). A transparent
 result is refused unless its type is a singleton, even where no stable path of the type exists. A
 local class, trait or enum is read through its companion and its own body only: a value of its
 type has no members this reading resolves, so a selection on one refuses. A passing body goes to

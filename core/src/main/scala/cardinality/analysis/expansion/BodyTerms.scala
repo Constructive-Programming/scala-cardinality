@@ -96,7 +96,7 @@ private[expansion] enum Meaning {
   */
 final private[expansion] class BodyTerms(
     resolver: Resolver,
-    expanded: (String, Option[Frame]) => Option[String]
+    expanded: (String, Option[Either[String, Frame]]) => Option[String]
 ) {
 
   private val ancestors = mutable.Map.empty[String, Either[String, List[Frame]]]
@@ -195,7 +195,7 @@ final private[expansion] class BodyTerms(
 
   private def narrowedMember(
       found: Meaning,
-      overrider: Option[(String, Overriding, Option[Frame])],
+      overrider: Option[(String, Overriding, Either[String, Frame])],
       name: String,
       via: String
   ): Meaning = (overrider, found) match {
@@ -208,21 +208,22 @@ final private[expansion] class BodyTerms(
         s"selects $name on $via, which a call site may type as a subclass of $label " +
           s"that overrides $name inline"
       if (how == Overriding.Unknown) Meaning.Refused(narrowed)
-      else expanded(name, below).fold(found)(why => Meaning.Refused(s"$narrowed, and $why"))
+      else
+        expanded(name, Some(below)).fold(found)(why => Meaning.Refused(s"$narrowed, and $why"))
   }
 
   // The class an open receiver's member may be overridden below, and how, if a subclass may.
   private def overrider(
       receiver: Receiver,
       name: String
-  ): Option[(String, Overriding, Option[Frame])] =
+  ): Option[(String, Overriding, Either[String, Frame])] =
     receiver match {
       case Receiver.Template(frame) =>
         Some(overridable(frame, name))
           .filter(_ != Overriding.No)
-          .map((frame.path.mkString("."), _, Some(frame)))
+          .map((frame.path.mkString("."), _, Right(frame)))
       case Receiver.Library(key) =>
-        Option.when(LibraryInlines.extensible(key))((key, Overriding.Supplied, None))
+        Option.when(LibraryInlines.extensible(key))((key, Overriding.Supplied, Left(key)))
       case _ => None
     }
 

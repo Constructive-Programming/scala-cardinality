@@ -35,6 +35,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       a deferred inline member is an inline body's capability          $deferredMembers
       a passing body is eliminated by the solver like its def twin      $solverTwins
       a conversion private to another package is never inserted        $privateConversions
+      a qualifier is converted from its own type's implicit scope       $anchoredConversions
       only a template extending the receiver overrides its member       $overridingInlines
   """
 
@@ -395,8 +396,8 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
   }
 
   // Scala never inserts an inaccessible implicit: conv, `private[lib]`, is no candidate in `app`,
-  // so inc counts as its `def` twin (every Int => Int, 2^(2^37)); public, it may answer inc's `+`
-  // and its expansion reads the call site: refused.
+  // so first counts as its `def` twin (every (Int, Int) => Int, 2^(2^69)); public, it may be
+  // inserted where an expression does not conform, and its expansion reads the call site: refused.
   def privateConversions = {
     def lib(access: String) = "lib.scala" -> s"""package lib
       |object R {
@@ -405,26 +406,61 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       |}""".stripMargin
     val app = "app.scala" -> """package app
       |object C {
-      |  inline def inc(x: Int): Int = x + 1
-      |  def incD(x: Int): Int = x + 1
+      |  inline def first(t: (Int, Int)): Int = t._1
+      |  def firstD(t: (Int, Int)): Int = t._1
       |}""".stripMargin
     val hidden = counts(lib("private[lib] "), app)
-    (hidden("app.C.inc") === hidden("app.C.incD"))
-      .and(hidden("app.C.inc") === pow2(37))
-      .and(refused(counts(lib(""), app)("app.C.inc"), "the implicit conversion conv may answer"))
+    (hidden("app.C.first") === hidden("app.C.firstD"))
+      .and(hidden("app.C.first") === pow2(69))
+      .and(
+        refused(counts(lib(""), app)("app.C.first"), "may expand the inline conversion conv")
+      )
+  }
+
+  // A qualifier is converted, or answered by an extension, only from the scopes around the body or
+  // its static type's implicit scope: conv and h, members of T's companion, may answer t.f and t.h
+  // (Box's inline f and h read the call site: refused), never u.f or u.h, which count as their
+  // `def` twins (every Int => Int, 2^(2^37)).
+  def anchoredConversions = {
+    val lib = "lib.scala" -> """package lib
+      |final class T { def f(x: Int): Int = x; def h(x: Int): Int = x }
+      |object T {
+      |  implicit def conv(x: T): Box = new Box
+      |  extension (t: T) inline def h(x: Int): Int = scala.compiletime.codeOf(x).length
+      |}
+      |final class Box { inline def f(x: Int): Int = scala.compiletime.codeOf(x).length }""".stripMargin
+    val app = "app.scala" -> """package app
+      |final class U { def f(x: Int): Int = x; def h(x: Int): Int = x }
+      |object C {
+      |  inline def onU(u: U, x: Int): Int = u.f(x)
+      |  def onUD(u: U, x: Int): Int = u.f(x)
+      |  inline def hOnU(u: U, x: Int): Int = u.h(x)
+      |  inline def onT(t: lib.T, x: Int): Int = t.f(x)
+      |  inline def hOnT(t: lib.T, x: Int): Int = t.h(x)
+      |}""".stripMargin
+    val found = counts(lib, app)
+    (found("app.C.onU") === found("app.C.onUD"))
+      .and(found("app.C.hOnU") === found("app.C.onUD"))
+      .and(found("app.C.onU") === pow2(37))
+      .and(refused(found("app.C.onT"), "the implicit conversion conv may answer"))
+      .and(refused(found("app.C.hOnT"), "h uses scala.compiletime.codeOf"))
   }
 
   // An expansion selects f on b's class at the call site: Sub overrides f, but not inline, and
   // Other's inline f overrides nothing of Base's, so onParam is b.f's functions of x as its `def`
   // twin; with Other extending Base, its f is the override an expansion may select: refused.
   def overridingInlines = {
-    def found(other: String) = rows(s"""class Base { def f(x: Int): Int = x }
+    def found(other: String) = rows(
+      s"""class Base { def f(x: Int): Int = x }
       |class Sub extends Base { override def f(x: Int): Int = x + 1 }
-      |class Other$other { ${if (other.isEmpty) "" else "override "}inline def f(x: Int): Int = scala.compiletime.codeOf(x).length }
+      |class Other$other { ${
+          if (other.isEmpty) "" else "override "
+        }inline def f(x: Int): Int = scala.compiletime.codeOf(x).length }
       |object D {
       |  inline def onParam(b: Base, x: Int): Int = b.f(x)
       |  def onParamD(b: Base, x: Int): Int = b.f(x)
-      |}""".stripMargin)
+      |}""".stripMargin
+    )
     (found("")("D.onParam") === found("")("D.onParamD"))
       .and(
         refused(found(" extends Base")("D.onParam"), "inline method Other.f uses scala.compiletime")

@@ -43,7 +43,7 @@ final private[expansion] case class Scope(
 final private[expansion] class BodyWalk(
     terms: BodyTerms,
     inlined: Definition => Option[String],
-    fallback: (RestatedExtensions.Applied, Frame) => Option[String],
+    fallback: (RestatedExtensions.Applied, Frame, Option[Meaning]) => Option[String],
     resolver: Resolver
 ) {
 
@@ -153,7 +153,8 @@ final private[expansion] class BodyWalk(
           meaning,
           RestatedExtensions.Applied(s.name.value, Some(call)),
           found.clauses,
-          scope
+          scope,
+          pathMeaning(s.qual, scope)
         )
       }
     case n: Term.Name =>
@@ -191,21 +192,24 @@ final private[expansion] class BodyWalk(
             terms.selectOn(receiver(operand, scope), op.name),
             RestatedExtensions.Applied(op.name, None),
             if (op.infix) false :: clauses else clauses,
-            scope
+            scope,
+            pathMeaning(operand, scope)
           )
         }
       )
 
   // A member selected with arguments is applied only if it accepts them; otherwise Scala tries an
-  // extension or a conversion of the name, which the sources may declare (`fallback`).
+  // extension or a conversion of the name, which the sources may declare (`fallback`), a
+  // conversion of the qualifier's static type (`qualifier`, the path it denotes, when it is one).
   private def selected(
       meaning: Meaning,
       applied: RestatedExtensions.Applied,
       clauses: List[Boolean],
-      scope: Scope
+      scope: Scope,
+      qualifier: Option[Meaning] = None
   ): Option[String] =
     check(meaning, clauses, scope).orElse(
-      Option.when(clauses.nonEmpty)(applied).flatMap(fallback(_, scope.frame))
+      Option.when(clauses.nonEmpty)(applied).flatMap(fallback(_, scope.frame, qualifier))
     )
 
   // A qualifier is evaluated, so its own calls are checked; a path is only resolved.
@@ -225,7 +229,7 @@ final private[expansion] class BodyWalk(
       case Meaning.Methods(definitions)   => all(definitions)(definition(_, clauses, scope))
       case Meaning.Call(_, result, arity) => further(result, clauses.drop(arity), scope)
       case Meaning.Value(_, _, _) | Meaning.Instance(_) if clauses.nonEmpty =>
-        selected(applyOf(value(meaning)), applyMember, clauses, scope)
+        selected(applyOf(value(meaning)), applyMember, clauses, scope, Some(meaning))
       case Meaning.Module(_) if clauses.nonEmpty =>
         selected(guarded(terms.select(meaning, "apply")), applyMember, clauses, scope)
       case Meaning.Library(module) if clauses.nonEmpty =>
