@@ -123,7 +123,7 @@ private[cardinality] object OverrideIdentity {
   * typecheck — so equal parameters are an override, a covariant result included.
   */
 final private[cardinality] class OverrideIdentity(resolver: Resolver) {
-  private val keys = new OverrideKeys(resolver)
+  private val keys = new TypeIdentities.Overrides(resolver)
 
   /** Whether an inherited member is the measured declaration, seen from the target's template. */
   def matches(
