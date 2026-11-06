@@ -32,7 +32,7 @@ sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport   # target/**/<module>/c
   `cp target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt /tmp/cardinality-before.txt`
   (and the plugin's, if the run touches `plugin/`). The committed baseline is not a substitute:
   it may predate commits pulled since.
-- Diff each run against the starting report with `report-diff.sh` (§8).
+- Diff each run against the starting report with `report-diff.py` (§8).
 - The report needs a large heap. If it dies with `OutOfMemoryError`, run the launcher with
   `-Xmx16g -Xss8m` (catalog M3).
 
@@ -188,7 +188,7 @@ bash scripts/check-file-metrics.sh
 # and the 25-token CPD run from §6, empty
 ```
 
-Then re-run the report, diff it with `report-diff.sh` (§8) and compare against what the pass
+Then re-run the report, diff it with `report-diff.py` (§8) and compare against what the pass
 should move:
 
 | Pass | Expected report movement |
@@ -224,20 +224,22 @@ starts ahead of this one.
 
 ## 8. Report the run: cardinality before and after
 
-End every run by re-measuring (§1) and showing the user the difference against the report kept
-at the start:
+End every run by re-measuring (§1) and printing the total program cardinality before and after:
 
 ```bash
-.claude/skills/cardinality-reduction/report-diff.sh /tmp/cardinality-before.txt \
+python3 -I .claude/skills/cardinality-reduction/report-diff.py /tmp/cardinality-before.txt \
   target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt
 ```
 
-It prints the signature summary line and the stored-value tier counts (ε₀, ω, finite, `?`)
-before and after, then every row whose size changed, appeared (`· → size`) or left
-(`size → ·`). In the final message:
+It sums every row of both sections into one polynomial `a·ε₀ + b·ω + n`, with the `?` rows
+counted beside it:
 
-- Quote the two summary lines and the two tier lines as printed.
-- List the rows that moved tier or shrank (the wins), then any row that grew, each with its
-  reason. Group added and removed helper rows into one line each rather than listing them.
-- A row renamed by a line shift (`<extension@54>` → `<extension@63>`) is a rename, not a
-  change: say so once.
+```
+before: 62ε₀ + 672ω + ≈2^(2^103.00)   (3480 rows ?)
+after:  62ε₀ + 671ω + ≈2^(2^103.00)   (3481 rows ?)
+```
+
+Show the user these two lines. Compare lexicographically (§1): the ε₀ and ω coefficients
+carry the result; the finite part is dominated by its largest row, so a finite change rarely
+shows. `--rows` lists every row that changed, appeared (`·`) or left: use it to explain
+movement (§7), not in the final message.
