@@ -1,6 +1,6 @@
 ---
 name: cardinality-reduction
-description: "Reduce Total Program Cardinality (TPC) in this repository using the project's own analyzer. Use when asked to 'reduce cardinality', 'shrink types', 'find cardinality candidates', 'run the cardinality report', or before/after refactors that change data or method signatures. Encodes the stage hierarchy from Rodolfo Hansen's Type System Savings / Hidden Powers of TPC articles, ranked by impact."
+description: "Reduce Total Program Cardinality (TPC) in this repository using the project's own analyzer. Use when asked to 'reduce cardinality', 'shrink types', 'find cardinality candidates', 'run the cardinality report', or before/after refactors that change data or method signatures, or 'run CPD' / 'find duplication' after a reduction round. Encodes the stage hierarchy from Rodolfo Hansen's Type System Savings / Hidden Powers of TPC articles, ranked by impact."
 ---
 
 # Cardinality reduction in scala-cardinality
@@ -8,179 +8,207 @@ description: "Reduce Total Program Cardinality (TPC) in this repository using th
 This repository runs its own analyzer on itself. The plugin is wired into
 `project/plugins.sbt` (self-published), so the report is one command away.
 
-## 1. Measure first
+Terms used below:
+
+- **Pass**: one round of this workflow (§3 to §6), from measuring to the gates.
+- **Baseline**: the newest `docs/baselines/self-*.txt`. Its prose header is the **baseline
+  note**, where each pass records what it changed and why.
+- **Catalog**: `patterns.md` next to this file. What earlier passes learned (§7).
+- **The user**: the repository owner. Their decisions override the catalog.
+
+## 1. Measure
 
 ```bash
 sbt publishLocal        # only needed after changing core/ or plugin/ sources
-sbt cardinalityReport   # per-module report; also written to target/out/jvm/scala-3.9.0/<module>/cardinality/report.txt
+sbt cardinalityReport   # writes target/**/<module>/cardinality/report.txt per module
 ```
 
-- Reports are **per module** (`scala-cardinality` = core, `sbt-cardinality` = plugin); the root
+- Reports are per module (`scala-cardinality` = core, `sbt-cardinality` = plugin); the root
   aggregates and has no sources of its own.
 - Narrow a single signature with `sbt 'cardinalityReportSelected <fqcn>'`.
-- The checked-in baseline is `docs/baselines/self-2026-11-06.txt` (analyzer at e57a10f plus that pass).
-  Diff a new run against it; refresh the baseline only when a change lands.
+- Diff each run against the baseline.
 
-### Reading rows
+### Reading sizes
 
-| Size | Meaning |
-| --- | --- |
-| `2^n`, `8`, `3` | finite upper bound (constructor inputs only) |
-| `ω` | countably infinite value space (recursive fixed point, lazy hole, `String`-like base) |
-| `ε₀`, `aω` | beyond countable / coefficient of countable alternatives |
-| `?` | unresolved — the trailing `unresolved:` reasons say what stopped the bound |
-| `—` | definition with no cardinality of its own (abstract) |
+A size is the polynomial `a·ε₀ + b·ω + n` (`docs/type-arithmetic.md`). It falls in one tier:
 
-The signature section counts *implementation space* of methods/constructors; the stored-value
-section counts *state space* of data definitions. Never read `?` as infinity.
+| Tier | Condition | Examples |
+| --- | --- | --- |
+| finite | `a = 0` and `b = 0` | `3`, `2^64` |
+| `ω` | `a = 0`, `b > 0` | `ω`, `3ω + 4` |
+| `ε₀` | `a > 0` | `ε₀`, `2ε₀ + 7` |
+
+Both infinite tiers are countable ordinals; `ε₀` is the larger one.
+
+Smaller is better, compared lexicographically (`a`, then `b`, then `n`): `16` beats `2^10`
+beats any larger finite beats `ω` beats `ε₀`. Moving a row down a tier (`ε₀` → `ω`, `ω` → finite)
+is the largest win; shrinking a coefficient or a finite size inside a tier is also a win.
+
+`?` means unresolved: the trailing `unresolved:` reasons say what stopped the bound. It is not
+a size and never means infinity. `—` is a definition with no cardinality of its own (abstract).
+
+The signature section counts the implementation space of methods and constructors; the
+stored-value section counts the state space of data definitions.
 
 ## 2. The hierarchy: where the value is
 
 From Hansen's ["Type System Savings"](https://medium.com/swlh/type-system-saving-55db2ca062ff)
 and ["The Hidden Powers of Total Program Cardinality" 1](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-9351ba774d4d)
 / [2](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-2-of-2-ceb0a3af13dd).
-Four stages, **ranked by impact on the TPC score** — always try the lowest-numbered applicable
-stage first; the bulk of the returns are reaped by stage 3, and stage 4 is the craftsman's tier.
+Four stages, ranked by impact. Try the lowest-numbered stage that applies first.
 
-### Stage 1 — Replace products with sums (biggest win)
+1. **Replace products with sums.** `|A| + |B|` < `(1+|A|) × (1+|B|)`. Split "either A or B"
+   fields into a sealed trait or enum; model absence in the type, not in two nullable fields.
+2. **Narrow types.** A type broader than the domain carries states the code never sees:
+   - a closed vocabulary in a `String` → an enum;
+   - a count that is always positive → a refined number;
+   - a `List` that never repeats or reorders → a `Set` or a sized structure;
+   - an `Either[E, A]` with one possible error → `Option` or a concrete type;
+   - a supertype where only one subtype is ever supplied → that subtype.
+3. **Take sums out of exponents.** `aᵇ + aᶜ` < `a^(b+c)`: a sum-typed parameter multiplies
+   the implementation space by its case count. Distribute: one method per case, dispatch on
+   the sum, map over an `Option` instead of passing it.
+4. **Generics.** Parametricity shrinks implementation space toward one inhabitant
+   (`[A] A => A`). Smallest absolute shift, highest reuse.
 
-`|A| + |B|` vs `(1+|A|) × (1+|B|)`: a nullable product of two engines has 54 states where the
-sum has 13; the article's validation function drops from `1.8×10¹⁶` possible implementations.
-Make illegal states unrepresentable: split "either A or B" fields into a sealed trait/enum,
-kill nullable pairs, model `Option` in the type, not in two independent fields.
+## 3. Data pass (stages 1 and 2)
 
-### Stage 2 — Narrow types (functional domain design / domain driven design)
+1. Read the catalog (§7), then run the report (§1).
+2. List stored-value rows from largest to smallest (§1 order). These are the candidates.
+   Skip `?` rows in both sections: they are analyzer resolution limits (here mostly scalameta
+   `Tree`/`Type` openness), not reduction targets.
+3. For each candidate, read its construction sites before classifying: the report shows
+   sizes, not fields.
+   - Several numeric fields: stage 1 or 2 only if the fields are not independent knobs.
+   - A `String` field built from a few literals: a hidden enum (stage 2).
+   - Fields whose meaning depends on each other: a sum of the combinations the code builds
+     (stage 1).
+   - An open `String` (identifiers, source text, type syntax): leave it.
 
-Any type broader than the domain needs carries states the code must never see. The article's
-primitive case — `String`/`Int` → enum or refined type (`Int Refined Positive` exposed the
-booking bug) — is one instance of the general rule: wherever a broader type is used than the
-situation admits, narrow it. A closed vocabulary carried in `String` becomes an enum; a count
-that is always positive becomes a refined number; a `List` whose elements never repeat or
-reorder becomes a `Set` or a sized structure; an `Either[E, A]` with exactly one possible
-error becomes `Option` or a concrete type; a supertype accepted where one subtype is ever
-supplied narrows to that subtype. Every unnecessary breadth removed deletes a family of
-invalid states — and shows up as a smaller report row.
+   Check the catalog's R entries for each shape's worked example and boundary.
+4. Re-measure. A product with any `ω` factor (`String`, `List`) stays in the `ω` tier however
+   its finite factors shrink, so narrowing one of those shows no movement: groundwork, not a
+   win. Splitting the product into a sum does move it (`ω` → `3ω`): count that as a win.
+5. Ratchet: no existing row may move up a tier, or grow inside its tier, without a
+   justification in the baseline note. Refresh the baseline when the pass is committed.
 
-### Stage 3 — Take sums out of exponents (functions)
+## 4. Sums pass (stage 3)
 
-`(aᵇ + aᶜ) < a^(b+c)`: an enum/Option/interface as a parameter multiplies the implementation
-space by the case count. Distribute instead: one method per enum value, extension methods,
-type classes, overloads, pattern matching. Avoid `Option` as a parameter — map over it and
-pass the simpler value. This is also the quantitative reading of SOLID
-(`aᵇ < (a+1)ᵇ` for single responsibility; `(aᶜ + bᶜ) < (a+b)ᶜ` for open–closed).
+The report shows a sum-typed parameter's size but not whether callers branch on it, so find
+those sites in the sources.
 
-### Stage 4 — Generics (theorems for free)
+1. Inventory the build's own sums: `enum`, `sealed trait`, `sealed abstract class` under
+   `core/src/main`. Third-party hierarchies (scalameta `Tree`, `Type`, `Defn`, `Stat`) are
+   visitor territory; leave them.
+2. Find case analysis outside the sum: `match`, `isInstanceOf[`, `== CaseObject` on one of
+   those sums, directly or through a field, in code that is not the sum's own.
+3. Classify each site:
+   - The same question answered outside the sum: move it onto the sum as a `def`; callers
+     delegate.
+   - A switchboard (each branch a one-line delegation), a renderer, or an interpreter of the
+     sum: keep.
+   - An equality test on a case object: keep, unless the same test repeats across sites.
 
-Parametricity shrinks implementation space to a unique inhabitant: `[A] A => A` has exactly
-one implementation, `fold :: (a -> c) (b -> c) Either[a,b] -> c` likewise. Smallest absolute
-shifts, but highest reuse — the marker of stage-4 code is 3–5 line bodies.
+   Catalog entry R3 has the examples.
 
-## 3. Workflow for a reduction pass
+## 5. Generics pass (stage 4)
 
-1. Run the report (§1). List stored-value rows ordered by size: `2^320` beats `ω` beats `ε₀`
-   beats finite. Ignore `?` signature rows — those are analyzer resolution limits, not
-   reduction targets (the `unresolved:` reasons here are mostly scalameta `Tree`/`Type`
-   openness in this repo's own sources).
-2. For each top row, classify which stage applies and name the smallest refactor. The report
-   shows sizes, not fields — audit the construction sites (there are few) before classifying:
-   - Numeric-field products (`SourceSnapshot.Limits` = 7 numeric fields = `2^320`,
-     `AnalysisQuery.Budget` = `2^256`, `AnalysisWork` ctor = `2^96`): stage 1/2 — check whether
-     the fields are genuinely independent knobs enforced on separate paths; if a test or doc
-     pins the independence, leave it.
-   - String-factor products (an `ω` row with generic-sounding fields — `budget`, `frontier`,
-     `message`): two checks at the construction sites. First, closed vocabulary: a field
-     assembled from a handful of string literals is a hidden enum (stage 2). Second,
-     correlated fields: if one field's meaning depends on another field's value — an
-     operation label for some values, a source path for others — the product admits
-     combinations no value can produce; split it into a sum of cases (stage 1). Worked
-     example: `Exhausted(budget: String, frontier: String)` had 4 literal budgets and a
-     frontier that was an operation name for three stops but a path for one; the refactor is
-     `Fuel(index | target, operation)`, `ResolutionDepth(operation)`, `SyntaxDepth(path)`,
-     with each case rendering the exact prior message string.
-   - Genuinely open Strings (identifiers, source text, arbitrary type syntax —
-     `Definition.Unbound.Syntax` embeds `TypeSubstitution.described`'s fallback): leave them.
-   - Method rows with enum/`Option` parameters: stage 3 — split per case. The report only
-     flags the parameter; finding the case splits themselves is a source-level pass — §4.
-3. Propose, then re-measure: behavior preserved is the hard gate — `sbt test` for core,
-   `sbt plugin/scripted` for plugin behavior. The report is the scoreboard with one blind
-   spot: products are deliberately coarse, so a class with any `ω`-factor (`String`, `List`)
-   reads `ω` no matter how the other factors shrink. Narrowing a finite factor beside an
-   `ω` factor (a hidden enum inside such a product) shows no change — groundwork, not a win.
-   Splitting the product into a sum does move the row: `ω` → `3ω`, the case count surfaced
-   as an explicit coefficient. Count that as a win even though the tier is unchanged, and
-   record the before/after reading in the baseline note per the ratchet.
-4. Ratchet: refresh `docs/baselines/self-<date>.txt` and never land a run that moves an
-   existing row **up a tier** (`ω` → `ε₀`, `2^n` growing) without an explicit justification.
-   A same-tier coefficient appearing (`ω` → `3ω`) is precision gained by a sum split, not a
-   regression — justify it in the baseline note.
-
-## 4. Stage-3 pass: sums in exponents (source-level audit)
-
-The report cannot show this class of problem: a parameter's size reads the same whether the
-caller dispatches the sum or branches around it, and stored-value rows never move when only
-method bodies change. Run it as a separate pass over the sources.
-
-1. **Inventory the build's own sums**: `enum`, `sealed trait`, `sealed abstract class` in
-   `core/src/main`. Third-party sealed hierarchies (scalameta's `Type`/`Tree`/`Defn`/`Stat`)
-   are visitor territory — splitting those per case is not a win; leave them.
-2. **Find the external case analysis**: `= x match` / `isInstanceOf[` / `== caseObject`
-   where `x` is one of those sums — directly, or as a field of a product parameter — and the
-   site lives outside the sum's own methods.
-3. **Classify each site before touching it**:
-   - *Case analysis outside the sum* — an `exists(_.isInstanceOf[Case])` or a `match`
-     duplicating a question the sum should answer: move it into the sum as a `def` on `this`.
-     Worked example: `Definition.instantiationDependent` matched on `Unbound` cases and
-     `Definition.open` used `isInstanceOf[Unbound.Open]`; the refactor put
-     `instantiationDependent`/`opensAbstraction` on `Unbound` itself, and the object helpers
-     delegate (`unbound.forall(_.instantiationDependent)`). The sum owns its cases; callers
-     can no longer reach into them.
-   - *Switchboard* — a few cases, each branch a one-line delegation onto a dedicated function
-     (`SingletonIntersections.resolved`, the `Found` match in `MethodAnalysis`): the article
-     endorses pattern matching that isolates the sum's value before the body is read; keep.
-   - *Companion renderer or ADT interpreter* (`FinitePart.render`, the `Shape` matches in the
-     inhabitation solver): the canonical exceptions; keep.
-   - *Equality predicates on case objects* (`edge.kind == Continuation.OptionBranch`): fine
-     on their own; extract into the sum only when the same predicate repeats across sites.
-4. **Expect no report movement, and accept it**: moving dispatch into a sum adds signature
-   rows (the new `def`s) and drops none. That is the article's own prescription — dynamic
-   dispatch is the language feature that addresses sums-in-exponents — so this pass is gated
-   by behavior tests, not by the ratchet's row diff. Record the classification table and the
-   keep/refactor verdicts in the baseline note so the next pass starts from it.
-
-## 5. Stage-4 pass: generics (theorems for free)
-
-Parametricity narrows implementation space to (near-)unique inhabitants: `[A] A => A` has
-exactly one implementation, and a function that receives its operation as a parameter cannot
-do anything but structure. The report cannot show this — `?`-tier signature rows hide
-implementation space — so run it as a source-level pass. Scout sweeps must grep first
-(`def \w+.*List\[`, `@tailrec`, `foldLeft|foldRight`) and read only hit regions: whole-file
-reads blow a scout's context on this codebase.
+Scouts grep first (`def \w+.*List\[`, `@tailrec`, `foldLeft|foldRight`) and read only the
+hit regions: whole-file reads exhaust a scout's context on this codebase.
 
 Three buckets, in order of value:
 
-1. **Type-duplicated helpers** — near-identical functions differing only in the operated
-   type: one generic function replaces them, taking the varying operation as a parameter.
-2. **Hand-rolled recursions re-implementing existing machinery** — manual folds or loops that
-   restate `TypeSubstitution.hylo`/`localCata`/`plated` (cats-eo `Schemes`) or a cats
-   combinator. Swap, preserving semantics exactly.
-3. **Concrete-typed purely structural functions** — containers/primitives in and out, body
-   free of domain logic: a type parameter would make the implementation parametrically
-   unique. Require a second use or an already-forced body; generalizing a single-caller
-   helper is speculation, not a win.
+1. **Type-duplicated helpers**: functions differing only in the type operated on. One
+   generic function takes the varying operation as a parameter.
+2. **Hand-rolled machinery**: folds or loops that restate `TypeSubstitution.hylo`,
+   `localCata`, `plated`, `Graphs.reachable` or a cats combinator. Swap them.
+3. **Concrete-typed structural functions**: containers in and out, no domain logic. Add a
+   type parameter only with a second caller; generalizing a single caller is speculation.
 
-**Verify library semantics with cellar before swapping.** Cellar (MCP/CLI) is allowed here for
-external dependency API lookups: `cellar get-external org.typelevel:cats-core_3:2.13.0 cats.Traverse`
-or, from the project root, `cellar get --module core <fqn>`; drop to
-`cellar get-source <coordinate> <fqn>` when the doc does not pin the behavior. Never guess
-failure order, error accumulation, or strictness from a combinator's name — the swap is only
-behavior-preserving if the semantics match (example: `Shape.sequenceEithers` short-circuits
-with the leftmost `Left`; cats `Traverse.sequence` for `Either` matches, which is why the
-swap landed). Cellar is for external artifacts only — internal symbols go through the
-language server, not cellar.
+Before a swap, check the library's semantics (order, short-circuiting, strictness) in its
+source, not from the combinator's name: the analysis spends fuel per step, so order matters.
+Use cellar for external artifacts (`cellar get-external <coordinate> <fqn>`, then
+`cellar get-source` when the doc does not settle it), and grep for internal symbols.
+Leave domain-coupled code (`Measurement.resolve`, the solver walks): invariants pin it, not
+types.
 
-**Gates**: behavior tests are the hard gate; expect no report movement (parametric bodies do
-not move signature or stored-value rows — `Shape.sequenceEithers` stayed one `?` row through
-the swap). Record what was swapped and which semantics were checked in the baseline note.
-Reject domain-coupled candidates (`Measurement.resolve`, the solver walks): there the
-implementation space is pinned by invariants, not types, and generalization is type
-shuffling.
+## 6. Duplication pass (CPD)
+
+Stage 3 and 4 changes move code into sums and shared helpers, so the same shape shows up in
+more places. Run CPD after each pass. CI gates on 25 tokens (`.github/workflows/ci.yml`, job
+`cpd`, version in `PMD_VERSION`).
+
+```bash
+PMD=~/pmd/pmd-bin-<PMD_VERSION>/bin/pmd     # install as ci.yml does if missing
+DIRS="--dir=core/src/main/scala --dir=plugin/src/main/scala"
+$PMD cpd --minimum-tokens=25 --language=scala $DIRS --format=text   # the gate: must be empty
+$PMD cpd --minimum-tokens=12 --language=scala $DIRS --format=csv > /tmp/cpd12.csv
+scala-cli run .claude/skills/cardinality-reduction/cpd-idioms.scala -- /tmp/cpd12.csv 40
+# native binary, once: scala-cli --power package --native .claude/skills/cardinality-reduction/cpd-idioms.scala -o /tmp/cpd-idioms
+```
+
+1. **Clear the gate.** Merge every group of 25 or more tokens into one copy, unless the copies
+   differ in what they check; then restructure until CPD no longer matches.
+2. **Imports are the one exception.** For a duplicated import block, first try to restructure
+   or simplify it (drop unused imports, import a package instead of its members). Only if
+   that is declined may the block be wrapped in `// CPD-OFF` / `// CPD-ON`. CPD-OFF anywhere
+   else is prohibited.
+3. **Read the 12-token groups as idioms.** The script drops import/package groups and ranks
+   the rest by occurrences × tokens: one line repeated in 15 files outranks one block in two.
+4. **Classify each top idiom** by what the repetition says is missing:
+
+   | Repetition | Missing piece |
+   | --- | --- |
+   | A type union spelled at many sites | a type alias in `types/Trees.scala` |
+   | A modifier test (`mods.exists(_.is[Mod.Sealed])`) | a named predicate; reuse an existing one first |
+   | The same parameter group in many signatures | a domain type (stage 2) |
+   | A bare tuple with a fixed meaning | a named type (stage 2) |
+   | Two helpers identical up to a name | one shared helper |
+   | A standard library one-liner | nothing |
+
+   Parameter groups and bare tuples matter most: they are types the domain uses but the code
+   never named.
+
+## Gates
+
+Every pass ends with all of these green:
+
+```bash
+sbt core/testFull plugin/scripted   # testFull is uncached; plain `test` may run nothing
+sbt scalafmtAll scalafixAll
+bash scripts/check-file-metrics.sh
+# and the 25-token CPD run from §6, empty
+```
+
+Then re-run the report and compare against what the pass should move:
+
+| Pass | Expected report movement |
+| --- | --- |
+| Data (§3) | rows shrink or split into sums |
+| Sums (§4) | new `def` rows, none removed |
+| Generics (§5) | none |
+| Duplication (§6) | none for an alias or predicate; a new definitions row for a new type |
+
+Anything else that moves is a measurement surprise: explain it before landing (§7).
+
+## 7. Learn: grow the catalog
+
+The catalog holds what earlier passes learned from the report (R), measurement (M) and CPD
+(C): a signal, a fix, the expected movement, a boundary and evidence. It is how the next pass
+starts ahead of this one.
+
+1. **Before a pass**, read it. Check every signal not marked rejected; skip a candidate that
+   matches a rejected entry unless its boundary no longer holds.
+2. **During a pass**, match each fix and each rejection:
+   - Matches an entry: add a line to its Evidence (commit, before → after).
+   - Matches nothing: add an entry as **proposed**. Write the signal as something the next
+     pass can search for (a row shape, a grep, a CPD idiom), not a description of one case.
+   - Rejected by you or the user: add it as **rejected** with the reason in Boundary.
+   - A measurement surprise (rows going `?`, a gate failing, an unrelated count moving) is an
+     M entry even when no refactor follows.
+3. **After the gates pass**: proposed → confirmed once its fix is applied and gated.
+   Confirmed → rejected only on a failed gate or the user's decision. When a boundary proves
+   wrong, edit it rather than adding a second entry.
+4. Keep entries short; the derivation goes in the baseline note. When a confirmed pattern
+   changes how a pass is run, fold it into §3 to §6 and keep the entry as the pointer.
+5. Commit the catalog, the baseline and its note with the pass.
