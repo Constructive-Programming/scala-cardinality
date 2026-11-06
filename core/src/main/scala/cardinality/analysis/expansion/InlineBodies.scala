@@ -178,18 +178,18 @@ final private[cardinality] class InlineBodies(resolver: Resolver) {
   ): Option[String] = {
     val name = applied.name
     val anchors = conversions.anchored(qualifier)
-    val extended = {
-      val extensions = conversions.extensionsOf(name, frame, anchors)
+    def extended(scopes: Option[Set[String]]): Option[String] = {
+      val extensions = conversions.extensionsOf(name, frame, scopes)
       Option.when(extensions.any && !applied.call.exists(restated.answered(_, extensions)))(
         s"applies $name, which an extension of that name may answer when no member applies"
       )
     }
-    // A qualifier whose implicit scope is not read converts through the body's reachable types,
-    // read once the walk has resolved every name of the body.
+    // A qualifier whose implicit scope is not read converts, or is answered by an extension,
+    // through the body's reachable types, read once the walk has resolved every name of the body.
     if (anchors.isEmpty && deferred.nonEmpty) {
-      deferred.head += (reached => convertedApply(name, frame, reached).orElse(extended))
+      deferred.head += (reached => convertedApply(name, frame, reached).orElse(extended(reached)))
       None
-    } else convertedApply(name, frame, anchors).orElse(extended)
+    } else convertedApply(name, frame, anchors).orElse(extended(anchors))
   }
 
   private def convertedApply(

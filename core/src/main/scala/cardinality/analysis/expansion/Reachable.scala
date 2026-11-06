@@ -8,7 +8,8 @@ import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.analysis.{Resolver, SourceIndex}
 
 /** The implicit scope of the types an inline body can reach (register D43, v1.md §2): a conversion
-  * outside the body's lexical scope is a candidate only when its object is in that implicit scope.
+  * or extension outside the body's lexical scope is a candidate only when its object is in that
+  * implicit scope.
   *
   * The types a body can reach are those written in it, those of the signatures around it, and the
   * signatures of every declaration it references (each name its walk resolved, a class it

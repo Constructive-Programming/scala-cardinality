@@ -381,7 +381,7 @@ member of a sealed class selected on a parameter is refused although every subcl
 (conservative: the subclasses' overrides are not read). A conversion's visibility is
 over-approximated (an import is matched by its last segment; a body's own expressions, and a
 qualifier the reading does not type, meet the scopes around the body and the implicit scope of the
-types the body can reach, matched by name: D43), so some bodies refuse for a conversion Scala would
+types the body can reach, matched by name: D43, extensions likewise), so some bodies refuse for a conversion Scala would
 not consider; one no type the body reaches anchors is no candidate (eo's optics no longer meet
 specs2's `FileName.ToFileName`, a test library's companion on the build's classpath). A transparent
 result is refused unless its type is a singleton, even where no stable path of the type exists. A

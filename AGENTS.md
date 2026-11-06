@@ -136,8 +136,8 @@ Count an `inline def` exactly like a `def` unless its body uses a compile-time o
   closed world supplies every conversion, so one refuses only when it is inline and its own
   expansion fails. That includes an applied selection a conversion may answer: it refuses only when
   a supplied inline method of that name fails.
-- A conversion is a candidate for a body only where the body may find it (contract rule, v1.md
-  §2, register D43):
+- A conversion, or an inline or contextual extension, is a candidate for a body only where the
+  body may find it (contract rule, v1.md §2, register D43):
   - in its lexical scope: a definition around it or an import; or
   - as a member of an object in the implicit scope of a type the body can reach: the types written
     in the body, the enclosing signatures, and the signatures of every declaration the body
@@ -154,7 +154,7 @@ Count an `inline def` exactly like a `def` unless its body uses a compile-time o
   - a runtime class that depends on a type parameter, which is type reification in any form: a
     type test, `Array[A]`, `classOf[Array[A]]`;
   - a given left to implicit search, a local method's clauses included;
-  - an inline or contextual extension the body may meet.
+  - an inline or contextual extension the body may meet (a candidate by the D43 rule above).
 - Local definitions are read like supplied ones, and `this` inside a nested template is that
   template.
 - Example: `inline def pick[A](x: A, y: A): A = x` counts `2`. With `inline erasedValue[A] match`

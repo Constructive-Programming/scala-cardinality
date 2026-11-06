@@ -2177,28 +2177,30 @@ user's convention); a factory on a class receiver is not known. Constructions ar
 syntactically in result position: one reached through a call, a `try`, a lambda or a pattern
 binder is not. The stored-value estimate does not read factories: its private-constructor class is
 still unread (`Builds`).
-## D43. A conversion is a candidate only where the body may find it
+## D43. A conversion or extension is a candidate only where the body may find it
 
-**Decision** (owner decision, adopted idealization; v1.md §2). A conversion counts as a candidate
-for an inline body only if (1) it is in the body's lexical scope — a definition around it or an
+**Decision** (owner decision, adopted idealization; v1.md §2). A conversion, or an inline or
+contextual extension, counts as a candidate for an inline body only if (1) it is in the body's lexical scope — a definition around it or an
 import — or (2) its object is in the implicit scope of a type the body can reach. The types a body
 can reach are the types written in it, the enclosing signatures, and the signatures of every
 declaration it references or given it may summon, repeated until nothing new is added (a fixed
 point). The implicit scope is the companions of those types' parts and of their supplied base
 classes, the objects those classes are members of, and what those objects extend (the notion D27
-already uses for a typed qualifier).
+already uses for a typed qualifier). Reading the names a type spells by Scala's scoping, without
+typing (below), is accepted by the owner as precise enough.
 
-**Derivation.** Scala inserts a conversion only from the scopes around the expression or the
+**Derivation.** Scala tries an extension of a selected name, and inserts a conversion, only from the scopes around the expression or the
 implicit scope of the types involved (the expression's type and the expected type). In well-typed
 code every inferred type is built from the signatures named above: an expression's type is a
 declaration's declared type, instantiated with types the body writes or infers in turn, and a least
 upper bound is a supertype of the branch types, whose companions are reached through their base
-classes. So the candidates of rule (2) contain every conversion of the implicit scope Scala
-searches, and rule (1) every one of the scopes around the body.
+classes. So the candidates of rule (2) contain every conversion and extension of the implicit
+scope Scala searches, and rule (1) every one of the scopes around the body.
 
 **Reading.** `expansion.Reachable` computes the fixed point per inline body, cached per target, and
-`InlineBodies` passes its scopes to the conversion candidates (`Conversions.visible`); an applied
-selection whose qualifier's own implicit scope is not read waits for the body's. It reads:
+`InlineBodies` passes its scopes to the conversion and extension candidates (`Conversions.visible`,
+`Conversions.extensionsOf`); an applied selection whose qualifier's own implicit scope is not read
+waits for the body's. It reads:
 
 - the types written in the body and in the signatures around it (methods, extension groups,
   templates' parents, constructor and type parameters), and each template around it;
@@ -2236,15 +2238,15 @@ a conversion an imported `object functor extends FunctorSyntax` brings is declar
 - **Executable**: `ConversionClosureSpec` (an inline conversion in an unrelated object's companion
   is no candidate, the body counting as its `def` twin, 2^(2^69); one in the companion of a type the
   body writes, reaches through a referenced member's declared type, through a given it may summon,
-  or through a given of a reached companion, or one imported, still refuses),
+  or through a given of a reached companion, or one imported, still refuses; likewise an inline
+  extension: unreached no candidate, 2^(2^37), reached through a signature or imported it refuses),
   `InlineScopesSpec.privateConversions`, `InlineScopesSpec.anchoredConversions`.
 - **Corpus**: eo-core's optics no longer meet specs2's `FileName.ToFileName` (a test library's
   companion on the build's classpath, which no eo signature reaches); 16 rows become counts, each
   derived by hand (the eo-closure report).
 
-**Boundary.** The rule narrows conversions only; an extension is still found as before (an applied
-selection whose qualifier's implicit scope is not read keeps every visible extension). Names are
-matched, not typed: a simple name collision in a reached scope brings that scope in, which can keep a
+**Boundary.** An extension local to a method around the body still keeps every candidate (no scope
+this reading resolves it in). Names are matched, not typed: a simple name collision in a reached scope brings that scope in, which can keep a
 candidate Scala would not consider (a refusal, never a wrong count). A given instance anywhere in the
 program is no longer a scope a body finds by itself: it is found when the scope declaring it is.
 
