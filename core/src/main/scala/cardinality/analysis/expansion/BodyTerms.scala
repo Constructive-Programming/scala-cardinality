@@ -1,16 +1,15 @@
 package cardinality.analysis.expansion
 
-import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
 import cardinality.analysis.{ClosedWorld, MethodAnalysis, Resolver, SourceIndex}
 import cardinality.types.Trees.ClassDefn
-import cardinality.types.{ListedNamespaces, Overrides, Spelling, TypeApplications}
+import cardinality.types.{ListedNamespaces, Memo, Overrides, Spelling, TypeApplications}
 
 import ClosedWorld.Overriding
-import MethodAnalysis.Frame
+import MethodAnalysis.{Frame, TypeEntry}
 
 /** A supplied definition a body may reach: the tree, and the frame of its own parameters, whose
   * parent is the scope that declares it.
@@ -37,6 +36,21 @@ private[expansion] enum Receiver {
     * parameter of the expanded method (spelled `via`), or `this` of a template a class may extend.
     */
   case Open(receiver: Receiver, via: String)
+}
+
+private[expansion] object Receiver {
+
+  /** The class a value of the receiver is: a template read as its own or as an argument's. */
+  object Owner {
+
+    def unapply(receiver: Receiver): Option[Frame] = receiver match {
+      case Receiver.Template(frame)                   => Some(frame)
+      case Receiver.Open(Receiver.Template(frame), _) => Some(frame)
+      case _                                          => None
+    }
+
+  }
+
 }
 
 /** What a term name or path denotes where an inline body reads it. */
@@ -107,20 +121,18 @@ final private[expansion] class BodyTerms(
     expanded: (String, Option[Either[String, Frame]]) => Option[String]
 ) {
 
-  private val ancestors = mutable.Map.empty[String, Either[String, List[Frame]]]
+  private val ancestors = new Memo[String, Either[String, List[Frame]]]
 
   /** The supplied ancestors of a template, nearest first, or why they are not read. */
   def levels(template: Frame): Either[String, List[Frame]] =
-    ancestors.getOrElseUpdate(
-      template.id, {
-        val walked =
-          InheritedScopes
-            .walk(List(template -> resolver.typeParameters(template)), resolver, template)
-        walked
-          .collectFirst { case Left(reason) => reason }
-          .toLeft(walked.flatMap(_.toOption).map(_.declared))
-      }
-    )
+    ancestors(template.id) {
+      val walked =
+        InheritedScopes
+          .walk(List(template -> resolver.typeParameters(template)), resolver, template)
+      walked
+        .collectFirst { case Left(reason) => reason }
+        .toLeft(walked.flatMap(_.toOption).map(_.declared))
+    }
 
   /** What a simple name means read at offset `at` inside `frame`. The parameters of an inline
     * method (and of its extension group) are its expansion's arguments, which may be of a subclass.
@@ -722,26 +734,32 @@ final private[expansion] class BodyTerms(
       seen: Set[String]
   ): Receiver = {
     val (found, context) = typeDeclaration(named, scope)
-    found match {
-      case Found.Entry(entry) =>
+    // An alias is the class its body names; one already being read names none.
+    def followed(entry: TypeEntry, alias: Defn.Type): Receiver =
+      if (seen(entry.key)) Receiver.Unread(entry.key)
+      else
+        classOf(
+          alias.body,
+          entry.owner,
+          variables ++ alias.tparamClause.values.map(_.name.value),
+          seen + entry.key
+        )
+    Denotation.of(found) match {
+      case Denotation.Source(entry) =>
         entry.tree match {
           case _: ClassDefn =>
             entry.self.map(Receiver.Template(_)).getOrElse(Receiver.Unread(entry.key))
-          case _: Defn.Type if OpaqueTypes.hidden(entry, scope) =>
-            Receiver.Unread(s"opaque type ${entry.key} outside its scope")
-          case alias: Defn.Type if !seen(entry.key) =>
-            classOf(
-              alias.body,
-              entry.owner,
-              variables ++ alias.tparamClause.values.map(_.name.value),
-              seen + entry.key
-            )
-          case _: Decl.Type => Receiver.Variable
-          case _            => Receiver.Unread(entry.key)
+          case _ => Receiver.Unread(entry.key)
         }
-      case Found.Absent =>
+      case Denotation.Opaque(entry, _) if OpaqueTypes.hidden(entry, scope) =>
+        Receiver.Unread(s"opaque type ${entry.key} outside its scope")
+      case Denotation.Opaque(entry, alias) => followed(entry, alias)
+      case Denotation.Alias(entry, alias)  => followed(entry, alias)
+      case Denotation.Abstract(_)          => Receiver.Variable
+      case Denotation.Unbound              =>
         resolver.builtin(named.syntax, context).fold(Receiver.Unread(_), Receiver.Library(_))
-      case failed: Found.Failed => Receiver.Unread(failed.reason)
+      case Denotation.Foreign(_, reason) => Receiver.Unread(reason)
+      case Denotation.Blocked(reason)    => Receiver.Unread(reason)
     }
   }
 

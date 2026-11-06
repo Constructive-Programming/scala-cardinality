@@ -1,14 +1,13 @@
 package cardinality.analysis.expansion
 
-import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
-import cardinality.analysis.resolution.Found
+import cardinality.analysis.resolution.{Denotation, Found}
 import cardinality.analysis.{Resolver, SourceIndex}
 import cardinality.types.Trees.{hasOpaque, ClassDefn, TemplateDefn}
-import cardinality.types.{Spelling, TypeApplications}
+import cardinality.types.{Memo, Spelling, TypeApplications}
 import cats.syntax.traverse.toTraverseOps
 
 /** The implicit conversions and extensions of the sources an inline body may meet (register D27).
@@ -135,12 +134,23 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   def anchored(qualifier: Option[Meaning]): Option[Set[String]] =
     qualifier
       .flatMap {
-        case Meaning.Value(Some(tpe), scope, _)                           => anchors(tpe, scope)
-        case Meaning.Instance(Receiver.Template(frame))                   => self(frame)
-        case Meaning.Instance(Receiver.Open(Receiver.Template(frame), _)) => self(frame)
-        case _                                                            => None
+        case Meaning.Instance(Receiver.Owner(frame)) => self(frame)
+        case Brought(templates)                      => templates
+        case _                                       => None
       }
       .flatMap(implicitScopes)
+
+  // The templates a value brings along: its declared type's anchors, or the template it is an
+  // instance of; None inside where the anchors are not known.
+  private object Brought {
+
+    def unapply(meaning: Meaning): Option[Option[List[Frame]]] = meaning match {
+      case Meaning.Value(Some(tpe), scope, _)         => Some(anchors(tpe, scope))
+      case Meaning.Instance(Receiver.Template(frame)) => Some(Some(List(frame)))
+      case _                                          => None
+    }
+
+  }
 
   // `this` of a template: the template, and its type parameters' bounds.
   private def self(frame: Frame): Option[List[Frame]] =
@@ -166,20 +176,18 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
         typeParam(name, scope).flatMap((param, owner) => bounds(param, owner, seen))
       case _ =>
         val (found, context) = terms.typeDeclaration(named, scope)
-        found match {
-          case Found.Entry(entry) =>
+        Denotation.of(found) match {
+          case Denotation.Alias(entry, alias)
+              if alias.tparamClause.values.isEmpty && !seen(entry.key) =>
+            anchors(alias.body, entry.owner, seen + entry.key)
+          case Denotation.Source(entry) =>
             entry.tree match {
-              case _: TemplateDefn =>
-                entry.self.map(List(_))
-              case alias: Defn.Type
-                  if !alias.mods.hasOpaque && alias.tparamClause.values.isEmpty &&
-                    !seen(entry.key) =>
-                anchors(alias.body, entry.owner, seen + entry.key)
-              case _ => None
+              case _: TemplateDefn => entry.self.map(List(_))
+              case _               => None
             }
-          case Found.Foreign(_, _) => Some(Nil)
-          case Found.Absent        => resolver.builtin(named.syntax, context).toOption.map(_ => Nil)
-          case _                   => None
+          case Denotation.Foreign(_, _) => Some(Nil)
+          case Denotation.Unbound => resolver.builtin(named.syntax, context).toOption.map(_ => Nil)
+          case _                  => None
         }
     }
 
@@ -416,19 +424,17 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       case _            => false
     } && lexicalBases(frame).forall(_(scope.id))
 
-  private val lexical = mutable.Map.empty[String, Option[Set[String]]]
+  private val lexical = new Memo[String, Option[Set[String]]]
 
   private def lexicalBases(frame: Frame): Option[Set[String]] =
-    lexical.getOrElseUpdate(
-      frame.id, {
-        val importers =
-          (frame.chain.flatMap(_.stats) ++ local(frame)).collect { case i: Import => i.importers }
-        all(importers.flatten)(importedTemplates(_, frame))
-          .map(frame.chain.filter(_.isTemplate) ++ _)
-          .flatMap(all(_)(t => terms.levels(t).toOption.map(t :: _)))
-          .map(_.map(_.id).toSet)
-      }
-    )
+    lexical(frame.id) {
+      val importers =
+        (frame.chain.flatMap(_.stats) ++ local(frame)).collect { case i: Import => i.importers }
+      all(importers.flatten)(importedTemplates(_, frame))
+        .map(frame.chain.filter(_.isTemplate) ++ _)
+        .flatMap(all(_)(t => terms.levels(t).toOption.map(t :: _)))
+        .map(_.map(_.id).toSet)
+    }
 
   // The templates an import clause names; the type of a value it names.
   private def importedTemplates(importer: Importer, frame: Frame): Option[List[Frame]] =
@@ -439,8 +445,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
             rest.foldLeft(terms.named(head, frame, importer.pos.start))(terms.select) match {
               case _: (Meaning.Package | Meaning.Library) => Some(Nil)
               case Meaning.Module(module)                 => Some(List(module))
-              case Meaning.Value(Some(tpe), scope, _)     => anchors(tpe, scope)
-              case Meaning.Instance(Receiver.Template(t)) => Some(List(t))
+              case Brought(templates)                     => templates
               case _                                      => None
             }
           case Nil => None

@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.MemberSyntax
 import cardinality.tasty.TastyStubs
-import cardinality.types.Trees.{hasFinal, hasOpaque, TemplateDefn}
+import cardinality.types.Trees.{hasFinal, hasOpaque, isClosedWorld, TemplateDefn}
 import cardinality.types.{Overrides, TypeApplications, TypeName}
 
 /** The closed world (docs/plans/v1.md §2): the supplied sources and dependency declarations are the
@@ -217,7 +217,7 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
   def insertions(source: Source): List[(Int, String)] =
     source.collect {
       case c: Defn.Class
-          if open(c.mods) && !abstractMembers(c.templ) &&
+          if !c.mods.exists(_.isClosedWorld) && !abstractMembers(c.templ) &&
             !extended(c.name.value) =>
         at(c, c.mods).toList
       case c: Defn.Class if !c.mods.hasFinal => members(c.name.value, c.templ)
@@ -319,16 +319,10 @@ private[cardinality] object ClosedWorld {
     }
   }
 
-  // A modifier list a closing `final` may join: none already fixes, seals or abstracts it.
-  private def open(mods: List[Mod]): Boolean =
-    !mods.exists(m =>
-      m.is[Mod.Final] || m.is[Mod.Sealed] || m.is[Mod.Open] || m.is[Mod.Abstract] ||
-        m.is[Mod.Inline]
-    )
-
-  // A member's: a private one is not inherited, so nothing overrides it either.
+  // A member a closing `final` may join: no modifier settles it, and it is not private (a private
+  // one is not inherited, so nothing overrides it either).
   private def openMember(mods: List[Mod]): Boolean =
-    open(mods) && !Overrides.unqualifiedPrivate(mods)
+    !mods.exists(_.isClosedWorld) && !Overrides.unqualifiedPrivate(mods)
 
   // Parents outside the sources whose members the library fixes: markers with none, and the
   // members `Product` and `Equals` declare.

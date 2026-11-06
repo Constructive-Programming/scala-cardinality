@@ -8,7 +8,6 @@ import cardinality.analysis.model.Operator.Closure
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.types.Traversals
-import cardinality.types.Trees.hasOpaque
 
 import MethodAnalysis.{Frame, TypeEntry}
 import OverrideIdentity.{aliasFrame, depthLens, known, lexical, Bindings, Key, Side, Spelled}
@@ -20,42 +19,6 @@ import OverrideIdentity.{aliasFrame, depthLens, known, lexical, Bindings, Key, S
   * the key override identity compares (`Overrides`).
   */
 private[cardinality] object TypeIdentities {
-
-  /** What a resolved type name denotes as an identity. */
-  private enum Denotation {
-
-    /** A supplied class, trait, enum or other declaration: its own identity. */
-    case Source(entry: TypeEntry)
-
-    /** An opaque type: its own nominal identity, never its representation. */
-    case Opaque(entry: TypeEntry)
-
-    /** A transparent alias: its body, read where it is declared. */
-    case Alias(entry: TypeEntry, declaration: Defn.Type)
-
-    /** An abstract type member: not known. */
-    case Abstract
-
-    /** A name nothing supplied binds: the canonical builtin it spells. */
-    case Builtin(canonical: String)
-
-    /** A name an import binds to a path outside the sources. */
-    case Foreign(path: String)
-  }
-
-  // A blocked name, or one nothing binds and no builtin spells, denotes nothing known.
-  private def denotation(found: Found, name: String): Option[Denotation] = found match {
-    case Found.Entry(entry) =>
-      entry.tree match {
-        case d: Defn.Type if d.mods.hasOpaque => Some(Denotation.Opaque(entry))
-        case d: Defn.Type                     => Some(Denotation.Alias(entry, d))
-        case _: Decl.Type                     => Some(Denotation.Abstract)
-        case _                                => Some(Denotation.Source(entry))
-      }
-    case Found.Foreign(path, _) => Some(Denotation.Foreign(path))
-    case Found.Absent           => BuiltinTypes.canonical(name).map(Denotation.Builtin(_))
-    case _                      => None
-  }
 
   // An alias body's scope: where it is declared, with `id` entered against a cycle.
   private def declarationScope(
@@ -170,7 +133,7 @@ private[cardinality] object TypeIdentities {
 
   private def named(written: WrittenType, name: String): Option[String] = {
     val WrittenType(_, context, resolver) = written
-    denotation(resolver.declaration(written.tpe, name, context), name).flatMap {
+    Denotation.of(resolver.declaration(written.tpe, name, context)) match {
       // A plain alias without parameters is the type it names, read where it is declared.
       case Denotation.Alias(entry, d) =>
         val k = key(entry)
@@ -179,11 +142,11 @@ private[cardinality] object TypeIdentities {
             declarationScope(entry, context, resolver, k)
           )
           .flatMap(scope => of(WrittenType(d.body, scope, resolver)))
-      case Denotation.Source(entry) => Some(key(entry))
-      case Denotation.Opaque(entry) => Some(key(entry))
+      case Denotation.Source(entry)    => Some(key(entry))
+      case Denotation.Opaque(entry, _) => Some(key(entry))
       // One key per declaration: `Either` and `scala.util.Either` are the model's one entry.
-      case Denotation.Builtin(canonical)               => Some(canonical)
-      case Denotation.Abstract | Denotation.Foreign(_) => None
+      case Denotation.Unbound => BuiltinTypes.canonical(name)
+      case _                  => None
     }
   }
 
@@ -313,15 +276,15 @@ private[cardinality] object TypeIdentities {
     private def declared(written: Type, args: List[Type], side: Side): Key = {
       val name = spelled(written)
       val at = side.context.referencing(written)
-      denotation(resolver.resolveName(name, at), name) match {
-        case Some(Denotation.Source(entry))      => applied(known(sourceKey(entry)), args, side)
-        case Some(Denotation.Alias(entry, body)) => alias(entry, body, args, side)
-        case Some(Denotation.Opaque(entry))      =>
+      Denotation.of(resolver.resolveName(name, at)) match {
+        case Denotation.Source(entry)      => applied(known(sourceKey(entry)), args, side)
+        case Denotation.Alias(entry, body) => alias(entry, body, args, side)
+        case Denotation.Opaque(entry, _)   =>
           applied(Some(Spelled(s"opaque:${sourceKey(entry)}", tentative = true)), args, side)
-        case Some(Denotation.Foreign(path)) =>
+        case Denotation.Foreign(path, _) =>
           applied(Some(Spelled(s"foreign:$path", tentative = true)), args, side)
-        case Some(Denotation.Builtin(canonical)) if resolver.rootShadow(name, at).isEmpty =>
-          applied(known(s"builtin:$canonical"), args, side)
+        case Denotation.Unbound if resolver.rootShadow(name, at).isEmpty =>
+          BuiltinTypes.canonical(name).flatMap(c => applied(known(s"builtin:$c"), args, side))
         case _ => None
       }
     }

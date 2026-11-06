@@ -35,6 +35,19 @@ private[cardinality] object Trees {
     def hasOpaque: Boolean = mods.exists(_.is[Mod.Opaque])
   }
 
+  extension (mod: Mod) {
+
+    /** Whether the modifier already settles a template or member for the closed world: `final`,
+      * `sealed`, `open`, `abstract` or `inline`, so no closing `final` joins it.
+      */
+    def isClosedWorld: Boolean =
+      mod.is[Mod.Final] || mod.is[Mod.Sealed] || mod.is[Mod.Open] || mod.is[Mod.Abstract] ||
+        mod.is[Mod.Inline]
+
+    /** Whether the modifier closes a field to a subclass: `final` or any `private`. */
+    def isClosedType: Boolean = mod.is[Mod.Final] || mod.is[Mod.Private]
+  }
+
   /** The source a tree is part of. */
   @tailrec
   def root(tree: Tree): Tree = tree.parent match {

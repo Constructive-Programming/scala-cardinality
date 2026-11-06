@@ -44,7 +44,8 @@ final private[expansion] class RestatedExtensions(terms: BodyTerms, resolver: Re
 
   private def members(call: Call): List[(Frame, Defn.Def)] =
     (call.meaning, call.receiver()) match {
-      case (Meaning.Methods(definitions), Owner(template)) if resolver.fixedTemplate(template) =>
+      case (Meaning.Methods(definitions), Receiver.Owner(template))
+          if resolver.fixedTemplate(template) =>
         definitions.collect {
           case Definition(d: Defn.Def, _)
               if template.stats.exists(_ eq d) && !d.mods.exists(MemberSyntax.restricted) &&
@@ -53,17 +54,6 @@ final private[expansion] class RestatedExtensions(terms: BodyTerms, resolver: Re
         }
       case _ => Nil
     }
-
-  // The class a value of the receiver is: a final one, read as its own or as an argument's.
-  private object Owner {
-
-    def unapply(receiver: Receiver): Option[Frame] = receiver match {
-      case Receiver.Template(frame)                   => Some(frame)
-      case Receiver.Open(Receiver.Template(frame), _) => Some(frame)
-      case _                                          => None
-    }
-
-  }
 
   // A method's one value clause, with no binder, default, repeated or contextual parameter.
   private def plain(method: Defn.Def | Decl.Def): Option[List[Term.Param]] =

@@ -7,7 +7,7 @@ import cardinality.analysis.MethodAnalysis.{Frame, Resolved, TypeEntry}
 import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberPath, ResolutionContext}
-import cardinality.types.Trees.hasOpaque
+import cardinality.types.Trees.{hasOpaque, isClosedType}
 import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
 
 import TemplateClosures.Closure
@@ -719,17 +719,15 @@ private[cardinality] object TypeMembers {
   // A field a subclass may override: a `val` parameter or member that is neither final nor private.
   private def openField(owner: Frame, name: String): Boolean =
     owner.params.find(_.name.value == name) match {
-      case Some(p) => p.mods.exists(_.is[Mod.ValParam]) && open(p.mods)
+      case Some(p) => p.mods.exists(_.is[Mod.ValParam]) && !p.mods.exists(_.isClosedType)
       case None    =>
         owner.stats.exists {
-          case d: Defn.Val => TypeApplications.boundNames(d.pats).contains(name) && open(d.mods)
-          case d: Decl.Val => TypeApplications.binds(name, d.pats) && open(d.mods)
+          case d: Defn.Val =>
+            TypeApplications.boundNames(d.pats).contains(name) && !d.mods.exists(_.isClosedType)
+          case d: Decl.Val => TypeApplications.binds(name, d.pats) && !d.mods.exists(_.isClosedType)
           case _           => false
         }
     }
-
-  private def open(mods: List[Mod]): Boolean =
-    !mods.exists(m => m.is[Mod.Final] || m.is[Mod.Private])
 
   private def hidden(tree: Tree): Boolean = tree match {
     case d: Stat.WithMods => d.mods.exists(_.is[Mod.Private])
