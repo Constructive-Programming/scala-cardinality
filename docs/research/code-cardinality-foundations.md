@@ -2191,7 +2191,9 @@ or a pattern binder is not. Observation is read syntactically too: a member ment
 name observes it, a parameter or local of the same name included. The stored-value side reads only
 the factories of the class's companion and body, and keeps the fields' product for a class with
 type parameters; a value row still notes a private constructor's construction as unread
-(`Builds`).
+(`Builds`). A compiled dependency's factory (its stub body `compiledBodyNotRead`) is no body read
+as no construction: the dependency's code is not supplied, so its space is not known (counting it
+1 made `scala.meta.Dialect`, built by many dependency factories, one value).
 ## D43. A conversion is a candidate only where the body may find it
 
 **Decision** (owner decision, adopted idealization; v1.md §2). A conversion counts as a candidate
