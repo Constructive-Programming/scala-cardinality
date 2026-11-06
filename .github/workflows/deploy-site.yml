@@ -71,12 +71,12 @@ jobs:
         if: steps.cloudflare.outputs.ready == 'true'
         uses: sbt/setup-sbt@v1
 
-      - name: Setup Java (temurin 21)
+      - name: Setup Java (temurin 25)
         if: steps.cloudflare.outputs.ready == 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: sbt
 
       - name: Render the site

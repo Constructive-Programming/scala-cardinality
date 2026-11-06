@@ -254,7 +254,8 @@ inside sbt, and Scala 3 binary compatibility is backward only.
 
 ## Reports
 
-The plugin is on Maven Central for sbt 2; add it to `project/plugins.sbt`:
+The plugin is on Maven Central for sbt 2, running on JDK 25 or later (its `kyo` dependency is
+built for Java 25); add it to `project/plugins.sbt`:
 
 ```scala
 addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.1")

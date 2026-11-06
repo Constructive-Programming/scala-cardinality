@@ -43,11 +43,11 @@ jobs:
       - name: Setup sbt
         uses: sbt/setup-sbt@v1
 
-      - name: Setup Java (temurin 21)
+      - name: Setup Java (temurin 25)
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: sbt
 
       # `mutationAll` = stryker, configured from stryker4s.conf. A low score is
