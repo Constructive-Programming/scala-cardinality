@@ -93,9 +93,7 @@ private[cardinality] object ConstrainedReceivers {
     }
 
   private def closed(tpe: Type, resolve: Type => Resolved): Option[Card] =
-    resolve(tpe).toOption
-      .filter(ClosedSpaces.closed)
-      .flatMap(shape => Natural.attempt(ClosedSpaces.space(shape)).toOption)
+    resolve(tpe).toOption.flatMap(ClosedSpaces.count)
 
   // Magnitudes: ω above every exact count, a literal below every symbolic one (each at least
   // 2^65536), two symbolic ones only when they are the same.

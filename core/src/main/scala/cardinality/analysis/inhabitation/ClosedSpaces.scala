@@ -28,6 +28,13 @@ private[cardinality] object ClosedSpaces {
     */
   def space(shape: Shape): Card = exact.get(shape)
 
+  /** A closed shape's value space, or why its arithmetic exceeds what is computed. */
+  def counted(shape: Shape): Either[String, Card] = Natural.attempt(space(shape))
+
+  /** A shape's value space, when it is closed and its arithmetic is computed. */
+  def count(shape: Shape): Option[Card] =
+    Option.when(closed(shape))(counted(shape).toOption).flatten
+
   /** The size algebra's reading of a closed shape — the tier the stored-value estimate gives the
     * same type when it can read it: `ω^ω` is `ε₀` there, while the solver's finite programs
     * saturate it at ω. Used only where the estimate could not read the position itself.

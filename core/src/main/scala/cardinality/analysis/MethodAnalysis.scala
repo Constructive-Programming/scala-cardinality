@@ -96,6 +96,10 @@ object MethodAnalysis {
     /** Whether the frame is a class, trait, object, enum or given body. */
     def isTemplate: Boolean = tree.exists(TypeApplications.template(_).nonEmpty)
 
+    /** Whether a type name is a type parameter of this frame or a frame around it. */
+    def bindsTypeParam(name: String): Boolean =
+      chain.exists(_.typeParams.exists(_.name.value == name))
+
     /** Whether the frame is an object's body. */
     def isObject: Boolean = tree.exists(_.is[Defn.Object])
 

@@ -2,7 +2,7 @@ package cardinality.analysis
 
 import scala.meta.*
 
-import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
+import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation}
 import cardinality.types.Trees.hasSealed
 
 import Inhabitation.{Count, Shape}
@@ -67,16 +67,11 @@ final private[cardinality] class SealedReceivers(
   private def stands(goal: Shape, count: Count): Boolean = count match {
     case Count.Unresolved(_) => true
     case _                   =>
-      values(goal).exists { space =>
+      ClosedSpaces.count(goal).exists { space =>
         space.isOne ||
         (space == Card.Omega && count == Count.Countable && families.forall(inhabited))
       }
   }
-
-  private def values(goal: Shape): Option[Card] =
-    Option
-      .when(ClosedSpaces.closed(goal))(Natural.attempt(ClosedSpaces.space(goal)).toOption)
-      .flatten
 
   // An enum is inhabited when one of its cases is built from nothing: a singleton case, or one
   // whose fields are closed and nonempty.
@@ -93,7 +88,7 @@ final private[cardinality] class SealedReceivers(
   private def built(family: Frame)(field: Term.Param): Boolean =
     field.decltpe
       .flatMap(tpe => resolver.resolve(tpe, family, resolver.typeParameters(family)).toOption)
-      .flatMap(values)
+      .flatMap(ClosedSpaces.count)
       .exists(!_.isZero)
 
 }

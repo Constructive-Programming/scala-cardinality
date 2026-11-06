@@ -327,7 +327,7 @@ final private[expansion] class BodyWalk(
           first.frame.parent.getOrElse(first.frame),
           first.frame.typeParams.map(_.name.value).toSet
         )
-      case _ => Receiver.Unread(s"the result of ${definitions.headOption.fold("a method")(_.name)}")
+      case _ => Receiver.Unread(s"the result of ${Definition.named(definitions)}")
     }
 
   // A supplied method a call selects: inline ones must pass themselves; none may take or return a
@@ -408,9 +408,7 @@ final private[expansion] class BodyWalk(
   private def polyBound(tpe: Type, declared: Frame, scope: Scope): Boolean =
     TypeSubstitution
       .typeNames(tpe)
-      .exists(name =>
-        scope.variables(name) && !declared.chain.exists(_.typeParams.exists(_.name.value == name))
-      )
+      .exists(name => scope.variables(name) && !declared.bindsTypeParam(name))
 
   private def companion(tree: ClassDefn): Meaning = tree match {
     case c: Defn.Class if c.mods.exists(_.is[Mod.Case]) => Meaning.Companion(c)

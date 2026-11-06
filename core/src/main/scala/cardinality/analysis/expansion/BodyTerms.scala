@@ -19,6 +19,13 @@ final private[expansion] case class Definition(tree: Tree, frame: Frame) {
   def name: String = frame.path.lastOption.getOrElse("")
 }
 
+private[expansion] object Definition {
+
+  /** How a reason names the method an overload set selects: its first definition. */
+  def named(definitions: List[Definition]): String = definitions.headOption.fold("a method")(_.name)
+
+}
+
 /** The instances a value may be, as far as its members go. */
 private[expansion] enum Receiver {
   case Template(frame: Frame)
@@ -67,7 +74,7 @@ private[expansion] enum Meaning {
     case Value(tpe, _, via) =>
       via.orElse(tpe.map(t => s"a value of ${Spelling.of(t)}")).getOrElse("a value")
     case Instance(_)     => "a value"
-    case Methods(ds)     => s"the result of ${ds.headOption.fold("a method")(_.name)}"
+    case Methods(ds)     => s"the result of ${Definition.named(ds)}"
     case Module(frame)   => s"object ${frame.path.mkString(".")}"
     case Companion(tree) =>
       s"the companion of ${MemberSyntax.templateName(tree).getOrElse("a class")}"
@@ -564,7 +571,7 @@ final private[expansion] class BodyTerms(
     case Meaning.Instance(receiver)   => selectOn(receiver, name)
     case Meaning.Methods(definitions) =>
       Meaning.Refused(
-        s"selects $name on the result of ${definitions.headOption.fold("a method")(_.name)}, not read"
+        s"selects $name on the result of ${Definition.named(definitions)}, not read"
       )
     case c: Meaning.Call          => selectOn(unapplied(c), name)
     case _: Meaning.CompileTime   => meaning
@@ -697,14 +704,10 @@ final private[expansion] class BodyTerms(
       case Type.Tuple(args) if args.forall(!_.is[Type.TypedParam]) =>
         Receiver.Library(s"Tuple${args.size}")
       case a: Type.Apply => classOf(a.tpe, scope, variables, seen)
-      case Type.Name(name) if variables(name) || variable(name, scope) => Receiver.Variable
+      case Type.Name(name) if variables(name) || scope.bindsTypeParam(name) => Receiver.Variable
       case named @ (_: Type.Name | _: Type.Select) => declaredClass(named, scope, variables, seen)
       case other                                   => Receiver.Unread(Spelling.of(other))
     }
-
-  // Whether a type name is a type parameter of a scope around `scope`.
-  private def variable(name: String, scope: Frame): Boolean =
-    scope.chain.exists(_.typeParams.exists(_.name.value == name))
 
   /** What a type name written in `scope` denotes there, and the context it is read in. */
   def typeDeclaration(named: Type, scope: Frame): (Found, ResolutionContext) = {

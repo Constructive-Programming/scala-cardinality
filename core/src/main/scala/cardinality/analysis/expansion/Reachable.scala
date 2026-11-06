@@ -42,8 +42,6 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
   private lazy val templates: Map[String, List[Frame]] =
     all.filter(_.isTemplate).groupBy(_.name.getOrElse(""))
 
-  private lazy val objects: Map[List[String], List[Frame]] = all.filter(_.isObject).groupBy(_.path)
-
   private lazy val typeMembers: Map[String, List[(Stat, Frame)]] =
     all
       .flatMap(scope =>
@@ -462,7 +460,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
       owner.fold(templates.getOrElse(n, Nil).filter(_.isObject).foreach(reach))(sameNamed(_, n))
 
     private def sameNamed(owner: Frame, n: String): Unit =
-      objects.getOrElse(owner.path :+ n, Nil).foreach(reach)
+      conversions.implicitScope.objects.getOrElse(owner.path :+ n, Nil).foreach(reach)
 
     // A value whose singleton type the closure spells: an object of that name, or the declared
     // type of a member value of it (a parameter's type is spelled in its own signature).
@@ -474,8 +472,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
     private def template(found: Frame): Unit = {
       found.parents.foreach(init => spell(init.tpe))
       found.typeParams.foreach(p => spell(p.bounds))
-      objects.getOrElse(found.path, Nil).foreach(reach)
-      found.chain.drop(1).filter(_.isObject).foreach(reach)
+      conversions.implicitScope.of(found).foreach(reach)
     }
 
     // An implicit of a scope found is a given the body may summon; a member of a name it selects

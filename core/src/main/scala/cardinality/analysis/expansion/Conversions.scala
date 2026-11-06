@@ -35,6 +35,9 @@ import cats.syntax.traverse.toTraverseOps
   */
 final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms) {
 
+  /** The objects each template brings into an implicit scope. */
+  val implicitScope = new ImplicitScope(resolver)
+
   /** A conversion a reason names, whether it is expanded where it is inserted, its scope, and the
     * inline method or given alias it expands, where it is one.
     */
@@ -192,8 +195,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   // of, with every template those objects extend.
   private def implicitScopes(anchors: List[Frame]): Option[Set[String]] =
     all(anchors)(baseFrames).flatMap { bases =>
-      val objects =
-        bases.flatMap(b => companions.getOrElse(b.path, Nil) ++ b.chain.drop(1).filter(_.isObject))
+      val objects = bases.flatMap(implicitScope.of)
       all(objects.distinct)(baseFrames).map(inherited => (objects ++ inherited).map(_.id).toSet)
     }
 
@@ -204,9 +206,6 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   }
 
   private lazy val byId: Map[String, Frame] = resolver.memberScopes.map(f => f.id -> f).toMap
-
-  private lazy val companions: Map[List[String], List[Frame]] =
-    resolver.memberScopes.filter(_.isObject).groupBy(_.path)
 
   private def all[A, B](items: List[A])(f: A => Option[List[B]]): Option[List[B]] =
     items.flatTraverse(f)

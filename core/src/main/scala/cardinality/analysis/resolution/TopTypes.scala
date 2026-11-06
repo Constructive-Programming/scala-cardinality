@@ -3,7 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis
-import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
+import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation}
 import cardinality.analysis.model.*
 import cardinality.types.{TypeApplications, TypeSubstitution, Universe}
 import dev.constructive.eo.optics.Plated
@@ -186,7 +186,7 @@ private[cardinality] object TopTypes {
     case Shape.Product(fields)                             => fields.forall(terminalGoal)
     case Shape.Function(_, result) if terminalGoal(result) => true
     case other                                             =>
-      ClosedSpaces.closed(other) && Natural.attempt(ClosedSpaces.space(other)).exists(_.isOne)
+      ClosedSpaces.count(other).exists(_.isOne)
   }
 
   /** Whether a constructor position is the method side's alone to read: a top type or `Null` behind

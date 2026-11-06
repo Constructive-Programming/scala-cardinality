@@ -155,9 +155,7 @@ final private[cardinality] class ConstructorPositions(
     // A value space the estimate is not asked about, or cannot read.
     def unestimated = Refused(s"constructor position has no value-space reading: $name")
     def closedSpace(shape: Shape) =
-      Natural
-        .attempt(ClosedSpaces.space(shape))
-        .fold(Refused(_), closedPosition(name, shape, _, estimate))
+      ClosedSpaces.counted(shape).fold(Refused(_), closedPosition(name, shape, _, estimate))
     shaped match {
       case Right(shape) if ClosedSpaces.closed(shape) => closedSpace(shape)
       case Right(shape) if ClosedSpaces.mixed(shape)  =>

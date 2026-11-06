@@ -93,7 +93,7 @@ final private[expansion] class RestatedExtensions(terms: BodyTerms, resolver: Re
       .filterNot {
         case Type.Name(name) =>
           binders(e)
-            .contains(name) || e.scope.chain.exists(_.typeParams.exists(_.name.value == name))
+            .contains(name) || e.scope.bindsTypeParam(name)
         case _ => false
       }
       .flatMap(classOf(_, e.scope))
