@@ -17,13 +17,12 @@ import cardinality.types.{Traversals, TypeApplications}
 
 import MemberSyntax.Observation
 import Inhabitation.{Binding, Count, Shape}
+import Measurement.SlotValue
 import MethodAnalysis.{Entry, Frame, Resolved, Target}
 
 /** One signature's environment: the bindings visible from its frame, the diagnostics that make that
   * environment incomplete, and the count the two admit.
   */
-import Measurement.SlotValue
-
 final private[cardinality] class Measurement(
     target: Target,
     resolver: Resolver,
