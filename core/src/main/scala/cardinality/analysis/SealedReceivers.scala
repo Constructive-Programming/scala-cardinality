@@ -3,7 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation}
-import cardinality.types.Trees.hasSealed
+import cardinality.types.Trees.{hasSealed, parameters}
 
 import Inhabitation.{Count, Shape}
 import MethodAnalysis.{Frame, Target}
@@ -79,7 +79,7 @@ final private[cardinality] class SealedReceivers(
     case d: Defn.Enum =>
       d.templ.body.stats.exists {
         case _: Defn.RepeatedEnumCase => true
-        case c: Defn.EnumCase         => c.ctor.paramClauses.flatMap(_.values).forall(built(family))
+        case c: Defn.EnumCase         => c.ctor.parameters.forall(built(family))
         case _                        => false
       }
     case _ => false

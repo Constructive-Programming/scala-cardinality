@@ -4,9 +4,9 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.meta.*
 
-import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
+import cardinality.analysis.model.{Anchor, ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
-import cardinality.types.Trees.hasOpaque
+import cardinality.types.Trees.{hasOpaque, hasPrivate}
 import cardinality.types.{Memo, Spelling, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
@@ -42,7 +42,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
 
   // A name's meaning at one reference: a member reading and a type reading both ask for it.
   private val located =
-    new Memo[(String, String, Option[(String, Int)], String), Option[Location]]
+    new Memo[(String, String, Option[Anchor], String), Option[Location]]
 
   /** The inherited member a simple name means at the context's reference, with its declaring
     * scope's type environment, or why that meaning is not known; None when a nearer declaration or
@@ -60,31 +60,34 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
       located((name, context.frame.id, context.at, context.useSite.id))(scan(name, context))
 
   private def scan(name: String, context: ResolutionContext): Option[Location] =
-    context.at.flatMap { (file, position) =>
-      // Inner frames first. Past a body with an unread parent, only a declaration of an
-      // enclosing class, object, method or block keeps its meaning.
-      @tailrec
-      def walk(chain: List[Frame], unread: Option[String]): Option[Location] =
-        chain match {
-          case Nil                                 => unread.map(Left(_))
-          case frame :: _ if declares(frame, name) =>
-            unread.filter(_ => lookup.isPackage(frame)).map(Left(_))
-          case frame :: outer if inBody(frame, file, position) =>
-            val ancestry = ancestryOf(frame)
-            val inherited =
-              if (ancestry.names(name)) member(frame, name, context.useSite) else None
-            (inherited, unread) match {
-              case (Some(found), None)     => Some(Right(frame -> found))
-              case (Some(_), Some(reason)) => Some(Left(reason))
-              case (None, _)               =>
-                walk(
-                  outer,
-                  unread.orElse(unreadReason(name, ancestry, exportsName(_, name), MemberKind.Type))
-                )
-            }
-          case _ :: outer => walk(outer, unread)
-        }
-      walk(context.frame.chain, None)
+    context.at.flatMap {
+      case Anchor(file, position) =>
+        // Inner frames first. Past a body with an unread parent, only a declaration of an
+        // enclosing class, object, method or block keeps its meaning.
+        @tailrec
+        def walk(chain: List[Frame], unread: Option[String]): Option[Location] =
+          chain match {
+            case Nil                                 => unread.map(Left(_))
+            case frame :: _ if declares(frame, name) =>
+              unread.filter(_ => lookup.isPackage(frame)).map(Left(_))
+            case frame :: outer if inBody(frame, file, position) =>
+              val ancestry = ancestryOf(frame)
+              val inherited =
+                if (ancestry.names(name)) member(frame, name, context.useSite) else None
+              (inherited, unread) match {
+                case (Some(found), None)     => Some(Right(frame -> found))
+                case (Some(_), Some(reason)) => Some(Left(reason))
+                case (None, _)               =>
+                  walk(
+                    outer,
+                    unread.orElse(
+                      unreadReason(name, ancestry, exportsName(_, name), MemberKind.Type)
+                    )
+                  )
+              }
+            case _ :: outer => walk(outer, unread)
+          }
+        walk(context.frame.chain, None)
     }
 
   /** The parents of a template's supplied ancestry that are outside the source set, as spelled. */
@@ -259,7 +262,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
     val name = InheritedScopes.typeName(init.tpe)
     val outer = from.parent.getOrElse(from)
     val context =
-      ResolutionContext(outer, Map.empty, Set.empty, at = Some(from.input -> init.pos.start))
+      ResolutionContext(outer, Map.empty, Set.empty, at = Some(Anchor(from.input, init.pos.start)))
     find(name, context) match {
       case Some(found) => found.map(Located.Supplied(_))
       case None        =>
@@ -384,7 +387,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
     * reaches.
     */
   def visible(tree: Tree, owner: Frame, useSite: Frame): Boolean = tree match {
-    case d: Stat.WithMods if d.mods.exists(_.is[Mod.Private]) =>
+    case d: Stat.WithMods if d.mods.hasPrivate =>
       resolver.accessible(d, owner, useSite)
     case _ => true
   }

@@ -4,6 +4,7 @@ import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms, UniversalMembers}
+import cardinality.types.Graphs
 
 /** Which concrete members of a receiver are views of the measured declaration (capabilities C6).
   *
@@ -177,16 +178,15 @@ private[cardinality] object TargetViews {
     val bySlot = nodes.indices.groupBy(nodes(_)._1)
     def at(views: Vector[View])(slot: Int): Seq[View] =
       bySlot.getOrElse(slot, Nil).map(views(_))
-    @scala.annotation.tailrec
-    def settle(views: Vector[View]): Vector[View] = {
-      val next = nodes.zipWithIndex.map {
-        case ((_, read), index) =>
-          val found = view(read, target, at(views))
-          if (found.ordinal > views(index).ordinal) found else views(index)
-      }.toVector
-      if (next == views) views else settle(next)
-    }
-    settle(Vector.fill(nodes.size)(View.Free)).toList
+    Graphs
+      .fixpoint(Vector.fill(nodes.size)(View.Free)) { views =>
+        nodes.zipWithIndex.map {
+          case ((_, read), index) =>
+            val found = view(read, target, at(views))
+            if (found.ordinal > views(index).ordinal) found else views(index)
+        }.toVector
+      }
+      .toList
   }
 
   private def view(read: Reads, target: Int, views: Int => Seq[View]): View = {

@@ -4,6 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.{ScopeTerms, UniversalMembers}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
+import cardinality.types.Trees.hasCase
 import cardinality.types.{Overrides, Spelling}
 
 import MethodAnalysis.Frame
@@ -84,7 +85,7 @@ private[cardinality] object InheritedTerms {
 
   private def caseLike(tree: Tree): Boolean = tree match {
     case _: Defn.Enum        => true
-    case stat: Stat.WithMods => stat.mods.exists(_.is[Mod.Case])
+    case stat: Stat.WithMods => stat.mods.hasCase
     case _                   => false
   }
 

@@ -2,10 +2,10 @@ package cardinality.analysis.expansion
 
 import scala.meta.*
 
-import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
+import cardinality.analysis.model.{Anchor, MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
 import cardinality.analysis.{ClosedWorld, MethodAnalysis, Resolver, SourceIndex}
-import cardinality.types.Trees.ClassDefn
+import cardinality.types.Trees.{hasCase, ClassDefn}
 import cardinality.types.{ListedNamespaces, Overrides, Spelling, TypeApplications}
 
 import ClosedWorld.Overriding
@@ -339,8 +339,8 @@ final private[expansion] class BodyTerms(
         List(method(d, MemberSyntax.groups(d), scope))
       case v @ Valued(_, _, _) if MemberSyntax.defined(v).contains(name) =>
         List(valueOf(v, scope))
-      case o: Defn.Object if o.name.value == name => List(module(scope, name))
-      case c: Defn.Class if c.name.value == name && c.mods.exists(_.is[Mod.Case]) =>
+      case o: Defn.Object if o.name.value == name                  => List(module(scope, name))
+      case c: Defn.Class if c.name.value == name && c.mods.hasCase =>
         List(Meaning.Companion(c))
       case e: Defn.Enum if e.name.value == name  => List(Meaning.Companion(e))
       case g: Defn.Given if g.name.value == name => List(Meaning.Value(None, scope))
@@ -548,7 +548,7 @@ final private[expansion] class BodyTerms(
 
   /** A context reading names at `offset` of `frame`'s source. */
   def at(frame: Frame, offset: Int): ResolutionContext =
-    ResolutionContext(frame, Map.empty, Set.empty, at = Some(frame.input -> offset))
+    ResolutionContext(frame, Map.empty, Set.empty, at = Some(Anchor(frame.input, offset)))
 
   /** A member of what `meaning` denotes, selected by a path or an expression. */
   def select(meaning: Meaning, name: String): Meaning = meaning match {

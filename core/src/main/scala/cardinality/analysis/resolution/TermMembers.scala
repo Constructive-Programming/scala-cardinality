@@ -4,7 +4,7 @@ import scala.meta.{Stat, Tree}
 
 import cardinality.analysis.ExportClause
 import cardinality.analysis.MethodAnalysis.Frame
-import cardinality.analysis.model.ScopeTerms
+import cardinality.analysis.model.{Anchor, ScopeTerms}
 
 import LookupBindings.{before, Unread}
 
@@ -27,7 +27,7 @@ final private[resolution] class TermMembers(
     exports: Map[String, List[ExportClause]],
     objects: InheritedObjects,
     accessible: (Tree, Frame, Frame) => Boolean,
-    absolute: (List[String], Frame, Option[(String, Int)]) => Either[Unread, List[List[String]]]
+    absolute: (List[String], Frame, Option[Anchor]) => Either[Unread, List[List[String]]]
 ) {
 
   /** What a wildcard over the namespaces at `paths` binds a path's first name to, read in `from`

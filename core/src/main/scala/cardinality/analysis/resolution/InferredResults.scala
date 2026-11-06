@@ -3,7 +3,7 @@ package cardinality.analysis.resolution
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.Inhabitation
-import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms, Throws}
+import cardinality.analysis.model.{Anchor, MemberSyntax, ResolutionContext, ScopeTerms, Throws}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.{Spelling, TypeApplications, TypeName, TypeSubstitution}
 
@@ -171,7 +171,12 @@ private[cardinality] object InferredResults {
   ) {
 
     private def here(at: Tree): ResolutionContext =
-      ResolutionContext(target.frame, variables, Set.empty, at = Some(target.input -> at.pos.start))
+      ResolutionContext(
+        target.frame,
+        variables,
+        Set.empty,
+        at = Some(Anchor(target.input, at.pos.start))
+      )
 
     private val terms =
       new TermBindings(InheritedScopes.levels(steps, _), resolver)

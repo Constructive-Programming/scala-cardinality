@@ -1,10 +1,9 @@
 package cardinality.capacity
 
-import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.types.*
-import cardinality.types.Trees.{hasOpaque, ClassDefn, TemplateDefn}
+import cardinality.types.Trees.{hasOpaque, parameters, ClassDefn, TemplateDefn}
 
 // What a source holds together, definition by definition: the walk that solves a body, measures
 // every definition it introduces and names it for a report. See `Counter`.
@@ -285,12 +284,8 @@ private[cardinality] object Walk {
     }
 
   // The definition whose body a statement is in, if any.
-  @tailrec
-  private def owner(tree: Tree): Option[Defn] = tree.parent match {
-    case Some(d: Defn) => Some(d)
-    case Some(other)   => owner(other)
-    case None          => None
-  }
+  private def owner(tree: Tree): Option[Defn] =
+    Trees.ancestors(tree).collectFirst { case d: Defn => d }
 
   /** Each type a body defines, by the statement that defines it. */
   private[cardinality] def statements(stats: List[Stat]): Map[TypeName, Stat] =
@@ -383,8 +378,8 @@ private[cardinality] object Walk {
   /** The value parameters a constructor or a method binds, each with its declared type. */
   private[cardinality] def parameters(d: Defn): List[(TypeName, Bound)] = {
     val params = d match {
-      case c: ClassDefn => c.ctor.paramClauses.flatMap(_.values)
-      case m: Defn.Def  => m.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      case c: ClassDefn => c.ctor.parameters
+      case m: Defn.Def  => m.paramClauseGroups.flatMap(_.parameters)
       case _            => Nil
     }
     params.toList.map(p => TypeName.of(p.name.value) -> Bound.Value(p.decltpe))

@@ -4,6 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, Inhabitation}
 import cardinality.analysis.model.{ContextBounds, FactorySyntax, MemberSyntax}
+import cardinality.types.Trees.parameters
 
 import MethodAnalysis.{Frame, Resolved}
 
@@ -44,7 +45,7 @@ private[cardinality] object ReceiverFactories {
               val group = d.paramClauseGroups
               val tparams = group.flatMap(_.tparamClause.values)
               val params =
-                group.flatMap(_.paramClauses).flatMap(_.values) ++ ContextBounds.evidence(tparams)
+                group.flatMap(_.parameters) ++ ContextBounds.evidence(tparams)
               val atoms = tparams
                 .map(p => p.name.value -> (Right(Inhabitation.Shape.Atom(p.name.value)): Resolved))
               closed(

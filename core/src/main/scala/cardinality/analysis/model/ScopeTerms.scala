@@ -3,6 +3,7 @@ package cardinality.analysis.model
 import scala.meta.*
 
 import cardinality.analysis.SourceIndex
+import cardinality.types.Trees.hasCase
 import cardinality.types.{Overrides, TypeApplications}
 
 /** The term names one scope's own statements define — every variable of a pattern definition (`val
@@ -61,7 +62,7 @@ private[cardinality] object ScopeTerms {
       case v: Decl.Var                                    => names(v.pats)
       case o: Defn.Object                                 => List(o.name.value)
       case g: (Defn.Given | Defn.GivenAlias | Decl.Given) => MemberSyntax.names(g)
-      case c: Defn.Class if c.mods.exists(_.is[Mod.Case]) => List(c.name.value)
+      case c: Defn.Class if c.mods.hasCase                => List(c.name.value)
       case e: Defn.Enum                                   => List(e.name.value)
       case e: Defn.ExtensionGroup                         => extensionMethods(e).map(_.name.value)
       case _                                              => Nil

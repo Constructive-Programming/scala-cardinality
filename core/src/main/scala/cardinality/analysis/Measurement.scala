@@ -510,7 +510,7 @@ final private[cardinality] class Measurement(
         resolver.resolve(
           tpe,
           if (preceding && named(tpe))
-            context.copy(preceding = Some(reading.input -> tpe.pos.start))
+            context.copy(preceding = Some(Anchor(reading.input, tpe.pos.start)))
           else context
         )
       }

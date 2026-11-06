@@ -2,6 +2,8 @@ package cardinality.analysis.model
 
 import scala.meta.*
 
+import cardinality.types.Trees.parameters
+
 /** The syntax rule B's factories are read by (v1.md §2, register D42), shared by the method side
   * (`ReceiverFactories`) and the stored-value side (`capacity.Factories`).
   *
@@ -68,7 +70,7 @@ private[cardinality] object FactorySyntax {
       selectable: Term.Param => Boolean
   ): List[Term.Param] = {
     val names = read(c.templ.body.stats, open)
-    c.ctor.paramClauses.toList.flatMap(_.values).filter(p => selectable(p) || names(p.name.value))
+    c.ctor.parameters.filter(p => selectable(p) || names(p.name.value))
   }
 
   // The names the members the site may call read, through the members it may not call.

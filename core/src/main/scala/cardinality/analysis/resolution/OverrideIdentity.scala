@@ -4,6 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.*
 import cardinality.analysis.model.*
+import cardinality.types.Trees.hasPrivate
 import dev.constructive.eo.generics.lens
 
 import MethodAnalysis.{Frame, Target}
@@ -176,7 +177,7 @@ final private[cardinality] class OverrideIdentity(resolver: Resolver) {
       root: Frame,
       steps: List[InheritedScopes.Step]
   ): Option[Side] =
-    Option.unless(member.mods.exists(_.is[Mod.Private]))(()).flatMap { _ =>
+    Option.unless(member.mods.hasPrivate)(()).flatMap { _ =>
       bindingsAt(level, root, steps, 0).map { bindings =>
         val scope = ResolutionContext(level, resolver.typeParameters(level), Set.empty)
         Side(

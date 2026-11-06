@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.MemberSyntax
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex}
-import cardinality.types.Trees.{ClassDefn, TemplateDefn}
+import cardinality.types.Trees.{hasCase, ClassDefn, TemplateDefn}
 import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
 
 import MethodAnalysis.Frame
@@ -411,9 +411,9 @@ final private[expansion] class BodyWalk(
       .exists(name => scope.variables(name) && !declared.bindsTypeParam(name))
 
   private def companion(tree: ClassDefn): Meaning = tree match {
-    case c: Defn.Class if c.mods.exists(_.is[Mod.Case]) => Meaning.Companion(c)
-    case e: Defn.Enum                                   => Meaning.Companion(e)
-    case other                                          =>
+    case c: Defn.Class if c.mods.hasCase => Meaning.Companion(c)
+    case e: Defn.Enum                    => Meaning.Companion(e)
+    case other                           =>
       Meaning.Refused(
         s"reads the local ${MemberSyntax.templateName(other).getOrElse("type")}, " +
           "which has no companion this reading reads"

@@ -1,5 +1,7 @@
 package cardinality.analysis.inhabitation
 
+import cardinality.capacity.{FinitePart, Size}
+
 /** A count the solver carries: an exact natural, or the countable tier of the finite-program
   * reading (register D2), where a power or product with an infinite operand saturates at 0, 1 or ω.
   */
@@ -10,6 +12,12 @@ enum Card {
   def isZero: Boolean = this == Card.zero
 
   def isOne: Boolean = this == Card.one
+
+  /** The size a word-sized literal card stands for; ω or a symbolic value has none. */
+  def literalSize: Option[Size] = this match {
+    case Exact(Natural.Lit(value)) => Some(Size(0, 0, FinitePart.exact(value)))
+    case _                         => None
+  }
 
   def +(other: Card): Card = (this, other) match {
     case (Exact(a), Exact(b)) => Exact(a + b)

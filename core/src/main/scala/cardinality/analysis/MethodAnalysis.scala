@@ -161,7 +161,7 @@ object MethodAnalysis {
 
     // Likewise its name lookups, and each scope's binders.
     private val names =
-      scala.collection.mutable.HashMap.empty[(String, Frame, Option[(String, Int)]), Found]
+      scala.collection.mutable.HashMap.empty[(String, Frame, Option[Anchor]), Found]
 
     private val binders = new Memo[Frame, Map[String, Resolved]]
 
@@ -459,7 +459,7 @@ object MethodAnalysis {
       named(name, context.frame, context.at)
 
     // What a name means where it is written: a function of the name, the scope and the position.
-    private def named(name: String, frame: Frame, at: Option[(String, Int)]): Found =
+    private def named(name: String, frame: Frame, at: Option[Anchor]): Found =
       names.get((name, frame, at)) match {
         case Some(known) => known
         case None        =>

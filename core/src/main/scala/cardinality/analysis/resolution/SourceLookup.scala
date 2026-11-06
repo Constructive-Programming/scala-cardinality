@@ -4,6 +4,7 @@ import scala.annotation.tailrec
 import scala.meta.Tree
 
 import cardinality.analysis.*
+import cardinality.analysis.model.Anchor
 import cardinality.types.{ListedNamespaces, Traversals, TypeApplications}
 
 import MethodAnalysis.{Frame, TypeEntry}
@@ -27,7 +28,7 @@ final private[cardinality] class SourceLookup(
     packages: List[Frame],
     modules: List[Frame],
     imports: Map[String, List[ImportBinding]],
-    listed: (List[String], Frame, Option[(String, Int)]) => Option[ListedNamespaces.Namespace],
+    listed: (List[String], Frame, Option[Anchor]) => Option[ListedNamespaces.Namespace],
     exports: Map[String, List[ExportClause]] = Map.empty
 ) {
   private val lexical = types.groupBy(entry => entry.owner.id -> entry.name)
@@ -122,7 +123,7 @@ final private[cardinality] class SourceLookup(
   def resolveName(
       name: String,
       frame: Frame,
-      at: Option[(String, Int)],
+      at: Option[Anchor],
       accessible: (Tree, Frame, Frame) => Boolean,
       inspect: String => Unit,
       objects: InheritedObjects = InheritedObjects.none
@@ -142,7 +143,7 @@ final private[cardinality] class SourceLookup(
       accessible: (Tree, Frame, Frame) => Boolean,
       inspect: String => Unit,
       objects: InheritedObjects
-  ): (List[String], Frame, Option[(String, Int)]) => Option[String] = {
+  ): (List[String], Frame, Option[Anchor]) => Option[String] = {
     val reader = Reader(accessible, inspect, objects)
     (prefix, scope, at) =>
       reader.absolute(prefix, scope, at).left.toOption.collect {
@@ -168,7 +169,7 @@ final private[cardinality] class SourceLookup(
     def definitions(name: String, frame: Frame): List[TypeEntry] =
       lexicalHit(name, frame).map(_._1).getOrElse(candidates(name, frame))
 
-    def simple(name: String, frame: Frame, at: Option[(String, Int)]): Found = {
+    def simple(name: String, frame: Frame, at: Option[Anchor]): Found = {
       val definition = lexicalHit(name, frame)
       val member = nearestMember(name, frame, definition)
       binding(name, frame, at) match {
@@ -389,7 +390,7 @@ final private[cardinality] class SourceLookup(
     /** A dotted name: its first segment is bound like a simple term name, and the rest is read
       * inside whatever that binding denotes.
       */
-    def dotted(segments: List[String], frame: Frame, at: Option[(String, Int)]): Found =
+    def dotted(segments: List[String], frame: Frame, at: Option[Anchor]): Found =
       through(Target(segments, frame, at), Set.empty)(
         _.fold(Found.Absent: Found)(origin => Found.Foreign(origin.path, origin.binding))
       )
@@ -397,15 +398,16 @@ final private[cardinality] class SourceLookup(
     private def binding(
         name: String,
         frame: Frame,
-        at: Option[(String, Int)]
+        at: Option[Anchor]
     ): Option[(Int, List[Either[String, Target]])] =
-      at.flatMap { (file, position) =>
-        frame.chain.iterator.zipWithIndex
-          .map { (scope, index) =>
-            inspect("import bucket")
-            (index, visible(scope, file, position).flatMap(selected(_, name, scope, file)))
-          }
-          .find { case (_, targets) => targets.nonEmpty }
+      at.flatMap {
+        case Anchor(file, position) =>
+          frame.chain.iterator.zipWithIndex
+            .map { (scope, index) =>
+              inspect("import bucket")
+              (index, visible(scope, file, position).flatMap(selected(_, name, scope, file)))
+            }
+            .find { case (_, targets) => targets.nonEmpty }
       }
 
     // The declarations a named import's target names, first by nearness — one bucket or none —
@@ -469,13 +471,17 @@ final private[cardinality] class SourceLookup(
     def absolute(
         segments: List[String],
         frame: Frame,
-        at: Option[(String, Int)]
+        at: Option[Anchor]
     ): Either[Unread, Reading] =
       segments match {
         case SourceIndex.Root :: rest => Right((List(rest), None))
         case head :: rest             =>
-          at.flatMap((file, position) =>
-            bound(InheritedObjects.Head(head, frame, file, position), frame.chain, Pending.none)
+          at.flatMap(anchor =>
+            bound(
+              InheritedObjects.Head(head, frame, anchor.source, anchor.offset),
+              frame.chain,
+              Pending.none
+            )
           ) match {
             case Some(found) =>
               found.left
@@ -642,10 +648,10 @@ final private[cardinality] class SourceLookup(
     private def wildcards(
         name: String,
         frame: Frame,
-        at: Option[(String, Int)]
+        at: Option[Anchor]
     ): Either[Opening.Doubt, Found] =
-      at.fold(Right(Found.Absent))((file, position) =>
-        scan(InheritedObjects.Head(name, frame, file, position), frame.chain, None)
+      at.fold(Right(Found.Absent))(anchor =>
+        scan(InheritedObjects.Head(name, frame, anchor.source, anchor.offset), frame.chain, None)
       )
 
     @tailrec
@@ -773,8 +779,10 @@ final private[cardinality] class SourceLookup(
   /** The import clauses of one scope visible at a reference; with no reference position, every
     * clause of the scope.
     */
-  def clauses(scope: Frame, at: Option[(String, Int)]): List[ImportBinding] =
-    at.fold(imports.getOrElse(scope.id, Nil))((file, position) => visible(scope, file, position))
+  def clauses(scope: Frame, at: Option[Anchor]): List[ImportBinding] =
+    at.fold(imports.getOrElse(scope.id, Nil))(anchor =>
+      visible(scope, anchor.source, anchor.offset)
+    )
 
   // The paths a scope opens, nearest first — each frame of its chain contributes its own — then the
   // root. The empty package's members are invisible from a named package, even in the same file;

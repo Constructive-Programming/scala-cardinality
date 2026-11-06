@@ -1,7 +1,7 @@
 package cardinality.analysis.inhabitation
 
 import cardinality.analysis.resolution.TopTypes
-import cardinality.capacity.{FinitePart, Size}
+import cardinality.capacity.Size
 import cardinality.types.Traversals
 import dev.constructive.eo.data.PSVec
 import dev.constructive.eo.generics.prism
@@ -184,6 +184,13 @@ object Inhabitation {
       case _              => false
     }
 
+    /** Whether the solver's count is known to be at least `n`; an estimate's bound is not. */
+    def atLeast(n: BigInt): Boolean = this match {
+      case Finite(value)              => value >= n
+      case Symbolic(_) | Countable    => true
+      case Bounded(_) | Unresolved(_) => false
+    }
+
   }
 
   object Count {
@@ -210,7 +217,7 @@ object Inhabitation {
               val card = exact.foldLeft(cardOf(solved))(_ * _)
               if (estimated.isEmpty) of(card)
               else
-                sizeOf(card).fold(
+                card.literalSize.fold(
                   Unresolved(List(s"constructor space has no estimate form: ${of(card).render}"))
                 )(space => bounded(estimated.foldLeft(space)(_ * _)))
             }
@@ -224,12 +231,6 @@ object Inhabitation {
       case Countable                  => Card.Omega
       case Bounded(_) | Unresolved(_) =>
         throw new IllegalArgumentException(s"a solver count has no exact card: $count")
-    }
-
-    // The size a literal card stands for beside an estimate; ω or a symbolic value has none here.
-    private def sizeOf(card: Card): Option[Size] = card match {
-      case Card.Exact(Natural.Lit(value)) => Some(Size(0, 0, FinitePart.exact(value)))
-      case _                              => None
     }
 
     private def bounded(space: Size): Count =

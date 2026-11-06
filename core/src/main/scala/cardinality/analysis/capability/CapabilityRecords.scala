@@ -14,6 +14,7 @@ import cardinality.analysis.resolution.{
 }
 import cardinality.analysis.{ConstrainedReceivers, ForeignParents, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
+import cardinality.types.Trees.hasCase
 import cardinality.types.{Traversals, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
@@ -451,8 +452,8 @@ private[cardinality] object CapabilityRecords {
     * final class, whose record its constructor arguments are.
     */
   def applies(tree: Tree): Boolean = tree match {
-    case t: Defn.Trait => !Counter.isSealed(t) && !Representations.typesOnly(t)
-    case c: Defn.Class if c.mods.exists(_.is[Mod.Case]) =>
+    case t: Defn.Trait                   => !Counter.isSealed(t) && !Representations.typesOnly(t)
+    case c: Defn.Class if c.mods.hasCase =>
       FinalImplementations.isFinal(c) && !Representations.plainCase(c)
     case c: Defn.Class => !Counter.isSealed(c) && !Representations.typesOnly(c)
     case _             => false

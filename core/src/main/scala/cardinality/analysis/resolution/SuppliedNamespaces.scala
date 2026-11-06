@@ -1,10 +1,11 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{Defn, Mod, Pkg, XtensionClassifiable}
+import scala.meta.{Defn, Pkg, XtensionClassifiable}
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.model.ScopeTerms
 import cardinality.types.Trees
+import cardinality.types.Trees.hasCase
 
 /** What the sources supply at an absolute path that a wildcard or `given` import opens, or whose
   * last segment such an import may bind. A path is a term namespace: a package, an object or the
@@ -30,7 +31,7 @@ final private[resolution] class SuppliedNamespaces(
   val modulePaths: Map[List[String], List[Frame]] = modules.groupBy(_.path)
 
   private val companions = qualified.values.flatten.collect {
-    case TypeEntry(name, d: Defn.Class, owner, _) if d.mods.exists(_.is[Mod.Case]) =>
+    case TypeEntry(name, d: Defn.Class, owner, _) if d.mods.hasCase =>
       owner.path :+ name
     case TypeEntry(name, _: Defn.Enum, owner, _) => owner.path :+ name
   }

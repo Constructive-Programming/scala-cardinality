@@ -4,6 +4,7 @@ import scala.meta.{Defn, Mod, Name, Pkg, Stat, Term, Tree, XtensionClassifiable}
 
 import cardinality.analysis.MethodAnalysis.*
 import cardinality.analysis.SealedReceivers
+import cardinality.types.Trees.hasPrivate
 import cardinality.types.TypeApplications
 
 /** Whether a subclass written anywhere may extend a template and pick its abstract members, which a
@@ -51,7 +52,7 @@ private[cardinality] object TemplateClosures {
 
   // A class whose constructor is private: only its own body and companion can extend it.
   private def privateConstructor(tree: Tree): Boolean = tree match {
-    case c: Defn.Class => c.ctor.mods.exists(_.is[Mod.Private])
+    case c: Defn.Class => c.ctor.mods.hasPrivate
     case _             => false
   }
 

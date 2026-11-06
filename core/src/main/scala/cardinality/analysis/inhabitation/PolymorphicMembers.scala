@@ -2,7 +2,7 @@ package cardinality.analysis.inhabitation
 
 import scala.meta.*
 
-import cardinality.types.{Kind, Kinds, Traversals}
+import cardinality.types.{Graphs, Kind, Kinds, Traversals}
 import dev.constructive.eo.optics.Getter
 
 import GoalSolver.Producer
@@ -284,13 +284,11 @@ private[cardinality] object PolymorphicMembers {
   ): Boolean = {
     def applicable(p: Producer, found: Set[Head]) =
       p.parameters.collect { case a: Applied => a.head }.forall(found)
-    def grow(found: Set[Head]): Set[Head] = {
-      val next = found ++ paths.collect {
+    val available = Graphs.fixpoint(env.collect { case Applied(head, _) => head }.toSet) { found =>
+      found ++ paths.collect {
         case (_, p @ Producer(_, Applied(head, _))) if applicable(p, found) => head
       }
-      if (next == found) found else grow(next)
     }
-    val available = grow(env.collect { case Applied(head, _) => head }.toSet)
     paths.exists((own, p) => chooses(p.output, own, heads) && applicable(p, available))
   }
 

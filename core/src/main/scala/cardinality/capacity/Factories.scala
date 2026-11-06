@@ -4,6 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.{FactorySyntax, MemberSyntax}
 import cardinality.types.Trees
+import cardinality.types.Trees.parameters
 
 /** Rule B's factories on the stored-value side (v1.md §2, register D42): a class whose constructor
   * is restricted holds what its public secondaries and factories build, each at most min(its
@@ -42,7 +43,7 @@ private[capacity] object Factories {
         }
       val secondaries = body.collect {
         case c: Ctor.Secondary if public(c.mods) =>
-          Some(product(c.paramClauses.toList.flatMap(_.values), size))
+          Some(product(c.parameters, size))
       }
       val factories = scopes.flatMap { (in, singleton) =>
         in.collect(Function.unlift { stat =>
@@ -88,7 +89,7 @@ private[capacity] object Factories {
   private def space(stat: Stat, size: Term.Param => Size): Option[Size] = stat match {
     case d: Defn.Def =>
       val tparams = d.paramClauseGroups.flatMap(_.tparamClause.values).map(_.name.value).toSet
-      val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      val params = d.paramClauseGroups.flatMap(_.parameters)
       val generic = params.exists(_.decltpe.exists(_.collect {
         case Type.Name(n) => n
       }.exists(tparams)))

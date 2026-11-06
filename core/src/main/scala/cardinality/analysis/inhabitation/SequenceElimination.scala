@@ -52,10 +52,10 @@ private[cardinality] object SequenceElimination {
           vectors.tail.iterator
             .map(variant)
             .collectFirst {
-              case unresolved: Count.Unresolved   => unresolved
-              case several if atLeastTwo(several) => Count.Countable
+              case unresolved: Count.Unresolved  => unresolved
+              case several if several.atLeast(2) => Count.Countable
             }
-            .getOrElse(Count.Unresolved(List(undecided(atLeastTwo(empty)))))
+            .getOrElse(Count.Unresolved(List(undecided(empty.atLeast(2)))))
       }
     }
 
@@ -77,12 +77,5 @@ private[cardinality] object SequenceElimination {
         length <- Lengths.toList
       } yield vector :+ length
     )
-
-  private def atLeastTwo(count: Count): Boolean = count match {
-    case Count.Finite(value)                    => value >= 2
-    case Count.Symbolic(_)                      => true
-    case Count.Countable                        => true
-    case Count.Bounded(_) | Count.Unresolved(_) => false
-  }
 
 }

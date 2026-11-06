@@ -2,7 +2,7 @@ package cardinality.types
 
 import scala.meta.*
 
-import Trees.{ClassDefn, TemplateDefn}
+import Trees.{hasAbstract, ClassDefn, TemplateDefn}
 
 /** How a sealed family's subtype instantiates its parent: which of the subtype's own parameters
   * stands for each of the parent's, read off the `extends` clause. Both halves of a report read a
@@ -60,7 +60,7 @@ private[cardinality] object SealedSlots {
   ): Subtype = {
     val fields = d match {
       case _: Defn.Object => Some(Nil)
-      case c: Defn.Class  => Option.unless(c.mods.exists(_.is[Mod.Abstract]))(Trees.fields(c.ctor))
+      case c: Defn.Class  => Option.unless(c.mods.hasAbstract)(Trees.fields(c.ctor))
       case e: Defn.Enum   =>
         Some(e.templ.body.stats.collect { case c: Defn.EnumCase => Trees.fields(c.ctor) }.flatten)
       case _ => None

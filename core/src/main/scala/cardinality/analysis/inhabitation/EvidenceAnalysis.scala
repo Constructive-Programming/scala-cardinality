@@ -4,7 +4,7 @@ import scala.annotation.tailrec
 
 import cardinality.analysis.*
 import cardinality.analysis.resolution.TopTypes
-import cardinality.types.Traversals
+import cardinality.types.{Graphs, Traversals}
 
 import Inhabitation.Shape
 import Inhabitation.Shape.*
@@ -93,12 +93,10 @@ private[cardinality] object EvidenceAnalysis {
 
   /** Reflexive transitive closure; equality supplies both directions, subtyping only one. */
   final private class Closure(edges: List[(Shape, Shape)]) {
-    def reachable(start: Shape): List[Shape] = expand(Set(start)).toList.sortBy(_.toString)
+    private val graph = Graphs.fromEdges(edges)
 
-    private def expand(found: Set[Shape]): Set[Shape] = {
-      val next = found ++ edges.collect { case (from, to) if found(from) => to }
-      if (next == found) found else expand(next)
-    }
+    def reachable(start: Shape): List[Shape] =
+      Graphs.reachable(graph, Set(start)).toList.sortBy(_.toString)
 
   }
 

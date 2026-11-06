@@ -54,11 +54,16 @@ Entry shape:
 - Boundary: switchboards (one-line delegation per case: `SingletonIntersections.resolved`, the
   `Found` match in `MethodAnalysis`), renderers (`FinitePart.render`), interpreters (the
   `Shape` matches in the inhabitation solver), a single equality test on a case object
-  (`edge.kind == Continuation.OptionBranch`).
+  (`edge.kind == Continuation.OptionBranch`). Sites that agree on two arms but differ on the
+  rest are switchboards too (`Binding.Here`/`Elsewhere` in `Scope`, `Solver`, `Namespaces`;
+  the builtin-key `Found` matches in `ConstructorApplications` and `NominalKeys`).
 - Evidence: 331b579, four `case Found.Entry(entry)` sites → `Found.declared`. Earlier:
   `Definition.instantiationDependent` matched `Unbound` cases and `Definition.open` used
   `isInstanceOf[Unbound.Open]`; both moved onto `Unbound`, and the object helpers delegate
-  (`unbound.forall(_.instantiationDependent)`).
+  (`unbound.forall(_.instantiationDependent)`). Pass 3: `Count.atLeast(n)` replaces
+  `SequenceElimination.atLeastTwo` and the `DeferredInline` match; `Card.literalSize` replaces
+  `Count.sizeOf` and the `ClosedSpaces.ground` match; `Kinds.proper` replaces
+  `Kinds.of(_) == Kind.Proper` at three sites.
 
 ### R4 Independent numeric knobs — rejected
 - Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,
@@ -87,6 +92,17 @@ Entry shape:
   Earlier: `Shape.sequenceEithers` short-circuits on the leftmost `Left`; cats `sequence` for
   `Either` matches, so the swap landed (the row stayed one `?`).
 
+### M3 The report needs more than the default heap — confirmed
+- Signal (M): `cardinalityReport` dies with `OutOfMemoryError` in `Library$Packages.solve`.
+- Fix: run the sbt launcher with `-Xmx16g -Xss8m`. A wrapper script that hardcodes `-Xmx`
+  ignores `.jvmopts`.
+- Evidence: pass 3, 4g failed, 16g ran (97 s).
+
+### M4 sbt JUnit XML listener race — confirmed
+- Signal (M): `testFull` ends in `ConcurrentModificationException` at
+  `sbt.JUnitXmlTestsListener$TestSuite.stop`, with no failing spec.
+- Fix: run `core/testFull` again on its own; it is sbt's listener, not a test.
+
 ## Source shape (stage 4)
 
 ### S1 Hand-rolled short-circuiting Option fold — confirmed
@@ -99,7 +115,30 @@ Entry shape:
 - Fix: `Graphs.reachable`.
 - Boundary: a walk that drops the start node or needs visit order (`ClosedWorld.ancestors`,
   `BinderBounds.collect`).
-- Evidence: 331b579, `Linearization.bases`.
+- Evidence: 331b579, `Linearization.bases`. Pass 3: the alias and synonym closures
+  (`SourceIndex.closeAliases`, `RuntimeClasses.spellings`, `SealedFamilies.Synonyms.of`) and
+  `EvidenceAnalysis.Closure.expand`, each over a `Graphs.fromEdges` graph built once.
+- Also: a fixpoint that grows a set by `found ++ edges.collect { case (a, b) if found(a) => b }`
+  is the same reachability.
+
+### S4 Hand-written "until `next == current`" loop — confirmed
+- Signal (source): `if (next == x) x else loop(next)` or a `var changed` / `while (changed)` loop.
+- Fix: `Graphs.fixpoint(start)(step)`.
+- Boundary: a loop with a widening branch (`Instantiations.iterate`) or a solver loop.
+- Evidence: pass 3, `PolymorphicMembers.opens`, `TargetViews.classify`, `Positivity.slots`,
+  `OpaqueSumForwarding` (its `var` loop).
+
+### S5 Hand-written parent walk — confirmed
+- Signal (source): `@tailrec` match on `tree.parent`, or `Iterator.iterate(tree.parent)(…)`.
+- Fix: `Trees.ancestors(tree)` with `collectFirst` / `forall`; `Trees.innermost` when `f` is
+  costly and must stop early.
+- Evidence: pass 3, `Walk.owner`, `SourceIndex.static`.
+
+### S6 Walk that needs a layer it cannot import — rejected
+- Boundary: `Overrides.ancestry` restates `InheritedScopes.breadthFirst`, but `types` would
+  import `analysis.resolution`. Moving `breadthFirst` is a separate refactor.
+- Also kept: `RuntimeClasses.closure` (stops at the first `Left`, order picks the error),
+  `NeutralSaturation.unbounded.reach` (stops early).
 
 ### S3 `mapAccumulate` for a counter-threading fold — rejected
 - Boundary: the two `.swap` calls read worse than the fold (`NominalKeys.all`).
@@ -125,9 +164,27 @@ Entry shape:
 - Fix: stage 2. A case class naming the group; methods move onto it.
 - Expect: a new definitions row. Record how the affected signature rows move.
 
-### C4 Bare tuple with a fixed meaning — proposed
+### C4 Bare tuple with a fixed meaning — confirmed
 - Signal (C/grep): `Option[(String, Int)]` as (source, offset): 35 uses in 9 files.
 - Fix: stage 2. One named case class.
+- Expect: a new definitions row at the tuple's size (ω here); no row moves.
+- Boundary: grep the tuple by meaning, not by type: `CapabilityRecords.measured` is also
+  `Option[(String, Int)]` but means (name, arity), and stays.
+- Evidence: pass 3, `model.Anchor(source, offset)` beside `ResolutionContext`.
+
+### C6 Modifier test spelled at many sites — confirmed
+- Signal (C): `mods.exists(_.is[Mod.X])` (12× `Case`, 8× `Abstract`, 7× `Private` at 6e4b304).
+- Fix: an extension beside `hasFinal` in `types/Trees.scala`; import it by name.
+- Expect: new `?` rows for the predicates (scalameta `Mod` is open); nothing moves.
+- Evidence: pass 3, `hasCase`, `hasAbstract`, `hasPrivate`.
+
+### C7 Tree accessor chain spelled at many sites — confirmed
+- Signal (C): `paramClauses.toList.flatMap(_.values)` (20 sites) and
+  `flatMap(_.paramClauses).flatMap(_.values)` over clause groups.
+- Fix: an extension on the scalameta trait that declares the member
+  (`Tree.WithParamClauses.parameters`): it covers `Ctor.Primary`, `Ctor.Secondary` and
+  `Member.ParamClauseGroup` at once. Check the trait in the scalameta jar (`javap`).
+- Evidence: pass 3, `Trees.parameters`; `Trees.fields` reads through it.
 
 ### C5 Standard one-liner — rejected
 - Signal (C): `.groupMap(_._1)(_._2)` and similar library one-liners.
