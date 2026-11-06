@@ -107,6 +107,11 @@ private[cardinality] trait Resolver {
 
   def typeParameters(frame: Frame): Map[String, Resolved]
 
+  /** A template's supplied ancestors, nearest first, or why one is not read
+    * (`InheritedScopes.ancestors`).
+    */
+  def ancestors(frame: Frame): Either[String, List[Frame]]
+
   /** The operators higher-kinded names are bound to. */
   def operators: TypeOperators
 

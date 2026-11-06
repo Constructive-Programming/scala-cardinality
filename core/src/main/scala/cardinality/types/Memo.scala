@@ -7,4 +7,6 @@ final private[cardinality] class Memo[K, V] {
   private val results = mutable.Map.empty[K, V]
 
   def apply(key: K)(compute: => V): V = results.getOrElseUpdate(key, compute)
+
+  def clear(): Unit = results.clear()
 }

@@ -8,7 +8,7 @@ import cardinality.analysis.model.{AliasReading, ResolutionContext}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.capacity.Counter
 import cardinality.types.Trees.ClassDefn
-import cardinality.types.{Spelling, Traversals, TypeApplications, TypeSubstitution}
+import cardinality.types.{Memo, Spelling, Traversals, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{Frame, TypeEntry}
@@ -34,10 +34,10 @@ final private[cardinality] class RuntimeClasses(
 ) {
 
   private val parentCache =
-    scala.collection.mutable.Map.empty[String, List[Either[String, Option[Declared]]]]
+    new Memo[String, List[Either[String, Option[Declared]]]]
 
   private val childCache =
-    scala.collection.mutable.Map.empty[String, Either[String, List[Declared]]]
+    new Memo[String, Either[String, List[Declared]]]
 
   private lazy val aliases = sources.values.toList.flatMap(_.collect {
     case d: Defn.Type => d.name.value -> words(d.body)
@@ -264,8 +264,7 @@ final private[cardinality] class RuntimeClasses(
   // an anonymous class, a given instance, an enum case, a class the index does not hold — refuses,
   // and so does a parent clause that may reach the family through a parameterised alias.
   private def children(family: Declared): Either[String, List[Declared]] =
-    childCache.getOrElseUpdate(
-      family.id,
+    childCache(family.id)(
       sources
         .get(family.owner.input)
         .toRight(s"sealed family source not supplied: ${family.label}")
@@ -316,7 +315,7 @@ final private[cardinality] class RuntimeClasses(
   }
 
   private def parents(d: Declared): List[Either[String, Option[Declared]]] =
-    parentCache.getOrElseUpdate(d.id, inits(d.tree).getOrElse(Nil).map(parent(_, d.owner)))
+    parentCache(d.id)(inits(d.tree).getOrElse(Nil).map(parent(_, d.owner)))
 
   private def inits(tree: Tree): Option[List[Init]] = tree match {
     case t: Defn.Class        => Some(t.templ.inits)

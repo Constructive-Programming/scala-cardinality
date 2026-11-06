@@ -226,14 +226,7 @@ final private[cardinality] class CapabilityRecords(resolver: Resolver, identity:
     // Whether one instance may be of the measured declaration's template and of this record's: one
     // extends the other, or (the closed world) some supplied template extends both.
     private def shareInstance(owner: Frame, all: List[Frame]): Boolean = {
-      val ownerLevels = owner :: Traversals
-        .sequence(
-          InheritedScopes.walk(List(owner -> resolver.typeParameters(owner)), resolver, owner)
-        )
-        .toOption
-        .toList
-        .flatten
-        .map(_.declared)
+      val ownerLevels = owner :: resolver.ancestors(owner).getOrElse(Nil)
       all.exists(_.id == owner.id) || ownerLevels.exists(_.id == template.id) ||
       resolver.mixed(owner, template)
     }

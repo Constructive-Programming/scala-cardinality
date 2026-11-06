@@ -368,7 +368,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
     )
 
   private def lineage(template: Frame): List[Frame] =
-    template :: terms.levels(template).getOrElse(Nil)
+    template :: resolver.ancestors(template).getOrElse(Nil)
 
   // A conversion's type whose `apply` is inline: a supplied class declaring one, itself or
   // through a supplied ancestor.
@@ -432,7 +432,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
         (frame.chain.flatMap(_.stats) ++ local(frame)).collect { case i: Import => i.importers }
       all(importers.flatten)(importedTemplates(_, frame))
         .map(frame.chain.filter(_.isTemplate) ++ _)
-        .flatMap(all(_)(t => terms.levels(t).toOption.map(t :: _)))
+        .flatMap(all(_)(t => resolver.ancestors(t).toOption.map(t :: _)))
         .map(_.map(_.id).toSet)
     }
 
@@ -458,7 +458,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       around.id == scope.id ||
         (resolver.isPackage(around) && resolver.isPackage(scope) &&
           around.path.startsWith(scope.path)) ||
-        (around.isTemplate && terms.levels(around).exists(_.exists(_.id == scope.id)))
+        (around.isTemplate && resolver.ancestors(around).exists(_.exists(_.id == scope.id)))
     )
 
   private def imported(scope: Frame, frame: Frame): Boolean =

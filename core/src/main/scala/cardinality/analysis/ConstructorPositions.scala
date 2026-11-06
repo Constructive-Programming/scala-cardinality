@@ -1,13 +1,12 @@
 package cardinality.analysis
 
-import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
 import cardinality.analysis.model.{ContextBounds, ContextualEvidence, ResolutionContext}
 import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes, WrittenType}
 import cardinality.capacity.{Definition, FinitePart, Size}
-import cardinality.types.{Spelling, TypeSubstitution}
+import cardinality.types.{Memo, Spelling, TypeSubstitution}
 
 import Inhabitation.{Count, Shape}
 import MethodAnalysis.{Frame, Resolved, Target}
@@ -54,7 +53,7 @@ final private[cardinality] class ConstructorPositions(
 
   import Position.*
 
-  private val read = mutable.Map.empty[(String, Int), Position]
+  private val read = new Memo[(String, Int), Position]
 
   /** Whether the shape model binds this position: always outside a constructor. */
   def leftToShape(param: Term.Param, owner: Frame): Boolean = classify(param, owner) match {
@@ -95,7 +94,7 @@ final private[cardinality] class ConstructorPositions(
   private def classify(param: Term.Param, owner: Frame): Position =
     if (!target.constructor || owner.id != target.frame.id) Shaped
     else
-      read.getOrElseUpdate(owner.id -> owner.params.indexWhere(_ eq param), position(param, owner))
+      read(owner.id -> owner.params.indexWhere(_ eq param))(position(param, owner))
 
   private def position(param: Term.Param, owner: Frame): Position = param.decltpe match {
     case None                                                      => Shaped

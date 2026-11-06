@@ -6,6 +6,7 @@ import scala.meta.*
 import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.analysis.{Resolver, SourceIndex}
+import cardinality.types.Memo
 import cardinality.types.Trees.hasOpaque
 
 /** The implicit scope of the types an inline body can reach (register D43, v1.md §2): a conversion
@@ -29,13 +30,13 @@ import cardinality.types.Trees.hasOpaque
   */
 final private[expansion] class Reachable(resolver: Resolver, conversions: Conversions) {
 
-  private val known = mutable.Map.empty[String, Option[Set[String]]]
+  private val known = new Memo[String, Option[Set[String]]]
 
   /** The scopes in the implicit scope of what a definition's body can reach, given the meanings its
     * walk resolved; None when that is not known.
     */
   def scopes(definition: Definition, heard: => List[Meaning]): Option[Set[String]] =
-    known.getOrElseUpdate(definition.frame.id, new Closure(definition).of(heard))
+    known(definition.frame.id)(new Closure(definition).of(heard))
 
   private lazy val all: List[Frame] = resolver.memberScopes
 

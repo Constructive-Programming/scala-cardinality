@@ -42,13 +42,12 @@ private[cardinality] object InheritedScopes {
   /** The frames of those levels. */
   def levels(steps: List[Step], root: Frame): List[Frame] = of(steps, root).map(_.declared)
 
-  /** A template's supplied ancestors, read from the template itself; none when a parent is not
-    * read.
+  /** A template's supplied ancestors, nearest first, read from the template itself; or why the
+    * first parent not read is not. `Resolver.ancestors` keeps them per target.
     */
-  def ancestors(frame: Frame, resolver: Resolver): Option[List[Frame]] =
+  def ancestors(frame: Frame, resolver: Resolver): Either[String, List[Frame]] =
     Traversals
       .sequence(walk(List(frame -> resolver.typeParameters(frame)), resolver, frame))
-      .toOption
       .map(_.map(_.declared))
 
   /** The step that reaches `level` from `root`, if `level` is one of its parents. */

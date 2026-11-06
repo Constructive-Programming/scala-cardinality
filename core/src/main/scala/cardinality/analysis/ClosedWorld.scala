@@ -6,7 +6,7 @@ import scala.meta.*
 import cardinality.analysis.model.MemberSyntax
 import cardinality.tasty.TastyStubs
 import cardinality.types.Trees.{hasFinal, hasOpaque, isClosedWorld, TemplateDefn}
-import cardinality.types.{Overrides, TypeApplications, TypeName}
+import cardinality.types.{Memo, Overrides, TypeApplications, TypeName}
 
 /** The closed world (docs/plans/v1.md §2): the supplied sources and dependency declarations are the
   * whole program, so no subclass, override or implementation exists outside them. A concrete class
@@ -109,7 +109,7 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
     .flatten
     .groupMap(_._1)(_._2)
 
-  private val extending = mutable.Map.empty[String, (Set[String], List[Node])]
+  private val extending = new Memo[String, (Set[String], List[Node])]
 
   /** The names standing for `name` or a template extending it (aliases included, and a stub's
     * qualified name), and the templates extending it at any depth. A template spelling a parent by
@@ -117,22 +117,20 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
     * the template the compiler resolved.
     */
   private def below(name: String): (Set[String], List[Node]) =
-    extending.getOrElseUpdate(
-      name, {
-        val found = mutable.LinkedHashSet(name)
-        val below = mutable.LinkedHashSet.empty[Node]
-        val queue = mutable.Queue(name)
-        def reach(n: Node): Unit =
-          if (below.add(n)) (n.name ++ n.full).filter(found.add).foreach(queue.enqueue)
-        named.getOrElse(name, Nil).flatMap(_.full).filter(found.add).foreach(queue.enqueue)
-        while (queue.nonEmpty) {
-          val next = queue.dequeue()
-          aliases.getOrElse(next, Nil).filter(found.add).foreach(queue.enqueue)
-          children.getOrElse(next, Nil).foreach(reach)
-        }
-        found.toSet -> below.toList
+    extending(name) {
+      val found = mutable.LinkedHashSet(name)
+      val below = mutable.LinkedHashSet.empty[Node]
+      val queue = mutable.Queue(name)
+      def reach(n: Node): Unit =
+        if (below.add(n)) (n.name ++ n.full).filter(found.add).foreach(queue.enqueue)
+      named.getOrElse(name, Nil).flatMap(_.full).filter(found.add).foreach(queue.enqueue)
+      while (queue.nonEmpty) {
+        val next = queue.dequeue()
+        aliases.getOrElse(next, Nil).filter(found.add).foreach(queue.enqueue)
+        children.getOrElse(next, Nil).foreach(reach)
       }
-    )
+      found.toSet -> below.toList
+    }
 
   /** Whether some supplied template extends a template of this name. */
   def extended(name: String): Boolean = below(name)._2.nonEmpty
@@ -150,36 +148,32 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
   // The keys a template of this name inherits from, at any depth: the simple name of each, and the
   // qualified one of a stub.
   private def ancestors(name: String): Set[String] =
-    inherited.getOrElseUpdate(
-      name, {
-        val found = mutable.LinkedHashSet.empty[String]
-        val queue = mutable.Queue(name)
-        while (queue.nonEmpty)
-          denoted(queue.dequeue())
-            .getOrElse(Nil)
-            .flatMap(_.parents)
-            .flatMap(ref => List(key(ref), ref.name))
-            .filter(found.add)
-            .foreach(queue.enqueue)
-        found.toSet
-      }
-    )
+    inherited(name) {
+      val found = mutable.LinkedHashSet.empty[String]
+      val queue = mutable.Queue(name)
+      while (queue.nonEmpty)
+        denoted(queue.dequeue())
+          .getOrElse(Nil)
+          .flatMap(_.parents)
+          .flatMap(ref => List(key(ref), ref.name))
+          .filter(found.add)
+          .foreach(queue.enqueue)
+      found.toSet
+    }
 
-  private val inherited = mutable.Map.empty[String, Set[String]]
+  private val inherited = new Memo[String, Set[String]]
 
   /** How a template extending one of this name may override its member `member`: it defines the
     * name, or mixes in, from beyond the owner's ancestry, a parent that does — or one outside the
     * sources whose members are not known, which may.
     */
   def overriding(owner: String, member: String): Overriding =
-    overrides.getOrElseUpdate(
-      (owner, member), {
-        val (found, extenders) = below(owner)
-        reached(extenders, found ++ ancestors(owner), member)
-      }
-    )
+    overrides((owner, member)) {
+      val (found, extenders) = below(owner)
+      reached(extenders, found ++ ancestors(owner), member)
+    }
 
-  private val overrides = mutable.Map.empty[(String, String), Overriding]
+  private val overrides = new Memo[(String, String), Overriding]
 
   /** Whether some template extending one of this name may override its member `member`. */
   def overridden(owner: String, member: String): Boolean =

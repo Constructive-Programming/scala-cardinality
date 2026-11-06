@@ -163,7 +163,9 @@ object MethodAnalysis {
     private val names =
       scala.collection.mutable.HashMap.empty[(String, Frame, Option[(String, Int)]), Found]
 
-    private val binders = scala.collection.mutable.HashMap.empty[Frame, Map[String, Resolved]]
+    private val binders = new Memo[Frame, Map[String, Resolved]]
+
+    private val ancestry = new Memo[String, Either[String, List[Frame]]]
 
     val operators = new TypeOperators(resolve(_, _), constructorKinds.of(_, _))
     val boundedBinders: Map[String, (Frame, Type.Param)] = indexer.boundedBinders.toMap
@@ -287,6 +289,7 @@ object MethodAnalysis {
         reads.clear()
         names.clear()
         binders.clear()
+        ancestry.clear()
         measurement(target)
       } catch
         case error: AnalysisWork.Exhausted =>
@@ -299,7 +302,10 @@ object MethodAnalysis {
           )
 
     def typeParameters(frame: Frame): Map[String, Resolved] =
-      binders.getOrElseUpdate(frame, SourceBindings.of(frame, inspect, operators))
+      binders(frame)(SourceBindings.of(frame, inspect, operators))
+
+    def ancestors(frame: Frame): Either[String, List[Frame]] =
+      ancestry(frame.id)(InheritedScopes.ancestors(frame, this))
 
     def resolve(
         tpe: Type,

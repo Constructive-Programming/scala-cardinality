@@ -1,12 +1,11 @@
 package cardinality.analysis
 
-import scala.collection.mutable
 import scala.meta.{Defn, Member, Mod, Term, Tree, Type}
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{ContextualEvidence, MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.*
-import cardinality.types.Spelling
+import cardinality.types.{Memo, Spelling}
 
 import ContextFunctions.Binder
 import ContextualEvidence.Nominal
@@ -29,14 +28,13 @@ final private[cardinality] class ContextBinders(
 ) {
   import ContextBinders.Read
 
-  private val reads = mutable.Map.empty[String, Either[String, List[Read]]]
+  private val reads = new Memo[String, Either[String, List[Read]]]
 
   /** The binders a definition of the target's chain puts around the code nested in it, each read
     * where its result is, or why they are not known.
     */
   def of(owner: Frame): Either[String, List[Read]] =
-    reads.getOrElseUpdate(
-      owner.id,
+    reads(owner.id)(
       binders(owner).map(_.zipWithIndex.map((binder, index) => read(owner, binder, index)))
     )
 

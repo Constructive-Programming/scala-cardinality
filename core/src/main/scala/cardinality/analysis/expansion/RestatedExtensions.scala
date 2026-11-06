@@ -27,7 +27,7 @@ final private[expansion] class RestatedExtensions(terms: BodyTerms, resolver: Re
     case Extensions.Known(extensions) if call.clauses == List(false) =>
       (for {
         (template, method) <- members(call)
-        levels <- terms.levels(template).toOption.toList
+        levels <- resolver.ancestors(template).toOption.toList
       } yield extensions.forall(rejects(_, template, levels, method))).contains(true)
     case _ => false
   }

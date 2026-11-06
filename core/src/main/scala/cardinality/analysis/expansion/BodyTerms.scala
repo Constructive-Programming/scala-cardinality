@@ -6,7 +6,7 @@ import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
 import cardinality.analysis.{ClosedWorld, MethodAnalysis, Resolver, SourceIndex}
 import cardinality.types.Trees.ClassDefn
-import cardinality.types.{ListedNamespaces, Memo, Overrides, Spelling, TypeApplications}
+import cardinality.types.{ListedNamespaces, Overrides, Spelling, TypeApplications}
 
 import ClosedWorld.Overriding
 import MethodAnalysis.{Frame, TypeEntry}
@@ -120,19 +120,6 @@ final private[expansion] class BodyTerms(
     resolver: Resolver,
     expanded: (String, Option[Either[String, Frame]]) => Option[String]
 ) {
-
-  private val ancestors = new Memo[String, Either[String, List[Frame]]]
-
-  /** The supplied ancestors of a template, nearest first, or why they are not read. */
-  def levels(template: Frame): Either[String, List[Frame]] =
-    ancestors(template.id) {
-      val walked =
-        InheritedScopes
-          .walk(List(template -> resolver.typeParameters(template)), resolver, template)
-      walked
-        .collectFirst { case Left(reason) => reason }
-        .toLeft(walked.flatMap(_.toOption).map(_.declared))
-    }
 
   /** What a simple name means read at offset `at` inside `frame`. The parameters of an inline
     * method (and of its extension group) are its expansion's arguments, which may be of a subclass.
@@ -263,7 +250,7 @@ final private[expansion] class BodyTerms(
   private def overridable(template: Frame, name: String): Overriding =
     if (closed(template)) Overriding.No
     else
-      levels(template) match {
+      resolver.ancestors(template) match {
         case Left(_)      => Overriding.Unknown
         case Right(above) =>
           val definitions = (template :: above).flatMap(definitionsOf(_, name))
@@ -290,7 +277,7 @@ final private[expansion] class BodyTerms(
     * reads it (`Any`, `Product`, a function type, `Conversion`) without the name.
     */
   private def member(template: Frame, name: String): Option[Meaning] =
-    levels(template) match {
+    resolver.ancestors(template) match {
       case Left(reason) =>
         Some(Meaning.Refused(s"reads $name, whose template is not read: $reason"))
       case Right(above) =>

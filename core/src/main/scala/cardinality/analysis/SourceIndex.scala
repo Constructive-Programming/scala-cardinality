@@ -7,7 +7,7 @@ import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
 import cardinality.analysis.SourceIndex.{givenName, Scope, Written}
 import cardinality.analysis.model.{ContextBounds, MemberSyntax, SourceBindings}
 import cardinality.types.Trees.{ClassDefn, TemplateDefn}
-import cardinality.types.{Kinds, Spelling, TypeApplications, TypeName}
+import cardinality.types.{Kinds, Memo, Spelling, TypeApplications, TypeName}
 
 final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[AnalysisWork]) {
   private given scala3: Dialect = dialects.Scala3
@@ -117,9 +117,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // The type aliases that may denote a family: those whose body mentions its name or another such
   // alias, by simple name — a superset, so a family is refused rather than enumerated short.
   private[cardinality] def aliasesOf(family: String): Set[String] =
-    aliases.getOrElseUpdate(family, closeAliases(Set(family)) - family)
+    aliases(family)(closeAliases(Set(family)) - family)
 
-  private val aliases = mutable.Map.empty[String, Set[String]]
+  private val aliases = new Memo[String, Set[String]]
 
   private lazy val aliasBodies: List[(String, Set[String])] =
     types.iterator.collect {

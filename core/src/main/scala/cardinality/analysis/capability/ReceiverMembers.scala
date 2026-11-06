@@ -327,8 +327,9 @@ final private[cardinality] class ReceiverMembers(
 
     // Whether a level of a class outside the receiver's runs code when the class is built.
     private def below(frame: Frame, own: Set[String]): Option[Boolean] =
-      InheritedScopes
-        .ancestors(frame, resolver)
+      resolver
+        .ancestors(frame)
+        .toOption
         .map(ancestors => (frame :: ancestors).filterNot(l => own(l.id)).exists(runsCode))
 
     // Building a level runs its template's statements and strict initializers, its arguments to

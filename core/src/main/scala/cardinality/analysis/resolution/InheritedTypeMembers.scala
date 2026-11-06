@@ -7,7 +7,7 @@ import scala.meta.*
 import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.types.Trees.hasOpaque
-import cardinality.types.{Spelling, TypeApplications}
+import cardinality.types.{Memo, Spelling, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
 
@@ -38,11 +38,11 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   // The export clauses being read for a name: met again through inheritance, the body is taken to
   // declare it, and lexical lookup, which follows exports itself, answers.
   private val exporting = mutable.Set.empty[(String, String)]
-  private val members = mutable.Map.empty[(String, String, String), List[Member]]
+  private val members = new Memo[(String, String, String), List[Member]]
 
   // A name's meaning at one reference: a member reading and a type reading both ask for it.
   private val located =
-    mutable.Map.empty[(String, String, Option[(String, Int)], String), Option[Location]]
+    new Memo[(String, String, Option[(String, Int)], String), Option[Location]]
 
   /** The inherited member a simple name means at the context's reference, with its declaring
     * scope's type environment, or why that meaning is not known; None when a nearer declaration or
@@ -57,10 +57,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   def locate(name: String, context: ResolutionContext): Option[Location] =
     if (name.contains('.')) None
     else
-      located.getOrElseUpdate(
-        (name, context.frame.id, context.at, context.useSite.id),
-        scan(name, context)
-      )
+      located((name, context.frame.id, context.at, context.useSite.id))(scan(name, context))
 
   private def scan(name: String, context: ResolutionContext): Option[Location] =
     context.at.flatMap { (file, position) =>
@@ -360,8 +357,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
 
   // Every inherited declaration of the name, nearest level first.
   private def declarations(frame: Frame, name: String, useSite: Frame): List[Member] =
-    members.getOrElseUpdate(
-      (frame.id, name, useSite.id),
+    members((frame.id, name, useSite.id))(
       InheritedScopes
         .walk(List(frame -> resolver.typeParameters(frame)), resolver, useSite)
         .collect { case Right(step) => step }

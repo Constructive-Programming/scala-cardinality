@@ -1,6 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.collection.mutable
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Resolved, TypeEntry}
@@ -8,7 +7,7 @@ import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberPath, ResolutionContext}
 import cardinality.types.Trees.{hasOpaque, isClosedType}
-import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
+import cardinality.types.{Kind, Kinds, Memo, Spelling, TypeApplications}
 
 import TemplateClosures.Closure
 
@@ -39,7 +38,7 @@ final private[cardinality] class TypeMembers(
   import TypeMembers.*
 
   private val linearizations =
-    mutable.Map.empty[(String, String, Map[String, Resolved]), Levels]
+    new Memo[(String, String, Map[String, Resolved]), Levels]
 
   /** What a type name or a path selection means when it denotes a type member; None when it denotes
     * none this reading follows (a binder, a class, a package-level alias, an unknown path).
@@ -276,14 +275,12 @@ final private[cardinality] class TypeMembers(
   // arguments, one key read at many instantiations.
   private def levels(path: MemberPath): Levels =
     path.template.fold[Levels](Right(Nil)) { (own, env) =>
-      linearizations.getOrElseUpdate(
-        (path.key, own.id, env), {
-          val steps = InheritedScopes.walk(List(own -> env), resolver, own)
-          steps.collectFirst { case Left(reason) => reason }.toLeft {
-            (own -> env) :: steps.collect { case Right(step) => step.declared -> step.env }
-          }
+      linearizations((path.key, own.id, env)) {
+        val steps = InheritedScopes.walk(List(own -> env), resolver, own)
+        steps.collectFirst { case Left(reason) => reason }.toLeft {
+          (own -> env) :: steps.collect { case Right(step) => step.declared -> step.env }
         }
-      )
+      }
     }
 
   // The stable path a qualifier denotes, when it denotes one this reading follows: `this` (inside a
