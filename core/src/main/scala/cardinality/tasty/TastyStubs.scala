@@ -5,6 +5,7 @@ import scala.reflect.NameTransformer
 import scala.util.control.NonFatal
 
 import cardinality.analysis.{MethodAnalysis, StdlibModel}
+import cardinality.types.ListedNamespaces
 import java.net.URI
 import java.nio.file.{FileSystems, Files, Path}
 import tastyquery.Classpaths.{ClassData, ClasspathEntry, PackageData}
@@ -283,33 +284,14 @@ object TastyStubs {
     */
   private def stdlibOwned(pkg: String, name: String): Boolean =
     pkg == "scala" ||
-      ScalaPackages.exists(sub => pkg == s"scala.$sub" || pkg.startsWith(s"scala.$sub.")) ||
+      ListedNamespaces.scalaPackages.exists(sub =>
+        pkg == s"scala.$sub" || pkg.startsWith(s"scala.$sub.")
+      ) ||
       StdlibModel.holds(s"$pkg.$name")
 
   // The JDK's public API; `sun.*`, `jdk.internal.*` and `com.sun.*` are its implementation.
   private def jdkPackage(pkg: String): Boolean =
     List("java", "javax").exists(r => pkg == r || pkg.startsWith(r + "."))
-
-  // `scala/*/` in scala-library 3.9.0 and scala3-library 3.9.0.
-  private val ScalaPackages = List(
-    "annotation",
-    "beans",
-    "caps",
-    "collection",
-    "compat",
-    "compiletime",
-    "concurrent",
-    "deriving",
-    "io",
-    "jdk",
-    "math",
-    "quoted",
-    "ref",
-    "reflect",
-    "runtime",
-    "sys",
-    "util"
-  )
 
   private def packageOf(c: ClassSymbol): String =
     c.owner match {

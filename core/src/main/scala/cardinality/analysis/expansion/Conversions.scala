@@ -7,6 +7,7 @@ import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.analysis.resolution.Found
 import cardinality.analysis.{Resolver, SourceIndex}
+import cardinality.types.Trees.{hasOpaque, ClassDefn, TemplateDefn}
 import cardinality.types.{Spelling, TypeApplications}
 import cats.syntax.traverse.toTraverseOps
 
@@ -109,15 +110,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
       })
 
   private def expansion(d: Defn.Def | Defn.GivenAlias, scope: Frame): Definition =
-    Definition(
-      d,
-      SourceIndex.methodFrame(
-        d,
-        MemberSyntax.names(d).headOption.getOrElse(""),
-        MemberSyntax.groups(d),
-        scope
-      )
-    )
+    Definition(d, SourceIndex.methodFrame(d, scope))
 
   /** The first conversion that may answer an applied selection read in `frame`, on a qualifier
     * whose implicit scope is `anchors` when it is read.
@@ -173,10 +166,10 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
         found match {
           case Found.Entry(entry) =>
             entry.tree match {
-              case _: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) =>
+              case _: TemplateDefn =>
                 entry.self.map(List(_))
               case alias: Defn.Type
-                  if !alias.mods.exists(_.is[Mod.Opaque]) && alias.tparamClause.values.isEmpty &&
+                  if !alias.mods.hasOpaque && alias.tparamClause.values.isEmpty &&
                     !seen(entry.key) =>
                 anchors(alias.body, entry.owner, seen + entry.key)
               case _ => None
@@ -200,7 +193,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private def implicitScopes(anchors: List[Frame]): Option[Set[String]] =
     all(anchors)(baseFrames).flatMap { bases =>
       val objects =
-        bases.flatMap(b => companions.getOrElse(b.path, Nil) ++ b.chain.drop(1).filter(isObject))
+        bases.flatMap(b => companions.getOrElse(b.path, Nil) ++ b.chain.drop(1).filter(_.isObject))
       all(objects.distinct)(baseFrames).map(inherited => (objects ++ inherited).map(_.id).toSet)
     }
 
@@ -213,9 +206,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   private lazy val byId: Map[String, Frame] = resolver.memberScopes.map(f => f.id -> f).toMap
 
   private lazy val companions: Map[List[String], List[Frame]] =
-    resolver.memberScopes.filter(isObject).groupBy(_.path)
-
-  private def isObject(frame: Frame): Boolean = frame.tree.exists(_.is[Defn.Object])
+    resolver.memberScopes.filter(_.isObject).groupBy(_.path)
 
   private def all[A, B](items: List[A])(f: A => Option[List[B]]): Option[List[B]] =
     items.flatTraverse(f)
@@ -422,8 +413,8 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
   // those ancestries is not read.
   private def inherited(scope: Frame, frame: Frame): Boolean =
     scope.tree.exists {
-      case _: (Defn.Class | Defn.Trait | Defn.Enum) => true
-      case _                                        => false
+      case _: ClassDefn => true
+      case _            => false
     } && lexicalBases(frame).forall(_(scope.id))
 
   private val lexical = mutable.Map.empty[String, Option[Set[String]]]
@@ -480,8 +471,8 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
     )
 
   private def implicitScope(scope: Frame): Boolean = scope.tree match {
-    case Some(_: Defn.Object) => holdsType(scope) || companion(scope)
-    case Some(_: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Given)) => true
+    case Some(_: Defn.Object)              => holdsType(scope) || companion(scope)
+    case Some(_: (ClassDefn | Defn.Given)) => true
     case _ => resolver.isPackage(scope) && scope.stats.exists(opaque)
   }
 
@@ -501,7 +492,7 @@ final private[expansion] class Conversions(resolver: Resolver, terms: BodyTerms)
     )
 
   private def opaque(stat: Stat): Boolean = stat match {
-    case d: Defn.Type => d.mods.exists(_.is[Mod.Opaque])
+    case d: Defn.Type => d.mods.hasOpaque
     case _            => false
   }
 

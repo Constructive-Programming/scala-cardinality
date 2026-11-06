@@ -7,6 +7,7 @@ import cardinality.analysis.MethodAnalysis.{Frame, Resolved, TypeEntry}
 import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberPath, ResolutionContext}
+import cardinality.types.Trees.hasOpaque
 import cardinality.types.{Kind, Kinds, Spelling, TypeApplications}
 
 import TemplateClosures.Closure
@@ -549,7 +550,7 @@ final private[cardinality] class TypeMembers(
           .map(env => at.path(Some(frame -> (resolver.typeParameters(frame) ++ env))))
       )
     case (alias: Defn.Type, _)
-        if !alias.mods.exists(_.is[Mod.Opaque]) && TypeApplications.lambda(alias.body).isEmpty =>
+        if !alias.mods.hasOpaque && TypeApplications.lambda(alias.body).isEmpty =>
       bound(entry.name, alias.tparamClause.values, args, scope).toOption.flatMap { env =>
         declaredPath(
           at,
@@ -639,7 +640,7 @@ private[cardinality] object TypeMembers {
   }
 
   private def alias(d: Defn.Type): Boolean =
-    !d.mods.exists(_.is[Mod.Opaque]) && d.tparamClause.values.isEmpty &&
+    !d.mods.hasOpaque && d.tparamClause.values.isEmpty &&
       TypeApplications.lambda(d.body).isEmpty
 
   // The type a declaration fixes its member to: an alias's body, or an exact bound pair's.

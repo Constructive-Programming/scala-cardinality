@@ -8,6 +8,7 @@ import cardinality.analysis.model.Operator.Closure
 import cardinality.analysis.model.ResolutionContext
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.types.Traversals
+import cardinality.types.Trees.hasOpaque
 
 import MethodAnalysis.TypeEntry
 
@@ -141,7 +142,7 @@ private[cardinality] object TypeIdentities {
       context: ResolutionContext,
       resolver: Resolver
   ): Option[String] = entry.tree match {
-    case d: Defn.Type if !d.mods.exists(_.is[Mod.Opaque]) =>
+    case d: Defn.Type if !d.mods.hasOpaque =>
       val k = key(entry)
       Option
         .when(d.tparamClause.values.isEmpty && !context.visiting(k))(

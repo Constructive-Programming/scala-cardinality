@@ -2,6 +2,8 @@ package cardinality.types
 
 import scala.meta.*
 
+import Trees.{ClassDefn, TemplateDefn}
+
 /** How a sealed family's subtype instantiates its parent: which of the subtype's own parameters
   * stands for each of the parent's, read off the `extends` clause. Both halves of a report read a
   * family through it — the method side's representation and the stored-value estimate's sum.
@@ -53,7 +55,7 @@ private[cardinality] object SealedSlots {
     * `declared` as `Subtype`'s.
     */
   def subtype(
-      d: Defn.Object | Defn.Class | Defn.Trait | Defn.Enum,
+      d: TemplateDefn,
       declared: String => Option[List[Variance]]
   ): Subtype = {
     val fields = d match {
@@ -64,8 +66,8 @@ private[cardinality] object SealedSlots {
       case _ => None
     }
     val params = d match {
-      case _: Defn.Object                           => Nil
-      case p: (Defn.Class | Defn.Trait | Defn.Enum) => p.tparamClause.values
+      case _: Defn.Object => Nil
+      case p: ClassDefn   => p.tparamClause.values
     }
     Subtype(d.name.value, d.templ.inits, params, fields, unlessOwn(params, declared))
   }

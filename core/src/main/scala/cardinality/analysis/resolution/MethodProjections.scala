@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
+import cardinality.types.Trees.hasOpaque
 import cardinality.types.{Traversals, *}
 
 import MethodAnalysis.{Resolved, TypeEntry}
@@ -41,7 +42,7 @@ private[cardinality] object MethodProjections {
         ResolutionOptics.entryTypeDefinition
           .getOption(entry)
           .filter(definition =>
-            !definition.mods.exists(_.is[Mod.Opaque]) &&
+            !definition.mods.hasOpaque &&
               TypeApplications.lambda(definition.body).isEmpty &&
               definition.tparamClause.values.forall(Kinds.of(_) == Kind.Proper)
           )

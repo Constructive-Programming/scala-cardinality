@@ -3,6 +3,7 @@ package cardinality.capacity
 import scala.meta.*
 
 import cardinality.types.*
+import cardinality.types.Trees.{hasOpaque, hasSealed, ClassDefn}
 
 object Counter {
 
@@ -117,9 +118,9 @@ object Counter {
 
   // The type parameters a definition declares, in the order its arguments are supplied in.
   private[cardinality] def parameters(d: Defn): List[Type.Param] = d match {
-    case c: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Type) => c.tparamClause.values
-    case m: Defn.Def => m.paramClauseGroups.flatMap(_.tparamClause.values)
-    case _           => Nil
+    case c: (ClassDefn | Defn.Type) => c.tparamClause.values
+    case m: Defn.Def                => m.paramClauseGroups.flatMap(_.tparamClause.values)
+    case _                          => Nil
   }
 
   // The parameters as binders: a parameter that takes parameters of its own (`F[_]`) is the
@@ -141,9 +142,9 @@ object Counter {
     d.mods.exists(_.is[Mod.Abstract])
 
   private[cardinality] def isSealed(d: Defn.Class | Defn.Trait): Boolean =
-    d.mods.exists(_.is[Mod.Sealed])
+    d.mods.hasSealed
 
-  private[cardinality] def isOpaqueAlias(d: Defn.Type): Boolean = d.mods.exists(_.is[Mod.Opaque])
+  private[cardinality] def isOpaqueAlias(d: Defn.Type): Boolean = d.mods.hasOpaque
 
   // A statement's contribution to a source total. A definition the solver gave an equation
   // contributes that solved value rather than a fresh evaluation: twice would count the base

@@ -254,8 +254,8 @@ private[cardinality] object PolymorphicMembers {
             sofar <- found
             candidate <- candidates
             next <- matching(pattern, candidate, fixed.map(_.id).toSet)
-            if next.forall((b, s) => sofar.get(b).forall(_ == s))
-          } yield sofar ++ next
+            fix <- agreeing(sofar, next)
+          } yield fix
         }
         Right(fixes.distinct.map { fix =>
           val instance = at(fix)
@@ -362,13 +362,16 @@ private[cardinality] object PolymorphicMembers {
         val pairs = Shape.children(pattern).zip(Shape.children(target))
         pairs.foldLeft(Option(Map.empty[String, Shape])) {
           case (found, (p, t)) =>
-            for {
-              sofar <- found
-              next <- matching(p, t, bound)
-              if next.forall((b, s) => sofar.get(b).forall(_ == s))
-            } yield sofar ++ next
+            found.flatMap(sofar => matching(p, t, bound).flatMap(agreeing(sofar, _)))
         }
     }
+
+  // Two sets of binder fixes joined, when they agree on every binder both fix.
+  private def agreeing(
+      sofar: Map[String, Shape],
+      next: Map[String, Shape]
+  ): Option[Map[String, Shape]] =
+    Option.when(next.forall((b, s) => sofar.get(b).forall(_ == s)))(sofar ++ next)
 
   // The same node with the same non-shape fields, whatever its children.
   private def sameNode(pattern: Shape, target: Shape): Boolean = {

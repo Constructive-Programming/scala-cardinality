@@ -7,6 +7,7 @@ import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.{AliasReading, ResolutionContext}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.capacity.Counter
+import cardinality.types.Trees.ClassDefn
 import cardinality.types.{Spelling, Traversals, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
@@ -50,7 +51,7 @@ final private[cardinality] class RuntimeClasses(
   // and no renaming selector of the sources spells them too.
   private lazy val classNames: Set[String] =
     types.collect {
-      case TypeEntry(name, _: (Defn.Class | Defn.Trait | Defn.Enum), _, _) => name
+      case TypeEntry(name, _: ClassDefn, _, _) => name
     }.toSet --
       aliases.map(_._1) -- renames.map(_._2)
 

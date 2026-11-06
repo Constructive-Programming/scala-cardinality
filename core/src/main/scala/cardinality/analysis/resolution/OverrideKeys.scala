@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.model.{ResolutionContext, ResolutionOptics}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.types.Traversals
+import cardinality.types.Trees.hasOpaque
 
 import MethodAnalysis.{Frame, TypeEntry}
 import OverrideIdentity.{aliasFrame, depthLens, known, lexical, Bindings, Key, Side, Spelled}
@@ -158,7 +159,7 @@ final private[cardinality] class OverrideKeys(resolver: Resolver) {
     val Side(context, bindings) = side
     val parameters = declaration.tparamClause.values
     val id = s"override-alias:${entry.owner.id}:${declaration.pos.start}"
-    if (declaration.mods.exists(_.is[Mod.Opaque]))
+    if (declaration.mods.hasOpaque)
       applied(Some(Spelled(s"opaque:${sourceKey(entry)}", tentative = true)), args, side)
     else if (
       parameters.size != args.size ||

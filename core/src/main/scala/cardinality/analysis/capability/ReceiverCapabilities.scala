@@ -144,7 +144,7 @@ final private[cardinality] class ReceiverCapabilities(
       target.tree,
       own,
       template,
-      Option.when(between.forall(_.tree.exists(_.is[Defn.Object])))(
+      Option.when(between.forall(_.isObject))(
         between.reverse.flatMap(_.path.lastOption)
       )
     )

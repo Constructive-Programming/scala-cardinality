@@ -3,6 +3,7 @@ package cardinality.analysis
 import scala.meta.*
 
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
+import cardinality.types.Trees.hasSealed
 
 import Inhabitation.{Count, Shape}
 import MethodAnalysis.{Frame, Target}
@@ -104,8 +105,8 @@ private[cardinality] object SealedReceivers {
   /** An enum, or a sealed trait or class: a template whose cases are all in its file. */
   def sealedTree(tree: Tree): Boolean = tree match {
     case _: Defn.Enum  => true
-    case d: Defn.Trait => d.mods.exists(_.is[Mod.Sealed])
-    case d: Defn.Class => d.mods.exists(_.is[Mod.Sealed])
+    case d: Defn.Trait => d.mods.hasSealed
+    case d: Defn.Class => d.mods.hasSealed
     case _             => false
   }
 

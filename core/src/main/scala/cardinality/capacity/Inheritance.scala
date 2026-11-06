@@ -6,6 +6,7 @@ import scala.meta.*
 import cardinality.analysis.StdlibModel
 import cardinality.analysis.resolution.InheritedTypeMembers
 import cardinality.analysis.resolution.InheritedTypeMembers.MemberKind
+import cardinality.types.Trees.ClassDefn
 import cardinality.types.{Overrides, Trees, TypeName, TypeSubstitution}
 
 /** A template whose body a read is inside, when it has parents or a self type: the types they name,
@@ -64,9 +65,9 @@ private[capacity] object Inheritance {
     def objects(in: List[Stat]): List[Defn.Object] =
       in.collect { case o: Defn.Object => o }.flatMap(o => o :: objects(o.templ.body.stats))
     def types(in: List[Stat]): List[String] = in.flatMap {
-      case d: (Defn.Class | Defn.Trait | Defn.Enum) => List(d.name.value)
-      case o: Defn.Object                           => types(o.templ.body.stats)
-      case _                                        => Nil
+      case d: ClassDefn   => List(d.name.value)
+      case o: Defn.Object => types(o.templ.body.stats)
+      case _              => Nil
     }
     val defined = types(stats).toSet
     objects(stats).exists(o => parents(o.templ).flatMap(head).exists(defined))

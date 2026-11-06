@@ -5,7 +5,8 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
 import cardinality.analysis.SourceIndex.{givenName, Scope, Written}
-import cardinality.analysis.model.{ContextBounds, SourceBindings}
+import cardinality.analysis.model.{ContextBounds, MemberSyntax, SourceBindings}
+import cardinality.types.Trees.{ClassDefn, TemplateDefn}
 import cardinality.types.{Kinds, Spelling, TypeApplications, TypeName}
 
 final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[AnalysisWork]) {
@@ -96,7 +97,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     inputs.iterator
       .flatMap { input =>
         input.tree.collect {
-          case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum) if !static(d) =>
+          case d: TemplateDefn if !static(d) =>
             d.templ.inits.map(init =>
               (input.path, TypeApplications.parentName(init)) -> d.name.value
             )
@@ -172,7 +173,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       .groupBy(entry => (entry.owner.chain.last.id, entry.name))
 
   private def initNames(tree: Tree): List[String] = tree match {
-    case d: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) =>
+    case d: TemplateDefn =>
       d.templ.inits.map(TypeApplications.parentName)
     case _ => Nil
   }
@@ -414,7 +415,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private def indexTemplate(
       input: String,
       frame: Frame,
-      d: Defn.Class | Defn.Trait | Defn.Enum
+      d: ClassDefn
   ): Frame = {
     val nested = registered(SourceIndex.templateFrame(frame, d))
     // Named in the enclosing frame, so a sibling reference resolves as before; its own frame
@@ -623,10 +624,14 @@ object SourceIndex {
       owner: Frame
   ): Frame = clausesFrame(node, name, owner, Nil, groups)
 
+  /** A method's or given alias's frame, under its first name and its own clauses. */
+  private[cardinality] def methodFrame(d: Defn.Def | Defn.GivenAlias, owner: Frame): Frame =
+    methodFrame(d, MemberSyntax.names(d).headOption.getOrElse(""), MemberSyntax.groups(d), owner)
+
   /** A named template's frame: its body, its binders and constructor parameters, its parents. */
   private[cardinality] def templateFrame(
       owner: Frame,
-      d: Defn.Class | Defn.Trait | Defn.Enum | Defn.Object
+      d: TemplateDefn
   ): Frame = d match {
     case o: Defn.Object =>
       frame(
@@ -639,7 +644,7 @@ object SourceIndex {
         Nil,
         parents = o.templ.inits
       )
-    case c: (Defn.Class | Defn.Trait | Defn.Enum) =>
+    case c: ClassDefn =>
       frame(
         owner.input,
         c,

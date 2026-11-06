@@ -112,6 +112,10 @@ private[cardinality] object StdlibModel {
     )
   }
 
+  // An optional value: none, or one of its argument.
+  private def optional(fqn: String): Entry =
+    Entry(fqn, List("A"), Structural(types => Shape.Sum(Shape.Product(Nil) :: types)), "1 + A")
+
   // A case class whose values are one of its arguments: `Left[A, B]` holds an `A`.
   private def wrapper(fqn: String, parameters: List[String], field: Int): Entry =
     Entry(
@@ -272,12 +276,7 @@ private[cardinality] object StdlibModel {
       wrapper("scala.Some", List("A"), 0),
       wrapper("scala.util.Left", List("A", "B"), 0),
       wrapper("scala.util.Right", List("A", "B"), 1),
-      Entry(
-        "scala.Option",
-        List("A"),
-        Structural(types => Shape.Sum(Shape.Product(Nil) :: types)),
-        "1 + A"
-      ),
+      optional("scala.Option"),
       Entry("scala.util.Either", List("L", "R"), Structural(Shape.Sum(_)), "L + R")
     ) ++ List(
       "scala.collection.immutable.List",
@@ -295,12 +294,7 @@ private[cardinality] object StdlibModel {
       // name, so a rigid constructor's argument still tells them apart.
       Equivalent.sequences.map(sequence) ++ (finiteMap :: Equivalent.maps).map(map) ++
       (finiteSet :: Equivalent.sets).map(set) ++ Equivalent.boxed.map(boxed) ++ List(
-        Entry(
-          "java.util.Optional",
-          List("A"),
-          Structural(types => Shape.Sum(Shape.Product(Nil) :: types)),
-          "1 + A"
-        ),
+        optional("java.util.Optional"),
         Entry(
           "java.util.function.Function",
           List("T", "R"),

@@ -1,11 +1,12 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{Defn, Mod, XtensionClassifiable}
+import scala.meta.Defn
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext}
 import cardinality.types.Trees
+import cardinality.types.Trees.hasOpaque
 
 /** Representation access follows the use site, never the scope of an exported transparent alias.
   * Outside its scope an opaque type counts one value (v1.md §2, opaque types): its representation
@@ -24,8 +25,8 @@ private[cardinality] object OpaqueTypes {
     else Right(())
 
   def hidden(entry: TypeEntry, from: Frame): Boolean = entry.tree match {
-    case alias: Defn.Type if alias.mods.exists(_.is[Mod.Opaque]) => !visible(entry, from)
-    case _                                                       => false
+    case alias: Defn.Type if alias.mods.hasOpaque => !visible(entry, from)
+    case _                                        => false
   }
 
   private def visible(entry: TypeEntry, from: Frame): Boolean =

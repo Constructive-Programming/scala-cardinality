@@ -2,6 +2,7 @@ package cardinality.capacity
 
 import scala.meta.*
 
+import cardinality.types.Trees.ClassDefn
 import cardinality.types.{Trees, TypeName}
 
 // What the plain name in a subtype's `extends` clause denotes, read in the family's own file as
@@ -50,8 +51,8 @@ private[capacity] object ParentNames {
     private def typeParameter(owner: Option[Tree]): Option[Denotes] =
       owner
         .collect {
-          case d: (Defn.Class | Defn.Trait | Defn.Enum) => d.tparamClause.values
-          case d: Defn.Def => d.paramClauseGroups.flatMap(_.tparamClause.values)
+          case d: ClassDefn => d.tparamClause.values
+          case d: Defn.Def  => d.paramClauseGroups.flatMap(_.tparamClause.values)
         }
         .filter(_.exists(_.name.value == name))
         .map(_ => Denotes.Other)

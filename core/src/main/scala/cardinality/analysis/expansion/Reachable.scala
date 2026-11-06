@@ -6,6 +6,7 @@ import scala.meta.*
 import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 import cardinality.analysis.{Resolver, SourceIndex}
+import cardinality.types.Trees.hasOpaque
 
 /** The implicit scope of the types an inline body can reach (register D43, v1.md §2): a conversion
   * or extension outside the body's lexical scope is a candidate only when its object is in that
@@ -41,7 +42,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
   private lazy val templates: Map[String, List[Frame]] =
     all.filter(_.isTemplate).groupBy(_.name.getOrElse(""))
 
-  private lazy val objects: Map[List[String], List[Frame]] = all.filter(isObject).groupBy(_.path)
+  private lazy val objects: Map[List[String], List[Frame]] = all.filter(_.isObject).groupBy(_.path)
 
   private lazy val typeMembers: Map[String, List[(Stat, Frame)]] =
     all
@@ -81,8 +82,6 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
     all.flatMap(f => f.tree.map(t => (t.pos.input -> t.pos.start) -> f)).toMap
 
   private lazy val byPath: Map[List[String], List[Frame]] = all.groupBy(_.path)
-
-  private def isObject(frame: Frame): Boolean = frame.tree.exists(_.is[Defn.Object])
 
   // A member's signature, without its body.
   private def signature(tree: Tree): List[Tree] = tree match {
@@ -291,7 +290,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
       typeMembers.getOrElse(v, Nil).foreach((stat, owner) => typeMember(stat, Some(owner)))
       templates
         .getOrElse(v, Nil)
-        .filter(_.parent.exists(o => o.isTemplate && !isObject(o)))
+        .filter(_.parent.exists(o => o.isTemplate && !o.isObject))
         .foreach(reach)
     }
 
@@ -450,7 +449,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
       if (members.add(stat.pos.input -> stat.pos.start)) stat match {
         case alias: Defn.Type =>
           spell(alias.body)
-          if (alias.mods.exists(_.is[Mod.Opaque])) sameNamed(owner, alias.name.value)
+          if (alias.mods.hasOpaque) sameNamed(owner, alias.name.value)
         case abstr: Decl.Type =>
           spell(abstr.bounds)
           sameNamed(owner, abstr.name.value)
@@ -460,7 +459,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
     private val members = mutable.Set.empty[(Input, Int)]
 
     private def sameNamed(owner: Option[Frame], n: String): Unit =
-      owner.fold(templates.getOrElse(n, Nil).filter(isObject).foreach(reach))(sameNamed(_, n))
+      owner.fold(templates.getOrElse(n, Nil).filter(_.isObject).foreach(reach))(sameNamed(_, n))
 
     private def sameNamed(owner: Frame, n: String): Unit =
       objects.getOrElse(owner.path :+ n, Nil).foreach(reach)
@@ -468,7 +467,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
     // A value whose singleton type the closure spells: an object of that name, or the declared
     // type of a member value of it (a parameter's type is spelled in its own signature).
     private def valued(v: String): Unit = {
-      templates.getOrElse(v, Nil).filter(isObject).foreach(reach)
+      templates.getOrElse(v, Nil).filter(_.isObject).foreach(reach)
       valueMembers.getOrElse(v, Nil).foreach(declared)
     }
 
@@ -476,7 +475,7 @@ final private[expansion] class Reachable(resolver: Resolver, conversions: Conver
       found.parents.foreach(init => spell(init.tpe))
       found.typeParams.foreach(p => spell(p.bounds))
       objects.getOrElse(found.path, Nil).foreach(reach)
-      found.chain.drop(1).filter(isObject).foreach(reach)
+      found.chain.drop(1).filter(_.isObject).foreach(reach)
     }
 
     // An implicit of a scope found is a given the body may summon; a member of a name it selects

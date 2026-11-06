@@ -4,6 +4,7 @@ import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.types.*
+import cardinality.types.Trees.{hasOpaque, ClassDefn, TemplateDefn}
 
 // What a source holds together, definition by definition: the walk that solves a body, measures
 // every definition it introduces and names it for a report. See `Counter`.
@@ -197,7 +198,7 @@ private[cardinality] object Walk {
 
   // Whether a statement is a class, trait or enum whose body declares a type member.
   private def declaresTypes(st: Stat): Boolean = st match {
-    case d: (Defn.Class | Defn.Trait | Defn.Enum) =>
+    case d: ClassDefn =>
       template(d).exists(_.isInstanceOf[Defn.Type | Decl.Type])
     case o: Defn.Object => template(o).exists(declaresTypes)
     case _              => false
@@ -279,8 +280,8 @@ private[cardinality] object Walk {
   // parameter; an object's abstract member has one instance and stays open.
   private def instanceMembers(stats: List[Stat]): Set[TypeName] =
     stats.headOption.flatMap(owner) match {
-      case Some(_: (Defn.Class | Defn.Trait | Defn.Enum)) => abstractTypes(stats)
-      case _                                              => Set.empty
+      case Some(_: ClassDefn) => abstractTypes(stats)
+      case _                  => Set.empty
     }
 
   // The definition whose body a statement is in, if any.
@@ -294,7 +295,7 @@ private[cardinality] object Walk {
   /** Each type a body defines, by the statement that defines it. */
   private[cardinality] def statements(stats: List[Stat]): Map[TypeName, Stat] =
     stats.collect {
-      case d: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Type) => named(d) -> d
+      case d: (ClassDefn | Defn.Type) => named(d) -> d
     }.toMap
 
   private def typeMembers(
@@ -303,7 +304,7 @@ private[cardinality] object Walk {
       around: Stat => () => Scope
   ): List[(TypeName, Members)] =
     stats.collect {
-      case d: (Defn.Class | Defn.Trait | Defn.Enum) =>
+      case d: ClassDefn =>
         key(named(d)) -> members(d, key(named(d)), around(d))
     }
 
@@ -358,7 +359,7 @@ private[cardinality] object Walk {
       owner,
       Counter.parameterNames(d),
       stats.collect {
-        case t: Defn.Type if !t.mods.exists(_.is[Mod.Opaque]) => TypeName.of(t.name.value) -> t.body
+        case t: Defn.Type if !t.mods.hasOpaque => TypeName.of(t.name.value) -> t.body
       }.toMap,
       stats.collect { case t: Decl.Type => TypeName.of(t.name.value) }.toSet,
       d,
@@ -382,9 +383,9 @@ private[cardinality] object Walk {
   /** The value parameters a constructor or a method binds, each with its declared type. */
   private[cardinality] def parameters(d: Defn): List[(TypeName, Bound)] = {
     val params = d match {
-      case c: (Defn.Class | Defn.Trait | Defn.Enum) => c.ctor.paramClauses.flatMap(_.values)
-      case m: Defn.Def => m.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
-      case _           => Nil
+      case c: ClassDefn => c.ctor.paramClauses.flatMap(_.values)
+      case m: Defn.Def  => m.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      case _            => Nil
     }
     params.toList.map(p => TypeName.of(p.name.value) -> Bound.Value(p.decltpe))
   }
@@ -437,8 +438,8 @@ private[cardinality] object Walk {
   private[capacity] def template(d: Defn): List[Stat] = templateOf(d).fold(Nil)(_.body.stats)
 
   private[capacity] def templateOf(d: Defn): Option[Template] = d match {
-    case c: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object) => Some(c.templ)
-    case _                                                      => None
+    case c: TemplateDefn => Some(c.templ)
+    case _               => None
   }
 
   // The abstractions a body leaves open — an abstract type member among them, whose value each

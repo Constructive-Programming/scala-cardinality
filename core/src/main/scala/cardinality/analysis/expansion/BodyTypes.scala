@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.resolution.Found
 import cardinality.analysis.{MethodAnalysis, Resolver}
 import cardinality.types.Spelling
+import cardinality.types.Trees.TemplateDefn
 import cardinality.types.TypeSubstitution.{Meet, Union}
 
 import MethodAnalysis.Frame
@@ -120,7 +121,7 @@ final private[expansion] class BodyTypes(
   // where it is declared, with that scope's type parameters as variables.
   private def fixedEntry(entry: MethodAnalysis.TypeEntry, seen: Set[String]): Boolean =
     entry.tree match {
-      case _: (Defn.Class | Defn.Trait | Defn.Enum | Defn.Object)                    => true
+      case _: TemplateDefn                                                           => true
       case alias: Defn.Type if alias.tparamClause.values.isEmpty && !seen(entry.key) =>
         val around = entry.owner.chain.flatMap(_.typeParams).map(_.name.value).toSet
         fixed(alias.body, Scope(entry.owner, Map.empty, around), seen + entry.key)

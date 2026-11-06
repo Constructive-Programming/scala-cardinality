@@ -5,6 +5,8 @@ import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms}
 
+import Trees.{hasFinal, TemplateDefn}
+
 /** Which members a subclass may override, read from syntax alone (scalac E164). */
 private[cardinality] object Overrides {
 
@@ -14,12 +16,12 @@ private[cardinality] object Overrides {
     * a deferred given (`given g: T = deferred`) too, which each class extending its trait supplies.
     */
   def overridable(member: Tree): Boolean = member match {
-    case _: (Defn.Object | Defn.Class | Defn.Trait | Defn.Enum) => false
-    case g: Defn.GivenAlias                                     => deferred(g)
-    case _: (Defn.Given | Defn.Var)                             => false
-    case p: Term.Param    => !p.mods.exists(m => m.is[Mod.VarParam] || fixing(m))
-    case d: Stat.WithMods => !d.mods.exists(fixing)
-    case _                => true
+    case _: TemplateDefn            => false
+    case g: Defn.GivenAlias         => deferred(g)
+    case _: (Defn.Given | Defn.Var) => false
+    case p: Term.Param              => !p.mods.exists(m => m.is[Mod.VarParam] || fixing(m))
+    case d: Stat.WithMods           => !d.mods.exists(fixing)
+    case _                          => true
   }
 
   /** A given alias whose body is spelled as `scala.compiletime.deferred` (bare, or selected through
@@ -103,7 +105,7 @@ private[cardinality] object Overrides {
       ancestry: List[Clause[L]],
       parents: Parents[L]
   ): Option[String] =
-    if (leaf.mods.exists(_.is[Mod.Final])) None
+    if (leaf.mods.hasFinal) None
     else
       ancestry
         .collectFirst { case Clause(_, name, Parent.Unread) => s"parent not read: $name" }

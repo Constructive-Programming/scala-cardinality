@@ -3,6 +3,7 @@ package cardinality.capacity
 import scala.meta.*
 
 import cardinality.types.Trees
+import cardinality.types.Trees.TemplateDefn
 
 /** The estimate's reading of one source, which `MethodAnalysis` reads a constructor's parameter
   * types through, so the two halves of a report answer with one number. A parameter type is read
@@ -130,18 +131,18 @@ object Reading {
 
   // The statements of a body, where its clauses are written.
   private def statements(tree: Tree): List[Stat] = tree match {
-    case s: Source                                                           => s.stats
-    case p: Pkg                                                              => p.body.stats
-    case d: (Pkg.Object | Defn.Object | Defn.Class | Defn.Trait | Defn.Enum) => d.templ.body.stats
-    case b: Term.Block                                                       => b.stats
-    case _                                                                   => Nil
+    case s: Source                      => s.stats
+    case p: Pkg                         => p.body.stats
+    case d: (Pkg.Object | TemplateDefn) => d.templ.body.stats
+    case b: Term.Block                  => b.stats
+    case _                              => Nil
   }
 
   // The trees whose bodies a definition sits in; the nearest one around a parameter type owns it.
   private def container(tree: Tree): Boolean = tree match {
-    case _: (Pkg | Pkg.Object | Defn.Object | Defn.Class | Defn.Trait | Defn.Enum) => true
-    case _: (Defn.Def | Term.Block)                                                => true
-    case _                                                                         => false
+    case _: (Pkg | Pkg.Object | TemplateDefn) => true
+    case _: (Defn.Def | Term.Block)           => true
+    case _                                    => false
   }
 
 }

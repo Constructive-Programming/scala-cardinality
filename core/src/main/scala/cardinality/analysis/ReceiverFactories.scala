@@ -86,15 +86,11 @@ private[cardinality] object ReceiverFactories {
             case stat if FactorySyntax.definition(stat).nonEmpty => stat -> scope
           }
         )
+        def keyed(keys: Stat => List[String]) =
+          all.flatMap((stat, scope) => keys(stat).map(_ -> (stat, scope))).groupMap(_._1)(_._2)
         val built = new Index(
-          all
-            .flatMap((stat, scope) => MemberSyntax.defined(stat).map(_ -> (stat, scope)))
-            .groupMap(_._1)(_._2),
-          all
-            .flatMap((stat, scope) =>
-              stat.collect { case n: Name => n.value }.distinct.map(_ -> (stat, scope))
-            )
-            .groupMap(_._1)(_._2),
+          keyed(MemberSyntax.defined),
+          keyed(_.collect { case n: Name => n.value }.distinct),
           scala.collection.mutable.Map.empty
         )
         indexes.put(resolver, built)

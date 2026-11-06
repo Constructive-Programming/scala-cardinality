@@ -6,6 +6,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
+import cardinality.types.Trees.hasOpaque
 import cardinality.types.{Spelling, TypeApplications}
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
@@ -393,7 +394,7 @@ final private[cardinality] class InheritedTypeMembers(lookup: SourceLookup, reso
   }
 
   private def alias(entry: TypeEntry): Boolean = entry.tree match {
-    case d: Defn.Type => !d.mods.exists(_.is[Mod.Opaque])
+    case d: Defn.Type => !d.mods.hasOpaque
     case _            => false
   }
 

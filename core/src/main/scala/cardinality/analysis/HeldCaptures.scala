@@ -11,6 +11,7 @@ import cardinality.analysis.resolution.{
   Linearization,
   TopTypes
 }
+import cardinality.types.Trees.TemplateDefn
 import cardinality.types.TypeApplications
 
 import MethodAnalysis.{Frame, Target}
@@ -67,8 +68,8 @@ final private[cardinality] class HeldCaptures(
     val context = ResolutionContext(owner, resolver.typeParameters(owner), Set.empty)
     resolver.scopes(owner).flatMap(_.stats).filter(holding).flatMap { stat =>
       val (reads, alias) = stat match {
-        case t: (Defn.Object | Defn.Class | Defn.Trait | Defn.Enum) => (templateReads(t), None)
-        case other => FinalImplementations.reads(other)
+        case t: TemplateDefn => (templateReads(t), None)
+        case other           => FinalImplementations.reads(other)
       }
       val holder = alias.map(Holder(_, heldAt(stat, context)))
       held(reads, visibleAt(owner.id), holder, Held)
@@ -77,7 +78,7 @@ final private[cardinality] class HeldCaptures(
 
   // The names a local template reads besides those its body and constructor define, which mean
   // its own members throughout it.
-  private def templateReads(t: Defn.Object | Defn.Class | Defn.Trait | Defn.Enum): Set[String] = {
+  private def templateReads(t: TemplateDefn): Set[String] = {
     val own = TypeApplications.template(t).toList.flatMap(_.body.stats)
     val params = t match {
       case c: Defn.Class => c.ctor.paramClauses.toList.flatMap(_.values)
@@ -90,8 +91,7 @@ final private[cardinality] class HeldCaptures(
 
   private def holding(stat: Stat): Boolean = !own(stat) && !encloses(stat) && (stat match {
     case v: Defn.Val => v.mods.exists(_.is[Mod.Lazy])
-    case _: (Defn.Def | Defn.GivenAlias | Defn.Given | Defn.Object | Defn.Class | Defn.Trait |
-          Defn.Enum) =>
+    case _: (Defn.Def | Defn.GivenAlias | Defn.Given | TemplateDefn) =>
       true
     case _ => false
   })

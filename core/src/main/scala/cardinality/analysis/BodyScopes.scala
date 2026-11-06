@@ -2,6 +2,7 @@ package cardinality.analysis
 
 import scala.meta.*
 
+import cardinality.types.Trees.{MethodDefn, TemplateDefn}
 import cardinality.types.{Spelling, TypeApplications}
 
 import MethodAnalysis.Frame
@@ -166,10 +167,10 @@ private[cardinality] object BodyScopes {
   }
 
   private def definitionNode(tree: Tree): Boolean = tree match {
-    case _: (Defn.Def | Defn.GivenAlias | Defn.Given | Defn.ExtensionGroup) => true
-    case _: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum)             => true
-    case _: Term.NewAnonymous                                               => true
-    case _                                                                  => false
+    case _: MethodDefn        => true
+    case _: TemplateDefn      => true
+    case _: Term.NewAnonymous => true
+    case _                    => false
   }
 
   // What one pattern does to the context that the reading leaves out: its binders, named and given,

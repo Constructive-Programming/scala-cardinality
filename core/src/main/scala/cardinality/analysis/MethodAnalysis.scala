@@ -96,6 +96,9 @@ object MethodAnalysis {
     /** Whether the frame is a class, trait, object, enum or given body. */
     def isTemplate: Boolean = tree.exists(TypeApplications.template(_).nonEmpty)
 
+    /** Whether the frame is an object's body. */
+    def isObject: Boolean = tree.exists(_.is[Defn.Object])
+
     // The source a frame was indexed from: the file path is the root frame's identity and the
     // head of every nested `input:offset` id, so positions compared against it are positions
     // in the same file.

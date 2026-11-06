@@ -16,6 +16,7 @@ import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.analysis.model.{Operator, ResolutionContext}
 import cardinality.analysis.{BuiltinTypes, MethodAnalysis, Resolver}
 import cardinality.capacity.Counter
+import cardinality.types.Trees.ClassDefn
 import cardinality.types.{
   Kind,
   Kinds,
@@ -201,8 +202,8 @@ final private[cardinality] class NominalKeys(
     entry.tree match {
       case alias: Defn.Type if OpaqueTypes.hidden(entry, application.scope.useSite) =>
         declaration(entry, alias.tparamClause.values, application)
-      case alias: Defn.Type                         => expand(entry, alias, application)
-      case d: (Defn.Class | Defn.Trait | Defn.Enum) =>
+      case alias: Defn.Type => expand(entry, alias, application)
+      case d: ClassDefn     =>
         declaration(entry, Counter.parameters(d), application)
       case _: Decl.Type =>
         Left(s"nominal identity of abstract type member not established: ${application.spelled}")

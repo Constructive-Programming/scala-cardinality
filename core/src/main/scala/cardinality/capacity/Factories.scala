@@ -3,6 +3,7 @@ package cardinality.capacity
 import scala.meta.*
 
 import cardinality.analysis.model.{FactorySyntax, MemberSyntax}
+import cardinality.types.Trees
 
 /** Rule B's factories on the stored-value side (v1.md §2, register D42): a class whose constructor
   * is restricted holds what its public secondaries and factories build, each at most min(its
@@ -50,7 +51,7 @@ private[capacity] object Factories {
               if (FactorySyntax.constructs(term, (), builds, callees))
                 Some(if (singleton) space(stat, size) else None)
               else
-                Option.when(declared.exists(names(_, name)))(
+                Option.when(declared.exists(Trees.spells(_, name)))(
                   Option.unless(FactorySyntax.compiled(term))(UnitSize: Size)
                 )
           }
@@ -99,7 +100,7 @@ private[capacity] object Factories {
     params.foldLeft(UnitSize: Size)(_ * size(_))
 
   private def constructs(term: Term, name: String): Boolean = term match {
-    case Term.New(init)                    => names(init.tpe, name)
+    case Term.New(init)                    => Trees.spells(init.tpe, name)
     case Term.Apply.After_4_6_0(callee, _) => creator(callee, name)
     case _                                 => false
   }
@@ -111,13 +112,6 @@ private[capacity] object Factories {
     case Term.Name(n)                           => n == name
     case Term.Select(_, Term.Name(n))           => n == name
     case _                                      => false
-  }
-
-  private def names(tpe: Type, name: String): Boolean = tpe match {
-    case Type.Apply.After_4_6_0(inner, _) => names(inner, name)
-    case Type.Name(n)                     => n == name
-    case Type.Select(_, Type.Name(n))     => n == name
-    case _                                => false
   }
 
 }

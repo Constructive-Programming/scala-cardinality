@@ -55,14 +55,14 @@ private[cardinality] object ListedNamespaces {
 
   val roots: Set[String] = Set("scala", "java")
 
-  // The `scala` package's subpackages and objects a relative prefix may start with, which the root
-  // import of `scala.*` binds (scala-library 3.9.0).
-  private val scalaMembers: Set[String] = Set(
-    "Predef",
+  // The `scala` package's subpackages: the `scala/*/` directories of scala-library 3.9.0 and
+  // scala3-library 3.9.0.
+  val scalaPackages: List[String] = List(
     "annotation",
     "beans",
     "caps",
     "collection",
+    "compat",
     "compiletime",
     "concurrent",
     "deriving",
@@ -76,6 +76,10 @@ private[cardinality] object ListedNamespaces {
     "sys",
     "util"
   )
+
+  // The `scala` package's subpackages and objects a relative prefix may start with, which the root
+  // import of `scala.*` binds (scala-library 3.9.0). `compat` stays out, as it always has here.
+  private val scalaMembers: Set[String] = scalaPackages.toSet - "compat" + "Predef"
 
   // Every type of the JDK's `java.*` / `javax.*` packages and of scala-library 3.9.0 whose simple
   // name the root imports bind to another declaration, by package (JDK 25 `jimage list`, the

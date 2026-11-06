@@ -5,6 +5,8 @@ import scala.reflect.ClassTag
 
 import dev.constructive.eo.optics.{Lens, Prism}
 
+import Trees.TemplateDefn
+
 /** Shared syntax rules for constructor applications and their binders. */
 private[cardinality] object TypeApplications {
   private given Dialect = dialects.Scala3
@@ -63,9 +65,9 @@ private[cardinality] object TypeApplications {
 
   /** The template a class, trait, object, enum, given instance or anonymous class declares. */
   def template(tree: Tree): Option[Template] = tree match {
-    case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum | Defn.Given) => Some(d.templ)
-    case n: Term.NewAnonymous                                                => Some(n.templ)
-    case _                                                                   => None
+    case d: (TemplateDefn | Defn.Given) => Some(d.templ)
+    case n: Term.NewAnonymous           => Some(n.templ)
+    case _                              => None
   }
 
   def name(tpe: Type): String = spelled(tpe).stripPrefix("_root_.")

@@ -13,6 +13,7 @@ import cardinality.analysis.{
   StdlibModel
 }
 import cardinality.capacity.Counter
+import cardinality.types.Trees.hasFinal
 import cardinality.types.{Traversals, *}
 
 import MethodAnalysis.{Frame, TypeEntry}
@@ -138,7 +139,7 @@ final private[cardinality] class Representations(
 
   // A leaf no file outside the family's extends: a case class or a final class.
   private def closedLeaf(c: Defn.Class): Boolean =
-    Representations.caseClass(c) || c.mods.exists(_.is[Mod.Final])
+    Representations.caseClass(c) || c.mods.hasFinal
 
   // A case class that is not final may be extended all the same, and a subclass may override a
   // member it has (`Overrides.openLeaf`): each parent is read as its clause's name resolves where
@@ -344,7 +345,7 @@ final private[cardinality] class Representations(
       exportedNames(n) || file.forall(importedIn.getOrElse(_, Some(Set.empty)).forall(_(n)))
     )
     file.forall(_ == e.owner.input) || containers.isEmpty ||
-    containers.exists(f => !f.tree.exists(_.is[Defn.Object])) || containers.exists(named)
+    containers.exists(f => !f.isObject) || containers.exists(named)
   }
 
   private def extendsThrowing(
@@ -403,7 +404,7 @@ final private[cardinality] class Representations(
       key: String
   ): Representation =
     if (Representations.plainCase(c)) plainRepresentation(c, key)
-    else if (c.mods.exists(_.is[Mod.Final])) abstractRepresentation(key)
+    else if (c.mods.hasFinal) abstractRepresentation(key)
     else
       (
         Nil,
@@ -454,7 +455,7 @@ private[cardinality] object Representations {
 
   /** A `final abstract` class: neither instantiated nor extended, so it has no value. */
   def finalAbstract(d: Defn.Trait | Defn.Class): Boolean =
-    d.mods.exists(_.is[Mod.Final]) && d.mods.exists(_.is[Mod.Abstract])
+    d.mods.hasFinal && d.mods.exists(_.is[Mod.Abstract])
 
   /** One family being enumerated: its entry and declaration, the families already open above it (a
     * cycle is refused) and the use site that reads it.

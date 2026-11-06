@@ -5,6 +5,7 @@ import scala.meta.*
 
 import cardinality.capacity.ParentNames.Denotes
 import cardinality.types.*
+import cardinality.types.Trees.{hasFinal, TemplateDefn}
 
 // Sealed families as tagged sums (docs/research/stored-value-families.md). `sealed` is the
 // compiler's promise that every direct subtype of a trait or abstract class is declared in its own
@@ -154,7 +155,7 @@ private[cardinality] object SealedFamilies {
     val declared = candidates(level, name).filter((d, _) => denotes(d) == Denotes.Parent)
     val spellings = synonyms.of(name)
     val stray = written(parent, spellings).collectFirst(Function.unlift { w =>
-      val plainly = inits(w).filter(init => spellings.exists(named(init.tpe, _)))
+      val plainly = inits(w).filter(init => spellings.exists(Trees.spells(init.tpe, _)))
       val status =
         if (plainly.forall(i => SealedSlots.plainCallee(i.tpe).contains(name))) denotes(w)
         else Denotes.Unknown
@@ -210,7 +211,7 @@ private[cardinality] object SealedFamilies {
   // `extends` clause names the parent plainly — each with the key it is solved under.
   private def candidates(level: Level, parent: String): List[(Defn, TypeName)] = {
     val here = level.stats.collect {
-      case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum)
+      case d: TemplateDefn
           if d.templ.inits.exists(i => SealedSlots.plainCallee(i.tpe).contains(parent)) =>
         (d: Defn) -> level.key(Walk.named(d))
     }
@@ -222,18 +223,10 @@ private[cardinality] object SealedFamilies {
   // subtype a sealed parent has.
   private def written(parent: Tree, names: Set[String]): List[Tree] =
     Trees.root(parent).collect {
-      case t: Template if t.inits.exists(init => names.exists(named(init.tpe, _))) =>
+      case t: Template if t.inits.exists(init => names.exists(Trees.spells(init.tpe, _))) =>
         t.parent.getOrElse(t)
-      case c: Defn.EnumCase if c.inits.exists(init => names.exists(named(init.tpe, _))) => c
+      case c: Defn.EnumCase if c.inits.exists(init => names.exists(Trees.spells(init.tpe, _))) => c
     }
-
-  // Whether a parent type is spelled with this name as its last segment, applied or not.
-  private def named(tpe: Type, name: String): Boolean = tpe match {
-    case Type.Apply.After_4_6_0(callee, _) => named(callee, name)
-    case Type.Name(n)                      => n == name
-    case Type.Select(_, Type.Name(n))      => n == name
-    case _                                 => false
-  }
 
   // Why a subtype the file writes is not one the sum reads.
   private def describe(
@@ -245,14 +238,16 @@ private[cardinality] object SealedFamilies {
     case _: Term.NewAnonymous => "an anonymous instance in its file"
     case _: Defn.Given        => "a given instance in its file"
     case c: Defn.EnumCase     => s"an enum case extends it: ${c.name.value}"
-    case d: Defn if inits(d).forall(init => !named(init.tpe, parent)) =>
+    case d: Defn if inits(d).forall(init => !Trees.spells(init.tpe, parent)) =>
       val through =
-        if (inits(d).exists(init => renamed.exists(named(init.tpe, _)))) "a renamed import"
+        if (inits(d).exists(init => renamed.exists(Trees.spells(init.tpe, _)))) "a renamed import"
         else "an alias"
       s"a subtype extends it through $through: ${Walk.named(d).value}"
     case d: Defn
         if inits(d)
-          .exists(init => SealedSlots.plainCallee(init.tpe).isEmpty && named(init.tpe, parent)) =>
+          .exists(init =>
+            SealedSlots.plainCallee(init.tpe).isEmpty && Trees.spells(init.tpe, parent)
+          ) =>
       s"a subtype extends it through a qualified name: ${Walk.named(d).value}"
     case d: Defn if status == Denotes.Unknown =>
       s"a subtype whose clause may name another $parent: ${Walk.named(d).value}"
@@ -276,7 +271,7 @@ private[cardinality] object SealedFamilies {
       site: Stat => Option[Scope => Scope]
   ): Either[String, Found] = {
     def bound(
-        s: Defn.Object | Defn.Class | Defn.Trait | Defn.Enum,
+        s: TemplateDefn,
         intermediate: Boolean,
         library: List[(Defn, String)] = Nil
     ) =
@@ -300,7 +295,7 @@ private[cardinality] object SealedFamilies {
     d match {
       case o: Defn.Object                              => bound(o, intermediate = false)
       case c: Defn.Class if Counter.isConcreteClass(c) =>
-        if (c.mods.exists(_.is[Mod.Final])) bound(c, intermediate = false)
+        if (c.mods.hasFinal) bound(c, intermediate = false)
         else if (c.mods.exists(_.is[Mod.Case]))
           caseLeaf(c, key).flatMap(library => bound(c, intermediate = false, library))
         else Left(s"a subtype open to extension: ${key.value}")

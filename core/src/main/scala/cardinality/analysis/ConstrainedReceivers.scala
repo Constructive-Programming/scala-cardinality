@@ -77,7 +77,7 @@ private[cardinality] object ConstrainedReceivers {
   private def companion(owner: Frame, from: Frame): Boolean =
     from.chain.exists(f =>
       f.parent.map(_.id) == owner.parent.map(_.id) && f.name == owner.name &&
-        f.tree.exists(_.is[Defn.Object])
+        f.isObject
     )
 
   // The largest of min(a constructor's or factory's space, the fields'): the fields' own as soon as

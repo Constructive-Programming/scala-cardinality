@@ -5,6 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.MemberSyntax
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex}
+import cardinality.types.Trees.{ClassDefn, TemplateDefn}
 import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
 
 import MethodAnalysis.Frame
@@ -18,7 +19,7 @@ private[expansion] enum Local {
   case Typed(tpe: Option[Type], rhs: Option[Term], scope: Frame, via: Option[String] = None)
   case Method(definition: Definition)
   case Instance(frame: Frame)
-  case Class(tree: Defn.Class | Defn.Trait | Defn.Enum)
+  case Class(tree: ClassDefn)
 }
 
 /** Where a walk stands: the frame names are read from (a definition nested in the body opens its
@@ -411,7 +412,7 @@ final private[expansion] class BodyWalk(
         scope.variables(name) && !declared.chain.exists(_.typeParams.exists(_.name.value == name))
       )
 
-  private def companion(tree: Defn.Class | Defn.Trait | Defn.Enum): Meaning = tree match {
+  private def companion(tree: ClassDefn): Meaning = tree match {
     case c: Defn.Class if c.mods.exists(_.is[Mod.Case]) => Meaning.Companion(c)
     case e: Defn.Enum                                   => Meaning.Companion(e)
     case other                                          =>
@@ -565,22 +566,14 @@ final private[expansion] class BodyWalk(
       MemberSyntax
         .names(d)
         .filter(_.nonEmpty)
-        .map(_ -> Local.Method(Definition(d, methodFrame(d, scope))))
+        .map(_ -> Local.Method(Definition(d, SourceIndex.methodFrame(d, scope.frame))))
     case o: Defn.Object =>
       List(o.name.value -> Local.Instance(SourceIndex.templateFrame(scope.frame, o)))
     case g: Defn.Given if g.name.value.nonEmpty =>
       List(g.name.value -> Local.Instance(SourceIndex.givenFrame(scope.frame, g)))
-    case d: (Defn.Class | Defn.Trait | Defn.Enum) => List(d.name.value -> Local.Class(d))
-    case _                                        => Nil
+    case d: ClassDefn => List(d.name.value -> Local.Class(d))
+    case _            => Nil
   }
-
-  private def methodFrame(d: Defn.Def | Defn.GivenAlias, scope: Scope): Frame =
-    SourceIndex.methodFrame(
-      d,
-      MemberSyntax.names(d).headOption.getOrElse(""),
-      MemberSyntax.groups(d),
-      scope.frame
-    )
 
   private def values(
       pats: List[Pat],
@@ -600,10 +593,11 @@ final private[expansion] class BodyWalk(
         .flatMap(types(_, scope))
         .orElse(rhs.flatMap(walk(_, scope)))
         .orElse(destructured(pats, scope))
-    case d: Defn.Def        => method(methodFrame(d, scope), d.decltpe, d.body, scope)
-    case g: Defn.GivenAlias => method(methodFrame(g, scope), Some(g.decltpe), g.body, scope)
-    case g: Defn.Given      => template(SourceIndex.givenFrame(scope.frame, g), scope, created)
-    case d: (Defn.Class | Defn.Trait | Defn.Object | Defn.Enum) =>
+    case d: Defn.Def => method(SourceIndex.methodFrame(d, scope.frame), d.decltpe, d.body, scope)
+    case g: Defn.GivenAlias =>
+      method(SourceIndex.methodFrame(g, scope.frame), Some(g.decltpe), g.body, scope)
+    case g: Defn.Given   => template(SourceIndex.givenFrame(scope.frame, g), scope, created)
+    case d: TemplateDefn =>
       hiding(d, scope).orElse(template(SourceIndex.templateFrame(scope.frame, d), scope, inherits))
     case i: Import    => Some(s"imports inside the body: ${Spelling.of(i)} (not followed)")
     case d: Defn.Type => hiding(d, scope).orElse(types(d.body, scope))

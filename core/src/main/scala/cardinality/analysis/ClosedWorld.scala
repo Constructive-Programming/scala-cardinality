@@ -5,6 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.MemberSyntax
 import cardinality.tasty.TastyStubs
+import cardinality.types.Trees.{hasFinal, hasOpaque, TemplateDefn}
 import cardinality.types.{Overrides, TypeApplications, TypeName}
 
 /** The closed world (docs/plans/v1.md §2): the supplied sources and dependency declarations are the
@@ -219,8 +220,8 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
           if open(c.mods) && !abstractMembers(c.templ) &&
             !extended(c.name.value) =>
         at(c, c.mods).toList
-      case c: Defn.Class if !c.mods.exists(_.is[Mod.Final]) => members(c.name.value, c.templ)
-      case t: Defn.Trait                                    => members(t.name.value, t.templ)
+      case c: Defn.Class if !c.mods.hasFinal => members(c.name.value, c.templ)
+      case t: Defn.Trait                     => members(t.name.value, t.templ)
     }.flatten
 
   private def members(owner: String, template: Template): List[(Int, String)] =
@@ -232,7 +233,7 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
             MemberSyntax.defined(v).forall(!overridden(owner, _)) =>
         at(v, v.mods).toList
       case t: Defn.Type
-          if openMember(t.mods) && !t.mods.exists(_.is[Mod.Opaque]) &&
+          if openMember(t.mods) && !t.mods.hasOpaque &&
             !overridden(owner, t.name.value) =>
         at(t, t.mods).toList
       case _ => Nil
@@ -275,8 +276,8 @@ private[cardinality] object ClosedWorld {
     case None | Some(_: Source) => Some(Nil -> Nil)
     case Some(p: Pkg)           =>
       placeOf(p).map((pkg, owners) => (pkg ++ p.ref.syntax.split('.').toList) -> owners)
-    case Some(o: Pkg.Object) => placeOf(o).map((pkg, owners) => (pkg :+ o.name.value) -> owners)
-    case Some(d: (Defn.Object | Defn.Class | Defn.Trait | Defn.Enum)) =>
+    case Some(o: Pkg.Object)   => placeOf(o).map((pkg, owners) => (pkg :+ o.name.value) -> owners)
+    case Some(d: TemplateDefn) =>
       placeOf(d).map((pkg, owners) => pkg -> (owners :+ d.name.value))
     case Some(p @ (_: Pkg.Body | _: Template | _: Template.Body)) => placeOf(p)
     case _                                                        => None

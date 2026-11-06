@@ -86,8 +86,14 @@ private[cardinality] object TopTypes {
         parameters.map(placed(_, false, positive)),
         placed(result, true, positive)
       )
+    case other => values(other)(placed(_, positive, enclosing))
+  }
+
+  // A rigid application, evidence or singleton keeps its arguments, which are keys, not values;
+  // any other shape has its children read by `f`.
+  private def values(shape: Shape)(f: Shape => Shape): Shape = shape match {
     case _: (Shape.Applied | Shape.Evidence | Shape.Singleton) => shape
-    case other => Shape.rebuild(other, Shape.children(other))(placed(_, positive, enclosing))
+    case other => Shape.rebuild(other, Shape.children(other))(f)
   }
 
   private def tier(positive: Boolean): Card = if (positive) Card.Omega else Card.one
@@ -109,9 +115,8 @@ private[cardinality] object TopTypes {
     * nothing of it may do with it.
     */
   def observed(shape: Shape): Shape = shape match {
-    case Shape.Ground(name, Card.Omega) if top(name)           => Shape.Product(Nil)
-    case _: (Shape.Applied | Shape.Evidence | Shape.Singleton) => shape
-    case other => Shape.rebuild(other, Shape.children(other))(observed)
+    case Shape.Ground(name, Card.Omega) if top(name) => Shape.Product(Nil)
+    case other                                       => values(other)(observed)
   }
 
   /** The top type a builtin spelling denotes. */

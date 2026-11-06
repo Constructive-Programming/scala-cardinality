@@ -1,6 +1,6 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{Defn, Stat, Tree, XtensionClassifiable}
+import scala.meta.{Stat, Tree}
 
 import cardinality.analysis.ExportClause
 import cardinality.analysis.MethodAnalysis.Frame
@@ -99,7 +99,7 @@ final private[resolution] class TermMembers(
   // companion class too (which shares the object's path).
   private def reachable(stat: Stat, owner: Frame, from: Frame): Boolean =
     accessible(stat, owner, from) ||
-      (owner.tree.exists(_.is[Defn.Object]) && from.chain.exists(_.path == owner.path))
+      (owner.isObject && from.chain.exists(_.path == owner.path))
 
   // The alias an export clause of the namespace defines under the name: the member its explicit
   // selector or its wildcard forwards, read as an import of the same kind over its prefix; a

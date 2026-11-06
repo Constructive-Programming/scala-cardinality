@@ -6,6 +6,7 @@ import scala.meta.*
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.resolution.*
 import cardinality.analysis.{ClosedWorld, MethodAnalysis, Resolver, SourceIndex}
+import cardinality.types.Trees.ClassDefn
 import cardinality.types.{ListedNamespaces, Overrides, Spelling, TypeApplications}
 
 import ClosedWorld.Overriding
@@ -721,7 +722,7 @@ final private[expansion] class BodyTerms(
     found match {
       case Found.Entry(entry) =>
         entry.tree match {
-          case _: (Defn.Class | Defn.Trait | Defn.Enum) =>
+          case _: ClassDefn =>
             entry.self.map(Receiver.Template(_)).getOrElse(Receiver.Unread(entry.key))
           case _: Defn.Type if OpaqueTypes.hidden(entry, scope) =>
             Receiver.Unread(s"opaque type ${entry.key} outside its scope")

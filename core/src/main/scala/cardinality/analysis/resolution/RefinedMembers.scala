@@ -7,6 +7,7 @@ import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.*
 import cardinality.types.*
+import cardinality.types.Trees.hasOpaque
 
 /** Member equations are resolved in their declaration scope; use-site accessibility is checked by
   * the caller. Bounds are not erased into guessed representations.
@@ -94,7 +95,7 @@ private[cardinality] object RefinedMembers {
   )
 
   private def definition(entry: TypeEntry): Definition = entry.tree match {
-    case alias: Defn.Type if !alias.mods.exists(_.is[Mod.Opaque]) =>
+    case alias: Defn.Type if !alias.mods.hasOpaque =>
       Definition(entry.owner, alias.tparamClause.values, Some(alias.body), Nil)
     case d: (Defn.Trait | Defn.Class) =>
       Definition(entry.owner, d.tparamClause.values, None, d.templ.body.stats, template = true)

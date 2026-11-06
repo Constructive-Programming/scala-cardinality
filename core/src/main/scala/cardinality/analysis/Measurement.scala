@@ -22,6 +22,8 @@ import MethodAnalysis.{Entry, Frame, Resolved, Target}
 /** One signature's environment: the bindings visible from its frame, the diagnostics that make that
   * environment incomplete, and the count the two admit.
   */
+import Measurement.SlotValue
+
 final private[cardinality] class Measurement(
     target: Target,
     resolver: Resolver,
@@ -148,7 +150,7 @@ final private[cardinality] class Measurement(
       case Right(member) =>
         val slot = member.slot.copy(concrete = true)
         member.tree match {
-          case p: Term.Param => add(member.name, p.decltpe, slot, slot.scope)
+          case p: Term.Param => add(SlotValue(member.name, p.decltpe, slot))
           case stat: Stat    => addMember(slot, stat, member.name)
         }
     }
@@ -354,12 +356,14 @@ final private[cardinality] class Measurement(
     owner.params.zipWithIndex.foreach { (p, index) =>
       if (positions.leftToShape(p, owner))
         add(
-          if (ContextualEvidence.anonymous(p)) ContextualEvidence.key(owner.path, index)
-          else p.name.value,
-          p.decltpe,
-          MemberSlot(owner, resolver.typeParameters(owner), owner),
-          ParameterScope.of(owner),
-          builtBefore(p, owner)
+          SlotValue(
+            if (ContextualEvidence.anonymous(p)) ContextualEvidence.key(owner.path, index)
+            else p.name.value,
+            p.decltpe,
+            MemberSlot(owner, resolver.typeParameters(owner), owner),
+            ParameterScope.of(owner),
+            builtBefore(p, owner)
+          )
         )
     }
 
@@ -491,25 +495,14 @@ final private[cardinality] class Measurement(
   // A declaration is read where its slot declares it; a parameter, where its owner types it. A
   // stable value's type-only refinement pins members of its path, which its path's reading follows:
   // the value itself is a value of the refined type.
-  private def add(
-      name: String,
-      tpe: Option[Type],
-      slot: MemberSlot,
-      reading: Frame,
-      preceding: Boolean = false
-  ): Unit =
-    readValue(name, tpe, slot, reading, preceding) match {
+  private def add(value: SlotValue): Unit =
+    readValue(value) match {
       case Left(reason) => errors += reason
-      case Right(shape) => bindSlot(slot, name, shape)
+      case Right(shape) => bindSlot(value.slot, value.name, shape)
     }
 
-  private def readValue(
-      name: String,
-      tpe: Option[Type],
-      slot: MemberSlot,
-      reading: Frame,
-      preceding: Boolean = false
-  ): Resolved =
+  private def readValue(value: SlotValue): Resolved = {
+    import value.*
     tpe
       .toRight(s"missing type of accessible value: $name")
       .flatMap(resolver.stableInput(_, readingContext(reading, slot.env, slot.receiver)))
@@ -522,6 +515,7 @@ final private[cardinality] class Measurement(
           else context
         )
       }
+  }
 
   // A scope's declarations by kind: a declaration binds a slot, a concrete value or variable is
   // read through `Aliases`, and an import only matters where it may rebind a builtin name. The
@@ -552,9 +546,9 @@ final private[cardinality] class Measurement(
         case Some(name)
             if MemberSyntax.deferredInline(declaration) &&
               !DeferredInline.supplied(Some(target.tree)) =>
-          val shape = readValue(name, Some(declaration.decltpe), slot, slot.scope)
+          val shape = readValue(SlotValue(name, Some(declaration.decltpe), slot))
           errors ++= DeferredInline.read(shape, slot.member(name), resolver)
-        case Some(name) => add(name, Some(declaration.decltpe), slot, slot.scope)
+        case Some(name) => add(SlotValue(name, Some(declaration.decltpe), slot))
         case None       => errors += "destructured capture not resolved"
       }
     }
@@ -572,7 +566,7 @@ final private[cardinality] class Measurement(
       (id, kind) => resolver.operators.rigid(id, kind)
     ) match {
       case Left(reason)                                 => errors += reason
-      case Right(Observation.Value(tpe))                => add(name, Some(tpe), slot, slot.scope)
+      case Right(Observation.Value(tpe))                => add(SlotValue(name, Some(tpe), slot))
       case Right(Observation.Applied(callable, result)) =>
         val read = resolveIn(_, slot.scope, slot.env ++ callable.binders, slot.receiver)
         MemberSyntax.applied(callable, result, read) match {
@@ -604,7 +598,7 @@ final private[cardinality] class Measurement(
 
   private def addDeclaredGiven(slot: MemberSlot, declaration: Decl.GivenLike): Unit =
     declaration.name match {
-      case name: Term.Name => add(name.value, Some(declaration.decltpe), slot, slot.scope)
+      case name: Term.Name => add(SlotValue(name.value, Some(declaration.decltpe), slot))
       case _               => errors += "anonymous given not resolved"
     }
 
@@ -696,5 +690,28 @@ final private[cardinality] class Measurement(
       resolver.inspect,
       resolver.solverDepth
     )
+
+}
+
+private object Measurement {
+
+  /** A value a slot declares, typed where `reading` reads it; `preceding` when it is built before
+    * the measured declaration's receiver.
+    */
+  final case class SlotValue(
+      name: String,
+      tpe: Option[Type],
+      slot: MemberSlot,
+      reading: Frame,
+      preceding: Boolean
+  )
+
+  object SlotValue {
+
+    /** A member's value, read where its slot declares it. */
+    def apply(name: String, tpe: Option[Type], slot: MemberSlot): SlotValue =
+      SlotValue(name, tpe, slot, slot.scope, false)
+
+  }
 
 }
