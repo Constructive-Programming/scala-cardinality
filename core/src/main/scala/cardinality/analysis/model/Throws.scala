@@ -3,6 +3,7 @@ package cardinality.analysis.model
 import scala.meta.*
 
 import cardinality.analysis.SourceIndex
+import cardinality.types.Trees.hasLazy
 
 /** Terms whose evaluation always throws (register D26): no value and no implementation, typed
   * `Nothing` by Scala — `throw e`; the root imports' `???` or `sys.error(…)`, both declared
@@ -38,9 +39,9 @@ private[cardinality] object Throws {
     */
   def evaluated(stats: List[Stat], excluded: Option[Tree]): List[Term] =
     stats.filterNot(stat => excluded.exists(_ eq stat)).collect {
-      case v: Defn.Val if !v.mods.exists(_.is[Mod.Lazy]) => v.rhs
-      case v: Defn.Var                                   => v.body
-      case term: Term                                    => term
+      case v: Defn.Val if !v.mods.hasLazy => v.rhs
+      case v: Defn.Var                    => v.body
+      case term: Term                     => term
     }
 
   // `sys.error`, through the `sys` package the root imports bind or its full path.

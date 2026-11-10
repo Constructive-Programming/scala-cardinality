@@ -33,6 +33,8 @@ Entry shape:
   Same shape in an exception's message: `Natural.Exceeded(limit: String)` (three templates over
   constants) → `Exceeded(Breach)`, ω → 3; `Inhabitation.Limit(message: String)` → `Limit(Budget)`
   with `Budget.States(max: Int)` keeping the one open number: ω → ≤2^33 (`<init>` 2^32 + 2).
+  Pass 4: `Live.Walk(step: String, skipFinished: Boolean, …)` had three literal steps, each with
+  one fixed flag → `Live.Step` (3). `Walk` keeps its rule function, so its own row stays `?`.
 
 ### R2 Correlated fields in a product — confirmed
 - Signal (R): `ω` row with generic fields (`budget`, `frontier`, `message`) where one field's
@@ -45,6 +47,22 @@ Entry shape:
   that was an operation name for three stops but a path for one →
   `Fuel(index | target, operation)`, `ResolutionDepth(operation)`, `SyntaxDepth(path)`, each
   rendering the old message.
+
+### R6 One flag implies the other — confirmed
+- Signal (R/source): two `Boolean` fields (or two `X => Boolean`) where one being true forces the
+  other: built from two runs of the same computation, one over a subset of the other's rules.
+- Fix: stage 1. A three-case enum (`Standing`: `Unbuilt | Optimistic | Proved`), with the old
+  questions as predicates **on the enum** (M5).
+- Expect: `4^n` → `3^n` in the row.
+- Evidence: pass 4, `Verdicts(proved, optimistic, absurd)` → `Verdicts(standing, absurd)`;
+  `<init>` `2^(2^33)·…` → `3^(2^32)·…`.
+
+### R7 Flags only ever read together — confirmed
+- Signal (source): two `Boolean` fields whose only reader is `a || b` (grep each field's reads).
+- Fix: stage 2. One flag; the doc comment keeps the two reasons.
+- Expect: the row halves.
+- Boundary: a writer may still set one of them alone; only the readers decide.
+- Evidence: pass 4, `TargetViews.Reads(outer, escapes)` → `reaches`; 2^8589934595 → 2^8589934594.
 
 ### R3 Case analysis outside the sum — confirmed
 - Signal (R/source): `match` / `isInstanceOf` on one of the build's own sums in another file,
@@ -63,7 +81,8 @@ Entry shape:
   (`unbound.forall(_.instantiationDependent)`). Pass 3: `Count.atLeast(n)` replaces
   `SequenceElimination.atLeastTwo` and the `DeferredInline` match; `Card.literalSize` replaces
   `Count.sizeOf` and the `ClosedSpaces.ground` match; `Kinds.proper` replaces
-  `Kinds.of(_) == Kind.Proper` at three sites.
+  `Kinds.of(_) == Kind.Proper` at three sites. Pass 4: `Count.isZero` replaces the
+  `Count.Finite(n) if n == 0` guards in `ViewSandwich` and `SequenceElimination`.
 
 ### R4 Independent numeric knobs — rejected
 - Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,
@@ -103,6 +122,20 @@ Entry shape:
   `sbt.JUnitXmlTestsListener$TestSuite.stop`, with no failing spec.
 - Fix: run `core/testFull` again on its own; it is sbt's listener, not a test.
 
+### M5 A method on a function-carrying class is a huge row — confirmed
+- Signal (M): a new signature row of the form `2^(2^32·…)` after adding a helper `def` to a case
+  class whose fields are functions (`Verdicts.proved(id: Int)` counted `Boolean^(Int × Verdicts)`).
+- Fix: put the question on the small type the function returns (`Standing.proved`, 2^3) and let
+  callers apply the function themselves.
+- Expect: the total's finite part must not grow; `report-diff` shows it when it does.
+- Evidence: pass 4, total ≈2^(2^103) → ≈2^(2^144246315611) with the helpers on `Verdicts`, back
+  to ≈2^(2^103) with them on `Standing`.
+
+### M6 report-diff must read nested products — confirmed
+- Signal (M): a size such as `2^(2^32·3^(2^32)·…)` has `·` inside parentheses and is far past a
+  Double. The first script split on `·` and missed the growth in M5.
+- Fix: `report-diff.scala` parses the size and sums exponent towers; `--check` runs its self-check.
+
 ## Source shape (stage 4)
 
 ### S1 Hand-rolled short-circuiting Option fold — confirmed
@@ -124,7 +157,8 @@ Entry shape:
 ### S4 Hand-written "until `next == current`" loop — confirmed
 - Signal (source): `if (next == x) x else loop(next)` or a `var changed` / `while (changed)` loop.
 - Fix: `Graphs.fixpoint(start)(step)`.
-- Boundary: a loop with a widening branch (`Instantiations.iterate`) or a solver loop.
+- Boundary: a loop with a widening branch (`Instantiations.iterate`) or a solver loop
+  (`GoalSolver.leastProductive` spends `inspect` fuel per node and mutates in place).
 - Evidence: pass 3, `PolymorphicMembers.opens`, `TargetViews.classify`, `Positivity.slots`,
   `OpaqueSumForwarding` (its `var` loop).
 
@@ -151,12 +185,16 @@ Entry shape:
   (`ClosedWorld.open` vs `TypeMembers.open`) are restructured until CPD no longer matches.
 - Boundary: duplicated import blocks follow SKILL.md §6.2: restructure first; `// CPD-OFF` only
   after that is declined, and never outside imports.
+- Evidence: pass 4, a new `Trees.hasLazy` import made the headers of `Throws` and `ScopeTerms`
+  match for 25 tokens; `ScopeTerms` now imports `cardinality.types.*` (it sorts first).
 
-### C2 Type union spelled at many sites — proposed
+### C2 Type union spelled at many sites — confirmed
 - Signal (C): 12-token idiom such as `Defn.Class | Defn.Trait | Defn.Object | Defn.Enum`
   (25 occurrences in 16 files at 331b579).
 - Fix: a type alias in `types/Trees.scala`.
 - Expect: no report movement.
+- Evidence: `TemplateDefn`, `ClassDefn`, `MethodDefn`; at pass 4 each union is spelled once, in
+  its alias.
 
 ### C3 Repeated parameter group — proposed
 - Signal (C): the same parameters in many signatures: `tpe, context, resolver` (16),
@@ -176,7 +214,11 @@ Entry shape:
 - Signal (C): `mods.exists(_.is[Mod.X])` (12× `Case`, 8× `Abstract`, 7× `Private` at 6e4b304).
 - Fix: an extension beside `hasFinal` in `types/Trees.scala`; import it by name.
 - Expect: new `?` rows for the predicates (scalameta `Mod` is open); nothing moves.
-- Evidence: pass 3, `hasCase`, `hasAbstract`, `hasPrivate`.
+- Boundary: `clause.mod.exists(_.is[Mod.Using])` (5 sites) is on an `Option[Mod]`, not a modifier
+  list; left.
+- Evidence: pass 3, `hasCase`, `hasAbstract`, `hasPrivate`. Pass 4: `hasInline`, `hasLazy` (9
+  sites, `BodyWalk.inlineMod` deleted); three spelled tests now call the existing
+  `MemberSyntax.implicitModifier` and two the existing `MemberSyntax.restricted`.
 
 ### C7 Tree accessor chain spelled at many sites — confirmed
 - Signal (C): `paramClauses.toList.flatMap(_.values)` (20 sites) and

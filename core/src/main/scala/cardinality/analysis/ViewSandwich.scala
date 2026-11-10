@@ -1,7 +1,6 @@
 package cardinality.analysis
 
 import cardinality.analysis.capability.TargetViews
-import cardinality.analysis.inhabitation.Inhabitation.Count
 
 import MethodAnalysis.Entry
 import TargetViews.ViewMode
@@ -18,10 +17,8 @@ private[cardinality] object ViewSandwich {
     val first = reading.entry()
     if (!reading.refusedByViews(first.count)) first
     else {
-      measurement(ViewMode.Include).entry().count match {
-        case zero @ Count.Finite(n) if n == 0 => first.copy(count = zero)
-        case _                                => first
-      }
+      val included = measurement(ViewMode.Include).entry().count
+      if (included.isZero) first.copy(count = included) else first
     }
   }
 

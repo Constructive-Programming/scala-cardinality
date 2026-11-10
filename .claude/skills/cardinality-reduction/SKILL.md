@@ -242,5 +242,6 @@ after:  62ε₀ + 671ω + ≈2^(2^103.00)   (3481 rows ?)
 
 Show the user these two lines. Compare lexicographically (§1): the ε₀ and ω coefficients
 carry the result; the finite part is dominated by its largest row, so a finite change rarely
-shows. `--rows` lists every row that changed, appeared (`·`) or left: use it to explain
+shows. When the finite part grows, a new row outgrew the largest one: find it with `--rows`
+and fix it before landing (catalog M5). `--rows` lists every row that changed, appeared (`·`) or left: use it to explain
 movement (§7), not in the final message.

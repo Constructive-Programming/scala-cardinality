@@ -48,7 +48,11 @@ final private[inhabitation] class GoalSolver(
         if (absurd.get(id).exists(proved)) List(Rule(Nil))
         else nodes(id).filter(_.children.forall(productive))
       }.toVector
-      val verdicts = Verdicts(proved, productive, absurd.get)
+      val standing = (id: Int) =>
+        if (proved(id)) Standing.Proved
+        else if (productive(id)) Standing.Optimistic
+        else Standing.Unbuilt
+      val verdicts = Verdicts(standing, absurd.get)
       covered(
         new Live(live, inspect, maxDepth, verdicts).result(root),
         absurd.get(root).exists(proved)

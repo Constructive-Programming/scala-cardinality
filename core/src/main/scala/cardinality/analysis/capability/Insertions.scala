@@ -67,7 +67,7 @@ private[cardinality] object Insertions {
       clause: List[Term.ParamClause],
       syntax: Insertions
   ): Boolean =
-    mods.exists(_.is[Mod.Implicit]) &&
+    MemberSyntax.implicitModifier(mods) &&
       clause.flatMap(_.values).exists(_.decltpe.exists(syntax.deferring))
 
   private def receiverDeferred(group: Defn.ExtensionGroup, syntax: Insertions): Boolean =

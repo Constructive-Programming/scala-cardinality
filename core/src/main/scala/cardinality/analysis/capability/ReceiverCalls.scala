@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.model.{MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.{Found, InheritedScopes, OverrideIdentity}
 import cardinality.analysis.{MethodAnalysis, Resolver}
+import cardinality.types.Trees.hasInline
 import cardinality.types.{Traversals, TypeApplications}
 
 import MethodAnalysis.Frame
@@ -106,7 +107,7 @@ final private[capability] class ReceiverCalls(levels: List[Frame], resolver: Res
     val binder: String => Option[Binder] = name =>
       if (own.contains(name)) Some(if (typed) Binder.Unknown else Binder.Abstract)
       else callee.binder(name)
-    !parameter.mods.exists(_.is[Mod.Inline]) && !parameter.decltpe.exists(deferred(_, binder, 0))
+    !parameter.mods.hasInline && !parameter.decltpe.exists(deferred(_, binder, 0))
   }
 
   // Whether an argument of this type may be wrapped instead of evaluated.

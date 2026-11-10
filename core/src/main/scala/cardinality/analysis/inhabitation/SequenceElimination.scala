@@ -46,9 +46,9 @@ private[cardinality] object SequenceElimination {
         solve(rest ++ sequences.zip(lengths).flatMap(elements), target)
       val vectors = lengthVectors(sequences.size)
       variant(vectors.head) match {
-        case Count.Finite(zero) if zero == 0 => Count.Finite(0)
-        case unresolved: Count.Unresolved    => unresolved
-        case empty                           =>
+        case zero if zero.isZero          => zero
+        case unresolved: Count.Unresolved => unresolved
+        case empty                        =>
           vectors.tail.iterator
             .map(variant)
             .collectFirst {
