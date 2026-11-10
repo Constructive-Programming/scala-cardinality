@@ -261,6 +261,13 @@ built for Java 25); add it to `project/plugins.sbt`:
 addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.2")
 ```
 
+sbt 1 builds use the same coordinates: the sbt 1 artifact (`sbt-cardinality_2.12_1.0`, module
+`sbt1-plugin`) cannot load the Scala 3 calculator inside sbt, so it resolves
+`scala-cardinality_3` at its own version and forks `cardinality.Main` on it. It offers
+`cardinalityReport`, `cardinalityReportOf` and `cardinalityReportSelected`; the forked JVM must be
+JDK 25 or later (`cardinalityJavaHome` picks one), and dependency stubs are rendered on every run
+instead of cached.
+
 The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.2"`.
 
 For Mill (1.3 or later, on JDK 25), load the plugin in `build.mill`'s header and mix

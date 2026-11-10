@@ -28,7 +28,7 @@ scalaVersion := "3.9.0"
 
 // The root project only aggregates; it publishes nothing and has no sources.
 lazy val root = (project in file("."))
-  .aggregate(core, plugin, millPlugin)
+  .aggregate(core, plugin, sbt1Plugin, millPlugin)
   .settings(
     name := "scala-cardinality-root",
     publish / skip := true
@@ -91,6 +91,38 @@ lazy val plugin = project
       val _ = (core / publishLocal).value
       publishLocal.value
     }
+  )
+
+// The sbt 1 plugin, for builds that cannot move to sbt 2 yet. sbt 1 runs on Scala 2.12 and cannot
+// load `core`, so this plugin has no dependency on it: it resolves `scala-cardinality_3` at the
+// plugin's own version into a hidden configuration and forks `cardinality.Main` on it. Same
+// artifact name as `plugin`; sbt's cross suffixes (`_2.12_1.0` vs `_sbt2_3`) keep them apart.
+lazy val sbt1Plugin = (project in file("sbt1-plugin"))
+  .enablePlugins(SbtPlugin)
+  .settings(
+    name := "sbt-cardinality",
+    description := "sbt 1 plugin reporting the cardinality of a project's definitions and methods",
+    scalaVersion := "2.12.20",
+    pluginCrossBuild / sbtVersion := "1.10.0",
+    // The Scala 3 flags in ThisBuild / scalacOptions are not 2.12 flags.
+    scalacOptions := Seq(
+      "-deprecation",
+      "-feature",
+      "-unchecked",
+      "-Ywarn-unused",
+      "-Xfatal-warnings",
+      // Scala 3 syntax (`import sbt.*`) so scalafix's OrganizeImports rules hold here too.
+      "-Xsource:3"
+    ),
+    coverageEnabled := false,
+    Compile / sourceGenerators += Def.task {
+      val out = (Compile / sourceManaged).value / "cardinality" / "BuildInfo.scala"
+      IO.write(
+        out,
+        s"package cardinality\n\nprivate[cardinality] object BuildInfo { val version = \"${version.value}\" }\n"
+      )
+      Seq(out)
+    }.taskValue
   )
 
 // The Mill plugin: `CardinalityModule`, mixed into a `ScalaModule`. Mill 1.3 compiles builds with
