@@ -32,7 +32,7 @@ sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport   # target/**/<module>/c
   `cp target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt /tmp/cardinality-before.txt`
   (and the plugin's, if the run touches `plugin/`). The committed baseline is not a substitute:
   it may predate commits pulled since.
-- Diff each run against the starting report with `report-diff.py` (§8).
+- Diff each run against the starting report with `report-diff.scala` (§8).
 - The report needs a large heap. If it dies with `OutOfMemoryError`, run the launcher with
   `-Xmx16g -Xss8m` (catalog M3).
 
@@ -188,7 +188,7 @@ bash scripts/check-file-metrics.sh
 # and the 25-token CPD run from §6, empty
 ```
 
-Then re-run the report, diff it with `report-diff.py` (§8) and compare against what the pass
+Then re-run the report, diff it with `report-diff.scala` (§8) and compare against what the pass
 should move:
 
 | Pass | Expected report movement |
@@ -227,8 +227,9 @@ starts ahead of this one.
 End every run by re-measuring (§1) and printing the total program cardinality before and after:
 
 ```bash
-python3 -I .claude/skills/cardinality-reduction/report-diff.py /tmp/cardinality-before.txt \
+scala-cli run .claude/skills/cardinality-reduction/report-diff.scala -- /tmp/cardinality-before.txt \
   target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt
+# native binary, once: scala-cli --power package --native .claude/skills/cardinality-reduction/report-diff.scala -o /tmp/report-diff
 ```
 
 It sums every row of both sections into one polynomial `a·ε₀ + b·ω + n`, with the `?` rows
