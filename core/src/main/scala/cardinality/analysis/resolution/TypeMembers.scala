@@ -6,7 +6,7 @@ import cardinality.analysis.MethodAnalysis.{Frame, Resolved, TypeEntry}
 import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{MemberPath, ResolutionContext}
-import cardinality.types.Trees.{hasOpaque, isClosedType}
+import cardinality.types.Trees.{hasOpaque, hasPrivate, isClosedType}
 import cardinality.types.{Kind, Kinds, Memo, Spelling, TypeApplications}
 
 import TemplateClosures.Closure
@@ -727,7 +727,7 @@ private[cardinality] object TypeMembers {
     }
 
   private def hidden(tree: Tree): Boolean = tree match {
-    case d: Stat.WithMods => d.mods.exists(_.is[Mod.Private])
+    case d: Stat.WithMods => d.mods.hasPrivate
     case _                => false
   }
 

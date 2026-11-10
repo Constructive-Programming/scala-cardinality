@@ -6,6 +6,7 @@ import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.Resolver
 import cardinality.analysis.model.MemberSyntax
 import cardinality.analysis.resolution.Linearization
+import cardinality.types.Trees.hasPrivate
 
 /** The constructor state a template passes its parents, where its members may not reach it.
   *
@@ -33,7 +34,7 @@ private[cardinality] object PassedState {
   private def hidden(level: Frame): List[String] = {
     val fields = ReceiverMembers.fieldParams(level)
     level.params
-      .filter(p => !fields.exists(_ eq p) || p.mods.exists(_.is[Mod.Private]))
+      .filter(p => !fields.exists(_ eq p) || p.mods.hasPrivate)
       .map(_.name.value)
       .filter(_.nonEmpty)
   }

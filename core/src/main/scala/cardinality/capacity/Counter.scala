@@ -3,7 +3,7 @@ package cardinality.capacity
 import scala.meta.*
 
 import cardinality.types.*
-import cardinality.types.Trees.{hasOpaque, hasSealed, ClassDefn}
+import cardinality.types.Trees.{hasAbstract, hasCase, hasOpaque, hasSealed, parameters, ClassDefn}
 
 object Counter {
 
@@ -139,7 +139,7 @@ object Counter {
   private[cardinality] def isConcreteClass(d: Defn.Class): Boolean = !isAbstractClass(d)
 
   private[cardinality] def isAbstractClass(d: Defn.Class): Boolean =
-    d.mods.exists(_.is[Mod.Abstract])
+    d.mods.hasAbstract
 
   private[cardinality] def isSealed(d: Defn.Class | Defn.Trait): Boolean =
     d.mods.hasSealed
@@ -166,8 +166,8 @@ object Counter {
   private[cardinality] def defnIn(scope: Scope): Defn => Size = {
     // Abstract classes contribute no inhabitants of their own; only their concrete
     // subclasses do.
-    case c: Defn.Class if c.mods.exists(_.is[Mod.Abstract]) => NothingSize
-    case c: Defn.Class                                      => builders(c)(scope)
+    case c: Defn.Class if c.mods.hasAbstract => NothingSize
+    case c: Defn.Class                       => builders(c)(scope)
     // An enum's cardinality is the sum over its cases; the enum's own constructor
     // arguments are shared state, not extra inhabitants.
     case e: Defn.Enum => enumSize(scope)(e)
@@ -207,7 +207,7 @@ object Counter {
   }
 
   private def ctorIn(scope: Scope): Ctor.Primary => Size =
-    _.paramClauses.flatMap(_.values).foldLeft(UnitSize: Size)(_ * paramIn(scope)(_))
+    _.parameters.foldLeft(UnitSize: Size)(_ * paramIn(scope)(_))
 
   // What a constructor stores: its parameters, and the evidence each context bound of the class's
   // type parameters adds — Scala 3 desugars `C[T: TC]` to `C[T](using TC[T])`, a field like any
@@ -252,7 +252,7 @@ object Counter {
   private def signatureIn(scope: Scope): Stat => Size = {
     case p: Pkg        => signatureBody(p.body.stats, scope)
     case d: Defn.Class =>
-      ctorSignature(scope)(caseParams = d.mods.exists(_.is[Mod.Case]), d.ctor) +
+      ctorSignature(scope)(caseParams = d.mods.hasCase, d.ctor) +
         signatureBody(d.templ.body.stats, scope)
     case d: (Defn.Trait | Defn.Object) => signatureBody(d.templ.body.stats, scope)
     // An enum's own parameters reach every case, so they are members too.
@@ -302,7 +302,7 @@ object Counter {
   }
 
   private def ctorSignature(scope: Scope)(caseParams: Boolean, ctor: Ctor.Primary): Size = {
-    val members = ctor.paramClauses.flatMap(_.values).filter(isAccessor(caseParams, _))
+    val members = ctor.parameters.filter(isAccessor(caseParams, _))
     members.foldLeft(NothingSize: Size)(_ + paramIn(scope)(_))
   }
 

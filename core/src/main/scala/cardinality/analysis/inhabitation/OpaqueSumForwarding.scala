@@ -1,6 +1,6 @@
 package cardinality.analysis.inhabitation
 
-import cardinality.types.Traversals
+import cardinality.types.{Graphs, Traversals}
 
 import Inhabitation.Shape
 import Shape.*
@@ -92,10 +92,8 @@ private[cardinality] object OpaqueSumForwarding {
     val names = (atoms ++ calls.flatMap(_.inputs) ++ calls.collect {
       case Call(_, a: Atom) => a
     }).distinct
-    var counts = names.map(_ -> 0).toMap.withDefaultValue(0)
-    var changed = true
-    while (changed) {
-      val next = names
+    Graphs.fixpoint(names.map(_ -> 0).toMap.withDefaultValue(0)) { counts =>
+      names
         .map { atom =>
           val applications = calls.collect {
             case Call(inputs, `atom`) => inputs.foldLeft(1)((n, a) => (n * counts(a)).min(2))
@@ -104,10 +102,7 @@ private[cardinality] object OpaqueSumForwarding {
         }
         .toMap
         .withDefaultValue(0)
-      changed = next != counts
-      counts = next
     }
-    counts
   }
 
   // Refuse projections, curried/higher-order outputs, nested sums and all unknown shapes. Those

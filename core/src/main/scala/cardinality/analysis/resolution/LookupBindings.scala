@@ -1,6 +1,7 @@
 package cardinality.analysis.resolution
 
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
+import cardinality.analysis.model.Anchor
 import cardinality.analysis.{BuiltinTypes, ImportBinding, SourceIndex}
 import cardinality.types.ListedNamespaces
 
@@ -181,7 +182,7 @@ private[resolution] object LookupBindings {
   final case class Member(found: Found, depth: Int, exported: Boolean)
 
   /** A named import's target, with the scope and position its own prefix is read at. */
-  final case class Target(segments: List[String], scope: Frame, at: Option[(String, Int)])
+  final case class Target(segments: List[String], scope: Frame, at: Option[Anchor])
 
   // The targets a clause's explicit selectors bind a name to, each read where the clause stands —
   // or, for an importer whose prefix is no path, a value's member, which is not followed.
@@ -203,8 +204,8 @@ private[resolution] object LookupBindings {
     targets.collectFirst { case Right(target) => target.segments }.getOrElse(Nil)
 
   // A clause's prefix is read where the clause stands: only earlier clauses have bound names.
-  def before(file: String, clause: ImportBinding): Option[(String, Int)] =
-    Some(file -> (clause.start - 1))
+  def before(file: String, clause: ImportBinding): Option[Anchor] =
+    Some(Anchor(file, clause.start - 1))
 
   def entryOrAmbiguous(found: List[TypeEntry], name: String): Found =
     found match {

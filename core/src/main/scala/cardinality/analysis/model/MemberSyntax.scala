@@ -4,6 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.{Inhabitation, PolymorphicMembers}
+import cardinality.types.Trees.{hasCase, parameters}
 import cardinality.types.{Kind, TypeApplications}
 
 import Inhabitation.Shape
@@ -41,7 +42,7 @@ private[cardinality] object MemberSyntax {
   }
 
   def parameters(groups: List[Member.ParamClauseGroup]): List[Term.Param] =
-    groups.flatMap(_.paramClauses).flatMap(_.values)
+    groups.flatMap(_.parameters)
 
   def parameterNames(groups: List[Member.ParamClauseGroup]): Set[String] =
     parameters(groups).map(_.name.value).toSet
@@ -133,9 +134,9 @@ private[cardinality] object MemberSyntax {
   def fieldParams(declaration: Tree): List[Term.Param] = declaration match {
     case c: Defn.Class =>
       val clauses = c.ctor.paramClauses.toList.map(_.values)
-      val caseFields = if (c.mods.exists(_.is[Mod.Case])) clauses.take(1).flatten else Nil
+      val caseFields = if (c.mods.hasCase) clauses.take(1).flatten else Nil
       clauses.flatten.filter(p => keptParameter(p) || caseFields.exists(_ eq p))
-    case t: Defn.Trait => t.ctor.paramClauses.toList.flatMap(_.values).filter(keptParameter)
+    case t: Defn.Trait => t.ctor.parameters.filter(keptParameter)
     case _             => Nil
   }
 

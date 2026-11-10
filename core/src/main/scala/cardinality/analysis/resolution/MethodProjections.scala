@@ -44,7 +44,7 @@ private[cardinality] object MethodProjections {
           .filter(definition =>
             !definition.mods.hasOpaque &&
               TypeApplications.lambda(definition.body).isEmpty &&
-              definition.tparamClause.values.forall(Kinds.of(_) == Kind.Proper)
+              definition.tparamClause.values.forall(Kinds.proper)
           )
           .map(entry -> _)
       case _ => None

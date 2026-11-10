@@ -16,6 +16,16 @@ private[cardinality] object Graphs {
     else reachable(graph, next.flatMap(graph.getOrElse(_, Set.empty)), seen ++ next)
   }
 
+  /** The graph a list of edges draws: each node to the nodes one edge leads to. */
+  def fromEdges[A](edges: Iterable[(A, A)]): Map[A, Set[A]] =
+    edges.groupMapReduce(_._1)(edge => Set(edge._2))(_ ++ _)
+
+  /** The first value `step` leaves unchanged, starting from `start`. */
+  @tailrec def fixpoint[A](start: A)(step: A => A): A = {
+    val next = step(start)
+    if (next == start) start else fixpoint(next)(step)
+  }
+
   /** The nodes on a cycle: each one a path of one step or more leads back to. */
   def cyclic[A](graph: Map[A, Set[A]]): Set[A] =
     graph.keySet.filter(node => reachable(graph, graph.getOrElse(node, Set.empty)).contains(node))

@@ -13,7 +13,7 @@ import cardinality.analysis.{
   StdlibModel
 }
 import cardinality.capacity.Counter
-import cardinality.types.Trees.hasFinal
+import cardinality.types.Trees.{hasAbstract, hasCase, hasFinal, parameters}
 import cardinality.types.{Traversals, *}
 
 import MethodAnalysis.{Frame, TypeEntry}
@@ -178,7 +178,7 @@ final private[cardinality] class Representations(
   }
 
   private def intermediate(declaration: Defn.Class | Defn.Trait): Boolean = declaration match {
-    case c: Defn.Class => c.mods.exists(_.is[Mod.Abstract])
+    case c: Defn.Class => c.mods.hasAbstract
     case t: Defn.Trait => Counter.isSealed(t)
   }
 
@@ -237,7 +237,7 @@ final private[cardinality] class Representations(
       built(child, useSite).flatMap {
         case Some(space) => Right(List(List(ground(child.key, space))))
         case None        =>
-          val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
+          val parameters = c.ctor.parameters
           val fields = Representations.caseClass(c) || parameters.forall(MemberSyntax.keptParameter)
           if (!fields || parameters.exists(p => !usableWhere(p.mods, child.owner, useSite)))
             Left(s"sealed subtype hides a parameter: ${c.name.value}")
@@ -291,7 +291,7 @@ final private[cardinality] class Representations(
   // its own or bottom-pin them, since `case I extends G[Unit]` is a value of `G[Unit]` only, not of
   // every `G[A]` (its own parameters: `SealedSlots.caseParams`).
   private def enumRepresentation(e: Defn.Enum, key: String, owner: Frame): Representation =
-    if (e.mods.exists(_.is[Mod.Abstract])) abstractRepresentation(key)
+    if (e.mods.hasAbstract) abstractRepresentation(key)
     else if (
       (e :: e.templ.body.stats.collect { case c: Defn.EnumCase => c }).exists(mayThrow(_)) ||
       singletons(e) && companion(e, owner).exists(mayThrow(_))
@@ -383,7 +383,7 @@ final private[cardinality] class Representations(
     )
 
   private def enumCase(c: Defn.EnumCase, e: Defn.Enum, key: String): Either[String, List[Type]] = {
-    val parameters = c.ctor.paramClauses.toList.flatMap(_.values)
+    val parameters = c.ctor.parameters
     val fields = declaredFields(parameters, key)
     if (c.inits.isEmpty) fields
     else
@@ -417,7 +417,7 @@ final private[cardinality] class Representations(
   private def plainRepresentation(c: Defn.Class, key: String): Representation =
     (
       c.tparamClause.values,
-      declaredFields(c.ctor.paramClauses.toList.flatMap(_.values), key).map(List(_))
+      declaredFields(c.ctor.parameters, key).map(List(_))
     )
 
   // A field without a declared type leaves the product unreadable.
@@ -431,13 +431,13 @@ private[cardinality] object Representations {
 
   /** A concrete case class. */
   def caseClass(c: Defn.Class): Boolean =
-    c.mods.exists(_.is[Mod.Case]) && !c.mods.exists(_.is[Mod.Abstract])
+    c.mods.hasCase && !c.mods.hasAbstract
 
   /** A case class whose single parameter list is its whole product, read as that product. */
   def plainCase(c: Defn.Class): Boolean =
     caseClass(c) && c.ctor.paramClauses.size == 1 && c.ctor.mods.isEmpty &&
       c.templ.inits.isEmpty && c.templ.body.stats.forall(_.is[Ctor.Secondary]) &&
-      !c.ctor.paramClauses.flatMap(_.values).exists(_.mods.exists(MemberSyntax.restricted))
+      !c.ctor.parameters.exists(_.mods.exists(MemberSyntax.restricted))
 
   /** A trait or plain class whose only members are types (members M3): no parent, parameter or self
     * type adds a term member, so no observation tells two of its values apart — its record is
@@ -447,7 +447,7 @@ private[cardinality] object Representations {
     * its product.
     */
   def typesOnly(d: Defn.Trait | Defn.Class): Boolean =
-    !Counter.isSealed(d) && !d.mods.exists(_.is[Mod.Case]) && d.templ.inits.isEmpty &&
+    !Counter.isSealed(d) && !d.mods.hasCase && d.templ.inits.isEmpty &&
       d.ctor.mods.isEmpty && d.ctor.paramClauses.forall(_.values.isEmpty) &&
       d.templ.body.selfOpt.forall(_.decltpe.isEmpty) && !finalAbstract(d) &&
       d.templ.body.stats.forall(stat => stat.is[Decl.Type] || stat.is[Defn.Type]) &&
@@ -455,7 +455,7 @@ private[cardinality] object Representations {
 
   /** A `final abstract` class: neither instantiated nor extended, so it has no value. */
   def finalAbstract(d: Defn.Trait | Defn.Class): Boolean =
-    d.mods.hasFinal && d.mods.exists(_.is[Mod.Abstract])
+    d.mods.hasFinal && d.mods.hasAbstract
 
   /** One family being enumerated: its entry and declaration, the families already open above it (a
     * cycle is refused) and the use site that reads it.

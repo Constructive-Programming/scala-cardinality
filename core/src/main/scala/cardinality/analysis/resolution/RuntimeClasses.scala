@@ -8,7 +8,7 @@ import cardinality.analysis.model.{AliasReading, ResolutionContext}
 import cardinality.analysis.{MethodAnalysis, Resolver, StdlibModel}
 import cardinality.capacity.Counter
 import cardinality.types.Trees.ClassDefn
-import cardinality.types.{Memo, Spelling, Traversals, TypeApplications, TypeSubstitution}
+import cardinality.types.{Graphs, Memo, Spelling, Traversals, TypeApplications, TypeSubstitution}
 
 import Inhabitation.Shape
 import MethodAnalysis.{Frame, TypeEntry}
@@ -304,15 +304,11 @@ final private[cardinality] class RuntimeClasses(
 
   // The names a subclass may extend a family through: its own, and every alias or renaming selector
   // of the sources that leads to one of them.
-  private def spellings(name: String): Set[String] = {
-    @tailrec def grow(found: Set[String]): Set[String] = {
-      val more = found ++
-        aliases.collect { case (alias, body) if body.exists(found) => alias } ++
-        renames.collect { case (from, to) if found(from) => to }
-      if (more == found) found else grow(more)
-    }
-    grow(Set(name))
-  }
+  private def spellings(name: String): Set[String] = Graphs.reachable(spelling, Set(name))
+
+  // Each name to the aliases whose body mentions it and the names a selector renames it to.
+  private lazy val spelling: Map[String, Set[String]] =
+    Graphs.fromEdges(aliases.flatMap((alias, body) => body.map(_ -> alias)) ++ renames)
 
   private def parents(d: Declared): List[Either[String, Option[Declared]]] =
     parentCache(d.id)(inits(d.tree).getOrElse(Nil).map(parent(_, d.owner)))

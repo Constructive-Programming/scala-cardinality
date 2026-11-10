@@ -4,6 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.{MemberPath, MemberSyntax, ResolutionContext, ScopeTerms}
 import cardinality.analysis.{MethodAnalysis, Resolver}
+import cardinality.types.Trees.parameters
 import cardinality.types.{Traversals, TypeApplications}
 
 import InferredResults.{Inferred, Signature, Unresolved}
@@ -171,7 +172,7 @@ final private[cardinality] class OverriddenResults(
   }
 
   private def parameters(groups: List[Member.ParamClauseGroup]): List[Option[Type]] =
-    groups.flatMap(_.paramClauses).flatMap(_.values).map(_.decltpe)
+    groups.flatMap(_.parameters).map(_.decltpe)
 
   // A parent's declaration read where it is declared: its binders as the `extends` chain
   // instantiates them, the method's own binders as the target's position by position, and the

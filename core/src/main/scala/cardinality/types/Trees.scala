@@ -33,6 +33,21 @@ private[cardinality] object Trees {
 
     /** Whether the modifiers declare the type `opaque`. */
     def hasOpaque: Boolean = mods.exists(_.is[Mod.Opaque])
+
+    /** Whether the modifiers declare a `case` class or object. */
+    def hasCase: Boolean = mods.exists(_.is[Mod.Case])
+
+    /** Whether the modifiers declare the definition `abstract`. */
+    def hasAbstract: Boolean = mods.exists(_.is[Mod.Abstract])
+
+    /** Whether the modifiers declare the definition `private`, qualified or not. */
+    def hasPrivate: Boolean = mods.exists(_.is[Mod.Private])
+  }
+
+  extension (tree: Tree.WithParamClauses) {
+
+    /** The parameters of every clause, in order. */
+    def parameters: List[Term.Param] = tree.paramClauses.toList.flatMap(_.values)
   }
 
   extension (mod: Mod) {
@@ -98,7 +113,7 @@ private[cardinality] object Trees {
 
   /** The types a constructor's parameters declare. */
   def fields(ctor: Ctor.Primary): List[Type] =
-    ctor.paramClauses.flatMap(_.values).flatMap(_.decltpe).toList
+    ctor.parameters.flatMap(_.decltpe)
 
   /** A class, trait, enum or alias of that name: a definition of the type. */
   def typeNamed(

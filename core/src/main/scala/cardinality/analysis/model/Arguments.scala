@@ -3,7 +3,7 @@ package cardinality.analysis.model
 import scala.meta.Type
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.types.{Kind, Kinds}
+import cardinality.types.Kinds
 
 /** An application's type arguments: as read, and as written with the scope each was written in,
   * which a projection rereads (members MT1'); none are written where no application was.
@@ -18,7 +18,7 @@ final private[cardinality] case class Arguments(
     */
   def proper(parameters: List[Type.Param]): List[(String, (Type, ResolutionContext))] =
     parameters.zip(written).collect {
-      case (p, argument) if Kinds.of(p) == Kind.Proper => p.name.value -> argument
+      case (p, argument) if Kinds.proper(p) => p.name.value -> argument
     }
 
 }

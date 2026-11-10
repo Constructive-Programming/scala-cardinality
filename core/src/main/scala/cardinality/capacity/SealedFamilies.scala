@@ -1,11 +1,10 @@
 package cardinality.capacity
 
-import scala.annotation.tailrec
 import scala.meta.*
 
 import cardinality.capacity.ParentNames.Denotes
 import cardinality.types.*
-import cardinality.types.Trees.{hasFinal, TemplateDefn}
+import cardinality.types.Trees.{hasCase, hasFinal, TemplateDefn}
 
 // Sealed families as tagged sums (docs/research/stored-value-families.md). `sealed` is the
 // compiler's promise that every direct subtype of a trait or abstract class is declared in its own
@@ -58,22 +57,13 @@ private[cardinality] object SealedFamilies {
     private lazy val readFiles: java.util.Set[Tree] = cardinality.types.Trees.identitySet(read)
 
     // Each word to the synonyms that spell it, so a closure follows only what a name reaches.
-    private lazy val spelledBy: Map[String, List[String]] =
-      entries.flatMap((n, words) => words.map(_ -> n)).groupMap(_._1)(_._2)
+    private lazy val spelledBy: Map[String, Set[String]] =
+      Graphs.fromEdges(entries.flatMap((n, words) => words.map(_ -> n)))
 
     // The names a parent may be extended by: its own, and every synonym that may stand for it or
     // for another such synonym — a superset, so a family is refused rather than summed short of a
     // subtype written against one (`type WA = W; … extends WA`, `import x.{W => V}; … extends V`).
-    def of(parent: String): Set[String] = {
-      @tailrec def close(frontier: List[String], found: Set[String]): Set[String] =
-        frontier match {
-          case Nil          => found
-          case word :: rest =>
-            val fresh = spelledBy.getOrElse(word, Nil).filterNot(found)
-            close(fresh ++ rest, found ++ fresh)
-        }
-      close(List(parent), Set(parent))
-    }
+    def of(parent: String): Set[String] = Graphs.reachable(spelledBy, Set(parent))
 
   }
 
@@ -296,7 +286,7 @@ private[cardinality] object SealedFamilies {
       case o: Defn.Object                              => bound(o, intermediate = false)
       case c: Defn.Class if Counter.isConcreteClass(c) =>
         if (c.mods.hasFinal) bound(c, intermediate = false)
-        else if (c.mods.exists(_.is[Mod.Case]))
+        else if (c.mods.hasCase)
           caseLeaf(c, key).flatMap(library => bound(c, intermediate = false, library))
         else Left(s"a subtype open to extension: ${key.value}")
       case e: Defn.Enum                                        => bound(e, intermediate = false)

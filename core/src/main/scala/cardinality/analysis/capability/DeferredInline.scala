@@ -7,7 +7,7 @@ import cardinality.analysis.Resolver
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.MemberSyntax
 
-import Inhabitation.{Count, Shape}
+import Inhabitation.Shape
 
 /** A deferred (abstract `inline`) method or value of a receiver or a capability record. Only an
   * inline expansion may call one — scalac rejects a call from any other body ("Deferred inline
@@ -37,16 +37,14 @@ private[cardinality] object DeferredInline {
 
   // Built from no values, its atoms rigid: inhabited whatever the atoms are.
   private def inhabited(shape: Shape, resolver: Resolver): Boolean =
-    Inhabitation.count(
-      Nil,
-      shape,
-      resolver.limits.maxStates,
-      resolver.inspect,
-      resolver.solverDepth
-    ) match {
-      case Count.Finite(value)                    => value > 0
-      case Count.Symbolic(_) | Count.Countable    => true
-      case Count.Bounded(_) | Count.Unresolved(_) => false
-    }
+    Inhabitation
+      .count(
+        Nil,
+        shape,
+        resolver.limits.maxStates,
+        resolver.inspect,
+        resolver.solverDepth
+      )
+      .atLeast(1)
 
 }

@@ -1,9 +1,8 @@
 package cardinality.capacity
 
-import scala.annotation.tailrec
 import scala.meta.*
 
-import cardinality.types.{Spelling, Trees, TypeName, TypeSubstitution}
+import cardinality.types.{Graphs, Spelling, Trees, TypeName, TypeSubstitution}
 
 // A recursion has a count in the model only through positive positions (docs/type-arithmetic.md §8
 // covers covariant constructions only). Through a function's domain the numeric equation is no
@@ -83,21 +82,17 @@ private[capacity] object Positivity {
     // point: a slot is positive while its parameter occurs in no non-positive position of the
     // definition, and a family's slots are positive while every parameter of every subtype is. A
     // slot's first cause is kept, so the iteration only ever turns slots non-positive.
-    def slots: Map[TypeName, List[Option[Cause]]] = {
-      @tailrec def refine(
-          current: Map[TypeName, List[Option[Cause]]]
-      ): Map[TypeName, List[Option[Cause]]] = {
-        val next = current.map { (name, causes) =>
-          val negative = nonPositive(name, current)
-          val child = shapes.parents.getOrElse(name, Nil).flatMap(current.get).flatten.flatten
-          name -> params(name).zip(causes).map { (p, cause) =>
-            cause.orElse(negative.get(p)).orElse(child.headOption)
+    def slots: Map[TypeName, List[Option[Cause]]] =
+      Graphs.fixpoint(params.filter(_._2.nonEmpty).map((n, ps) => n -> List.fill(ps.size)(None))) {
+        current =>
+          current.map { (name, causes) =>
+            val negative = nonPositive(name, current)
+            val child = shapes.parents.getOrElse(name, Nil).flatMap(current.get).flatten.flatten
+            name -> params(name).zip(causes).map { (p, cause) =>
+              cause.orElse(negative.get(p)).orElse(child.headOption)
+            }
           }
-        }
-        if (next == current) current else refine(next)
       }
-      refine(params.filter(_._2.nonEmpty).map((n, ps) => n -> List.fill(ps.size)(None)))
-    }
 
     // The names a type mentions in a non-positive position: inside a function's domain, a partial
     // function's keys, a match type or another form the reading does not follow, or an argument a

@@ -119,13 +119,11 @@ final private[cardinality] class TypeOperators(
       .zip(args)
       .collectFirst {
         case (parameter, argument)
-            if proper(parameter) == argument.isInstanceOf[Shape.Constructor] =>
+            if Kinds.proper(parameter) == argument.isInstanceOf[Shape.Constructor] =>
           s"kind mismatch: ${parameter.name.value} of $name has kind ${kindOf(argument)}, " +
             s"expected ${Kinds.of(parameter).render}"
       }
       .toLeft(())
-
-  private def proper(parameter: Type.Param): Boolean = Kinds.of(parameter) == Kind.Proper
 
   // A rigid binder's kind is declared; a closure's is the one its position expected, unrecorded.
   private def kindOf(argument: Shape): String = argument match {
@@ -150,7 +148,7 @@ final private[cardinality] class TypeOperators(
       position: Int,
       frame: String,
       useSite: String,
-      at: Option[(String, Int)],
+      at: Option[Anchor],
       visiting: Set[String],
       variables: Map[String, Either[String, Shape]]
   )

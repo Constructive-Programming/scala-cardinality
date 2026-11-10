@@ -37,6 +37,9 @@ private[cardinality] object Kinds {
       case holes => Kind.Arrow(holes.map(of))
     }
 
+  /** Whether the binder stands for a proper type: it has no type parameters of its own. */
+  def proper(parameter: Type.Param): Boolean = parameter.tparamClause.values.isEmpty
+
   /** Why a binder cannot be read as a rigid atom or constructor; None when it can. */
   def refusal(parameter: Type.Param): Option[String] =
     if (parameter.bounds.view.nonEmpty) Some(viewBound(parameter))

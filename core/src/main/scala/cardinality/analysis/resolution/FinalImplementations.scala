@@ -6,7 +6,7 @@ import cardinality.analysis.MethodAnalysis.Frame
 import cardinality.analysis.SourceIndex
 import cardinality.analysis.model.{GivenNames, MemberSyntax, ScopeTerms}
 import cardinality.capacity.Counter
-import cardinality.types.Trees.hasFinal
+import cardinality.types.Trees.{hasAbstract, hasCase, hasFinal}
 import cardinality.types.{Overrides, TypeApplications}
 
 /** Inherited declarations a final template implements in its own body.
@@ -119,7 +119,7 @@ private[cardinality] object FinalImplementations {
     * name, let alone extend): no subclass overrides its members.
     */
   def isFinal(tree: Tree): Boolean = tree match {
-    case c: Defn.Class => c.mods.hasFinal && !c.mods.exists(_.is[Mod.Abstract])
+    case c: Defn.Class => c.mods.hasFinal && !c.mods.hasAbstract
     case _: Defn.Object | _: Defn.Given | _: Term.NewAnonymous => true
     case _                                                     => false
   }
@@ -150,7 +150,7 @@ private[cardinality] object FinalImplementations {
   def field(param: Term.Param, name: String, template: Frame): Boolean =
     param.name.value == name &&
       (MemberSyntax.keptParameter(param) || template.tree.exists {
-        case c: Defn.Class => c.mods.exists(_.is[Mod.Case])
+        case c: Defn.Class => c.mods.hasCase
         case _             => false
       })
 

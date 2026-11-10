@@ -35,8 +35,17 @@ object Natural {
   final case class Prod(factors: List[Natural]) extends Natural
   final case class Sum(terms: List[Natural]) extends Natural
 
-  final class Exceeded(limit: String)
-      extends RuntimeException(s"Inhabitation arithmetic budget exceeded (symbolic form: $limit)")
+  /** The representation bound an arithmetic step breached. */
+  enum Breach(val limit: String) {
+    case Nodes extends Breach(s"more than $MaxNodes nodes")
+    case Height extends Breach(s"power tower higher than $MaxHeight")
+    case Literal extends Breach(s"literal wider than $MaxLiteralBits bits")
+  }
+
+  final class Exceeded(breach: Breach)
+      extends RuntimeException(
+        s"Inhabitation arithmetic budget exceeded (symbolic form: ${breach.limit})"
+      )
 
   /** Arithmetic whose representation may outgrow the budget, with the breach as its reason. */
   def attempt[A](arithmetic: => A): Either[String, A] =
@@ -142,8 +151,8 @@ object Natural {
     }
 
   private def checked(n: Natural): Natural =
-    if (n.nodes > MaxNodes) throw new Exceeded(s"more than $MaxNodes nodes")
-    else if (n.height > MaxHeight) throw new Exceeded(s"power tower higher than $MaxHeight")
+    if (n.nodes > MaxNodes) throw new Exceeded(Breach.Nodes)
+    else if (n.height > MaxHeight) throw new Exceeded(Breach.Height)
     else n
 
   private def fits(value: BigInt): Boolean = value.bitLength <= MaxLiteralBits
@@ -289,7 +298,7 @@ object Natural {
       // An oversized coefficient keeps only what a power of two can carry exactly.
       val twos = rest.lowestSetBit
       val odd = rest >> twos
-      if (!fits(odd)) throw new Exceeded(s"literal wider than $MaxLiteralBits bits")
+      if (!fits(odd)) throw new Exceeded(Breach.Literal)
       val (left, merged) = absorb(odd, merge(absorbed :+ ((Lit(2): Natural) -> Lit(twos))))
       assemble(left, merged)
     }

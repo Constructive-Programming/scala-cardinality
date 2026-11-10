@@ -28,7 +28,13 @@ sbt -Dcardinality.self=0.1.0-SNAPSHOT cardinalityReport   # target/**/<module>/c
 - Reports are per module (`scala-cardinality` = core, `sbt-cardinality` = plugin); the root
   aggregates and has no sources of its own.
 - Narrow a single signature with `sbt -Dcardinality.self=0.1.0-SNAPSHOT 'cardinalityReportSelected <fqcn>'`.
-- Diff each run against the baseline.
+- Before changing anything, keep the starting report for §8:
+  `cp target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt /tmp/cardinality-before.txt`
+  (and the plugin's, if the run touches `plugin/`). The committed baseline is not a substitute:
+  it may predate commits pulled since.
+- Diff each run against the starting report with `report-diff.sh` (§8).
+- The report needs a large heap. If it dies with `OutOfMemoryError`, run the launcher with
+  `-Xmx16g -Xss8m` (catalog M3).
 
 ### Reading sizes
 
@@ -182,7 +188,8 @@ bash scripts/check-file-metrics.sh
 # and the 25-token CPD run from §6, empty
 ```
 
-Then re-run the report and compare against what the pass should move:
+Then re-run the report, diff it with `report-diff.sh` (§8) and compare against what the pass
+should move:
 
 | Pass | Expected report movement |
 | --- | --- |
@@ -214,3 +221,23 @@ starts ahead of this one.
 4. Keep entries short; the derivation goes in the baseline note. When a confirmed pattern
    changes how a pass is run, fold it into §3 to §6 and keep the entry as the pointer.
 5. Commit the catalog, the baseline and its note with the pass.
+
+## 8. Report the run: cardinality before and after
+
+End every run by re-measuring (§1) and showing the user the difference against the report kept
+at the start:
+
+```bash
+.claude/skills/cardinality-reduction/report-diff.sh /tmp/cardinality-before.txt \
+  target/out/jvm/scala-3.9.0/scala-cardinality/cardinality/report.txt
+```
+
+It prints the signature summary line and the stored-value tier counts (ε₀, ω, finite, `?`)
+before and after, then every row whose size changed, appeared (`· → size`) or left
+(`size → ·`). In the final message:
+
+- Quote the two summary lines and the two tier lines as printed.
+- List the rows that moved tier or shrank (the wins), then any row that grew, each with its
+  reason. Group added and removed helper rows into one line each rather than listing them.
+- A row renamed by a line shift (`<extension@54>` → `<extension@63>`) is a rename, not a
+  change: say so once.

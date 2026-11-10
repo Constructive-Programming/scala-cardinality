@@ -11,7 +11,7 @@ import cardinality.analysis.resolution.{
   Linearization,
   TopTypes
 }
-import cardinality.types.Trees.TemplateDefn
+import cardinality.types.Trees.{hasPrivate, parameters, TemplateDefn}
 import cardinality.types.TypeApplications
 
 import MethodAnalysis.{Frame, Target}
@@ -81,9 +81,9 @@ final private[cardinality] class HeldCaptures(
   private def templateReads(t: TemplateDefn): Set[String] = {
     val own = TypeApplications.template(t).toList.flatMap(_.body.stats)
     val params = t match {
-      case c: Defn.Class => c.ctor.paramClauses.toList.flatMap(_.values)
-      case d: Defn.Trait => d.ctor.paramClauses.toList.flatMap(_.values)
-      case e: Defn.Enum  => e.ctor.paramClauses.toList.flatMap(_.values)
+      case c: Defn.Class => c.ctor.parameters
+      case d: Defn.Trait => d.ctor.parameters
+      case e: Defn.Enum  => e.ctor.parameters
       case _             => Nil
     }
     FinalImplementations.readNames(t).toSet -- ScopeTerms.defined(own) -- params.map(_.name.value)
@@ -168,7 +168,7 @@ final private[cardinality] class HeldCaptures(
 
   // A field the template can read: a member of its level, not private to it.
   private def readable(p: Term.Param, level: Frame): Boolean =
-    ReceiverMembers.fieldParams(level).exists(_ eq p) && !p.mods.exists(_.is[Mod.Private])
+    ReceiverMembers.fieldParams(level).exists(_ eq p) && !p.mods.hasPrivate
 
   // A level nearer the template than the field's own defines the name: the template reads that
   // definition, and the parent's constructor still read the argument it was given.

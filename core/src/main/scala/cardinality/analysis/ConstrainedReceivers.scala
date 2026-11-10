@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Natural}
 import cardinality.analysis.model.MemberSyntax
 import cardinality.types.Traversals
+import cardinality.types.Trees.parameters
 import cats.syntax.foldable.toFoldableOps
 
 import MethodAnalysis.{Frame, Resolved}
@@ -47,7 +48,7 @@ private[cardinality] object ConstrainedReceivers {
         val secondaries = d.templ.body.stats.collect {
           case c: Ctor.Secondary if callable(c.mods) =>
             closed(
-              SecondaryConstructors.arguments(c.paramClauses.toList.flatMap(_.values)),
+              SecondaryConstructors.arguments(c.parameters),
               resolve
             )
         }

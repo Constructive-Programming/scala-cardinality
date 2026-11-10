@@ -6,7 +6,7 @@ import scala.meta.*
 import cardinality.analysis.MethodAnalysis.{Frame, TypeEntry}
 import cardinality.analysis.StdlibModel.Spelling
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.analysis.model.{ResolutionContext, ScopeTerms}
+import cardinality.analysis.model.{Anchor, ResolutionContext, ScopeTerms}
 import cardinality.analysis.{BuiltinTypes, ImportBinding, Resolver, SourceIndex, StdlibModel}
 import cardinality.types.{
   ListedNamespaces,
@@ -54,8 +54,8 @@ final private[cardinality] class ShadowedBuiltins(
     resolver: Resolver,
     types: List[TypeEntry],
     sources: List[Source],
-    clauses: (Frame, Option[(String, Int)]) => List[ImportBinding],
-    doubted: (List[String], Frame, Option[(String, Int)]) => Option[String]
+    clauses: (Frame, Option[Anchor]) => List[ImportBinding],
+    doubted: (List[String], Frame, Option[Anchor]) => Option[String]
 ) {
   import ShadowedBuiltins.*
 
@@ -262,7 +262,7 @@ final private[cardinality] class ShadowedBuiltins(
 
   // The declaration a wildcard import of a stdlib namespace the model lists binds a simple name to
   // in one scope, before a position: the namespace's member, when the model lists it there.
-  private def listedMember(name: String, scope: Frame, at: Option[(String, Int)]): Option[String] =
+  private def listedMember(name: String, scope: Frame, at: Option[Anchor]): Option[String] =
     Option
       .unless(name.contains('.'))(
         listedIn(scope, at).iterator
@@ -276,7 +276,7 @@ final private[cardinality] class ShadowedBuiltins(
     context.frame.chain.flatMap(listedIn(_, context.at))
 
   // The stdlib namespaces one scope's wildcard imports open before `at`.
-  private def listedIn(scope: Frame, at: Option[(String, Int)]): List[ListedNamespaces.Namespace] =
+  private def listedIn(scope: Frame, at: Option[Anchor]): List[ListedNamespaces.Namespace] =
     clauses(scope, at).flatMap(clause =>
       clause.wildcards.flatMap(listed(_, scope, ShadowedBuiltins.at(scope, clause)))
     )
@@ -287,7 +287,7 @@ final private[cardinality] class ShadowedBuiltins(
   def listed(
       prefix: List[String],
       scope: Frame,
-      at: Option[(String, Int)]
+      at: Option[Anchor]
   ): Option[ListedNamespaces.Namespace] =
     ListedNamespaces.of(prefix).filter(library(_, prefix, scope, at))
 
@@ -299,7 +299,7 @@ final private[cardinality] class ShadowedBuiltins(
       namespace: ListedNamespaces.Namespace,
       prefix: List[String],
       scope: Frame,
-      at: Option[(String, Int)]
+      at: Option[Anchor]
   ): Boolean =
     (namespace.anchor, prefix) match {
       case (None, _) => rootHead(prefix, scope, at)
@@ -312,7 +312,7 @@ final private[cardinality] class ShadowedBuiltins(
 
   // Whether a path's first name is the root package it spells: anchored, or rebound by no named
   // import or source term.
-  private def rootHead(path: List[String], scope: Frame, at: Option[(String, Int)]): Boolean =
+  private def rootHead(path: List[String], scope: Frame, at: Option[Anchor]): Boolean =
     path match {
       case SourceIndex.Root :: _ => true
       case head :: _             => !terms(head) && namedImport(head, scope, at).isEmpty
@@ -320,7 +320,7 @@ final private[cardinality] class ShadowedBuiltins(
     }
 
   // Whether a wildcard of the listed namespace declaring a term is open before `at`.
-  private def opens(term: List[String], scope: Frame, at: Option[(String, Int)]): Boolean =
+  private def opens(term: List[String], scope: Frame, at: Option[Anchor]): Boolean =
     scope.chain.exists(outer =>
       clauses(outer, at).exists(clause =>
         clause.wildcards.exists(prefix =>
@@ -337,7 +337,7 @@ final private[cardinality] class ShadowedBuiltins(
   private def namedImport(
       name: String,
       scope: Frame,
-      at: Option[(String, Int)]
+      at: Option[Anchor]
   ): Option[List[String]] =
     scope.chain.iterator
       .flatMap(outer =>
@@ -415,7 +415,7 @@ final private[cardinality] class ShadowedBuiltins(
   // subject is the name whose binding is at stake: a wildcard that leaves it out is no channel.
   final private class Walk(name: Option[String], subject: Option[String]) {
 
-    def from(frame: Frame, at: Option[(String, Int)]): Option[Stop] =
+    def from(frame: Frame, at: Option[Anchor]): Option[Stop] =
       search(frame.chain.flatMap(entrances(_, at)), Set.empty, None)
 
     // A member found wins over a step that could not be followed; that one refuses only when the
@@ -448,7 +448,7 @@ final private[cardinality] class ShadowedBuiltins(
 
     // What one scope around the reference opens: an enum's cases and an enclosing template's
     // members beyond its own declarations, a package's objects and exports, and wildcard imports.
-    private def entrances(scope: Frame, at: Option[(String, Int)]): List[Step] = {
+    private def entrances(scope: Frame, at: Option[Anchor]): List[Step] = {
       val own =
         if (!template(scope)) Nil
         else
@@ -533,7 +533,7 @@ final private[cardinality] class ShadowedBuiltins(
         prefix: List[String],
         from: Frame,
         via: String,
-        at: Option[(String, Int)]
+        at: Option[Anchor]
     ): List[Step] = {
       val (relative, paths) = prefix match {
         case SourceIndex.Root :: path => (path, List(path))
@@ -580,7 +580,7 @@ final private[cardinality] class ShadowedBuiltins(
         case None                       => List(Step.Doubt(TreeSpelling.of(tpe), via))
         case Some(_) if depth > MaxHops => List(Step.Doubt(TreeSpelling.of(tpe), via))
         case Some(parent)               =>
-          val at = Option.when(tpe.pos.start >= 0)(from.input -> tpe.pos.start)
+          val at = Option.when(tpe.pos.start >= 0)(Anchor(from.input, tpe.pos.start))
           val context = ResolutionContext(from, Map.empty, Set.empty, at = at)
           // A `scala.Dynamic` parent is the structural-member marker (StdlibModel's parents
           // table holds it memberless): it declares no member a count reads, and the structural
@@ -640,14 +640,14 @@ private[cardinality] object ShadowedBuiltins {
   // A clause's own position, where the names in its prefix are read — with the reference's or
   // without one: a clause never reads itself or a later clause (with every clause of the scope in
   // view, `import quotes.reflect.*` would ask after its own prefix forever).
-  private def at(scope: Frame, clause: ImportBinding): Option[(String, Int)] =
-    Some(scope.input -> (clause.start - 1))
+  private def at(scope: Frame, clause: ImportBinding): Option[Anchor] =
+    Some(Anchor(scope.input, clause.start - 1))
 
   // One search: a name's, or the nameless search for a channel, from a frame at a position.
   private case class Search(
       name: Option[String],
       frame: Frame,
-      at: Option[(String, Int)],
+      at: Option[Anchor],
       subject: Option[String] = None
   )
 

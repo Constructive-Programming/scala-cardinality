@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.model.ContextBounds
 import cardinality.analysis.resolution.InferredResults
 import cardinality.types.Spelling
+import cardinality.types.Trees.parameters
 
 /** What a secondary constructor's row measures. Its self-invocation calls another constructor of
   * the class, and every chain of them ends in the primary one ([30] *Constructor Definitions*): an
@@ -24,7 +25,7 @@ private[cardinality] object SecondaryConstructors {
     */
   def primaryArguments(d: Defn.Class): Type =
     arguments(
-      d.ctor.paramClauses.toList.flatMap(_.values) ++ ContextBounds.evidence(d.tparamClause.values)
+      d.ctor.parameters ++ ContextBounds.evidence(d.tparamClause.values)
     )
 
   /** The arguments a list of parameters takes, as one type (`primaryArguments`). */

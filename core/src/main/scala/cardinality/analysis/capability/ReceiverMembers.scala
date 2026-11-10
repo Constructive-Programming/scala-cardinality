@@ -3,8 +3,9 @@ package cardinality.analysis.capability
 import scala.meta.*
 
 import cardinality.analysis.*
-import cardinality.analysis.model.{DeclarationIdentity, MemberSyntax, ResolutionContext}
+import cardinality.analysis.model.{Anchor, DeclarationIdentity, MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.*
+import cardinality.types.Trees.{hasPrivate, parameters}
 import cardinality.types.{Overrides, TypeApplications}
 
 import MethodAnalysis.Frame
@@ -382,7 +383,7 @@ final private[cardinality] class ReceiverMembers(
       case v: Defn.Val       => TargetViews.Body(v.rhs, Set.empty, v.decltpe)
       case v: Defn.Var       => TargetViews.Body(v.body, Set.empty, v.decltpe)
       case c: Ctor.Secondary =>
-        TargetViews.Body(c.body, c.paramClauses.flatMap(_.values).map(_.name.value).toSet, None)
+        TargetViews.Body(c.body, c.parameters.map(_.name.value).toSet, None)
       case _: Term.Param => TargetViews.Body(Lit.Unit(), Set.empty, None)
       case other         => TargetViews.Body(other, Set.empty, None)
     }
@@ -548,7 +549,7 @@ final private[cardinality] class ReceiverMembers(
       level,
       resolver.typeParameters(level),
       Set.empty,
-      at = Some(level.input -> offset)
+      at = Some(Anchor(level.input, offset))
     )
 
   private def definesOrTakes(frame: Frame, name: String): Boolean =
@@ -671,7 +672,7 @@ private[cardinality] object ReceiverMembers {
 
     /** A field no code outside its level reads. */
     def hidden: Boolean = tree match {
-      case p: Term.Param => p.mods.exists(_.is[Mod.Private])
+      case p: Term.Param => p.mods.hasPrivate
       case _             => false
     }
 

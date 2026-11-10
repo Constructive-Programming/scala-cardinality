@@ -6,8 +6,8 @@ import scala.meta.*
 import cardinality.analysis.MethodAnalysis.{Frame, Input, Target, TypeEntry}
 import cardinality.analysis.SourceIndex.{givenName, Scope, Written}
 import cardinality.analysis.model.{ContextBounds, MemberSyntax, SourceBindings}
-import cardinality.types.Trees.{ClassDefn, TemplateDefn}
-import cardinality.types.{Kinds, Memo, Spelling, TypeApplications, TypeName}
+import cardinality.types.Trees.{parameters, ClassDefn, TemplateDefn}
+import cardinality.types.{Graphs, Kinds, Memo, Spelling, Trees, TypeApplications, TypeName}
 
 final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[AnalysisWork]) {
   private given scala3: Dialect = dialects.Scala3
@@ -107,7 +107,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       .groupMap(_._1)(_._2)
 
   private def static(tree: Tree): Boolean =
-    Iterator.iterate(tree.parent)(_.flatMap(_.parent)).takeWhile(_.nonEmpty).flatten.forall {
+    Trees.ancestors(tree).forall {
       case _: Source | _: Pkg | _: Pkg.Body | _: Pkg.Object | _: Defn.Object | _: Template.Body =>
         true
       case t: Template => t.parent.exists(p => p.is[Defn.Object] || p.is[Pkg.Object])
@@ -117,7 +117,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // The type aliases that may denote a family: those whose body mentions its name or another such
   // alias, by simple name — a superset, so a family is refused rather than enumerated short.
   private[cardinality] def aliasesOf(family: String): Set[String] =
-    aliases(family)(closeAliases(Set(family)) - family)
+    aliases(family)(Graphs.reachable(aliasGraph, Set(family)) - family)
 
   private val aliases = new Memo[String, Set[String]]
 
@@ -127,11 +127,9 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
         name -> TypeName.words(d.body).toSet
     }.toList
 
-  @scala.annotation.tailrec
-  private def closeAliases(found: Set[String]): Set[String] = {
-    val next = found ++ aliasBodies.collect { case (name, words) if words.exists(found) => name }
-    if (next == found) found else closeAliases(next)
-  }
+  // Each word to the aliases whose body mentions it.
+  private lazy val aliasGraph: Map[String, Set[String]] =
+    Graphs.fromEdges(aliasBodies.flatMap((name, words) => words.map(_ -> name)))
 
   /** Why a sealed family's named subtypes in its file are not all of its instances, if they are
     * not: a `given` instance, an anonymous class, a parent clause through an alias, or a class
@@ -330,7 +328,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
       case c: Defn.EnumCase if c.ctor.paramClauses.nonEmpty =>
         val own = c.tparamClause.values
         val tparams = if (own.nonEmpty) own else d.tparamClause.values
-        val params = c.ctor.paramClauses.toList.flatMap(_.values)
+        val params = c.ctor.parameters
         val scope = child(input, c, nested.path :+ c.name.value, frame, Scope(Nil, tparams, params))
         constructor(input, c, scope, c.name.syntax, c.tparamClause :: c.ctor.paramClauses.toList)
       case _ => ()
@@ -364,7 +362,7 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   private def secondary(input: String, template: Frame, c: Ctor.Secondary): Unit =
     template.tree match {
       case Some(d: Defn.Class) =>
-        val params = c.paramClauses.toList.flatMap(_.values)
+        val params = c.parameters
         val frame = secondaryTarget(input, template, d, c, params)
         c.body.init.argClauses.foreach(scopes.walk(input, _, frame))
         secondaryBody(input, template, c, params)
@@ -612,7 +610,7 @@ object SourceIndex {
       owner,
       stats,
       groups.flatMap(_.tparamClause.values),
-      groups.flatMap(_.paramClauses).flatMap(_.values),
+      groups.flatMap(_.parameters),
       local
     )
 
@@ -652,7 +650,7 @@ object SourceIndex {
         owner,
         c.templ.body.stats,
         c.tparamClause.values,
-        c.ctor.paramClauses.toList.flatMap(_.values),
+        c.ctor.parameters,
         parents = c.templ.inits
       )
   }

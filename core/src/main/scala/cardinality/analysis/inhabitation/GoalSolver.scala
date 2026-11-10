@@ -95,7 +95,7 @@ final private[inhabitation] class GoalSolver(
   // becomes a re-visited node rather than another pass.
   private def goal(raw: List[Value], target: Shape): Int = {
     inspect("solver goal")
-    if (depth >= maxDepth) throw new Inhabitation.Limit("solver depth budget exhausted")
+    if (depth >= maxDepth) throw new Inhabitation.Limit(Inhabitation.Budget.Depth)
     depth += 1
     try readGoal(raw, target)
     finally depth -= 1
@@ -443,7 +443,7 @@ final private[inhabitation] class GoalSolver(
   private def tick(): Unit = {
     work += 1
     if (work > maxStates)
-      throw new Inhabitation.Limit(s"Inhabitation state budget exceeded ($maxStates)")
+      throw new Inhabitation.Limit(Inhabitation.Budget.States(maxStates))
   }
 
   private def flatten(values: List[Value]): List[Value] =

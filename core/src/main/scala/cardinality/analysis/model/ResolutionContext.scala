@@ -8,6 +8,9 @@ import dev.constructive.eo.generics.lens
 
 import MethodAnalysis.{Frame, Resolved, TypeEntry}
 
+/** The point a name is read from: its source and the offset in it. */
+final private[cardinality] case class Anchor(source: String, offset: Int)
+
 /** Lexical lookup and binder scope travel together; the observing use site survives rebinding. */
 final private[cardinality] case class ResolutionContext(
     frame: Frame,
@@ -17,7 +20,7 @@ final private[cardinality] case class ResolutionContext(
     // The position the name is read from, as (source, offset): the reference decides which
     // import clauses of the enclosing blocks have already bound their names. `resolve` sets it
     // from the type it is given, so every read carries the position of its own reference.
-    at: Option[(String, Int)] = None,
+    at: Option[Anchor] = None,
     // The stable path `this` denotes while a parent's declaration or a member alias is read as a
     // member of another receiver (members M2): its type members are that receiver's.
     self: Option[MemberPath] = None,
@@ -30,7 +33,7 @@ final private[cardinality] case class ResolutionContext(
     // The reference, as (source, offset), of a value's declared type when the value is built before
     // the measured declaration's receiver, so it is never that receiver (capabilities C6). Only a
     // read at that very reference keeps it (`referencing`): a part of the type is another value.
-    preceding: Option[(String, Int)] = None
+    preceding: Option[Anchor] = None
 ) {
 
   def useSite: Frame = observer.getOrElse(frame)
@@ -41,22 +44,22 @@ final private[cardinality] case class ResolutionContext(
     copy(at = here, preceding = preceding.filter(p => tpe.pos.start >= 0 && here.contains(p)))
   }
 
-  private def referenceAt(tpe: Type): Option[(String, Int)] =
+  private def referenceAt(tpe: Type): Option[Anchor] =
     val file = frame.input
-    if (tpe.pos.start >= 0) Some(file -> tpe.pos.start)
+    if (tpe.pos.start >= 0) Some(Anchor(file, tpe.pos.start))
     else
       at match
         // Reconstructed inside the caller's own file: the caller's reference decides.
-        case Some((callerFile, _)) if callerFile == file => at
+        case Some(Anchor(callerFile, _)) if callerFile == file => at
         // Reconstructed under another file's scope — a transparent alias's body: the scope's
         // own declaration position is the lower bound, so clauses written before it bind.
         case _ => frameAnchor(file)
 
   // Root frames carry the path alone; a nested frame's id is `input:offset[...]`, the
   // declaration point the scope was opened at.
-  private def frameAnchor(file: String): Option[(String, Int)] =
+  private def frameAnchor(file: String): Option[Anchor] =
     frame.id.drop(file.length + 1).takeWhile(_.isDigit) match
-      case digits if digits.nonEmpty => Some(file -> digits.toInt)
+      case digits if digits.nonEmpty => Some(Anchor(file, digits.toInt))
       case _                         => None
 
   def read(tpe: Type, resolver: Resolver): Resolved =
