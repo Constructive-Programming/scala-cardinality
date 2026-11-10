@@ -165,6 +165,9 @@ object Inhabitation {
       case Unresolved(_)   => "?"
     }
 
+    /** The exact count zero: no implementation at all. */
+    def isZero: Boolean = this == Finite(0)
+
     def isFinite: Boolean = this match {
       case Finite(_) | Symbolic(_)   => true
       case Bounded(space)            => !space.hasInfinite

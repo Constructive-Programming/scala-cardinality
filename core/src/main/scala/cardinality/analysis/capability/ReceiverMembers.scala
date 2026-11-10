@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.*
 import cardinality.analysis.model.{Anchor, DeclarationIdentity, MemberSyntax, ResolutionContext}
 import cardinality.analysis.resolution.*
-import cardinality.types.Trees.{hasPrivate, parameters}
+import cardinality.types.Trees.{hasLazy, hasPrivate, parameters}
 import cardinality.types.{Overrides, TypeApplications}
 
 import MethodAnalysis.Frame
@@ -342,7 +342,7 @@ final private[cardinality] class ReceiverMembers(
       }
 
     private def strict(member: Tree): Boolean = member match {
-      case v: Defn.Val => !v.mods.exists(_.is[Mod.Lazy])
+      case v: Defn.Val => !v.mods.hasLazy
       case _: Defn.Var => true
       case _           => false
     }
@@ -358,7 +358,7 @@ final private[cardinality] class ReceiverMembers(
         if (tree.is[Ctor.Secondary]) constructed(linearization.bases(level.id)) else Set.empty
       read.copy(
         possible = read.possible ++ chained,
-        outer = read.outer || (read.searches && outerImplicits(level, names))
+        reaches = read.reaches || (read.searches && outerImplicits(level, names))
       )
     }
 

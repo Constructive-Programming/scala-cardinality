@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.{Inhabitation, PolymorphicMembers}
-import cardinality.types.Trees.{hasCase, parameters}
+import cardinality.types.Trees.{hasCase, hasInline, parameters}
 import cardinality.types.{Kind, TypeApplications}
 
 import Inhabitation.Shape
@@ -122,7 +122,7 @@ private[cardinality] object MemberSyntax {
 
   /** A clause the compiler fills from implicit scope: `using` or `implicit`. */
   def contextual(clause: Term.ParamClause): Boolean =
-    clause.mod.nonEmpty || clause.values.exists(_.mods.exists(_.is[Mod.Implicit]))
+    clause.mod.nonEmpty || clause.values.exists(p => implicitModifier(p.mods))
 
   /** A `val` or `var` class parameter: one its class keeps as a field. */
   def keptParameter(parameter: Term.Param): Boolean =
@@ -230,7 +230,7 @@ private[cardinality] object MemberSyntax {
   }
 
   /** Whether a method or a given alias is `inline`. */
-  def inline(tree: Tree): Boolean = methodModifiers(tree).exists(_.is[Mod.Inline])
+  def inline(tree: Tree): Boolean = methodModifiers(tree).hasInline
 
   /** Whether modifiers include `implicit`. */
   def implicitModifier(mods: List[Mod]): Boolean = mods.exists(_.is[Mod.Implicit])
@@ -267,7 +267,7 @@ private[cardinality] object MemberSyntax {
     (stat.is[Decl.Def] || stat.is[Decl.Val]) && inlined(stat)
 
   /** Whether a definition is `inline`: its body is expanded at each call site. */
-  def inlined(tree: Tree): Boolean = modifiers(tree).exists(_.is[Mod.Inline])
+  def inlined(tree: Tree): Boolean = modifiers(tree).hasInline
 
   private def modifiers(tree: Tree): List[Mod] = tree match {
     case d: Stat.WithMods => d.mods

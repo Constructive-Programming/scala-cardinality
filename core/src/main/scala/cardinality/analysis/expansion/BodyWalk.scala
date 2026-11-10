@@ -5,7 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.MemberSyntax
 import cardinality.analysis.{MethodAnalysis, Resolver, SourceIndex}
-import cardinality.types.Trees.{hasCase, ClassDefn, TemplateDefn}
+import cardinality.types.Trees.{hasCase, hasInline, ClassDefn, TemplateDefn}
 import cardinality.types.{Spelling, TypeApplications, TypeSubstitution}
 
 import MethodAnalysis.Frame
@@ -91,8 +91,8 @@ final private[expansion] class BodyWalk(
 
   // A form an expansion decides at its call site, or one this reading does not follow.
   private def form(term: Term): Option[String] = term match {
-    case t: Term.If if inlineMod(t.mods)    => Some("uses inline if")
-    case t: Term.Match if inlineMod(t.mods) => Some("uses inline match")
+    case t: Term.If if t.mods.hasInline    => Some("uses inline if")
+    case t: Term.Match if t.mods.hasInline => Some("uses inline match")
     case _: (Term.QuotedMacroExpr | Term.QuotedMacroType | Term.SplicedMacroExpr) =>
       Some("uses a quote or a splice")
     case _: (Term.For | Term.ForYield) =>
@@ -123,8 +123,6 @@ final private[expansion] class BodyWalk(
     case t: Term.NewAnonymous => anonymous(t, scope)
     case other                => application(other, scope).getOrElse(children(other, scope))
   }
-
-  private def inlineMod(mods: List[Mod]): Boolean = mods.exists(_.is[Mod.Inline])
 
   private def children(tree: Tree, scope: Scope): Option[String] = all(tree.children) {
     case term: Term => walk(term, scope)

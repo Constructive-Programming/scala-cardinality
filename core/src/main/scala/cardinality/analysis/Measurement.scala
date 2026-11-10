@@ -13,6 +13,7 @@ import cardinality.analysis.capability.{
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.model.*
 import cardinality.analysis.resolution.*
+import cardinality.types.Trees.hasInline
 import cardinality.types.{Traversals, TypeApplications}
 
 import MemberSyntax.Observation
@@ -375,7 +376,7 @@ final private[cardinality] class Measurement(
   private def builtBefore(p: Term.Param, owner: Frame): Boolean =
     receiverChain(owner.id) &&
       !p.decltpe.exists(_.is[Type.ByName]) &&
-      !p.mods.exists(_.is[Mod.Inline]) &&
+      !p.mods.hasInline &&
       !(owner.isTemplate && ReceiverMembers.fieldParams(owner).exists(_ eq p))
 
   // A type spelled as a class applied or not: no other part of it starts where it does, but an

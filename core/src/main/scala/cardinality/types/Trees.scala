@@ -42,6 +42,12 @@ private[cardinality] object Trees {
 
     /** Whether the modifiers declare the definition `private`, qualified or not. */
     def hasPrivate: Boolean = mods.exists(_.is[Mod.Private])
+
+    /** Whether the modifiers declare the definition, parameter or term `inline`. */
+    def hasInline: Boolean = mods.exists(_.is[Mod.Inline])
+
+    /** Whether the modifiers declare the value `lazy`. */
+    def hasLazy: Boolean = mods.exists(_.is[Mod.Lazy])
   }
 
   extension (tree: Tree.WithParamClauses) {

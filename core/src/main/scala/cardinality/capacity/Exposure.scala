@@ -2,6 +2,7 @@ package cardinality.capacity
 
 import scala.meta.*
 
+import cardinality.analysis.model.MemberSyntax
 import cardinality.types.*
 
 /** What a clause written outside a namespace's body — an object's, or the top level of a package's
@@ -72,7 +73,7 @@ private[cardinality] object Exposure {
   // A private or protected member: accessible only in some scopes.
   private def limited(stat: Stat): Boolean = stat match {
     case member: Stat.WithMods =>
-      member.mods.exists(mod => mod.is[Mod.Private] || mod.is[Mod.Protected])
+      member.mods.exists(MemberSyntax.restricted)
     case _ => false
   }
 

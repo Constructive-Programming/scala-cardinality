@@ -11,7 +11,7 @@ import cardinality.analysis.resolution.{
   Linearization,
   TopTypes
 }
-import cardinality.types.Trees.{hasPrivate, parameters, TemplateDefn}
+import cardinality.types.Trees.{hasLazy, hasPrivate, parameters, TemplateDefn}
 import cardinality.types.TypeApplications
 
 import MethodAnalysis.{Frame, Target}
@@ -90,7 +90,7 @@ final private[cardinality] class HeldCaptures(
   }
 
   private def holding(stat: Stat): Boolean = !own(stat) && !encloses(stat) && (stat match {
-    case v: Defn.Val => v.mods.exists(_.is[Mod.Lazy])
+    case v: Defn.Val                                                 => v.mods.hasLazy
     case _: (Defn.Def | Defn.GivenAlias | Defn.Given | TemplateDefn) =>
       true
     case _ => false

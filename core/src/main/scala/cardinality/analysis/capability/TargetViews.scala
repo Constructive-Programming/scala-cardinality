@@ -5,6 +5,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.{MemberSyntax, ScopeTerms, UniversalMembers}
 import cardinality.types.Graphs
+import cardinality.types.Trees.hasLazy
 
 /** Which concrete members of a receiver are views of the measured declaration (capabilities C6).
   *
@@ -132,14 +133,14 @@ private[cardinality] object TargetViews {
   final case class Self(aliases: Set[String], template: Set[String])
 
   /** What one body reads: slots certainly and possibly evaluated, whether it may reach the
-    * declaration through an enclosing template, whether `this` escapes, and whether it may search
-    * implicits (any body but a literal).
+    * declaration past its slots (through an enclosing template, or because `this` escapes: one
+    * flag, since a view only asks whether either holds), and whether it may search implicits (any
+    * body but a literal).
     */
   final case class Reads(
       definite: Set[Int],
       possible: Set[Int],
-      outer: Boolean,
-      escapes: Boolean,
+      reaches: Boolean,
       searches: Boolean
   )
 
@@ -197,8 +198,7 @@ private[cardinality] object TargetViews {
     val touched = read.definite ++ read.possible
     if (read.definite.exists(definite)) View.Definite
     else if (
-      read.possible(target) || touched.exists(views(_).exists(_ != View.Free)) || read.outer ||
-      read.escapes
+      read.possible(target) || touched.exists(views(_).exists(_ != View.Free)) || read.reaches
     ) View.Possible
     else View.Free
   }
@@ -208,21 +208,21 @@ private[cardinality] object TargetViews {
   final private class Walk(scope: Scope, self: Self) {
     private val definite = mutable.Set.empty[Int]
     private val possible = mutable.Set.empty[Int]
-    private var outer = false
-    private var escapes = false
+    // Through an enclosing template, or `this` escaping.
+    private var reaches = false
     // What the imports of enclosing blocks bring before the term: names that may denote an
     // extension from outside the sources, or, after a wildcard or given import, any extension or
     // conversion (the receiver's channels, `Scope.converts`, cover every other import).
     private var imports = Imports(open = false, Set.empty)
 
-    def reads: Reads = Reads(definite.toSet, possible.toSet, outer, escapes, searches = true)
+    def reads: Reads = Reads(definite.toSet, possible.toSet, reaches, searches = true)
 
     private def record(resolution: Resolution, strict: Boolean): Unit =
       if (strict && resolution.evaluated) definite ++= resolution.slots
       else possible ++= resolution.slots
 
     private def reach(template: String, name: String): Unit =
-      outer = outer || scope.outer(template, name)
+      reaches = reaches || scope.outer(template, name)
 
     // The body as the member's result, `expected` its declared type: a lambda returned as a
     // function (or with an inferred type) is applied; one converted to a SAM or another type may
@@ -287,7 +287,7 @@ private[cardinality] object TargetViews {
     private def named(name: String, applied: Applied, strict: Boolean, bound: Bound): Unit =
       if (bound(name))
         bound.definitions.get(name).flatMap(scope.local(_, applied)).foreach(record(_, strict))
-      else if (self.aliases(name)) escapes = true
+      else if (self.aliases(name)) reaches = true
       else
         scope.own(name, applied) match {
           case Some(resolution) => record(resolution, strict)
@@ -304,7 +304,7 @@ private[cardinality] object TargetViews {
     private def thisRef(here: Term.This, bound: Bound): Unit =
       receiver(here, bound) match {
         case Some(Left(template)) => reach(template, "")
-        case _                    => escapes = true
+        case _                    => reaches = true
       }
 
     // `this`, the template's own `T.this` or its self alias (Right), or an enclosing template's
@@ -464,7 +464,7 @@ private[cardinality] object TargetViews {
       val inner = bound.defining(stats.flatMap(stat => local(stat).map(_ -> stat)))
       stats.foreach {
         case v: Defn.Val =>
-          val eager = strict && !v.mods.exists(_.is[Mod.Lazy])
+          val eager = strict && !v.mods.hasLazy
           evaluate(v.rhs, if (v.decltpe.isEmpty) eager else typed(eager), inner)
         // The measured declaration's own body is the choice being counted, no mention of it.
         case d: Defn.Def if scope.local(d, Applied.bare).isEmpty =>
@@ -496,7 +496,7 @@ private[cardinality] object TargetViews {
       tree.traverse {
         case Term.Name(name) if bound(name) => possible ++= local(name, bound)
         case Term.Name(name)                =>
-          if (self.aliases(name)) escapes = true
+          if (self.aliases(name)) reaches = true
           else {
             scope.own(name, Applied.bare).foreach(r => possible ++= r.slots)
             elsewhere(name)

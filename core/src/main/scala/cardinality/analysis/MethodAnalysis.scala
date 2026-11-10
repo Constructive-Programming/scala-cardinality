@@ -484,7 +484,7 @@ object MethodAnalysis {
 
     def reaches(mods: List[Mod], owner: Frame, from: Frame): Boolean =
       mods match {
-        case _ if mods.exists(m => m.is[Mod.Private] || m.is[Mod.Protected]) =>
+        case _ if mods.exists(MemberSyntax.restricted) =>
           // A `private[p]` naming an enclosing package publishes the declaration to every
           // scope inside `p`, subpackages included — a sibling file of that package reaches it
           // as its own file does. Any other qualifier (a class, `this`, `super`), a

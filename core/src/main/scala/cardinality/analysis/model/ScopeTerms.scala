@@ -3,8 +3,8 @@ package cardinality.analysis.model
 import scala.meta.*
 
 import cardinality.analysis.SourceIndex
+import cardinality.types.*
 import cardinality.types.Trees.hasCase
-import cardinality.types.{Overrides, TypeApplications}
 
 /** The term names one scope's own statements define — every variable of a pattern definition (`val
   * (seed, z) = …`) and every extension method included — which hide an outer binding of the name
@@ -36,8 +36,8 @@ private[cardinality] object ScopeTerms {
     */
   def imports(stat: Stat, givens: Boolean): Boolean = stat match {
     case _: (Defn.Given | Defn.GivenAlias | Decl.Given) => givens
-    case member: Stat.WithMods if givens                => member.mods.exists(_.is[Mod.Implicit])
-    case _                                              => !givens
+    case member: Stat.WithMods if givens => MemberSyntax.implicitModifier(member.mods)
+    case _                               => !givens
   }
 
   /** The values the statements pass on that such a clause over a subclass's object binds. */
