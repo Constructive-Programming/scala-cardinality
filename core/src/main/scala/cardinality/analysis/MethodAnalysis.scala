@@ -290,7 +290,7 @@ object MethodAnalysis {
         names.clear()
         binders.clear()
         ancestry.clear()
-        measurement(target)
+        DeepStack(measurement(target))
       } catch
         case error: AnalysisWork.Exhausted =>
           Entry.of(target, kindOf(target), Count.Unresolved(List(error.getMessage)))

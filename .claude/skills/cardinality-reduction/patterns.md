@@ -154,6 +154,17 @@ Entry shape:
 - Workaround: run the full report and grep the rows.
 - Evidence: 2026-11-10, while measuring `Skill` (issue #30 pass).
 
+### M8 A measurement overflows a 1 MiB stack — confirmed
+- Signal (M): `StackOverflowError` at `EvidenceAnalysis.scala:350` under `GoalSolver.goal`, e.g.
+  `PolymorphicMemberSpec` "cannot create an instance", when sbt runs without `.jvmopts`
+  (`-Xss8m`); CI's launcher reads it and passes.
+- Cause: unbudgeted runs (`MethodAnalysis.analyze`, `cardinalityReportOf`) have
+  `solverDepth = Int.MaxValue`, so a growing goal chain recurses until the 256-state budget, each
+  goal folding a deeper shape. `StackOverflowError` is fatal: `NonFatal` does not catch it.
+- Fix: `DeepStack` runs every `Index.measure` on its own 256 MiB (reserved) stack; no count
+  moves. `DeepStackSpec` asks from a 256 KiB thread.
+- Evidence: 2026-11-10, local `sbt` wrapper with a hard-coded `-Xmx4g` and no `.jvmopts`.
+
 ## Source shape (stage 4)
 
 ### S1 Hand-rolled short-circuiting Option fold — confirmed
