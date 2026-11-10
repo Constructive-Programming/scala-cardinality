@@ -1,17 +1,18 @@
 package millcardinality
 
 import cardinality.analysis.MethodAnalysis
-import cardinality.reporting.Report
+import cardinality.reporting.{Report, Skill}
 import cardinality.request.*
 import cardinality.tasty.StubFile
 import mainargs.Leftover
 import mill.*
-import mill.api.Result
+import mill.api.{BuildCtx, Result}
 import mill.scalalib.ScalaModule
 
 /** The Mill face of scala-cardinality, the counterpart of the sbt plugin: mix it into a
   * `ScalaModule` and run `mill <module>.cardinalityReport`. Everything it computes is delegated to
-  * `core`; each report is written to the command's `Task.dest` as `report.txt`.
+  * `core`; each report is written to the command's `Task.dest` as `report.txt`, and
+  * `cardinalitySeedSkill` writes the reduction skill into the repository.
   */
 trait CardinalityModule extends ScalaModule {
 
@@ -67,6 +68,26 @@ trait CardinalityModule extends ScalaModule {
       )
     )
     written(found.render, found.report.errors.size, "selected report error(s)")
+  }
+
+  /** Where `cardinalitySeedSkill` writes the reduction skill, under the workspace root by default.
+    */
+  def cardinalitySkillFile: os.Path =
+    BuildCtx.workspaceRoot / ".claude" / "skills" / "cardinality-reduction" / "SKILL.md"
+
+  /** Seed the cardinality-reduction skill into this repository: write the template that ships with
+    * the plugin, parameterized by the build, to `cardinalitySkillFile`. Refreshes a file the plugin
+    * generated; refuses to overwrite one it did not.
+    */
+  def cardinalitySeedSkill(): Command[PathRef] = Task.Command {
+    val output = cardinalitySkillFile
+    // Seeding writes into the repository, outside `Task.dest`, which Mill otherwise forbids.
+    BuildCtx.withFilesystemCheckerDisabled(
+      Skill.seed(Skill.Tool.Mill, output.toNIO, BuildCtx.workspaceRoot.last)
+    ) match {
+      case Left(error) => Result.Failure(error)
+      case Right(done) => Task.log.info(done); Result.Success(PathRef(output))
+    }
   }
 
   // Fails the command when a source could not be read or parsed: a report over sources the

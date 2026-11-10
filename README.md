@@ -275,7 +275,8 @@ object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.
 
 `mill foo.cardinalityReport`, `mill foo.cardinalityReportOf <path>...` and
 `mill foo.cardinalityReportSelected <qualified-method-name>...` run the reports below; each
-writes `report.txt` under the command's `out/` directory. The sbt plugin's skill seeding is sbt only.
+writes `report.txt` under the command's `out/` directory. `mill foo.cardinalitySeedSkill` seeds the
+reduction skill with Mill's commands (see below; `cardinalitySkillFile` moves it).
 
 `sbt cardinalityReport` measures every definition the project's `Compile`
 sources introduce — nested definitions included — and logs a report: what each
@@ -376,7 +377,8 @@ Users of the plugin can seed the same workflow into their own repositories:
 `sbt cardinalitySeedSkill` writes the reduction skill template — the ranked stage hierarchy
 from the TPC articles, the report-reading table, the per-stage passes — to
 `.claude/skills/cardinality-reduction/SKILL.md` (`cardinalitySkillFile` moves it),
-parameterized by the build. The task refreshes a file it generated and refuses to overwrite
+parameterized by the build; Mill's `<module>.cardinalitySeedSkill` writes the same template
+with Mill's commands. The task refreshes a file either plugin generated and refuses to overwrite
 one it did not, so adopting a newer template means deleting or moving the old copy first.
 
 The whole project is read at once by the opt-in `cardinality.EoCheckout` runner: pointed at a
