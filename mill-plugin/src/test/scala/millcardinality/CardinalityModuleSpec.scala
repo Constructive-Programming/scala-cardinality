@@ -13,6 +13,11 @@ class CardinalityModuleSpec extends Specification {
       def scalaVersion = "3.9.0"
     }
 
+    object old extends CardinalityModule {
+      def scalaVersion = "2.13.16"
+      override def moduleDir = foo.moduleDir
+    }
+
     lazy val millDiscover = Discover[this.type]
   }
 
@@ -22,6 +27,12 @@ class CardinalityModuleSpec extends Specification {
     "write the module's report: a Boolean and an Option[Boolean] make 2 * 3 = 6" in {
       UnitTester(build, fixture).scoped { eval =>
         val Right(result) = eval(build.foo.cardinalityReport()): @unchecked
+        os.read(result.value.path) must contain("6  P.<init>")
+      }
+    }
+    "measure a module on another Scala: the calculator's jars are resolved apart from it" in {
+      UnitTester(build, fixture).scoped { eval =>
+        val Right(result) = eval(build.old.cardinalityReport()): @unchecked
         os.read(result.value.path) must contain("6  P.<init>")
       }
     }

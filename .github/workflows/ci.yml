@@ -78,12 +78,14 @@ jobs:
         id: coverage
         run: sbt -batch coverageAll
 
-      # The plugin's end-to-end tests: each project under plugin/src/sbt-test
-      # runs in a fresh sbt against the locally published plugin. A separate
-      # sbt invocation so the publish never sees coverage-instrumented classes.
+      # The plugins' end-to-end tests. Each project under plugin/src/sbt-test and
+      # sbt1-plugin/src/sbt-test runs in a fresh sbt (2 and 1) against the locally published plugin;
+      # the Mill plugin's test evaluates its tasks with Mill's testkit. All three resolve the
+      # locally published `core`. A separate sbt invocation so the publish never sees
+      # coverage-instrumented classes.
       - name: Plugin scripted tests
         id: scripted
-        run: sbt -batch 'plugin/scripted; sbt1Plugin/scripted'
+        run: sbt -batch 'plugin/scripted; sbt1Plugin/scripted; millPlugin/testFull'
 
       # Rates for the PR report. They stay empty when no scoverage.xml was
       # written: the tests failed, or sbt served the run from its cache.
@@ -199,7 +201,8 @@ jobs:
             --dir=plugin/src/main/scala \
             --dir=mill-plugin/src/main/scala \
             --dir=sbt1-plugin/src/main/scala \
-            --dir=plugin-keys/src/main/scala \
+            --dir=plugin-sbt/src/main/scala \
+            --dir=plugin-loader/src/main/scala \
             --format=text > cpd.txt
           status=$?
           cat cpd.txt

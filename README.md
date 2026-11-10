@@ -247,10 +247,16 @@ The build has two modules:
 - `plugin` — `sbt-cardinality`, an sbt 2 plugin that reports on the build it is
   added to, and on any Scala sources it is pointed at. It is tested end-to-end
   with sbt's scripted framework (`sbt plugin/scripted`).
+- `sbt1-plugin` — the same plugin for sbt 1 (Scala 2.12), tested by scripted on a real sbt 1
+  (`sbt sbt1Plugin/scripted`).
+- `mill-plugin` — `mill-cardinality`, a Mill module trait, tested with Mill's testkit.
+- `plugin-loader` and `plugin-sbt` — sources compiled into the plugins, not modules: the loader all
+  three reach `core` through, and the keys and report logic the two sbt plugins share.
 
-Everything builds with the Scala version sbt 2.0.x itself runs on (3.8.4),
-because the plugin — and `core`, which it loads — must be binary-loadable
-inside sbt, and Scala 3 binary compatibility is backward only.
+No plugin depends on `core`: each resolves the published `scala-cardinality_3` and calls its
+JDK-typed entry point (`cardinality.Entry`) in a classloader apart from the build tool's. A plugin
+only has to be built with a Scala its build tool can load (Scala 3 binary compatibility is backward
+only; sbt 1 runs 2.12), and `core` is free to move to a later Scala 3.
 
 ## Reports
 
@@ -261,12 +267,14 @@ built for Java 25); add it to `project/plugins.sbt`:
 addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.2")
 ```
 
-From the next release, sbt 1 builds (1.10 or later) use the same line: sbt picks the sbt 1 artifact
-(`sbt-cardinality_2.12_1.0`). sbt 1 runs on Scala 2.12, so that plugin resolves
-`scala-cardinality_3` at its own version and loads it in a classloader apart from sbt's; sbt itself
-must run on JDK 25 or later. It offers `cardinalityReport`, `cardinalityReportOf` and
-`cardinalityReportSelected` under the same keys; dependency stubs are rendered on every run instead
-of cached, and skill seeding is sbt 2 only.
+From the next release, sbt 1 builds (1.10 or later) use the same line and the same keys: sbt
+picks the sbt 1 artifact (`sbt-cardinality_2.12_1.0`). There, dependency stubs are rendered on
+every run instead of cached, and skill seeding is sbt 2 only.
+
+None of the plugins (sbt 2, sbt 1, Mill) depends on the calculator. Each resolves
+`scala-cardinality_3` at its own version (`cardinalityVersion`) and runs it inside the build tool,
+in a classloader apart from the tool's own: the plugin is built for the tool's Scala, whatever the
+calculator's is. The build tool must therefore run on JDK 25 or later.
 
 The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.2"`.
 
@@ -341,10 +349,10 @@ and refuses more, never differently. Choose the dependencies with `cardinalityDe
 `Report.Query(..., classpath = ...)`.
 
 The stubs are rendered once per set of dependency jars: `cardinalityDependencyStubs` is an sbt 2
-cached task, keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub format
-(`StubFile.Format`), whose output file (`target/out/cardinality/<project>/stubs.bin`) is declared
+cached task, keyed by the content hashes (`HashedVirtualFileRef`) of the dependencies' jars and
+of the calculator's own, and by the JDK, whose output file (`target/out/cardinality/<project>/stubs.bin`) is declared
 with `Def.declareOutput` and so restored from sbt's machine-wide cache (or a remote one) instead
-of rendered again. A changed dependency renders again; a renderer change must bump the format.
+of rendered again. A changed dependency or calculator renders again.
 In the library, `Report.of(paths, stubs = Some(file))` reads such a file instead of a classpath.
 
 `sbt "cardinalityReportOf <path>..."` runs the same report over sources the
@@ -471,12 +479,16 @@ explicitly:
 
 ```scala
 cardinalityQuerySupport := Seq(baseDirectory.value / "support")
-cardinalityQueryBudget := cardinality.request.AnalysisQuery.Budget(
-  maxWorkPerTarget = 10000,
-  maxRequestWork = 1000000
+// Limits that differ from the calculator's defaults, by name (an unknown name is refused):
+cardinalityQueryLimits := Map(
+  "maxWorkPerTarget" -> 10000L,
+  "maxRequestWork" -> 1000000L,
+  "maxTotalBytes" -> 64L * 1024 * 1024
 )
-cardinalitySnapshotLimits := cardinality.request.SourceSnapshot.Limits(maxTotalBytes = 64L * 1024 * 1024)
 ```
+
+The names are the fields of the calculator's `AnalysisQuery.Budget`, `MethodAnalysis.Limits` and
+`SourceSnapshot.Limits`.
 
 The library entry point is `Report.query(Report.Query(targets, support, targetNames))`
 with `cardinality.reporting.Report`.

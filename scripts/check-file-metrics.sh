@@ -3,7 +3,7 @@
 # File length and comment-ratio gate for the Scala sources.
 #
 # Two per-file rules, both measured over every `*.scala` file under `core/src/`,
-# `plugin/src/main/`, `sbt1-plugin/src/main/`, `plugin-keys/src/` and `mill-plugin/src/` (the scripted fixtures under `plugin/src/sbt-test` are deliberately
+# `plugin/src/main/`, `sbt1-plugin/src/main/`, `plugin-sbt/src/`, `plugin-loader/src/` and `mill-plugin/src/` (the scripted fixtures under `plugin/src/sbt-test` are deliberately
 # repetitive and out of scope):
 #
 #   - line count:     warn above WARN_LINES, fail above MAX_LINES
@@ -122,7 +122,7 @@ while IFS= read -r file; do
   fi
 
   printf '%6s lines  %4s%% comments  %s\n' "$total" "$pct" "$file"
-done < <(find core/src plugin/src/main sbt1-plugin/src/main plugin-keys/src mill-plugin/src -name '*.scala' | sort)
+done < <(find core/src plugin/src/main sbt1-plugin/src/main plugin-sbt/src plugin-loader/src mill-plugin/src -name '*.scala' | sort)
 
 if [ "$errors" -gt 0 ]; then
   echo "$errors file metric(s) over the hard limit."

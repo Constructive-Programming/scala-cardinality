@@ -17,11 +17,6 @@ object StubFile {
   /** The rendering's version: bump it whenever a change to the renderer can change a stub. */
   val Format = "cardinality-stubs/4"
 
-  /** What a cached stub file is keyed by beside the jars: the format, and the JDK whose classes
-    * render too (another JDK is another rendering).
-    */
-  def key: String = s"$Format on Java ${sys.props("java.version")}"
-
   /** Renders a classpath's declarations into `file`; a classpath not read is the file's error. */
   def render(classpath: List[Path], file: Path): Unit = {
     val rendered =

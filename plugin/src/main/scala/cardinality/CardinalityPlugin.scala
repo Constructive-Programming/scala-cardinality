@@ -1,31 +1,18 @@
 package cardinality
 
-import cardinality.analysis.MethodAnalysis
-import cardinality.reporting.Report
-import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import cardinality.tasty.StubFile
 import sbt.*
 import sbt.Keys.*
 import sbt.util.CacheImplicits.given
-import sbt.util.Logger
 
-// The sbt face of scala-cardinality. Triggered automatically so a build only has to add the plugin
-// to `project/plugins.sbt`; everything it computes is delegated to the `core` module, where the
-// coverage and mutation gates bite.
+// The sbt 2 face of scala-cardinality. Triggered automatically so a build only has to add the
+// plugin to `project/plugins.sbt`; everything it computes is delegated to the `core` module,
+// where the coverage and mutation gates bite, reached through the loader the three plugins share
+// (`cardinality.loader.Calculator`).
 object CardinalityPlugin extends AutoPlugin {
 
   override def trigger = allRequirements
 
   object autoImport extends CardinalityKeys {
-
-    val cardinalityQueryBudget =
-      settingKey[AnalysisQuery.Budget]("Logical indexing and per-target/request work limits.")
-
-    val cardinalityQueryLimits =
-      settingKey[MethodAnalysis.Limits]("Type depth and solver state limits for selected reports.")
-
-    val cardinalitySnapshotLimits =
-      settingKey[SourceSnapshot.Limits]("Input acquisition limits for selected reports.")
 
     // Content-hashed references: the cached stub task below is keyed by the jars' contents.
     val cardinalityDependencyClasspath = taskKey[Seq[HashedVirtualFileRef]](
@@ -50,40 +37,45 @@ object CardinalityPlugin extends AutoPlugin {
 
   import autoImport.*
 
-  // The stub file's format (`StubFile.Format`): an input of the cached stub task, so a renderer
-  // whose stubs differ never reads a file an earlier one wrote.
-  private val cardinalityStubFormat =
-    settingKey[String]("The format of the dependency stub file (internal).")
+  // The calculator's jars and the JDK: inputs of the cached stub task, so stubs another calculator
+  // or JDK rendered (the JDK's classes render too) are never read.
+  private val cardinalityCalculatorJars =
+    taskKey[Seq[HashedVirtualFileRef]]("The calculator's jars (internal).")
 
-  override def projectSettings: Seq[Setting[?]] = dependencySettings ++ Seq(
-    cardinalityReportFile := target.value / "cardinality" / "report.txt",
-    cardinalityQuerySupport := Nil,
-    cardinalityQueryBudget := AnalysisQuery.Budget(),
-    cardinalityQueryLimits := MethodAnalysis.Limits(),
-    cardinalitySnapshotLimits := SourceSnapshot.Limits(),
-    // Seeding is a repository-level act: the default lands beside the other agent instructions
-    // at the build's root, wherever the task is run from.
-    cardinalitySkillFile := (ThisBuild / baseDirectory).value / ".claude" / "skills" /
-      "cardinality-reduction" / "SKILL.md",
-    // `Def.uncached`: seeding must re-check the target file every run, never be served stale.
-    cardinalitySeedSkill := Def.uncached {
-      seedSkill(
-        streams.value.log,
-        cardinalitySkillFile.value,
-        (ThisBuild / baseDirectory).value,
-        version.value
-      )
-    },
-    // `Def.uncached`: a report over transient inputs (`sources` is excluded from sbt 2's cache
-    // key) must re-run every time, never be served stale from the task cache.
+  private val cardinalityJava =
+    settingKey[String]("The JDK the dependency stubs are rendered on (internal).")
+
+  private val cardinalityProject =
+    settingKey[String]("The project's id, which names its stub file (internal).")
+
+  override def projectSettings: Seq[Setting[?]] = CardinalityTool.defaults(autoImport) ++
+    dependencySettings ++ reportSettings ++ Seq(
+      // Seeding is a repository-level act: the default lands beside the other agent instructions
+      // at the build's root, wherever the task is run from.
+      cardinalitySkillFile := (ThisBuild / baseDirectory).value / ".claude" / "skills" /
+        "cardinality-reduction" / "SKILL.md",
+      // `Def.uncached`: seeding must re-check the target file every run, never be served stale.
+      cardinalitySeedSkill := Def.uncached {
+        seedSkill(
+          streams.value.log,
+          cardinalitySkillFile.value,
+          (ThisBuild / baseDirectory).value,
+          version.value
+        )
+      },
+    )
+
+  // `Def.uncached`: a report over transient inputs (`sources` is excluded from sbt 2's cache key)
+  // must re-run every time, never be served stale from the task cache.
+  private def reportSettings: Seq[Setting[?]] = Seq(
     cardinalityReport := Def.uncached {
-      val log = streams.value.log
-      val scalaSources = (Compile / sources).value
-      val stubs = fileConverter.value.toPath(cardinalityDependencyStubs.value)
-      report(
-        log,
-        Report.of(scalaSources.map(_.toPath), stubs = Some(stubs)),
-        cardinalityReportFile.value
+      val converter = fileConverter.value
+      CardinalityTool.report(
+        calculator(cardinalityCalculatorJars.value, converter),
+        (Compile / sources).value,
+        Some(converter.toPath(cardinalityDependencyStubs.value)),
+        cardinalityReportFile.value,
+        streams.value.log
       )
     },
     // The same report over sources the build does not compile itself — a library's published
@@ -92,70 +84,77 @@ object CardinalityPlugin extends AutoPlugin {
     // `.parsed` in the setting body is what makes this an input task. Written through
     // `Def.inputTask` instead, the key is registered as a plain task and sbt rejects the arguments.
     cardinalityReportOf := {
-      val log = streams.value.log
-      val paths = Def.spaceDelimited("<path>...").parsed
+      val sources = CardinalityTool.paths.parsed.map(file)
       Def.uncached {
-        report(log, Report.of(paths.map(path => file(path).toPath)), cardinalityReportFile.value)
+        CardinalityTool.report(
+          calculator(cardinalityCalculatorJars.value, fileConverter.value),
+          sources,
+          None,
+          cardinalityReportFile.value,
+          streams.value.log
+        )
       }
     },
     cardinalityReportSelected := {
-      val names = Def.spaceDelimited("<qualified-method-name>...").parsed
+      val names = CardinalityTool.names.parsed
       Def.uncached {
-        if (names.isEmpty) sys.error("provide at least one qualified method name")
-        val found = Report.query(
-          Report.Query(
-            (Compile / sources).value.map(_.toPath),
-            cardinalityQuerySupport.value.map(_.toPath),
-            names.toSet,
-            cardinalitySnapshotLimits.value,
-            cardinalityQueryLimits.value,
-            cardinalityQueryBudget.value,
-            stubs = Some(fileConverter.value.toPath(cardinalityDependencyStubs.value))
-          )
+        val converter = fileConverter.value
+        CardinalityTool.selected(
+          calculator(cardinalityCalculatorJars.value, converter),
+          CardinalityTool.Query(
+            names,
+            (Compile / sources).value,
+            cardinalityQuerySupport.value,
+            cardinalityQueryLimits.value
+          ),
+          Some(converter.toPath(cardinalityDependencyStubs.value)),
+          cardinalityReportFile.value,
+          streams.value.log
         )
-        val output = cardinalityReportFile.value
-        IO.write(output, found.render)
-        streams.value.log.info(found.render)
-        streams.value.log.info(s"report written to $output")
-        if (found.report.errors.nonEmpty)
-          sys.error(s"${found.report.errors.size} selected report error(s)")
       }
-    },
+    }
   )
+
+  private def calculator(jars: Seq[HashedVirtualFileRef], converter: xsbti.FileConverter) =
+    cardinality.loader.Calculator.of(jars.map(converter.toPath))
 
   // The dependency declarations the reports read: which jars, and their stubs rendered once.
   private def dependencySettings: Seq[Setting[?]] = Seq(
     // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
     // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
     cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
-    // An sbt 2 cached task: keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub
-    // format, its file is restored from the machine-wide cache instead of rendered again.
-    cardinalityStubFormat := StubFile.key,
+    // `Def.uncached`: resolved every run, so a republished snapshot is the one loaded.
+    cardinalityCalculatorJars := Def.uncached {
+      val converter = fileConverter.value
+      CardinalityTool
+        .jars(
+          csrConfiguration.value,
+          cardinalityVersion.value,
+          target.value,
+          streams.value.log
+        )
+        .map(jar => converter.toVirtualFile(jar.toPath): HashedVirtualFileRef)
+    },
+    cardinalityJava := sys.props("java.version"),
+    cardinalityProject := thisProject.value.id,
+    // An sbt 2 cached task: keyed by the content hashes (`HashedVirtualFileRef`) of the
+    // dependencies' jars and of the calculator's, and by the JDK, its file is restored from the
+    // machine-wide cache instead of rendered again.
     cardinalityDependencyStubs := {
       val converter = fileConverter.value
-      val _ = cardinalityStubFormat.value
+      val _ = cardinalityJava.value
       val jars = cardinalityDependencyClasspath.value.map(converter.toPath).toList.distinct
       // Under sbt's output root, which the converter writes as `${OUT}`: the declared file is then
       // a relative reference, restorable on any machine sharing the cache.
-      val out = rootOutputDirectory.value.resolve(s"cardinality/${name.value}/stubs.bin")
-      StubFile.render(jars, out)
+      // By project id: two projects may publish under one name (this build's two sbt plugins do).
+      val out =
+        rootOutputDirectory.value.resolve(s"cardinality/${cardinalityProject.value}/stubs.bin")
+      calculator(cardinalityCalculatorJars.value, converter).stubs(jars, out)
       val file = converter.toVirtualFile(out)
       Def.declareOutput(file)
       file: HashedVirtualFileRef
     }
   )
-
-  // Writes the report under `target/`, logs it, and fails the task when a source could not be read
-  // or parsed: a report over sources the calculator could not read is incomplete, and failing
-  // quietly would present the numbers it did find as the whole story. M3's report-then-fail, one
-  // milestone early.
-  private def report(log: Logger, found: Report, output: File): Unit = {
-    IO.write(output, found.render)
-    log.info(found.render)
-    log.info(s"report written to $output")
-    if (found.errors.nonEmpty)
-      sys.error(s"${found.errors.size} source(s) could not be read or parsed")
-  }
 
   // Writes the reduction skill this repository's agents use, parameterized by the build, so a
   // project that adopts the plugin can seed the same workflow. The generated marker comment is

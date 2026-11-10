@@ -21,9 +21,9 @@ developers := List(
 // artifacts here, `sonaRelease` uploads and releases them (SONATYPE_USERNAME / SONATYPE_PASSWORD).
 publishTo := localStaging.value
 
-// Pinned to the Scala version sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is
-// 3.9.0, matching cats-eo 1.2.1): the sbt plugin — and `core`, which it loads — must
-// be binary-loadable inside sbt, and Scala 3 binary compatibility is backward only.
+// The Scala sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is 3.9.0, matching cats-eo 1.2.1).
+// The sbt 2 plugin must be binary-loadable inside sbt, and Scala 3 binary compatibility is backward
+// only. `core` no longer has to follow: the plugins load it apart (`loaderSettings` below).
 scalaVersion := "3.9.0"
 
 // The root project only aggregates; it publishes nothing and has no sources.
@@ -72,43 +72,57 @@ lazy val bench = project
     coverageEnabled := false
   )
 
-// The sbt plugin: reads each subproject's sources and hands them to `core`.
+// The three build-tool plugins share one way to reach `core`: none depends on it. Each resolves
+// `scala-cardinality_3` at its own version (`BuildInfo`) and calls `cardinality.Entry` in a
+// classloader apart from the build tool's (`plugin-loader`, one source compiled into each). A
+// plugin is then built for its tool's Scala, whatever `core`'s is: sbt 1 runs Scala 2.12, and a
+// tool on another Scala 3 minor cannot read this one's classes either.
+lazy val loaderSettings = Seq(
+  Compile / unmanagedSourceDirectories +=
+    (ThisBuild / baseDirectory).value / "plugin-loader" / "src" / "main" / "scala",
+  Compile / sourceGenerators += Def.task {
+    val out = (Compile / sourceManaged).value / "cardinality" / "loader" / "BuildInfo.scala"
+    val text = s"""package cardinality.loader
+                  |
+                  |private[loader] object BuildInfo { val version = "${version.value}" }
+                  |""".stripMargin
+    IO.write(out, text)
+    Seq(out)
+  }.taskValue
+)
+
+// What the two sbt plugins share beside the loader: the keys and the helpers both use (`plugin-sbt`, one
+// source compiled into each), and scripted, which boots a real sbt of the plugin's kind on each
+// test project with the plugin and the `core` it resolves published locally first.
+lazy val sbtPluginSettings = loaderSettings ++ Seq(
+  name := "sbt-cardinality",
+  Compile / unmanagedSourceDirectories +=
+    (ThisBuild / baseDirectory).value / "plugin-sbt" / "src" / "main" / "scala",
+  // scripted resolves the plugin by version, so the tests pass it through a system property.
+  scriptedLaunchOpts += s"-Dplugin.version=${version.value}",
+  scriptedBufferLog := false,
+  scriptedDependencies := {
+    val _ = (core / publishLocal).value
+    publishLocal.value
+  }
+)
+
+// The sbt 2 plugin: reads each subproject's sources and hands them to `core`.
 // Kept as thin as possible — logic that can live in `core` must live in
 // `core`, where the coverage and mutation gates bite.
 lazy val plugin = project
   .enablePlugins(SbtPlugin)
-  .dependsOn(core)
   .settings(
-    name := "sbt-cardinality",
-    // The keys both sbt plugins offer: one source, compiled into each.
-    Compile / unmanagedSourceDirectories += pluginKeys.value,
-    description := "sbt plugin reporting the cardinality of a project's definitions and methods",
-    // scripted boots a fresh sbt per test project and resolves the plugin by
-    // version, so the tests pass it through a system property.
-    scriptedLaunchOpts += s"-Dplugin.version=${version.value}",
-    scriptedBufferLog := false,
-    // scripted resolves the plugin and its `core` dependency from the local
-    // repository; publish both before any test project boots.
-    scriptedDependencies := {
-      val _ = (core / publishLocal).value
-      publishLocal.value
-    }
+    sbtPluginSettings,
+    description := "sbt plugin reporting the cardinality of a project's definitions and methods"
   )
 
-lazy val pluginKeys = Def.setting(
-  (ThisBuild / baseDirectory).value / "plugin-keys" / "src" / "main" / "scala"
-)
-
-// The sbt 1 plugin, for builds that cannot move to sbt 2 yet. sbt 1 runs on Scala 2.12 and cannot
-// load `core`, so this plugin has no dependency on it: it resolves `scala-cardinality_3` at the
-// plugin's own version and calls `cardinality.Entry` in a classloader apart from sbt's. Same
-// artifact name as `plugin`; sbt's cross suffixes (`_2.12_1.0` vs `_sbt2_3`) keep them apart.
+// The sbt 1 plugin, for builds that cannot move to sbt 2 yet. Same artifact name as `plugin`;
+// sbt's cross suffixes (`_2.12_1.0` vs `_sbt2_3`) keep them apart.
 lazy val sbt1Plugin = (project in file("sbt1-plugin"))
   .enablePlugins(SbtPlugin)
   .settings(
-    name := "sbt-cardinality",
-    // The keys both sbt plugins offer: one source, compiled into each.
-    Compile / unmanagedSourceDirectories += pluginKeys.value,
+    sbtPluginSettings,
     description := "sbt 1 plugin reporting the cardinality of a project's definitions and methods",
     scalaVersion := "2.12.20",
     pluginCrossBuild / sbtVersion := "1.10.0",
@@ -119,34 +133,18 @@ lazy val sbt1Plugin = (project in file("sbt1-plugin"))
       "-unchecked",
       "-Ywarn-unused",
       "-Xfatal-warnings",
-      // Scala 3 syntax (`import sbt.*`) so scalafix's OrganizeImports rules hold here too.
+      // Scala 3 syntax (`import sbt.*`), so the sources shared with the Scala 3 plugins compile
+      // here and scalafix's OrganizeImports rules hold.
       "-Xsource:3"
     ),
-    coverageEnabled := false,
-    // As for `plugin`: scripted boots a real sbt 1 on each test project, with the plugin and the
-    // `core` it resolves published locally first.
-    scriptedLaunchOpts += s"-Dplugin.version=${version.value}",
-    scriptedBufferLog := false,
-    scriptedDependencies := {
-      val _ = (core / publishLocal).value
-      publishLocal.value
-    },
-    Compile / sourceGenerators += Def.task {
-      val out = (Compile / sourceManaged).value / "cardinality" / "BuildInfo.scala"
-      IO.write(
-        out,
-        s"package cardinality\n\nprivate[cardinality] object BuildInfo { val version = \"${version.value}\" }\n"
-      )
-      Seq(out)
-    }.taskValue
+    coverageEnabled := false
   )
 
-// The Mill plugin: `CardinalityModule`, mixed into a `ScalaModule`. Mill 1.3 compiles builds with
-// Scala 3.9.0, this build's version, so the plugin loads `core` directly. The `_mill1` suffix is
-// Mill's convention for plugins built against its 1.x API.
+// The Mill plugin: `CardinalityModule`, mixed into a `ScalaModule`. Built with the Scala Mill 1.3
+// compiles builds with; the `_mill1` suffix is Mill's convention for plugins on its 1.x API.
 lazy val millPlugin = (project in file("mill-plugin"))
-  .dependsOn(core)
   .settings(
+    loaderSettings,
     name := "mill-cardinality_mill1",
     description := "Mill plugin reporting the cardinality of a module's definitions and methods",
     libraryDependencies ++= Seq(
@@ -158,8 +156,9 @@ lazy val millPlugin = (project in file("mill-plugin"))
     // (zinc); Mill loads them as it ships them, so sbt's cross-suffix check does not apply here.
     conflictWarning := ConflictWarning.disable,
     // The testkit evaluates the plugin's tasks in this JVM; forked, so its daemon threads end with
-    // the run.
-    Test / fork := true
+    // the run. The plugin resolves `core` at its own version: published locally first.
+    Test / fork := true,
+    Test / compile := (Test / compile).dependsOn(core / publishLocal).value
   )
 
 lazy val millVersion = "1.3.1"
@@ -217,13 +216,20 @@ ThisBuild / scalafixDependencies +=
 // where the instrumented code lives.
 coverageHighlighting := true
 
+// Self-measurement (`-Dcardinality.self`, see project/plugins.sbt) reports one module at a time:
+// the two sbt plugins' reports each read the stubs of all of sbt, and four reports at once do not
+// fit the heap `.jvmopts` gives.
+Global / concurrentRestrictions ++=
+  (if (sys.props.contains("cardinality.self")) Seq(Tags.limitAll(1)) else Nil)
+
 // Full coverage sweep used by CI (`sbt coverageAll`). `clean` first so a
 // rebuild starts from the sources: on a cold sbt cache this discards any stale
 // instrumented classes. (sbt 2 may serve `clean` from its machine-wide task
-// cache; see the README note on cold runs.)
+// cache; see the README note on cold runs.) `core` only: it holds the instrumented code, and
+// the plugins' tests load a published `core`, which must not be an instrumented one.
 addCommandAlias(
   "coverageAll",
-  "clean; coverage; test; coverageReport"
+  "clean; coverage; core/test; coverageReport"
 )
 
 // Mutation-testing sweep used on demand and at release (`sbt mutationAll`).

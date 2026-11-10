@@ -1,6 +1,6 @@
 > cardinalityReportSelected example.get
 > checkSelected
-> set cardinalityQueryBudget := cardinality.request.AnalysisQuery.Budget(maxRequestWork = 1)
+> set cardinalityQueryLimits := Map("maxRequestWork" -> 1L)
 > cardinalityReportSelected example.get
 > checkBudget
 -> cardinalityReportSelected example.missing

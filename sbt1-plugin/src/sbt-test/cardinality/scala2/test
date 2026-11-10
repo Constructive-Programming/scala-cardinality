@@ -1,0 +1,4 @@
+# The calculator's jars are resolved apart from the project: a project on another Scala (here
+# 2.12, whose library sbt would force onto them) is still measured.
+> cardinalityReport
+> check

@@ -1,86 +1,101 @@
 package millcardinality
 
-import cardinality.analysis.MethodAnalysis
-import cardinality.reporting.Report
-import cardinality.request.*
-import cardinality.tasty.StubFile
+import cardinality.loader.Calculator
 import mainargs.Leftover
 import mill.*
 import mill.api.Result
-import mill.scalalib.ScalaModule
+import mill.scalalib.*
 
-/** The Mill face of scala-cardinality, the counterpart of the sbt plugin: mix it into a
+/** The Mill face of scala-cardinality, the counterpart of the sbt plugins: mix it into a
   * `ScalaModule` and run `mill <module>.cardinalityReport`. Everything it computes is delegated to
-  * `core`; each report is written to the command's `Task.dest` as `report.txt`.
+  * the calculator, reached through the loader the three plugins share
+  * (`cardinality.loader.Calculator`); each report is written to the command's `Task.dest` as
+  * `report.txt`.
   */
 trait CardinalityModule extends ScalaModule {
+
+  /** The scala-cardinality version the reports run: the plugin's own by default. */
+  def cardinalityVersion: T[String] = Task(Calculator.version)
 
   /** Explicit supporting source roots for selected reports; never report targets. */
   def cardinalityQuerySupport: T[Seq[PathRef]] = Task(Seq.empty[PathRef])
 
-  /** Logical indexing and per-target/request work limits for selected reports. */
-  def cardinalityQueryBudget: AnalysisQuery.Budget = AnalysisQuery.Budget()
+  /** Limits of selected reports that differ from the calculator's defaults, by name:
+    * `maxRequestWork`, `maxWorkPerTarget`, `maxTypeDepth`, `maxTotalBytes`, ... (an unknown name is
+    * refused with the known ones).
+    */
+  def cardinalityQueryLimits: T[Map[String, Long]] = Task(Map.empty[String, Long])
 
-  /** Type depth and solver state limits for selected reports. */
-  def cardinalityQueryLimits: MethodAnalysis.Limits = MethodAnalysis.Limits()
+  /** The calculator's jars, resolved on their own: never part of the module's classpath, and
+    * without the module's dependency mapping, which forces its Scala version onto the Scala library
+    * of what it resolves.
+    */
+  def cardinalityCalculatorJars: T[Seq[PathRef]] = Task {
+    defaultResolver().classpath(
+      Seq(mvn"dev.constructive:scala-cardinality_3:${cardinalityVersion()}"),
+      resolutionParamsMapOpt = Some(_ => coursier.params.ResolutionParams()),
+      mapDependencies = Some(identity)
+    )
+  }
 
-  /** Input acquisition limits for selected reports. */
-  def cardinalitySnapshotLimits: SourceSnapshot.Limits = SourceSnapshot.Limits()
-
-  // An input of the cached stub task, so stubs another renderer or JDK wrote are never read.
-  def cardinalityStubFormat: T[String] = Task.Input(StubFile.key)
+  // The JDK whose classes render too: an input of the cached stub task, with the calculator's
+  // jars, so stubs another calculator or JDK rendered are never read.
+  def cardinalityJava: T[String] = Task.Input(sys.props("java.version"))
 
   /** The compiled dependencies' declarations rendered as stubs, cached by their contents. */
   def cardinalityDependencyStubs: T[PathRef] = Task {
-    val _ = cardinalityStubFormat()
-    val jars = compileClasspath().map(_.path).filter(os.exists).map(_.toNIO).toList.distinct
+    val _ = cardinalityJava()
+    val jars = compileClasspath().map(_.path).filter(os.exists).map(_.toNIO).distinct
     val out = Task.dest / "stubs.bin"
-    StubFile.render(jars, out.toNIO)
+    calculator(cardinalityCalculatorJars()).stubs(jars, out.toNIO)
     PathRef(out)
   }
 
   /** Report the cardinality of this module's sources. */
   def cardinalityReport(): Command[PathRef] = Task.Command {
-    val stubs = cardinalityDependencyStubs().path.toNIO
-    report(Report.of(allSourceFiles().map(_.path.toNIO), stubs = Some(stubs)))
+    val out = Task.dest / "report.txt"
+    val errors = calculator(cardinalityCalculatorJars()).report(
+      allSourceFiles().map(_.path.toNIO),
+      Some(cardinalityDependencyStubs().path.toNIO),
+      out.toNIO
+    )
+    finish(out, errors, "source(s) could not be read or parsed")
   }
 
   /** Report the cardinality of the Scala sources at the given paths: files, directories, or a
     * sources jar such as the one a published library ships.
     */
   def cardinalityReportOf(paths: Leftover[String]): Command[PathRef] = Task.Command {
-    report(Report.of(paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO)))
+    val out = Task.dest / "report.txt"
+    val sources = paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO)
+    val errors = calculator(cardinalityCalculatorJars()).report(sources, None, out.toNIO)
+    finish(out, errors, "source(s) could not be read or parsed")
   }
 
   /** Bounded implementation report for the given qualified method names. */
   def cardinalityReportSelected(names: Leftover[String]): Command[PathRef] = Task.Command {
     if (names.value.isEmpty) Task.fail("provide at least one qualified method name")
-    val found = Report.query(
-      Report.Query(
-        allSourceFiles().map(_.path.toNIO),
-        cardinalityQuerySupport().map(_.path.toNIO),
-        names.value.toSet,
-        cardinalitySnapshotLimits,
-        cardinalityQueryLimits,
-        cardinalityQueryBudget,
-        stubs = Some(cardinalityDependencyStubs().path.toNIO)
-      )
+    val out = Task.dest / "report.txt"
+    val errors = calculator(cardinalityCalculatorJars()).selected(
+      allSourceFiles().map(_.path.toNIO),
+      cardinalityQuerySupport().map(_.path.toNIO),
+      names.value,
+      Some(cardinalityDependencyStubs().path.toNIO),
+      cardinalityQueryLimits(),
+      out.toNIO
     )
-    written(found.render, found.report.errors.size, "selected report error(s)")
+    finish(out, errors, "selected report error(s)")
   }
+
+  private def calculator(jars: Seq[PathRef]): Calculator = Calculator.of(jars.map(_.path.toNIO))
 
   // Fails the command when a source could not be read or parsed: a report over sources the
   // calculator could not read is incomplete, and failing quietly would present the numbers it did
   // find as the whole story.
-  private def report(found: Report)(using mill.api.TaskCtx): Result[PathRef] =
-    written(found.render, found.errors.size, "source(s) could not be read or parsed")
-
-  private def written(text: String, errors: Int, what: String)(using
+  private def finish(output: os.Path, errors: Int, what: String)(using
       mill.api.TaskCtx
   ): Result[PathRef] = {
-    val output = Task.dest / "report.txt"
-    os.write.over(output, text)
-    Task.log.info(text)
+    Task.log.info(os.read(output))
     Task.log.info(s"report written to $output")
     if (errors > 0) Result.Failure(s"$errors $what") else Result.Success(PathRef(output))
   }

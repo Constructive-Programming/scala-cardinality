@@ -22,8 +22,18 @@ trait CardinalityKeys {
     "Explicit supporting source roots for selected reports; never report targets."
   )
 
+  val cardinalityQueryLimits = settingKey[Map[String, Long]](
+    "Limits of selected reports that differ from the calculator's defaults, by name: " +
+      "maxRequestWork, maxWorkPerTarget, maxTypeDepth, maxTotalBytes, ... (an unknown name is " +
+      "refused with the known ones)."
+  )
+
   val cardinalityReportFile = settingKey[File](
     "Where a report is written, under the project's target directory by default."
+  )
+
+  val cardinalityVersion = settingKey[String](
+    "The scala-cardinality version the reports run: the plugin's own by default."
   )
 
 }
