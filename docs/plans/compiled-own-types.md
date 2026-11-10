@@ -1,6 +1,6 @@
 # Compiled own types: reading the module's TASTy
 
-**Status:** phase 1 implemented (2026-11-10). Phases 2 to 5 are proposed.
+**Status:** phases 1 and 2 implemented (2026-11-10). Phases 3 to 5 are proposed.
 
 ## Goal
 
@@ -58,18 +58,24 @@ those modes also get compiled classes.
   includes the new code's own rows.
 - Known cost: report rows print the compiler's rooted spelling (`_root_.scala.Boolean`).
 
-## Phase 2: locals and anonymous classes
+## Phase 2: locals, anonymous classes and pattern names (done)
 
-Most of the 55 `<inferred>` rows left are local `def`s and `val`s in bodies, or members of a `new
-T { … }` inside a body (`ClosedSpaces.exact.<new#1>.plus`). TASTy has their trees, with positions.
-
-The index walks method bodies as well as templates. The source walk goes into blocks. The same
-match and fallback apply.
-
-The survey's item 12 belongs here too. These are types the analysis needs but never rebuilds: a
-lambda parameter without a type, a captured `val`, "a type the body infers"
-(`BodyTerms.scala:690`, `Measurement.scala:504`, `BodyScopes.scala:80`, `CaptureAliases.scala:73`).
-Writing the types into the source turns those refusals into counts. No new reading is needed.
+- The TASTy index walks every tree of a class (`TreeTraverser`), not only its template, so local
+  `def`s and `val`s, members of a `new T { … }` and the names of a pattern definition are found
+  by the same name, offset and end match.
+- The source walk visits every untyped `def`, `val` and `var`, wherever it is. A name inside a
+  pattern is typed in place: `val (a, b) = …` becomes `val ((a: A), (b: B)) = …`.
+- `SourceIndex` reads a name typed in its pattern as that name's type, compiled or hand-written.
+  Before, every name of a pattern definition refused (`a name of a pattern definition`).
+- A type that spells a compiler-made name (`$anon`, `x$1`) is not written.
+- Untyped lambda parameters were tried and dropped: typing them moved no row of the
+  self-measurement.
+- Regressions (`CompiledTypesSpec`): local `pick` `?` → 4; an anonymous member typed; pattern
+  names `left` 2 and `right` 4, refused from syntax; a hand-written `val (a: Boolean, b: (Boolean,
+  Boolean))` reads 2 and 4 without compiled classes.
+- Self-measurement (core): `<inferred>` rows went from 55 to 0. Four rows moved from `?` to ω:
+  the anonymous algebra's members in `ClosedSpaces.tiers` (`empty`, `plus`, `power`, `times`).
+  Totals went from `62ε₀ + 703ω (3473 ?)` to `62ε₀ + 710ω (3469 ?)`, with the new code's own rows.
 
 ## Phase 3: delete the syntax inference that TASTy now answers, in TASTy mode
 

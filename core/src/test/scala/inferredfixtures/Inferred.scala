@@ -22,3 +22,27 @@ object Literal {
 object Transparent {
   transparent inline def t = true
 }
+
+object Locals {
+
+  def outer: Boolean = {
+    def pick = (true, false)
+    pick._1
+  }
+
+}
+
+trait Flag { def f: Boolean }
+
+object Anonymous {
+  val flag: Flag = new Flag { def f = !true }
+}
+
+object Patterns {
+  val (left, right) = (true, (false, true))
+}
+
+object Lambdas {
+  val negate: Boolean => Boolean = x => !x
+  val both = List((true, false)).map((a, b) => a && b)
+}

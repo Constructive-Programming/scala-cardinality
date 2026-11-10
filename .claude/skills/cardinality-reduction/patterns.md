@@ -88,11 +88,12 @@ Entry shape:
 - Signal (R): `?` signature row `val x: <inferred>` with `inferred result type not resolved: …`.
 - Fix: the build plugins now read the compiler's type from the module's TASTy (rule T,
   `docs/plans/compiled-own-types.md`); a template or top-level member needs no annotation.
-  Annotate only for `cardinalityReportOf` runs, or a local (phase 2 pending).
+  Annotate only for `cardinalityReportOf` runs; locals and pattern names are typed too (phase 2).
 - Expect: the row leaves `?` for its real size; nothing else moves.
 - Boundary: `transparent inline` results (rule X) stay `?`.
 - Evidence: 553de73 follow-up, `Skill.markers` `?` → `ω` by hand. Rule T: core `<inferred>` rows
   426 → 55, 30 rows `?` → a number (`62ε₀ + 675ω` → `62ε₀ + 703ω`, `?` 3483 → 3471).
+  Phase 2: 55 → 0, `ClosedSpaces.tiers` anonymous members `?` → ω (`703ω` → `710ω`).
 
 ### R4 Independent numeric knobs — rejected
 - Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,

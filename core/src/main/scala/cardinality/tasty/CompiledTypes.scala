@@ -1,6 +1,6 @@
 package cardinality.tasty
 
-import scala.meta.{Defn, Mod, Pat, Pkg, Source, Template, Tree}
+import scala.meta.{Defn, Mod, Pat, Tree, XtensionCollectionLikeUI}
 import scala.util.control.NonFatal
 
 import cardinality.analysis.MethodAnalysis
@@ -63,18 +63,24 @@ object CompiledTypes {
       .toMap
   }
 
-  // A class's template members, nested classes' included: (source, (name offset, member)).
-  private def members(c: ClassDef)(using Context): List[(String, (Int, Compiled))] =
-    c.rhs.body.flatMap {
-      case member: ValOrDefDef if !member.pos.isUnknown && !member.pos.isSynthetic =>
-        val at = member.pos.pointOffset
-        List(
-          member.pos.sourceFile.path ->
-            (at -> Compiled(member.name.toString, member.pos.endOffset, result(member)))
-        )
-      case nested: ClassDef => members(nested)
-      case _                => Nil
-    }
+  // Every definition a class's tree holds, bodies included (locals, anonymous classes' members,
+  // pattern names): (source, (name offset, member)).
+  private def members(c: ClassDef)(using Context): List[(String, (Int, Compiled))] = {
+    val found = List.newBuilder[(String, (Int, Compiled))]
+    new tastyquery.Traversers.TreeTraverser {
+      override def traverse(tree: tastyquery.Trees.Tree): Unit = {
+        tree match {
+          case member: ValOrDefDef if !member.pos.isUnknown && !member.pos.isSynthetic =>
+            val at = member.pos.pointOffset
+            found += member.pos.sourceFile.path ->
+              (at -> Compiled(member.name.toString, member.pos.endOffset, result(member)))
+          case _ =>
+        }
+        super.traverse(tree)
+      }
+    }.traverse(c)
+    found.result()
+  }
 
   // The member's result type spelled for its source; none where it has no spelling here.
   private def result(member: ValOrDefDef)(using Context): Option[String] = {
@@ -93,7 +99,10 @@ object CompiledTypes {
     else
       try {
         val spelled = StubTypes(enclosing(symbol.owner), rooted = true)(last(symbol.declaredType))
-        Option.when(!spelled.contains('\n') && Spell.parses(s"type T = $spelled"))(spelled)
+        // A compiler-made name (`$anon`, `x$1`) names nothing a source can write.
+        Option.when(!spelled.exists("\n$".contains(_)) && Spell.parses(s"type T = $spelled"))(
+          spelled
+        )
       } catch { case NonFatal(_) => None }
   }
 
@@ -111,53 +120,80 @@ object CompiledTypes {
     if (candidates.size == 1) candidates.head._2 else Map.empty
   }
 
-  // The input with a result type written after each member that has none and a compiled match.
+  /** Where a compiled type is written: after a member's name and parameters (`: T`), around a name
+    * in a pattern or an unparenthesized lambda parameter (`(x: T)`), or after a parameter already
+    * in parentheses.
+    */
+  private enum Site {
+    case After(at: Int)
+    case Around(start: Int, end: Int)
+  }
+
+  /** A definition written without a type: its name, the name's offset, where it ends, and where the
+    * type goes.
+    */
+  final private case class Untyped(name: String, at: Int, end: Int, site: Site)
+
+  // The input with a type written at each untyped definition that has a compiled match.
   private def written(
       input: MethodAnalysis.Input,
       compiled: Map[Int, Compiled]
   ): MethodAnalysis.Input = {
-    val insertions = untyped(input.tree).flatMap { (name, at, end, mods, after) =>
-      compiled.get(at).collect {
-        case Compiled(`name`, `end`, Some(tpe)) if !mods.exists(_.isInstanceOf[Mod.Transparent]) =>
-          after -> tpe
+    val edits = untyped(input.tree).flatMap { u =>
+      compiled.get(u.at).toList.flatMap {
+        case Compiled(name, end, Some(tpe)) if name == u.name && end == u.end =>
+          u.site match {
+            case Site.After(at)          => List(at -> (": " + tpe))
+            case Site.Around(start, end) => List(end -> (": " + tpe + ")"), start -> "(")
+          }
+        case _ => Nil
       }
     }
-    if (insertions.isEmpty) input
+    if (edits.isEmpty) input
     else {
       val text = input.tree.pos.input.text
-      val ascribed = insertions.sortBy(-_._1).foldLeft(text) {
-        case (text, (after, tpe)) =>
-          val c = text.charAt(after - 1)
-          val gap = if (c.isLetterOrDigit || "_`)]".contains(c)) "" else " "
-          text.substring(0, after) + gap + ": " + tpe + text.substring(after)
+      val ascribed = edits.sortBy(-_._1).foldLeft(text) {
+        case (text, (at, word)) =>
+          val c = text.charAt(at - 1)
+          val gap =
+            if (!word.startsWith(":") || c.isLetterOrDigit || "_`)]".contains(c)) "" else " "
+          text.substring(0, at) + gap + word + text.substring(at)
       }
       Spell.source(ascribed).toOption.fold(input)(MethodAnalysis.Input(input.path, _))
     }
   }
 
-  // Members written without a result type at template or top level: their name, the name's
-  // offset, where the definition ends, their modifiers, and where a type would go.
-  private def untyped(tree: Tree): List[(String, Int, Int, List[Mod], Int)] = {
+  // Every definition written without a type: members and locals (not `transparent inline`, whose
+  // callers see the expansion), and the names of a pattern definition.
+  private def untyped(tree: Tree): List[Untyped] = {
     val here = tree match {
-      case d: Defn.Def if d.decltpe.isEmpty =>
+      case d: Defn.Def if d.decltpe.isEmpty && !transparent(d.mods) =>
         val after = d.paramClauseGroups.lastOption.fold(d.name.pos.end)(_.pos.end)
-        List((d.name.value, d.name.pos.start, d.pos.end, d.mods, after))
-      case v: Defn.Val if v.decltpe.isEmpty => single(v, v.pats, v.mods)
-      case v: Defn.Var if v.decltpe.isEmpty => single(v, v.pats, v.mods)
+        List(Untyped(d.name.value, d.name.pos.start, d.pos.end, Site.After(after)))
+      case v: Defn.Val if v.decltpe.isEmpty => values(v, v.pats)
+      case v: Defn.Var if v.decltpe.isEmpty => values(v, v.pats)
       case _                                => Nil
     }
-    val inside = tree match {
-      case _: (Source | Pkg | Pkg.Body | Template | Template.Body | Defn.Class | Defn.Trait |
-            Defn.Object | Defn.Enum | Pkg.Object | Defn.Given) =>
-        tree.children.flatMap(untyped)
-      case _ => Nil
-    }
-    here ++ inside
+    here ++ tree.children.flatMap(untyped)
   }
 
-  private def single(defn: Tree, pats: List[Pat], mods: List[Mod]) = pats match {
-    case List(Pat.Var(name)) => List((name.value, name.pos.start, defn.pos.end, mods, name.pos.end))
-    case _                   => Nil
+  private def transparent(mods: List[Mod]) = mods.exists(_.isInstanceOf[Mod.Transparent])
+
+  // A single name is typed after it, to its definition's end; each name of a pattern is typed in
+  // place, to its own end.
+  private def values(defn: Tree, pats: List[Pat]): List[Untyped] = pats match {
+    case List(Pat.Var(name)) =>
+      List(Untyped(name.value, name.pos.start, defn.pos.end, Site.After(name.pos.end)))
+    case _ =>
+      pats.flatMap(_.collect {
+        case v @ Pat.Var(name) if !v.parent.exists(_.isInstanceOf[Pat.Typed]) =>
+          Untyped(
+            name.value,
+            name.pos.start,
+            name.pos.end,
+            Site.Around(name.pos.start, name.pos.end)
+          )
+      })
   }
 
 }

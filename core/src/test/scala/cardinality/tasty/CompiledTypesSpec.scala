@@ -62,6 +62,29 @@ class CompiledTypesSpec extends Specification {
       ) must startWith("?")
     }
 
+    "type locals, anonymous members and pattern names: (Boolean, Boolean) 4, Boolean 2" in {
+      (row(syntax, "Locals.outer.pick") must startWith("?"))
+        .and(row(syntax, "Patterns.left") must startWith("?"))
+        .and(row(compiled, "Locals.outer.pick") must startWith("4 "))
+        .and(row(compiled, "Anonymous.flag.<new#1>.f") must contain("f: _root_.scala.Boolean"))
+        .and(row(compiled, "Patterns.left") must startWith("2 "))
+        .and(row(compiled, "Patterns.right") must startWith("4 "))
+        .and(row(compiled, "Lambdas.both") must startWith("ω "))
+    }
+
+    "read a name typed in its pattern from the source too" in {
+      val dir = Files.createTempDirectory("typed-pattern")
+      val file = dir.resolve("P.scala")
+      Files.writeString(
+        file,
+        "package p\nobject P { val (a: Boolean, b: (Boolean, Boolean)) = (true, (true, false)) }\n"
+      )
+      val report = Report.of(List(file))
+      def at(name: String) =
+        report.render.linesIterator.find(_.contains(s"p.P.$name ")).getOrElse("")
+      (at("a") must startWith("2 ")).and(at("b") must startWith("4 "))
+    }
+
     "keep a transparent inline result refused" in {
       row(compiled, "Transparent.t") must startWith("?")
     }

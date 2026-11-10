@@ -465,7 +465,8 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
   // A member value is a definition of its own, a nullary signature of its type; a block's local
   // value is a step of the definition around it, which that definition's row counts, so only the
   // scopes its right-hand side opens are indexed. A declared type types each name only of plain
-  // names: `val (a, b): (A, B)` types the pattern. A shared right-hand side is walked once.
+  // names: `val (a, b): (A, B)` types the pattern; a name typed in the pattern has its own type. A
+  // shared right-hand side is walked once.
   private def values(
       input: String,
       frame: Frame,
@@ -481,10 +482,14 @@ final private[cardinality] class SourceIndex(inputs: List[Input], work: Option[A
     if (frame.local || names.isEmpty) rhs.foreach(scopes.walk(input, _, frame))
     else {
       val result = declared.filter(_ => pats.forall(_.is[Pat.Var]))
+      // A name typed in its pattern (`val (a: A, b: B)`) has that type.
+      val typed = pats.flatMap(_.collect {
+        case Pat.Typed(Pat.Var(name), tpe) => name.value -> tpe
+      })
       names.zipWithIndex.foreach { (name, at) =>
         val head = s"$keyword ${Spelling.declared(name, beforeColon = true)}"
         val body = rhs.filter(_ => at == 0)
-        val written = Written(name.value, head, Nil, result)
+        val written = Written(name.value, head, Nil, result.orElse(typed.toMap.get(name.value)))
         method(input, d, written, body, frame, declaration = rhs.isEmpty)
       }
     }

@@ -118,8 +118,9 @@ Three conventions sit beside these assumptions (v1.md §2, "Modelling convention
   class the same way from its companion's and body's public factories. A class with a non-public
   constructor that nothing supplied extends is final in the closed world.
 - **Rule T, a member without a result type has the compiler's type.** The build plugins pass the
-  module's compiled classes; `CompiledTypes` writes each untyped template or top-level member's
-  TASTy type into the source (spelled from `_root_`) before anything reads it. No match at the
+  module's compiled classes; `CompiledTypes` writes the TASTy type of each untyped member, local,
+  anonymous-class member and pattern name into the source (spelled from `_root_`) before anything
+  reads it. A name typed in its pattern (`val (a: A, b)`) has that type, compiled or written. No match at the
   same name offset, name and span (stale classes), no spelling, or `transparent inline` (Rule X)
   keeps the syntax reading. Never refuse such a member because its type is inferred when classes
   are supplied.

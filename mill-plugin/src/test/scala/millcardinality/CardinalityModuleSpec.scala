@@ -22,17 +22,12 @@ class CardinalityModuleSpec extends Specification {
   private val fixture = os.Path(sys.props("user.dir")) / "src" / "test" / "resources" / "fixture"
 
   "cardinalityReport" should {
-    "write the module's report: a Boolean and an Option[Boolean] make 2 * 3 = 6" in {
+    // One example compiles the fixture: two testers compiling the same `out/` collide.
+    "write the module's report: Boolean × Option[Boolean] = 6; the compiler's (Boolean, Boolean) = 4" in {
       UnitTester(build, fixture).scoped { eval =>
         val Right(result) = eval(build.foo.cardinalityReport()): @unchecked
-        os.read(result.value.path) must contain("6  P.<init>")
-      }
-    }
-
-    "read a result the source leaves to the compiler: (Boolean, Boolean) makes 4" in {
-      UnitTester(build, fixture).scoped { eval =>
-        val Right(result) = eval(build.foo.cardinalityReport()): @unchecked
-        os.read(result.value.path) must contain("4  Q.pair")
+        val text = os.read(result.value.path)
+        (text must contain("6  P.<init>")).and(text must contain("4  Q.pair"))
       }
     }
   }
