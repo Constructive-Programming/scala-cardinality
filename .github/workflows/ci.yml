@@ -197,6 +197,7 @@ jobs:
             --language=scala \
             --dir=core/src/main/scala \
             --dir=plugin/src/main/scala \
+            --dir=mill-plugin/src/main/scala \
             --format=text > cpd.txt
           status=$?
           cat cpd.txt

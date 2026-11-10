@@ -28,7 +28,7 @@ scalaVersion := "3.9.0"
 
 // The root project only aggregates; it publishes nothing and has no sources.
 lazy val root = (project in file("."))
-  .aggregate(core, plugin)
+  .aggregate(core, plugin, millPlugin)
   .settings(
     name := "scala-cardinality-root",
     publish / skip := true
@@ -92,6 +92,29 @@ lazy val plugin = project
       publishLocal.value
     }
   )
+
+// The Mill plugin: `CardinalityModule`, mixed into a `ScalaModule`. Mill 1.3 compiles builds with
+// Scala 3.9.0, this build's version, so the plugin loads `core` directly. The `_mill1` suffix is
+// Mill's convention for plugins built against its 1.x API.
+lazy val millPlugin = (project in file("mill-plugin"))
+  .dependsOn(core)
+  .settings(
+    name := "mill-cardinality_mill1",
+    description := "Mill plugin reporting the cardinality of a module's definitions and methods",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "mill-libs" % millVersion % Provided,
+      "com.lihaoyi" %% "mill-testkit" % millVersion % Test,
+      "org.specs2" %% "specs2-core" % "4.23.0" % Test
+    ),
+    // Mill's own classpath mixes `_3` and `_2.13` artifacts of scala-xml and collection-compat
+    // (zinc); Mill loads them as it ships them, so sbt's cross-suffix check does not apply here.
+    conflictWarning := ConflictWarning.disable,
+    // The testkit evaluates the plugin's tasks in this JVM; forked, so its daemon threads end with
+    // the run.
+    Test / fork := true
+  )
+
+lazy val millVersion = "1.3.1"
 
 // ----------------------------------------------------------------
 // Compiler options

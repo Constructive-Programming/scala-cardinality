@@ -3,7 +3,7 @@ package cardinality
 import cardinality.analysis.MethodAnalysis
 import cardinality.reporting.Report
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import cardinality.tasty.{StubFile, TastyStubs}
+import cardinality.tasty.StubFile
 import sbt.*
 import sbt.Keys.*
 import sbt.util.CacheImplicits.given
@@ -151,8 +151,7 @@ object CardinalityPlugin extends AutoPlugin {
     cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
     // An sbt 2 cached task: keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub
     // format, its file is restored from the machine-wide cache instead of rendered again.
-    // The JDK's classes render too: another JDK is another rendering.
-    cardinalityStubFormat := s"${StubFile.Format} on Java ${sys.props("java.version")}",
+    cardinalityStubFormat := StubFile.key,
     cardinalityDependencyStubs := {
       val converter = fileConverter.value
       val _ = cardinalityStubFormat.value
@@ -160,15 +159,7 @@ object CardinalityPlugin extends AutoPlugin {
       // Under sbt's output root, which the converter writes as `${OUT}`: the declared file is then
       // a relative reference, restorable on any machine sharing the cache.
       val out = rootOutputDirectory.value.resolve(s"cardinality/${name.value}/stubs.bin")
-      val rendered =
-        if (jars.isEmpty) TastyStubs.Rendered(Nil)
-        else
-          try TastyStubs.render(jars, _ => true)
-          catch {
-            case scala.util.control.NonFatal(error) =>
-              TastyStubs.Rendered(Nil, List(s"dependency classpath not read: $error"))
-          }
-      StubFile.write(rendered, out)
+      StubFile.render(jars, out)
       val file = converter.toVirtualFile(out)
       Def.declareOutput(file)
       file: HashedVirtualFileRef

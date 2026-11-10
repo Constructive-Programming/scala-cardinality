@@ -17,6 +17,24 @@ object StubFile {
   /** The rendering's version: bump it whenever a change to the renderer can change a stub. */
   val Format = "cardinality-stubs/4"
 
+  /** What a cached stub file is keyed by beside the jars: the format, and the JDK whose classes
+    * render too (another JDK is another rendering).
+    */
+  def key: String = s"$Format on Java ${sys.props("java.version")}"
+
+  /** Renders a classpath's declarations into `file`; a classpath not read is the file's error. */
+  def render(classpath: List[Path], file: Path): Unit = {
+    val rendered =
+      if (classpath.isEmpty) TastyStubs.Rendered(Nil)
+      else
+        try TastyStubs.render(classpath, _ => true)
+        catch {
+          case NonFatal(error) =>
+            TastyStubs.Rendered(Nil, List(s"dependency classpath not read: $error"))
+        }
+    write(rendered, file)
+  }
+
   /** Replaces the file: one a build cache restored may be a read-only link into its store. */
   def write(rendered: TastyStubs.Rendered, file: Path): Unit = {
     val _ = Files.createDirectories(file.toAbsolutePath.getParent)

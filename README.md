@@ -263,6 +263,20 @@ addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.1")
 
 The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.1"`.
 
+For Mill (1.3 or later, on JDK 25), load the plugin in `build.mill`'s header and mix
+`CardinalityModule` into a `ScalaModule`:
+
+```scala
+//| mvnDeps: ["dev.constructive::mill-cardinality_mill1:<version>"]
+import millcardinality.CardinalityModule
+
+object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.0" }
+```
+
+`mill foo.cardinalityReport`, `mill foo.cardinalityReportOf <path>...` and
+`mill foo.cardinalityReportSelected <qualified-method-name>...` run the reports below; each
+writes `report.txt` under the command's `out/` directory. The sbt plugin's skill seeding is sbt only.
+
 `sbt cardinalityReport` measures every definition the project's `Compile`
 sources introduce — nested definitions included — and logs a report: what each
 generic method or constructor can be, then the stored-value estimate over the
