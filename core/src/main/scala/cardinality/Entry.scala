@@ -3,7 +3,6 @@ package cardinality
 import scala.jdk.CollectionConverters.*
 
 import cardinality.reporting.Report
-import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.util.List as JList
 
@@ -45,7 +44,7 @@ object Entry {
 
   private def write(out: Path, rendered: String): Unit = {
     Option(out.toAbsolutePath.getParent).foreach(Files.createDirectories(_))
-    val _ = Files.write(out, rendered.getBytes(UTF_8))
+    val _ = Files.writeString(out, rendered)
   }
 
 }

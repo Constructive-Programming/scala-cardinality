@@ -83,7 +83,7 @@ jobs:
       # sbt invocation so the publish never sees coverage-instrumented classes.
       - name: Plugin scripted tests
         id: scripted
-        run: sbt -batch plugin/scripted
+        run: sbt -batch 'plugin/scripted; sbt1Plugin/scripted'
 
       # Rates for the PR report. They stay empty when no scoverage.xml was
       # written: the tests failed, or sbt served the run from its cache.
@@ -198,6 +198,8 @@ jobs:
             --dir=core/src/main/scala \
             --dir=plugin/src/main/scala \
             --dir=mill-plugin/src/main/scala \
+            --dir=sbt1-plugin/src/main/scala \
+            --dir=plugin-keys/src/main/scala \
             --format=text > cpd.txt
           status=$?
           cat cpd.txt

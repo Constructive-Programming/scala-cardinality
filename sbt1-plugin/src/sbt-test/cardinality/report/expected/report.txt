@@ -1,0 +1,13 @@
+Generic method / constructor implementation cardinalities
+  2 signatures: 1 finite · 1 countably infinite · 0 unresolved
+
+6  P.<init>  P(a: Boolean, b: Option[Boolean])  A.scala:3  [constructor]
+ω  head  head[A](xs: NonEmptyList[A]): A  A.scala:5  [method]
+scala-cardinality — 1 source, 1 definition
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
+  ?: no single number here — the reason after the row says what would give one
+  1 with more than one value
+Stored-value estimates (constructor inputs; `?` = unresolved)
+
+6  P  class  A.scala:3
+  dependency stub not read: scala3-library_3-3.3.6.jar: 1 classes not read; the first: caps: assertion failed: trying to add a second entry symbol[scala.caps] for name caps in symbol[package <root>.scala]

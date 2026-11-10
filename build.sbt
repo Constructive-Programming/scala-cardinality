@@ -123,6 +123,14 @@ lazy val sbt1Plugin = (project in file("sbt1-plugin"))
       "-Xsource:3"
     ),
     coverageEnabled := false,
+    // As for `plugin`: scripted boots a real sbt 1 on each test project, with the plugin and the
+    // `core` it resolves published locally first.
+    scriptedLaunchOpts += s"-Dplugin.version=${version.value}",
+    scriptedBufferLog := false,
+    scriptedDependencies := {
+      val _ = (core / publishLocal).value
+      publishLocal.value
+    },
     Compile / sourceGenerators += Def.task {
       val out = (Compile / sourceManaged).value / "cardinality" / "BuildInfo.scala"
       IO.write(

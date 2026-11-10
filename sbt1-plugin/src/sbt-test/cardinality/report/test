@@ -1,0 +1,5 @@
+# The sbt 1 plugin loads the calculator apart from sbt's Scala 2.12 and reports like the sbt 2
+# plugin: the project's definitions, with a dependency's type (cats' NonEmptyList) read from its jar.
+> cardinalityReport
+$ must-mirror report.txt expected/report.txt
+> cardinalityReportSelected head
