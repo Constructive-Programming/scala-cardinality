@@ -72,6 +72,15 @@ class CompiledTypesSpec extends Specification {
         .and(row(compiled, "Lambdas.both") must startWith("ω "))
     }
 
+    "type a lambda's parameters: parenthesized in place, a bare one wrapped" in {
+      val parsed = Spell.source(Files.readString(source)).get
+      val input = cardinality.analysis.MethodAnalysis.Input(source.toString, parsed)
+      val text = CompiledTypes.ascribe(List(input), classes)._1.map(_.tree.pos.input.text).mkString
+      (text must contain("(x: _root_.scala.Boolean) => !x")).and(
+        text must contain("(a: _root_.scala.Boolean, b: _root_.scala.Boolean) => a && b")
+      )
+    }
+
     "read a name typed in its pattern from the source too" in {
       val dir = Files.createTempDirectory("typed-pattern")
       val file = dir.resolve("P.scala")

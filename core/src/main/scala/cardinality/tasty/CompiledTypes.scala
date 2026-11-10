@@ -1,6 +1,6 @@
 package cardinality.tasty
 
-import scala.meta.{Defn, Mod, Pat, Tree, XtensionCollectionLikeUI}
+import scala.meta.{Defn, Mod, Pat, Term, Tree, XtensionCollectionLikeUI}
 import scala.util.control.NonFatal
 
 import cardinality.analysis.MethodAnalysis
@@ -64,7 +64,7 @@ object CompiledTypes {
   }
 
   // Every definition a class's tree holds, bodies included (locals, anonymous classes' members,
-  // pattern names): (source, (name offset, member)).
+  // pattern names, lambda parameters): (source, (name offset, member)).
   private def members(c: ClassDef)(using Context): List[(String, (Int, Compiled))] = {
     val found = List.newBuilder[(String, (Int, Compiled))]
     new tastyquery.Traversers.TreeTraverser {
@@ -164,7 +164,7 @@ object CompiledTypes {
   }
 
   // Every definition written without a type: members and locals (not `transparent inline`, whose
-  // callers see the expansion), and the names of a pattern definition.
+  // callers see the expansion), the names of a pattern definition, and named lambda parameters.
   private def untyped(tree: Tree): List[Untyped] = {
     val here = tree match {
       case d: Defn.Def if d.decltpe.isEmpty && !transparent(d.mods) =>
@@ -172,7 +172,19 @@ object CompiledTypes {
         List(Untyped(d.name.value, d.name.pos.start, d.pos.end, Site.After(after)))
       case v: Defn.Val if v.decltpe.isEmpty => values(v, v.pats)
       case v: Defn.Var if v.decltpe.isEmpty => values(v, v.pats)
-      case _                                => Nil
+      case f: Term.FunctionTerm             =>
+        val parenthesized = f.paramClause.pos.text.startsWith("(")
+        f.paramClause.values.collect {
+          case Term.Param(_, name: Term.Name, None, None) =>
+            val (start, end) = (name.pos.start, name.pos.end)
+            Untyped(
+              name.value,
+              start,
+              end,
+              if (parenthesized) Site.After(end) else Site.Around(start, end)
+            )
+        }
+      case _ => Nil
     }
     here ++ tree.children.flatMap(untyped)
   }

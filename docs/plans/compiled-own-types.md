@@ -68,8 +68,9 @@ those modes also get compiled classes.
 - `SourceIndex` reads a name typed in its pattern as that name's type, compiled or hand-written.
   Before, every name of a pattern definition refused (`a name of a pattern definition`).
 - A type that spells a compiler-made name (`$anon`, `x$1`) is not written.
-- Untyped lambda parameters were tried and dropped: typing them moved no row of the
-  self-measurement.
+- Named lambda parameters are typed too: in place when parenthesized, wrapped (`(x: T) =>`) when
+  bare. No row of the self-measurement moves today; the types are kept for the body readings that
+  will use them (owner decision, 2026-11-10).
 - Regressions (`CompiledTypesSpec`): local `pick` `?` → 4; an anonymous member typed; pattern
   names `left` 2 and `right` 4, refused from syntax; a hand-written `val (a: Boolean, b: (Boolean,
   Boolean))` reads 2 and 4 without compiled classes.
