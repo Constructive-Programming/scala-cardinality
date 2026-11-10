@@ -2,7 +2,7 @@
 # plugin (sbt-cardinality) under dev.constructive at the tag's version.
 #
 # Secrets (the same ones cats-eo releases with):
-#   SONATYPE_USERNAME / SONATYPE_PASSWORD — a Central Portal user token for dev.constructive
+#   SONATYPE_USERNAME (a repository variable) / SONATYPE_PASSWORD — a Central Portal user token
 #   PGP_SECRET — the signing key, base64-encoded; PGP_PASSPHRASE — its passphrase
 name: Release
 
@@ -45,7 +45,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
-          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_USERNAME: ${{ vars.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
         run: |
           export RELEASE_VERSION="${RELEASE_VERSION#v}"
