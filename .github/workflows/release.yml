@@ -49,4 +49,4 @@ jobs:
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
         run: |
           export RELEASE_VERSION="${RELEASE_VERSION#v}"
-          sbt -batch core/test publishSigned sonaRelease
+          sbt -batch 'core/test; publishSigned; sonaRelease'
