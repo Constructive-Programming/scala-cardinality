@@ -166,6 +166,19 @@ Entry shape:
   moves. `DeepStackSpec` asks from a 256 KiB thread.
 - Evidence: 2026-11-10, local `sbt` wrapper with a hard-coded `-Xmx4g` and no `.jvmopts`.
 
+### M9 Stub members read open through same-named JDK templates — confirmed
+- Signal (M): thousands of `member may be overridden through a parent outside the sources:
+  scala.meta.Tree.begOffset` (and `Type.`, `Stat.` …) on stub-backed receivers.
+- Cause: the closed world asked about a stub template by simple name, and keyed a stub parent the
+  stubs do not declare (stdlib-held `java.util.Map`, `java.lang.CharSequence`) by simple name, so
+  scalameta's `Member.Function` / `Type.Map` pulled in every JDK `Function` / `Map` implementor and
+  their undeclared JDK parents.
+- Fix: a stub parent is its qualified name, declared or not; a stub owner is asked about by its
+  qualified name (`ClosedWorld.owner`); library markers are known by qualified name too.
+- Expect: the reason leaves; rows move to their next reason (`capability record with members
+  hidden at the use site`, 926 → 2216). No count moved.
+- Evidence: 2026-11-10, reason 2277 → 0 lines.
+
 ## Source shape (stage 4)
 
 ### S1 Hand-rolled short-circuiting Option fold — confirmed

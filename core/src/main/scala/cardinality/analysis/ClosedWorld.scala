@@ -39,13 +39,13 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
       val full: Option[String]
   )
 
-  private val nodes: List[Node] = inputs.flatMap { input =>
+  private val located: List[(Tree, Node)] = inputs.flatMap { input =>
     val compiled = input.path.startsWith(TastyStubs.Prefix)
     input.tree.collect {
-      case c: Defn.EnumCase => node(Some(c.name.value), c.inits, Nil, Nil, compiled, c)
+      case c: Defn.EnumCase => c -> node(Some(c.name.value), c.inits, Nil, Nil, compiled, c)
       case tree if TypeApplications.template(tree).nonEmpty =>
         val template = TypeApplications.template(tree).get
-        node(
+        tree -> node(
           MemberSyntax.templateName(tree),
           template.inits,
           template.body.stats,
@@ -55,6 +55,8 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
         )
     }
   }
+
+  private val nodes: List[Node] = located.map(_._2)
 
   private def node(
       name: Option[String],
@@ -84,15 +86,31 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
     case _            => None
   }
 
+  // The node of each template tree, by identity: a compiled stub's is asked about by its qualified
+  // name (`owner`).
+  private val byTree: java.util.IdentityHashMap[Tree, Node] = {
+    val map = new java.util.IdentityHashMap[Tree, Node]()
+    located.foreach((t, n) => map.put(t, n))
+    map
+  }
+
+  /** The name a template is asked about by: a compiled stub's qualified name, which only templates
+    * whose parent the compiler resolved to it, or that spell it by its simple name, extend; any
+    * other template's simple name, which every template of the name shares.
+    */
+  def owner(template: Tree, name: String): String =
+    Option(byTree.get(template)).flatMap(_.full).getOrElse(name)
+
   private val named: Map[String, List[Node]] =
     nodes.flatMap(n => n.name.map(_ -> n)).groupMap(_._1)(_._2)
 
   private val qualifiedNodes: Map[String, List[Node]] =
     nodes.flatMap(n => n.full.map(_ -> n)).groupMap(_._1)(_._2)
 
-  // What a parent reference denotes: the stub templates of its qualified name, when some stub
-  // declares it; otherwise any template of its simple name.
-  private def key(ref: Ref): String = ref.exact.filter(qualifiedNodes.contains).getOrElse(ref.name)
+  // What a parent reference denotes: a compiled stub's, the template of the qualified name the
+  // compiler resolved (no other template, whether or not some stub declares it); a source's, any
+  // template of its simple name.
+  private def key(ref: Ref): String = ref.exact.getOrElse(ref.name)
 
   private def denoted(key: String): Option[List[Node]] =
     qualifiedNodes.get(key).orElse(named.get(key))
@@ -123,7 +141,9 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
       val queue = mutable.Queue(name)
       def reach(n: Node): Unit =
         if (below.add(n)) (n.name ++ n.full).filter(found.add).foreach(queue.enqueue)
-      named.getOrElse(name, Nil).flatMap(_.full).filter(found.add).foreach(queue.enqueue)
+      // A qualified name is that stub alone, but a template spelling its simple name may extend it.
+      if (qualifiedNodes.contains(name)) children.getOrElse(simple(name), Nil).foreach(reach)
+      else named.getOrElse(name, Nil).flatMap(_.full).filter(found.add).foreach(queue.enqueue)
       while (queue.nonEmpty) {
         val next = queue.dequeue()
         aliases.getOrElse(next, Nil).filter(found.add).foreach(queue.enqueue)
@@ -131,6 +151,8 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
       }
       found.toSet -> below.toList
     }
+
+  private def simple(name: String): String = name.split('.').last
 
   /** Whether some supplied template extends a template of this name. */
   def extended(name: String): Boolean = below(name)._2.nonEmpty
@@ -198,6 +220,7 @@ final private[cardinality] class ClosedWorld(inputs: List[MethodAnalysis.Input])
         case None        =>
           library
             .get(parent)
+            .orElse(libraryQualified.get(parent))
             .fold(Overriding.Unknown)(members =>
               if (members(member)) Overriding.Supplied else Overriding.No
             )
@@ -340,5 +363,18 @@ private[cardinality] object ClosedWorld {
       ))
     )
   }
+
+  // The same parents as a compiled stub spells them, by their qualified names.
+  private val libraryQualified: Map[String, Set[String]] = List(
+    "scala.Any" -> "Any",
+    "scala.AnyRef" -> "AnyRef",
+    "java.lang.Object" -> "Object",
+    "scala.Matchable" -> "Matchable",
+    "java.io.Serializable" -> "Serializable",
+    "scala.Serializable" -> "Serializable",
+    "scala.AnyVal" -> "AnyVal",
+    "scala.Equals" -> "Equals",
+    "scala.Product" -> "Product"
+  ).map((full, name) => full -> library(name)).toMap
 
 }

@@ -89,7 +89,10 @@ subclass, override or implementation exists outside them.
   different packages share their subclasses, so a member one of them overrides stays open: the
   open-world reading, which can overcount. Resolve parents before relying on such a row. A
   compiled dependency stub is the exception: it spells the parent the compiler resolved, so a
-  stub's parent that a stub declares under that qualified name is that template alone.
+  stub's parent is the template of that qualified name alone, whether or not a stub declares it
+  (an undeclared one, like `java.util.Map`, is a parent outside the sources; `scala.Product` and
+  the markers keep their known members). A stub template is asked about by its qualified name: only
+  stubs whose parent is it, and sources spelling its simple name, may extend it.
 
 The analyzer does not certify that a body obeys the assumptions. A `0` means "no pure, total,
 parametric implementation", not "no Scala body compiles".

@@ -2027,8 +2027,13 @@ class extends has no instance of another class, so its value is its constructor 
 **Boundary.** Templates are matched by the simple name their declaration or parent clause spells,
 aliases followed. A compiled dependency stub names the parent the compiler resolved: its full
 path, or the simple name of a top-level template of its own package (`StubDeclarations`), so a
-stub's parent that some stub declares under that qualified name is that template alone, never a
-same-named one of another package. A parent outside the sources whose members are not known (all but the markers
+stub's parent is the template of that qualified name alone, never a same-named one of another
+package, whether or not a stub declares it (an undeclared one, a stdlib-held `java.util.Map`, is a
+parent outside the sources; the markers, `Product` and `Equals` keep their members by their
+qualified names). A stub template is asked about by its qualified name: only stubs whose parent is
+it and sources spelling its simple name may extend it (2026-11-10: scalameta's `Tree.begOffset` had
+read open because JDK `Map` implementors, reached through `Member.Function` / `Type.Map`, shared
+the simple names). A parent outside the sources whose members are not known (all but the markers
 and `Product`, `Equals`) may override anything: a member only such a parent may override is refused
 (`member may be overridden through a parent outside the sources: C.m`). Same-named templates of
 different packages share their subclasses, so a member one of them overrides stays open — the open

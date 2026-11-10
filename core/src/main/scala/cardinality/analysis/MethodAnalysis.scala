@@ -440,7 +440,9 @@ object MethodAnalysis {
     def overriding(template: Frame, name: String): ClosedWorld.Overriding =
       template.name
         .filter(_ => closed)
-        .fold(ClosedWorld.Overriding.Supplied)(world.overriding(_, name))
+        .fold(ClosedWorld.Overriding.Supplied)(owner =>
+          world.overriding(template.tree.fold(owner)(world.owner(_, owner)), name)
+        )
 
     def baseClasses(frame: Frame): (Set[String], Boolean) = inheritedMembers.baseClasses(frame)
 
