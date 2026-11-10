@@ -28,6 +28,13 @@ class CardinalityModuleSpec extends Specification {
         os.read(result.value.path) must contain("6  P.<init>")
       }
     }
+
+    "read a result the source leaves to the compiler: (Boolean, Boolean) makes 4" in {
+      UnitTester(build, fixture).scoped { eval =>
+        val Right(result) = eval(build.foo.cardinalityReport()): @unchecked
+        os.read(result.value.path) must contain("4  Q.pair")
+      }
+    }
   }
 
   "cardinalitySeedSkill" should {

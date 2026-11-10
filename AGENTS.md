@@ -94,7 +94,7 @@ subclass, override or implementation exists outside them.
 The analyzer does not certify that a body obeys the assumptions. A `0` means "no pure, total,
 parametric implementation", not "no Scala body compiles".
 
-Two conventions sit beside these assumptions (v1.md §2, "Modelling conventions"):
+Three conventions sit beside these assumptions (v1.md §2, "Modelling conventions"):
 
 - **Rule B, public constructors build the receiver.** A receiver's fields (or a field-bearing
   argument's) hold what its public constructors build: the largest space any of them builds, not
@@ -117,6 +117,12 @@ Two conventions sit beside these assumptions (v1.md §2, "Modelling conventions"
   public constructor`. The stored-value side (definitions row) counts a restricted-constructor
   class the same way from its companion's and body's public factories. A class with a non-public
   constructor that nothing supplied extends is final in the closed world.
+- **Rule T, a member without a result type has the compiler's type.** The build plugins pass the
+  module's compiled classes; `CompiledTypes` writes each untyped template or top-level member's
+  TASTy type into the source (spelled from `_root_`) before anything reads it. No match at the
+  same name offset, name and span (stale classes), no spelling, or `transparent inline` (Rule X)
+  keeps the syntax reading. Never refuse such a member because its type is inferred when classes
+  are supplied.
 - **Rule F, an opaque type outside its scope is one value.** Where its representation is hidden,
   an opaque type counts 1 on both sides (it reads as `Unit`; as a type argument it keeps its own
   nominal identity). Inside its scope the representation is read as before. Never refuse a count

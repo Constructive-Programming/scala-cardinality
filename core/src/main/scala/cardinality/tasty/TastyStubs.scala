@@ -35,7 +35,7 @@ object TastyStubs {
     * analyzed source names (`referenced`): rendering every module costs about 2.4 times the stubs
     * (4069 against 1668, 7 s) and the memory of all of them in every analysis.
     */
-  private def jdk: List[Path] = {
+  private[tasty] def jdk: List[Path] = {
     val modules = FileSystems.getFileSystem(URI.create("jrt:/")).getPath("modules")
     val all = Files.list(modules).toArray.toList.collect { case p: Path => p }
     all.sortBy(p => (p.getFileName.toString != Base, p.getFileName.toString))
@@ -171,7 +171,7 @@ object TastyStubs {
     * JVM never loads from it. tasty-query refuses a class declared twice, so either one would
     * otherwise lose a whole jar.
     */
-  private def firstLoaded(entries: List[ClasspathEntry]): List[ClasspathEntry] = {
+  private[tasty] def firstLoaded(entries: List[ClasspathEntry]): List[ClasspathEntry] = {
     val seen = scala.collection.mutable.Set.empty[(String, String)]
     entries.map { entry =>
       val packages = entry.listAllPackages().flatMap { p =>
@@ -197,7 +197,7 @@ object TastyStubs {
   }
 
   /** An entry's top-level symbols, and why each class that does not load fails. */
-  private def symbolsOf(entry: ClasspathEntry, keep: String => Boolean)(using
+  private[tasty] def symbolsOf(entry: ClasspathEntry, keep: String => Boolean)(using
       Context
   ): (List[Symbol], List[String]) = {
     val found = entry.listAllPackages().filter(p => keep(p.dotSeparatedName)).flatMap { p =>
@@ -264,7 +264,7 @@ object TastyStubs {
   /** tasty-query reads a directory or a `.jar`; sbt 2 hands out content-addressed jars with no
     * suffix, which are read through a `.jar`-named link.
     */
-  private def readable(entry: Path): Path =
+  private[tasty] def readable(entry: Path): Path =
     if (Files.isDirectory(entry) || entry.getFileName.toString.endsWith(".jar")) entry
     else {
       val dir = Files.createTempDirectory("tasty-stubs")

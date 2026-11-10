@@ -3,7 +3,7 @@ package cardinality
 import cardinality.analysis.MethodAnalysis
 import cardinality.reporting.{Report, Skill}
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import cardinality.tasty.StubFile
+import cardinality.tasty.{CompiledTypes, StubFile}
 import sbt.*
 import sbt.Keys.*
 import sbt.util.CacheImplicits.given
@@ -102,7 +102,10 @@ object CardinalityPlugin extends AutoPlugin {
       val stubs = fileConverter.value.toPath(cardinalityDependencyStubs.value)
       report(
         log,
-        Report.of(scalaSources.map(_.toPath), stubs = Some(stubs)),
+        Report.of(
+          scalaSources.map(_.toPath),
+          Report.Environment(stubs = Some(stubs), classes = compiled.value)
+        ),
         cardinalityReportFile.value
       )
     },
@@ -130,7 +133,10 @@ object CardinalityPlugin extends AutoPlugin {
             cardinalitySnapshotLimits.value,
             cardinalityQueryLimits.value,
             cardinalityQueryBudget.value,
-            stubs = Some(fileConverter.value.toPath(cardinalityDependencyStubs.value))
+            Report.Environment(
+              stubs = Some(fileConverter.value.toPath(cardinalityDependencyStubs.value)),
+              classes = compiled.value
+            )
           )
         )
         val output = cardinalityReportFile.value
@@ -142,6 +148,22 @@ object CardinalityPlugin extends AutoPlugin {
       }
     },
   )
+
+  // The project's compiled classes and the jars their types refer to: a member written without a
+  // result type reads the compiler's (`CompiledTypes`). `exportedProducts` compiles first, so the
+  // classes match the sources the report reads. Sources that do not compile are still reported,
+  // from their syntax alone.
+  private val compiled = Def.task {
+    val converter = fileConverter.value
+    val classpath = cardinalityDependencyClasspath.value.map(converter.toPath)
+    (Compile / exportedProducts).result.value.toEither match {
+      case Right(products) =>
+        Some(CompiledTypes.Classes(products.map(entry => converter.toPath(entry.data)), classpath))
+      case Left(_) =>
+        streams.value.log.warn("sources do not compile: reporting from their syntax alone")
+        None
+    }
+  }
 
   // The dependency declarations the reports read: which jars, and their stubs rendered once.
   private def dependencySettings: Seq[Setting[?]] = Seq(

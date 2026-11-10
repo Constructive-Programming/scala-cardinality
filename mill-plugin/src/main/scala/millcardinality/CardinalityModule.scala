@@ -3,7 +3,7 @@ package millcardinality
 import cardinality.analysis.MethodAnalysis
 import cardinality.reporting.{Report, Skill}
 import cardinality.request.*
-import cardinality.tasty.StubFile
+import cardinality.tasty.{CompiledTypes, StubFile}
 import mainargs.Leftover
 import mill.*
 import mill.api.{BuildCtx, Result}
@@ -34,16 +34,35 @@ trait CardinalityModule extends ScalaModule {
   /** The compiled dependencies' declarations rendered as stubs, cached by their contents. */
   def cardinalityDependencyStubs: T[PathRef] = Task {
     val _ = cardinalityStubFormat()
-    val jars = compileClasspath().map(_.path).filter(os.exists).map(_.toNIO).toList.distinct
+    val jars = dependencyJars()
     val out = Task.dest / "stubs.bin"
     StubFile.render(jars, out.toNIO)
     PathRef(out)
   }
 
+  // The compiled dependencies that exist on disk.
+  private def dependencyJars = Task.Anon {
+    compileClasspath().map(_.path).filter(os.exists).map(_.toNIO).toList.distinct
+  }
+
+  // This module's compiled classes and the classpath their types refer to: a member written without
+  // a result type reads the compiler's (`CompiledTypes`).
+  private def compiled = Task.Anon {
+    CompiledTypes.Classes(
+      Seq(compile().classes.path.toNIO),
+      dependencyJars()
+    )
+  }
+
   /** Report the cardinality of this module's sources. */
   def cardinalityReport(): Command[PathRef] = Task.Command {
     val stubs = cardinalityDependencyStubs().path.toNIO
-    report(Report.of(allSourceFiles().map(_.path.toNIO), stubs = Some(stubs)))
+    report(
+      Report.of(
+        allSourceFiles().map(_.path.toNIO),
+        Report.Environment(stubs = Some(stubs), classes = Some(compiled()))
+      )
+    )
   }
 
   /** Report the cardinality of the Scala sources at the given paths: files, directories, or a
@@ -64,7 +83,10 @@ trait CardinalityModule extends ScalaModule {
         cardinalitySnapshotLimits,
         cardinalityQueryLimits,
         cardinalityQueryBudget,
-        stubs = Some(cardinalityDependencyStubs().path.toNIO)
+        Report.Environment(
+          stubs = Some(cardinalityDependencyStubs().path.toNIO),
+          classes = Some(compiled())
+        )
       )
     )
     written(found.render, found.report.errors.size, "selected report error(s)")

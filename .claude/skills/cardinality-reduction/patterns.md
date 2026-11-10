@@ -84,15 +84,15 @@ Entry shape:
   `Kinds.of(_) == Kind.Proper` at three sites. Pass 4: `Count.isZero` replaces the
   `Count.Finite(n) if n == 0` guards in `ViewSandwich` and `SequenceElimination`.
 
-### R8 Unannotated member type — proposed
-- Signal (R): `?` signature row `val x: <inferred>` with `inferred result type not resolved:
-  application of a selection` (grep the report for `<inferred>` on the build's own members).
-- Fix: write the declared type (`markers: List[String]`, `Array` → `List` where nothing needs
-  the array).
+### R8 Unannotated member type — confirmed
+- Signal (R): `?` signature row `val x: <inferred>` with `inferred result type not resolved: …`.
+- Fix: the build plugins now read the compiler's type from the module's TASTy (rule T,
+  `docs/plans/compiled-own-types.md`); a template or top-level member needs no annotation.
+  Annotate only for `cardinalityReportOf` runs, or a local (phase 2 pending).
 - Expect: the row leaves `?` for its real size; nothing else moves.
-- Boundary: members whose type is the point of inference (givens, `transparent` results).
-- Evidence: 553de73 follow-up, `Skill.markers` `?` → `ω` (`62ε₀ + 674ω` → `62ε₀ + 675ω`,
-  `?` rows 3484 → 3483).
+- Boundary: `transparent inline` results (rule X) stay `?`.
+- Evidence: 553de73 follow-up, `Skill.markers` `?` → `ω` by hand. Rule T: core `<inferred>` rows
+  426 → 55, 30 rows `?` → a number (`62ε₀ + 675ω` → `62ε₀ + 703ω`, `?` 3483 → 3471).
 
 ### R4 Independent numeric knobs — rejected
 - Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,

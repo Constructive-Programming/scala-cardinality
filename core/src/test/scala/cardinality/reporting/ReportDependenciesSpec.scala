@@ -32,7 +32,7 @@ class ReportDependenciesSpec extends Specification {
   }
 
   private lazy val sourcesOnly = Report.of(List(source))
-  private lazy val withDependencies = Report.of(List(source), classpath)
+  private lazy val withDependencies = Report.of(List(source), Report.Environment(classpath))
 
   private def count(report: Report, name: String): Count =
     report.methods.find(_.name == name).get.count
@@ -58,7 +58,11 @@ class ReportDependenciesSpec extends Specification {
     val rendered = TastyStubs.render(classpath, _ => true)
     StubFile.write(rendered, file)
     (StubFile.read(file) must_== rendered)
-      .and(Report.of(List(source), stubs = Some(file)).render must_== withDependencies.render)
+      .and(
+        Report
+          .of(List(source), Report.Environment(stubs = Some(file)))
+          .render must_== withDependencies.render
+      )
   }
 
   "a stub file of another format holds nothing, and says why" in {
@@ -69,17 +73,17 @@ class ReportDependenciesSpec extends Specification {
   }
 
   "an empty classpath is the sources-only report" in {
-    Report.of(List(source), Nil).render must_== sourcesOnly.render
+    Report.of(List(source), Report.Environment(Nil)).render must_== sourcesOnly.render
   }
 
   "the Scala library alone renders only the JDK, which changes no row here" in {
     val library = classpath.filterNot(_ == jarOf(classOf[cats.kernel.Comparison]))
-    Report.of(List(source), library).render must_== sourcesOnly.render
+    Report.of(List(source), Report.Environment(library)).render must_== sourcesOnly.render
   }
 
   "an unreadable classpath is a warning, not a failure" in {
     val corrupt = Files.writeString(source.resolveSibling("corrupt.jar"), "not a jar")
-    val report = Report.of(List(source), corrupt :: classpath)
+    val report = Report.of(List(source), Report.Environment(corrupt :: classpath))
     (report.errors must beEmpty).and(report.render must contain("dependency stub not read"))
   }
 
@@ -95,14 +99,15 @@ class ReportDependenciesSpec extends Specification {
         |""".stripMargin
     )
     val java = classpath :+ jarOf(classOf[sbt.testing.Status])
-    (count(Report.of(List(main), java), "t.step") must_== Count.Finite(823543))
-      .and(count(Report.of(List(main), classpath), "t.step") must beLike {
+    (count(Report.of(List(main), Report.Environment(java)), "t.step") must_== Count.Finite(823543))
+      .and(count(Report.of(List(main), Report.Environment(classpath)), "t.step") must beLike {
         case u: Count.Unresolved => u.reasons.mkString must contain("not supplied")
       })
   }
 
   "a selected query reads the same declarations" in {
-    val found = Report.query(Report.Query(List(source), classpath = classpath))
+    val found =
+      Report.query(Report.Query(List(source), environment = Report.Environment(classpath)))
     found.report.methods.find(_.name == "t.pick").map(_.count) must beSome(Count.Finite(27))
   }
 

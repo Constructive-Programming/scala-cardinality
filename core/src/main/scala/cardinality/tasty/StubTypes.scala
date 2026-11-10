@@ -78,17 +78,28 @@ private[tasty] object Spell {
 }
 
 /** Spells compiled types as Scala 3 source, fully qualified. `enclosing` lists the classes being
-  * rendered, innermost first: a member of the innermost one is spelled by its simple name.
+  * rendered, innermost first: a member of the innermost one is spelled by its simple name. `rooted`
+  * spells every package path from `_root_`, for a type written into an analyzed source, where a
+  * package of the source's own may shadow a relative one.
   */
-final private[tasty] class StubTypes(enclosing: List[ClassSymbol])(using Context) {
+final private[tasty] class StubTypes(enclosing: List[ClassSymbol], rooted: Boolean = false)(using
+    Context
+) {
   import Spell.*
+
+  private def owner(s: Symbol): String = {
+    val spelled = path(s)
+    if (rooted && spelled != "_root_") "_root_." + spelled else spelled
+  }
+
+  private def scalaType(name: String): String = (if (rooted) "_root_.scala." else "scala.") + name
 
   private def prefix(p: Prefix): String = p match {
     case NoPrefix      => ""
-    case p: PackageRef => path(p.symbol) + "."
+    case p: PackageRef => owner(p.symbol) + "."
     case t: ThisType   =>
       val c = thisClass(t)
-      if (c.isModuleClass) path(c) + "."
+      if (c.isModuleClass) owner(c) + "."
       else if (!enclosing.headOption.contains(c) && enclosing.contains(c))
         tpe(c.name.toString) + ".this."
       else ""
@@ -111,7 +122,7 @@ final private[tasty] class StubTypes(enclosing: List[ClassSymbol])(using Context
   private val javaSignature = enclosing.headOption.exists(_.sourceLanguage == SourceLanguage.Java)
 
   def apply(t: TypeMappable): String = t match {
-    case t: TypeRef if javaObject(t) => "scala.Any"
+    case t: TypeRef if javaObject(t) => scalaType("Any")
     case t: TypeRef                  =>
       t.optSymbol match {
         case Some(c: ClassSymbol) if javaSignature && c.typeParams.nonEmpty =>
@@ -122,17 +133,17 @@ final private[tasty] class StubTypes(enclosing: List[ClassSymbol])(using Context
   }
 
   private def constructor(t: TypeRef): String = t.optSymbol match {
-    case Some(c: ClassSymbol) if c.isModuleClass && !packageObject(c) => path(c) + ".type"
+    case Some(c: ClassSymbol) if c.isModuleClass && !packageObject(c) => owner(c) + ".type"
     case _ => prefix(t.prefix) + tpe(t.name.toString)
   }
 
   private def spelled(t: TypeMappable): String = t match {
-    case _: NothingType              => "scala.Nothing"
-    case _: AnyKindType              => "scala.AnyKind"
+    case _: NothingType              => scalaType("Nothing")
+    case _: AnyKindType              => scalaType("AnyKind")
     case t: (TermRef | TermParamRef) => prefix(t).stripSuffix(".") + ".type"
     case t: ThisType                 =>
       val c = thisClass(t)
-      if (c.isModuleClass) path(c) + ".type"
+      if (c.isModuleClass) owner(c) + ".type"
       else if (enclosing.headOption.contains(c)) "this.type"
       else tpe(c.name.toString) + ".this.type"
     case t: ConstantType  => literal(t.value.value)
@@ -246,8 +257,8 @@ final private[tasty] class StubTypes(enclosing: List[ClassSymbol])(using Context
     case l: Long   => s"${l}L"
     case f: Float  => s"${f}f"
     case d: Double => s"${d}d"
-    case ()        => "scala.Unit"
-    case null      => "scala.Null"
+    case ()        => scalaType("Unit")
+    case null      => scalaType("Null")
     case other     => other.toString
   }
 

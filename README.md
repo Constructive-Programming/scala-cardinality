@@ -312,6 +312,12 @@ is `ω + ω`, and a module with two `String => String` methods and one `String` 
 `2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
 reached ω or beyond and which type names stopped it from being tighter.
 
+`cardinalityReport` and `cardinalityReportSelected` compile the project first and read its own
+TASTy: a member written without a result type takes the type the compiler gave it, instead of a
+`?` the syntax alone would leave (rule T, [`docs/plans/compiled-own-types.md`](docs/plans/compiled-own-types.md)).
+Sources that do not compile are reported from their syntax alone under sbt; under Mill the module
+must compile. `cardinalityReportOf` reads syntax alone.
+
 `cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
 `Compile / dependencyClasspath` from their compiled TASTy, Scala 2 pickles and Java `.class`
 files: each Scala 3, Scala 2 and Java class of a dependency joins the environment as a signature stub

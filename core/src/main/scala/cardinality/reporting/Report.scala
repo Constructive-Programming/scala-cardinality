@@ -7,7 +7,7 @@ import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.{Measuring, MethodAnalysis}
 import cardinality.capacity.*
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import cardinality.tasty.{StubFile, TastyStubs}
+import cardinality.tasty.{CompiledTypes, StubFile, TastyStubs}
 import dev.constructive.eo.generics.{lens, prism}
 import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
@@ -81,8 +81,19 @@ object Report {
       captureLimits: SourceSnapshot.Limits = SourceSnapshot.Limits(),
       limits: MethodAnalysis.Limits = MethodAnalysis.Limits(),
       budget: AnalysisQuery.Budget = AnalysisQuery.Budget(),
+      environment: Environment = Environment()
+  )
+
+  /** What a report reads beside its sources. `classpath` lists compiled dependencies (jars or class
+    * directories): their classes join the environment as signature stubs (`TastyStubs`), never
+    * measured and never reported. `stubs` names a file of stubs already rendered (`StubFile`), read
+    * instead of the classpath. `classes` is the sources' own compiled output: a member written
+    * without a result type takes the type the compiler gave it (`CompiledTypes`).
+    */
+  final case class Environment(
       classpath: Seq[Path] = Nil,
-      stubs: Option[Path] = None
+      stubs: Option[Path] = None,
+      classes: Option[CompiledTypes.Classes] = None
   )
 
   final case class QueryResult(
@@ -152,10 +163,12 @@ object Report {
         else {
           val selected = targetRoots.flatMap(snapshot.roots)
           val stubs =
-            dependencies(request.classpath, request.stubs, snapshot.sources.map(_.text))
+            dependencies(request.environment, snapshot.sources.map(_.text))
+          val (inputs, unread) =
+            ascribed(parsed.collect { case Right(input) => input }, request.environment.classes)
           val found = AnalysisQuery.run(
             AnalysisQuery.Request(
-              parsed.collect { case Right(input) => input } ++ stubs.inputs,
+              inputs ++ stubs.inputs,
               selected,
               request.targetNames,
               request.limits,
@@ -170,7 +183,7 @@ object Report {
             Report(
               sources,
               found.errors.map(message => Error("", message)),
-              warnings = stubs.errors
+              warnings = stubs.errors ++ unread
             ),
             Some(snapshot.digest),
             Some(found),
@@ -224,26 +237,24 @@ object Report {
   }
 
   /** Reads every Scala source under `paths` — a file, a directory walked recursively, or a jar such
-    * as the `-sources.jar` a library publishes — and measures the definitions it finds.
-    *
-    * `classpath` lists compiled dependencies (jars or class directories): their Scala 3 classes
-    * join the environment as signature stubs (`TastyStubs`), never measured and never reported.
-    * `stubs` names a file of stubs already rendered (`StubFile`), read instead of the classpath.
+    * as the `-sources.jar` a library publishes — and measures the definitions it finds, in
+    * `environment`.
     */
-  def of(paths: Seq[Path], classpath: Seq[Path] = Nil, stubs: Option[Path] = None): Report = {
+  def of(paths: Seq[Path], environment: Environment = Environment()): Report = {
     val found = paths.toList.distinct.map(path => path -> read(path))
     val parsed: List[Either[Error, MethodAnalysis.Input]] = found.flatMap {
       case (_, Left(error))    => List(Left(error))
       case (_, Right(sources)) => sources.map(parse)
     }
-    val inputs = parsed.collect { case Right(input) => input }
+    val (inputs, unread) =
+      ascribed(parsed.collect { case Right(input) => input }, environment.classes)
     val texts = found.flatMap(_._2.toOption).flatten.map(_._2)
-    val environment = dependencies(classpath, stubs, texts)
+    val stubs = dependencies(environment, texts)
     // One library for the whole run: every source is read against the others, so a reference can
     // leave its file.
-    val library = Library.of((inputs ++ environment.inputs).map(_.tree))
+    val library = Library.of((inputs ++ stubs.inputs).map(_.tree))
     val methods =
-      Measuring.rows(inputs, environment.inputs, library = Some(library)).groupBy(_.path)
+      Measuring.rows(inputs, stubs.inputs, library = Some(library)).groupBy(_.path)
     Report(
       inputs.map(input =>
         Source(
@@ -254,21 +265,23 @@ object Report {
       ),
       parsed.collect { case Left(error) => error },
       Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1)))),
-      environment.errors
+      stubs.errors ++ unread
     )
   }
+
+  private def ascribed(
+      inputs: List[MethodAnalysis.Input],
+      classes: Option[CompiledTypes.Classes]
+  ): (List[MethodAnalysis.Input], List[String]) =
+    classes.fold((inputs, Nil))(CompiledTypes.ascribe(inputs, _))
 
   // The dependency stubs `classpath` renders. Every jar and the JDK are rendered, except what the
   // stdlib model reads, so the Scala library alone yields only the JDK's. A classpath that cannot be
   // read is a warning: its names stay unsupplied, which only refuses more.
   // A stub file is rendered without the sources: the JDK packages outside `java.base` they name
   // render beside it.
-  private def dependencies(
-      classpath: Seq[Path],
-      stubs: Option[Path],
-      sources: List[String]
-  ): TastyStubs.Result =
-    stubs.fold(rendered(classpath, sources)) { file =>
+  private def dependencies(environment: Environment, sources: List[String]): TastyStubs.Result =
+    environment.stubs.fold(rendered(environment.classpath, sources)) { file =>
       val read = TastyStubs.parse(StubFile.read(file))
       val named = TastyStubs.jdkFor(sources, read.inputs)
       TastyStubs.Result(read.inputs ++ named.inputs, read.errors ++ named.errors)
