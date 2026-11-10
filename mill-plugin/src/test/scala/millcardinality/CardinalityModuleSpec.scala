@@ -23,19 +23,18 @@ class CardinalityModuleSpec extends Specification {
 
   private val fixture = os.Path(sys.props("user.dir")) / "src" / "test" / "resources" / "fixture"
 
+  // One testkit session for both modules: a session sets up `build`'s directory and two cannot
+  // share it.
   "cardinalityReport" should {
-    "write the module's report: a Boolean and an Option[Boolean] make 2 * 3 = 6" in {
-      UnitTester(build, fixture).scoped { eval =>
-        val Right(result) = eval(build.foo.cardinalityReport()): @unchecked
-        os.read(result.value.path) must contain("6  P.<init>")
+    "write a module's report (a Boolean and an Option[Boolean] make 2 * 3 = 6), on the calculator's " +
+      "Scala or another: its jars are resolved apart from the module" in {
+        UnitTester(build, fixture).scoped { eval =>
+          val Right(same) = eval(build.foo.cardinalityReport()): @unchecked
+          val Right(other) = eval(build.old.cardinalityReport()): @unchecked
+          (os.read(same.value.path) must contain("6  P.<init>"))
+            .and(os.read(other.value.path) must contain("6  P.<init>"))
+        }
       }
-    }
-    "measure a module on another Scala: the calculator's jars are resolved apart from it" in {
-      UnitTester(build, fixture).scoped { eval =>
-        val Right(result) = eval(build.old.cardinalityReport()): @unchecked
-        os.read(result.value.path) must contain("6  P.<init>")
-      }
-    }
   }
 
 }
