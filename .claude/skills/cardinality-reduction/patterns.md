@@ -84,6 +84,16 @@ Entry shape:
   `Kinds.of(_) == Kind.Proper` at three sites. Pass 4: `Count.isZero` replaces the
   `Count.Finite(n) if n == 0` guards in `ViewSandwich` and `SequenceElimination`.
 
+### R8 Unannotated member type — proposed
+- Signal (R): `?` signature row `val x: <inferred>` with `inferred result type not resolved:
+  application of a selection` (grep the report for `<inferred>` on the build's own members).
+- Fix: write the declared type (`markers: List[String]`, `Array` → `List` where nothing needs
+  the array).
+- Expect: the row leaves `?` for its real size; nothing else moves.
+- Boundary: members whose type is the point of inference (givens, `transparent` results).
+- Evidence: 553de73 follow-up, `Skill.markers` `?` → `ω` (`62ε₀ + 674ω` → `62ε₀ + 675ω`,
+  `?` rows 3484 → 3483).
+
 ### R4 Independent numeric knobs — rejected
 - Signal (R): `2^n` row of several `Int`/`Long` fields (`SourceSnapshot.Limits`,
   `AnalysisQuery.Budget`, `MethodAnalysis.Limits`).
@@ -135,6 +145,14 @@ Entry shape:
 - Signal (M): a size such as `2^(2^32·3^(2^32)·…)` has `·` inside parentheses and is far past a
   Double. The first script split on `·` and missed the growth in M5.
 - Fix: `report-diff.scala` parses the size and sums exponent towers; `--check` runs its self-check.
+
+### M7 Selected report on core fails with `duplicate source origin` — proposed
+- Signal (M): `core/cardinalityReportSelected <name>` logs `could not read : duplicate source
+  origin` and fails; the full `cardinalityReport` on the same sources succeeds.
+- Fix: not found yet. `AnalysisQuery.run` refuses when two inputs share a `path`; core has no
+  two sources with the same file name, so check how the plugin builds the inputs' paths.
+- Workaround: run the full report and grep the rows.
+- Evidence: 2026-11-10, while measuring `Skill` (issue #30 pass).
 
 ## Source shape (stage 4)
 
