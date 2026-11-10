@@ -16,23 +16,7 @@ object CardinalityPlugin extends AutoPlugin {
 
   override def trigger = allRequirements
 
-  object autoImport {
-
-    val cardinalityReport =
-      taskKey[Unit]("Report the cardinality of the Scala sources of this project.")
-
-    val cardinalityReportOf = inputKey[Unit](
-      "Report the cardinality of the Scala sources at the given paths: files, directories, or a " +
-        "sources jar such as the one a published library ships.",
-    )
-
-    val cardinalityReportSelected =
-      inputKey[Unit]("Bounded implementation report for the given qualified method names.")
-
-    val cardinalityQuerySupport =
-      settingKey[Seq[File]](
-        "Explicit supporting source roots for selected reports; never report targets."
-      )
+  object autoImport extends CardinalityKeys {
 
     val cardinalityQueryBudget =
       settingKey[AnalysisQuery.Budget]("Logical indexing and per-target/request work limits.")
@@ -51,11 +35,6 @@ object CardinalityPlugin extends AutoPlugin {
     val cardinalityDependencyStubs = taskKey[HashedVirtualFileRef](
       "The dependencies' declarations rendered as stubs: cached by sbt by the jars' contents."
     )
-
-    val cardinalityReportFile =
-      settingKey[File](
-        "Where a report is written, under the project's target directory by default."
-      )
 
     val cardinalitySkillFile = settingKey[File](
       "Where cardinalitySeedSkill writes the reduction skill, under the build's root by default."

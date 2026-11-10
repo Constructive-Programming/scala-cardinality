@@ -80,6 +80,8 @@ lazy val plugin = project
   .dependsOn(core)
   .settings(
     name := "sbt-cardinality",
+    // The keys both sbt plugins offer: one source, compiled into each.
+    Compile / unmanagedSourceDirectories += pluginKeys.value,
     description := "sbt plugin reporting the cardinality of a project's definitions and methods",
     // scripted boots a fresh sbt per test project and resolves the plugin by
     // version, so the tests pass it through a system property.
@@ -93,14 +95,20 @@ lazy val plugin = project
     }
   )
 
+lazy val pluginKeys = Def.setting(
+  (ThisBuild / baseDirectory).value / "plugin-keys" / "src" / "main" / "scala"
+)
+
 // The sbt 1 plugin, for builds that cannot move to sbt 2 yet. sbt 1 runs on Scala 2.12 and cannot
 // load `core`, so this plugin has no dependency on it: it resolves `scala-cardinality_3` at the
-// plugin's own version into a hidden configuration and forks `cardinality.Main` on it. Same
+// plugin's own version and calls `cardinality.Entry` in a classloader apart from sbt's. Same
 // artifact name as `plugin`; sbt's cross suffixes (`_2.12_1.0` vs `_sbt2_3`) keep them apart.
 lazy val sbt1Plugin = (project in file("sbt1-plugin"))
   .enablePlugins(SbtPlugin)
   .settings(
     name := "sbt-cardinality",
+    // The keys both sbt plugins offer: one source, compiled into each.
+    Compile / unmanagedSourceDirectories += pluginKeys.value,
     description := "sbt 1 plugin reporting the cardinality of a project's definitions and methods",
     scalaVersion := "2.12.20",
     pluginCrossBuild / sbtVersion := "1.10.0",
