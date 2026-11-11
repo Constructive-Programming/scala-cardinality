@@ -84,7 +84,11 @@ lazy val bench = project
   .settings(
     name := "scala-cardinality-bench",
     publish / skip := true,
-    coverageEnabled := false
+    coverageEnabled := false,
+    // `bench/runMain cardinality.bench.CorpusRun` (scripts/measure-corpus.sh): a JVM of its own
+    // per run, with the heap and stack a whole-module report needs.
+    Compile / run / fork := true,
+    Compile / run / javaOptions ++= Seq("-Xmx16g", "-Xss8m")
   )
 
 // The sbt plugin: reads each subproject's sources and hands them to `core`.

@@ -23,3 +23,6 @@ metals.sbt
 **/stryker4s-tmpDir/
 /cpd/
 mill-plugin/out/
+
+# scala-cli build directories (scripts/, the skill scripts)
+.scala-build/
