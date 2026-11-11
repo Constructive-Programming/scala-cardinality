@@ -88,13 +88,14 @@ private[cardinality] object CardinalityTool {
       limits: Map[String, Long]
   )
 
-  /** Writes the reduction skill this repository's agents use, parameterized by the build (the
-    * template is shared with mill-cardinality, see `Skill`).
+  /** Writes the reduction skill this repository's agents use, parameterized by the build and
+    * stamped with the plugin's version, not the project's (the template is shared with
+    * mill-cardinality, see `Skill`).
     */
-  def seedSkill(log: Logger, output: File, buildRoot: File, pluginVersion: String): File = {
+  def seedSkill(log: Logger, output: File, buildRoot: File): File = {
     val values = Map(
       "project" -> buildRoot.getName,
-      "version" -> pluginVersion,
+      "version" -> Calculator.version,
       "seed" -> "cardinalitySeedSkill"
     )
     val changed =

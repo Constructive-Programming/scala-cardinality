@@ -45,8 +45,7 @@ object CardinalityPlugin extends AutoPlugin {
         CardinalityTool.seedSkill(
           streams.value.log,
           cardinalitySkillFile.value,
-          (ThisBuild / baseDirectory).value,
-          version.value
+          (ThisBuild / baseDirectory).value
         )
       },
     )
