@@ -1,7 +1,7 @@
 package cardinality.analysis.inhabitation
 
 import cardinality.analysis.resolution.LiteralTypes
-import cardinality.capacity.{EffectiveOmega, NothingSize, Size, UnitSize}
+import cardinality.capacity.{EffectiveOmega, FinitePart, NothingSize, Size, UnitSize}
 
 import Inhabitation.Shape
 import Shape.*
@@ -128,6 +128,41 @@ private[cardinality] object ClosedSpaces {
     def power(base: Size, exponent: Size) = base.pow(exponent)
     def empty(c: Size) = c.isZero
   })
+
+  /** Whether a stored-size estimate of a position agrees with its finite value space: the size
+    * algebra reads the method side's type as the estimate reads its own, the same count up to 127,
+    * where both are exact, and the same capacity width above it, where both round alike. A literal
+    * merely within the estimate's capacity is not enough: a position the method side reads through
+    * another declaration can hold fewer values than the type the estimate names. A symbolic value
+    * is at least 2^65536, so it fits only a capacity that wide, or an infinite estimate, which may
+    * saturate a power that large.
+    */
+  def agrees(value: Natural, shape: Shape, size: Size): Boolean = value match {
+    case Natural.Lit(_) =>
+      val image = estimate(shape)
+      !size.hasInfinite && !image.hasInfinite && sameWidth(image.finite, size.finite)
+    case _ => size.hasInfinite || size.finite.bits >= Natural.MaxLiteralBits
+  }
+
+  private def sameWidth(image: FinitePart, estimate: FinitePart): Boolean =
+    (image, estimate) match {
+      case (FinitePart.Exact(a), FinitePart.Exact(b))          => a == b
+      case (_: FinitePart.Exact, _) | (_, _: FinitePart.Exact) => false
+      case _                                                   => image.bits == estimate.bits
+    }
+
+  /** Why a position's two readings disagree. A finite estimate above 127 is a capacity, and
+    * readings are compared by its width (`agrees`), so the reason names the width: `≤2^32` would
+    * read as agreeing with a value space of 2.
+    */
+  def disagreement(name: String, space: Card, size: Size): String = {
+    val estimate = size.finite match {
+      case FinitePart.Capacity(bits) if !size.hasInfinite => s"a capacity of width $bits bits"
+      case _                                              => size.render
+    }
+    s"constructor position readings disagree: $name (value space " +
+      s"${Inhabitation.Count.of(space).render}, estimate $estimate)"
+  }
 
   // Invariant guard: `closed` rules these nodes out before either reading is asked for.
   private def unclosed(node: Shape): Nothing =

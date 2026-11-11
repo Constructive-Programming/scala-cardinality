@@ -19,30 +19,43 @@ import tastyquery.Types.*
   * environment already holds, and an object has no abstract one), over the types `Shapes` reads and
   * the method's own unbounded type parameters.
   *
+  * A class's row is its primary constructor's, read by `Constructors` where the class is declared.
   * Definition rows are measured by `Stored`.
   */
-final private[compiled] class Readings(world: World)(using Context) {
+final private[compiled] class Readings(world: World, stored: Stored)(using Context) {
   import Unread.Uncovered
 
   private val shapes = new Shapes(world)
+  private val constructors = new Constructors(shapes, stored)
 
   // ---- method rows --------------------------------------------------------------------------
 
-  /** The count of a method row. */
-  def method(tree: ValOrDefDef): Either[String, Count] =
+  /** The count of a method row. A class's row measures its primary constructor. */
+  def method(tree: ValOrDefDef): Either[String, Count] = {
+    val primary = tree.symbol.owner match {
+      case c: ClassSymbol => c.tree.exists(_.rhs.constr.symbol == tree.symbol)
+      case _              => false
+    }
+    // A constructor runs where its class is declared: the instance it builds does not exist yet.
+    val owner = if (primary) tree.symbol.owner.owner else tree.symbol.owner
     for {
-      _ <- later(tree.symbol)
-      _ <- static(tree.symbol.owner)
-      _ <- plain(tree.symbol.owner)
+      _ <- if (primary) Right(()) else Readings.later(tree.symbol)
+      _ <- static(owner)
+      _ <- plain(owner)
       count <-
-        // No call of a member of an object that is never built returns: one implementation.
-        if (!built(tree.symbol.owner, tree)) Right(Count.Finite(1))
-        else
-          counted(tree).left.flatMap {
+        if (built(owner, tree))
+          (tree match {
+            case constructor: DefDef if primary => constructors.count(constructor)
+            case _                              => counted(tree)
+          }).left.flatMap {
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)))
             case Uncovered(what)        => Left(what)
           }
+        else if (primary) Left("a constructor in an object that is never built")
+        // No call of a member of an object that is never built returns: one implementation.
+        else Right(Count.Finite(1))
     } yield count
+  }
 
   // A goal with one value has one implementation whatever the environment holds (v1.md §2), so
   // the result is read first; else the count is the solver's over the parameters.
@@ -60,13 +73,13 @@ final private[compiled] class Readings(world: World)(using Context) {
       tree.symbol
     )
     for {
-      _ <- Traversals.sequence(binders.map(unbounded))
+      _ <- Traversals.sequence(binders.map(Readings.unbounded))
       result <- shapes.of(declared.toType, env)
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
         else
           for {
-            _ <- Traversals.sequence(parameters.map(p => later(p.symbol))).left.map(Uncovered(_))
+            _ <- Readings.plainInputs(parameters)
             inputs <- Traversals.sequence(parameters.map(p => shapes.of(p.tpt.toType, env)))
           } yield Inhabitation.count(
             parameters.lazyZip(inputs).map { (p, read) =>
@@ -77,14 +90,6 @@ final private[compiled] class Readings(world: World)(using Context) {
           )
     } yield count
   }
-
-  // What a member's or a parameter's flags, or a constructor's name, leave to slices not read yet.
-  private def later(symbol: TermSymbol): Either[String, Unit] =
-    if (symbol.isInline) Left("an inline definition")
-    else if (symbol.isGivenOrUsing || symbol.isImplicit) Left("a contextual definition")
-    else if (symbol.isExtensionMethod) Left("an extension method")
-    else if (World.isConstructor(symbol)) Left("a constructor")
-    else Right(())
 
   // Every owner up to the package is an object that inherits nothing.
   private def static(owner: Symbol): Either[String, Unit] = owner match {
@@ -117,15 +122,29 @@ final private[compiled] class Readings(world: World)(using Context) {
   private def memberless(parent: Type): Boolean =
     World.classNamed(parent).exists(c => Readings.Memberless(c.displayFullName))
 
-  // A proper type parameter any type instantiates.
-  private def unbounded(binder: TypeParam): Either[Unread, Unit] = {
-    if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
-    else Left(Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))
-  }
-
 }
 
 private[compiled] object Readings {
+
+  /** A proper type parameter any type instantiates. */
+  def unbounded(binder: TypeParam)(using Context): Either[Unread, Unit] =
+    if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
+    else Left(Unread.Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))
+
+  /** Parameters the reading takes as plain inputs: none inline or contextual. */
+  def plainInputs(parameters: List[ValDef]): Either[Unread, Unit] =
+    parameters
+      .map(p => later(p.symbol))
+      .collectFirst { case Left(why) => Unread.Uncovered(why) }
+      .toLeft(())
+
+  // What a member's or a parameter's flags, or a constructor's name, leave to slices not read yet.
+  def later(symbol: TermSymbol): Either[String, Unit] =
+    if (symbol.isInline) Left("an inline definition")
+    else if (symbol.isGivenOrUsing || symbol.isImplicit) Left("a contextual definition")
+    else if (symbol.isExtensionMethod) Left("an extension method")
+    else if (World.isConstructor(symbol)) Left("a secondary constructor")
+    else Right(())
 
   /** The solver's depth budget, the same for every row; its state budget is its own default. */
   val Depth = 64

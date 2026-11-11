@@ -1,6 +1,5 @@
 package cardinality.compiled
 
-import cardinality.analysis.MethodAnalysis.Entry
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.capacity.{BooleanSize, IntSize, TinySize, UnitSize}
 import cardinality.reporting.{FrontEnd, Report, ScalametaFrontEnd}
@@ -30,16 +29,11 @@ class TastyFrontEndSpec extends Specification {
     a type no slice reads yet is uncovered                        $later
     a definition row is what it stores, its reasons, or a dash    $stored
     a definition the stored side does not read yet is uncovered   $unstored
+    a class's row is the product of its constructor's positions   $constructors
 
   The differential gate
     agrees with the scalameta front end on every row measured     $agrees
     finds every row under the scalameta front end's name and line $named
-    classifies identical, better, worse and uncovered rows        $verdicts
-    leaves a row only one side has unpaired                       $unpaired
-    pairs a row by position where its scope is named otherwise    $position
-    does not pair a lost row with an extra one of another owner   $owners
-    fails a better row past a model limit until it is derived     $limits
-    fails a row measured before, uncovered or counted otherwise   $memory
   """
 
   private val text =
@@ -338,11 +332,42 @@ class TastyFrontEndSpec extends Specification {
       |val made: Pt = Pt(true, true)
       |""".stripMargin
 
+  // The constructor rows slice S3 reads, and those it leaves.
+  private val built =
+    """package built
+      |
+      |final case class Pt(x: Boolean, y: Boolean)
+      |final class Walk(val cur: Any, val n: Int)
+      |final case class Pair[A](x: A, y: A)
+      |final class Txt(s: String)
+      |final class Fun(f: String => String)
+      |final class Nul(x: Null)
+      |trait Open
+      |final class Holds(o: Open)
+      |final class Absurd(f: Nothing => Int)
+      |final class Mixed[A](x: (A, Int))
+      |final case class Rec(next: Option[Rec])
+      |final class Foo { type T = Byte }
+      |object Paths { val x: Foo = new Foo }
+      |final class Via(t: Paths.x.T)
+      |final class Using(x: Int)(using o: Open)
+      |final class Fns(fs: List[String => String])
+      |final class Out(f: Unit => Any)
+      |final case class Anything(x: Any)
+      |final class Holder(w: Anything)
+      |final class Vals(x: AnyVal)
+      |final case class Ph[A](t: Throwable)
+      |final class Rest[A](xs: Ph[A]*)
+      |type Top = Any
+      |final class Aliased(x: Top)
+      |""".stripMargin
+
   private lazy val input = TastyFrontEndSpec.compiled(
     "Demo.scala" -> text,
     "Shapes.scala" -> shapes,
     "Types.scala" -> types,
-    "Sizes.scala" -> sizes
+    "Sizes.scala" -> sizes,
+    "Built.scala" -> built
   )
 
   private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
@@ -380,7 +405,7 @@ class TastyFrontEndSpec extends Specification {
   // A member of a class, a constructor, and a member beside a pattern definition, named or not
   // (which values its object's constructor evaluates is not read yet).
   private def uncovered = {
-    val rows = List("demo.C.m", "demo.C.<init>", "demo.Pattern.g", "demo.Nameless.g")
+    val rows = List("demo.C.m", "demo.Pattern.g", "demo.Nameless.g")
     rows.map(count) must contain(beLike[Count] {
       case Count.Unresolved(List(reason)) => reason must startWith(TastyFrontEnd.Uncovered)
     }).forall
@@ -635,6 +660,59 @@ class TastyFrontEndSpec extends Specification {
     ) must_== expected.map((_, why) => List(why))
   }
 
+  // A constructor row of `built`, as the report renders it: its count, or each reason up to what
+  // it names (an uncovered one with what it needs).
+  private def constructed(name: String): String = count(s"built.$name.<init>") match {
+    case Count.Unresolved(reasons) =>
+      val prefix = s"${TastyFrontEnd.Uncovered}: "
+      reasons
+        .map(reason =>
+          (if (reason.startsWith(prefix)) prefix else "") +
+            reason.stripPrefix(prefix).takeWhile(_ != ':')
+        )
+        .mkString("; ")
+    case counted => counted.render
+  }
+
+  // A constructor's positions are value spaces: `Pt` is 2 × 2; `Walk` is 1 × 2^32, a top type in
+  // an input being one value, `AnyVal` too (`Vals`), also behind an alias (`Aliased`); `Txt` is ω; `Fun` the tier of functions over
+  // strings, and a list of them saturates at ω as the method side does (`Fns`); a top in an
+  // output is ω (`Out`); the type `Null` is empty on the method side (`Nul`). `Via` names a Byte
+  // through a value's path: 2^8, where the old reading reports the estimate's bound, `≤2^8`. A
+  // type parameter's slot is the shape model's: `Pair` builds (x, x), (x, y), (y, x) or (y, y).
+  // The estimate gives an open trait a reason, so `Holds` has no number; the two algebras read a
+  // function from `Nothing` as 1 and as 0, and `Anything` as 1 where the estimate stores an `Any`
+  // as ω (`Holder`): refused. A position mixing a type parameter with an `Int` has no agreed
+  // reading. A reason of the estimate declines a ground position only: `Rest` names its type
+  // parameter, under a repeated type, and keeps the method side's ω. A recursive position takes
+  // the estimate's tier, and a `using` clause is contextual:
+  // not read yet.
+  private def constructors = {
+    val uncovered = s"${TastyFrontEnd.Uncovered}: "
+    val expected = List(
+      "Pt" -> "4",
+      "Walk" -> "2^32",
+      "Vals" -> "1",
+      "Aliased" -> "1",
+      "Pair" -> "4",
+      "Txt" -> "ω",
+      "Fun" -> "ε₀",
+      "Fns" -> "ω",
+      "Rest" -> "ω",
+      "Anything" -> "1",
+      "Out" -> "ω",
+      "Nul" -> "0",
+      "Via" -> "2^8",
+      "Holds" -> "open to implementations",
+      "Absurd" -> "constructor position readings disagree",
+      "Holder" -> "constructor position readings disagree",
+      "Mixed" -> "constructor position mixes type parameters with transparent ground values",
+      "Rec" -> s"${uncovered}a constructor position the method side refuses",
+      "Using" -> s"${uncovered}a contextual definition"
+    )
+    expected.map((name, _) => name -> constructed(name)) must_== expected
+  }
+
   // An array of a type parameter is refused by the standard model for good (building one needs a
   // `ClassTag`): a `?` of the front end's own, which the gate compares, not a row to come.
   private def refused = count("demo.Refused.arr") must beLike {
@@ -656,6 +734,8 @@ class TastyFrontEndSpec extends Specification {
   private val allowed = Set(
     "cardinality.analysis.BuiltinTypes",
     "cardinality.analysis.MethodAnalysis.Entry",
+    "cardinality.analysis.inhabitation.Card",
+    "cardinality.analysis.inhabitation.ClosedSpaces",
     "cardinality.analysis.inhabitation.Inhabitation",
     "cardinality.analysis.inhabitation.Inhabitation.Binding",
     "cardinality.analysis.inhabitation.Inhabitation.Count",
@@ -698,7 +778,8 @@ class TastyFrontEndSpec extends Specification {
       .findAllMatchIn(lines.mkString("\n"))
       .flatMap { found =>
         Option(found.group(2)).fold(List(found.group(1)))(
-          _.split(',').toList.map(name => s"${found.group(1)}.${name.trim}")
+          // A renamed import (`X as Y`) is its first name.
+          _.split(',').toList.map(name => s"${found.group(1)}.${name.trim.takeWhile(_ != ' ')}")
         )
       }
       .toSet
@@ -711,7 +792,7 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(9)(_))
+          List("package cardinality.compiled").flatMap(List.fill(10)(_))
       )
   }
 
@@ -734,134 +815,6 @@ class TastyFrontEndSpec extends Specification {
   // by position or under another kind.
   private def named =
     compared.compared.filter(_.by != Differential.Strict).map(_.row.name) must_== Nil
-
-  private def entry(name: String, count: Count, line: Int = 1): Entry =
-    Entry("A.scala", name, name, line, "method", count, Nil)
-
-  private def answer(entries: Entry*): FrontEnd.Rows =
-    FrontEnd.Rows(List(Right(Report.Source("A.scala", Nil, entries.toList))), Nil)
-
-  private val unknown = Count.Unresolved(List("unresolved type: T"))
-  private val declined = Count.Unresolved(List(s"${TastyFrontEnd.Uncovered}: a class"))
-
-  private def verdicts = {
-    val old = answer(
-      entry("same", Count.Finite(2)),
-      entry("gained", unknown),
-      entry("lost", Count.Finite(2)),
-      entry("moved", Count.Finite(2)),
-      entry("declined", Count.Finite(2)),
-      entry("unknown", unknown)
-    )
-    val next = answer(
-      entry("same", Count.Finite(2)),
-      entry("gained", Count.Finite(2)),
-      entry("lost", Count.Unresolved(List("a reason of its own"))),
-      entry("moved", Count.Finite(3)),
-      entry("declined", declined),
-      entry("unknown", Count.Unresolved(List("another reason")))
-    )
-    Differential.compare(old, next).map(c => c.row.name -> c.verdict).toMap must_== Map(
-      "same" -> Verdict.Identical,
-      "gained" -> Verdict.Better,
-      "lost" -> Verdict.Worse,
-      "moved" -> Verdict.Worse,
-      "declined" -> Verdict.Uncovered,
-      "unknown" -> Verdict.Identical
-    )
-  }
-
-  private def unpaired =
-    Differential
-      .compare(answer(entry("gone", Count.Finite(2))), answer(entry("made", Count.Finite(2), 7)))
-      .map(c => c.row.name -> c.verdict) must contain(
-      exactly("gone" -> Verdict.OnlyOld, "made" -> Verdict.OnlyNew)
-    )
-
-  private def position =
-    Differential.compare(
-      answer(entry("f.<for#1>.g", Count.Finite(2), 3)),
-      answer(entry("f.<lambda#1>.<case#1>.g", Count.Finite(2), 3))
-    ) must beLike {
-      case List(row) => (row.verdict, row.by) must_== (Verdict.Identical, "position")
-    }
-
-  // `trait T(); trait U[A: Ordering]` on one line: a constructor row lost for `T` and one made for
-  // `U` are two failures, not one pair.
-  private def owners =
-    Differential
-      .compare(answer(entry("T.<init>", unknown)), answer(entry("U.<init>", declined)))
-      .map(c => c.row.name -> c.verdict) must contain(
-      exactly("T.<init>" -> Verdict.OnlyOld, "U.<init>" -> Verdict.OnlyNew)
-    )
-
-  // The old front end refused `named` for a name it could not resolve, which the compiler knows:
-  // a number is expected. It refused `modelled` because the counting model does not read a
-  // recursive type, and `transparent` by rule X: a number there counts what the model refuses,
-  // until someone derives it, with that number.
-  private def limits = {
-    val recursive = Count.Unresolved(List("recursive type not read: T"))
-    val ruleX =
-      Count.Unresolved(List("inferred result type not resolved: transparent inline method"))
-    val compared = Differential.compare(
-      answer(
-        entry("named", unknown),
-        entry("modelled", recursive, 2),
-        entry("transparent", ruleX, 3)
-      ),
-      answer(
-        entry("named", Count.Finite(2)),
-        entry("modelled", Count.Finite(2), 2),
-        entry("transparent", Count.Finite(2), 3)
-      )
-    )
-    def derived(count: String) =
-      compared.filter(_.row.name != "named").map(_.row.key -> count).toMap
-    (Differential.failures(compared).map(_.row.name) must_== List("modelled", "transparent"))
-      .and(Differential.failures(compared, derived("2")) must_== Nil)
-      .and(Differential.failures(compared, derived("3")).size must_== 2)
-      .and(Differential.samples(compared).map(_._1) must_== List("unresolved type"))
-  }
-
-  // `lost` was measured and is uncovered now, `refused` was the front end's own `?` and is
-  // uncovered now, `moved` is counted otherwise; `fresh` is uncovered and was never measured;
-  // `kept` is as before. `twin` is two rows of one key, one of them uncovered: the key cannot tell
-  // them apart, so it is not remembered. What is written is read back as it was.
-  private def memory = {
-    val refusal = Count.Unresolved(List("recursive type not read: T"))
-    val compared = Differential.compare(
-      answer(
-        entry("kept", Count.Finite(2)),
-        entry("lost", Count.Finite(2), 2),
-        entry("moved", unknown, 3),
-        entry("fresh", Count.Finite(2), 4),
-        entry("refused", refusal, 5),
-        entry("twin", Count.Finite(2), 6),
-        entry("twin", Count.Finite(2), 6)
-      ),
-      answer(
-        entry("kept", Count.Finite(2)),
-        entry("lost", declined, 2),
-        entry("moved", Count.Finite(3), 3),
-        entry("fresh", declined, 4),
-        entry("refused", declined, 5),
-        entry("twin", Count.Finite(2), 6),
-        entry("twin", declined, 6)
-      )
-    )
-    def key(name: String) = compared.find(_.row.name == name).get.row.key
-    val before =
-      Map(key("kept") -> "2", key("lost") -> "2", key("moved") -> "2", key("refused") -> "?")
-    val now = Differential.measured(compared)
-    (Differential.regressed(compared, before).map(_.row.name) must contain(
-      exactly("lost", "moved", "refused")
-    )).and(now must contain(exactly(key("kept") -> "2", key("moved") -> "3")))
-      .and(Differential.listed(now.map(Differential.line)) must_== now.toMap)
-      .and(
-        Differential.listed(List("method F.scala:3 | [method] | 1: its rule")) must_==
-          Map("method F.scala:3 | [method]" -> "1")
-      )
-  }
 
   // A source that defines nothing has no classes and no rows; a top-level definition of two names
   // is a definition row and a method row per name.

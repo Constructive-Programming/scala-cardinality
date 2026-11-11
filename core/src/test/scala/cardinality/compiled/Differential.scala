@@ -13,10 +13,13 @@ import java.nio.file.{Files, Path}
   * front ends read the same input, and every row of either is classified.
   *
   * A row of the new front end is its own or it is `Uncovered`: the new front end never asks the old
-  * one, so an identical row is one the new front end measured itself. A `Worse` row and a row only
-  * one side has fail the gate (`failures`); the runner also fails on anything a front end could not
-  * read, on an input it reads no source of, and on a row it measured before and leaves uncovered or
-  * counts otherwise now (`--covered`).
+  * one, so an identical row is one the new front end measured itself. A row only one side has fails
+  * the gate, and so does a `Worse` row that is not a listed correction: a number may change only
+  * where the old one is derivably wrong, and each such row is listed with both values and its
+  * derivation (`--corrected`). An upper bound that became the exact number of the same value is
+  * `Tightened`, and passes. The runner also fails on anything a front end could not read, on an
+  * input it reads no source of, on a row it measured before and leaves uncovered or counts
+  * otherwise now (`--covered`), and on a listed correction that passes no row.
   *
   * The old front end is no oracle where it says `?`, so a `Better` row is read by why it said so.
   * Where every reason is a limit of reading syntax (`resolution`), a number is expected: the run
@@ -24,7 +27,8 @@ import java.nio.file.{Files, Path}
   * model, the new front end counts what the model refuses: the row fails the gate until it is
   * derived by hand and listed with its count and the rule that makes it countable (`--derived`). A
   * row paired by a looser key than its name, kind and line is listed to be explained. Parity is
-  * every old numeric row `Identical`; until then the summary says how many are.
+  * every old numeric row `Identical`, `Tightened` or a listed correction; until then the summary
+  * says how many are.
   */
 object Differential {
 
@@ -36,7 +40,13 @@ object Differential {
     /** `?` before, a number now. */
     case Better
 
-    /** A number before, and `?` or another number now. */
+    /** An upper bound before (`≤2^32`), the exact number of the same value now (`2^32`): the
+      * measurement is tighter and nothing the bound promised is broken.
+      */
+    case Tightened
+
+    /** A number before, and `?` or another number now: it fails unless it is a listed correction.
+      */
     case Worse
 
     /** The new front end does not read the row yet. */
@@ -198,7 +208,11 @@ object Differential {
     if (next.uncovered) Verdict.Uncovered
     else if (old.value == next.value) Verdict.Identical
     else if (!old.numeric) Verdict.Better
+    else if (old.shown == Bound + next.shown) Verdict.Tightened
     else Verdict.Worse
+
+  // How a count that is an upper bound prints.
+  private val Bound = "≤"
 
   // The keys rows are paired by, strictest first: the row's whole place; its position, where the
   // scopes of a body are named differently (the name without its `<kind#n>` segments, on the same
@@ -268,14 +282,40 @@ object Differential {
       }
       .mkString("\n")
 
-  /** The rows that fail the gate: a worse one, one only one side has, and a better one past a model
-    * limit that `derived` does not list with the count it has now (row key to count).
+  /** The rows that fail the gate: one only one side has; a better one past a model limit that
+    * `derived` does not list with the count it has now (row key to count); and a worse one that
+    * `corrected` does not list with both its values (row key to `old -> new`). A number may change
+    * only where the old one is derivably wrong; the file gives each such row's derivation.
     */
-  def failures(compared: List[Compared], derived: Map[String, String] = Map.empty): List[Compared] =
+  def failures(
+      compared: List[Compared],
+      derived: Map[String, String] = Map.empty,
+      corrected: Map[String, String] = Map.empty
+  ): List[Compared] = {
+    val accepted = corrections(compared, corrected).toSet
     compared.filter { c =>
-      Set(Verdict.Worse, Verdict.OnlyOld, Verdict.OnlyNew)(c.verdict) ||
+      Set(Verdict.OnlyOld, Verdict.OnlyNew)(c.verdict) ||
+      (c.verdict == Verdict.Worse && !accepted(c)) ||
       (c.beyondModel && !c.next.exists(row => derived.get(c.row.key).contains(row.shown)))
     }
+  }
+
+  /** The worse rows `corrected` lists with the values they have: the old one and the new one. */
+  def corrections(compared: List[Compared], corrected: Map[String, String]): List[Compared] =
+    compared.filter(c =>
+      c.verdict == Verdict.Worse && c.old.zip(c.next).exists { (old, next) =>
+        corrected.get(c.row.key).contains(s"${old.shown} -> ${next.shown}")
+      }
+    )
+
+  /** The corrections listed for a source of this comparison that pass no row: the row is no longer
+    * worse, has other values, or is gone. A list of numbers changed on purpose holds no dead line.
+    */
+  def unused(compared: List[Compared], corrected: Map[String, String]): List[String] = {
+    val used = corrections(compared, corrected).map(_.row.key).toSet
+    val sources = compared.map(c => s"${c.row.table} ${c.row.source}:").toSet
+    corrected.keys.filter(key => !used(key) && sources.exists(key.startsWith)).toList.sorted
+  }
 
   /** The rows to explain: one whose two sides differ in name, kind or scope (what paired them). */
   def explained(compared: List[Compared]): List[Compared] =
@@ -476,7 +516,7 @@ object Differential {
   private def recorded(file: Path): Map[String, String] =
     if (Files.exists(file)) listed(Files.readAllLines(file).asScala) else Map.empty
 
-  private val flags = Set("--rows", "--old", "--covered", "--derived", "--out")
+  private val flags = Set("--rows", "--old", "--covered", "--derived", "--corrected", "--out")
 
   /** `corpus <root>` or `fixtures <cache>`, then:
     *   - `--rows` lists every row with the front end that produced it;
@@ -488,12 +528,17 @@ object Differential {
     *   - `--derived <file>` names the better rows past a model limit that were derived by hand, one
     *     per line: the row's key as the run prints it, ` | `, its count, `:`, and the rule that
     *     makes it countable;
+    *   - `--corrected <file>` names the rows whose number changes because the old one is wrong, one
+    *     per line: the row's key, ` | `, `old -> new` as the run prints the two values, `:`, and
+    *     the derivation;
     *   - `--out <file>` writes what the run prints to a file instead.
     *
     * Prints the totals, what the uncovered rows need, what was not read, a sample of the better
-    * rows per old reason, the rows that fail the gate and the rows to explain; exits with 1 when a
-    * row fails the gate, a row measured before is uncovered or counted otherwise, a front end could
-    * not read something, or an input has no source.
+    * rows per old reason, the rows measured before that are uncovered or counted otherwise now, the
+    * listed corrections and those that pass no row, the tightened rows, the rows that fail the gate
+    * and the rows to explain; exits with 1 when a row fails the gate, a row measured before is
+    * uncovered or counted otherwise, a correction passes no row, a front end could not read
+    * something, or an input has no source.
     */
   def main(args: Array[String]): Unit = {
     val libraries = sys
@@ -506,7 +551,7 @@ object Differential {
         name.startsWith("scala-library") || name.startsWith("scala3-library")
       }
     val usage = "usage: Differential (corpus <root> | fixtures <cache>) [--rows] [--old <file>] " +
-      "[--covered <file>] [--derived <file>] [--out <file>]"
+      "[--covered <file>] [--derived <file>] [--corrected <file>] [--out <file>]"
     val inputs = args.toList match {
       case "corpus" :: root :: _    => List(corpus(Path.of(root)))
       case "fixtures" :: cache :: _ => fixtures(Path.of(cache), libraries)
@@ -558,12 +603,20 @@ object Differential {
       println("MEASURED BEFORE, UNCOVERED OR COUNTED OTHERWISE NOW")
       println(s"    ${c.next.get.render}\n    key: ${c.next.get.key}")
     }
-    val failed = failures(compared, option("--derived").fold(Map.empty)(recorded))
-    val shown = if (rows) compared else (failed ++ explained(compared)).distinct
+    val corrected = option("--corrected").fold(Map.empty)(recorded)
+    val failed = failures(compared, option("--derived").fold(Map.empty)(recorded), corrected)
+    // Every number this run changes on purpose is printed: the owner sees each one.
+    corrections(compared, corrected).foreach { c =>
+      println(s"CORRECTED, listed with both values\n${c.render}\n    key: ${c.row.key}")
+    }
+    val dead = unused(compared, corrected)
+    dead.foreach(key => println(s"CORRECTION THAT PASSES NO ROW\n    key: $key"))
+    val tightened = compared.filter(_.verdict == Verdict.Tightened)
+    val shown = if (rows) compared else (failed ++ explained(compared) ++ tightened).distinct
     shown.sortBy(c => (c.row.source, c.row.line, c.row.name)).foreach { c =>
       println(s"${c.render}\n    key: ${c.row.key}")
     }
-    val failing = failed.nonEmpty || unread.nonEmpty || lost.nonEmpty
+    val failing = failed.nonEmpty || unread.nonEmpty || lost.nonEmpty || dead.nonEmpty
     // A passing run rewrites the memory of the rows it saw and keeps what it holds of rows it did
     // not see (a fixture another checkout has, a run over part of the cache).
     if (!failing) option("--covered").foreach { file =>

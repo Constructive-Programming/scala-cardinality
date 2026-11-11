@@ -430,9 +430,9 @@ D4), the phase 5 table and phase 6 above, `AGENTS.md` and `v1.md` §2.
 | --- | --- | --- |
 | Boundary | `reporting/FrontEnd.scala` | `FrontEnd.rows(Module): Rows`. In: each source's path and text, and the `Report.Environment`. Out: one answer per source in order, its `Entry` and `Definition` rows or a `Report.Error`. |
 | Old front end | `reporting/ScalametaFrontEnd.scala` | The pipeline `Report.of` had inline, moved unchanged; the only one `Report.of` calls. `Report.query` calls its steps directly. |
-| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Shapes.scala`, `Sums.scala`, `Stored.scala`, `Bodies.scala`, `World.scala`, `Source.scala` (1,929 lines) | Reads the compiled classes through tasty-query. |
+| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Shapes.scala`, `Sums.scala`, `Stored.scala`, `Constructors.scala`, `Bodies.scala`, `World.scala`, `Source.scala` (2,157 lines) | Reads the compiled classes through tasty-query. |
 | Gate | `core/src/test/scala/cardinality/compiled/Differential.scala` | See "The gate". |
-| Regression | `TastyFrontEndSpec` (21 examples) | Derived counts for each slice, the reason of each row a slice refuses or leaves, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
+| Regression | `TastyFrontEndSpec` (16 examples), `DifferentialSpec` (8) | Derived counts for each slice, the reason of each row a slice refuses or leaves, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
 
 The old front end's files changed in two places only, both extractions: `CompiledTypes.loaded` (the
 class loading `read` had inline) and `Definition.qualified` (the name joiner `Walk` had).
@@ -538,6 +538,14 @@ scripts/differential.sh <assets> <output directory> [input ...]
   were derived by hand (`--derived`): the row's key as the run prints it, ` | `, its count, `:`, and
   the rule that makes it countable. The row passes while it has that count. A fixture's key holds
   its digest, so editing the fixture asks for the derivation again.
+- `core/src/test/resources/compiled/corrected.txt` lists the rows whose number changes because
+  the old one is derivably wrong (`--corrected`): the row's key, ` | `, `old -> new` as the run
+  prints both values, `:`, and the derivation. A worse row passes only while it has both values.
+  A line for a source of the run that passes no row fails the run; a key listed twice is read
+  once (the last line), which nothing reports. The plan's status section keeps the table of all
+  corrections: the owner sees every number the rewrite changes.
+- A row whose old value is an upper bound (`≤2^32`) and whose new value is that bound's exact
+  number (`2^32`) is TIGHTENED: it passes, and the run prints it.
 - `--rows`, given to the runner itself (`bench/runMain cardinality.compiled.Differential corpus
   <dir> --rows`), lists every row with the front end that produced it.
 - Verdicts: 4b's, with identical also `?` on both sides, and uncovered, only old, only new.
@@ -625,29 +633,17 @@ time on the rows still uncovered is not in it.
 
 - Stretch 2: slices S1, S2, S3, each committed when `scripts/differential.sh` passes and it is
   reviewed.
-- Done: the gate changes (limit classes, coverage memory, six corpora, withheld support), the
-  decided Q4, Q6, Q8, S1 ("After S1") and S2 without sealed families and recursion ("After S2").
-- Blocked, for the coordinator: the sum of a sealed family on the stored side ("After S2" has the
-  evidence: two worse rows whose old number is derivably wrong, which the gate cannot pass).
-- In work, uncommitted: S3, constructor rows, in `Readings.positions` (a class's row measures its
-  primary constructor; `Readings.method` routes it). Done: each position's shape, a closed one
-  its value space (`ClosedSpaces.counted`, a tier from `ClosedSpaces.estimate`), a type
-  parameter's slot left to the solver, the product by `Count.product`. First gate run: fixture
-  method rows identical 791 to 1,819, corpus-core 452 to 509, cats-core 10 to 228. Half done: the
-  old rule also asks the stored-size estimate about each position (`ConstructorPositions`), and
-  the gate shows where that matters: (a) the estimate declines a ground position and the row is
-  `?` (`open to implementations: R` for a field of an open or types-only trait: 10 fixture rows);
-  (b) the two readings disagree and the row is refused (`f: Nothing => Int`: value space 1,
-  estimate 0); (c) a position the method side refuses (a recursive type) takes the estimate's
-  tier (18 corpus-core rows, left uncovered now). To do: a `Stored` reading of a position as an
-  input (a top type one value, collections not lifted to their element's tier), then decline,
-  agree or disagree as `ConstructorPositions.readPosition` and `closedPosition` do; a position
-  `Stored` does not read leaves the row uncovered.
-- Open in S3, for the coordinator: four fixture rows are worse in form only. Where the old
-  method side did not follow a path (`U(x: q.X)` through an export, `UsesT(t: x.T)` through a
-  value) it took the estimate and reports an upper bound, `≤2^32`; the new reading follows the
-  path and reports the exact `2^32`. The gate fails any changed number. Until decided, a position
-  written through a term that is no object is to stay uncovered.
+- Done: the gate changes (limit classes, coverage memory, six corpora, withheld support; then
+  TIGHTENED rows and listed corrections), the decided Q4, Q6, Q8, S1, S2 without sealed families
+  and recursion, and S3 ("After S3").
+- Next, in the coordinator's order: (1) restore the sum of a sealed family on the stored side
+  ("After S2" has what the first attempt showed), with `cats.data.Ior` and fixture `2d9bd461…`
+  `S` as listed corrections in `corrected.txt`, each of the 45 better rows past a model limit
+  derived (by rule, with the list), the families whose construction throws left uncovered until
+  S6, and `Ior[Boolean, Boolean]` = 8 pinned on both sides in `TastyFrontEndSpec`; (2) merge the
+  sibling's `9c4e107`, fix `Differential.fixtures` for `src/dependency/` and `classpath.txt`, run
+  `core/testFull`; (3) plug `Inlines` in where `Readings.later` answers `an inline definition`;
+  (4) S4, then S5, each with `scripts/spec-ledger.sh` totals beside the table.
 - Interface notes from the sibling's ledger of the spec suite (`scripts/spec-ledger.sh`), for S8
   or earlier: `Report.of` is tied to `ScalametaFrontEnd`; a source that defines nothing is told
   only by message text; there is no `Limits` parameter; dependencies can only be given as
@@ -829,6 +825,69 @@ The same holds, unexercised by any input, for two readings the reviews found whe
 number would be right and the old wrong; both are left uncovered: a method over a sealed family
 one of whose cases is an enum's value case (the old method side drops the case), and an alias of
 a class read from inside an opaque type's scope.
+
+**After S3** (constructor rows, `Constructors`; the gate's TIGHTENED rows and corrections). Every
+row pairs; no row is worse; no correction is listed yet.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 508 | 1 / 0 | 0 | 0 | 0 | 3,491 | 315 of 768 (41.0%) |
+| core | definitions | 641 | 363 | 3 / 0 | 0 | 0 | 0 | 275 | 341 of 400 (85.2%) |
+| cats-core | methods | 7,651 | 228 | 12 / 0 | 0 | 0 | 0 | 7,411 | 224 of 909 (24.6%) |
+| cats-core | definitions | 1,559 | 1,169 | 21 / 0 | 0 | 0 | 0 | 369 | 907 of 1,053 (86.1%) |
+| cats-kernel | methods | 1,785 | 44 | 0 / 0 | 0 | 0 | 0 | 1,741 | 44 of 368 (12.0%) |
+| cats-kernel | definitions | 312 | 306 | 0 / 0 | 0 | 0 | 0 | 6 | 252 of 253 (99.6%) |
+| cats-eo | methods | 697 | 33 | 0 / 0 | 0 | 0 | 0 | 664 | 28 of 271 (10.3%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 13 | 0 / 0 | 0 | 0 | 0 | 67 | 12 of 16 (75.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 0 | 19 | 0 of 4 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 5,397 | 1,819 | 34 / 6 | 4 | 0 | 0 | 3,534 | 1,735 of 4,443 (39.1%) |
+| fixtures | definitions | 3,858 | 3,461 | 15 / 1 | 0 | 0 | 0 | 381 | 3,033 of 3,166 (95.8%) |
+| **all corpora** | methods | 14,232 | 826 | 13 / 0 | 0 | 0 | 0 | 13,393 | 623 of 2,336 (26.7%) |
+| **all corpora** | definitions | 2,677 | 1,974 | 30 / 0 | 0 | 0 | 0 | 673 | 1,598 of 1,807 (88.4%) |
+
+What S3 reads, with derived examples in `TastyFrontEndSpec` (`constructors`): a class's row is its
+primary constructor's, the product of its positions' value spaces. A closed position is its value
+space (exact, or the size algebra's tier), compared with the stored-size estimate of the same
+position read as an input (`Stored.position`: a top type one value, `Null` empty, collections not
+lifted, through aliases but not into a class the type names): the row is refused where the two
+disagree and declined where the estimate has a reason for a ground position. A type parameter's
+slot is the shape model's.
+
+Left uncovered: a class in an object with parents (every enum class case and every case class in
+the companion of a sealed type, whose companion has a `Mirror` parent: S4), a position the method
+side refuses (a recursive type takes the estimate's tier: with the solver), one `Shapes` or
+`Stored` does not read (a capability record, a sealed family, unions, literal types), bounded or
+higher-kinded class type parameters, `using` clauses and context bounds (S5), secondary
+constructors.
+
+Tightened rows (an upper bound that became the exact number of the same value), all four in the
+fixtures and all constructor rows whose position is written through a path the old method side
+did not follow, so that it took the estimate's bound:
+
+| Row | Old | New |
+| --- | --- | --- |
+| `434f4d9c…/U.scala:1` `U.<init>`, `U(x: q.X)` through an export | `≤2^32` | `2^32` |
+| `434f4d9c…/lib9/Q.scala:3` `lib9.R.<init>`, `R(x: q.X)` | `≤2^16` | `2^16` |
+| `5ed1c78e…/C.scala:3` `a.b.UsesT.<init>`, `UsesT(t: x.T)` through a value | `≤2^8` | `2^8` |
+| `5ed1c78e…/C.scala:4` `a.b.UsesS.<init>`, `UsesS(s: x.S)` | `≤2^8` | `2^8` |
+
+Open, for the coordinator: the gate accepts a bound only when the exact number is the bound's own
+value. A review produced rows no input holds where the old bound is a rounded capacity and the
+exact number is below it (`P1(t: Option[Paths.x.T])`: old `≤2^9`, new 257). Such a row is worse
+to the gate, and it is no correction either, since the old bound still holds.
+
+Corrections (every number this rewrite changes): none yet.
+
+The old front end's rows did not move. S3 extracted `agrees` and the disagreement message from
+`analysis/ConstructorPositions.scala` into `analysis/inhabitation/ClosedSpaces.scala` (a pure
+extraction, read line by line in review). With it in place, `scripts/measure-corpus.sh` renders
+reports byte-identical to `baseline/*-report-1358b07.txt` for corpus-core, cats-core, cats-kernel,
+cats-eo and cats-eo-generics. cats-eo-schemes is byte-identical to `…-report-5f89e91.txt` and
+differs from `…-1358b07.txt` in one row (`Schemes.OnStackLimit`, an untyped value): `1358b07` is
+the sibling's rule T fix, which this branch does not hold before the merge. To recheck after it.
 
 ### How each model rule reads over symbols
 

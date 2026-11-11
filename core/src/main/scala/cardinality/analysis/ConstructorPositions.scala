@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces, Inhabitation, Natural}
 import cardinality.analysis.model.{ContextBounds, ContextualEvidence, ResolutionContext}
 import cardinality.analysis.resolution.{ShadowedBuiltins, TopTypes, WrittenType}
-import cardinality.capacity.{Definition, FinitePart, Size}
+import cardinality.capacity.{Definition, Size}
 import cardinality.types.{Memo, Spelling, TypeSubstitution}
 
 import Inhabitation.{Count, Shape}
@@ -195,39 +195,11 @@ final private[cardinality] class ConstructorPositions(
         estimate.filterNot(agrees(value, shape, _)).fold(Exact(space))(disagree(name, space, _))
     }
 
-  // A literal agrees when the size algebra reads the method side's type as the estimate reads its
-  // own: the same count up to 127, where both are exact, and the same capacity width above it, where
-  // both round alike. A literal merely within the estimate's capacity is not enough: a position the
-  // method side reads through another declaration (`x.T` through another package's object `x` where
-  // the estimate reads a nearer package's `val x`) can hold fewer values than the type the estimate
-  // names. A symbolic value is at least 2^65536, so it fits only a capacity that wide, or an infinite
-  // estimate, which may saturate a power that large.
-  private def agrees(value: Natural, shape: Shape, size: Size): Boolean = value match {
-    case Natural.Lit(_) =>
-      val image = ClosedSpaces.estimate(shape)
-      !size.hasInfinite && !image.hasInfinite && sameWidth(image.finite, size.finite)
-    case _ => size.hasInfinite || size.finite.bits >= Natural.MaxLiteralBits
-  }
+  private def agrees(value: Natural, shape: Shape, size: Size): Boolean =
+    ClosedSpaces.agrees(value, shape, size)
 
-  private def sameWidth(image: FinitePart, estimate: FinitePart): Boolean =
-    (image, estimate) match {
-      case (FinitePart.Exact(a), FinitePart.Exact(b))          => a == b
-      case (_: FinitePart.Exact, _) | (_, _: FinitePart.Exact) => false
-      case _                                                   => image.bits == estimate.bits
-    }
-
-  // A finite estimate above 127 is a capacity, and readings are compared by its width (`agrees`),
-  // so the reason names the width: `≤2^32` would read as agreeing with a value space of 2.
-  private def disagree(name: String, space: Card, size: Size): Position = {
-    val estimate = size.finite match {
-      case FinitePart.Capacity(bits) if !size.hasInfinite => s"a capacity of width $bits bits"
-      case _                                              => size.render
-    }
-    Refused(
-      s"constructor position readings disagree: $name (value space ${Count.of(space).render}, " +
-        s"estimate $estimate)"
-    )
-  }
+  private def disagree(name: String, space: Card, size: Size): Position =
+    Refused(ClosedSpaces.disagreement(name, space, size))
 
 }
 

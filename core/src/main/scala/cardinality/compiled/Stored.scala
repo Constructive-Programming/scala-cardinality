@@ -83,15 +83,31 @@ final private[compiled] class Stored(world: World)(using Context) {
   // type parameters.
   private def constructed(tree: ClassDef, env: Env): Either[String, Held] = {
     val constructor = tree.rhs.constr
-    val copies = Shapes
-      .typeParameters(constructor)
-      .zip(tree.symbol.typeParams)
-      .map((copy, parameter) => copy -> env.binders(parameter))
-    val inside = env.copy(binders = env.binders ++ copies, site = tree.symbol)
     if (!constructor.symbol.isPublic)
       Left(s"a restricted constructor: ${tree.symbol.displayFullName}")
-    else each(Shapes.parameters(constructor).map(_.tpt.toType), inside).map(Stored.product)
+    else
+      each(Shapes.parameters(constructor).map(_.tpt.toType), atClass(tree, env))
+        .map(Stored.product)
   }
+
+  // Where a class's constructor is written: at the class, with the constructor's own copies of the
+  // class's type parameters bound as the class's are.
+  private def atClass(tree: ClassDef, env: Env): Env = {
+    val copies = Shapes
+      .typeParameters(tree.rhs.constr)
+      .zip(tree.symbol.typeParams)
+      .map((copy, parameter) => copy -> env.binders(parameter))
+    env.copy(binders = env.binders ++ copies, site = tree.symbol)
+  }
+
+  /** What one position of a class's constructor stores, as the method side's value space of it is
+    * compared with (slice S3): the position's written type is read as an input, so a top type in it
+    * is one value, and with the method side's saturation, so a collection is not lifted to its
+    * element's tier. An alias is transparent to that; a class of the module the type names is read
+    * as it stores.
+    */
+  def position(tree: ClassDef, tpe: Type): Either[String, Row] =
+    of(tpe, atClass(tree, rowEnv(tree)).copy(input = true)).map(_.row)
 
   // An enum is the sum of its cases: a value case is one value, a class case what it stores, each
   // where its clause passes the enum's parameters on (`Sums.carried`: `case Y extends E[Int]` is a
@@ -156,7 +172,7 @@ final private[compiled] class Stored(world: World)(using Context) {
   private def of(tpe: Type, env: Env): Either[String, Held] = tpe match {
     case by: ByNameType           => of(by.resultType, env)
     case annotated: AnnotatedType => of(annotated.typ, env)
-    case repeated: RepeatedType   => of(repeated.elemType, env).map(_.map(Stored.linear))
+    case repeated: RepeatedType   => of(repeated.elemType, env).map(_.map(Stored.linear(env.input)))
     case _: NothingType           => Right(Held(NothingSize))
     // A literal type has one value. A singleton is read as one too, which does not say that its
     // path denotes a value.
@@ -213,7 +229,7 @@ final private[compiled] class Stored(world: World)(using Context) {
       case Some(c: ClassSymbol) =>
         World.proper(arguments).flatMap(each(_, env)).flatMap { sizes =>
           world.library(c) match {
-            case Some(name)                => standard(name, sizes)
+            case Some(name)                => standard(name, sizes, env.input)
             case None if world.ofModule(c) => declared(c, sizes, env)
             case None                      => Left(s"a class of a dependency: ${c.displayFullName}")
           }
@@ -300,16 +316,24 @@ final private[compiled] class Stored(world: World)(using Context) {
     else if (c.isAbstractClass && !c.isEnum) Right(Held(EffectiveOmega, List(Unbound.Open(name))))
     else
       World.tree(c).flatMap { tree =>
-        val inside =
-          env.copy(binders = c.typeParams.zip(arguments).toMap, visiting = env.visiting + c)
+        // A declaration is read as it stores, whatever position named it.
+        val inside = env.copy(
+          binders = c.typeParams.zip(arguments).toMap,
+          visiting = env.visiting + c,
+          input = false
+        )
         if (c.isEnum) enumeration(tree, inside) else constructed(tree, inside)
       }
   }
 
   // The standard library's types the algebra models, by the class the compiler bound.
-  private def standard(name: String, sizes: List[Held]): Either[String, Held] =
+  private def standard(name: String, sizes: List[Held], input: Boolean): Either[String, Held] =
     (name, sizes) match {
-      case (Stored.Based(size), Nil) => Right(Held(size))
+      // As the method side reads an input: a top type is one value, and `Null` is empty, since
+      // the method side counts no `null` (v1.md §2).
+      case (_, Nil) if input && Stored.Tops(name) => Right(Held(UnitSize))
+      case ("scala.Null", Nil) if input           => Right(Held(NothingSize))
+      case (Stored.Based(size), Nil)              => Right(Held(size))
       // A throwable of the root imports is an open class: any subclass's values are its own.
       case (Stored.Throwables(simple), Nil) =>
         Right(Held(EffectiveOmega, List(Unbound.Open(simple))))
@@ -320,12 +344,13 @@ final private[compiled] class Stored(world: World)(using Context) {
       case ("scala.Option", List(element))                   => Right(element.map(UnitSize + _))
       case ("scala.util.Either", List(left, right))          => Right(left.zip(right)(_ + _))
       case ("scala.collection.immutable.Set", List(element)) =>
-        Right(element.map(e => Stored.lifted(e, BooleanSize.pow(e))))
+        Right(element.map(e => Stored.lifted(input)(e, BooleanSize.pow(e))))
       case ("scala.collection.immutable.Map", List(key, value)) =>
-        Right(key.zip(value)((k, v) => Stored.lifted(k, (v + UnitSize).pow(k))))
+        Right(key.zip(value)((k, v) => Stored.lifted(input)(k, (v + UnitSize).pow(k))))
       case ("scala.PartialFunction", List(key, value)) =>
         Right(key.zip(value)((k, v) => (v + UnitSize).pow(k)))
-      case (_, List(element)) if Stored.Sequences(name) => Right(element.map(Stored.linear))
+      case (_, List(element)) if Stored.Sequences(name) =>
+        Right(element.map(Stored.linear(input)))
       // The finite lists and the infinite streams together, collapsed to the highest tier.
       case (_, List(element)) if Stored.Lazy(name) =>
         Right(element.map { e =>
@@ -358,12 +383,13 @@ private[compiled] object Stored {
 
   // What a type is read in: what the type parameters in scope store, where the type is written
   // (rule F), the classes being read (a cycle is not solved yet), and whether a top-level value
-  // is being read.
+  // is being read, or a constructor position as an input.
   final private case class Env(
       binders: Map[Symbol, Held],
       site: Symbol,
       visiting: Set[ClassSymbol] = Set.empty,
-      isValue: Boolean = false
+      isValue: Boolean = false,
+      input: Boolean = false
   )
 
   // A type parameter no instantiation bound: the size is a function of it.
@@ -388,12 +414,13 @@ private[compiled] object Stored {
 
   // A linear collection over an empty element type holds the empty one; over any other it is at
   // least ω and, by its one-element term, its element's tier.
-  private def linear(element: Size): Size =
-    if (element == NothingSize) UnitSize else lifted(element, EffectiveOmega)
+  private def linear(saturating: Boolean)(element: Size): Size =
+    if (element == NothingSize) UnitSize else lifted(saturating)(element, EffectiveOmega)
 
-  // A finite collection holds each one-element collection, so it is never below its element's tier.
-  private def lifted(element: Size, collection: Size): Size =
-    if (collection.larger(UnitSize) && element.epsilon > 0)
+  // A finite collection holds each one-element collection, so it is never below its element's
+  // tier; the method side saturates at ω, and so does a reading compared with it.
+  private def lifted(saturating: Boolean)(element: Size, collection: Size): Size =
+    if (!saturating && collection.larger(UnitSize) && element.epsilon > 0)
       Size.order.max(collection, EffectiveEpsilon0)
     else collection
 
@@ -407,6 +434,8 @@ private[compiled] object Stored {
       "scala.math.BigInt" -> "BigInt",
       "scala.math.BigDecimal" -> "BigDecimal"
     )).flatMap((qualified, name) => BaseTypes.get(name).map(qualified -> _)).toMap
+
+  private val Tops = Set("scala.Any", "scala.AnyVal", "java.lang.Object", "scala.Matchable")
 
   private val EmptyTuple = """scala\.Tuple\$package\$?\.EmptyTuple""".r
 
