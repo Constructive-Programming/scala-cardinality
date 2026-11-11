@@ -629,11 +629,25 @@ time on the rows still uncovered is not in it.
   decided Q4, Q6, Q8, S1 ("After S1") and S2 without sealed families and recursion ("After S2").
 - Blocked, for the coordinator: the sum of a sealed family on the stored side ("After S2" has the
   evidence: two worse rows whose old number is derivably wrong, which the gate cannot pass).
-- Next: S3, constructor rows (`a constructor`: 444 / 533 / 1,335 rows on corpus-core, cats-core
-  and the fixtures). The old rule is `analysis/ConstructorPositions`: each parameter is a
-  position, read as a closed shape (`ClosedSpaces.counted`) that must agree in width with the
-  stored-size estimate (`Stored` now gives it), and the row is `Count.product` of the positions.
-  `Readings.later` answers `Left("a constructor")` today.
+- In work, uncommitted: S3, constructor rows, in `Readings.positions` (a class's row measures its
+  primary constructor; `Readings.method` routes it). Done: each position's shape, a closed one
+  its value space (`ClosedSpaces.counted`, a tier from `ClosedSpaces.estimate`), a type
+  parameter's slot left to the solver, the product by `Count.product`. First gate run: fixture
+  method rows identical 791 to 1,819, corpus-core 452 to 509, cats-core 10 to 228. Half done: the
+  old rule also asks the stored-size estimate about each position (`ConstructorPositions`), and
+  the gate shows where that matters: (a) the estimate declines a ground position and the row is
+  `?` (`open to implementations: R` for a field of an open or types-only trait: 10 fixture rows);
+  (b) the two readings disagree and the row is refused (`f: Nothing => Int`: value space 1,
+  estimate 0); (c) a position the method side refuses (a recursive type) takes the estimate's
+  tier (18 corpus-core rows, left uncovered now). To do: a `Stored` reading of a position as an
+  input (a top type one value, collections not lifted to their element's tier), then decline,
+  agree or disagree as `ConstructorPositions.readPosition` and `closedPosition` do; a position
+  `Stored` does not read leaves the row uncovered.
+- Open in S3, for the coordinator: four fixture rows are worse in form only. Where the old
+  method side did not follow a path (`U(x: q.X)` through an export, `UsesT(t: x.T)` through a
+  value) it took the estimate and reports an upper bound, `≤2^32`; the new reading follows the
+  path and reports the exact `2^32`. The gate fails any changed number. Until decided, a position
+  written through a term that is no object is to stay uncovered.
 - Interface notes from the sibling's ledger of the spec suite (`scripts/spec-ledger.sh`), for S8
   or earlier: `Report.of` is tied to `ScalametaFrontEnd`; a source that defines nothing is told
   only by message text; there is no `Limits` parameter; dependencies can only be given as
