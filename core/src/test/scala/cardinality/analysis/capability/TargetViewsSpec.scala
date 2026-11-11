@@ -8,8 +8,9 @@ import org.specs2.execute.Result
 // Target views (design/capabilities.md C6): which overridable members re-enter the measured
 // declaration. Every fixture is valid Scala 3.9.0 (compiled with scalac: probes/b3fix1/spec,
 // probes/b3fix2/spec). Each count is derived in the comment above its check; a `?` is a possible
-// view, never a number. They are read in the open world (`MethodAnalysis.analyzeOpen`), where each
-// overridable member is open as one a supplied template overrides is in the closed world.
+// view, never a number. Each fixture is read with its methods open, by the overriders
+// `Overriders.opened` writes; a trait in a final class and an inherited member are opened by an
+// overrider the fixture writes itself.
 class TargetViewsSpec extends Specification {
   import Inhabitation.Count
 
@@ -51,8 +52,8 @@ class TargetViewsSpec extends Specification {
   """
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
-    cardinality.Compiled.analyzeOpen(
-      cardinality.Compiled.inputs("Views.scala" -> code)
+    cardinality.Compiled.analyze(
+      cardinality.Overriders.opened(cardinality.Compiled.inputs("Views.scala" -> code))
     )
 
   private def one(code: String): Map[String, Count] =
@@ -109,12 +110,16 @@ class TargetViewsSpec extends Specification {
     ) === Count.Finite(16)
 
   // A parent's default body resolves its names where it is written: `???` in P0.k is Predef's
-  // (it throws, and supplies nothing), not the subclass's `???` member - S0.??? counts its
-  // concrete implementation (register C6; Construction reads each level in its own scope too).
+  // (it throws, and supplies nothing), not the subclass's `???` member. S0K overrides the inherited
+  // k, so k is open and reads as its abstract twin, an Int => Nothing no instance can have: S0 has
+  // no instance and S0.??? is vacuous, 1. Read as S0's `???`, k's default would be an Int, k an
+  // input, and S0.??? every Int, 2^32 (register C6; Construction reads each level in its own scope
+  // too).
   def inheritedDefault =
     one(
       """class P0 { def k(x: Int): Nothing = ??? }
         class S0 extends P0 { def ??? : Int = 1 }
+        class S0K extends S0 { override def k(x: Int): Nothing = super.k(x) }
         object Use { def f(s: S0): Int = s.??? }"""
     )("S0.???") === Count.Finite(1)
 
@@ -204,6 +209,7 @@ class TargetViewsSpec extends Specification {
     one("""final class Outer {
       def target(b: Boolean): Boolean = b
       trait Inner { def target(b: Boolean): Boolean; def m: Boolean = Outer.this.target(true) }
+      trait InnerM extends Inner { override def m: Boolean = super.m }
     }""")("Outer.Inner.target") === Count.Finite(16)
 
   def openOuter =

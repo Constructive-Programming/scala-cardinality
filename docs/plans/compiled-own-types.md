@@ -209,18 +209,26 @@ rewrite: the old front end is the oracle until the new one matches it.
 What phases 4 to 6 are measured against, and how to rebuild it. Everything here is the scalameta
 front end's: the costs at `5f89e91`, the rows at `1358b07`, the fixtures at this commit.
 
-### In progress (gate agent, stretch 3: the spec suite against the compiled front end)
+### In progress (gate agent, stretch 4: a row-level home for each rule only scalameta tests pin)
 
-A note for whoever continues from the files alone.
+A note for whoever continues from the files alone. Stretch 3 is committed whole (`a584ae1`,
+`baec0ca`, `0fd209d`: "Test fixtures" and "Specs against the compiled front end" below).
 
-- Committed: `classpath.txt` in each cache entry and `staging/` in the cache; the front-end switch
-  in `Compiled` with the helpers that read rows; the ledger (`cardinality.ExampleLog`,
-  `scripts/spec-ledger.sh`, `docs/baselines/tasty-spec-ledger.tsv`) with the classification of
-  every specification. "Test fixtures" and "Specs against the compiled front end" below say what
-  each is.
-- Open: nothing of this stretch. After a front-end slice lands, rerun `scripts/spec-ledger.sh`
-  and diff the ledger: an example may move from UNCOVERED to PASS, and one that moves to FAIL
-  has a cause to read. An expectation moves only with its derivation.
+Stretch 4 gives each rule of the model that only class (b) examples pin an example on rows, which
+passes on the scalameta front end today and joins the ledger. Decided, not to be re-homed: the
+member-signature reading (deleted with the scalameta front end), the index, lookup, alias and
+projection budgets (they will not exist), stack independence and the refusal for a class the
+classpath does not hold (the front-end agent's). Units, each committed after
+`sbt scalafmtAll scalafixAll`, `sbt core/testFull`, `bash scripts/check-file-metrics.sh`, CPD and
+three reviews of its staged diff:
+
+1. Open-world rules as closed-world rows. Done: the 53 examples of `TargetViewsSpec`,
+   `ReentrySpec` and `PureCodeSpec`'s open rows read the closed world with the overrider supplied
+   (`cardinality.Overriders`; "Rules of class (b), on rows" below).
+2. Dependency rules as rows over a dependency compiled apart and given to the analysis as classes
+   (a harness addition beside withheld support). Not started.
+3. The fixtures whose first failure hides assertions on code that compiles. Not started.
+4. Ledger rerun, totals and the classification table. Not started.
 
 ### Commands
 
@@ -347,8 +355,8 @@ ones that ended left there, so a compiler that ran out of time leaves nothing am
   `TastyFrontEnd` over the fixture's classes and the classpath its entry records (`tasty`, and
   `sentinel`, `filled` and `probe`, which a ledger is read from: `FrontEndMode` says what each
   is). The withheld support is on neither, so what a fixture withholds stays unsupplied.
-  `Compiled.source`, `ascribed`, `analyzeOpen` and a request with dependency stubs given as sources
-  read what only the scalameta front end has, and fail under any other mode saying so.
+  `Compiled.source`, `ascribed` and a request with dependency stubs given as sources read what
+  only the scalameta front end has, and fail under any other mode saying so.
   `Rows.typeSize` (the alias row of `type T = …`) stands where `Counter.type` did in
   `CardinalitySpec` and `ArticleCardinalitySpec`, and `Rows.total` (a source's class, enum, module
   and top-level value rows, summed) where `Counter.source` did in those two, `CounterSpec`,
@@ -631,6 +639,103 @@ Gaps in the front end's interface that the switch had to work around:
 - `Differential` lists every cache directory with an `ok` marker, so it also reads entries of
   fixtures since edited or of the layout before `classpath.txt`; it can read each entry against
   its `classpath.txt` instead of the Scala library alone.
+
+### Rules of class (b), on rows
+
+Each rule of the model that only class (b) examples pin gets an example on rows here, so that none
+is left without a test when the scalameta front end is deleted. Each passes on the scalameta front
+end and joins the ledger at its next run. Not given one, by decision (the note above): the
+member-signature reading, which docs/type-arithmetic.md §10 describes and README.md and
+docs/index.md show as library API, and which is deleted with the scalameta front end; the index,
+lookup, alias and projection budgets; stack independence and the refusal for a class the classpath
+does not hold.
+
+**Open members (target views C6 and C6a, re-entry, the sandwich D31, a throwing default as its
+abstract twin).** `TargetViewsSpec` (27 examples), `ReentrySpec` (14) and 12 of `PureCodeSpec` read
+the open world (`MethodAnalysis.analyzeOpen`), where every overridable member is open. In the
+closed world a member is open exactly where a supplied template overrides it, so the same 53
+examples read the closed world with the overrider supplied, in place: none was added or dropped,
+and no expectation changed.
+
+- `cardinality.Overriders.opened` writes, beside each class and trait that is not final, a
+  template that extends it and overrides each concrete method by calling it (`trait T__O extends
+  T { override def m : Boolean = super.m }`); `CompiledSpec` pins what it writes. Ten fixtures
+  write overriders themselves, for what it does not: a `val` or `lazy val` (`construction`,
+  `bindingScope`, `builtBefore`), a member written without a type (`unimplementable`,
+  `overridingResult`), an inherited member (`inheritedDefault`, `appliedTwins`, `openSubclass`)
+  and a trait in a final class (`finalOuter`).
+- Every rule has a closed-world form: none of the 53 needed the open world.
+- The counts are the open world's. A derivation in a spec's comment that leaned on a member the
+  open world opened without saying so now has that overrider in its fixture, or says what makes
+  the count (`inheritedDefault`: the 1 is a receiver without an instance, once the inherited `k`
+  is open).
+- 46 of the 53 read another row without the overriders (the table's last column: the same
+  fixture without what `Overriders` writes). In six the member is a definite view, which is left
+  out of the count exactly as a final member that calls the target is: the count cannot tell the
+  two apart, and what the overrider adds is that the member is open, so a view that was not
+  recognized would count as an input (as `localGiven` and `nestedFree` count theirs, 16). In
+  `builtBefore` the refusal does not depend on what is overridden.
+- The rows of the opened members themselves differ from the open world's where a `val` is
+  involved (the open world read every `val` as open; here only an overridden one is). No example
+  asserts those rows.
+- `MethodAnalysis.analyzeOpen` and the open-world mode of `MethodAnalysis.Index` have no caller
+  left: they can be deleted with or before the scalameta front end.
+
+| Example | Rule | Row | With the overriders | Without |
+| --- | --- | --- | --- | --- |
+| `TargetViewsSpec.overloadView` | an overload calling the declaration is a definite view | `Ovl.target` | 4 | the same |
+| `TargetViewsSpec.ambiguousOverload` | an overload the arity does not settle is a possible view | `Amb.target` | `?` (may re-enter: Amb.target) | 4 |
+| `TargetViewsSpec.defaults` | a default argument still selects the declaration | `D.target` | 16 | the same |
+| `TargetViewsSpec.inheritedDefault` | a parent's default body resolves its names where written | `S0.???` | 1 | 2^32 |
+| `TargetViewsSpec.etaExpansion` | an η-expanded method is not run: a possible view | `Eta.target` | `?` (may re-enter: Eta.m) | 4 |
+| `TargetViewsSpec.rightAssociative` | a right-associative operator's operand may be by name | `R.target` | `?` (may re-enter: R.m) | 4 |
+| `TargetViewsSpec.partial` | a partially applied method is η-expanded | `P.target` | `?` (may re-enter: P.m) | 16 |
+| `TargetViewsSpec.selfAlias` | a self alias is the receiver | `S.target` | 4 | the same |
+| `TargetViewsSpec.usingClauses` | an argument list fills the clause its `using` flag selects | `U.target` | `?` (may re-enter: U.m) | 4 |
+| `TargetViewsSpec.boundQualifier` | a call on a local binding has no declaration read | `Q.target` | `?` (may re-enter: Q.m) | 4 |
+| `TargetViewsSpec.localGiven` | a block's local given shadows the member of its name | `G.target` | 16 | 4 |
+| `TargetViewsSpec.finalOuter` | `Outer.this.m` of a final outer is another declaration | `Outer.Inner.target` | 16 | 4 |
+| `TargetViewsSpec.openOuter` | `Outer.this.m` of an open outer may be overridden to re-enter | `Outer.Inner.target` | `?` (may re-enter: Outer.Inner.m) | 4 |
+| `TargetViewsSpec.enclosingPath` | an enclosing receiver's call through the object path is a view | `Outer.Inner.target` | 4 | the same |
+| `TargetViewsSpec.enclosingNested` | an enclosing receiver's call through a nested object may re-enter | `Outer.Inner.target` | `?` (may re-enter: Outer.m) | 4 |
+| `TargetViewsSpec.nested` | a nested object or class whose body re-enters is a possible view | `T.target` | `?` (may re-enter: T.m) | 4 |
+| `TargetViewsSpec.positions` | an argument, tuple field, condition, scrutinee, unary or `!=` operand, `equals` receiver | `Arg.target` | 4 | the same |
+| `TargetViewsSpec.equality` | a by-name `==` overload; a by-value one evaluates its operand | `Eq.target` | `?` (may re-enter: Eq.m) | 4 |
+| `TargetViewsSpec.byNameExtension` | an extension whose receiver is by name | `S.target` | `?` (may re-enter: S.m) | 4 |
+| `TargetViewsSpec.byNameConversion` | a conversion taking its argument by name | `T.target` | `?` (may re-enter: T.m) | 4 |
+| `TargetViewsSpec.contextFunction` | a context-function parameter, or an alias of one | `T.target` | `?` (may re-enter: T.m) | 4 |
+| `TargetViewsSpec.samLambda` | a lambda converted to a SAM; one returned as a function | `T.target` | `?` (may re-enter: T.m) | 4 |
+| `TargetViewsSpec.implicitSearch` | implicit search selecting a given that re-enters | `T.target` | `?` (may re-enter: T.m) | 4 |
+| `TargetViewsSpec.superSelection` | `super.m` runs a parent's definition | `T.target` | `?` (may re-enter: T.m) | 4 |
+| `TargetViewsSpec.nestedFree` | a nested object that names nothing is no view | `T.target` | 16 | 4 |
+| `TargetViewsSpec.importedExtension` | an import or export of an extension from outside the sources | `E.target` | `?` (may re-enter: E.m) | 4 |
+| `TargetViewsSpec.blockImport` | a block's import reaches the statements after it in the block | `A.target` | `?` (may re-enter: A.n) | 4 |
+| `ReentrySpec.localDefinite` | evaluated at a result, a statement or a nested block: dropped | `B.m.<block#1>.h` | 16 | the same |
+| `ReentrySpec.localPossible` | in a branch, a lambda applied in place or an η-expansion: `?` | `C2.m.h` | `?` (may re-enter: C2.m) | 16 |
+| `ReentrySpec.localLoose` | inside a match arm, a try, an interpolation or a loop: `?` | `C1.m.h` | `?` (may re-enter: C1.m) | 16 |
+| `ReentrySpec.localShadowed` | a name bound again, or the definition's own recursion, is no mention | `Rec.m.h` | 2^16 | 16 |
+| `ReentrySpec.secondary` | a secondary constructor's body, for a local or a member target | `D.<init#1>.helper` | `?` (may re-enter: D.other) | 16 |
+| `ReentrySpec.primary` | strict initializers and template statements | `Init.h` | `?` (may re-enter: Init.other) | 16 |
+| `ReentrySpec.subclass` | a subclass's construction runs its parents' | `C.h` | `?` (may re-enter: C.m) | 4 |
+| `ReentrySpec.subclassOwnCode` | a receiver's subclass with code of its own may run any member | `C.h` | `?` (may re-enter: C.other) | 4 |
+| `ReentrySpec.creators` | a creator application or `copy` builds as `new` does | `E.h` | `?` (may re-enter: E.other) | 16 |
+| `ReentrySpec.literalSearch` | a literal searches only where its type is not the result type | `T.conv` | `?` (may re-enter: T.other) | 2^(2^32) |
+| `ReentrySpec.abstractGiven` | an abstract given a sibling may summon is a possible view | `A7.g` | `?` (may re-enter: A7.other) | 2 |
+| `ReentrySpec.settledBody` | a body returning its parameter of the result type searches none | `Xe.g` | 16 | 2 |
+| `ReentrySpec.sandwichRefuses` | a refused binding, readings that disagree, or ≥ 2 stay `?` | `D.to` | `?` (may re-enter: D.m) | 0 |
+| `ReentrySpec.builtBefore` | an enclosing parameter or a plain constructor parameter | `Field.to` | `?` (may be the receiver: Opt.to) | the same |
+| `PureCodeSpec.privateVarField` | a private var field stays hidden state | `Use.f` | `?` (open class with hidden constructor state: RVH.x) | `?` (final class field not observable injectively: RVH.x) |
+| `PureCodeSpec.throwingOpenMember` | an open member that only throws stays an open capability | `OpenGet.m` | 16 | 4 |
+| `PureCodeSpec.unimplementable` | one of an empty type reads as its abstract twin: vacuous | `K1.m` | 1 | 4 |
+| `PureCodeSpec.appliedTwins` | at the record's or receiver's type arguments | `V.mkGen` | 0 | 1 |
+| `PureCodeSpec.subclassTwins` | a subclass's instance is its parent's: both vacuous | `U.viaQ` | 1 | 4 |
+| `PureCodeSpec.boundedBinder` | a bound may supply a binder: such a member is kept | `Use.eqb` | `?` (polymorphic capability binder: B (bounded)) | 4 |
+| `PureCodeSpec.overridingResult` | a member without a result type that may override is kept | `Recv.m` | 16 | 4 |
+| `PureCodeSpec.emptyTypes` | an empty type is read from its structure | `Use.u1` | 1 | 4 |
+| `PureCodeSpec.construction` | a constructor that only throws builds no instance | `Use.dk2` | 16 | 2 |
+| `PureCodeSpec.bindingScope` | a level's body binds names in its own scope | `K.m` | 2^(2^33) | 4 |
+| `PureCodeSpec.throwingRecord` | a record keeps a member no override can implement | `Use.f` | 1 | 2 |
+| `PureCodeSpec.openSubclass` | an open subclass's overridable members are reasons | `U.u` | `?` (inherited stdlib member a subclass may override: `Exception.getCause`) | `?` (final class field not observable injectively: MyErr.msg) |
 
 ## Phase 5: the TASTy front end, slice by slice
 

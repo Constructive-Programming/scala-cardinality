@@ -35,8 +35,8 @@ import java.util.concurrent.ConcurrentHashMap
   *
   * The rows a test reads (`analyze`, `definitions`, `report`) come from the front end the system
   * property `cardinality.frontend` names: [[FrontEndMode]]. What only the scalameta front end has
-  * (`source` and `ascribed`, its tree; `analyzeOpen`, the open world; dependency stubs given as
-  * sources) fails under any other and says so.
+  * (`source` and `ascribed`, its tree; dependency stubs given as sources) fails under any other and
+  * says so.
   */
 object Compiled {
 
@@ -84,7 +84,7 @@ object Compiled {
   private val compiled = new ConcurrentHashMap[String, Option[Path]]()
 
   // The path prefix of a support source: compiled, never analyzed.
-  private val Withheld = "withheld/"
+  private[cardinality] val Withheld = "withheld/"
 
   // Between a fixture's text and the support it carries. It is no Scala, so a text that carries
   // support and is parsed without `inputs` does not parse.
@@ -365,14 +365,6 @@ object Compiled {
       limits: MethodAnalysis.Limits = MethodAnalysis.Limits()
   ): List[MethodAnalysis.Entry] =
     read(inputs)(asReport(Nil, MethodAnalysis.analyze(typed(inputs), limits))).methods
-
-  /** The method rows as an open world reads the sources: a reading only the scalameta front end
-    * has.
-    */
-  def analyzeOpen(inputs: List[MethodAnalysis.Input]): List[MethodAnalysis.Entry] = {
-    scalametaOnly("the open world")
-    MethodAnalysis.analyzeOpen(typed(inputs))
-  }
 
   // What every fixture is compiled with, beside its output and classpath. `-Xkind-projector` reads
   // the `F[A, *]` placeholder some fixtures spell, as the libraries that write it compile.

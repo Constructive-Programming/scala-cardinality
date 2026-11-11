@@ -27,8 +27,8 @@
 #              left when the counts not read yet are answered.
 #   PENDING    pending under tasty, or failing there and pending under filled: a target its
 #              specification marks as not met yet, which says nothing of the front end.
-#   SCALAMETA  reads what only the scalameta front end has (its tree, the open world, dependency
-#              stubs given as sources): the example is not one of rows.
+#   SCALAMETA  reads what only the scalameta front end has (its tree, dependency stubs given as
+#              sources): the example is not one of rows.
 #
 # A row counts as not read yet only where every reason it gives starts with
 # `TastyFrontEnd.Uncovered`; the harness decides that, row by row, not this script from a message.

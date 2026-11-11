@@ -21,12 +21,13 @@ trait InventoryFixtures extends MustMatchers {
   protected def rows(code: String): Map[String, Count] =
     entries(code).map(entry => entry.name -> entry.count).toMap
 
-  /** The rows as the open world reads them (`MethodAnalysis.analyzeOpen`): every overridable member
-    * open, as one a supplied template overrides is in the closed world.
+  /** The rows of the fixture with its methods open: read with the overriders `Overriders.opened`
+    * writes. A `val`, a member written without a type or an inherited one is opened by an overrider
+    * the fixture writes itself.
     */
   protected def openRows(code: String): Map[String, Count] =
     cardinality.Compiled
-      .analyzeOpen(inputs("Example.scala" -> code))
+      .analyze(cardinality.Overriders.opened(inputs("Example.scala" -> code)))
       .map(entry => entry.name -> entry.count)
       .toMap
 

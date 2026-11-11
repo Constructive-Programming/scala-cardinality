@@ -10,8 +10,8 @@ import org.specs2.execute.Result
 // Re-entry through what the receiver's members run (capabilities C6) where the measured
 // declaration is a local definition, a constructor runs it, or implicit search may select it; and
 // the view sandwich (C6, register D31). Fixtures are valid Scala 3.9.0 (scalac, on session
-// fixtures not retained). They are read in the open world (`MethodAnalysis.analyzeOpen`), where
-// each overridable member is open as one a supplied template overrides is in the closed world.
+// fixtures not retained). Each fixture is read with its methods open, by the overriders
+// `Overriders.opened` writes.
 class ReentrySpec extends Specification {
   import Inhabitation.Count
 
@@ -39,8 +39,10 @@ class ReentrySpec extends Specification {
 
   private def one(code: String): Map[String, Count] =
     cardinality.Compiled
-      .analyzeOpen(
-        List(MethodAnalysis.Input("Reentry.scala", dialects.Scala3(code).parse[Source].get))
+      .analyze(
+        cardinality.Overriders.opened(
+          List(MethodAnalysis.Input("Reentry.scala", dialects.Scala3(code).parse[Source].get))
+        )
       )
       .map(entry => entry.name -> entry.count)
       .toMap
@@ -233,8 +235,8 @@ class ReentrySpec extends Specification {
   // it bound m: Boolean => Int reaches Int — they disagree too. E3's m returns Unit: 4 either way;
   // agreeing bounds fix the count (4), but the rule decides only 0 and 1, a deliberately narrow
   // choice, so it stays `?`. Opt.to's upper reading binds andThen, whose record has an abstract
-  // type member: refused, so the row is (its true count is 0, but the closed-world reading that
-  // says so is unsound: an open class's concrete members are capabilities, X5).
+  // type member: refused, so the row is (its true count is 0, but the reading with andThen final
+  // that says so is unsound: an open class's concrete members are capabilities, X5).
   def sandwichRefuses = {
     val found = one("""
       trait D[T] { def to(u: Unit): T; def m(b: Boolean): T = if b then to(()) else to(()) }
@@ -252,8 +254,8 @@ class ReentrySpec extends Specification {
   // dimap's anonymous Opt and Wrap read o built before their receiver: o is another value, never
   // the receiver, so o.to is a capability S => B, and B's only producer is o.to(f(r)) (o.to(s)):
   // 1. A by-name o (later) is evaluated where it is read and may be the receiver; a constructor
-  // `val` (Field) is a member a subclass may override with the receiver; a member's own parameter
-  // (Pick's other) may be the receiver: each keeps the reason.
+  // `val` (Field) is a member a subclass overrides with the receiver (FieldO); a member's own
+  // parameter (Pick's other) may be the receiver: each keeps the reason.
   def builtBefore = {
     val found = one("""
       trait Opt[S, B] { def to(s: S): B }
@@ -263,6 +265,7 @@ class ReentrySpec extends Specification {
       }
       class Wrap[S, B](o: Opt[S, B]) extends Opt[S, B] { def to(s: S): B = o.to(s) }
       class Field[S, B](val o: Opt[S, B]) extends Opt[S, B] { def to(s: S): B = o.to(s) }
+      class FieldO[S, B](x: Opt[S, B]) extends Field[S, B](x) { override val o: Opt[S, B] = this }
       trait Pick[B] { def pick(b: B, other: Pick[B]): B }
       class P[B] extends Pick[B] { def pick(b: B, other: Pick[B]): B = other.pick(b, other) }
     """)

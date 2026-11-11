@@ -9,8 +9,7 @@ import org.specs2.matcher.MatchResult
   * except the singleton type of a `var`, which Scala rejects (E083) — the refusal under test — and
   * the two that import from `foo`, a package deliberately not supplied (`Blocked`, `W`). Each
   * expected number is derived in the comment beside it. A fixture about an overridable member's
-  * default is read in the open world (`openRows`), where the member is open as one a supplied
-  * template overrides is in the closed world.
+  * default is read with the member open (`openRows`).
   */
 class PureCodeSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
@@ -85,8 +84,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   // Privacy, not mutation, hides the field: no member observes it, so a goal could not be told
-  // apart by it while an input still holds it — refused, never 2 or 4. In the closed world RVH is
-  // final, and x a field no member observes: refused all the same.
+  // apart by it while an input still holds it — refused, never 2 or 4. Without the overrider (`rows`)
+  // RVH is final, and x a field no member observes: refused all the same.
   def privateVarField = {
     val code = "class RVH(private var x: Boolean)\nobject Use { def f(v: RVH): Boolean = ??? }"
     refused(openRows(code)("Use.f"), "open class with hidden constructor state: RVH.x")
@@ -219,8 +218,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   // A subclass may override `get` with any Boolean: m ranges over functions of (b, get), 2^4 = 16,
-  // as for the abstract twin — reading the throwing default as absent would give 4. In the closed
-  // world nothing overrides it: OpenGet is final, get supplies nothing, m is b's functions — 4.
+  // as for the abstract twin — reading the throwing default as absent would give 4. Without the
+  // overrider (`rows`) OpenGet is final, get supplies nothing, m is b's functions — 4.
   def throwingOpenMember = {
     val found = openRows(
       """class OpenGet { def get: Boolean = ???; def m(b: Boolean): Boolean = ??? }
@@ -248,6 +247,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |  def m(b: Boolean): Boolean = ???
       |}
       |class OpenBoomInferred { def boom = sys.error("x"); def m(b: Boolean): Boolean = ??? }
+      |class OpenBoomInferredB extends OpenBoomInferred { override def boom: Nothing = super.boom }
       |class K1 { def k(x: Int): Nothing = ???; def m(b: Boolean): Boolean = ??? }
       |class OpenFail {
       |  def fail[A](msg: String): A = throw new IllegalStateException(msg)
@@ -274,6 +274,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       """class K1 { def k(x: Int): Nothing = ???; def m(b: Boolean): Boolean = ??? }
       |class K2[A] { def k(x: A): Nothing = ??? }
       |class K4 extends K2[Int] { def m(b: Boolean): Boolean = ??? }
+      |class K4K extends K4 { override def k(x: Int): Nothing = super.k(x) }
       |class K5[A](val a: A) { def k(x: A): Nothing = ???; def m(b: Boolean): Boolean = ??? }
       |class Mono { def k: Boolean => Nothing = ???; def m(a: Boolean): Boolean = ??? }
       |class Gen[A] { def k: A => Nothing = ???; def m(a: A): Boolean = ??? }
@@ -363,6 +364,10 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |class Recv extends Base { def get = ???; def m(b: Boolean): Boolean = ??? }
       |class BC { def get: Boolean = true }
       |class IC extends BC { override def get = ??? }
+      |class ImplG extends Impl { override def get: Boolean = super.get }
+      |class TImplG extends TImpl { override def get: Boolean = super.get }
+      |class RecvG extends Recv { override def get: Boolean = super.get }
+      |class ICG extends IC { override def get: Boolean = super.get }
       |object Use {
       |  def f(i: Impl): Boolean = ???
       |  def ft(i: TImpl): Boolean = ???
@@ -440,6 +445,11 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |class Stmt { ???; def m(b: Boolean): Boolean = ??? }
       |class Mem { def ??? : Int = 1; val x: Int = ???; def m(b: Boolean): Boolean = b }
       |class St { println("x"); def m(b: Boolean): Boolean = ??? }
+      |class LK2B extends LK2 { override lazy val boom: Boolean = true }
+      |class MemX extends Mem { override val x: Int = 0 }
+      |class OK1X extends OK1 { override val x: Boolean = true }
+      |trait TKX extends TK { override val x: Boolean = true }
+      |class IVX extends IV { override val x: Boolean = true }
       |object Use {
       |  def ok2(k: OK2): Boolean = ???
       |  def lk2(k: LK2): Boolean = ???
@@ -536,6 +546,10 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |class L { val x: Int = ???; import Helpers.???; def m(b: Boolean): Boolean = b }
       |object O { export Helpers.???; class E { val x: Int = ???; def m(b: Boolean): Boolean = b } }
       |class R { import Helpers.{??? => q}; val x: Int = ???; def m(b: Boolean): Boolean = b }
+      |class KX extends K { override val x: Int = 0 }
+      |class EX extends O.E { override val x: Int = 0 }
+      |class LX extends L { override val x: Int = 0 }
+      |class RX extends R { override val x: Int = 0 }
       |object V { def tk(t: TK): Boolean = ???; def sh(s: Sh): Boolean = ??? }
       |""".stripMargin)
     each(found, Count.Finite(1))("V.tk", "V.sh", "Sh.m", "L.m", "R.m")
@@ -744,12 +758,14 @@ class PureCodeSpec extends Specification with InventoryFixtures {
     (found("K.same") === Count.Finite(1)).and(found("K.other") === Count.Finite(0))
   }
 
-  // MyErr overrides getMessage, but a subclass of it may still override getCause and
-  // getLocalizedMessage, which this reading does not enumerate as capabilities: refused with the
-  // member named.
+  // MyErr overrides getMessage, and a subclass of it overrides getCause (MyErrC), an inherited
+  // member this reading does not enumerate as a capability: refused with the member named.
   def openSubclass = {
     val found = openRows("""class MyErr(msg: String) extends Exception(msg) {
       |  override def getMessage: String = "x"
+      |}
+      |class MyErrC(msg: String) extends MyErr(msg) {
+      |  override def getCause: Throwable = super.getCause
       |}
       |object U { def u(e: MyErr): Boolean = ??? }""".stripMargin)
     refused(found("U.u"), "inherited stdlib member a subclass may override: java.lang.Exception")
