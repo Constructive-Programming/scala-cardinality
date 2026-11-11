@@ -430,9 +430,9 @@ D4), the phase 5 table and phase 6 above, `AGENTS.md` and `v1.md` §2.
 | --- | --- | --- |
 | Boundary | `reporting/FrontEnd.scala` | `FrontEnd.rows(Module): Rows`. In: each source's path and text, and the `Report.Environment`. Out: one answer per source in order, its `Entry` and `Definition` rows or a `Report.Error`. |
 | Old front end | `reporting/ScalametaFrontEnd.scala` | The pipeline `Report.of` had inline, moved unchanged; the only one `Report.of` calls. `Report.query` calls its steps directly. |
-| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Source.scala` (1,012 lines) | Reads the compiled classes through tasty-query. |
+| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Shapes.scala`, `Sums.scala`, `Bodies.scala`, `World.scala`, `Source.scala` (1,534 lines) | Reads the compiled classes through tasty-query. |
 | Gate | `core/src/test/scala/cardinality/compiled/Differential.scala` | See "The gate". |
-| Regression | `TastyFrontEndSpec` (16 examples) | Derived counts for the first slice, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
+| Regression | `TastyFrontEndSpec` (19 examples) | Derived counts for each slice, the reason of each row a slice refuses or leaves, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
 
 The old front end's files changed in two places only, both extractions: `CompiledTypes.loaded` (the
 class loading `read` had inline) and `Definition.qualified` (the name joiner `Walk` had).
@@ -447,7 +447,7 @@ each answers a count or size, or `Left(what the row needs)`. A slice replaces `L
   whose owners up to the package are objects with no parent but `Object`, `Product`, `Equals` or
   `Serializable`, and without a pattern or multi-name value definition, named or not; whose type
   parameters are
-  unbounded; over the standard model's types (`BuiltinTypes.known`) and those parameters. Its
+  unbounded; over those parameters and the types `Shapes` reads (slice S1, below). Its
   environment is its own parameters. A member of an object that is never built counts 1 (register
   D26, `docs/research/code-cardinality-foundations.md`); a result with one value counts 1.
 - **Definition rows.** An object; an enum without parameters whose cases are all values; a concrete
@@ -625,13 +625,18 @@ time on the rows still uncovered is not in it.
 
 - Stretch 2: slices S1, S2, S3, each committed when `scripts/differential.sh` passes and it is
   reviewed.
-- Done: the gate changes (limit classes, coverage memory, six corpora, withheld support) and the
-  decided Q4, Q6, Q8.
-- Next: S1, types of the module's sources as shapes, in a new `compiled/Shapes.scala` called from
-  `Readings.shape`. Plain case classes, enums and sealed families of the closed fragment first; a
-  class the reading does not cover stays `Uncovered`.
+- Done: the gate changes (limit classes, coverage memory, six corpora, withheld support), the
+  decided Q4, Q6, Q8, and S1 as "After S1" below describes it.
+- Next: S2, the definitions table. `Readings.definition` reads an object, an enum of value cases
+  and a class of base-type fields today. What its uncovered rows need, largest first: `an abstract
+  class or trait` (the old row is `—`, no size and no reason), `a type alias`, `a class with type
+  parameters`, `a class with parents`, `a field of type …` (a field that is a class of the module
+  or a standard type: the stored-size rules of `capacity.Counter.typeIn`), `an enum with class
+  cases` and `with parameters`. Then S3, constructor rows (`a constructor`).
 - To run: `scripts/differential.sh /var/cache/users/rhansen/cardinality-tasty <output directory>`,
-  after `sbt core/testFull` has filled `core/target/compiled-fixtures`.
+  after `sbt core/testFull` has filled `core/target/compiled-fixtures`. While developing, run the
+  gate against a copy of `<assets>/covered`: a passing run writes the memory, and a row a
+  work-in-progress reading counted and the finished one leaves then fails the next run.
 
 Each table is one run of `scripts/differential.sh` over the six corpora and the compiled fixtures
 (1,424 that compile, of 1,496). Rows is each side's count (they are equal: nothing is unpaired).
@@ -660,6 +665,76 @@ every input pairs; the three better rows past a model limit are derived in `deri
 | fixtures | definitions | 3,858 | 1,521 | 10 / 0 | 0 | 0 | 2,327 | 1,521 of 3,166 (48.0%) |
 | **all corpora** | methods | 14,232 | 246 | 2 / 0 | 0 | 0 | 13,984 | 237 of 2,336 (10.1%) |
 | **all corpora** | definitions | 2,677 | 689 | 0 / 0 | 0 | 0 | 1,988 | 689 of 1,807 (38.1%) |
+
+**After S1** (types of the module as shapes). Every row pairs; no row is worse; the six better
+rows past a model limit are derived in `derived.txt`.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Worse | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 452 | 0 / 0 | 0 | 0 | 3,548 | 260 of 768 (33.9%) |
+| core | definitions | 641 | 258 | 0 / 0 | 0 | 0 | 383 | 258 of 400 (64.5%) |
+| cats-core | methods | 7,651 | 10 | 2 / 0 | 0 | 0 | 7,639 | 6 of 909 (0.7%) |
+| cats-core | definitions | 1,559 | 339 | 0 / 0 | 0 | 0 | 1,220 | 339 of 1,053 (32.2%) |
+| cats-kernel | methods | 1,785 | 0 | 0 / 0 | 0 | 0 | 1,785 | 0 of 368 (0.0%) |
+| cats-kernel | definitions | 312 | 34 | 0 / 0 | 0 | 0 | 278 | 34 of 253 (13.4%) |
+| cats-eo | methods | 697 | 5 | 0 / 0 | 0 | 0 | 692 | 1 of 271 (0.4%) |
+| cats-eo | definitions | 151 | 53 | 0 / 0 | 0 | 0 | 98 | 53 of 94 (56.4%) |
+| cats-eo-generics | methods | 80 | 12 | 0 / 0 | 0 | 0 | 68 | 11 of 16 (68.8%) |
+| cats-eo-generics | definitions | 12 | 4 | 0 / 0 | 0 | 0 | 8 | 4 of 6 (66.7%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 19 | 0 of 4 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 5,397 | 791 | 27 / 6 | 0 | 0 | 4,573 | 726 of 4,443 (16.3%) |
+| fixtures | definitions | 3,858 | 1,521 | 10 / 0 | 0 | 0 | 2,327 | 1,521 of 3,166 (48.0%) |
+| **all corpora** | methods | 14,232 | 479 | 2 / 0 | 0 | 0 | 13,751 | 278 of 2,336 (11.9%) |
+| **all corpora** | definitions | 2,677 | 689 | 0 / 0 | 0 | 0 | 1,988 | 689 of 1,807 (38.1%) |
+
+What S1 reads (`Shapes`, `Sums`, `World`, `Bodies`), each rule with a derived example in
+`TastyFrontEndSpec` (`products`, `refusals`, `later`):
+
+- A plain case class is the product of its fields; a trait or class with only type members is one
+  value; `Nothing` is the empty sum; an alias is what the compiler dealiases it to.
+- An enum and a sealed family are the sum of their cases, through sealed intermediates. A subtype
+  with type parameters is read where each is unbounded and passed to exactly one slot of its own
+  variance, the other slots pinned with `Nothing` (covariant) or `Any` (contravariant).
+- An opaque alias of the module is one value outside its owner and its representation inside
+  (rule F).
+- Refused with the old front end's reasons, so these rows are identical `?`: a type that reaches
+  itself, an enum's class case as a type, a family with an anonymous, given, inner or local
+  instance, an open subtype, an enum under a family, a class something extends, a class with two
+  parameter lists, a plain class's parameter without `val`.
+- Left uncovered on purpose, each a place where a reviewer derived a wrong number or the old
+  reading has none to compare: a construction that always throws, binds a pattern or inherits an
+  abstract member of type `Nothing` (decision Q5: with S6); a subtype reached through two sealed
+  levels; a subtype that pins a slot to a type, passes a parameter twice, bounds it or varies
+  otherwise; a restricted field or constructor (rule B); `class L` under a family (one tree with
+  `class L()`); an abstract member of type `Nothing` that takes parameters; a class nested in a
+  class or a body; a type of the module under `=:=` or `<:<` (two types of one shape are two
+  types, and the shape model compares shapes); an opaque type of a dependency.
+
+What the plan's S1 row lists and S1 did not land (the gate's strings, corpus-core / cats-core /
+fixtures): unions, intersections, singletons, refinements, match types and type lambdas (`a type`:
+17 / 23 / 281), bounded and higher-kinded type parameters of the method (3 / 61 / 164), wildcard
+arguments (0 / 0 / 22), and a member alias seen through a prefix's arguments. They are a second
+step of S1, taken after S3: the corpora hardly hold them, and what stops their rows first is S4
+(`an enclosing class`: 1,912 / 5,253 / 1,671) and S5 (`a contextual definition`: 32 / 1,345 / 139).
+A class of the module that is no product, sum or type-only template (334 / 7 / 303) is a capability
+record, read with its receiver in S4.
+
+What S1 gained is small on the corpora for that reason: 225 more identical method rows on
+corpus-core (39 of them old numeric rows), 5 on cats-core, 3 on cats-eo, none elsewhere; 185 on
+the fixtures (150 numeric).
+
+The coverage memory lost eight lines by hand in this slice: the rows `U.s` to `U.fg` of the
+fixture `8fde8aab…/Example.scala` (families and enums whose construction throws). A run of the
+unfinished slice had written them as the front end's own `?`, and the finished slice leaves them
+uncovered until S6. No committed state measured them.
+
+Wrong numbers the old front end has too, found in review and not changed here (the gate cannot
+see them, both sides agree): a case that implements an abstract member of an empty type reached
+through a type argument (`trait B[A] { def no: A }; sealed trait H extends B[Nothing]`) counts as
+a value; a parent's default argument that throws, a secondary constructor that throws and a throw
+in an enclosing object's body are not read as a construction that throws; a case class another
+class extends is its product where it is read alone.
 
 ### How each model rule reads over symbols
 
@@ -696,7 +771,7 @@ The slices are the plan's 5a to 5e, with 5c in three steps, in this order:
 
 | Slice | Beyond the phase 5 table |
 | --- | --- |
-| S1 (5a) | Types of the module's sources first: records, sealed sums, enums, objects, aliases, opaque types, class type parameters and their bounds, unions, singletons, type members. |
+| S1 (5a) | Types of the module's sources first: records, sealed sums, enums, objects, aliases, opaque types, class type parameters and their bounds, unions, singletons, type members. Landed: products, sums, enums, aliases, opaque types ("After S1" above); records go with S4, the other forms are S1's second step. |
 | S2 (5b) | Recursion through the existing `capacity.Solver`. Restricted constructors wait for S6 (rule B's factories). |
 | S3 (5c) | Constructor rows: positions as value spaces, type-parameter slots to the shape model. |
 | S4 (5c) | Class receivers and objects with parents: fields by rule B's public primary, abstract members as capabilities, the closed-world index, inherited declarations, enclosing parameters, local definitions. |

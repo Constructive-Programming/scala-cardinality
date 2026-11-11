@@ -49,7 +49,7 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
   ): List[Either[Report.Error, Report.Source]] = {
     // A class file is listed under its class's and its object's name: each class once.
     val trees = own.distinct.flatMap(_.tree).groupBy(_.pos.sourceFile.path)
-    val readings = new Readings(own.toSet)
+    val readings = new Readings(new World(own.toSet))
     // Each compiled path belongs to the source that shares most of it (`Exp.scala` against
     // `lib/Exp.scala`), and a source is read from the one compiled path that belongs to it. Two
     // sources that share as much of a compiled path are not told apart: neither is read from it.
