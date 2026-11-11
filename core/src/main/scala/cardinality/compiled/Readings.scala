@@ -34,7 +34,7 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
   /** The count of a method row. */
   def method(tree: ValOrDefDef): Either[String, Count] =
     for {
-      _ <- deferred(tree.symbol)
+      _ <- later(tree.symbol)
       _ <- static(tree.symbol.owner)
       _ <- plain(tree.symbol.owner)
       count <-
@@ -69,7 +69,7 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
         else
           for {
-            _ <- Traversals.sequence(parameters.map(p => deferred(p.symbol))).left.map(Uncovered(_))
+            _ <- Traversals.sequence(parameters.map(p => later(p.symbol))).left.map(Uncovered(_))
             inputs <- Traversals.sequence(parameters.map(p => shape(p.tpt.toType, atoms)))
           } yield Inhabitation.count(
             parameters.lazyZip(inputs).map { (p, read) =>
@@ -80,8 +80,8 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
     } yield count
   }
 
-  // What a member's or a parameter's flags ask of slices not read yet.
-  private def deferred(symbol: TermSymbol): Either[String, Unit] =
+  // What a member's or a parameter's flags, or a constructor's name, leave to slices not read yet.
+  private def later(symbol: TermSymbol): Either[String, Unit] =
     if (symbol.isInline) Left("an inline definition")
     else if (symbol.isGivenOrUsing || symbol.isImplicit) Left("a contextual definition")
     else if (symbol.isExtensionMethod) Left("an extension method")
@@ -102,19 +102,25 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
   // A pattern or multi-name value definition is one statement of the source and several values of
   // the tree: `val a, b = …` a value per name, all starting where the definition does; `val (a, b)
   // = …` a value per name, each positioned at its name alone, with a holder the compiler made or
-  // none; `val Some(x) = e` a match on `e` ascribed. Which of them the constructor evaluates, and
-  // which is the measured choice, is the body reading's to say (slice 5d).
+  // none; `val Some(x) = e` a match on `e` ascribed, and `val _ = e` that match as a bare
+  // statement. Which of them the constructor evaluates, and which is the measured choice, is the
+  // body reading's to say (slice 5d).
   private def plain(owner: Symbol): Either[String, Unit] = {
-    val values = owner.tree.toList.flatMap {
-      case c: ClassDef => c.rhs.body.collect { case v: ValDef if !v.symbol.isModuleVal => v }
+    val body = owner.tree.toList.flatMap {
+      case c: ClassDef => c.rhs.body
       case _           => Nil
     }
+    def destructuring(term: TermTree) = term match {
+      case Match(_: Typed, _) => true
+      case _                  => false
+    }
+    val values = body.collect { case v: ValDef if !v.symbol.isModuleVal => v }
     val placed = values.filterNot(_.pos.isUnknown)
-    val destructured = values.exists { v =>
-      v.symbol.isSynthetic || v.rhs.exists {
-        case Match(_: Typed, _) => true
-        case _                  => false
-      }
+    val destructured = body.exists {
+      case v: ValDef =>
+        !v.symbol.isModuleVal && (v.symbol.isSynthetic || v.rhs.exists(destructuring))
+      case term: TermTree => destructuring(term)
+      case _              => false
     }
     if (
       destructured || placed.exists(v => v.pos.startOffset == v.pos.pointOffset) ||
@@ -203,7 +209,7 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
           .flatMap(BuiltinTypes.known(_, arguments))
           // What the standard model refuses is refused for good, not left to a later slice.
           .map(_.left.map(Unread.Refused(_)))
-          .getOrElse(Left(Uncovered(s"a class: ${c.displayFullName}")))
+          .getOrElse(Left(Uncovered(s"a class of ${origin(c)}: ${c.displayFullName}")))
       case _ => Left(Uncovered(s"a type: ${ref.showBasic}"))
     }
 
@@ -214,41 +220,54 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
       .topLevel(c)
       .filter(name => (name.startsWith("scala.") || name.startsWith("java.")) && !own(c))
 
+  // Where a class the standard model does not hold comes from: its slice differs. A class of the
+  // module is one of its top-level classes or sits inside one, in a template or a body.
+  private def origin(symbol: Symbol): String = symbol match {
+    case c: ClassSymbol if own(c)     => "the module"
+    case _: PackageSymbol             => "a dependency"
+    case inner if inner.owner == null => "a dependency"
+    case inner                        => origin(inner.owner)
+  }
+
   // ---- definition rows ----------------------------------------------------------------------
 
   /** The size of a definition row. */
   def definition(tree: Tree): Either[String, Size] = tree match {
     case c: ClassDef if c.symbol.isModuleClass    => Right(UnitSize)
-    case c: ClassDef if c.symbol.isEnum           => enumeration(c.symbol)
-    case c: ClassDef if !c.symbol.isAbstractClass => stored(c.symbol)
+    case c: ClassDef if c.symbol.isEnum           => enumeration(c)
+    case c: ClassDef if !c.symbol.isAbstractClass => stored(c)
     case _: ClassDef                              => Left("an abstract class or trait")
     case _: TypeMember                            => Left("a type alias")
     case _                                        => Left("a top-level value")
   }
 
   // What a class's constructor stores: the product of its fields.
-  private def stored(c: ClassSymbol): Either[String, Size] =
-    c.tree.toRight(s"a class without a tree: ${c.name}").flatMap { tree =>
-      val constructor = tree.rhs.constr
-      val fields = constructor.paramLists.flatMap(_.left.toOption.toList.flatten)
-      if (c.typeParams.nonEmpty) Left("a class with type parameters")
-      else if (!c.parents.forall(memberless) || c.givenSelfType.nonEmpty)
-        Left("a class with parents")
-      else if (constructor.symbol.visibility != Visibility.Public) Left("a restricted constructor")
-      else Traversals.sequence(fields.map(f => base(f.tpt.toType))).map(_.foldLeft(UnitSize)(_ * _))
-    }
+  private def stored(tree: ClassDef): Either[String, Size] = {
+    val c = tree.symbol
+    val constructor = tree.rhs.constr
+    val fields = constructor.paramLists.flatMap(_.left.toOption.toList.flatten)
+    if (c.typeParams.nonEmpty) Left("a class with type parameters")
+    else if (!c.parents.forall(memberless) || c.givenSelfType.nonEmpty) Left("a class with parents")
+    else if (constructor.symbol.visibility != Visibility.Public) Left("a restricted constructor")
+    else Traversals.sequence(fields.map(f => base(f.tpt.toType))).map(_.foldLeft(UnitSize)(_ * _))
+  }
 
   // An enum without parameters whose cases are all values: one value each.
-  private def enumeration(c: ClassSymbol): Either[String, Size] =
-    if (c.typeParams.nonEmpty || c.tree.exists(_.rhs.constr.paramLists.exists(_.merge.nonEmpty)))
+  private def enumeration(tree: ClassDef): Either[String, Size] =
+    if (tree.symbol.typeParams.nonEmpty || tree.rhs.constr.paramLists.exists(_.merge.nonEmpty))
       Left("an enum with parameters")
     else
-      Traversals
-        .sequence(c.sealedChildren.map {
-          case _: TermSymbol  => Right(UnitSize)
-          case _: ClassSymbol => Left("an enum with class cases")
-        })
-        .map(_.foldLeft(NothingSize)(_ + _))
+      tree.symbol.sealedChildren match {
+        // An enum has a case; none listed means the classpath lacks the annotation that lists them.
+        case Nil   => Left("an enum whose cases are not listed")
+        case cases =>
+          Traversals
+            .sequence(cases.map {
+              case _: TermSymbol  => Right(UnitSize)
+              case _: ClassSymbol => Left("an enum with class cases")
+            })
+            .map(_.foldLeft(NothingSize)(_ + _))
+      }
 
   // A base type of the size algebra, by the class the compiler bound.
   private def base(tpe: Type): Either[String, Size] =

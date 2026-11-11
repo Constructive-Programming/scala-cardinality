@@ -44,13 +44,6 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
   // The names of the source's `@main` methods: the compiler makes a class of each.
   private val mains = mutable.Set.empty[String]
 
-  trees.foreach(mark)
-  trees.sortBy(_.pos.startOffset).foreach { tree =>
-    val prefix = packageOf(tree.symbol)
-    classDef(tree, prefix)
-    defined(tree, prefix, top = true)
-  }
-
   private def mark(root: Tree): Unit = new TreeTraverser {
     private var above = List.empty[Tree]
     override def traverse(tree: Tree): Unit = {
@@ -104,8 +97,7 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
     // A companion nobody wrote still holds an enum's cases; its own members are no rows.
     else if (symbol.isModuleClass && symbol.isSynthetic) template(c, path :+ name)
     else if (symbol.isModuleClass) template(c, path :+ segment(c, isGiven(c), name))
-    // The class of a `@main` method sits at its annotation and holds nothing written.
-    else if (!(mains(name) && !source.spells(name, c.pos.pointOffset))) {
+    else if (!entryClass(c)) {
       val inside = path :+ segment(c, isGiven(c), name)
       val clauses = c.rhs.constr.paramLists
       // A class has a constructor row; a trait where it is written with a parameter clause; a
@@ -131,6 +123,13 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
 
   private def isGiven(c: ClassDef): Boolean = givens(c.symbol)
 
+  // The class the compiler makes of a `@main` method: it has the method's name, sits at the
+  // annotation and holds nothing written.
+  private def entryClass(c: ClassDef): Boolean = {
+    val name = nameOf(c.symbol)
+    mains(name) && !source.spells(name, c.pos.pointOffset)
+  }
+
   private def template(c: ClassDef, path: List[String]): Unit =
     members(c.rhs.body, path, local = false)
 
@@ -146,7 +145,8 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
   private def statement(stat: StatementTree, path: List[String], local: Boolean): Unit =
     stat match {
       case c: ClassDef => classDef(c, path)
-      // A given alias without clauses is a lazy value: in a block, a step like a local value.
+      // A given alias without clauses is a value (an `inline` one a method without clauses): in a
+      // block, a step like a local value.
       case d: DefDef if local && d.symbol.isGivenOrUsing && d.paramLists.isEmpty =>
         d.rhs.foreach(walk(_, path))
       case d: DefDef if written(d) => method(d, path)
@@ -171,7 +171,8 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
 
   private def method(d: DefDef, path: List[String]): Unit =
     if (d.name == nme.Constructor) {
-      // A secondary constructor: its row is the class's, its body's definitions sit under `<init#k>`.
+      // A secondary constructor: a row named like the class's own, its body's definitions under
+      // `<init#k>`.
       methods += Method(path :+ Init, d, d, "method")
       d.rhs.foreach(body(_, path :+ opened(path, "init")))
     } else {
@@ -187,9 +188,12 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
     }
 
   // A definition's right-hand side: its own block is its body, any other expression is walked.
+  // So is the block of a method whose result is a context function, which the compiler puts in a
+  // function literal of its own.
   private def body(term: TermTree, path: List[String]): Unit = term match {
-    case Scope.Plain(block) => statements(block, path)
-    case other              => walk(other, path)
+    case Scope.Plain(block)                           => statements(block, path)
+    case Scope.Lambda(made) if Scope.contextual(made) => made.rhs.foreach(body(_, path))
+    case other                                        => walk(other, path)
   }
 
   private def statements(block: Block, path: List[String]): Unit = {
@@ -208,9 +212,10 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
             template(c, path :+ opened(path, "new"))
           // A pattern-matching function literal is its cases.
           case Scope.Lambda(Scope.Cases(cases)) => traverse(cases)
-          // The compiler puts the body of a method whose result is a context function in a
-          // function literal of its own, which is no scope the source has.
-          case Scope.Lambda(made) if Scope.contextual(made) => made.rhs.foreach(body(_, path))
+          // A function literal the compiler made around a context function's body is no scope
+          // the source has: what it holds is walked in place. A block in it is still the block
+          // somebody wrote (an argument `run { … }`), where a definition's own (`body`) is not.
+          case Scope.Lambda(made) if Scope.contextual(made) => traverse(made.rhs)
           case Scope.Lambda(function)                       =>
             function.rhs.foreach(body(_, path :+ opened(path, "lambda")))
           case Scope.Plain(block) => statements(block, path :+ opened(path, "block"))
@@ -218,8 +223,9 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
             val inside = path :+ opened(path, "case")
             body(c.body, inside)
             c.guard.foreach(walk(_, inside))
-          // An inline call's expansion is the callee's code, written elsewhere. The call's own
-          // arguments sit in it too: a definition inside one is not found (design section, limits).
+          // A `transparent inline` call's expansion is the callee's code, written elsewhere. The call's own
+          // arguments sit in it too: a definition inside one is not found (the plan's design
+          // section, "What it does not undo").
           case _: Inlined => ()
           case other      => super.traverse(other)
         }
@@ -251,7 +257,7 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
         definitions += Defined(Definition.qualified(prefix :+ name), Kind.Object, Nil, c)
         inside(prefix :+ name, top = false)
       }
-    } else if (!isGiven(c) && !(symbol.isEnum && symbol.isCaseClass) && !mains(name)) {
+    } else if (!isGiven(c) && !(symbol.isEnum && symbol.isCaseClass) && !entryClass(c)) {
       val kind =
         if (enumClass(symbol)) Kind.Enum
         else if (symbol.isAbstractClass) Kind.Abstract
@@ -294,6 +300,14 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
     kind.foreach(
       definitions += Defined(Definition.qualified(prefix :+ t.name.toString), _, params, t)
     )
+  }
+
+  // The walk, after every field above is set: the scopes and givens first, then the rows.
+  trees.foreach(mark)
+  trees.sortBy(_.pos.startOffset).foreach { tree =>
+    val prefix = packageOf(tree.symbol)
+    classDef(tree, prefix)
+    defined(tree, prefix, top = true)
   }
 
 }

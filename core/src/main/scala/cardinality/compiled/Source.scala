@@ -40,8 +40,7 @@ final private[compiled] class Source(val path: String, text: String) {
   }
 
   /** Whether the definition named at `from` is written with a parameter clause in parentheses. */
-  def parenthesized(from: Int, name: String): Boolean =
-    text.substring(from, clauses(from, name)).contains('(')
+  def parenthesized(from: Int, name: String): Boolean = clauses(from, name)._2
 
   /** A definition's signature as written, on one line: its name, its clauses and its declared
     * result, without modifiers or body. An inferred result is not spelled.
@@ -56,8 +55,8 @@ final private[compiled] class Source(val path: String, text: String) {
       case c: ClassDef => ("", c.name.toString, None)
     }
     val result = declared.map(_.pos).filter(p => !p.isUnknown && !p.isZeroExtent)
-    val until = result.filter(_.startOffset >= from).fold(clauses(from, name))(_.endOffset)
-    val written = Source.line(text.substring(from, until.min(text.length)))
+    val until = result.filter(_.startOffset >= from).fold(clauses(from, name)._1)(_.endOffset)
+    val written = Source.line(text.substring(from.min(text.length), until.min(text.length)))
     // An anonymous given is written as its type alone.
     if (head == "given " && result.exists(_.startOffset == from)) s"given: $written"
     else head + written
@@ -65,17 +64,20 @@ final private[compiled] class Source(val path: String, text: String) {
 
   private val Var = tastyquery.Modifiers.TermSymbolKind.Var
 
-  // Where the clauses after `name`, written at `from`, end: each bracket group that follows it.
-  private def clauses(from: Int, name: String): Int = {
+  // Where the clauses after `name`, written at `from`, end (each bracket group that follows it),
+  // and whether one of them is in parentheses.
+  private def clauses(from: Int, name: String): (Int, Boolean) = {
     @scala.annotation.tailrec
-    def after(at: Int): Int = {
+    def after(at: Int, round: Boolean): (Int, Boolean) = {
       val next = text.indexWhere(c => c != ' ' && c != '\t', at)
-      if (next >= 0 && "[(".contains(text.charAt(next))) after(closing(next) + 1) else at
+      if (next >= 0 && "[(".contains(text.charAt(next)))
+        after(closing(next) + 1, round || text.charAt(next) == '(')
+      else (at, round)
     }
     // A name in backticks is placed at the tick or after it.
     val ticks =
       if (text.startsWith("`", from)) 2 else if (text.startsWith("`", from + name.length)) 1 else 0
-    after((from + name.length + ticks).min(text.length))
+    after((from + name.length + ticks).min(text.length), round = false)
   }
 
   // The offset of the bracket closing the one at `open` (the text's end when none does).

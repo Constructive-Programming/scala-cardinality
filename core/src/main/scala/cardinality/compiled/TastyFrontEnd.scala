@@ -15,8 +15,8 @@ import tastyquery.Trees.ClassDef
 /** The front end that reads the compiler's symbols and typed trees (TASTy, through tasty-query),
   * and no syntax: docs/plans/compiled-own-types.md, "Front end: design and status".
   *
-  * It answers every row the classes hold. A row no slice reads yet is refused with `Uncovered` and
-  * what it needs, never measured another way: this front end calls nothing of the scalameta one.
+  * It answers every row the classes hold. A row no slice reads yet is `?` with `Uncovered` and what
+  * it needs, never measured another way: this front end calls nothing of the scalameta one.
   */
 private[cardinality] object TastyFrontEnd extends FrontEnd {
 
@@ -67,9 +67,10 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
           // A tree this reading cannot walk costs its source, said, not the report.
           try rowsOf(new Source(path, text), trees(compiled), readings)
           catch { case NonFatal(failure) => error(s"compiled classes not read: $failure") }
-        // A source that defines nothing has no classes either: the two are not told apart.
         case Nil if owners.getOrElse(None, Nil).exists(shared(path, _) > 0) =>
           error("compiled classes not told apart from another source's")
+        // A source that defines nothing has no classes, and neither has one the build did not
+        // compile: the two are not told apart (the plan's Q8).
         case Nil     => error("no compiled classes for this source")
         case several =>
           error(s"compiled from more than one source: ${several.sorted.mkString(", ")}")
@@ -85,13 +86,14 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
     if (a == b || a.endsWith("/" + b) || b.endsWith("/" + a)) math.min(a.length, b.length) else 0
   }
 
-  // A type that names a class the classpath does not hold is not read; any other failure is the
-  // reading's own and is not hidden as a row to come.
+  // A type that names a member the classpath does not hold (a class of a jar the module was
+  // compiled against and the report is not given) is not read; any other failure is the reading's
+  // own and is not hidden as a row to come.
   private def reading[A](attempt: => Either[String, A]): Either[String, A] =
     try attempt
     catch {
       case missing: MemberNotFoundException =>
-        Left(s"a class the classpath does not hold: ${missing.name}")
+        Left(s"a member the classpath does not hold: ${missing.name}")
     }
 
   private def rowsOf(source: Source, trees: List[ClassDef], readings: Readings)(using

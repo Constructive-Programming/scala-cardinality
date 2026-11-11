@@ -23,7 +23,7 @@ class TastyFrontEndSpec extends Specification {
     a row no slice reads yet is uncovered, never a count          $uncovered
     what the counting model refuses is a row of its own           $refused
     classes compiled from another text refuse the source          $stale
-    it imports nothing of the scalameta reading                   $imports
+    it imports and names nothing of the scalameta reading         $imports
 
   The differential gate
     agrees with the scalameta front end on every row measured     $agrees
@@ -52,6 +52,7 @@ class TastyFrontEndSpec extends Specification {
       |class C(x: Int) { def m(b: Boolean): Boolean = b }
       |object Refused { def arr[A](xs: Array[A]): Int = 0 }
       |object Pattern { val (a, b) = (true, false); def g(x: Boolean): Boolean = x }
+      |object Nameless { val _ = ???; def g(x: Boolean): Boolean = x }
       |""".stripMargin
 
   // What the compiler desugars or adds, each with the name the scalameta front end gives its row:
@@ -67,6 +68,15 @@ class TastyFrontEndSpec extends Specification {
       |type Alias[X] = List[X]
       |type Lambda = [X] =>> List[X]
       |opaque type Flag = Boolean
+      |trait Bound[A <: (Int, Int)]
+      |@main def start(b: Boolean): Unit = ()
+      |object Holder { class start }
+      |object Context {
+      |  def implied: Int ?=> Boolean = { def inner(x: Boolean): Boolean = x; inner(true) }
+      |  def run(b: Int ?=> Boolean): Boolean = true
+      |  def caller: Boolean = run { def passed(x: Boolean): Boolean = x; passed(true) }
+      |  def literal: Int ?=> Boolean = (c: Int) ?=> { def lit(x: Boolean): Boolean = x; lit(true) }
+      |}
       |class Outer(x: Int) {
       |  def this() = this(0)
       |  class Inner { def m(b: Boolean): Boolean = b }
@@ -120,12 +130,14 @@ class TastyFrontEndSpec extends Specification {
       .and(count("demo.K.z") must_== Count.Finite(2))
       .and(count("demo.KL.g") must_== Count.Finite(4))
 
-  // A member of a class, a constructor, and a member beside a pattern definition (which values
-  // its object's constructor evaluates is not read yet).
-  private def uncovered =
-    List("demo.C.m", "demo.C.<init>", "demo.Pattern.g").map(count) must contain(beLike[Count] {
+  // A member of a class, a constructor, and a member beside a pattern definition, named or not
+  // (which values its object's constructor evaluates is not read yet).
+  private def uncovered = {
+    val rows = List("demo.C.m", "demo.C.<init>", "demo.Pattern.g", "demo.Nameless.g")
+    rows.map(count) must contain(beLike[Count] {
       case Count.Unresolved(List(reason)) => reason must startWith(TastyFrontEnd.Uncovered)
     }).forall
+  }
 
   // An array of a type parameter is refused by the standard model for good (building one needs a
   // `ClassTag`): a `?` of the front end's own, which the gate compares, not a row to come.
@@ -142,8 +154,9 @@ class TastyFrontEndSpec extends Specification {
     }
   }
 
-  // What the front end may use of the rest: the row types, the solver, the size algebra, the
-  // standard model's tables and the class loader. Anything else would be the scalameta reading.
+  // What the front end may use of the rest: the row types, the solver and the shape half of
+  // `TopTypes` it calls, the size algebra, the standard model's tables, the class loader and a
+  // list helper. Anything else would be the scalameta reading.
   private val allowed = Set(
     "cardinality.analysis.BuiltinTypes",
     "cardinality.analysis.MethodAnalysis.Entry",
@@ -159,6 +172,11 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.types.Traversals"
   )
 
+  // What the allowed imports would still let a row be handed to: the report's own entry points,
+  // the scalameta front end, a scalameta tree, the source rewriting.
+  private val delegating =
+    """Report\.(of|query)|ScalametaFrontEnd|\bmeta\.|CompiledTypes\.ascribe""".r
+
   private def imports = {
     val files = Files.list(Path.of("src/main/scala/cardinality/compiled"))
     val lines =
@@ -167,9 +185,13 @@ class TastyFrontEndSpec extends Specification {
           Files.readString(file.asInstanceOf[Path]).linesIterator
         )
       finally files.close()
-    val imported = lines.map(_.trim).filter(_.startsWith("import ")).map(_.stripPrefix("import "))
+    val imported = lines
+      .map(_.trim)
+      .filter(_.startsWith("import "))
+      .map(_.stripPrefix("import ").stripPrefix("_root_."))
     (imported.filter(_.startsWith("cardinality.")).toSet must_== allowed)
-      .and(imported.filter(_.startsWith("scala.meta")) must_== Nil)
+      .and(lines.filter(_.contains("scala.meta")) must_== Nil)
+      .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
           List("package cardinality.compiled").flatMap(List.fill(4)(_))
@@ -189,7 +211,7 @@ class TastyFrontEndSpec extends Specification {
   // Every row of both sources pairs under one name, kind and line: nothing in `shapes` is paired
   // by position or under another kind.
   private def named =
-    compared.compared.filter(_.by != "name and line").map(_.row.name) must_== Nil
+    compared.compared.filter(_.by != Differential.Strict).map(_.row.name) must_== Nil
 
   private def entry(name: String, count: Count, line: Int = 1): Entry =
     Entry("A.scala", name, name, line, "method", count, Nil)

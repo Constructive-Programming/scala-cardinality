@@ -144,7 +144,7 @@ object Differential {
   // scopes of a body are named differently (the name without its `<kind#n>` segments, on the same
   // line); its name and line, where the kind differs. A key pairs the rows that carry it, in
   // source order, only when both sides have as many: no row is paired by guessing.
-  private val Strict = "name and line"
+  val Strict = "name, kind and line"
 
   private val keys: List[(String, Row => Any)] = List(
     Strict -> (row => (row.table, row.source, row.name, row.kind, row.line)),
@@ -253,15 +253,19 @@ object Differential {
   }
 
   /** The compiled test fixtures under `cache` (`cardinality.Compiled`'s): each `<key>/src` with its
-    * `classes`, read against `libraries` as the tests read them, under the paths the tests gave.
+    * `classes`, read against `libraries` as the tests read them, under the paths the tests gave. A
+    * directory `<key>.<thread>` is a compile's staging the cache left behind, not a fixture.
     */
   def fixtures(cache: Path, libraries: List[Path]): List[Input] =
-    list(cache).filter(dir => Files.exists(dir.resolve("ok"))).map { dir =>
+    list(cache).filter(fixture).map { dir =>
       val src = dir.resolve("src")
       val classes = CompiledTypes.Classes(List(dir.resolve("classes")), libraries)
       val read = Report.Environment(classes = Some(classes))
       Input(s"${dir.getFileName}/", FrontEnd.Module(scalaFiles(src, src.relativize(_)), read))
     }
+
+  private def fixture(dir: Path): Boolean =
+    !dir.getFileName.toString.contains('.') && Files.exists(dir.resolve("ok"))
 
   private def list(directory: Path): List[Path] = {
     val found = Files.list(directory)
@@ -319,7 +323,8 @@ object Differential {
       finally in.close()
     case _ =>
       val rows = answer(ScalametaFrontEnd, input.module)
-      file.foreach { path =>
+      // An answer that read every source is worth keeping; a failure is computed again.
+      file.filter(_ => rows.sources.forall(_.isRight)).foreach { path =>
         val out = new java.io.ObjectOutputStream(Files.newOutputStream(path))
         try out.writeObject(rows)
         finally out.close()
@@ -330,7 +335,8 @@ object Differential {
   /** `corpus <root>` or `fixtures <cache>`, then `--rows` to list every row with the front end that
     * produced it and `--old <file>` to keep the scalameta rows of a corpus between runs. Prints the
     * totals, what the uncovered rows need, what was not read, the rows that fail the gate and the
-    * rows to explain; exits with 1 when a row fails the gate.
+    * rows to explain; exits with 1 when a row fails the gate or a front end could not read
+    * something.
     */
   def main(args: Array[String]): Unit = {
     val libraries = sys
@@ -349,6 +355,7 @@ object Differential {
         sys.error("usage: Differential (corpus <root> | fixtures <cache>) [--rows] [--old <file>]")
     }
     val keep = args.sliding(2).collectFirst { case Array("--old", file) => Path.of(file) }
+    require(inputs.nonEmpty, "no input: no fixture compiled under the cache")
     require(keep.isEmpty || inputs.size == 1, "--old keeps one input's rows: a corpus")
     val started = System.nanoTime
     val outcomes =
@@ -363,11 +370,12 @@ object Differential {
     println(f"  ${inputs.size} inputs in ${(System.nanoTime - started) / 1e9}%.1f s")
     println("uncovered rows need:")
     needs(compared).foreach((reason, count) => println(f"  $count%6d  $reason"))
-    outcomes.flatMap(_.failed).foreach(println)
+    val unread = outcomes.flatMap(_.failed)
+    unread.foreach(println)
     val failed = failures(compared)
-    val listed = if (args.contains("--rows")) compared else failed ++ explained(compared)
+    val listed = if (args.contains("--rows")) compared else (failed ++ explained(compared)).distinct
     listed.sortBy(c => (c.row.source, c.row.line, c.row.name)).foreach(c => println(c.render))
-    if (failed.nonEmpty) sys.exit(1)
+    if (failed.nonEmpty || unread.nonEmpty) sys.exit(1)
   }
 
 }
