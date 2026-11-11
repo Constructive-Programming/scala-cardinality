@@ -10,4 +10,3 @@ scala-cardinality — 1 source, 1 definition
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
 6  P  class  A.scala:3
-  dependency stub not read: scala3-library_3-3.3.6.jar: 1 classes not read; the first: caps: assertion failed: trying to add a second entry symbol[scala.caps] for name caps in symbol[package <root>.scala]
