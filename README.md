@@ -267,7 +267,7 @@ only; sbt 1 runs 2.12), and `core` is free to move to a later Scala 3.
 The plugin is on Maven Central for sbt 2; add it to `project/plugins.sbt`:
 
 ```scala
-addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.4")
+addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.5")
 ```
 
 From 0.0.3, sbt 1 builds (1.10 or later) use the same line and the same keys: sbt
@@ -279,13 +279,18 @@ None of the plugins (sbt 2, sbt 1, Mill) depends on the calculator. Each resolve
 in a classloader apart from the tool's own: the plugin is built for the tool's Scala, whatever the
 calculator's is. The build tool may run on JDK 17, 21 or 25 (CI tests each).
 
-The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.4"`.
+TASTy is not forwards compatible, so a calculator reads dependencies compiled by Scala up to the
+one its TASTy reader (tasty-query) is built on: 0.0.5 reads Scala 3.0 through 3.10; 0.0.4 and
+earlier read up to 3.9. A newer Scala's jars show up as `dependency stub not read: … TASTy
+signature has wrong version` at the end of the report; they need a calculator built on that Scala.
+
+The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.5"`.
 
 For Mill (1.3 or later), load the plugin in `build.mill`'s header and mix
 `CardinalityModule` into a `ScalaModule`:
 
 ```scala
-//| mvnDeps: ["dev.constructive::mill-cardinality_mill1:0.0.4"]
+//| mvnDeps: ["dev.constructive::mill-cardinality_mill1:0.0.5"]
 import millcardinality.CardinalityModule
 
 object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.0" }
