@@ -3,3 +3,8 @@
 > cardinalityReport
 $ must-mirror report.txt expected/report.txt
 > cardinalityReportSelected head
+# The dependencies' stubs are rendered once: a second report over the same classpath reuses them.
+$ sleep 1000
+$ touch rendered-before
+> cardinalityReport
+$ newer rendered-before target/cardinality/stubs.bin
