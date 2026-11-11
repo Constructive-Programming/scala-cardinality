@@ -102,6 +102,32 @@ Compiled classes are now the only source of an inferred type. Where a member has
 The override-identity and given-name code listed earlier did not refuse anything on this repository,
 and replacing it needs symbol facts a source rewrite cannot carry: it stays for now.
 
+## Measured (2026-11-11)
+
+One frozen corpus: core's 174 sources and its compiled classes at `53ab312`, with core's
+dependency classpath. Each run is a fresh JVM (`-Xmx16g -Xss8m`, JDK 25, 32 cores) calling
+`Report.of`; medians of 3 runs (2 for the runs without classes). Reports were byte-identical
+across a version's runs.
+
+| Version | Classes | Signatures: finite · ω · ε₀-tier · `?` | Total | Wall | CPU | Peak heap |
+| --- | --- | --- | --- | --- | --- | --- |
+| start `55f6ea1` | — | 200 · 505 · 31 · 3264 | `62ε₀ + 681ω` (3505 `?`) | 107.4 s | 473.6 s | 8.8 GiB |
+| mid `53ab312` | yes | 202 · 535 · 31 · 3232 | `62ε₀ + 711ω` (3473 `?`) | 97.0 s | 428.0 s | 8.6 GiB |
+| end `ffb94c1` | yes | 202 · 535 · 31 · 3232 | `62ε₀ + 711ω` (3473 `?`) | 98.1 s | 431.5 s | 9.0 GiB |
+| mid `53ab312` | no | 200 · 505 · 31 · 3264 | `62ε₀ + 681ω` (3505 `?`) | 94.9 s | 426.9 s | 8.2 GiB |
+| end `ffb94c1` | no | 174 · 465 · 31 · 3330 | `62ε₀ + 641ω` (3571 `?`) | 94.1 s | 403.4 s | 9.3 GiB |
+
+- With classes, mid and end are byte-identical: the deleted inference ran only where no compiled
+  type was written. From start, 32 rows move from `?` to a number (30 to ω, `AnalysisWork.remaining`
+  to 2^(2^103), `GoalSolver.absurd` to 4294967297^(2^96)); none moves the other way.
+- Without classes (`cardinalityReportOf`, sources that do not compile), end refuses 66 rows mid
+  inferred (40 ω, 11 2^32, 8 one value, 7 larger finite): every change is a number becoming `?`,
+  never another number. The definitions table is the same in all five runs.
+- Reading compiled types costs about 3 s of wall time (94 s without classes, 97–98 s with).
+  start → mid is about 10% faster; the likely cause is the closed-world fix (`53ab312`), which
+  stopped walking about 1,300 unrelated JDK templates for scalameta members; not isolated.
+- Core's suite: 87 specs in about 100 s with the fixture cache warm (1,490 compiled fixtures).
+
 ## Phase 4: exact structure (contract text changes)
 
 | Area | Fact | TASTy instead | Note |
