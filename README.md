@@ -314,9 +314,10 @@ reached ω or beyond and which type names stopped it from being tighter.
 
 `cardinalityReport` and `cardinalityReportSelected` compile the project first and read its own
 TASTy: a member written without a result type takes the type the compiler gave it, instead of a
-`?` the syntax alone would leave (rule T, [`docs/plans/compiled-own-types.md`](docs/plans/compiled-own-types.md)).
-Sources that do not compile are reported from their syntax alone under sbt; under Mill the module
-must compile. `cardinalityReportOf` reads syntax alone.
+`?` (rule T, [`docs/plans/compiled-own-types.md`](docs/plans/compiled-own-types.md)). The compiler's
+inference is never imitated: under sbt, sources that do not compile are still reported, but their
+untyped members refuse; under Mill the module must compile. `cardinalityReportOf` reads sources
+without compiled classes, so its untyped members refuse too.
 
 `cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
 `Compile / dependencyClasspath` from their compiled TASTy, Scala 2 pickles and Java `.class`

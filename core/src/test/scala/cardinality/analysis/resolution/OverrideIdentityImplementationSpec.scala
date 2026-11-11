@@ -27,7 +27,7 @@ class OverrideIdentityImplementationSpec extends Specification {
   """
 
   private def analyze(files: (String, String)*): List[MethodAnalysis.Entry] =
-    MethodAnalysis.analyze(files.toList.map { (path, source) =>
+    cardinality.Compiled.analyze(files.toList.map { (path, source) =>
       MethodAnalysis.Input(path, dialects.Scala3(source).parse[Source].get)
     })
 

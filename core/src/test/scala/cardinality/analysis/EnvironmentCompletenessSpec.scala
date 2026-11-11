@@ -538,7 +538,7 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
     )
     refused(
       found("Outer.Inner.g"),
-      "inferred result type not resolved: call of f, not one declared"
+      "inferred result type not resolved: written without a type, in a source not compiled"
     )
       .and(refused(found("PInner.f"), "unavailable stable path type: x"))
       .and(found("C.g") === Count.Finite(1))

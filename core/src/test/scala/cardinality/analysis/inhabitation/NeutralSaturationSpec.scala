@@ -47,7 +47,7 @@ class NeutralSaturationSpec extends Specification {
   """
 
   private def counts(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Sums.scala", dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count)
       .toMap
@@ -136,7 +136,7 @@ class NeutralSaturationSpec extends Specification {
       s"def odd[A](q: (A, A) => Boolean, a: A, `a,input/$scope:b`: A, c: A, " +
       s"`b,input/$scope:c`: A): Boolean = true\n" +
       "  def plain[A](q: (A, A) => Boolean, a: A, x: A, c: A, y: A): Boolean = true\n}\n"
-    val found = MethodAnalysis
+    val found = cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Keys.scala", dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count)
       .toMap

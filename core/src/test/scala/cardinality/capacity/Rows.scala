@@ -45,7 +45,7 @@ private[capacity] object Rows {
 
   /** The method side's count for the signature `name` of a source set. */
   def constructor(name: String, files: (String, String)*): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(files.toList.map { (path, text) =>
         MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
       })

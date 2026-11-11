@@ -92,7 +92,7 @@ class HigherKindedBindingSpec extends Specification {
   """
 
   private def entries(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Kinds.scala", dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count)
       .toMap

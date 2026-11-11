@@ -194,20 +194,19 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       .and(found("Inferred.elseThrow").render === "2^64")
   }
 
-  // A source `???` is the method called: an Int, 2^32 — never 0. A source `sys` object makes
-  // `sys.error` its member's call, which this reading does not type — never 0; so does a wildcard
-  // import inside the block, which may bind `???` (`foo` is not supplied), and a `???` the block
-  // defines before its result.
+  // A source `???`, a source `sys`'s `error` and a `???` the block defines before its result are the
+  // methods called: scalac types each `f` an Int, 2^32 — never 0. A wildcard import of `foo`, which
+  // is not supplied, keeps the source from compiling: its `f` refuses, never 0.
   def reboundNames = {
     val found = rows("""object Shadowed { def ??? : Int = 3; def f = ??? }
       |object Rebound { object sys { def error(s: String): Int = 1 }; def f = sys.error("e") }
-      |object Blocked { def f = { import foo.*; ??? } }
       |object Local { def f = { def ??? : Int = 1; ??? } }
       |""".stripMargin)
-    (found("Shadowed.f").render === "2^32")
-      .and(refused(found("Rebound.f"), "inferred result type not resolved: application"))
-      .and(refused(found("Blocked.f"), "inferred result type not resolved: block"))
-      .and(refused(found("Local.f"), "inferred result type not resolved: block"))
+    val blocked = rows("object Blocked { def f = { import foo.*; ??? } }")
+    List("Shadowed.f", "Rebound.f", "Local.f")
+      .map(found(_).render === "2^32")
+      .reduce(_ and _)
+      .and(refused(blocked("Blocked.f"), "written without a type, in a source not compiled"))
   }
 
   // `any[A]` has no pure total implementation; read as a producer it would inhabit every B. It is
@@ -256,8 +255,14 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |}
       |abstract class AbsFail { def fail[A](msg: String): A; def m(b: Boolean): Boolean }
       |""".stripMargin)
-    each(found, Count.Finite(1))("OpenBoom.m", "K1.m", "OpenFail.m", "AbsFail.m")
-      .and(refused(found("OpenBoomInferred.m"), "overridable member's result type is inferred"))
+    // scalac types `OpenBoomInferred.boom` by its `sys.error`: a Nothing, as `OpenBoom`'s is written.
+    each(found, Count.Finite(1))(
+      "OpenBoom.m",
+      "OpenBoomInferred.m",
+      "K1.m",
+      "OpenFail.m",
+      "AbsFail.m"
+    )
   }
 
   // K2[Int] is K1 after A := Int, and K4 extends it: their k is Int => Nothing, vacuous — 1 like
@@ -347,9 +352,9 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   // Scala gives `def get = ???` overriding `get: Boolean` the type Boolean (a 3.9.0 run overrides
-  // it with true and with false), so an override may implement it: f is 4 and Recv.m 16, never the
-  // 2 and 4 of a dropped member. This reading does not type an open member's inferred result:
-  // refused.
+  // it with true and with false), so an override may implement it: f, ft and ic are 4 (the open
+  // `get` is a Boolean capability, 2^2) and Recv.m 16 ((2 · 2)^2), never the 2 and 4 of a dropped
+  // member.
   def overridingResult = {
     val found = openRows("""abstract class Base { def get: Boolean }
       |class Impl extends Base { def get = ??? }
@@ -363,9 +368,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |  def ft(i: TImpl): Boolean = ???
       |  def ic(p: IC): Boolean = ???
       |}""".stripMargin)
-    List("Use.f", "Use.ft", "Use.ic", "Recv.m")
-      .map(name => refused(found(name), "overridable member's result type is inferred"))
-      .reduce(_ and _)
+    each(found, Count.Finite(4))("Use.f", "Use.ft", "Use.ic")
+      .and(found("Recv.m") === Count.Finite(16))
   }
 
   // Int => Nothing, (Nothing, Int) and Either[Nothing, Nothing] have no value: as abstract twins
@@ -610,19 +614,21 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       .and(found("Outer0.In.m") === Count.Finite(1))
   }
 
-  // `{}` is the Unit value: A's noop is no throw and m the 4 functions of b; O.f's block stays
-  // unread, never a failed analysis.
+  // `{}` is the Unit value: A's noop is no throw and m the 4 functions of b; scalac types O.f a Unit
+  // (1).
   def emptyBlock = {
     val found = rows(
       "class A { def noop(): Unit = {}; def m(b: Boolean): Boolean = ??? }\n" +
         "object O { def f = {} }"
     )
     (found("A.m") === Count.Finite(4))
-      .and(refused(found("O.f"), "inferred result type not resolved: block"))
+      .and(found("O.f") === Count.Finite(1))
   }
 
   // A match mixing a throwing and a returning case, a `try`, a parameter named `sys` and a source
-  // `Predef` are not recognized as throws: each stays unresolved with its form named — never 0.
+  // `Predef` are not recognized as throws: scalac types each an Int — `mixed` split over its Boolean
+  // c, (2^32)^2 = 2^64, `caught` and `Pre.f` 2^32 — never 0. `param`'s singleton parameter is a
+  // module whose members this reading does not resolve: refused, as with the result written.
   def throwLimits = {
     val found = rows("""object Rebound { object sys { def error(s: String): Int = 1 } }
       |object Limits {
@@ -631,10 +637,9 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |  def param(sys: Rebound.sys.type) = sys.error("e")
       |}
       |object Pre { object Predef { def ??? : Int = 1 }; def f = Predef.??? }""".stripMargin)
-    refused(found("Limits.mixed"), "inferred result type not resolved: match")
-      .and(refused(found("Limits.caught"), "inferred result type not resolved: expression"))
-      .and(refused(found("Limits.param"), "inferred result type not resolved: application"))
-      .and(refused(found("Pre.f"), "inferred result type not resolved: selection"))
+    (found("Limits.mixed").render === "2^64")
+      .and(List("Limits.caught", "Pre.f").map(found(_).render === "2^32").reduce(_ and _))
+      .and(refused(found("Limits.param"), "singleton module member environment not resolved"))
   }
 
   // Every instance must implement an abstract `boom: Nothing`, which no pure code can: the receiver

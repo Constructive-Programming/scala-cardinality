@@ -25,7 +25,7 @@ class MethodUnionNullabilitySpec extends Specification {
   """
 
   private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Union.scala", dialects.Scala3(code).parse[Source].get)))
       .find(_.name == name)
       .get

@@ -25,7 +25,7 @@ class EnvironmentBinderSpec extends Specification {
   """
 
   private val found: Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Env.scala", dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count)
       .toMap

@@ -22,7 +22,7 @@ class ConversionClosureSpec extends Specification with InventoryFixtures {
       imported into the body's scope                                          $imported
     An inline extension is a candidate for a body only where the body may find it
       in the companion of a type the body never reaches: not a candidate     $extensionUnrelated
-      in the companion of a type the body's signature writes                 $extensionWritten
+      in the companion of a type the body's signature writes: a member wins  $extensionWritten
       imported into the body's scope                                          $extensionImported
   """
 
@@ -94,8 +94,13 @@ class ConversionClosureSpec extends Specification with InventoryFixtures {
       .and(found("app.E.firstE") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37))))
   }
 
-  def extensionWritten =
-    refused(counts(extLib, extApp("", ", f: lib.Far"))("app.E.firstE"), extended)
+  // `Far` is in the signature, so its companion's extension is in reach; but scalac types the
+  // local n an Int, whose own `+(Int)` applies to `n + y`, and an extension is tried only where no
+  // member applies: firstE is firstD, every Int => Int (2^(2^37)).
+  def extensionWritten = {
+    val found = counts(extLib, extApp("", ", f: lib.Far"))
+    found("app.E.firstE") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 37)))
+  }
 
   def extensionImported =
     refused(counts(extLib, extApp("import lib.Far.*", ""))("app.E.firstE"), extended)

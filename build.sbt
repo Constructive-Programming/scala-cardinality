@@ -52,8 +52,23 @@ lazy val core = project
       "io.getkyo" %% "kyo-core" % "1.0.0-RC7",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
-      "org.specs2" %% "specs2-cats" % "4.23.0" % Test
+      "org.specs2" %% "specs2-cats" % "4.23.0" % Test,
+      // Test fixtures are compiled in-process (`cardinality.Compiled`), as the build plugins compile
+      // a module before reading it: the compiler's types are the only inferred types (rule T).
+      "org.scala-lang" %% "scala3-compiler" % scalaVersion.value % Test
     ),
+    // Forked, with the classpath the fixtures are compiled against passed in: sbt's test worker
+    // loads the tests through a classloader of its own, so `java.class.path` is not it.
+    Test / fork := true,
+    Test / javaOptions ++= {
+      val converter = fileConverter.value
+      val classpath = (Test / fullClasspath).value.map(entry => converter.toPath(entry.data))
+      Seq(
+        "-Xmx6g",
+        "-Xss8m",
+        s"-Dcardinality.test.classpath=${classpath.mkString(java.io.File.pathSeparator)}"
+      )
+    },
     // Coverage floors live here, not in the common settings: `plugin` is thin
     // sbt wiring exercised by scripted tests, which run outside scoverage's
     // instrumentation, so a floor there would be red by construction.

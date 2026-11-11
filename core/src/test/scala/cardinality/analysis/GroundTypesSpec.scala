@@ -56,7 +56,7 @@ class GroundTypesSpec extends Specification {
   private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
     sources.toList.map((p, t) => MethodAnalysis.Input(p, dialects.Scala3(t).parse[Source].get))
 
-  private def all(sources: (String, String)*) = MethodAnalysis.analyze(inputs(sources*))
+  private def all(sources: (String, String)*) = cardinality.Compiled.analyze(inputs(sources*))
 
   private def count(code: String, name: String = "f"): Count =
     all("Example.scala" -> code).find(_.name == name).get.count

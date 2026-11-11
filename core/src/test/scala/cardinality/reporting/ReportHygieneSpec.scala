@@ -76,7 +76,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
   private def parse(code: String): Source = dialects.Scala3(code).parse[Source].get
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
-    MethodAnalysis.analyze(List(MethodAnalysis.Input("Example.scala", parse(code))))
+    cardinality.Compiled.analyze(List(MethodAnalysis.Input("Example.scala", parse(code))))
 
   private def reasons(entry: MethodAnalysis.Entry): List[String] = entry.count match {
     case Count.Unresolved(found) => found
@@ -365,7 +365,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
     val code =
       "package e\nextension [A](x: A)\n    (using o: Ordering[A])\n  def big(y: A): Boolean = true\n"
     val tree = parse(code)
-    val big = MethodAnalysis.analyze(List(MethodAnalysis.Input("e/E.scala", tree))).head
+    val big = cardinality.Compiled.analyze(List(MethodAnalysis.Input("e/E.scala", tree))).head
     (found.map(_.signature) === List("f[A](x: A)(y: A): A", "g[A](x: A)(y: A): A"))
       .and(
         cardinality.EoBaseline
@@ -440,7 +440,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |}
          |""".stripMargin
     ).find(_.name == "s.O.pick").get
-    found.signature === "pick[A](x: A, y: A): <inferred>"
+    // The compiler's result is written in: the signature reads it, on one line.
+    found.signature === "pick[A](x: A, y: A): A"
   }
 
   def separator =

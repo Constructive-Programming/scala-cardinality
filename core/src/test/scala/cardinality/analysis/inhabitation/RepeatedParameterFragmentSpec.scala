@@ -34,7 +34,7 @@ class RepeatedParameterFragmentSpec extends Specification {
 
   private def entry(code: String, name: String): MethodAnalysis.Entry = {
     val source = dialects.Scala3(code).parse[Source].get
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Repeated.scala", source)))
       .find(_.name == name)
       .get

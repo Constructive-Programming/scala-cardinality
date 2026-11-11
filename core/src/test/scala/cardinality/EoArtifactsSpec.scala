@@ -66,7 +66,7 @@ class EoArtifactsSpec extends Specification with AfterAll {
     val code = "package r\ntrait Two { type X; type Y }\nobject R {\n" +
       "  def f(b: Boolean): Two { type X = Int; type Y = Boolean } = ???\n" +
       "  def h(b: Boolean): Two {\n    type X = Int\n    type Y = Boolean\n  } = ???\n}\n"
-    val written = MethodAnalysis
+    val written = cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("r/R.scala", parse(code))))
       .map(entry => EoCheckout.row(entry, ""))
     val refined = "Two { type X = Int; type Y = Boolean }"
@@ -98,7 +98,7 @@ class EoArtifactsSpec extends Specification with AfterAll {
     val code = "package l\nimport scala.annotation.targetName\nobject O {\n" +
       "  def f(x: \"a  b\" & Int): Int = 1\n" +
       "  @targetName(\"f2\") def f(x: \"a b\" & Int): Int = 2\n}\n"
-    val written = MethodAnalysis
+    val written = cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("l/O.scala", parse(code))))
       .map(entry => EoCheckout.row(entry, ""))
     Tsv

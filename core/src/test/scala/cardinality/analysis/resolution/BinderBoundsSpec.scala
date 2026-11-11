@@ -46,7 +46,7 @@ class BinderBoundsSpec extends Specification {
   """
 
   private def entries(code: String, path: String = "Bounds.scala"): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input(path, dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count)
       .toMap

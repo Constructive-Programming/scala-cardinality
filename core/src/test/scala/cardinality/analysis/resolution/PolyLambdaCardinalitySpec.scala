@@ -33,7 +33,7 @@ class PolyLambdaCardinalitySpec extends Specification {
   """
 
   private def count(code: String, name: String = "use"): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Poly.scala", dialects.Scala3(code).parse[Source].get)))
       .find(_.name == name)
       .get

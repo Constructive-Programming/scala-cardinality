@@ -34,7 +34,7 @@ class MethodMatchProjectionSpec extends Specification {
       "type Snd[T] = T match { case (f, s) => s }\n"
 
   private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(MethodAnalysis.Input("MatchProjection.scala", dialects.Scala3(code).parse[Source].get))
       )

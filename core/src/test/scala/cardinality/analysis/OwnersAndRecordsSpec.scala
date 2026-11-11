@@ -40,7 +40,7 @@ class OwnersAndRecordsSpec extends Specification {
   """
 
   private def one(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Owners.scala", dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count)
       .toMap

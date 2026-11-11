@@ -41,7 +41,7 @@ class ExistentialInputSpec extends Specification {
 
   private def count(code: String, name: String = "run"): Count = {
     val source = dialects.Scala3(code).parse[Source].get
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Existentials.scala", source)))
       .find(_.name == name)
       .get

@@ -23,7 +23,7 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       a comprehension's binder is refused, never counted              $comprehensionBinders
       a function literal's parameter is a parameter                   $lambdaParameters
       a polymorphic function literal binds its type parameters        $polyLambda
-      an untyped function literal parameter is refused                $untypedLambda
+      an untyped function literal parameter has the compiler's type   $untypedLambda
       a scope of an inline method shares the method's verdict         $inlineOwners
   """
 
@@ -274,17 +274,18 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
     found("Lifted.lifted.<lambda#1>.<new#1>.get") === "ω"
   }
 
+  // scalac types the lambda's x as an A: get may return s, x or any element of the captured xs,
+  // by position — countably many (ω).
   def untypedLambda =
-    refused(
-      rows(
-        getter + """
-          |object Untyped {
-          |  def lifted[A](xs: List[A]): List[Getter[A, A]] =
-          |    xs.map(x => new Getter[A, A] { def get(s: A): A = x })
-          |}""".stripMargin
-      )("Untyped.lifted.<lambda#1>.<new#1>.get"),
-      "missing type of accessible value: x"
-    )
+    rows(
+      getter + """
+        |object Untyped {
+        |  def lifted[A](xs: List[A]): List[Getter[A, A]] =
+        |    xs.map(x => new Getter[A, A] { def get(s: A): A = x })
+        |}""".stripMargin
+    )(
+      "Untyped.lifted.<lambda#1>.<new#1>.get"
+    ) === cardinality.analysis.inhabitation.Inhabitation.Count.Countable
 
   // A definition in a scope of an inline method is copied into every expansion (register D27): it
   // counts when the method's body passes — a Boolean function of c and the capture b, 16 — and

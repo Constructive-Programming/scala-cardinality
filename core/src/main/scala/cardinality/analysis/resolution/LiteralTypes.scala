@@ -22,9 +22,6 @@ private[cardinality] object LiteralTypes {
   /** The class of a literal type's value, by its simple name. */
   def className(lit: Lit): Option[String] = constant(lit).map(_._1)
 
-  /** The class of the value a literal type's identity names, by its simple name. */
-  def className(id: String): String = id.stripPrefix(Prefix).takeWhile(_ != ':')
-
   // A floating constant is the value its spelling rounds to at its own width, compared by its bits
   // as `equals` compares it. The parser keeps a literal's magnitude but not the sign of a zero
   // (`-0.0` reads as `0.0`), and the two zeros are two types: a zero is not read.

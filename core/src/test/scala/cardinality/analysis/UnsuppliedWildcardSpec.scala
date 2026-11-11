@@ -64,7 +64,7 @@ class UnsuppliedWildcardSpec extends Specification {
     }
 
   private def counts(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
+    cardinality.Compiled.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
 
   private def refused(found: Count, reason: String): MatchResult[Count] =
     found must beLike { case Count.Unresolved(reasons) => reasons must contain(reason) }

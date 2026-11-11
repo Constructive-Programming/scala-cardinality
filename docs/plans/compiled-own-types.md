@@ -1,6 +1,6 @@
 # Compiled own types: reading the module's TASTy
 
-**Status:** phases 1 and 2 implemented (2026-11-10). Phases 3 to 5 are proposed.
+**Status:** phases 1 to 3 implemented (2026-11-10/11). Phases 4 and 5 are proposed.
 
 ## Goal
 
@@ -23,14 +23,14 @@ The type is not used when:
 
 - **No compiled member matches.** A match needs the same source file, a member at the same
   name offset, the same name, and the same end of definition. Stale or foreign classes therefore
-  fall back to the syntax reading.
+  refuse.
 - **The type has no spelling here.** `StubTypes` cannot spell it, the spelling spans lines, or it
   does not parse.
 - **The member is `transparent inline`.** Its callers see the type of the expansion (rule X).
 
-Reports over sources that do not compile, and `cardinalityReportOf` over arbitrary paths, read
-syntax alone. So every syntax path stays as the fallback, and none can be deleted outright until
-those modes also get compiled classes.
+Reports over sources that do not compile, and `cardinalityReportOf` over arbitrary paths, have no
+compiled types: their untyped members refuse (`written without a type, in a source not compiled`).
+The syntax inference that used to guess them is deleted (phase 3).
 
 ## Phase 1: untyped template and top-level members (done)
 
@@ -78,19 +78,29 @@ those modes also get compiled classes.
   the anonymous algebra's members in `ClosedSpaces.tiers` (`empty`, `plus`, `power`, `times`).
   Totals went from `62ε₀ + 703ω (3473 ?)` to `62ε₀ + 710ω (3469 ?)`, with the new code's own rows.
 
-## Phase 3: delete the syntax inference that TASTy now answers, in TASTy mode
+## Phase 3: delete the syntax inference (done, owner decision 2026-11-11)
 
-These items share phase 1's mechanism: the measured definition's symbol, then its `declaredType`
-or overridden symbols. None of them needs a contract edit.
+Compiled classes are now the only source of an inferred type. Where a member has none, it refuses.
 
-| Area | Fact | TASTy instead | Lines |
-| --- | --- | --- | --- |
-| `OverriddenResults`, the overridden branch in `ContextBinders`, `MemberSyntax` ~185-201 | Result of an override written without a type | `declaredType` (phase 1 already writes it) | ~250 |
-| `OverrideIdentity`, `TypeIdentities.Overrides`, `Measurement` 226-244 | Which inherited declaration the target overrides | `allOverriddenSymbols` | ~450 |
-| `GivenNames` | Synthesized name of an anonymous given | The symbol's name | ~100 |
+- Deleted: `OverriddenResults` (210 lines) and the body reading of `InferredResults` (523 → 78
+  lines), plus the helpers only they used (`LiteralTypes.className`, `TermBindings.beside`).
+  `ContextBinders` refuses an enclosing result that is neither written nor compiled. Net production
+  change: −655 lines.
+- `StubTypes` spells an empty-package type by its bare name (test fixtures declare no package).
+- `CompiledTypes` reads the running JDK once per JVM, not once per call, and keeps every compiled
+  member at a name offset (a `var`'s getter and setter share it).
+- Tests: `cardinality.Compiled` compiles each fixture in-process with `scala3-compiler` (a test
+  dependency) before analysis, in parallel, cached on disk by the sources' hash under
+  `core/target/compiled-fixtures`. A compile that does not finish in 60 s counts as rejected
+  (3.9.0's typer does not finish the 70-alias `ContextBindersSpec.limits` fixture). Core tests
+  fork and get the test classpath through `-Dcardinality.test.classpath`.
+- Every changed expectation is derived from the compiled type in its spec's comment
+  (`InferredResultsSpec`, `PureCodeSpec`, `SyntaxFeaturesSpec`, `ContextBindersSpec`, …).
+  Fixtures that name an unsupplied declaration on purpose no longer compile, so their untyped
+  members refuse.
 
-"Delete" means the code no longer runs when classes are supplied. It stays for syntax-only runs
-until phase 5 makes that mode rare enough to drop.
+The override-identity and given-name code listed earlier did not refuse anything on this repository,
+and replacing it needs symbol facts a source rewrite cannot carry: it stays for now.
 
 ## Phase 4: exact structure (contract text changes)
 

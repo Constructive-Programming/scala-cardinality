@@ -21,7 +21,7 @@ class GeneralInfixApplicationSpec extends Specification {
   """
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
-    MethodAnalysis.analyze(
+    cardinality.Compiled.analyze(
       List(MethodAnalysis.Input("Infix.scala", dialects.Scala3(code).parse[Source].get))
     )
 

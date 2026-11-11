@@ -41,7 +41,7 @@ class TypeMemberBoundarySpec extends Specification {
   """
 
   private def entries(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         sources.toList.map((name, code) =>
           MethodAnalysis.Input(name, dialects.Scala3(code).parse[Source].get)

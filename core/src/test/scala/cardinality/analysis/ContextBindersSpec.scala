@@ -30,13 +30,13 @@ class ContextBindersSpec extends Specification {
       a chain past the reading's budget or arity is refused          $limits
     An overridden result is the one the subclass sees
       the subclass's alias of an abstract member wraps               $memberAlias
-      a parameter an extends clause substitutes is refused           $substituted
+      a parameter an extends clause substitutes is the compiler's     $substituted
       an inferred member reads its overridden context function       $overriddenLocal
-      several overridden declarations refuse the local definition    $severalOverridden
+      several overridden declarations: the compiler settles one      $severalOverridden
   """
 
   private def rows(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Binders.scala", dialects.Scala3(code).parse[Source].get)))
       .map(e => e.name -> e.count)
       .toMap
@@ -239,9 +239,10 @@ class ContextBindersSpec extends Specification {
       |final class F5[X](using X) extends P3[X, X ?=> X] { def run3 = summon[X] }
       |final class G3[X](x: X) extends P3[X, X] { def run3 = { def g: X = x; g } }
       |""".stripMargin)
-    val behind = "context function behind a substituted type parameter not read: Y"
-    refused(found("F5.run3"), behind)
-      .and(refused(found("F3.run3.gf3"), s"$behind, in the result of enclosing run3"))
+    // scalac types each `run3` by the substituted `(X) ?=> X`: F3's gf3 reads the binder (1); F5's
+    // body sees its class's evidence and the binder both: refused, never 2.
+    refused(found("F5.run3"), "anonymous evidence selection not resolved: X (overlaps")
+      .and(found("F3.run3.gf3") === Count.Finite(1))
       .and(found("G3.run3.g") === Count.Finite(1))
   }
 
@@ -256,14 +257,12 @@ class ContextBindersSpec extends Specification {
     (found("Impl.g.l") === Count.Finite(1)).and(found("Impl3.g.l3") === Count.Finite(0))
   }
 
-  // Both declarations match `g`: Scala intersects their results, which this reading does not.
+  // Both declarations match `g`: scalac settles `g: A ?=> A`, so lb reads the field a or the binder
+  // (2).
   def severalOverridden =
-    refused(
-      rows("""trait Two[A] { def g: A ?=> A }
-        |trait Other[A] { def g: A }
-        |final class Both[A](a: A) extends Two[A], Other[A ?=> A] { def g = { def lb: A = a; lb } }
-        |""".stripMargin)("Both.g.lb"),
-      "overriding member g of several declarations, in the result of enclosing g"
-    )
+    rows("""trait Two[A] { def g: A ?=> A }
+      |trait Other[A] { def g: A }
+      |final class Both[A](a: A) extends Two[A], Other[A ?=> A] { def g = { def lb: A = a; lb } }
+      |""".stripMargin)("Both.g.lb") === Count.Finite(2)
 
 }

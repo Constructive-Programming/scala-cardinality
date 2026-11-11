@@ -67,7 +67,7 @@ class GroundEnvironmentSpec extends Specification {
   """
 
   private def all(sources: (String, String)*) =
-    MethodAnalysis.analyze(sources.toList.map { (path, text) =>
+    cardinality.Compiled.analyze(sources.toList.map { (path, text) =>
       MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
     })
 

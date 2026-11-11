@@ -64,10 +64,11 @@ final private[cardinality] class Measurement(
 
   private val bounded = new BinderBounds(resolver, target.frame)
 
-  private lazy val inferred = InferredResults.declared(target, steps, variables, resolver)
+  private lazy val inferred =
+    InferredResults.declared(target, ResolutionContext(target.frame, variables, Set.empty))
 
   private val contexts =
-    new ContextBinders(target, inferred, steps, readingContext(_, Map.empty), resolver)
+    new ContextBinders(target, inferred, readingContext(_, Map.empty), resolver)
 
   /** Whether possible views (capabilities C6) are all that refused a count of this measurement. */
   def refusedByViews(count: Count): Boolean = count match {

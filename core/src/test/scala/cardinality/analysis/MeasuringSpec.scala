@@ -41,7 +41,7 @@ class MeasuringSpec extends Specification {
   private def render(rows: List[MethodAnalysis.Entry]) = rows.map(e => (e.path, e.name, e.count))
 
   "workers give the sequential rows, in its order" in {
-    val sequential = render(MethodAnalysis.analyze(inputs))
+    val sequential = render(cardinality.Compiled.analyze(inputs))
     (render(Measuring.rows(inputs, workers = 1)) must_== sequential)
       .and(render(Measuring.rows(inputs, workers = 4)) must_== sequential)
       .and(render(Measuring.rows(inputs.reverse, workers = 3)) must_== sequential)
@@ -78,7 +78,7 @@ class MeasuringSpec extends Specification {
 
   "a library shared by every worker reads as one built per worker" in {
     val library = Library.of(inputs.map(_.tree))
-    val sequential = render(MethodAnalysis.analyze(inputs))
+    val sequential = render(cardinality.Compiled.analyze(inputs))
     (1 to 5)
       .map(_ =>
         render(Measuring.rows(inputs, workers = 4, library = Some(library))) must_== sequential

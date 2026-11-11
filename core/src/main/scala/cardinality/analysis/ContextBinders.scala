@@ -1,6 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.{Defn, Member, Mod, Term, Tree, Type}
+import scala.meta.{Defn, Term, Tree, Type}
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.{ContextualEvidence, MemberSyntax, ResolutionContext}
@@ -14,15 +14,13 @@ import MethodAnalysis.{Frame, Resolved, Target}
 /** The context-function binders around a target's body (`ContextFunctions`), by the definition
   * whose result puts them there: the target's own, read from its result as declared or inferred,
   * and each enclosing one's, which every definition nested in its body reaches through implicit
-  * search alone — a wrapped body's binders are synthetic. An enclosing method without a declared
-  * result has one only where it overrides a declaration: Scala types it by that declaration's
-  * result as seen from the subclass (fixture cf3 `C.g`), while a result inferred from the body sets
-  * no expected type and wraps nothing.
+  * search alone — a wrapped body's binders are synthetic. An enclosing definition reads its result
+  * as written, which for a compiled source is the compiler's (`CompiledTypes`): one written without
+  * a type in a source not compiled refuses.
   */
 final private[cardinality] class ContextBinders(
     target: Target,
     inferred: => Either[String, InferredResults.Inferred],
-    steps: => List[InheritedScopes.Step],
     reading: Frame => ResolutionContext,
     resolver: Resolver
 ) {
@@ -60,12 +58,12 @@ final private[cardinality] class ContextBinders(
   private def enclosing(owner: Frame): Either[String, List[Binder]] =
     (owner.tree match {
       case Some(method: Defn.Def) =>
-        method.decltpe.fold(overridden(owner, method.mods, method.paramClauseGroups))(
+        method.decltpe.fold(overridden(owner))(
           enclosed(_, reading(owner))
         )
       case Some(alias: Defn.GivenAlias) => enclosed(alias.decltpe, reading(owner))
-      case Some(value: Defn.Val)        => typed(value.mods, value.decltpe, owner)
-      case Some(variable: Defn.Var)     => typed(variable.mods, variable.decltpe, owner)
+      case Some(value: Defn.Val)        => typed(value.decltpe, owner)
+      case Some(variable: Defn.Var)     => typed(variable.decltpe, owner)
       case _                            => Right(Nil)
     }).map { binders =>
       val literals =
@@ -73,28 +71,13 @@ final private[cardinality] class ContextBinders(
       binders.filter(_.clause >= literals)
     }
 
-  private def typed(
-      mods: List[Mod],
-      declared: Option[Type],
-      owner: Frame
-  ): Either[String, List[Binder]] =
-    declared.fold(overridden(owner, mods, Nil))(enclosed(_, reading(owner)))
+  private def typed(declared: Option[Type], owner: Frame): Either[String, List[Binder]] =
+    declared.fold(overridden(owner))(enclosed(_, reading(owner)))
 
-  private def overridden(
-      owner: Frame,
-      mods: List[Mod],
-      groups: List[Member.ParamClauseGroup]
-  ): Either[String, List[Binder]] =
-    owner.name.fold(Right(Nil)) { name =>
-      new OverriddenResults(
-        owner,
-        OverriddenResults.Overriding(name, mods, groups),
-        resolver.typeParameters(owner),
-        resolver
-      )
-        .result(steps)
-        .fold(Right(Nil))(_.flatMap(result => enclosed(result.tpe, result.context)))
-    }
+  // Written without a type in a source that was not compiled: the result, and so the binders it
+  // puts around the body, is not known (`CompiledTypes` writes the compiler's in a compiled one).
+  private def overridden(owner: Frame): Either[String, List[Binder]] =
+    Left(s"${InferredResults.Unresolved}: result of ${owner.name.getOrElse(owner.id)} not written")
 
   // Nothing else reads an enclosing method's result: a name it cannot see behind refuses.
   private def enclosed(tpe: Type, context: ResolutionContext) =

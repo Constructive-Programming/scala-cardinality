@@ -26,7 +26,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       an inline given alias is read by the inline-method rule         $inlineGivens
     Member values
       a value is a nullary signature of its type                      $memberValues
-      a pattern's names are not typed by syntax                       $patternValues
+      a pattern's names are typed by the compiler                       $patternValues
       a local value is no row                                         $localValues
       each name of a declaration is a slot of the others              $siblingDeclarations
       a value implementing a declaration is not its own slot          $ownSlot
@@ -243,9 +243,9 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
 
   def patternValues = {
     val found = rows("object Vals { val (left, right) = (true, false) }")
-    // Each name's type is a part of the right-hand side's, which only inference finds.
-    refused(found("Vals.left"), "a name of a pattern definition")
-      .and(refused(found("Vals.right"), "a name of a pattern definition"))
+    // Each name's type is a part of the right-hand side's, which scalac infers: a Boolean each (2).
+    (found("Vals.left") === inhabitation.Inhabitation.Count.Finite(2))
+      .and(found("Vals.right") === inhabitation.Inhabitation.Count.Finite(2))
   }
 
   def localValues =

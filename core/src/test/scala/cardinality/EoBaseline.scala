@@ -50,8 +50,8 @@ object EoBaseline {
     require(inputs.size == 53, s"expected 53 Scala sources, found ${inputs.size}")
     val trees = inputs.map(input => input.path -> input.tree).toMap
     def key(entry: MethodAnalysis.Entry) = identity(entry, trees(entry.path))
-    val forward = MethodAnalysis.analyze(inputs).sortBy(key)
-    val reverse = MethodAnalysis.analyze(inputs.reverse).sortBy(key)
+    val forward = cardinality.Compiled.analyze(inputs).sortBy(key)
+    val reverse = cardinality.Compiled.analyze(inputs.reverse).sortBy(key)
     require(forward == reverse, "method results depend on source input order")
     require(report.methods.sortBy(key) == forward, "report and direct analysis differ")
     require(forward.map(key).distinct.size == forward.size, "duplicate method row identity")

@@ -27,7 +27,7 @@ class SingletonIntersectionMethodSpec extends Specification {
   """
 
   private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(
           MethodAnalysis.Input(

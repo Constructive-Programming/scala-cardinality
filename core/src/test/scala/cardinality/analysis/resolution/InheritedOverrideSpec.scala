@@ -24,7 +24,7 @@ class InheritedOverrideSpec extends Specification {
 
   private def count(name: String, code: String): Count = {
     val source = dialects.Scala3(code).parse[Source].get
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Overrides.scala", source)))
       .find(_.name == name)
       .get

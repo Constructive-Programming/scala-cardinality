@@ -40,7 +40,7 @@ class AliasOverrideIdentitySpec extends Specification {
   """
 
   private def count(code: String, name: String = "Instance.get"): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Aliases.scala", dialects.Scala3(code).parse[Source].get)))
       .find(_.name == name)
       .get
@@ -221,7 +221,7 @@ class AliasOverrideIdentitySpec extends Specification {
       trait Base[A] { def get(a: First[A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
     """
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(MethodAnalysis.Input("Depth.scala", dialects.Scala3(code).parse[Source].get)),
         MethodAnalysis.Limits(maxTypeDepth = 3)
@@ -260,7 +260,7 @@ class AliasOverrideIdentitySpec extends Specification {
   }
 
   def nearerImport =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(
           MethodAnalysis.Input(
@@ -290,7 +290,7 @@ class AliasOverrideIdentitySpec extends Specification {
       trait Base[A] { def get(a: Id[Id[Id[Id[A]]]]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
     """
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(MethodAnalysis.Input("Depth.scala", dialects.Scala3(code).parse[Source].get)),
         MethodAnalysis.Limits(maxTypeDepth = 3)

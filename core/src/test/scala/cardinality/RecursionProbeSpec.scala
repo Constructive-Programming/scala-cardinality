@@ -16,7 +16,7 @@ import org.specs2.mutable.Specification
 class RecursionProbeSpec extends Specification {
 
   private def counts(code: String): Map[String, String] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("P.scala", Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count.toString)
       .toMap

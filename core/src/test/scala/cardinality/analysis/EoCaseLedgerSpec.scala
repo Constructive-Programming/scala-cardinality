@@ -31,7 +31,7 @@ class EoCaseLedgerSpec extends Specification {
   """
 
   private def entries(code: String): Map[String, MethodAnalysis.Entry] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Ledger.scala", dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry)
       .toMap
@@ -97,7 +97,7 @@ class EoCaseLedgerSpec extends Specification {
 
   private def keys(code: String) = {
     val tree = dialects.Scala3(code).parse[Source].get
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Owners.scala", tree)))
       .map(entry => EoBaseline.identity(entry, tree))
       .toSet

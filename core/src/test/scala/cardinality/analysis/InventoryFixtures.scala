@@ -17,10 +17,10 @@ trait InventoryFixtures extends MustMatchers {
     }
 
   protected def counts(sources: (String, String)*): Map[String, Count] =
-    MethodAnalysis.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
+    cardinality.Compiled.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
 
   protected def entries(code: String): List[MethodAnalysis.Entry] =
-    MethodAnalysis.analyze(inputs("Example.scala" -> code))
+    cardinality.Compiled.analyze(inputs("Example.scala" -> code))
 
   protected def rows(code: String): Map[String, Count] =
     entries(code).map(entry => entry.name -> entry.count).toMap
@@ -29,7 +29,7 @@ trait InventoryFixtures extends MustMatchers {
     * open, as one a supplied template overrides is in the closed world.
     */
   protected def openRows(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyzeOpen(inputs("Example.scala" -> code))
       .map(entry => entry.name -> entry.count)
       .toMap

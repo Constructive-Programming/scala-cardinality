@@ -53,7 +53,7 @@ class TargetViewsSpec extends Specification {
   """
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
-    MethodAnalysis.analyzeOpen(
+    cardinality.Compiled.analyzeOpen(
       List(MethodAnalysis.Input("Views.scala", dialects.Scala3(code).parse[Source].get))
     )
 

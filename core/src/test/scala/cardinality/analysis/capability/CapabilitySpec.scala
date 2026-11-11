@@ -73,7 +73,7 @@ class CapabilitySpec extends Specification {
   """
 
   private def counts(files: (String, String)*): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         files.toList.map((path, text) =>
           MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
@@ -822,7 +822,8 @@ class CapabilitySpec extends Specification {
       trait Rec[A] { def next: Rec[A]; def x: A }
       object U { def rec[A](t: Rec[A]): A = ??? }
     """)
-    refused(found("Inf2.x"), "overridable member's result type is inferred: y")
+    // scalac types `y = z` an A: Inf2.x is z or the open y (2).
+    (found("Inf2.x") === Count.Finite(2))
       .and(refused(found("U.rec"), "recursive type not read: Rec"))
   }
 

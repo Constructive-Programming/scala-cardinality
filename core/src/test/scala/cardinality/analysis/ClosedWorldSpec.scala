@@ -108,18 +108,16 @@ class ClosedWorldSpec extends Specification with InventoryFixtures {
 
   // `final val y = true` would be the constant `true`, and a constructor `val` spells the signature:
   // both are left as written, and the receiver asks whether a supplied template overrides them.
-  // Nothing does: y is true and R passes P's p true — 4 each. B overrides y, which is then open,
-  // and an open member's inferred type is not read: refused.
+  // Nothing does: y is true and R passes P's p true — 4 each. B overrides y, which is then open:
+  // scalac types it Boolean, a capability, so target reads b and y, 2^(2·2) = 16.
   def values = {
     val literal = "abstract class A { val y = true; def target(b: Boolean): Boolean }"
     val field =
       "class P(val p: Boolean)\nabstract class R extends P(true) { def target(b: Boolean): Boolean }"
     (rows(literal)("A.target") === Count.Finite(4))
       .and(
-        refused(
-          rows(literal + "\nabstract class B extends A { override val y = false }")("A.target"),
-          "overridable member's result type is inferred: y"
-        )
+        rows(literal + "\nabstract class B extends A { override val y = false }")("A.target") ===
+          Count.Finite(16)
       )
       .and(rows(field)("R.target") === Count.Finite(4))
   }

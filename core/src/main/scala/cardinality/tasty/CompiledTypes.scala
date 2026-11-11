@@ -5,6 +5,7 @@ import scala.util.control.NonFatal
 
 import cardinality.analysis.MethodAnalysis
 import java.nio.file.Path
+import tastyquery.Classpaths.ClasspathEntry
 import tastyquery.Contexts.*
 import tastyquery.Symbols.*
 import tastyquery.Trees.{ClassDef, ValOrDefDef}
@@ -44,22 +45,39 @@ object CompiledTypes {
       }
 
   // Every compiled member, by source file and the offset of its name.
-  private def read(classes: Classes): Map[String, Map[Int, Compiled]] = {
-    val jdk = TastyStubs.jdk.flatMap(module => ClasspathLoaders.read(List(module)))
+  // The running JDK's classes, read and indexed once: each read starts from them, and a class a
+  // later entry declares again is not seen (`TastyStubs.firstLoaded`).
+  private lazy val jdk: (List[ClasspathEntry], Set[(String, String)]) = {
+    val entries =
+      TastyStubs.firstLoaded(TastyStubs.jdk.flatMap(module => ClasspathLoaders.read(List(module))))
+    val names = entries.flatMap(e =>
+      e.listAllPackages()
+        .flatMap(p => p.listAllClassDatas().map(p.dotSeparatedName -> _.binaryName))
+    )
+    (entries, names.toSet)
+  }
+
+  private def read(classes: Classes): Map[String, Map[Int, List[Compiled]]] = {
+    val (jdkEntries, jdkNames) = jdk
     val output = classes.output.toList.map(TastyStubs.readable)
     val own = output.flatMap(path => ClasspathLoaders.read(List(path)))
     val rest = classes.classpath.toList.distinct.map(TastyStubs.readable)
-    val entries =
-      TastyStubs.firstLoaded(jdk ++ own ++ rest.flatMap(path => ClasspathLoaders.read(List(path))))
+    val later =
+      TastyStubs.firstLoaded(
+        own ++ rest.flatMap(path => ClasspathLoaders.read(List(path))),
+        jdkNames
+      )
+    val entries = jdkEntries ++ later
     given Context = Context.initialize(entries)
-    val ownEntries = entries.slice(jdk.size, jdk.size + own.size)
+    val ownEntries = later.take(own.size)
     ownEntries
       .flatMap(entry => TastyStubs.symbolsOf(entry, _ => true)._1)
       .collect { case c: ClassSymbol => c }
       .flatMap(c => c.tree.toList.flatMap(members))
       .groupMap(_._1)(_._2)
       .view
-      .mapValues(_.toMap)
+      // A `var`'s getter and setter share their name's offset: every member there is kept.
+      .mapValues(_.groupMap(_._1)(_._2))
       .toMap
   }
 
@@ -110,8 +128,8 @@ object CompiledTypes {
   // one does.
   private def matching(
       path: String,
-      compiled: Map[String, Map[Int, Compiled]]
-  ): Map[Int, Compiled] = {
+      compiled: Map[String, Map[Int, List[Compiled]]]
+  ): Map[Int, List[Compiled]] = {
     def normal(p: String) = p.replace('\\', '/').stripPrefix("/")
     val candidates = compiled.filter { (source, _) =>
       val (a, b) = (normal(path), normal(source))
@@ -137,17 +155,20 @@ object CompiledTypes {
   // The input with a type written at each untyped definition that has a compiled match.
   private def written(
       input: MethodAnalysis.Input,
-      compiled: Map[Int, Compiled]
+      compiled: Map[Int, List[Compiled]]
   ): MethodAnalysis.Input = {
     val edits = untyped(input.tree).flatMap { u =>
-      compiled.get(u.at).toList.flatMap {
-        case Compiled(name, end, Some(tpe)) if name == u.name && end == u.end =>
-          u.site match {
-            case Site.After(at)          => List(at -> (": " + tpe))
-            case Site.Around(start, end) => List(end -> (": " + tpe + ")"), start -> "(")
-          }
-        case _ => Nil
-      }
+      compiled
+        .getOrElse(u.at, Nil)
+        .flatMap {
+          case Compiled(name, end, Some(tpe)) if name == u.name && end == u.end =>
+            u.site match {
+              case Site.After(at)          => List(at -> (": " + tpe))
+              case Site.Around(start, end) => List(end -> (": " + tpe + ")"), start -> "(")
+            }
+          case _ => Nil
+        }
+        .distinct
     }
     if (edits.isEmpty) input
     else {

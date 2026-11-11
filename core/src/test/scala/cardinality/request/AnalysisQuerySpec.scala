@@ -81,7 +81,7 @@ class AnalysisQuerySpec extends Specification {
   }
 
   def equivalence =
-    AnalysisQuery.run(request()).entries.toSet === MethodAnalysis.analyze(List(main)).toSet
+    AnalysisQuery.run(request()).entries.toSet === cardinality.Compiled.analyze(List(main)).toSet
 
   def invalid = {
     val missingPath = AnalysisQuery.run(request().copy(targetPaths = Set("missing")))

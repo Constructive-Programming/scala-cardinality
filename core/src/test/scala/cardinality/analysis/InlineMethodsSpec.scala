@@ -676,8 +676,10 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       """inline given Conversion[Int, String] = (x: Int) => scala.compiletime.codeOf(x)
       |object Use { inline def s(x: Int): String = x }""".stripMargin
     )
-    refused(found("Use.f"), "a value whose type is not read: the companion of Foo")
-      .and(refused(found("Use.g"), "a value whose type is not read: the function identity"))
+    // scalac types g's `h` as an `Int => Int`, so g reads as the def it is: every Int => Int,
+    // (2^32)^(2^32) = 2^(2^37); f's `c` is `Foo.type`, whose `apply` is not read.
+    refused(found("Use.f"), "a value whose type is not read: Foo.type")
+      .and(found("Use.g").render === "2^(2^37)")
       .and(refused(found("Use.k"), "not read: if (y > 0) { 1 } else 2"))
       .and(refused(anonymous("Use.s"), "the inline conversion given Conversion[Int, String]"))
   }

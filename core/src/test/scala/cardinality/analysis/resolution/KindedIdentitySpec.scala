@@ -22,7 +22,7 @@ class KindedIdentitySpec extends Specification {
   """
 
   private def entries(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(MethodAnalysis.Input("Identity.scala", dialects.Scala3(code).parse[Source].get))
       )

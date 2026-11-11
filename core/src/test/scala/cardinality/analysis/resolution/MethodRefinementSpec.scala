@@ -36,7 +36,7 @@ class MethodRefinementSpec extends Specification {
     MethodAnalysis.Input("Refinement.scala", dialects.Scala3(code).parse[Source].get)
 
   private def count(code: String, name: String = "choose"): Count =
-    MethodAnalysis.analyze(List(input(code))).find(_.name == name).get.count
+    cardinality.Compiled.analyze(List(input(code))).find(_.name == name).get.count
 
   def equality =
     count(

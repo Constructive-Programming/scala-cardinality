@@ -83,7 +83,7 @@ class StdlibModelSpec extends Specification {
     }
 
   private def countIn(sources: (String, String)*)(name: String): Count =
-    MethodAnalysis.analyze(inputs(sources*)).find(_.name == name).get.count
+    cardinality.Compiled.analyze(inputs(sources*)).find(_.name == name).get.count
 
   private def count(code: String, name: String): Count = countIn("Example.scala" -> code)(name)
 
@@ -894,7 +894,8 @@ class StdlibModelSpec extends Specification {
       |  def g(i: Int, b: Boolean): Boolean = b
       |}""".stripMargin
     // One analysis, so every lookup shares the index's caches.
-    val counts = MethodAnalysis.analyze(inputs("Example.scala" -> code)).map(e => e.name -> e.count)
+    val counts =
+      cardinality.Compiled.analyze(inputs("Example.scala" -> code)).map(e => e.name -> e.count)
     val found = counts.toMap
     (counts.map(_._1).filter(Set("T.h", "U.f", "U.g")) === List("T.h", "U.f", "U.g"))
       .and(found("T.h") === Count.Finite(4))

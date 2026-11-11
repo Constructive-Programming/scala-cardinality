@@ -195,7 +195,7 @@ class TerminalHigherOrderSpec extends Specification {
     final class Modify[S, T, A, B](val modifyFn: (A => B) => S => T)
     """
     val input = MethodAnalysis.Input("Higher.scala", dialects.Scala3(code).parse[Source].get)
-    val entries = MethodAnalysis.analyze(List(input))
+    val entries = cardinality.Compiled.analyze(List(input))
     (entries.find(_.name == "CanModifyP.replace").get.count === Count.Finite(1))
       .and(entries.find(_.name == "Modify.<init>").get.count === Count.Finite(1))
   }

@@ -171,8 +171,11 @@ object TastyStubs {
     * JVM never loads from it. tasty-query refuses a class declared twice, so either one would
     * otherwise lose a whole jar.
     */
-  private[tasty] def firstLoaded(entries: List[ClasspathEntry]): List[ClasspathEntry] = {
-    val seen = scala.collection.mutable.Set.empty[(String, String)]
+  private[tasty] def firstLoaded(
+      entries: List[ClasspathEntry],
+      loaded: Set[(String, String)] = Set.empty
+  ): List[ClasspathEntry] = {
+    val seen = scala.collection.mutable.Set.empty[(String, String)] ++= loaded
     entries.map { entry =>
       val packages = entry.listAllPackages().flatMap { p =>
         val kept = p

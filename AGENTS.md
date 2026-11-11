@@ -125,8 +125,11 @@ Three conventions sit beside these assumptions (v1.md §2, "Modelling convention
   anonymous-class member and pattern name into the source (spelled from `_root_`) before anything
   reads it. A name typed in its pattern (`val (a: A, b)`) has that type, compiled or written. No match at the
   same name offset, name and span (stale classes), no spelling, or `transparent inline` (Rule X)
-  keeps the syntax reading. Never refuse such a member because its type is inferred when classes
-  are supplied.
+  refuses (`written without a type, in a source not compiled`): the compiler's inference is never
+  imitated from syntax. Never refuse such a member because its type is inferred when classes are
+  supplied. Core's tests compile their fixtures in-process (`cardinality.Compiled`), so a fixture
+  meant to keep a type must compile; one that names an unsupplied declaration on purpose refuses
+  its untyped members.
 - **Rule F, an opaque type outside its scope is one value.** Where its representation is hidden,
   an opaque type counts 1 on both sides (it reads as `Unit`; as a type argument it keeps its own
   nominal identity). Inside its scope the representation is read as before. Never refuse a count

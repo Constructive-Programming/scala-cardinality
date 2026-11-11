@@ -25,7 +25,7 @@ class TransparentInlineSpec extends Specification {
   """
 
   private def rows(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Top.scala", dialects.Scala3(code).parse[Source].get)))
       .map(e => e.name -> e.count)
       .toMap

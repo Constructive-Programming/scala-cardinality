@@ -49,7 +49,7 @@ class SequenceEliminationSpec extends Specification {
   private val b = Atom("B")
 
   private def entry(code: String, name: String): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(MethodAnalysis.Input("Seq.scala", dialects.Scala3(code).parse[Source].get))
       )

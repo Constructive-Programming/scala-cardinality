@@ -35,7 +35,7 @@ class MethodTypePlaceholderSpec extends Specification {
   }
 
   private def count(code: String, name: String = "pick"): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(
         List(
           MethodAnalysis.Input(

@@ -40,7 +40,7 @@ class OpaqueTypeScopeSpec extends Specification {
     }
 
   private def count(name: String, files: (String, String)*): Count =
-    MethodAnalysis.analyze(inputs(files*)).find(_.name == name).get.count
+    cardinality.Compiled.analyze(inputs(files*)).find(_.name == name).get.count
 
   // Outside its scope an opaque type is one value (rule F): its representation stays hidden, so
   // nothing yields an `A` from it.
@@ -88,7 +88,7 @@ class OpaqueTypeScopeSpec extends Specification {
         |}
         |""".stripMargin
     )
-    val methods = MethodAnalysis.analyze(source)
+    val methods = cardinality.Compiled.analyze(source)
     (methods.size === 6).and(methods.map(_.count) === List.fill(6)(Count.Finite(1)))
   }
 

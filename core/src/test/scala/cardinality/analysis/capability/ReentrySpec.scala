@@ -38,7 +38,7 @@ class ReentrySpec extends Specification {
   """
 
   private def one(code: String): Map[String, Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyzeOpen(
         List(MethodAnalysis.Input("Reentry.scala", dialects.Scala3(code).parse[Source].get))
       )

@@ -65,7 +65,12 @@ private[tasty] object Spell {
     case p: PackageSymbol =>
       if (p.isRootPackage) "_root_" else p.fullName.path.map(n => term(n.toString)).mkString(".")
     case c: ClassSymbol if c.isModuleClass =>
-      if (packageObject(c)) path(c.owner) else path(c.owner) + "." + term(objectName(c))
+      if (packageObject(c)) path(c.owner)
+      else {
+        // An object of the empty package is named bare: that package has no path.
+        val outer = path(c.owner)
+        if (outer.isEmpty) term(objectName(c)) else outer + "." + term(objectName(c))
+      }
     case other => throw Unsupported(s"path through $other")
   }
 
@@ -89,15 +94,22 @@ final private[tasty] class StubTypes(enclosing: List[ClassSymbol], rooted: Boole
 
   private def owner(s: Symbol): String = {
     val spelled = path(s)
-    if (rooted && spelled != "_root_") "_root_." + spelled else spelled
+    // A path from the empty package has no root to start from.
+    val inEmpty = !spelled.contains('.') && (s match {
+      case c: ClassSymbol => path(c.owner).isEmpty
+      case _              => false
+    })
+    if (rooted && spelled != "_root_" && !inEmpty) "_root_." + spelled else spelled
   }
 
   private def scalaType(name: String): String = (if (rooted) "_root_.scala." else "scala.") + name
 
   private def prefix(p: Prefix): String = p match {
-    case NoPrefix      => ""
-    case p: PackageRef => owner(p.symbol) + "."
-    case t: ThisType   =>
+    case NoPrefix => ""
+    // The empty package has no path: its members are named bare.
+    case p: PackageRef if path(p.symbol).isEmpty => ""
+    case p: PackageRef                           => owner(p.symbol) + "."
+    case t: ThisType                             =>
       val c = thisClass(t)
       if (c.isModuleClass) owner(c) + "."
       else if (!enclosing.headOption.contains(c) && enclosing.contains(c))

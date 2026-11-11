@@ -33,7 +33,7 @@ class ContextualOverrideIdentitySpec extends Specification {
   """
 
   private def count(code: String): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Context.scala", dialects.Scala3(code).parse[Source].get)))
       .find(_.name == "Instance.get")
       .get

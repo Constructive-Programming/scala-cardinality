@@ -88,7 +88,7 @@ class MethodFeatureIntegrationSpec extends Specification {
       )
       .parse[Source]
       .get
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Integration.scala", source)))
       .find(_.name == "consume")
       .get
@@ -100,7 +100,7 @@ class MethodFeatureIntegrationSpec extends Specification {
 
   private def methodCount(code: String): Count = {
     val source = dialects.Scala3(code).parse[Source].get
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Binders.scala", source)))
       .find(_.name == "f")
       .get

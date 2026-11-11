@@ -109,7 +109,7 @@ class TopTypesUnionSpec extends Specification {
   """
 
   private def entry(code: String, name: String): MethodAnalysis.Entry =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Top.scala", dialects.Scala3(code).parse[Source].get)))
       .find(_.name == name)
       .get
@@ -117,7 +117,7 @@ class TopTypesUnionSpec extends Specification {
   private def count(code: String, name: String): Count = entry(code, name).count
 
   private def countIn(files: (String, String)*)(name: String): Count =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(files.toList.map { (path, code) =>
         MethodAnalysis.Input(path, dialects.Scala3(code).parse[Source].get)
       })

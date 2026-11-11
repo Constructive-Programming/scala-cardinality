@@ -59,7 +59,7 @@ class TastyStubsSpec extends Specification {
     MethodAnalysis.Input("t/T.scala", dialects.Scala3(targets).parse[Source].get)
 
   private def methods(environment: List[MethodAnalysis.Input]): Map[String, Inhabitation.Count] =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(target :: environment)
       .filter(_.path == target.path)
       .map(e => e.name -> e.count)
@@ -149,7 +149,7 @@ class TastyStubsSpec extends Specification {
     MethodAnalysis.Input("j/J.scala", dialects.Scala3(javaTargets).parse[Source].get)
 
   private def javaMethods(environment: List[MethodAnalysis.Input]) =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(javaTarget :: environment)
       .filter(_.path == javaTarget.path)
       .map(e => e.name -> e.count)
@@ -237,7 +237,7 @@ class TastyStubsSpec extends Specification {
     MethodAnalysis.Input("s/S.scala", dialects.Scala3(scala2Targets).parse[Source].get)
 
   private def scala2Methods(environment: List[MethodAnalysis.Input]) =
-    MethodAnalysis
+    cardinality.Compiled
       .analyze(scala2Target :: environment)
       .filter(_.path == scala2Target.path)
       .map(e => e.name -> e.count)
@@ -336,7 +336,7 @@ class TastyStubsSpec extends Specification {
       |""".stripMargin
     val jdk = TastyStubs.of(Nil, _ => false, Set("java.sql", "java.awt"), List(code))
     def counts(environment: List[MethodAnalysis.Input]) =
-      MethodAnalysis
+      cardinality.Compiled
         .analyze(
           MethodAnalysis.Input("j/J.scala", dialects.Scala3(code).parse[Source].get) :: environment
         )

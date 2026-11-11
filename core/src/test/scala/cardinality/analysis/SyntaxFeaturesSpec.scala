@@ -219,8 +219,8 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
 
   // Fixture review-A5 r2 inf3/inf5: Scala widens `idc[1](1)` to Int (`def t: 1 = call2(true)` finds
   // an Int), so call2 is every Int of a Boolean, (2^32)^2 = 2^64, never the literal's 1; through an
-  // alias likewise; call3 a Boolean of a Boolean (4). A union of literals and a value's singleton
-  // widen to types this reading does not compute (refused); `Option[1]` is kept (None or Some(1)
+  // alias likewise; call3 a Boolean of a Boolean (4). scalac widens a union of literals to Int
+  // (call4: 2^64) and a value's singleton to Boolean (call6: 4); `Option[1]` is kept (None or Some(1)
   // per Boolean: 2^2 = 4).
   def literalCalls = {
     val found = rows("""object L {
@@ -234,12 +234,11 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |  def call6(x: Boolean) = idc[x.type](x)
       |  def call8(x: Boolean) = idc[One](1)
       |}""".stripMargin)
-    val widened = "inferred result type not resolved: singleton result of a call of idc"
     (found("L.call2") === Count.Finite(BigInt(2).pow(64)))
       .and(found("L.call3") === Count.Finite(4))
-      .and(refused(found("L.call4"), widened))
+      .and(found("L.call4") === Count.Finite(BigInt(2).pow(64)))
       .and(found("L.call5") === Count.Finite(4))
-      .and(refused(found("L.call6"), widened))
+      .and(found("L.call6") === Count.Finite(4))
       .and(found("L.call8") === Count.Finite(BigInt(2).pow(64)))
   }
 
@@ -374,7 +373,8 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
   // t2's type is A, not `A ?=> A`. An explicit type argument is read as written (fixture a5-fix1
   // r9: viaCtx prints `false`, applied where it is defined): `id[Boolean => Boolean](f)` is that
   // function, every Boolean of f's 4 values and a Boolean (2^8), `id[Boolean ?=> Boolean](g)` is
-  // applied.
+  // applied: a Boolean of g's 4 values (2^4 = 16; the given is the fixed `true`). t2 is `a` or the
+  // using evidence (2).
   def contextCalls = {
     val found = rows("""object T {
       |  given Boolean = true
@@ -384,15 +384,15 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |  def viaFn(f: Boolean => Boolean) = id[Boolean => Boolean](f)
       |  def viaCtx(g: Boolean ?=> Boolean) = id[Boolean ?=> Boolean](g)
       |}""".stripMargin)
-    val applied = "whose context function result is applied"
-    refused(found("T.t2"), applied)
+    (found("T.t2") === Count.Finite(2))
       .and(found("T.viaFn") === Count.Finite(256))
-      .and(refused(found("T.viaCtx"), s"call of id, $applied"))
+      .and(found("T.viaCtx") === Count.Finite(16))
   }
 
   // Fixture review-A5 inf/i3: `def asc = (k: Boolean ?=> Boolean)` compiles to `boolean asc()` and
   // prints `false` with no given at the use site: Scala applied k where asc is defined, so asc is
-  // a Boolean, never the 4 of `Boolean => Boolean`. A plain function ascription is that function.
+  // a Boolean, never the 4 of `Boolean => Boolean`: k and the given are fixed members, so its
+  // literals alone (2). A plain function ascription is that function.
   def contextAscription = {
     val found = rows("""object A {
       |  given Boolean = true
@@ -401,7 +401,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |  def asc = (k: Boolean ?=> Boolean)
       |  def asc2 = (k2: Boolean => Boolean)
       |}""".stripMargin)
-    refused(found("A.asc"), "ascription, whose context function result is applied")
+    (found("A.asc") === Count.Finite(2))
       .and(found("A.asc2") === Count.Finite(4))
   }
 
