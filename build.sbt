@@ -42,9 +42,9 @@ lazy val core = project
     name := "scala-cardinality",
     description := "Counts the values of Scala types and the implementations of Scala signatures",
     libraryDependencies ++= Seq(
-      "dev.constructive" %% "cats-eo" % "1.2.1",
-      "dev.constructive" %% "cats-eo-generics" % "1.2.1",
-      "dev.constructive" %% "cats-eo-schemes" % "1.2.1",
+      "dev.constructive" %% "cats-eo" % "1.3.0",
+      "dev.constructive" %% "cats-eo-generics" % "1.3.0",
+      "dev.constructive" %% "cats-eo-schemes" % "1.3.0",
       "org.scalameta" %% "scalameta" % "4.17.4",
       // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
       "ch.epfl.scala" %% "tasty-query" % "1.9.0",
@@ -59,6 +59,41 @@ lazy val core = project
     // instrumentation, so a floor there would be red by construction.
     coverageFailOnMinimum := true,
     coverageMinimumStmtTotal := 80
+  )
+
+// Spike: `core` as a Scala Native binary. The same sources, minus the TASTy reader (tasty-query has
+// no Native build, and a native binary holds no JDK to read): `core-native` supplies a stand-in
+// for `TastyStubs`, a SHA-256 `MessageDigest` (absent from Scala Native's Java library) and a main.
+// Not aggregated: nothing here is published or gated yet.
+lazy val coreNative = (project in file("core-native"))
+  .enablePlugins(ScalaNativePlugin)
+  .settings(
+    name := "scala-cardinality-native",
+    // NATIVE_RELEASE=1 builds the optimized binary (minutes); the default debug build links fast.
+    nativeConfig ~= { config =>
+      if (sys.env.contains("NATIVE_RELEASE"))
+        config
+          .withMode(scala.scalanative.build.Mode.releaseFast)
+          .withLTO(scala.scalanative.build.LTO.thin)
+      else config
+    },
+    publish / skip := true,
+    coverageEnabled := false,
+    Compile / unmanagedSourceDirectories += (core / Compile / scalaSource).value,
+    Compile / unmanagedSources := (Compile / unmanagedSources).value.filterNot { source =>
+      val path = source.toString.replace('\\', '/')
+      path.contains("/core/src/main/scala/cardinality/tasty/") && !path.endsWith("/StubFile.scala")
+    },
+    libraryDependencies ++= Seq(
+      "dev.constructive" %% "cats-eo" % "1.3.0",
+      "dev.constructive" %% "cats-eo-generics" % "1.3.0",
+      "dev.constructive" %% "cats-eo-schemes" % "1.3.0",
+      "org.scalameta" %% "scalameta" % "4.17.4",
+      // scalameta's Native artifact leaves out the fastparse it shades on the JVM.
+      "com.lihaoyi" %% "fastparse" % "3.1.1",
+      "io.getkyo" %% "kyo-core" % "1.0.0-RC7",
+      "org.typelevel" %% "cats-core" % "2.13.0"
+    )
   )
 
 // JMH benchmarks over a real checkout (bench/README.md). Not aggregated by `root`: benchmarks run

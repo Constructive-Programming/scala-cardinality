@@ -68,12 +68,9 @@ private[cardinality] object MethodProjections {
 
   private val Placeholder = "$cardinalityProjection"
 
-  // A whole placeholder name: a source name that merely starts or ends with one's text
-  // (`` `$cardinalityProjection1a` ``) is not one.
-  private val PlaceholderToken = {
-    val quoted = java.util.regex.Pattern.quote(Placeholder)
-    ("(?<![\\p{L}\\p{N}_$])" + quoted + "\\d+(?![\\p{L}\\p{N}_$])").r
-  }
+  // A placeholder name; read as a whole name only (`Spelling.wholeNamesOutsideLiterals`): a source
+  // name that merely starts or ends with one's text (`` `$cardinalityProjection1a` ``) is not one.
+  private val PlaceholderToken = (java.util.regex.Pattern.quote(Placeholder) + "\\d+").r
 
   // A match type as written, and whether its alias bounds it (a bounded one never stands stuck).
   private case class MatchType(
@@ -104,7 +101,9 @@ private[cardinality] object MethodProjections {
       * text is what the source wrote, whatever it looks like (`"$cardinalityProjection1"`).
       */
     def spelled(reason: String): String =
-      Spelling.outsideLiterals(reason, PlaceholderToken)(found => spellings.getOrElse(found, found))
+      Spelling.wholeNamesOutsideLiterals(reason, PlaceholderToken)(found =>
+        spellings.getOrElse(found, found)
+      )
 
     // Keep tuple shells, but freeze all other leaves to caller-resolved Shapes. A nominal
     // product must never become a tuple merely because its stored representation is a product.

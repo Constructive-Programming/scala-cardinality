@@ -55,14 +55,32 @@ private[cardinality] object Spelling {
   /** What `masked` writes inside a literal: no bracket, separator, quote or whitespace. */
   val Blank: Char = '\u0001'
 
-  /** `text` with `replace` applied to every match of `pattern` outside a literal (`masked`). */
-  def outsideLiterals(text: String, pattern: Regex)(replace: String => String): String = {
-    val (out, rest) = pattern.findAllMatchIn(masked(text)).foldLeft((new StringBuilder, 0)) {
+  /** `text` with `replace` applied to every match of `pattern` outside a literal (`masked`) that is
+    * a whole name: neither preceded nor followed by a name character. The boundary is tested here,
+    * not by lookaround in the pattern, which Scala Native's regex engine does not have.
+    */
+  def wholeNamesOutsideLiterals(text: String, pattern: Regex)(replace: String => String): String = {
+    val blanked = masked(text)
+    def nameChar(at: Int): Boolean =
+      at >= 0 && at < blanked.length && {
+        val c = blanked.charAt(at)
+        c == '_' || c == '$' || Character.isLetter(c) || numeric(c)
+      }
+    val whole = pattern
+      .findAllMatchIn(blanked)
+      .filter(found => !nameChar(found.start - 1) && !nameChar(found.end))
+    val (out, rest) = whole.foldLeft((new StringBuilder, 0)) {
       case ((out, from), found) =>
         val matched = text.substring(found.start, found.end)
         (out ++= text.substring(from, found.start) ++= replace(matched), found.end)
     }
     out.append(text.substring(rest)).toString
+  }
+
+  // Unicode's N categories, as `\p{N}` reads them.
+  private def numeric(c: Char): Boolean = Character.getType(c) match {
+    case Character.DECIMAL_DIGIT_NUMBER | Character.LETTER_NUMBER | Character.OTHER_NUMBER => true
+    case _                                                                                 => false
   }
 
   /** A declared name as a signature starts with it: backquoted where the source must quote it, and
