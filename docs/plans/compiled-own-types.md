@@ -209,6 +209,27 @@ rewrite: the old front end is the oracle until the new one matches it.
 What phases 4 to 6 are measured against, and how to rebuild it. Everything here is the scalameta
 front end's: the costs at `5f89e91`, the rows at `1358b07`, the fixtures at this commit.
 
+### In progress (gate agent, stretch 3: the spec suite against the compiled front end)
+
+A note for whoever continues from the files alone. It goes when the stretch is committed whole.
+
+- Committed: `classpath.txt` in each cache entry and `staging/` in the cache
+  (`core/src/test/scala/cardinality/Compiled.scala`; "Test fixtures" below says what they hold).
+  Entries written before have other keys: `rm -rf core/target/compiled-fixtures` drops them.
+- Written, not committed (kept outside the tree while the units are committed in turn, under
+  `/tmp/tg/s3/full/`; rewrite from this description if that is gone): the front-end switch in
+  `Compiled` (`-Dcardinality.frontend=tasty|sentinel|filled|probe`, decided in one method,
+  `read`); `Compiled.definitions`, `capacity.Rows.typeSize` and `Rows.total`, which read off
+  definition rows what the specs took from the scalameta tree; `cardinality.ExampleLog` (a specs2
+  notifier, one line an example) and `scripts/spec-ledger.sh` (the suite under each mode, merged
+  into `docs/baselines/tasty-spec-ledger.tsv`). The default suite was green with all of it (89
+  specifications, 2,016 examples).
+- Next, each after `sbt scalafmtAll scalafixAll`, `sbt core/testFull`,
+  `bash scripts/check-file-metrics.sh`, CPD and three reviews of its staged diff: commit the
+  switch with the helpers that read rows; then the ledger (`ExampleLog`, the script, the ledger
+  file from a fresh `scripts/spec-ledger.sh docs/baselines/tasty-spec-ledger.tsv`, the
+  classification table of every specification and the totals in this section).
+
 ### Commands
 
 | Command | What it does |
@@ -300,8 +321,12 @@ they move `analysis/resolution` and `analysis/inhabitation`, not `analysis/expan
 `cardinality.Compiled` compiles every fixture before the analysis reads it, and a TASTy front end
 can read only the ones that compile. A cache entry, `core/target/compiled-fixtures/<digest>/`, is
 a corpus of its own: `src` holds each source at the path its TASTy records (`-sourceroot`),
-`classes` its compiled output, `support` the classes of what the analysis is not given, and `ok`
-or `failed` the test that first asked and what stopped the compiler.
+`classes` its compiled output, `support` the classes of what the analysis is not given,
+`classpath.txt` what the fixture compiled against beside `support` (one path a line, as a corpus
+has it: the two Scala library jars, or the whole test classpath for the 9 fixtures that need it),
+and `ok` or `failed` the test that first asked and what stopped the compiler. A compile is written
+under `staging/<pid>/` in the cache and moved into place; a test JVM that starts removes what the
+ones that ended left there, so a compiler that ran out of time leaves nothing among the entries.
 
 | | Fixtures asked for | Compile | Rejected |
 | --- | --- | --- | --- |

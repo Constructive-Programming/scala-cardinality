@@ -26,8 +26,9 @@ import java.util.concurrent.ConcurrentHashMap
   * Compilations are memoised by the compiler options and the sources' text, in memory and on disk
   * under `target/compiled-fixtures/<digest>`, so a rerun compiles only what changed. An entry holds
   * `src` (every source, support under `src/withheld`), `support` (the support sources' classes),
-  * `classes` (the fixture's own) and a marker, `ok` or `failed`: the test that first asked, then
-  * what stopped the compiler.
+  * `classes` (the fixture's own), `classpath.txt` (what a fixture that compiled was compiled
+  * against beside `support`, one path a line) and a marker, `ok` or `failed`: the test that first
+  * asked, then what stopped the compiler.
   */
 object Compiled {
 
@@ -40,8 +41,9 @@ object Compiled {
       .toList
       .map(Path.of(_))
 
-  // The Scala library jars: what the compiled types are read against, and with the test classes
-  // what most fixtures compile against (a full classpath costs every compile its jars).
+  // The Scala library jars: what the compiled types are read against, and with the class
+  // directories of the test classpath what most fixtures compile against (a full classpath costs
+  // every compile its jars).
   private val libraries: List[Path] = classpath.filter { p =>
     val name = p.getFileName.toString
     name.startsWith("scala-library") || name.startsWith("scala3-library")
@@ -51,6 +53,25 @@ object Compiled {
 
   private val cache: Path =
     Path.of(sys.props.getOrElse("cardinality.compiled.cache", "target/compiled-fixtures"))
+
+  // Where this JVM writes a compile before its entry is moved into place: a directory of its own
+  // under the cache's `staging`. What a JVM that has ended left there (a compiler that ran out of
+  // time writes on after its entry is moved) goes when this one starts.
+  private val staging: Path = {
+    val all = Files.createDirectories(cache.toAbsolutePath.resolve("staging"))
+    val self = ProcessHandle.current.pid
+    val left = Files.list(all)
+    try
+      left.forEach { directory =>
+        val running = directory.getFileName.toString.toLongOption
+          .exists(pid => pid != self && ProcessHandle.of(pid).isPresent)
+        if (!running) deleted(directory)
+      }
+    finally left.close()
+    Files.createDirectories(all.resolve(self.toString))
+  }
+
+  private val ClasspathFile = "classpath.txt"
 
   private val compiled = new ConcurrentHashMap[String, Option[Path]]()
 
@@ -124,18 +145,25 @@ object Compiled {
   }
 
   // A directory and what it holds, removed as far as it can be.
-  private def deleted(directory: Path): Unit = {
-    val held = Files.walk(directory)
-    try held.sorted(java.util.Comparator.reverseOrder()).forEach(Files.delete(_))
-    catch { case _: java.io.IOException | _: java.io.UncheckedIOException => () }
-    finally held.close()
-  }
+  private def deleted(directory: Path): Unit =
+    try {
+      val held = Files.walk(directory)
+      try
+        held.sorted(java.util.Comparator.reverseOrder()).forEach { path =>
+          try Files.delete(path)
+          catch { case _: java.io.IOException => () }
+        }
+      finally held.close()
+    } catch { case _: java.io.IOException | _: java.io.UncheckedIOException => () }
 
   // The fixture's compiled classes with what their types are read against: none where the
   // compiler rejects the fixture, which only a listed fixture may be.
   private def classes(inputs: List[MethodAnalysis.Input]): Option[CompiledTypes.Classes] = {
     val sources = inputs.filterNot(_.path.startsWith(TastyStubs.Prefix))
-    val key = digest(Options.mkString(s"$Compiler -sourceroot ", " ", "") :: sources.map(part))
+    val key =
+      digest(
+        Options.mkString(s"$Compiler $ClasspathFile -sourceroot ", " ", "") :: sources.map(part)
+      )
     // Not `computeIfAbsent`: a compile runs outside the map's locks, so compiles run in parallel.
     val out = Option(compiled.get(key)).getOrElse {
       val result = compile(key, sources)
@@ -189,9 +217,10 @@ object Compiled {
   // The compiler every fixture is compiled with.
   private val Compiler = dotty.tools.dotc.config.Properties.versionString
 
-  // One source as a digest reads it. A cache key is the digest of the compiler, its options and the
-  // sources: an entry compiled otherwise is not this compile (`-sourceroot` stands for the option
-  // `scalac` adds with each compile's own directory).
+  // One source as a digest reads it. A cache key is the digest of the compiler, its options, the
+  // name of the classpath file an entry records and the sources: an entry compiled otherwise, or
+  // written before entries recorded their classpath, is not this compile (`-sourceroot` stands for
+  // the option `scalac` adds with each compile's own directory).
   private def part(source: MethodAnalysis.Input): String =
     s"${source.path.stripPrefix("/")}\u0000${source.tree.pos.input.text}"
 
@@ -257,7 +286,7 @@ object Compiled {
   // This object's class, which its lambdas' classes extend by name.
   private val Self = getClass.getName
 
-  // One entry per key: `classes` holds a successful compile, `failed` marks a rejected one. Two
+  // One entry per key: `ok` marks a compile that succeeded, `failed` one that was rejected. Two
   // threads asking for the same new key both compile it, and the first to finish keeps the entry.
   private def compile(key: String, sources: List[MethodAnalysis.Input]): Option[Path] = {
     val root = cache.toAbsolutePath.resolve(key)
@@ -265,45 +294,43 @@ object Compiled {
     if (Files.exists(root.resolve("ok"))) Some(out)
     else if (Files.exists(root.resolve("failed")) || sources.isEmpty) None
     else {
-      val staging =
-        Files
-          .createDirectories(cache.toAbsolutePath)
-          .resolve(s"$key.${Thread.currentThread.threadId}")
+      val staged = staging.resolve(s"$key.${Thread.currentThread.threadId}")
       // The support sources alone, then the fixture against their classes.
-      val src = staging.resolve("src")
+      val src = staged.resolve("src")
       val (support, own) = sources.partition(_.path.startsWith(Withheld)) match {
         case (held, fixture) =>
           def files(of: List[MethodAnalysis.Input]) = of.map(i => written(src, i.path, i).toString)
           (files(held), files(fixture))
       }
       def run(cp: List[Path]): List[String] =
-        if (support.isEmpty) scalac(src, staging.resolve("classes"), cp, own)
+        if (support.isEmpty) scalac(src, staged.resolve("classes"), cp, own)
         else {
-          val held = staging.resolve("support")
+          val held = staged.resolve("support")
           scalac(src, held, cp, support) match {
-            case Nil      => scalac(src, staging.resolve("classes"), held :: cp, own)
+            case Nil      => scalac(src, staged.resolve("classes"), held :: cp, own)
             case problems => "in the withheld support:" :: problems
           }
         }
       // The full classpath is tried where the small one is not enough, not where the compiler ran
       // out of time: it would run out again.
-      val problems = run(minimal) match {
-        case small @ List(only) if only.startsWith("not finished") => small
-        case Nil                                                   => Nil
-        case _                                                     => run(classpath)
+      val (problems, compiledWith) = run(minimal) match {
+        case Nil                                                            => (Nil, minimal)
+        case small if small.lastOption.exists(_.startsWith("not finished")) => (small, minimal)
+        case _ => (run(classpath), classpath)
       }
-      Files.writeString(
-        staging.resolve(if (problems.isEmpty) "ok" else "failed"),
-        (asker :: problems).mkString("\n")
-      )
-      try Files.move(staging, root)
+      // The classpath is written before the marker: an entry marked `ok` has it.
+      val files =
+        if (problems.isEmpty) List(ClasspathFile -> compiledWith.mkString("\n"), "ok" -> asker)
+        else List("failed" -> (asker :: problems).mkString("\n"))
+      files.foreach((name, text) => Files.writeString(staged.resolve(name), text))
+      try Files.move(staged, root)
       catch {
         // Another thread compiled the same text first (the move then fails as file exists or as
         // directory not empty): its entry stands and this copy goes. A compile that timed out may
         // still be writing here, so what cannot be deleted stays.
         case moved: java.nio.file.FileSystemException =>
           if (!Files.isDirectory(root)) throw moved
-          deleted(staging)
+          deleted(staged)
       }
       Option.when(Files.exists(root.resolve("ok")))(out)
     }
