@@ -40,14 +40,17 @@ lazy val root = (project in file("."))
 lazy val core = project
   .settings(
     name := "scala-cardinality",
+    // tasty-query reads TASTy up to the Scala it is built on, so `core` follows tasty-query's Scala.
+    scalaVersion := coreScalaVersion,
     description := "Counts the values of Scala types and the implementations of Scala signatures",
     libraryDependencies ++= Seq(
       "dev.constructive" %% "cats-eo" % "1.3.0",
       "dev.constructive" %% "cats-eo-generics" % "1.3.0",
       "dev.constructive" %% "cats-eo-schemes" % "1.3.0",
       "org.scalameta" %% "scalameta" % "4.17.4",
-      // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
-      "ch.epfl.scala" %% "tasty-query" % "1.9.0",
+      // Compiled dependency declarations (TASTy); 1.10.0 is built on Scala 3.10.0 and reads TASTy
+      // up to 28.10, so dependencies compiled by Scala 3.0 through 3.10.
+      "ch.epfl.scala" %% "tasty-query" % "1.10.0",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
       "org.specs2" %% "specs2-cats" % "4.23.0" % Test
@@ -102,6 +105,7 @@ lazy val bench = project
   .dependsOn(core)
   .settings(
     name := "scala-cardinality-bench",
+    scalaVersion := coreScalaVersion,
     publish / skip := true,
     coverageEnabled := false
   )
@@ -196,6 +200,9 @@ lazy val millPlugin = (project in file("mill-plugin"))
   )
 
 lazy val millVersion = "1.3.1"
+
+// `core`'s Scala: tasty-query's (above). The plugins stay on their tools' Scala.
+lazy val coreScalaVersion = "3.10.1"
 
 // ----------------------------------------------------------------
 // Compiler options
