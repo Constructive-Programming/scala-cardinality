@@ -9,7 +9,9 @@ class CardinalitySpec extends Specification {
 
   // A type is read from the alias a compiled source gives it, as every fixture is compiled. A
   // lazy field is a plain class's by-name parameter (`final class St(head: Boolean, tail: => St)`):
-  // a case class's parameters are `val`s, which scalac does not take by name.
+  // a case class's parameters are `val`s, which scalac does not take by name. An enum case's are
+  // `val`s too: its lazy field is a thunk (`tail: () => U`), the same lazy position
+  // (docs/type-arithmetic.md §8).
   private def tpe(code: String): Size = Rows.typeSize(code)
 
   private def src(code: String): Size = Rows.total(code)
@@ -235,7 +237,7 @@ class CardinalitySpec extends Specification {
       "final class B7(x: => B7, y: => C7); case class C7(z: Boolean)"
     ) === EffectiveOmega + BooleanSize} (the external tail labels each node; the path stays deterministic)
     enum arms to different successors     ${src(
-      "enum B8 { case X(t: => B8); case Y(t: => C8) }; case class C8(b: Boolean)"
+      "enum B8 { case X(t: () => B8); case Y(t: () => C8) }; case class C8(b: Boolean)"
     ) === EffectiveOmega + BooleanSize} (B8 collapses to ω; the separate C8 definition still adds 2)
     only recognized holes continue the cycle  ${src(
       "sealed trait E; final class One(e: => E) extends E; case class Void(n: Nothing) extends E"
@@ -337,7 +339,7 @@ class CardinalitySpec extends Specification {
       FinitePart.Zero
     )} (Q collapses to ω, Use sees ω, and the source still adds both)
     a custom lazy list matches the built in    ${src(
-      "enum U { case End; case More(head: Boolean, tail: => U) }"
+      "enum U { case End; case More(head: Boolean, tail: () => U) }"
     ) === EffectiveOmega} (completed lazy type, exactly LazyList[Boolean])
     a recursive epsilon payload keeps its tier ${src(
       "enum High { case Seed(f: String => String); case Next(high: High) }"
@@ -366,13 +368,13 @@ class CardinalitySpec extends Specification {
       "LazyList[LazyList[Unit]]"
     ) === EffectiveEpsilon0}
     a custom unit list collapses like the built in ${src(
-      "enum Units { case End; case More(head: Unit, tail: => Units) }"
+      "enum Units { case End; case More(head: Unit, tail: () => Units) }"
     ) === EffectiveOmega}
     a custom string list retains the highest tier ${src(
-      "enum Strings { case End; case More(head: String, tail: => Strings) }"
+      "enum Strings { case End; case More(head: String, tail: () => Strings) }"
     ) === EffectiveEpsilon0}
     an empty alphabet leaves only a finite base ${src(
-      "enum Empty { case End; case More(head: Nothing, tail: => Empty) }"
+      "enum Empty { case End; case More(head: Nothing, tail: () => Empty) }"
     ) === UnitSize}
     consumers of a lazy type may add finite terms ${src(
       "final class CoNat(pred: => Option[CoNat]); case class Use(value: Option[CoNat])"

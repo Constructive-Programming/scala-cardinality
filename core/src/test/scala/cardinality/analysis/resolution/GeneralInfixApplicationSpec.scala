@@ -60,14 +60,16 @@ class GeneralInfixApplicationSpec extends Specification {
       .and(count(definitions, "(Unit :*: Unit) :*: Boolean") === left)
   }
 
+  // `Join[Item[A], Option[A]]` is `(A, Option[A])`: x or y, beside None, Some(x) or Some(y): 6.
+  // `_root_` reaches a package's members, not the empty package's, so Models sits in a package.
   def qualified = {
     val definitions =
-      "object Models { type Item[A] = A; type Join[A, B] = (A, B) }\n" +
-        "type Join[A, B] = Models.Join[A, B]"
-    val prefix = count(definitions, "_root_.Models.Join[Models.Item[A], scala.Option[A]]")
+      "package m { object Models { type Item[A] = A; type Join[A, B] = (A, B) } }\n" +
+        "type Join[A, B] = m.Models.Join[A, B]"
+    val prefix = count(definitions, "_root_.m.Models.Join[m.Models.Item[A], scala.Option[A]]")
     (prefix === Count.Finite(6))
-      .and(count(definitions, "Models.Item[A] Join scala.Option[A]") === prefix)
-      .and(count(definitions, "Join[Models.Item[A], _root_.scala.Option[A]]") === prefix)
+      .and(count(definitions, "m.Models.Item[A] Join scala.Option[A]") === prefix)
+      .and(count(definitions, "Join[m.Models.Item[A], _root_.scala.Option[A]]") === prefix)
   }
 
   def arity = {

@@ -33,7 +33,9 @@ class NamespaceSpec extends Specification {
       a generic member instantiates                               $objectGeneric
       a member is read with the reasons its value rests on        $objectReasons
       chained package clauses open the enclosing package          $packageClauses
+      a single package clause opens only its own package          $singleClause
       a package path resolves from the opened packages or the root  $packagePaths
+      a path from a package no clause opens names nothing          $unopenedPath
       an inner package's subpackage shadows an outer package's object  $packageOrder
       an enum's cases are not read as a namespace                 $enumCases
 
@@ -41,6 +43,7 @@ class NamespaceSpec extends Specification {
       another file's explicit import is not lost across packages  $libraryImports
       another file's chained clauses resolve across packages      $libraryClauses
       a wildcard import names the package a name is read from     $wildcardImports
+      two wildcard imports that bind a name leave it ambiguous    $ambiguousWildcards
       an imported name is not open because another package's is   $importedOpenReason
 
     Class members and module members are apart
@@ -195,39 +198,50 @@ class NamespaceSpec extends Specification {
     (found(("X", Alias)) === "unresolved[Schema]").and(found(("P", Alias)) === "unresolved[Schema]")
   }
 
-  // `package a; package b` opens `a` and `a.b`, so `W` is `a.W` (2). A single `package a.b` opens
-  // only `a.b`, where nothing defines `W`, and no package is searched by name alone — not `a`, not
-  // `c` — so the name stays a reason (scalac rejects `Single` too). A source with no package clause
-  // reads in the empty package, whose `V` (2) wins over `c.V` (1).
+  // `package a; package b` opens `a` and `a.b`, so `W` is `a.W` (2). A source with no package
+  // clause reads in the empty package, whose `V` (2) wins over `c.V` (1).
   def packageClauses = {
     val found = rowsOf(
       "W1.scala" -> "package a\nfinal case class W(x: Boolean)",
       "W2.scala" -> "package c\nfinal case class W(x: Unit)\nfinal case class V(x: Unit)",
       "U1.scala" -> "package a\npackage b\nfinal case class Chained(w: W)",
-      "U2.scala" -> "package a.b\nfinal case class Single(w: W)",
       "V.scala" -> "final case class V(x: Boolean)",
       "Y.scala" -> "final case class UsesV(v: V)",
     )
-    (found(("a.b.Chained", Class)) === "2")
-      .and(found(("a.b.Single", Class)) === "unresolved[W]")
-      .and(found(("UsesV", Class)) === "2")
+    (found(("a.b.Chained", Class)) === "2").and(found(("UsesV", Class)) === "2")
   }
 
+  // A single `package a.b` opens only `a.b`, where nothing defines `W`, and no package is searched
+  // by name alone — not `a`, not `c` — so the name stays a reason (scalac rejects `Single` too).
+  def singleClause =
+    rowsOf(
+      "W1.scala" -> "package a\nfinal case class W(x: Boolean)",
+      "W2.scala" -> "package c\nfinal case class W(x: Unit)",
+      "U2.scala" -> "package a.b\nfinal case class Single(w: W)",
+    )(("a.b.Single", Class)) === "unresolved[W]"
+
   // `data` is a subpackage of the opened `dev` under chained clauses; from the root, `dev.data`
-  // and `_root_.dev.data` name the same package. Under a single `package dev.app2` clause, `data`
-  // names nothing: the reference is its own reason.
+  // and `_root_.dev.data` name the same package.
   def packagePaths = {
     val found = rowsOf(
-      "D.scala" -> "package dev.data\nfinal case class Vec(x: Boolean)\nobject Scanner { final case class Span(start: Int, end: Int) }",
+      vec,
       "E.scala" -> "package dev\npackage app\ntype V1 = data.Vec\ntype V2 = _root_.dev.data.Vec\ntype V3 = data.Scanner.Span",
-      "F.scala" -> "package dev.app2\ntype V4 = data.Vec\ntype V5 = dev.data.Vec",
+      "F.scala" -> "package dev.app2\ntype V5 = dev.data.Vec",
     )
     (found(("dev.app.V1", Alias)) === "2")
       .and(found(("dev.app.V2", Alias)) === "2")
       .and(found(("dev.app.V3", Alias)) === "≤2^64")
-      .and(found(("dev.app2.V4", Alias)) === "unresolved[data.Vec]")
       .and(found(("dev.app2.V5", Alias)) === "2")
   }
+
+  private val vec =
+    "D.scala" -> "package dev.data\nfinal case class Vec(x: Boolean)\nobject Scanner { final case class Span(start: Int, end: Int) }"
+
+  // Under a single `package dev.app2` clause, `data` names nothing: the reference is its own reason
+  // (and no Scala program).
+  def unopenedPath =
+    rowsOf(vec, "F.scala" -> "package dev.app2\ntype V4 = data.Vec")(("dev.app2.V4", Alias)) ===
+      "unresolved[data.Vec]"
 
   // A known limit: an enum's class cases are types (`Shape.Circle`), but the estimate does not
   // read an enum as a namespace; the reference stays a reason rather than borrowing a name.
@@ -488,11 +502,9 @@ class NamespaceSpec extends Specification {
 
   // `import foreign.*` names no supplied package: `Json` and `Obj` are not `x`'s (they may be
   // `foreign`'s), so both stay reasons. `import x.*` names `x`, which outranks package `p`'s own
-  // `Obj` from another file (scalac binds `x.Obj`): 2 each. Two wildcard packages that both define
-  // `Obj` leave it ambiguous.
+  // `Obj` from another file (scalac binds `x.Obj`): 2 each.
   def wildcardImports = {
-    val x =
-      "x/A.scala" -> "package x\nfinal case class Obj(b: Boolean)\nobject Json { final case class Obj(b: Boolean) }"
+    val x = wildcardTarget
     val foreign = rowsOf(
       x,
       "y/B.scala" -> ("package y\nimport foreign.*\ntype J = Json.Obj\nfinal case class UseBare(j: Obj)" +
@@ -503,21 +515,22 @@ class NamespaceSpec extends Specification {
       "p/P1.scala" -> "package p\nfinal case class Obj(u: Unit)",
       "p/P2.scala" -> "package p\nimport x.*\nfinal case class UseBare(j: Obj)\ntype J = Json.Obj",
     )
-    val ambiguous = rowsOf(
-      x,
-      "z/Z.scala" -> "package z\nfinal case class Obj(n: Int)",
-      "w/W.scala" -> "package w\nimport x.*\nimport z.*\nfinal case class Amb(j: Obj)",
-    )
     (foreign(("y.J", Alias)) === "unresolved[Json.Obj (may be imported by foreign.*)]")
       .and(foreign(("y.UseBare", Class)) === "unresolved[Obj (may be imported by foreign.*)]")
       .and(named(("p.UseBare", Class)) === "2")
       .and(named(("p.J", Alias)) === "2")
-      .and(
-        ambiguous(
-          ("w.Amb", Class)
-        ) === "unresolved[Obj (ambiguous: several wildcard imports bind it)]"
-      )
   }
+
+  private val wildcardTarget =
+    "x/A.scala" -> "package x\nfinal case class Obj(b: Boolean)\nobject Json { final case class Obj(b: Boolean) }"
+
+  // Two wildcard packages that both define `Obj` leave it ambiguous, to scalac as to the estimate.
+  def ambiguousWildcards =
+    rowsOf(
+      wildcardTarget,
+      "z/Z.scala" -> "package z\nfinal case class Obj(n: Int)",
+      "w/W.scala" -> "package w\nimport x.*\nimport z.*\nfinal case class Amb(j: Obj)",
+    )(("w.Amb", Class)) === "unresolved[Obj (ambiguous: several wildcard imports bind it)]"
 
   // `Widget` is `zz.Widget`'s, explicitly imported: package `x`'s open trait of that name says
   // nothing about it.

@@ -28,6 +28,7 @@ class BinderBoundsSpec extends Specification {
       an F-bound through a rigid application is a view              $keyedFBound
       bounds referring back through bounds alone are invalid        $cyclicBounds
       an invalid clause refuses a one-valued result too             $invalidTerminal
+      an F-bound is a legal clause                                  $fBounded
       a sandwich and a structure below an F-bound stay counted      $legalReferences
     Class bounds
       AnyRef, AnyVal and Matchable against a lower bound's class    $classBounds
@@ -187,7 +188,7 @@ class BinderBoundsSpec extends Specification {
 
   // An invalid clause makes the signature no program (3.9.0: E140 for `eqCycle` and `unused`, a
   // view bound is a syntax error), so a `Unit` result has no implementation to count either: the
-  // one-value rule (D12) does not apply. An F-bound is legal, and a `Unit` goal has one value: 1.
+  // one-value rule (D12) does not apply. A legal clause beside them still counts.
   def invalidTerminal = {
     val counts = entries("""
       object I {
@@ -204,6 +205,11 @@ class BinderBoundsSpec extends Specification {
       .and(refused(counts, "C.k", "cyclic type bound (an invalid program): A >: Option[A]"))
       .and(counts("I.fbound") === Count.Finite(1))
   }
+
+  // An F-bound is legal, and a `Unit` goal has one value: 1, in a source that compiles.
+  def fBounded =
+    entries("object I { def fbound[A <: Option[A]](a: A): Unit = () }")("I.fbound") ===
+      Count.Finite(1)
 
   // `[B, A >: B <: B]` refers from A to B twice and never back: A and B are one type, a or b (2).
   // A structural lower bound below an F-bound reads no view: `a` (1).

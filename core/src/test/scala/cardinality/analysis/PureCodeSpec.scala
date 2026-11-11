@@ -27,6 +27,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       a right-hand side that only throws is a Nothing               $inferredNothing
       a throwing branch joins nothing to the other branch           $throwingBranch
       a rebound ??? or sys is no throw                              $reboundNames
+      a ??? an unsupplied import may rebind is not typed            $blockedImport
       a module helper that only throws inhabits no type             $throwingHelper
       an open member that only throws stays an open capability      $throwingOpenMember
       one of an empty type reads as its abstract twin: vacuous      $unimplementable
@@ -194,19 +195,24 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   // A source `???`, a source `sys`'s `error` and a `???` the block defines before its result are the
-  // methods called: scalac types each `f` an Int, 2^32 — never 0. A wildcard import of `foo`, which
-  // is not supplied, keeps the source from compiling: its `f` refuses, never 0.
+  // methods called: scalac types each `f` an Int, 2^32 — never 0.
   def reboundNames = {
     val found = rows("""object Shadowed { def ??? : Int = 3; def f = ??? }
       |object Rebound { object sys { def error(s: String): Int = 1 }; def f = sys.error("e") }
       |object Local { def f = { def ??? : Int = 1; ??? } }
       |""".stripMargin)
-    val blocked = rows("object Blocked { def f = { import foo.*; ??? } }")
     List("Shadowed.f", "Rebound.f", "Local.f")
       .map(found(_).render === "2^32")
       .reduce(_ and _)
-      .and(refused(blocked("Blocked.f"), "written without a type, in a source not compiled"))
   }
+
+  // A wildcard import of `foo`, which is not supplied, keeps the source from compiling: its `f`,
+  // written without a type, has none and refuses, never 0.
+  def blockedImport =
+    refused(
+      rows("object Blocked { def f = { import foo.*; ??? } }")("Blocked.f"),
+      "written without a type, in a source not compiled"
+    )
 
   // `any[A]` has no pure total implementation; read as a producer it would inhabit every B. It is
   // concrete code that only throws: f[B]: B has none — 0, imported or not, never 1.

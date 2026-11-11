@@ -34,6 +34,7 @@ class GroundTypesSpec extends Specification {
       an infinite closed space saturates                           $closedInfinite
       an empty closed value makes the context absurd               $emptyClosed
       closed repeated arguments are transparent sequences          $closedRepeated
+      a function type's repeated parameter is a sequence (no Scala) $repeatedFunctionType
     Constructors read closed positions by exact value space
       a sum position is exact, not a rounded bound                 $optionPosition
       a colliding closed position is a value space, not functions  $collision
@@ -204,7 +205,11 @@ class GroundTypesSpec extends Specification {
     (count("def f(xs: Int*): Int = 0") === Count.Countable)
       .and(count("def f[A](xs: Int*)(a: A): A = a") === Count.Finite(1))
       .and(count("def f(xs: Boolean*): Boolean = true") === Count.Countable)
-      .and(count("def f[A](g: (Int*) => A): A = g()") === Count.Countable)
+
+  // Scala's function types take no repeated parameter (scalac stops at the `*`, and reads on as
+  // `Int => A`): the fixture is read as written. Read so, g is a function of a list of Ints: one
+  // result for each list, ω.
+  def repeatedFunctionType = count("def f[A](g: (Int*) => A): A = g()") === Count.Countable
 
   def optionPosition = {
     // 2^64 + 2^32, which the estimate rounds to the bound 2^65.

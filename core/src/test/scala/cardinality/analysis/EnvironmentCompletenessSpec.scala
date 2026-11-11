@@ -135,7 +135,8 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
   // Cross-check X1 (fixture c3): inside `C`, `T` is the exported `A.T = Boolean`, not `Outer.T =
   // Int`. In the final `C`, g: Boolean => Boolean = 4; P's one field is a Boolean = 2 (the estimate
   // agrees). In the open `D` (DO overrides both) each of g and h is the other's overridable capability, a Boolean =>
-  // Boolean (capabilities C5): every Boolean function of t, g(true) and g(false) — 2^8.
+  // Boolean (capabilities C5): every Boolean function of t, g(true) and g(false) — 2^8. DO spells
+  // the type `A.T`: a bare `T` there is ambiguous to scalac, between Outer's and the inherited one.
   def exportOutranks = {
     val found = rows("""object Outer {
       |  object A { type T = Boolean }
@@ -147,7 +148,7 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       |    def h(t: T): T = t
       |  }
       |  class D { export A.T; def g(t: T): Boolean = true; def h(t: T): T = t }
-      |  class DO extends D { override def g(t: T): Boolean = false; override def h(t: T): T = t }
+      |  class DO extends D { override def g(t: A.T): Boolean = false; override def h(t: A.T): A.T = t }
       |}""".stripMargin)
     (found("Outer.C.g") === Count.Finite(4))
       .and(found("Outer.C.h") === Count.Finite(4))

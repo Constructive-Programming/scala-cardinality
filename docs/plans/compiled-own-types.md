@@ -228,7 +228,8 @@ three reviews of its staged diff:
 2. Dependency rules as rows over a dependency compiled apart and given to the analysis as classes.
    Committed: `Compiled.dependency` and `Compiled.reportOver` ("Test fixtures" below) and
    `DependencyRowsSpec` ("Rules of class (b), on rows").
-3. The fixtures whose first failure hides assertions on code that compiles. Not started.
+3. Counts on, or behind, a fixture scalac rejects. Committed ("Rules of class (b), on rows",
+   "Counts on, or behind, a fixture scalac rejects").
 4. Ledger rerun, totals and the classification table. Not started.
 
 ### Commands
@@ -335,7 +336,8 @@ ones that ended left there, so a compiler that ran out of time leaves nothing am
 | `5f89e91` | 1,493 | 1,290 | 203 |
 | `597d7ef` (withheld support) | 1,496 | 1,424 | 72 |
 | `26a1e6e` (every spec routed) | 1,976 | 1,892 | 84 |
-| now (the ill-typed rewritten) | 1,977 | 1,906 | 71 |
+| `7dd3053` (the ill-typed rewritten) | 1,977 | 1,906 | 71 |
+| now (dependencies; counts off rejected fixtures) | 1,994 | 1,933 | 61 |
 
 - **Withheld support.** A fixture's text carries the declarations it names and the analysis is
   not to have: `code + Compiled.withheld("package ext\nclass Schema")`, or one file of a set
@@ -374,11 +376,11 @@ ones that ended left there, so a compiler that ran out of time leaves nothing am
   `SignatureSpec` and `NamespaceSpec`. No expectation changed.
 - **The rejected fixtures are a list.** `core/src/test/resources/rejected-fixtures.txt` holds the
   fixtures scalac is meant to reject, and the suite fails where it and the compiler disagree, so
-  it cannot drift. It holds 70: 61 not valid Scala by design (the analyzer must refuse what scalac
+  it cannot drift. It holds 60: 51 not valid Scala by design (the analyzer must refuse what scalac
   rejects), 5 unsupplied on purpose (3 whose point is a source that does not compile, 2 that
   scalac rejects with the declaration supplied too), 3 naming a declaration given only as a
   dependency stub, and `ContextBindersSpec.limits`, which the compiler does not finish in 60 s.
-  The 71st rejected fixture is the one `CompiledSpec` leaves unlisted on purpose. A line names a
+  One more rejected fixture is the one `CompiledSpec` leaves unlisted on purpose. A line names a
   fixture by the digest of its sources alone; a cache entry's directory is another digest, which
   also covers the compiler and its options. To find an example's entries:
   `grep -l 'NamespaceSpec.scala' core/target/compiled-fixtures/*/failed`.
@@ -396,9 +398,9 @@ these specs asked for some before, through `Rows.constructor`): `CardinalitySpec
 14, `CounterSpec` 7, `ImportClausesSpec` 13, `LeafFamiliesSpec` 8, `NamespaceScopingSpec` 27,
 `NamespaceSpec` 56, `StoredFactoriesSpec` 1, `StoredScopesSpec` 21, `StoredValueSoundnessSpec` 58,
 `ThrowableSlotsSpec` 5, `ValueRowsSpec` 2, `ReportSpec` 48, `ReportHygieneSpec` 21,
-`OpaqueSumForwardingSpec` 1, `MeasuringSpec` 4, `DeepStackSpec` 1. The 12 rejected are listed:
+`OpaqueSumForwardingSpec` 1, `MeasuringSpec` 4, `DeepStackSpec` 1. The 12 rejected at that commit:
 five by-name enum-case parameters in `CardinalitySpec` (scalac takes no by-name `val`; a case
-class's lazy field is respelled as a plain class's parameter, an enum case's has no spelling),
+class's lazy field is respelled as a plain class's parameter; an enum case's is a thunk since),
 five names out of scope or ambiguous by design in `NamespaceSpec`, and one each in
 `ThrowableSlotsSpec` and `ReportSpec`.
 
@@ -783,6 +785,41 @@ it; the Scala 3 one asserts that the dependency adds no row.
   `ReportDependenciesSpec` reads and the harness turns into a failure); a TASTy file declaring
   its own package in a shaded jar (it needs a shaded jar); and that each stub parses (the stubs
   are deleted with the scalameta front end).
+
+**Counts on, or behind, a fixture scalac rejects.** An example with a fixture that has no classes
+fails whole under the compiled front end, whatever else it asserts. Twenty-two examples pinned
+counts on such a fixture or beside one. Where the fixture can be valid Scala it is, with its
+expectation unchanged; where part of an example cannot, that part is an example of its own.
+
+| Example | What scalac rejected | The fixture | Count |
+| --- | --- | --- | --- |
+| `CardinalitySpec`: "enum arms to different successors", "a custom lazy list matches the built in", "a custom unit list collapses like the built in", "a custom string list retains the highest tier", "an empty alphabet leaves only a finite base" | a by-name parameter of an enum case, which is a `val` | the lazy field is a thunk, `tail: () => U` | ω + 2, ω, ω, ε₀, 1 |
+| `GeneralInfixApplicationSpec.qualified` | `_root_.Models`, a member of the empty package, which `_root_` does not reach | `Models` in a package, `_root_.m.Models.Join[…]` | 6: x or y, beside None, Some(x) or Some(y) |
+| `EnvironmentCompletenessSpec.exportOutranks` | a bare `T` in the overriding subclass, ambiguous between the outer and the inherited one | the subclass spells `A.T` | 4, 4, 2, 2^8, 2^8 |
+| `SingletonIntersectionMethodSpec.binder`, `alias` | a public method's type naming the private parameter `x`; a body `= x` that is no `x.type & alias.type` to scalac | `class Env[A](val x: A)`, and `???` for the body | `?`; 1 |
+| `SingletonIntersectionMethodSpec.marker`, `negative` | `import custom.Singleton`; a `var`'s singleton | split: `markerRebound` and `negativeVar` hold the fixture that does not compile | 1, 1; `?`, `?`, 1 |
+| `StdlibModelSpec.javaWildcard` | `List[A]` under `import java.awt.*`, where `List` takes no type argument | the refusal is read from `def l(a: List): Boolean`, which compiles; the stub of `java.awt.List` is `javaWildcardStub`, a stub source (`DependencyRowsSpec.jdkModule` reads the class itself) | ω, 0, 1 and the refusal |
+| `StdlibModelSpec.relativePaths`, `unapplied`; `InlineScopesSpec.localObject` | one member of the fixture (`_root_.Option[A]`; `Option` where a proper type is expected; a companion a local class does not have) | split: `rootedSimpleName`, `unappliedProper` and `localClass` hold that member | 2, 2, 2; 4, 27; 2^37 twice |
+| `NamespaceSpec.packageClauses`, `packagePaths`, `wildcardImports` | one file of the set, or one of the example's sets | split: `singleClause`, `unopenedPath`, `ambiguousWildcards` | 2, 2; 2, 2, ≤2^64, 2; 2, 2 and two refusals |
+| `PureCodeSpec.reboundNames`, `DefinitionInventorySpec.contextLiterals`, `GroundTypesSpec.closedRepeated` | another fixture of the example | split: `blockedImport`, `ambiguousLiterals`, `repeatedFunctionType` | 2^32 three times; six counts; ω, 1, ω |
+| `BinderBoundsSpec.invalidTerminal` | the fixture's other members, invalid on purpose | `fBounded` reads the legal member from a fixture that compiles; the example keeps it as its control | 1 |
+
+Counts that stay pinned on, or beside, code scalac rejects, which the compiled front end never
+reads:
+
+- `ExistentialInputSpec.aliasArgument`, 2: an alias applied to a wildcard (`Shared[?, R]`), which
+  scalac reduces only where the wildcard is used once.
+- `OverrideIdentityImplementationSpec.fileIdentity`, 16: a top-level declaration without a body in
+  another file, read as a capability. No valid spelling was found.
+- `GroundTypesSpec.repeatedFunctionType`, ω: a repeated parameter in a function type.
+- `BinderBoundsSpec.invalidTerminal` and `HigherKindedRefusalSpec.argumentKinds` assert that a
+  legal member beside invalid ones still counts (1; 2). The counts themselves are pinned in
+  fixtures that compile, by `fBounded` and `HigherKindedBindingSpec.boxOption`.
+- `ClosedWorldSpec.stubParents` and `stubOwners`, 4, read stub sources: `DependencyRowsSpec.qualified`
+  pins them on compiled dependencies.
+
+`rejected-fixtures.txt` lists 60 fixtures after this (51 not valid Scala by design, 5 unsupplied on
+purpose, 3 naming a declaration given only as a stub, 1 the compiler does not finish).
 
 ## Phase 5: the TASTy front end, slice by slice
 

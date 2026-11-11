@@ -40,6 +40,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a value's or a given's context binders reach its members        $valueBinders
       an untyped value takes an overridden declaration's binders      $overriddenBinders
       a context-function literal binds its own clause once            $contextLiterals
+      a `summon` between two anonymous binders is refused             $ambiguousLiterals
     Constructors
       an enum's parameterized case has the case-class constructor     $enumCases
       an enum case is typed where its enum is declared                $enumScope
@@ -400,15 +401,8 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
 
   // A right-hand side that already is a context-function literal is not wrapped again (Scala 3
   // reference, context functions): its parameters are the clause's binders, once — givens in its
-  // body, named or not. One A: 1; x or y: 2; one Boolean: Boolean => Boolean, 4. Two anonymous
-  // binders of one type are ambiguous for summon.
+  // body, named or not. One A: 1; x or y: 2; one Boolean: Boolean => Boolean, 4.
   def contextLiterals = {
-    // On its own: scalac rejects the `summon` between two anonymous binders, as the reading does.
-    val two = rows(getter + """
-      |object Literal {
-      |  def two[A]: (A, A) ?=> Getter[Unit, A] =
-      |    (_: A, _: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
-      |}""".stripMargin)
     val found = rows(literals)
     (found("Literal.one.<lambda#1>.<new#1>.get").render === "1")
       .and(found("Literal.anon.<lambda#1>.<new#1>.get").render === "1")
@@ -416,7 +410,16 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("Literal.named2.<lambda#1>.<new#1>.get").render === "2")
       .and(found("Literal.held.<lambda#1>.<new#1>.get").render === "4")
       .and(found("Literal.lifted.<lambda#1>.<new#1>.get").render === "4")
-      .and(refused(two("Literal.two.<lambda#1>.<new#1>.get"), "ambiguous anonymous evidence"))
+  }
+
+  // Two anonymous binders of one type are ambiguous for `summon`, to scalac as to the reading.
+  def ambiguousLiterals = {
+    val two = rows(getter + """
+      |object Literal {
+      |  def two[A]: (A, A) ?=> Getter[Unit, A] =
+      |    (_: A, _: A) ?=> new Getter[Unit, A] { def get(s: Unit): A = summon[A] }
+      |}""".stripMargin)
+    refused(two("Literal.two.<lambda#1>.<new#1>.get"), "ambiguous anonymous evidence")
   }
 
   def enumCases = {

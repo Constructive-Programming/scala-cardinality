@@ -41,6 +41,7 @@ class StdlibModelSpec extends Specification {
       Java collections name their FQN; throwables, BigInt are data   $open
       boxed scalars and Optional count as what they hold            $finalUnmodelled
       an unapplied entry is an operator, applied where it is read   $unapplied
+      an unapplied entry where a proper type is expected is refused $unappliedProper
       a union does not discriminate a model sequence's class        $unionClass
     Absent declarations
       a named import names the path it binds                         $namedImport
@@ -53,10 +54,12 @@ class StdlibModelSpec extends Specification {
     Shadowing
       a source declaration shadows the model                        $sourceShadows
       an import of a model path reads the model                     $importedModel
-      only fully qualified paths reach the model                    $relativePaths
+      `util.Either` is the model's, like the rooted spellings       $relativePaths
+      a root-anchored simple name is a top-level declaration        $rootedSimpleName
       an unsupplied wildcard rebinds no model name                  $wildcardRefusal
       a supplied namespace answers instead                          $wildcardSupplied
-      a JDK wildcard reads List by its rooted name, supplied or not  $javaWildcard
+      a JDK wildcard reads List by its rooted name                   $javaWildcard
+      a stub of a JDK class is read as that declaration              $javaWildcardStub
       listed stdlib namespaces shadow no model name                 $listedNamespaces
       dependency namespaces are listed from their artifacts         $dependencyNamespaces
       a listed namespace's member reads the model                   $namespaceMember
@@ -465,26 +468,25 @@ class StdlibModelSpec extends Specification {
 
   // An unapplied entry in a higher-kinded position is an operator (D14), applied in its own scope:
   // `Box[Either]` holds an `Either[Unit, Unit]` (2 values: 2^2 functions to Boolean), `One[Option]`
-  // an `Option[Boolean]` (3^3 functions to itself). Read where a proper type is expected — no
-  // Scala program — it names its type lambda.
+  // an `Option[Boolean]` (3^3 functions to itself).
   def unapplied = {
     val code = """final case class Box[F[_, _]](v: F[Unit, Unit])
       |final case class One[F[_]](v: F[Boolean])
       |object U {
       |  def box(b: Box[Either]): Boolean = ???
       |  def opt(o: One[Option]): Option[Boolean] = ???
-      |  def proper(x: Option): Boolean = ???
       |}""".stripMargin
-    (count(code, "U.box") === Count.Finite(4))
-      .and(count(code, "U.opt") === Count.Finite(27))
-      .and(
-        refused(
-          count(code, "U.proper"),
-          "higher-kinded argument: scala.Option (type constructor [A] =>> 1 + A, " +
-            "needs higher-kinded instantiation)"
-        )
-      )
+    (count(code, "U.box") === Count.Finite(4)).and(count(code, "U.opt") === Count.Finite(27))
   }
+
+  // Read where a proper type is expected — no Scala program, so the fixture is read as written —
+  // an unapplied entry names its type lambda.
+  def unappliedProper =
+    refused(
+      count("object U { def proper(x: Option): Boolean = ??? }", "U.proper"),
+      "higher-kinded argument: scala.Option (type constructor [A] =>> 1 + A, " +
+        "needs higher-kinded instantiation)"
+    )
 
   // `Vector[Int] | String` would be a sum only with Vector's runtime class, which A2's table does
   // not hold: refused, saying the model holds the declaration (not that it is absent).
@@ -592,20 +594,25 @@ class StdlibModelSpec extends Specification {
   // A top-level package `util` outside the sources would outrank `scala.util` (Scala 3.9.0 fixture:
   // `summon[util.Either[Int, Int] =:= _root_.util.Either[Int, Int]]` compiles beside one), but none
   // is assumed (the never-shadowed assumption), so `util.Either` is the model's like
-  // `scala.util.Either` and `_root_.scala.util.Either`: Left(a) or Right(a). A root-anchored simple
-  // name is a top-level declaration, never a root import's.
+  // `scala.util.Either` and `_root_.scala.util.Either`: Left(a) or Right(a).
   def relativePaths = {
     val code = """object P {
       |  def rel[A](a: A): util.Either[A, A] = ???
       |  def full[A](a: A): scala.util.Either[A, A] = ???
       |  def rooted[A](a: A): _root_.scala.util.Either[A, A] = ???
-      |  def top[A](a: A): _root_.Option[A] = ???
       |}""".stripMargin
     (count(code, "P.rel") === Count.Finite(2))
       .and(count(code, "P.full") === Count.Finite(2))
       .and(count(code, "P.rooted") === Count.Finite(2))
-      .and(refused(count(code, "P.top"), "declaration not supplied: _root_.Option"))
   }
+
+  // A root-anchored simple name is a top-level declaration, never a root import's: `_root_.Option`
+  // names none, to scalac as to the model, so the fixture is read as written.
+  def rootedSimpleName =
+    refused(
+      count("object P { def top[A](a: A): _root_.Option[A] = ??? }", "P.top"),
+      "declaration not supplied: _root_.Option"
+    )
 
   // A wildcard import outranks the root imports, but an unsupplied `lib` is assumed to declare no
   // Option, Unit or Int (the never-shadowed assumption): Some(x) or None, and the one Unit.
@@ -627,12 +634,8 @@ class StdlibModelSpec extends Specification {
   // whose values are the sequences a Scala List holds (ω from an a). `F[List[A]]` there is
   // `F[java.util.List[A]]`, not the Scala one (0), and the rooted spelling is the same type (1).
   // `java.awt.List` is a component the model does not read: with no declaration of it supplied, it
-  // is refused by its rooted name; with one (a dependency stub of `java.desktop`), it is read as
-  // that declaration, like any supplied class — a final class of one Boolean field: 2 values, so
-  // 2^2 maps to Boolean.
+  // is refused by its rooted name.
   def javaWildcard = {
-    val awt = "package java.awt\nfinal class List(val multiple: Boolean)"
-    val use = "import java.awt.*\nobject A { def l(a: List): Boolean = ??? }"
     val code = """import java.util.*
       |object W {
       |  def l[A](a: A): List[A] = ???
@@ -642,17 +645,19 @@ class StdlibModelSpec extends Specification {
     (count(code, "W.l") === Count.Countable)
       .and(count(code, "W.k") === Count.Finite(0))
       .and(count(code, "W.j") === Count.Finite(1))
-      .and(
-        refused(
-          count("import java.awt.*\nobject A { def l[A](a: A): List[A] = ??? }", "A.l"),
-          "java.awt.List"
-        )
-      )
-      .and(
-        countIn("Use.scala" -> use, "tasty/java.desktop/java/awt/List.scala" -> awt)(
-          "A.l"
-        ) === Count.Finite(4)
-      )
+      .and(refused(count(awtUse, "A.l"), "declaration not supplied: java.awt.List"))
+  }
+
+  private val awtUse = "import java.awt.*\nobject A { def l(a: List): Boolean = ??? }"
+
+  // With a declaration of `java.awt.List` supplied as a dependency stub of `java.desktop`, it is
+  // read as that declaration, like any supplied class — a final class of one Boolean field: 2
+  // values, so 2^2 maps to Boolean.
+  def javaWildcardStub = {
+    val awt = "package java.awt\nfinal class List(val multiple: Boolean)"
+    countIn("Use.scala" -> awtUse, "tasty/java.desktop/java/awt/List.scala" -> awt)(
+      "A.l"
+    ) === Count.Finite(4)
   }
 
   // scala.quoted, scala.jdk.CollectionConverters and quotes.reflect declare no model spelling
