@@ -44,7 +44,6 @@ object CompiledTypes {
         case NonFatal(error) => (inputs, List(s"compiled types not read: $error"))
       }
 
-  // Every compiled member, by source file and the offset of its name.
   // The running JDK's classes, read and indexed once: each read starts from them, and a class a
   // later entry declares again is not seen (`TastyStubs.firstLoaded`).
   private lazy val jdk: (List[ClasspathEntry], Set[(String, String)]) = {
@@ -57,7 +56,10 @@ object CompiledTypes {
     (entries, names.toSet)
   }
 
-  private def read(classes: Classes): Map[String, Map[Int, List[Compiled]]] = {
+  /** The module's own top-level classes, in a context over the JDK, its output and its classpath,
+    * with why each class that does not load fails.
+    */
+  private[cardinality] def loaded(classes: Classes): (Context, List[ClassSymbol], List[String]) = {
     val (jdkEntries, jdkNames) = jdk
     val output = classes.output.toList.map(TastyStubs.readable)
     val own = output.flatMap(path => ClasspathLoaders.read(List(path)))
@@ -68,11 +70,16 @@ object CompiledTypes {
         jdkNames
       )
     val entries = jdkEntries ++ later
-    given Context = Context.initialize(entries)
-    val ownEntries = later.take(own.size)
-    ownEntries
-      .flatMap(entry => TastyStubs.symbolsOf(entry, _ => true)._1)
-      .collect { case c: ClassSymbol => c }
+    given context: Context = Context.initialize(entries)
+    val read = later.take(own.size).map(entry => TastyStubs.symbolsOf(entry, _ => true))
+    (context, read.flatMap(_._1).collect { case c: ClassSymbol => c }, read.flatMap(_._2))
+  }
+
+  // Every compiled member, by source file and the offset of its name.
+  private def read(classes: Classes): Map[String, Map[Int, List[Compiled]]] = {
+    val (context, own, _) = loaded(classes)
+    given Context = context
+    own
       .flatMap(c => c.tree.toList.flatMap(members))
       .groupMap(_._1)(_._2)
       .view
