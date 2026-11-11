@@ -11,14 +11,16 @@ import java.nio.file.{Files, Path}
   */
 object Skill {
 
-  /** Writes the template, with `{{name}}` replaced by `values(name)`, to `output`. Refreshes a file
-    * the plugin generated; refuses one it did not. True when the file was written, false when it
+  /** Writes the template to `output`, its `{{measure}}` placeholder replaced by the build tool's
+    * own block (`measure-<kind>.md`) and every `{{name}}` by `values(name)`. Refreshes a file the
+    * plugin generated; refuses one it did not. True when the file was written, false when it
     * already held this content.
     */
-  def seed(output: Path, tool: String, values: Map[String, String]): Boolean = {
-    val url = getClass.getResource("/cardinality/cardinality-reduction-skill.md")
-    if (url == null) throw new IllegalStateException("skill template not found on the classpath")
-    val template = new String(url.openStream().readAllBytes(), UTF_8)
+  def seed(output: Path, tool: String, kind: String, values: Map[String, String]): Boolean = {
+    val template = resource("cardinality-reduction-skill.md").replace(
+      "{{measure}}",
+      resource(s"measure-$kind.md").stripTrailing
+    )
     val skill = (values + ("tool" -> tool)).foldLeft(template) {
       case (text, (name, value)) =>
         text.replace(s"{{$name}}", value)
@@ -35,6 +37,12 @@ object Skill {
       val _ = Files.write(output, skill.getBytes(UTF_8))
     }
     changed
+  }
+
+  private def resource(name: String): String = {
+    val url = getClass.getResource(s"/cardinality/$name")
+    if (url == null) throw new IllegalStateException(s"$name not found on the classpath")
+    new String(url.openStream().readAllBytes(), UTF_8)
   }
 
 }

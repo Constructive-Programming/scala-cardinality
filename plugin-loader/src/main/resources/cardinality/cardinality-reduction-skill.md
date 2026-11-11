@@ -12,19 +12,7 @@ This repository measures itself with `{{tool}}`; the report is one command away.
 
 ## 1. Measure first
 
-```bash
-{{report}}   # per module; also written to {{reportFile}}
-```
-
-- Reports are **per module**: every project the plugin applies to reports its own sources.
-  Read the summary and the rows per module, never as one merged number.
-- Narrow a single signature with `{{selected}}`.
-- Measure sources this build does not compile — a dependency's published sources jar, another
-  checkout — with `{{reportOf}}`.
-- Keep a checked-in baseline: {{baseline}} (for example
-  `docs/baselines/cardinality-<date>.txt`), recording the
-  date, the command and the plugin version in its header. Diff a new run against it; refresh the
-  baseline only when a change lands.
+{{measure}}
 
 ### Reading rows
 

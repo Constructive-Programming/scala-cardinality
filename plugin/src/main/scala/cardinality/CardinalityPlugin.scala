@@ -163,15 +163,10 @@ object CardinalityPlugin extends AutoPlugin {
     val values = Map(
       "project" -> buildRoot.getName,
       "version" -> pluginVersion,
-      "seed" -> "cardinalitySeedSkill",
-      "report" -> "sbt cardinalityReport",
-      "selected" -> "sbt 'cardinalityReportSelected <qualified.Name>'",
-      "reportOf" -> "sbt 'cardinalityReportOf <path-or-jar>'",
-      "reportFile" -> "cardinalityReportFile (default: target/cardinality/report.txt)",
-      "baseline" -> "point `cardinalityReportFile` at a path under version control or copy the report there"
+      "seed" -> "cardinalitySeedSkill"
     )
     val changed =
-      try Skill.seed(output.toPath, "sbt-cardinality", values)
+      try Skill.seed(output.toPath, "sbt-cardinality", "sbt", values)
       catch { case e: IllegalStateException => sys.error(e.getMessage) }
     log.info(
       if (changed) s"seeded the cardinality-reduction skill: $output"

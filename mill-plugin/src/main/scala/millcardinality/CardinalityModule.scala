@@ -102,15 +102,11 @@ trait CardinalityModule extends ScalaModule {
       "project" -> mill.api.BuildCtx.workspaceRoot.last,
       "version" -> Calculator.version,
       "seed" -> s"$module.cardinalitySeedSkill",
-      "report" -> s"./mill $module.cardinalityReport",
-      "selected" -> s"./mill $module.cardinalityReportSelected <qualified.Name>",
-      "reportOf" -> s"./mill $module.cardinalityReportOf <path-or-jar>",
-      "reportFile" -> s"out/$module/cardinalityReport.dest/report.txt",
-      "baseline" -> "copy the report to a path under version control"
+      "module" -> module
     )
     val output = cardinalitySkillFile()
     val changed =
-      try Skill.seed(output.toNIO, "mill-cardinality", values)
+      try Skill.seed(output.toNIO, "mill-cardinality", "mill", values)
       catch { case e: IllegalStateException => Task.fail(e.getMessage) }
     Task.log.info(
       if (changed) s"seeded the cardinality-reduction skill: $output"
