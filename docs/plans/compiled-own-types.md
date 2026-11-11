@@ -222,11 +222,12 @@ classpath does not hold (the front-end agent's). Units, each committed after
 `sbt scalafmtAll scalafixAll`, `sbt core/testFull`, `bash scripts/check-file-metrics.sh`, CPD and
 three reviews of its staged diff:
 
-1. Open-world rules as closed-world rows. Done: the 53 examples of `TargetViewsSpec`,
+1. Open-world rules as closed-world rows. Committed: the 53 examples of `TargetViewsSpec`,
    `ReentrySpec` and `PureCodeSpec`'s open rows read the closed world with the overrider supplied
    (`cardinality.Overriders`; "Rules of class (b), on rows" below).
-2. Dependency rules as rows over a dependency compiled apart and given to the analysis as classes
-   (a harness addition beside withheld support). Not started.
+2. Dependency rules as rows over a dependency compiled apart and given to the analysis as classes.
+   Committed: `Compiled.dependency` and `Compiled.reportOver` ("Test fixtures" below) and
+   `DependencyRowsSpec` ("Rules of class (b), on rows").
 3. The fixtures whose first failure hides assertions on code that compiles. Not started.
 4. Ledger rerun, totals and the classification table. Not started.
 
@@ -346,15 +347,25 @@ ones that ended left there, so a compiler that ran out of time leaves nothing am
   them. They read `Compiled.definitions(code)` (one source's rows; `Compiled.source(code)` where
   an example needs the tree itself) or `Compiled.report(files*)` (a source set on disk read by
   `Report.of` with its classes). A type fragment is read from `type T = …` in a compiled source.
+- **A dependency, compiled apart and supplied as classes.** `Compiled.dependency(unit, code)` is
+  one source of a dependency unit, a file of the fixture's set. The harness compiles each unit
+  alone, against the units before it, into the entry's `dependency/<unit>`, and the fixture
+  against them. `Compiled.reportOver(dependencies, files*)` reads the module as a build's report
+  does, with a dependency classpath: the units, then `dependencies` (class directories or jars),
+  then the Scala library, the first to declare a class winning. Neither a unit's text nor a row
+  of it reaches the analysis. `Compiled.report` passes no classpath. Under the switch the compiled
+  front end gets that classpath and nothing else the fixture compiled against; the entry's
+  `classpath.txt` is not read by the harness, since for the 9 fixtures compiled against the whole
+  test classpath it holds what the scalameta reading is not given.
 - **One switch for the front end.** The rows a spec reads come from `Compiled.analyze` (method
   rows), `Compiled.definitions` (one source's definition rows) and `Compiled.report` (a source set
   as files), which `InventoryFixtures` and `capacity.Rows` go through. One method, `Compiled.read`,
   decides where they come from, by the system property `cardinality.frontend`
   (`sbt 'set core / Test / javaOptions += "-Dcardinality.frontend=tasty"' core/testFull`): the
   scalameta pipeline when it is unset, which is the only mode the suite is green under, or
-  `TastyFrontEnd` over the fixture's classes and the classpath its entry records (`tasty`, and
+  `TastyFrontEnd` over the fixture's classes, its dependencies and the Scala library (`tasty`, and
   `sentinel`, `filled` and `probe`, which a ledger is read from: `FrontEndMode` says what each
-  is). The withheld support is on neither, so what a fixture withholds stays unsupplied.
+  is). The withheld support is not among them, so what a fixture withholds stays unsupplied.
   `Compiled.source`, `ascribed` and a request with dependency stubs given as sources read what
   only the scalameta front end has, and fail under any other mode saying so.
   `Rows.typeSize` (the alias row of `type T = …`) stands where `Counter.type` did in
@@ -736,6 +747,42 @@ and no expectation changed.
 | `PureCodeSpec.bindingScope` | a level's body binds names in its own scope | `K.m` | 2^(2^33) | 4 |
 | `PureCodeSpec.throwingRecord` | a record keeps a member no override can implement | `Use.f` | 1 | 2 |
 | `PureCodeSpec.openSubclass` | an open subclass's overridable members are reasons | `U.u` | `?` (inherited stdlib member a subclass may override: `Exception.getCause`) | `?` (final class field not observable injectively: MyErr.msg) |
+
+**Dependencies read from compiled classes.** `TastyStubsSpec` and two examples of
+`ClosedWorldSpec` pin what a row counts through a dependency by giving the analysis stub sources
+(`tasty/…` inputs), which only the scalameta front end reads, or by asserting a stub's text.
+`DependencyRowsSpec` pins the same rules on rows of a module read over a dependency that is
+compiled classes (`Compiled.reportOver`): `tastyfixtures` and `javafixtures` (each package of the
+test classes copied into a class directory of its own), two of scalameta's Scala 2.13 jars, the
+JDK, and units the fixture writes. Where the module can be read without the dependency the
+example reads it so too, and asserts that the row refuses, or refuses for another reason, without
+it; the Scala 3 one asserts that the dependency adds no row.
+
+| Rule | Example it had | `DependencyRowsSpec` | Rows | Derivation |
+| --- | --- | --- | --- | --- |
+| A dependency counts as its source does, or refuses | `TastyStubsSpec`, "a stub never counts differently from the source it was compiled from" | `parity` | `t.pair`, `t.mkPair`, `t.light` 16; `t.suit` 4; `t.flag` 2; `t.endo`, `t.show` 2^8; `t.built` 2^32; `t.fed` its source's or `?` | Pair and Light have 4 values (2^4, 4^2), Suit 2; an opaque type outside its scope is one value; a record of one `Boolean => Boolean` beside `b` is 3 observed bits; `Built()` is one value; Fed's field is set by a constructor body, so it is not Built's 2^32 |
+| It supplies what the module alone cannot name | "the stubs supply what the unsupplied environment cannot" | `supplied` | `?` without it | the names are declared nowhere the analysis reads |
+| A compiled inline body is not read | "a call into a compiled inline body refuses: the body is not read" | `inlineBody` | `t.picked` `?` naming `pick`; 2 through the source | the caller expands a body the reading does not have |
+| A stored value through a dependency is its source's | "stored values read through the stubs agree with the source, or refuse" | `stored` | `t.Holds` 32 | Pair × Light × Suit = 4 · 4 · 2 |
+| A Java enum is its constants | "a Java enum is the closed set of its constants" | `javaEnum` | `j.coin`, `j.pickCoin`, `j.op`, `j.size` 4 | two constants; a static field of the enum's type is none |
+| A Java interface is the record of its abstract methods | "a Java interface is the record of its abstract methods" | `javaInterface` | `j.mkToggle` 4; `j.toggle` 16 | one `Boolean => Boolean`; the default method is final, the statics are the companion's |
+| A Java class's state and a sealed interface's subclasses are not read | "a Java class's state and a sealed interface's subclasses are not read" | `javaHidden`, `javaAlone` | `?`, for another reason than without the dependency | the class files do not tie state to constructor parameters |
+| Java signatures: `Object` is `Any`, a wildcard is read, a raw type is not, statics are the companion's | "Java signatures: statics in the companion, Object as Any, wildcards spelled, raw types unread" (the stub's text) | `javaSignatures`, with `javaEnum` and `javaInterface` for the statics | `j.mkAny`, `j.useAny` ω; `j.useWild`, `j.useRaw` `?` | an `Any => Any` has a one-valued input and an ω output (v1.md §2); the wildcard is refused by name, the raw type as a signature not read |
+| A Scala 2 class has a count | "a reference to a Scala 2 class gets a count instead of `declaration not supplied`" | `scala2` | `s.mkOut` 1; `s.out` 2; `s.drop` 1 | a record of one method whose result is Unit is one value |
+| A sealed class with a child the pickle does not declare refuses | "a sealed class with a child no stub declares is neither sealed nor read" | `scala2Sealed` | `s.path`, `s.classpath` `?`, for another reason than without the dependency | read as sealed it would hold no value |
+| A class two dependencies declare is the first one's | "a class two jars declare is read from the first, as the JVM loads it" | `firstWins` | `u.f` 4; with the units the other way round 8, and `u.edge` 3 | two cases against three, and a case only the second unit declares |
+| A dependency's template is the one of its qualified name | `ClosedWorldSpec`, `stubParents` and `stubOwners` | `qualified` | `U.target` 4; `?` where q.D extends p.S, and with the same text as a source of the module | q.D's parent outside the sources is not below p.T, so p.T's `m` is final |
+| A JDK module other than `java.base` is read where a source names it | "a class of a JDK module other than java.base is a supplied declaration" | `jdkModule` | `j.status` 16 | `ClientInfoStatus` has four constants |
+
+- "stored values read through the stubs agree with the source, or refuse" compared rows that do
+  not exist: a `val` in an object is no definition row, so it compared two empty strings. `stored`
+  reads a case class of the dependency's types.
+- Not given a row: a Scala 2 `var`'s setter (the one Scala 2 class with a `var` among the test
+  classpath's jars, `SingletonReference.Ref`, is private; a row needs a public one); a jar that
+  cannot be loaded being reported and not fatal (a warning of the report, which
+  `ReportDependenciesSpec` reads and the harness turns into a failure); a TASTy file declaring
+  its own package in a shaded jar (it needs a shaded jar); and that each stub parses (the stubs
+  are deleted with the scalameta front end).
 
 ## Phase 5: the TASTy front end, slice by slice
 

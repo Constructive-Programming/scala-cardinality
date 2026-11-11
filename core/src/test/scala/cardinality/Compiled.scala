@@ -23,20 +23,25 @@ import java.util.concurrent.ConcurrentHashMap
   * A fixture that names a declaration the analysis is deliberately not supplied still compiles: its
   * text carries the declaration as support (`code + Compiled.withheld(support)`), and `inputs`
   * parses the support as a source of its own, at a path that starts with [[Withheld]]. Support
-  * sources are compiled first, the fixture is compiled against their classes, and they are then
-  * dropped: the analyzer gets neither their text nor their classes.
+  * sources are compiled before the fixture, the fixture is compiled against their classes, and they
+  * are then dropped: the analyzer gets neither their text nor their classes.
   *
   * Compilations are memoised by the compiler options and the sources' text, in memory and on disk
   * under `target/compiled-fixtures/<digest>`, so a rerun compiles only what changed. An entry holds
   * `src` (every source, support under `src/withheld`), `support` (the support sources' classes),
-  * `classes` (the fixture's own), `classpath.txt` (what a fixture that compiled was compiled
-  * against beside `support`, one path a line) and a marker, `ok` or `failed`: the test that first
+  * `dependency/<unit>` (each dependency unit's), `classes` (the fixture's own), `classpath.txt` (a
+  * record for whoever reads the cache: what a fixture that compiled was compiled against beside its
+  * own support and units, one path a line) and a marker, `ok` or `failed`: the test that first
   * asked, then what stopped the compiler.
   *
-  * The rows a test reads (`analyze`, `definitions`, `report`) come from the front end the system
-  * property `cardinality.frontend` names: [[FrontEndMode]]. What only the scalameta front end has
-  * (`source` and `ascribed`, its tree; dependency stubs given as sources) fails under any other and
-  * says so.
+  * A fixture's dependency is compiled apart too, and supplied: as classes, not as sources of the
+  * module (`Compiled.dependency`, `Compiled.reportOver`). The units are compiled before the
+  * withheld support, so a unit cannot name what the fixture withholds.
+  *
+  * The rows a test reads (`analyze`, `definitions`, `report`, `reportOver`) come from the front end
+  * the system property `cardinality.frontend` names: [[FrontEndMode]]. What only the scalameta
+  * front end has (`source` and `ascribed`, its tree; dependency stubs given as sources) fails under
+  * any other and says so.
   */
 object Compiled {
 
@@ -101,6 +106,31 @@ object Compiled {
   def withheldFile(support: String): (String, String) =
     s"$Withheld${support.hashCode.toHexString}.scala" -> support
 
+  // The path prefix of a dependency's source, before its unit's name: compiled, and given to the
+  // analysis as classes.
+  private val Dependency = "dependency/"
+
+  /** One source of the dependency unit `unit`, as a file of a set given to `reportOver`. A unit is
+    * compiled alone, against the units the set names before it.
+    */
+  def dependency(unit: String, code: String): (String, String) = {
+    require(unit.nonEmpty && !unit.contains('/'), s"a unit is one name, not $unit")
+    s"$Dependency$unit/${code.hashCode.toHexString}.scala" -> code
+  }
+
+  // The dependency units a fixture names, in its order.
+  private def units(inputs: List[MethodAnalysis.Input]): List[String] =
+    inputs
+      .map(_.path)
+      .collect {
+        case path if path.startsWith(Dependency) => path.stripPrefix(Dependency).takeWhile(_ != '/')
+      }
+      .distinct
+
+  // A source the analysis is not given as one of the module's: withheld support, a dependency.
+  private def apart(input: MethodAnalysis.Input): Boolean =
+    input.path.startsWith(Withheld) || input.path.startsWith(Dependency)
+
   /** The fixture's sources parsed: each text up to the support it carries, and that support as a
     * source under [[Withheld]].
     */
@@ -138,37 +168,46 @@ object Compiled {
 
   // The one place that decides where rows come from: `old` is what the scalameta pipeline answers
   // for the request, evaluated only where the mode reads it.
-  private def read(inputs: List[MethodAnalysis.Input])(old: => Report): Report = frontEnd match {
-    case FrontEndMode.Scalameta => old
-    case FrontEndMode.Probe     =>
-      throw new AssertionError("rows requested from the fixture harness")
-    case FrontEndMode.Tasty    => compiledRows(inputs)
-    case FrontEndMode.Sentinel =>
-      unreadReplaced(compiledRows(inputs))(
-        _.copy(
-          size = Some(Size(7, 7 + unexpected.incrementAndGet(), FinitePart.Zero)),
-          unbound = Nil
-        ),
-        _.copy(count = Count.Finite(-unexpected.incrementAndGet()))
-      )
-    case FrontEndMode.Filled =>
-      val (scalameta, compiled) = (old, compiledRows(inputs))
-      // Each row with the scalameta one of its key: the n-th of a key with the n-th, where both
-      // front ends list as many.
-      def paired[A, K](old: List[A], rows: List[A])(key: A => K): Map[A, A] =
-        rows.groupBy(key).flatMap { (shared, keyed) =>
-          val known = old.filter(key(_) == shared)
-          if (known.sizeIs == keyed.size) keyed.zip(known) else Nil
-        }
-      val definitions =
-        paired(scalameta.definitions, compiled.definitions)(row => (row.name, row.kind))
-      val methods = paired(scalameta.methods, compiled.methods)(_.name)
-      // Only what `not read yet` stands for is taken, the count and the captures: the row keeps
-      // the name, kind, signature and line the compiled front end gives it.
-      unreadReplaced(compiled)(
-        row => definitions.get(row).fold(row)(of => row.copy(size = of.size, unbound = of.unbound)),
-        row => methods.get(row).fold(row)(of => row.copy(count = of.count, captures = of.captures))
-      )
+  private def read(inputs: List[MethodAnalysis.Input], dependencies: Option[List[Path]] = None)(
+      old: => Report
+  ): Report = {
+    // Only a request with a dependency classpath may carry dependency units.
+    require(dependencies.nonEmpty || units(inputs).isEmpty, "a dependency is read by `reportOver`")
+    def compiled = compiledRows(inputs, dependencies.getOrElse(Nil))
+    frontEnd match {
+      case FrontEndMode.Scalameta => old
+      case FrontEndMode.Probe     =>
+        throw new AssertionError("rows requested from the fixture harness")
+      case FrontEndMode.Tasty    => compiled
+      case FrontEndMode.Sentinel =>
+        unreadReplaced(compiled)(
+          _.copy(
+            size = Some(Size(7, 7 + unexpected.incrementAndGet(), FinitePart.Zero)),
+            unbound = Nil
+          ),
+          _.copy(count = Count.Finite(-unexpected.incrementAndGet()))
+        )
+      case FrontEndMode.Filled =>
+        val (scalameta, rows) = (old, compiled)
+        // Each row with the scalameta one of its key: the n-th of a key with the n-th, where both
+        // front ends list as many.
+        def paired[A, K](old: List[A], rows: List[A])(key: A => K): Map[A, A] =
+          rows.groupBy(key).flatMap { (shared, keyed) =>
+            val known = old.filter(key(_) == shared)
+            if (known.sizeIs == keyed.size) keyed.zip(known) else Nil
+          }
+        val definitions =
+          paired(scalameta.definitions, rows.definitions)(row => (row.name, row.kind))
+        val methods = paired(scalameta.methods, rows.methods)(_.name)
+        // Only what `not read yet` stands for is taken, the count and the captures: the row keeps
+        // the name, kind, signature and line the compiled front end gives it.
+        unreadReplaced(rows)(
+          row =>
+            definitions.get(row).fold(row)(of => row.copy(size = of.size, unbound = of.unbound)),
+          row =>
+            methods.get(row).fold(row)(of => row.copy(count = of.count, captures = of.captures))
+        )
+    }
   }
 
   // What `Sentinel` counts with: negative counts, and sizes no fixture has (`7ε₀ + nω`), each used
@@ -200,27 +239,29 @@ object Compiled {
   }
 
   // The fixture's rows as the compiled front end reads them: the supplied sources against the
-  // fixture's classes and what it was compiled with, the withheld support apart. A fixture scalac
-  // rejects has no classes to read, and dependency stubs given as sources have no reader.
-  private def compiledRows(inputs: List[MethodAnalysis.Input]): Report = {
+  // fixture's classes, with its dependencies and the Scala library as the classpath, and nothing
+  // else the fixture compiled against (the withheld support, the rest of the test classpath). The
+  // Scala library and the JDK are always there to read: `report` and `reportOver` with no
+  // dependency are one request here, where the scalameta reading of `report` has no classpath. A
+  // fixture scalac rejects has no classes to read, and dependency stubs given as sources have no
+  // reader.
+  private def compiledRows(inputs: List[MethodAnalysis.Input], dependencies: List[Path]): Report = {
     if (inputs.exists(_.path.startsWith(TastyStubs.Prefix)))
       scalametaOnly("dependency stubs given as sources")
-    val supplied = inputs.filterNot(_.path.startsWith(Withheld))
+    val module = inputs.filterNot(apart)
     val found = classes(inputs).getOrElse(
       throw new AssertionError("no compiled classes: scalac rejects this fixture")
     )
-    val compiledWith = found.output.flatMap { dir =>
-      Files.readString(dir.resolveSibling(ClasspathFile)).linesIterator.map(Path.of(_))
-    }
+    val classpath = supplied(inputs, found.output.head, dependencies)
     val answered = TastyFrontEnd.rows(
       FrontEnd.Module(
-        supplied.map(input => input.path -> input.tree.pos.input.text),
-        Report.Environment(classes = Some(found.copy(classpath = compiledWith)))
+        module.map(input => input.path -> input.tree.pos.input.text),
+        Report.Environment(classes = Some(found.copy(classpath = classpath)))
       )
     )
     if (answered.warnings.nonEmpty) throw new AssertionError(answered.warnings.mkString("; "))
     Report(
-      answered.sources.zip(supplied).map {
+      answered.sources.zip(module).map {
         case (Right(source), _) => source
         // A source that defines nothing has no classes, and no rows.
         case (Left(Report.Error(_, NoClasses)), input)
@@ -250,6 +291,8 @@ object Compiled {
 
   // The inputs the analysis reads, with the compiler's types written in where they compile.
   private def typed(inputs: List[MethodAnalysis.Input]): List[MethodAnalysis.Input] = {
+    // Only a report is given a dependency classpath.
+    require(units(inputs).isEmpty, "a fixture with a dependency is read by `reportOver`")
     val supplied = inputs.filterNot(_.path.startsWith(Withheld))
     val (stubs, own) = supplied.partition(_.path.startsWith(TastyStubs.Prefix))
     classes(inputs).fold(supplied) { found =>
@@ -273,19 +316,35 @@ object Compiled {
     Report(List(Report.Source("", definitions, methods)), Nil)
 
   /** The report of a source set laid out as files, as a build's report reads a compiled module: the
-    * files on disk and their classes. Withheld support is compiled against and not written. Under
-    * another front end the report is its rows alone, each source at the fixture's path.
+    * files on disk and their classes, and no dependency classpath. Withheld support is compiled
+    * against and not written. Under another front end the report is its rows alone, each source at
+    * the fixture's path.
     */
-  def report(files: (String, String)*): Report = {
+  def report(files: (String, String)*): Report = reported(None, files)
+
+  /** The report of a module with dependencies, as a build's reads one: the files on disk, their
+    * classes, and as the dependency classpath the set's own dependency units (`dependency`), then
+    * `dependencies` (class directories or jars of classes the test classpath holds, which is what
+    * the module compiles against), then the Scala library, which a build always passes.
+    */
+  def reportOver(dependencies: List[Path], files: (String, String)*): Report =
+    reported(Some(dependencies), files)
+
+  private def reported(dependencies: Option[List[Path]], files: Seq[(String, String)]): Report = {
     val all = inputs(files*)
-    read(all) {
+    read(all, dependencies) {
       val root = Files.createTempDirectory("cardinality")
       try {
-        all
-          .filterNot(_.path.startsWith(Withheld))
-          .foreach(input => written(root, input.path, input))
-        val found = Report.of(List(root), Report.Environment(classes = classes(all)))
-        // A fixture that compiled and did not get its types would be read half typed.
+        all.filterNot(apart).foreach(input => written(root, input.path, input))
+        val own = classes(all, dependencies.getOrElse(Nil))
+        // A fixture scalac rejects has no classes of its units to supply.
+        require(own.nonEmpty || units(all).isEmpty, "a fixture with a dependency compiles")
+        val classpath = dependencies.fold(Nil) { beside =>
+          own.fold(beside ++ libraries)(found => supplied(all, found.output.head, beside))
+        }
+        val found = Report.of(List(root), Report.Environment(classpath, classes = own))
+        // A fixture that compiled and did not get its types would be read half typed, and one
+        // whose dependencies were not read without them.
         if (found.warnings.nonEmpty) throw new AssertionError(found.warnings.mkString("; "))
         found
       } finally deleted(root)
@@ -300,7 +359,7 @@ object Compiled {
   }
 
   // A directory and what it holds, removed as far as it can be.
-  private def deleted(directory: Path): Unit =
+  private[cardinality] def deleted(directory: Path): Unit =
     try {
       val held = Files.walk(directory)
       try
@@ -313,7 +372,10 @@ object Compiled {
 
   // The fixture's compiled classes with what their types are read against: none where the
   // compiler rejects the fixture, which only a listed fixture may be.
-  private def classes(inputs: List[MethodAnalysis.Input]): Option[CompiledTypes.Classes] = {
+  private def classes(
+      inputs: List[MethodAnalysis.Input],
+      dependencies: List[Path] = Nil
+  ): Option[CompiledTypes.Classes] = {
     val sources = inputs.filterNot(_.path.startsWith(TastyStubs.Prefix))
     val key =
       digest(
@@ -341,9 +403,21 @@ object Compiled {
     // withheld declaration is written by its name, which the analysis then does not resolve.
     out.map { dir =>
       val support = List(dir.resolveSibling("support")).filter(Files.isDirectory(_))
-      CompiledTypes.Classes(List(dir), support ++ libraries)
+      CompiledTypes.Classes(List(dir), supplied(inputs, dir, dependencies ++ support))
     }
   }
+
+  // The class directories of the fixture's dependency units, in the entry that holds `classes`.
+  private def unitClasses(inputs: List[MethodAnalysis.Input], classes: Path): List[Path] =
+    units(inputs).map(unit => classes.resolveSibling(Dependency + unit))
+
+  // The dependency classpath of a fixture, in one order wherever it is read, the first to declare a
+  // class winning: its units as it names them, then `dependencies`, then the Scala library.
+  private def supplied(
+      inputs: List[MethodAnalysis.Input],
+      classes: Path,
+      dependencies: List[Path]
+  ): List[Path] = unitClasses(inputs, classes) ++ dependencies ++ libraries
 
   // The fixtures scalac is meant to reject, named by the digest of their sources in path order
   // (whatever the compiler options): the first word of each line of the list.
@@ -451,22 +525,28 @@ object Compiled {
     else if (Files.exists(root.resolve("failed")) || sources.isEmpty) None
     else {
       val staged = staging.resolve(s"$key.${Thread.currentThread.threadId}")
-      // The support sources alone, then the fixture against their classes.
       val src = staged.resolve("src")
-      val (support, own) = sources.partition(_.path.startsWith(Withheld)) match {
-        case (held, fixture) =>
-          def files(of: List[MethodAnalysis.Input]) = of.map(i => written(src, i.path, i).toString)
-          (files(held), files(fixture))
+      def laidOut(of: List[MethodAnalysis.Input]) = of.map(i => written(src, i.path, i).toString)
+      // What is compiled before the fixture, each part alone and against the ones before it: the
+      // dependency units in the fixture's order, then the withheld support.
+      val before = units(sources).map { unit =>
+        val of = sources.filter(_.path.startsWith(s"$Dependency$unit/"))
+        (s"the dependency $unit", staged.resolve(Dependency + unit), laidOut(of))
+      } ++ Option(sources.filter(_.path.startsWith(Withheld))).filter(_.nonEmpty).map { held =>
+        ("the withheld support", staged.resolve("support"), laidOut(held))
       }
+      val own = laidOut(sources.filterNot(apart))
       def run(cp: List[Path]): List[String] =
-        if (support.isEmpty) scalac(src, staged.resolve("classes"), cp, own)
-        else {
-          val held = staged.resolve("support")
-          scalac(src, held, cp, support) match {
-            case Nil      => scalac(src, staged.resolve("classes"), held :: cp, own)
-            case problems => "in the withheld support:" :: problems
+        before
+          .foldLeft[Either[List[String], List[Path]]](Right(Nil)) {
+            case (Right(built), (what, into, files)) =>
+              scalac(src, into, built ++ cp, files) match {
+                case Nil      => Right(built :+ into)
+                case problems => Left(s"in $what:" :: problems)
+              }
+            case (failed, _) => failed
           }
-        }
+          .fold(identity, built => scalac(src, staged.resolve("classes"), built ++ cp, own))
       // The full classpath is tried where the small one is not enough, not where the compiler ran
       // out of time: it would run out again.
       val (problems, compiledWith) = run(minimal) match {
