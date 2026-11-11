@@ -51,11 +51,27 @@ class CompiledSpec extends Specification {
       Scala3(user._2 + Compiled.withheld(schema)).parse[Source].toOption must beNone
     }
 
-    "fail the test where the fixture is rejected all the same" in {
-      rows(
-        "V.scala" -> ("object V { def f: Missing = ??? }" + Compiled.withheld("class Other"))
-      ) must
-        throwAn[AssertionError]
+    "fail the test where scalac rejects a fixture that is not listed as rejected" in {
+      rows("V.scala" -> "object V { def f: Missing = ??? }") must
+        throwAn[AssertionError](message = "does not list")
+    }
+  }
+
+  // `val n = 1` is an Int to scalac and `val n = "s"` a String. The report over the files on disk
+  // is given their classes, and matches each source to its own although one path ends the other:
+  // matched to the other's, `n` would have its type.
+  "a report over a fixture's files" should {
+    "write the compiler's types into each source" in {
+      val rendered = Compiled
+        .report(
+          "Exp.scala" -> "object Top { val n = 1 }",
+          "lib/Exp.scala" -> "object Low { val n = \"s\" }"
+        )
+        .render
+        .linesIterator
+        .toList
+      (rendered.find(_.contains("Top.n ")) must beSome(contain("val n: _root_.scala.Int")))
+        .and(rendered.find(_.contains("Low.n ")) must beSome(contain("String")))
     }
   }
 

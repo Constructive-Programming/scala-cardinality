@@ -151,7 +151,8 @@ class NamespaceScopingSpec extends Specification {
   // `None` (1): 5. Unbound, `Option[Boolean]` is the standard one: 1 + 2 = 3.
   def modelledShadowing = {
     val imported = rows(
-      "import zz.Option\nimport java.util.List\nfinal case class UsesO(o: Option[Boolean])\nfinal case class J(xs: List[Nothing])"
+      "import zz.Option\nimport java.util.List\nfinal case class UsesO(o: Option[Boolean])\nfinal case class J(xs: List[Nothing])" +
+        cardinality.Compiled.withheld("package zz\nclass Option[A]")
     )
     val source = rows(
       "trait List[A]\nfinal case class UsesL(xs: List[Boolean])\nsealed trait Option[+A]\nfinal case class Some[+A](a: A, b: A) extends Option[A]\ncase object None extends Option[Nothing]\nfinal case class UsesO(o: Option[Boolean])"
@@ -166,8 +167,10 @@ class NamespaceScopingSpec extends Specification {
   }
 
   // `x` under `package a; package b` is the inner package's `val x: Foo` (Foo's `T = Boolean`, 2),
-  // not package `a`'s object (Unit). `val (p, n) = …` binds `p` with no type read here: `p.X` is
-  // its own reason, never the object `p`'s Unit. `self: Prism =>` binds `self` to a `Prism`, whose
+  // not package `a`'s object (Unit). `val (p, n) = (new Prism, 1)` binds `p`, which scalac types a
+  // `Prism` (the compiled fixture supplies it, rule T): `p.X` is `Prism`'s `X = Boolean`, 2, never
+  // the object `p`'s Unit (uncompiled, `p` had no type and `p.X` was its own reason). `self: Pr =>`
+  // binds `self` to a `Pr`, whose
   // `X = Boolean` (2), not the object `self`'s Unit. scalac accepts `true` for each. The method side's
   // lookup refuses a path through the value `x` rather than read package `a`'s object (1), and the
   // constructor counts the estimate's 2.
@@ -183,7 +186,7 @@ class NamespaceScopingSpec extends Specification {
     (rowsOf(pkg*)(("a.b.Y", Alias)) === "2")
       .and(rowsOf(pkg*)(("a.b.UsesT", Class)) === "2")
       .and(constructor("a.b.UsesT.<init>", pkg*) === Count.Finite(2))
-      .and(local(("H#Y", Alias)) === "unresolved[p.X]")
+      .and(local(("H#Y", Alias)) === "2")
       .and(local(("T#Y", Alias)) === "2")
   }
 

@@ -571,7 +571,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       |  given Named[Unit] = new Named[Unit] { def name: Boolean = false }
       |}""".stripMargin
     def keys(text: String) = {
-      val tree = dialects.Scala3(text).parse[Source].get
+      val tree = cardinality.Compiled.source(text)
       entries(text).map(entry => EoBaseline.identity(entry, tree))
     }
     val secondaries = """

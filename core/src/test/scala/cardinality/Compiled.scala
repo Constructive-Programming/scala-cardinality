@@ -3,6 +3,7 @@ package cardinality
 import scala.meta.*
 
 import cardinality.analysis.MethodAnalysis
+import cardinality.reporting.Report
 import cardinality.tasty.{CompiledTypes, TastyStubs}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
@@ -10,15 +11,17 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 /** Test sources as the build plugins read a module: compiled first, so every member, local, pattern
-  * name and lambda parameter written without a type has the compiler's (`CompiledTypes`, rule T). A
-  * fixture the compiler rejects is read as written.
+  * name and lambda parameter written without a type has the compiler's (`CompiledTypes`, rule T).
+  *
+  * A fixture the compiler rejects is read as written, and only where it is meant to be rejected:
+  * `rejected-fixtures.txt` (a test resource) lists those fixtures, each with its example and the
+  * reason. One that is rejected and not listed, or listed and compiles, fails its test.
   *
   * A fixture that names a declaration the analysis is deliberately not supplied still compiles: its
   * text carries the declaration as support (`code + Compiled.withheld(support)`), and `inputs`
   * parses the support as a source of its own, at a path that starts with [[Withheld]]. Support
   * sources are compiled first, the fixture is compiled against their classes, and they are then
-  * dropped: the analyzer gets neither their text nor their classes. Support is there to make its
-  * fixture compile, so a fixture that has some and is still rejected fails its test.
+  * dropped: the analyzer gets neither their text nor their classes.
   *
   * Compilations are memoised by the compiler options and the sources' text, in memory and on disk
   * under `target/compiled-fixtures/<digest>`, so a rerun compiles only what changed. An entry holds
@@ -51,8 +54,8 @@ object Compiled {
 
   private val compiled = new ConcurrentHashMap[String, Option[Path]]()
 
-  /** The path prefix of a support source: compiled, never analyzed. */
-  val Withheld = "withheld/"
+  // The path prefix of a support source: compiled, never analyzed.
+  private val Withheld = "withheld/"
 
   // Between a fixture's text and the support it carries. It is no Scala, so a text that carries
   // support and is parsed without `inputs` does not parse.
@@ -63,8 +66,8 @@ object Compiled {
     */
   def withheld(support: String): String = Carried + support
 
-  /** The same support as a file of its own, for a source set that also goes to a reader which
-    * compiles nothing. That reader has to leave the file out, as `capacity.Rows.rowsOf` does.
+  /** The same support as a file of its own, for a set of files: one entry of the list given to
+    * `inputs` or `report`, where `withheld` is appended to one source's text.
     */
   def withheldFile(support: String): (String, String) =
     s"$Withheld${support.hashCode.toHexString}.scala" -> support
@@ -87,30 +90,88 @@ object Compiled {
   def ascribed(inputs: List[MethodAnalysis.Input]): List[MethodAnalysis.Input] = {
     val supplied = inputs.filterNot(_.path.startsWith(Withheld))
     val (stubs, own) = supplied.partition(_.path.startsWith(TastyStubs.Prefix))
-    val sources =
-      inputs
-        .filterNot(_.path.startsWith(TastyStubs.Prefix))
-        .map(i => i.path -> i.tree.pos.input.text)
-    val key = digest(sources)
+    classes(inputs).fold(supplied) { found =>
+      val (typed, problems) = CompiledTypes.ascribe(own, found)
+      // A fixture that compiled and did not get its types would be read half typed.
+      if (problems.nonEmpty) throw new AssertionError(problems.mkString("; "))
+      typed ++ stubs
+    }
+  }
+
+  /** One source as the analysis reads it: compiled, with the compiler's types written in. */
+  def source(code: String): Source = ascribed(inputs("Example.scala" -> code)).head.tree
+
+  /** The report of a source set laid out as files, as a build's report reads a compiled module: the
+    * files on disk and their classes. Withheld support is compiled against and not written.
+    */
+  def report(files: (String, String)*): Report = {
+    val all = inputs(files*)
+    val root = Files.createTempDirectory("cardinality")
+    try {
+      all.filterNot(_.path.startsWith(Withheld)).foreach(input => written(root, input.path, input))
+      val read = Report.of(List(root), Report.Environment(classes = classes(all)))
+      // A fixture that compiled and did not get its types would be read half typed.
+      if (read.warnings.nonEmpty) throw new AssertionError(read.warnings.mkString("; "))
+      read
+    } finally deleted(root)
+  }
+
+  // One input's text written at `path` below `root`: its file.
+  private def written(root: Path, path: String, input: MethodAnalysis.Input): Path = {
+    val file = root.resolve(path.stripPrefix("/"))
+    Files.createDirectories(file.getParent)
+    Files.writeString(file, input.tree.pos.input.text, UTF_8)
+  }
+
+  // A directory and what it holds, removed as far as it can be.
+  private def deleted(directory: Path): Unit = {
+    val held = Files.walk(directory)
+    try held.sorted(java.util.Comparator.reverseOrder()).forEach(Files.delete(_))
+    catch { case _: java.io.IOException | _: java.io.UncheckedIOException => () }
+    finally held.close()
+  }
+
+  // The fixture's compiled classes with what their types are read against: none where the
+  // compiler rejects the fixture, which only a listed fixture may be.
+  private def classes(inputs: List[MethodAnalysis.Input]): Option[CompiledTypes.Classes] = {
+    val sources = inputs.filterNot(_.path.startsWith(TastyStubs.Prefix))
+    val key = digest(Options.mkString(s"$Compiler -sourceroot ", " ", "") :: sources.map(part))
     // Not `computeIfAbsent`: a compile runs outside the map's locks, so compiles run in parallel.
     val out = Option(compiled.get(key)).getOrElse {
       val result = compile(key, sources)
       compiled.putIfAbsent(key, result)
       result
     }
-    out match {
-      case None if supplied.sizeIs < inputs.size =>
-        val problems = Files.readString(cache.toAbsolutePath.resolve(key).resolve("failed"))
-        throw new AssertionError(s"a fixture with withheld support does not compile, $problems")
-      case None => supplied
-      // The support classes are only what the compiled types are spelled against: a type naming a
-      // withheld declaration is written by its name, which the analysis then does not resolve.
-      case Some(dir) =>
-        val support = List(dir.resolveSibling("support")).filter(Files.isDirectory(_))
-        CompiledTypes
-          .ascribe(own, CompiledTypes.Classes(List(dir), support ++ libraries))
-          ._1 ++ stubs
+    val name = digest(sources.map(part).sorted)
+    (out, rejected(name)) match {
+      case (None, false) if sources.nonEmpty =>
+        val entry = cache.toAbsolutePath.resolve(key)
+        throw new AssertionError(
+          s"scalac rejects a fixture that $Rejected does not list as $name (entry $entry: " +
+            s"delete it where the compiler only ran out of time), ${Files.readString(entry.resolve("failed"))}"
+        )
+      case (Some(_), true) =>
+        throw new AssertionError(s"$Rejected lists a fixture that compiles: remove $name")
+      case _ =>
     }
+    // The support classes are only what the compiled types are spelled against: a type naming a
+    // withheld declaration is written by its name, which the analysis then does not resolve.
+    out.map { dir =>
+      val support = List(dir.resolveSibling("support")).filter(Files.isDirectory(_))
+      CompiledTypes.Classes(List(dir), support ++ libraries)
+    }
+  }
+
+  // The fixtures scalac is meant to reject, named by the digest of their sources in path order
+  // (whatever the compiler options): the first word of each line of the list.
+  private val Rejected = "rejected-fixtures.txt"
+
+  private val rejected: Set[String] = {
+    val resource = Option(getClass.getResourceAsStream(s"/$Rejected"))
+      .getOrElse(throw new AssertionError(s"test resource $Rejected not found"))
+    val list = scala.io.Source.fromInputStream(resource, "UTF-8")
+    try list.getLines().map(_.takeWhile(!_.isWhitespace)).filter(_.length == 64).toSet
+    finally list.close()
   }
 
   def analyze(
@@ -125,15 +186,19 @@ object Compiled {
   // the `F[A, *]` placeholder some fixtures spell, as the libraries that write it compile.
   private val Options = List("-nowarn", "-Xkind-projector")
 
-  // The options are part of the key: an entry compiled with other options is not this compile.
-  private def digest(sources: List[(String, String)]): String =
+  // The compiler every fixture is compiled with.
+  private val Compiler = dotty.tools.dotc.config.Properties.versionString
+
+  // One source as a digest reads it. A cache key is the digest of the compiler, its options and the
+  // sources: an entry compiled otherwise is not this compile (`-sourceroot` stands for the option
+  // `scalac` adds with each compile's own directory).
+  private def part(source: MethodAnalysis.Input): String =
+    s"${source.path.stripPrefix("/")}\u0000${source.tree.pos.input.text}"
+
+  private def digest(parts: List[String]): String =
     MessageDigest
       .getInstance("SHA-256")
-      .digest(
-        (Options.mkString(" ") :: sources.map((p, t) => s"$p\u0000$t"))
-          .mkString("\u0001")
-          .getBytes(UTF_8)
-      )
+      .digest(parts.mkString("\u0001").getBytes(UTF_8))
       .map("%02x".format(_))
       .mkString
 
@@ -153,14 +218,23 @@ object Compiled {
   }
 
   // What stopped one compiler run into `out`: nothing where it compiled. `rejected:` heads the
-  // compiler's errors, and stands alone where the compiler threw.
-  private def scalac(out: Path, cp: List[Path], files: List[String]): List[String] = {
+  // compiler's errors, and stands alone where the compiler threw. TASTy records each source by its
+  // path below `sourceRoot`, the fixture's own (`p/A.scala`), so the entry's `src` holds every source
+  // where its classes say it is, wherever the entry is moved.
+  private def scalac(
+      sourceRoot: Path,
+      out: Path,
+      cp: List[Path],
+      files: List[String]
+  ): List[String] = {
     val reporter = new dotty.tools.dotc.reporting.StoreReporter()
     val args = List(
       "-d",
       Files.createDirectories(out).toString,
       "-classpath",
-      cp.mkString(java.io.File.pathSeparator)
+      cp.mkString(java.io.File.pathSeparator),
+      "-sourceroot",
+      sourceRoot.toString
     ) ++ Options ++ files
     within(Limit)(!dotty.tools.dotc.Main.process(args.toArray, reporter).hasErrors) match {
       case Some(true)  => Nil
@@ -185,7 +259,7 @@ object Compiled {
 
   // One entry per key: `classes` holds a successful compile, `failed` marks a rejected one. Two
   // threads asking for the same new key both compile it, and the first to finish keeps the entry.
-  private def compile(key: String, sources: List[(String, String)]): Option[Path] = {
+  private def compile(key: String, sources: List[MethodAnalysis.Input]): Option[Path] = {
     val root = cache.toAbsolutePath.resolve(key)
     val out = root.resolve("classes")
     if (Files.exists(root.resolve("ok"))) Some(out)
@@ -195,45 +269,44 @@ object Compiled {
         Files
           .createDirectories(cache.toAbsolutePath)
           .resolve(s"$key.${Thread.currentThread.threadId}")
-      val (support, own) = sources.partition(_._1.startsWith(Withheld)) match {
-        case (held, fixture) => (held.map(written(staging, _)), fixture.map(written(staging, _)))
-      }
       // The support sources alone, then the fixture against their classes.
+      val src = staging.resolve("src")
+      val (support, own) = sources.partition(_.path.startsWith(Withheld)) match {
+        case (held, fixture) =>
+          def files(of: List[MethodAnalysis.Input]) = of.map(i => written(src, i.path, i).toString)
+          (files(held), files(fixture))
+      }
       def run(cp: List[Path]): List[String] =
-        if (support.isEmpty) scalac(staging.resolve("classes"), cp, own)
+        if (support.isEmpty) scalac(src, staging.resolve("classes"), cp, own)
         else {
           val held = staging.resolve("support")
-          scalac(held, cp, support) match {
-            case Nil      => scalac(staging.resolve("classes"), held :: cp, own)
+          scalac(src, held, cp, support) match {
+            case Nil      => scalac(src, staging.resolve("classes"), held :: cp, own)
             case problems => "in the withheld support:" :: problems
           }
         }
-      val problems = if (run(minimal).isEmpty) Nil else run(classpath)
+      // The full classpath is tried where the small one is not enough, not where the compiler ran
+      // out of time: it would run out again.
+      val problems = run(minimal) match {
+        case small @ List(only) if only.startsWith("not finished") => small
+        case Nil                                                   => Nil
+        case _                                                     => run(classpath)
+      }
       Files.writeString(
         staging.resolve(if (problems.isEmpty) "ok" else "failed"),
         (asker :: problems).mkString("\n")
       )
       try Files.move(staging, root)
       catch {
-        // Another thread compiled the same text first: its entry stands and this copy goes. A
-        // compile that timed out may still be writing here, so what cannot be deleted stays.
-        case _: java.nio.file.FileAlreadyExistsException |
-            _: java.nio.file.DirectoryNotEmptyException =>
-          val copy = Files.walk(staging)
-          try copy.sorted(java.util.Comparator.reverseOrder()).forEach(Files.delete(_))
-          catch { case _: java.io.IOException | _: java.io.UncheckedIOException => () }
-          finally copy.close()
+        // Another thread compiled the same text first (the move then fails as file exists or as
+        // directory not empty): its entry stands and this copy goes. A compile that timed out may
+        // still be writing here, so what cannot be deleted stays.
+        case moved: java.nio.file.FileSystemException =>
+          if (!Files.isDirectory(root)) throw moved
+          deleted(staging)
       }
       Option.when(Files.exists(root.resolve("ok")))(out)
     }
-  }
-
-  // One source written below the staging directory's `src`: its file.
-  private def written(staging: Path, source: (String, String)): String = {
-    val file = staging.resolve("src").resolve(source._1.stripPrefix("/"))
-    Files.createDirectories(file.getParent)
-    Files.writeString(file, source._2, UTF_8)
-    file.toString
   }
 
 }

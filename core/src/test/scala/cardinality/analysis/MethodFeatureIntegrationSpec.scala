@@ -123,17 +123,14 @@ class MethodFeatureIntegrationSpec extends Specification {
     ) === Count.Finite(4)
 
   def fixedMatchPattern = {
-    val source = dialects
-      .Scala3(
-        """type F[A, B] = A match {
+    val source = cardinality.Compiled.source(
+      """type F[A, B] = A match {
         |  case B => Boolean
         |  case _ => Unit
         |}
         |case class Result(value: F[Boolean, Boolean])
         |""".stripMargin
-      )
-      .parse[Source]
-      .get
+    )
     Counter.definitions(source).find(_.name == "Result").get.size === Some(TinySize(2))
   }
 

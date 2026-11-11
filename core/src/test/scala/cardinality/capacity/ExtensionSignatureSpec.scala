@@ -4,14 +4,17 @@ import scala.meta.*
 
 import org.specs2.Specification
 
+// Every fixture is compiled first (`Compiled`), so `extension (b: Boolean) def same = b` has the
+// result scalac gives it (rule T): a Boolean from the Boolean receiver, 2^2 = 4. Read without
+// compiled classes the result is unknown, which counts ω.
 class ExtensionSignatureSpec extends Specification {
 
   private def sig(code: String): Size =
-    Counter.sourceSignature(dialects.Scala3(code).parse[Source].get)
+    Counter.sourceSignature(cardinality.Compiled.source(code))
 
   private def definition(code: String): Size =
     Counter.defnSignature(
-      dialects.Scala3(code).parse[Source].get.stats.collectFirst { case d: Defn => d }.get
+      cardinality.Compiled.source(code).stats.collectFirst { case d: Defn => d }.get
     )
 
   private val single = "extension (b: Boolean) def flip: Boolean = !b"
@@ -47,9 +50,9 @@ class ExtensionSignatureSpec extends Specification {
     a receiver with an empty type makes the method empty ${sig(
       "extension (n: Nothing) def impossible: Boolean = true"
     ) === NothingSize}
-    an inferred result keeps the ordinary method fallback ${sig(
-      "extension (s: String) def same = s"
-    ) === EffectiveEpsilon0}
+    a result written without a type is scalac's ${sig(
+      "extension (b: Boolean) def same = b"
+    ) === TinySize(4)}
     generic extensions keep the ordinary method approximation ${sig(
       "extension [A](a: A) def same: A = a"
     ) === EffectiveEpsilon0}

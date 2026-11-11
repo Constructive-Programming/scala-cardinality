@@ -49,7 +49,7 @@ class NamespaceSpec extends Specification {
 
     A qualifier's first name is the innermost term binding
       a value, a parameter or an inner object shadows an outer object  $qualifierBindings
-      a value with no known type is not followed                  $untypedValue
+      a value written without a type has scalac's type            $untypedValue
 
     A qualified reference resolves through its qualifier
       a re-export is the other package's type, not itself         $qualifiedReexport
@@ -120,9 +120,7 @@ class NamespaceSpec extends Specification {
   // A source holds its class's 2 values and its module's 1: 3. Before, the module read the class's
   // value from the name they share and the source summed 2 + 2.
   def companionTotal =
-    Counter.source(
-      dialects.Scala3("case class Spot(on: Boolean)\nobject Spot").parse[Source].get
-    ) ===
+    Counter.source(cardinality.Compiled.source("case class Spot(on: Boolean)\nobject Spot")) ===
       TinySize(3)
 
   // |Span| = 2^32 · 2^32 = 2^64, non-empty, so |List[Span]| = ω and |(Boolean, List[Span])| = 2 · ω
@@ -160,6 +158,7 @@ class NamespaceSpec extends Specification {
     val imported = rowsOf(
       "W.scala" -> "package t\nfinal case class Widget(x: Boolean)",
       "I.scala" -> "package t\nobject Imp { import zz.Widget; final case class Use(w: Widget) }\ntype ImpY = Imp.Use",
+      zzWidget,
     )
     // A class body's own trait `Foo` shadows the file's class `Foo` (2) and the package's: open.
     val innerTrait =
@@ -192,7 +191,7 @@ class NamespaceSpec extends Specification {
          |}
          |type X = Taint.Outer
          |type P = Taint.Pair[Boolean]
-         |""".stripMargin
+         |""".stripMargin + cardinality.Compiled.withheld("class Schema")
     )
     (found(("X", Alias)) === "unresolved[Schema]").and(found(("P", Alias)) === "unresolved[Schema]")
   }
@@ -397,7 +396,7 @@ class NamespaceSpec extends Specification {
     val l =
       "package l\nfinal case class A(n: Int)\nobject F {\n  def f[A](a: A): Int = { final case class Box(x: A); Box(a).hashCode }\n  def g(b: Boolean): Int = { final case class In(b: Boolean); final case class Out(i: In); Out(In(b)).hashCode }\n}"
     val files = List("l/L.scala" -> l, "m/M.scala" -> "package m\nfinal case class In(n: Int)")
-    val tree = dialects.Scala3(l).parse[Source].get
+    val tree = cardinality.Compiled.source(l)
     val box = tree.collect { case c: Defn.Class if c.name.value == "Box" => c }.head
     val param = box.ctor.paramClauses.head.values.head.decltpe.get
     (constructor("l.F.g.Out.<init>", files*) === Count.Finite(2))
@@ -497,7 +496,8 @@ class NamespaceSpec extends Specification {
       "x/A.scala" -> "package x\nfinal case class Obj(b: Boolean)\nobject Json { final case class Obj(b: Boolean) }"
     val foreign = rowsOf(
       x,
-      "y/B.scala" -> "package y\nimport foreign.*\ntype J = Json.Obj\nfinal case class UseBare(j: Obj)"
+      "y/B.scala" -> ("package y\nimport foreign.*\ntype J = Json.Obj\nfinal case class UseBare(j: Obj)" +
+        cardinality.Compiled.withheld("package foreign\nobject Json { class Obj }\nclass Obj"))
     )
     val named = rowsOf(
       x,
@@ -526,6 +526,7 @@ class NamespaceSpec extends Specification {
     rowsOf(
       "x/A.scala" -> "package x\ntrait Widget",
       "y/B.scala" -> "package y\nimport zz.Widget\nfinal case class UsesWidget(w: Widget)",
+      zzWidget,
     )(("y.UsesWidget", Class)) === widget
 
   // `p.X` reads `Prism`'s `X = Span` in Prism's body, where `Span` is `Prism.Span(b: Boolean)` —
@@ -574,12 +575,14 @@ class NamespaceSpec extends Specification {
       .and(files(("t.Holder#Y", Alias)) === "≤2^32")
   }
 
-  // `val p = make()` has no type the estimate reads, and it shadows the object `p`: the reference
-  // is its own reason, never the object's Boolean.
+  // `val p = make()` is written without a type and shadows the object `p`. scalac types it an
+  // `Other` (the compiled fixture supplies it, rule T), so `p.X` is `Other`'s `X = Int`: 2^32
+  // values, printed as the bound ≤2^32, as for `val p = new Other` above. Never the object's
+  // Boolean. (Uncompiled, `p` had no type and the reference was its own reason.)
   def untypedValue =
     rows(
       "object p { type X = Boolean }\nfinal class Other { type X = Int }\nfinal class Holder { def make(): Other = new Other; val p = make(); type Y = p.X }"
-    )(("Holder#Y", Alias)) === "unresolved[p.X]"
+    )(("Holder#Y", Alias)) === "≤2^32"
 
   // `g.Int` is the package's own class (2 values), which scalac binds over `scala.Int` even from
   // another file of the package.
@@ -605,7 +608,7 @@ class NamespaceSpec extends Specification {
          |final case class R[A](a: A, s: Schema)
          |final case class T[A](r: R[A])
          |final case class Chain[A](next: Option[Chain[A]])
-         |""".stripMargin
+         |""".stripMargin + cardinality.Compiled.withheld("package zz\nclass Schema")
     )
     (found(("Q", Class)) === s"unresolved[A, $schema]")
       .and(found(("Q2", Class)) === s"unresolved[B, $schema]")
@@ -670,7 +673,7 @@ class NamespaceSpec extends Specification {
   def lazyCycle = {
     val found = rows(
       """|final class S(val head: Boolean, tail0: => O.Cell)
-         |object O { final case class Cell(s: S); final case class St(h: Boolean, t: => St) }
+         |object O { final case class Cell(s: S); final class St(h: Boolean, t: => St) }
          |final case class UsesCell(c: O.Cell)
          |final class S2(val head: Boolean, tail0: => Cell2)
          |final case class Cell2(s: S2)

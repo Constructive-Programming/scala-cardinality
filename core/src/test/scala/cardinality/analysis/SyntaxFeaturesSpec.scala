@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.{BooleanSize, Counter}
 import org.specs2.Specification
@@ -94,7 +92,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |}""".stripMargin
     val found = rows(code)
     val stored = Counter
-      .definitions(dialects.Scala3(code).parse[Source].get)
+      .definitions(cardinality.Compiled.source(code))
       .map(d => d.name -> (d.size, d.unbound.map(_.render)))
       .toMap
     val stuck = "match type stuck on a named tuple"

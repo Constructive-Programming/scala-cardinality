@@ -540,7 +540,7 @@ class TopTypesUnionSpec extends Specification {
   def walkType = {
     def stored(code: String, name: String) =
       cardinality.capacity.Counter
-        .definitions(dialects.Scala3(code).parse[Source].get)
+        .definitions(cardinality.Compiled.source(code))
         .find(_.name == name)
         .flatMap(_.size)
         .map(_.render)
@@ -603,7 +603,7 @@ class TopTypesUnionSpec extends Specification {
     val code = "type Top = Any\nobject O\nfinal case class K(x: (Top, O.type), b: Boolean)\n" +
       "final case class D(x: (Any, O.type), b: Boolean)"
     val stored = cardinality.capacity.Counter
-      .definitions(dialects.Scala3(code).parse[Source].get)
+      .definitions(cardinality.Compiled.source(code))
       .find(_.name == "K")
       .flatMap(_.size)
       .map(_.render)
@@ -858,7 +858,7 @@ class TopTypesUnionSpec extends Specification {
   // `class C` and an open `trait T` have no shape, and two spellings of one class are absorbed
   // before pairs are formed, so no count reaches these refusals; the pair check keeps them.
   def openPair = {
-    val source = dialects.Scala3("class C\ntrait T\nfinal case class F()").parse[Source].get
+    val source = cardinality.Compiled.source("class C\ntrait T\nfinal case class F()")
     val index = new MethodAnalysis.Index(
       List(MethodAnalysis.Input("Open.scala", source)),
       MethodAnalysis.Limits()

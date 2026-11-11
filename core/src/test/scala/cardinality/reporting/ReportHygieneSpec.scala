@@ -609,7 +609,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
 
   private def located(paths: String*): String =
     Report(
-      paths.toList.map(path => Report.Source(path, Counter.definitions(parse("object O")))),
+      paths.toList.map(path =>
+        Report.Source(path, Counter.definitions(cardinality.Compiled.source("object O")))
+      ),
       Nil
     ).render
 
@@ -674,7 +676,10 @@ class ReportHygieneSpec extends Specification with AfterAll {
   }
 
   private def row(code: String, name: String): String =
-    Report(List(Report.Source("A.scala", Counter.definitions(parse(code)))), Nil).definitionRows
+    Report(
+      List(Report.Source("A.scala", Counter.definitions(cardinality.Compiled.source(code)))),
+      Nil
+    ).definitionRows
       .find(_.definition.name == name)
       .get
       .size
