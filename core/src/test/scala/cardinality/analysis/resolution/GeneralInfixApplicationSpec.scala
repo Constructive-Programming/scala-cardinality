@@ -1,7 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
@@ -21,12 +19,10 @@ class GeneralInfixApplicationSpec extends Specification {
   """
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
-    cardinality.Compiled.analyze(
-      List(MethodAnalysis.Input("Infix.scala", dialects.Scala3(code).parse[Source].get))
-    )
+    cardinality.Compiled.analyze(cardinality.Compiled.inputs("Infix.scala" -> code))
 
-  private def count(definitions: String, result: String): Count =
-    entries(s"$definitions\ndef pick[A](x: A, y: A): $result = ???")
+  private def count(definitions: String, result: String, support: String = ""): Count =
+    entries(s"$definitions\ndef pick[A](x: A, y: A): $result = ???$support")
       .find(_.name == "pick")
       .get
       .count
@@ -90,11 +86,13 @@ class GeneralInfixApplicationSpec extends Specification {
     )
     // The callee is read first: with `<` unsupplied, nothing says whether its arguments are types
     // or constructors, so the missing callee is the one true reason, whatever its arguments name.
+    // The fixtures are compiled against these declarations, which the analysis is not given.
+    val effects = cardinality.Compiled.withheld("class <[A, S]\nclass Env[A]\nclass Var[A]")
     pairs
       .map { (infix, prefix) =>
-        (count("", infix) === count("", prefix))
+        (count("", infix, effects) === count("", prefix, effects))
           .and(
-            count("", infix) === Count.Unresolved(
+            count("", infix, effects) === Count.Unresolved(
               List(s"declaration not supplied: < (${StdlibModel.undeclared})")
             )
           )

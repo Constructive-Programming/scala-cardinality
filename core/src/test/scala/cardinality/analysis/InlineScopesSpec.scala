@@ -286,18 +286,20 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
   // (probes/a7fix1/conv, valid Scala 3.9.0). The alternative, a type outside the sources, is not
   // read as a conversion (D27's boundary). U.scala itself imports nothing.
   def doubtedConversions = {
+    // `zzz`, a namespace the sources do not supply: compiled against, then withheld.
+    val zzz = cardinality.Compiled.withheld("package zzz\nobject Unsupplied")
     val use =
       "p/U.scala" -> "package p\nobject U {\n  enum B { case T, F }\n  def id(b: B): B = b\n  inline def f(x: B): B = id(x)\n}"
     val plain = counts(
       "p/forgetful.scala" -> "package p\npackage forgetful\ntrait ForgetfulFunctor[F[_]]",
-      "p/given.scala" -> "package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[List] with {}",
+      "p/given.scala" -> ("package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[List] with {}" + zzz),
       use
     )
     val converting = counts(
       "p/forgetful.scala" ->
         "package p\npackage forgetful\ntrait ForgetfulFunctor[A, C] extends Conversion[A, C]",
       "p/given.scala" ->
-        "package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[Int, Long] with { inline def apply(i: Int): Long = i.toLong }",
+        ("package p\nimport zzz.*\nimport forgetful.*\ngiven g: ForgetfulFunctor[Int, Long] with { inline def apply(i: Int): Long = i.toLong }" + zzz),
       use
     )
     (plain("p.U.f") === Count.Finite(4))

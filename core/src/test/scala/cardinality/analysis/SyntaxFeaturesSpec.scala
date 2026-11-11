@@ -359,7 +359,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |  def plain(i: Int): Int = { def lp(b: Boolean): Boolean = b; i }
       |}
       |final class C2 extends P2 { def h2[Y]: KA[Y] = { def lka: Y = summon[Y]; lka } }
-      |""".stripMargin)
+      |""".stripMargin + cardinality.Compiled.withheld("package ext\nclass J\nclass Unknown"))
     refused(found("O.viaMatch.lm"), "context function behind a match type not read: M[Int]")
       .and(refused(found("O.byName.ln"), "context function spelled by name: ContextFunction1"))
       .and(refused(found("O.foreign.lf"), "declaration not supplied: ext.J"))

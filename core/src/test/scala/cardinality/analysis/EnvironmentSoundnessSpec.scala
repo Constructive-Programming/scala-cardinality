@@ -165,11 +165,14 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
   // An implicit value of the parameter's type in the class body is a same-level competitor; a
   // `given` import, or a parent outside the source set, brings candidates of unread types.
   def anonymousUnseen = {
-    val found = counts("Unseen.scala" -> """import lib.Base
+    val found = counts(
+      "Unseen.scala" -> ("""import lib.Base
       |object Helpers { given Unit = () }
       |class G[A](using Option[A]) { implicit val other: Option[A] = None; def f(x: A): A = ??? }
       |class H[A](using Option[A]) { import Helpers.given; def f(x: A): A = ??? }
-      |class E[A](using Option[A]) extends Base { def f(x: A): A = ??? }""".stripMargin)
+      |class E[A](using Option[A]) extends Base { def f(x: A): A = ??? }""".stripMargin +
+        cardinality.Compiled.withheld("package lib\ntrait Base"))
+    )
     refused(found("G.f"), "ambiguous anonymous evidence: Option[A]")
       .and(refused(found("H.f"), "(overlaps import Helpers.given)"))
       .and(refused(found("E.f"), "(overlaps unsupplied parent Base)"))
@@ -521,10 +524,11 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
         |}
         |final class I extends Base { import q.Y; def g(): Y = ??? }""".stripMargin,
       "q.scala" -> "package q\ntype Y = Unit",
-      "Marker.scala" -> """package v
+      "Marker.scala" -> ("""package v
         |import lib.Serializable
         |type X = Unit
-        |final class S extends Serializable { def g(): X = ??? }""".stripMargin
+        |final class S extends Serializable { def g(): X = ??? }""".stripMargin +
+        cardinality.Compiled.withheld("package lib\ntrait Base\ntrait Serializable"))
     )
     refused(found("w.C.g"), "inherited type member not resolved: X (unsupplied parent Base)")
       .and(

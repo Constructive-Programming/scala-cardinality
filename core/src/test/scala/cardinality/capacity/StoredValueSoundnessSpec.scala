@@ -601,6 +601,7 @@ class StoredValueSoundnessSpec extends Specification {
   // B; an open member keeps the reader open.
   def taint = {
     val files = List(
+      cardinality.Compiled.withheldFile("package a\nclass Schema"),
       "a/A.scala" -> "package a\nfinal case class Foo[A](s: Schema, a: A)\nenum Failure { case Boom(cause: Throwable); case Code(n: Int) }\nfinal case class Gen[A](a: A)\ntrait Open\nfinal case class HasOpen(o: Open)",
       "b/B.scala" -> "package b\nimport a.*\nfinal case class Bar(f: Foo[Boolean])\nfinal case class Q(s: Schema)\nfinal case class Local(q: Q)\ntype Res = Either[Failure, Boolean]\ntype Res2 = Either[Q, Boolean]\nfinal case class G1(g: Gen[Boolean])\nfinal case class G2[B](g: Gen[B])\nfinal case class UsesOpen(h: HasOpen)\nfinal case class Zero(n: Nothing, q: Q)\nfinal case class Nested(l: Local)",
     )
@@ -636,7 +637,13 @@ class StoredValueSoundnessSpec extends Specification {
       .and(found(("TB", Class)) === "unresolved[B, Functor]")
       .and(found(("UsesSorted", Class)) === "8")
       .and(found(("UsesTwo", Class)) === "4")
-      .and(constructor("UsesTwo.<init>", "A.scala" -> code) === Count.Finite(4))
+      .and(
+        constructor(
+          "UsesTwo.<init>",
+          "A.scala" -> code,
+          cardinality.Compiled.withheldFile("trait Traverse[F[_]]\ntrait Functor[F[_]]")
+        ) === Count.Finite(4)
+      )
   }
 
   // `T: Ord as o` names the evidence `o`; the field is still an `Ord[T]`: |U3| = 1·|Ord[Unit]| = 2.

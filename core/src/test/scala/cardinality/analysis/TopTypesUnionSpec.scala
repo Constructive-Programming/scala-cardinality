@@ -110,20 +110,26 @@ class TopTypesUnionSpec extends Specification {
 
   private def entry(code: String, name: String): MethodAnalysis.Entry =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Top.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(cardinality.Compiled.inputs("Top.scala" -> code))
       .find(_.name == name)
       .get
 
   private def count(code: String, name: String): Count = entry(code, name).count
 
   private def countIn(files: (String, String)*)(name: String): Count =
-    cardinality.Compiled
-      .analyze(files.toList.map { (path, code) =>
-        MethodAnalysis.Input(path, dialects.Scala3(code).parse[Source].get)
-      })
-      .find(_.name == name)
-      .get
-      .count
+    cardinality.Compiled.analyze(cardinality.Compiled.inputs(files*)).find(_.name == name).get.count
+
+  // Declarations of the package `ext` a fixture names and the analysis is not supplied: the fixture
+  // is compiled against them and they are withheld (`Compiled.withheld`).
+  private def ext(declarations: String): String =
+    cardinality.Compiled.withheld(s"package ext\n$declarations")
+
+  private val schema = ext("class Schema")
+  private val mixins = ext("trait Mixin\ntrait Other")
+
+  // A given the object `x.y` declares, withheld like `ext`.
+  private def givenIn(instance: String): String =
+    cardinality.Compiled.withheld(s"package x\nobject y { given $instance }")
 
   private def reasonContains(code: String, name: String, fragments: String*) =
     count(code, name) must beLike {
@@ -254,7 +260,7 @@ class TopTypesUnionSpec extends Specification {
 
   def shadowImport =
     reasonContains(
-      "import ext.Any\ndef imp(): Any = ???",
+      "import ext.Any\ndef imp(): Any = ???" + ext("class Any"),
       "imp",
       "declaration not supplied: ext.Any (named import Any)"
     )
@@ -279,14 +285,16 @@ class TopTypesUnionSpec extends Specification {
   // assumption): g's Unit result is one-valued, one implementation, so is a supplied self type's
   // unsupplied parent.
   def foreignSelf = {
-    val code = "import ext.Ext\ntrait T { self: Ext => def g(): Unit; def h(): Any }"
+    val code =
+      "import ext.Ext\ntrait T { self: Ext => def g(): Unit; def h(): Any }" + ext("trait Ext")
     (count(code, "T.g") === Count.Finite(1))
       .and(reasonContains(code, "T.h", "self type not resolved: Ext"))
   }
 
   def selfUnsuppliedParent =
     count(
-      "trait Base extends ext.X\ntrait T { self: Base => def g(): Unit; def h(): Any }",
+      "trait Base extends ext.X\ntrait T { self: Base => def g(): Unit; def h(): Any }" +
+        ext("trait X"),
       "T.g"
     ) === Count.Finite(1)
 
@@ -300,7 +308,7 @@ class TopTypesUnionSpec extends Specification {
   def importedObject = {
     val code =
       "object Defs extends ext.X\nobject W { import Defs.*; def k(x: Any): Boolean = true\n" +
-        "  def f(s: ext.Schema): Unit = () }"
+        "  def f(s: ext.Schema): Unit = () }" + ext("trait X\nclass Schema")
     reasonContains(code, "W.k", "inherited type member not resolved: Any (unsupplied parent ext.X)")
       .and(
         reasonContains(
@@ -315,15 +323,16 @@ class TopTypesUnionSpec extends Specification {
   // k reads a top as (), so it is a Boolean, 2; r's result is an output top, ω.
   def packageObject = {
     val code = "package p\npackage object p2 extends ext.X\npackage p2 {\n" +
-      "  object M { def k(x: Any): Boolean = true; def r(b: Boolean): Any = b } }"
+      "  object M { def k(x: Any): Boolean = true; def r(b: Boolean): Any = b } }" + ext("trait X")
     (count(code, "p.p2.M.k") === Count.Finite(2)).and(count(code, "p.p2.M.r") === Count.Countable)
   }
 
   // An unsupplied wildcard import rebinds neither `Any` nor `Unit` (the never-shadowed
   // assumption): g's Any result is an output, ω, and f's Unit one-valued, 1, whatever `Schema` is.
   def foreignWildcard = {
-    val imported = "import ext.*\ndef g(): Any = ()\ndef f(s: Schema): Unit = ()"
-    val exported = "object E { export ext.defs.*; def f(s: ext.Schema): Unit = () }"
+    val imported = "import ext.*\ndef g(): Any = ()\ndef f(s: Schema): Unit = ()" + schema
+    val exported = "object E { export ext.defs.*; def f(s: ext.Schema): Unit = () }" +
+      ext("object defs\nclass Schema")
     (count(imported, "g") === Count.Countable)
       .and(count(imported, "f") === Count.Finite(1))
       .and(
@@ -340,7 +349,10 @@ class TopTypesUnionSpec extends Specification {
   // declares `type Any = Boolean`; the members inside see X's. The member is read first here: its
   // result may be X's member, while its capture `a` is still `scala.Any`.
   def ctorOutsideParents = {
-    val code = "final class E(val a: Any, val n: Boolean) extends ext.X { def k(): Any = a }"
+    val code =
+      "final class E(val a: Any, val n: Boolean) extends ext.X { def k(): Any = a }" + ext(
+        "trait X"
+      )
     (count(code, "E.<init>") === Count.Finite(2))
       .and(
         reasonContains(code, "E.k", "inherited type member not resolved: Any (unsupplied parent")
@@ -371,9 +383,10 @@ class TopTypesUnionSpec extends Specification {
     val chained = "package extp\npackage inner\n" +
       "object U { def f(): Any = true; def g(x: Foo): Unit = () }"
     val supplied = "package extp\ntrait Foo"
-    (count(chained, "extp.inner.U.f") === Count.Countable)
+    val alone = chained + cardinality.Compiled.withheld(supplied)
+    (count(alone, "extp.inner.U.f") === Count.Countable)
       .and(
-        count(chained, "extp.inner.U.g") === Count.Finite(1)
+        count(alone, "extp.inner.U.g") === Count.Finite(1)
       )
       .and(
         countIn("A.scala" -> chained, "B.scala" -> supplied)("extp.inner.U.f") === Count.Countable
@@ -405,7 +418,7 @@ class TopTypesUnionSpec extends Specification {
 
   private val codec =
     "import ext.Schema\ntrait Codec[A] { def schema: Schema; def encode(a: A): Any; " +
-      "def run(a: A): Unit; def both(a: A): (Unit, Any); def bad(a: A): Schema }"
+      "def run(a: A): Unit; def both(a: A): (Unit, Any); def bad(a: A): Schema }" + schema
 
   // An opaque type outside its scope is unreadable here, but adds no second Unit. An Any result is
   // an output (ω, v1.md §2), not one-valued (rule O does not apply): the unreadable receiver
@@ -425,7 +438,8 @@ class TopTypesUnionSpec extends Specification {
   // `Nothing => Boolean` has one value, the empty function; so has `Option[Nothing]`.
   def terminalValues = {
     val code = "import ext.Schema\ncase object Green\ndef g(s: Schema): Green.type = Green\n" +
-      "def h(s: Schema): Option[Nothing] = None\ndef k(s: Schema): Nothing => Boolean = x => x"
+      "def h(s: Schema): Option[Nothing] = None\ndef k(s: Schema): Nothing => Boolean = x => x" +
+      schema
     (count(code, "g") === Count.Finite(1))
       .and(count(code, "h") === Count.Finite(1))
       .and(count(code, "k") === Count.Finite(1))
@@ -434,29 +448,51 @@ class TopTypesUnionSpec extends Specification {
   def nonTerminal =
     reasonContains(codec, "Codec.bad", "declaration not supplied: ext.Schema (named import Schema)")
       .and(
-        reasonContains("import ext.Schema\ndef b(s: Schema): Boolean = true", "b", "Schema")
+        reasonContains(
+          "import ext.Schema\ndef b(s: Schema): Boolean = true" + schema,
+          "b",
+          "Schema"
+        )
       )
 
   // A `given` selector imports given instances, which are terms: `import x.y.{given Unit}` binds no
   // type name, so `Unit` is the root one and the goal has one value (Scala 3.9.0 compiles `def y():
   // Unit = ()` after `import Defs.{given Unit}` with `Defs.Unit = Boolean`).
   def rebinding =
-    count("import ext.Schema\nimport x.y.{given Unit}\ndef y(): Unit = ()", "y") === Count.Finite(1)
+    count(
+      "import ext.Schema\nimport x.y.{given Unit}\ndef y(): Unit = ()" + cardinality.Compiled
+        .withheld(
+          "package ext { class Schema }\npackage x { object y { given Unit = () } }"
+        ),
+      "y"
+    ) === Count.Finite(1)
 
   def rebindingTops =
-    (count("import x.y.{given Any}\ndef r(): Any = ()", "r") === Count.Countable)
-      .and(count("import x.y.{given Null}\ndef r(): Unit = ()", "r") === Count.Finite(1))
+    (count(
+      "import x.y.{given Any}\ndef r(): Any = ()" + givenIn("Any = 0"),
+      "r"
+    ) === Count.Countable)
+      .and(
+        count("import x.y.{given Null}\ndef r(): Unit = ()" + givenIn("Null = null"), "r") ===
+          Count.Finite(1)
+      )
 
   def constructorGoal =
-    reasonContains("import ext.Schema\ncase class C(s: Schema, u: Unit)", "C.<init>", "Schema")
+    reasonContains(
+      "import ext.Schema\ncase class C(s: Schema, u: Unit)" + schema,
+      "C.<init>",
+      "Schema"
+    )
 
   def absorbAny =
     (count("def a[A](a: A): A | Any = a", "a") === Count.Countable)
       .and(count(colours + "def b(r: Red): Red | Null | Any = r", "b") === Count.Countable)
-      .and(count("import ext.Schema\ndef s(): Schema | Any = ()", "s") === Count.Countable)
+      .and(
+        count("import ext.Schema\ndef s(): Schema | Any = ()" + schema, "s") === Count.Countable
+      )
       .and(
         reasonContains(
-          "type Top = Any\nimport ext.Schema\ndef t(s: Schema): Schema | Top = s",
+          "type Top = Any\nimport ext.Schema\ndef t(s: Schema): Schema | Top = s" + schema,
           "t",
           "Schema"
         )
@@ -691,12 +727,12 @@ class TopTypesUnionSpec extends Specification {
   def foreignParent =
     (count(
       "sealed trait P\ncase object P1 extends P with ext.Mixin\n" +
-        "sealed trait Q\ncase object Q1 extends Q with ext.Other\ndef pq(p: P): P | Q = p",
+        "sealed trait Q\ncase object Q1 extends Q with ext.Other\ndef pq(p: P): P | Q = p" + mixins,
       "pq"
     ) === Count.Finite(2)).and(
       count(
         "import ext.{Mixin, Other}\nsealed trait P\ncase object P1 extends P with Mixin\n" +
-          "sealed trait Q\ncase object Q1 extends Q with Other\ndef pq(p: P): P | Q = p",
+          "sealed trait Q\ncase object Q1 extends Q with Other\ndef pq(p: P): P | Q = p" + mixins,
         "pq"
       ) === Count.Finite(2)
     )
@@ -742,7 +778,8 @@ class TopTypesUnionSpec extends Specification {
 
   def missingDecl =
     reasonContains(
-      "import ext.Json\nfinal case class Red(level: Boolean)\ndef m(j: Json, r: Red): Json | Red = r",
+      "import ext.Json\nfinal case class Red(level: Boolean)\ndef m(j: Json, r: Red): Json | Red = r" +
+        ext("class Json"),
       "m",
       "union (Json | Red): declaration not supplied: ext.Json (named import Json)"
     )
@@ -783,7 +820,8 @@ class TopTypesUnionSpec extends Specification {
   def unreadParent =
     reasonContains(
       "import ext.Base\nobject O extends Base {\n  sealed trait P\n  case object P1 extends P with Mixin\n" +
-        "  sealed trait Q\n  case object Q1 extends Q with Mixin\n  def pq(p: P): P | Q = p\n}",
+        "  sealed trait Q\n  case object Q1 extends Q with Mixin\n  def pq(p: P): P | Q = p\n}" +
+        ext("trait Base { trait Mixin }"),
       "O.pq",
       "P | Q — ancestry of P1 not resolved: Mixin"
     )

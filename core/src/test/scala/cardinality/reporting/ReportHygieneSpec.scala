@@ -76,7 +76,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
   private def parse(code: String): Source = dialects.Scala3(code).parse[Source].get
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
-    cardinality.Compiled.analyze(List(MethodAnalysis.Input("Example.scala", parse(code))))
+    cardinality.Compiled.analyze(cardinality.Compiled.inputs("Example.scala" -> code))
 
   private def reasons(entry: MethodAnalysis.Entry): List[String] = entry.count match {
     case Count.Unresolved(found) => found
@@ -417,7 +417,9 @@ class ReportHygieneSpec extends Specification with AfterAll {
          |    type Y = Int
          |  } | Boolean): Boolean = true
          |}
-         |""".stripMargin
+         |""".stripMargin + cardinality.Compiled.withheld(
+        "package ext\ntrait Ext { type X; type Y }"
+      )
     ).map(entry => entry.name -> entry).toMap
     val refined = "Ext { type X = Int; type Y = Int }"
     (reasons(found("s.T.g")) must contain(s"self type not resolved: $refined"))

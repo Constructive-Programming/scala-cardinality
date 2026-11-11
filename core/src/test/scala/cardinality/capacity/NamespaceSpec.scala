@@ -87,6 +87,9 @@ class NamespaceSpec extends Specification {
   private val widget = "unresolved[Widget (imported from zz.Widget, not supplied)]"
   private val schema = "Schema (imported from zz.Schema, not supplied)"
 
+  // `zz.Widget`, which no source set supplies: the method side is compiled against it.
+  private val zzWidget = cardinality.Compiled.withheldFile("package zz\nclass Widget")
+
   // `object Foo`'s value has type `Foo.type`; the type `Foo` is the open trait, which any class
   // anywhere may extend: no bound. Before, the module's `1` stood in for the trait and its users.
   def openTraitCompanion = {
@@ -343,6 +346,9 @@ class NamespaceSpec extends Specification {
       "dev.k.DirectKind.<init>",
       "K.scala" -> "package dev.k\nimport org.apache.avro.Schema\nfinal case class DirectKind(schemaType: Schema.Type)",
       "U.scala" -> "package somewhere.unrelated\nfinal case class Type()",
+      cardinality.Compiled.withheldFile(
+        "package org.apache.avro\nclass Schema\nobject Schema { class Type }"
+      ),
     ) === Count.Unresolved(
       List(
         "declaration not supplied: org.apache.avro.Schema.Type (selected through named import Schema)"
@@ -355,6 +361,7 @@ class NamespaceSpec extends Specification {
       "dev.k.UsesImported.<init>",
       "K.scala" -> "package dev.k\nimport zz.Widget\nfinal case class UsesImported(w: Widget)",
       "U.scala" -> "package somewhere.unrelated\nfinal case class Widget(x: Boolean)",
+      zzWidget,
     ) === Count.Unresolved(List("declaration not supplied: zz.Widget (named import Widget)"))
 
   // `Kind` is `Holder.Kind` = 1 + 1 = 2, not another package's `Kind(a: Int)` (2^32).
@@ -371,6 +378,7 @@ class NamespaceSpec extends Specification {
     constructor(
       "Out.<init>",
       "R.scala" -> "final case class In(s: Schema)\nfinal case class Out(i: In)",
+      cardinality.Compiled.withheldFile("class Schema"),
     ) === Count.Unresolved(List(s"declaration not supplied: Schema (${StdlibModel.undeclared})"))
 
   // `PathStep` is defined in two packages; read in `a`, its own, it is the enum: Field(Boolean) +
@@ -413,6 +421,7 @@ class NamespaceSpec extends Specification {
     constructor(
       "f.FailureException.<init>",
       "F.scala" -> "package f\nenum Failure { case Missing(at: Int); case Failed(cause: Widget) }\nfinal class FailureException(val failure: Failure)",
+      cardinality.Compiled.withheldFile("package f\nclass Widget"),
     ) === Count.Unresolved(
       List("declaration not supplied: Widget (not declared in the sources or stdlib-model/1)")
     )
@@ -454,6 +463,7 @@ class NamespaceSpec extends Specification {
       "F2.scala" -> "package p\nfinal case class Widget(x: Boolean)",
       "F3.scala" -> "package q\ntype Y = p.O.Use",
       "F4.scala" -> "package p\ntype Z = O.Use\nfinal case class HoldsUse(u: O.Use)",
+      zzWidget,
     )
     val found = rowsOf(files*)
     (found(("q.Y", Alias)) === widget)

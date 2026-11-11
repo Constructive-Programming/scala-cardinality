@@ -1,7 +1,6 @@
 package cardinality.analysis
 
-import scala.meta.*
-
+import cardinality.Compiled.withheld
 import cardinality.analysis.inhabitation.*
 import cardinality.capacity.{ByteSize, EffectiveOmega}
 import org.specs2.Specification
@@ -67,9 +66,11 @@ class GroundEnvironmentSpec extends Specification {
   """
 
   private def all(sources: (String, String)*) =
-    cardinality.Compiled.analyze(sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    })
+    cardinality.Compiled.analyze(cardinality.Compiled.inputs(sources*))
+
+  // `org.foo`, a namespace the fixtures name and the analysis is not supplied: they are compiled
+  // against it and it is withheld (`Compiled.withheld`).
+  private val orgFoo = withheld("package org.foo\nobject Unsupplied")
 
   private def counts(sources: (String, String)*): Map[String, Count] =
     all(sources*).map(entry => entry.name -> entry.count).toMap
@@ -504,7 +505,8 @@ class GroundEnvironmentSpec extends Specification {
       "rs.scala" ->
         s"package rs\n${base}trait Sub { self: Base { type X = Unit } => def f(x: Int): Int }",
       "bp.scala" ->
-        s"package bp\n${base}import nowhere.Base\nfinal class Sub extends Base { def f(x: Int): Int = x }"
+        (s"package bp\n${base}import nowhere.Base\nfinal class Sub extends Base { def f(x: Int): Int = x }" +
+          withheld("package nowhere\ntrait Base"))
     )
     unresolvedOn(rows("ap.Sub.f"), "inherited type member not resolved: Int (unsupplied parent B)")
       .and(shadowed(rows, "eb.E.f", "eb.E.Int (case of eb.E)"))
@@ -571,7 +573,7 @@ class GroundEnvironmentSpec extends Specification {
   // scala.Int and f picks a or b per Int, 2^(2^32).
   def foreignWildcard =
     count(
-      s"package fw\n${base}import org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
+      s"package fw\n${base}import org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }" + orgFoo,
       "fw.C.f"
     ) === intPredicate
 
@@ -704,7 +706,8 @@ class GroundEnvironmentSpec extends Specification {
     val rows = counts(
       "kg.scala" ->
         ("package kg\nfinal case class C(n: Byte)\nobject Inner\nfinal case class W(p: (Inner.type, C))\n" +
-          "final case class V(p: C)\nfinal case class M(p: (Inner.type, Missing))"),
+          "final case class V(p: C)\nfinal case class M(p: (Inner.type, Missing))" +
+          withheld("package kg\nclass Missing")),
       "kb.scala" ->
         "package kb\nfinal case class C(n: Boolean)\nobject Inner\nfinal case class W(p: (Inner.type, C))",
       "kh.scala" -> "package kh\nfinal case class C(n: Byte)"
@@ -788,7 +791,7 @@ class GroundEnvironmentSpec extends Specification {
   // `type Int = Unit` the count would be 1): `Int` is scala.Int, 2^(2^32).
   def wildcard =
     count(
-      "package imp\nimport org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }",
+      "package imp\nimport org.foo.*\nobject C { def f[X](x: Int, a: X, b: X): X = a }" + orgFoo,
       "imp.C.f"
     ) === intPredicate
 

@@ -1,8 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -23,9 +20,8 @@ class InheritedOverrideSpec extends Specification {
   """
 
   private def count(name: String, code: String): Count = {
-    val source = dialects.Scala3(code).parse[Source].get
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Overrides.scala", source)))
+      .analyze(cardinality.Compiled.inputs("Overrides.scala" -> code))
       .find(_.name == name)
       .get
       .count
@@ -120,7 +116,7 @@ class InheritedOverrideSpec extends Specification {
         |    def get[X, A](fa: ExternalCarrier[X, A]): A = ???
         |  }
         |}
-        |""".stripMargin
+        |""".stripMargin + cardinality.Compiled.withheld("class ExternalCarrier[X, A]")
     ) must beLike {
       case Count.Unresolved(reasons) => reasons.nonEmpty must beTrue
     }

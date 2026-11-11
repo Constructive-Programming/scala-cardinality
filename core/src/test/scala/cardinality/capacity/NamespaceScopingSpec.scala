@@ -133,6 +133,7 @@ class NamespaceScopingSpec extends Specification {
   def exports = {
     val files = List(
       x,
+      cardinality.Compiled.withheldFile("package zz\nclass Obj"),
       "p/P.scala" -> "package p\nfinal case class Obj(u: Unit)\nobject O { export x.Obj; final case class U(o: Obj); type Y = Obj }\nobject Src { final case class Obj(b: Boolean) }\nobject O2 { export Src.*; final case class U(o: Obj) }\nobject O3 { export zz.Obj; type Y = Obj }",
     )
     val found = rowsOf(files*)
@@ -295,6 +296,7 @@ class NamespaceScopingSpec extends Specification {
       "a/W.scala" -> "package a\nfinal case class W(b: Boolean)",
       "b/U.scala" -> "package b\nimport a.W\nfinal case class U(w: W)\nfinal case class V(w: a.W)",
       "c/U.scala" -> "package c\nimport zz.W\nfinal case class U(w: W)",
+      cardinality.Compiled.withheldFile("package zz\nclass W"),
     )
     val family = "F.scala" ->
       "package f\nsealed trait L\nobject L { case object R extends L; case object G extends L }\nfinal case class U(l: L)"
@@ -332,7 +334,8 @@ class NamespaceScopingSpec extends Specification {
       "package g\ntype Fst[T] = T match { case (a, b) => a }\nfinal case class G(x: Fst[Int])"
     (constructor(
       "i.N.<init>",
-      "N.scala" -> "package i\nimport zz.Int\nfinal case class N(n: Int)"
+      "N.scala" -> "package i\nimport zz.Int\nfinal case class N(n: Int)",
+      cardinality.Compiled.withheldFile("package zz\nclass Int")
     ) ===
       Count.Unresolved(List("declaration not supplied: zz.Int (named import Int)")))
       .and(

@@ -278,13 +278,17 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
   // A name bound outside the sources, an extension and an unlisted library member are not
   // resolved, so the body is not shown free of compile-time operations.
   def unresolved = {
-    val found = rows("""import ext.Lib
+    val found = rows(
+      """import ext.Lib
       |object L {
       |  inline def foreign(x: Int): Int = Lib.g(x)
       |  inline def ext(x: Int): Int = x.plusOne
       |  extension (x: Int) def plusOne: Int = x + 1
       |  inline def local(x: Int): Int = { import Lib.*; x }
-      |}""".stripMargin)
+      |}""".stripMargin + cardinality.Compiled.withheld(
+        "package ext\nobject Lib { def g(x: Int): Int = x }"
+      )
+    )
     refused(found("L.foreign"), "reads Lib, a declaration not supplied: ext.Lib (import of Lib)")
       .and(refused(found("L.ext"), "selects plusOne on scala.Int"))
       .and(refused(found("L.local"), "imports inside the body"))
@@ -422,7 +426,7 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |object W {
       |  inline def same[A](a: A): A = a
       |  inline def pair[A](a: A): (A, A) = (a, a)
-      |}""".stripMargin)
+      |}""".stripMargin + cardinality.Compiled.withheld("package ext.syntax\nobject Unsupplied"))
     val channel = "may expand an implicit conversion from outside the sources"
     (found("Box.wrap") === Count.Finite(1))
       .and(found("W.same") === Count.Finite(1))

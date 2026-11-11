@@ -773,7 +773,10 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // An unsupplied `foo` is assumed to declare no `Throwable` (the never-shadowed assumption): the
   // model's throwable, ω data, so ω Booleans of it.
   def wildcardThrowable =
-    rows("import foo.*\nobject W { def w(t: Throwable): Boolean = ??? }")("W.w") === Count.Countable
+    rows(
+      "import foo.*\nobject W { def w(t: Throwable): Boolean = ??? }" +
+        cardinality.Compiled.withheld("package foo\nobject Unsupplied")
+    )("W.w") === Count.Countable
 
   // A class test cannot yet tell an open stdlib class apart from a source class: the union stays
   // unresolved, with the stdlib class named.
