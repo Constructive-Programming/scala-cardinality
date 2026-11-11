@@ -1,6 +1,7 @@
 # Compiled own types: reading the module's TASTy
 
-**Status:** phases 1 to 3 implemented (2026-11-10/11). Phases 4 and 5 are proposed.
+**Status:** phases 1 to 3 implemented (2026-11-10/11). Phases 4 to 6 are planned (re-planned
+2026-11-11); phase 6 waits on the owner decisions listed under "Decisions pending".
 
 ## Goal
 
@@ -99,8 +100,8 @@ Compiled classes are now the only source of an inferred type. Where a member has
   Fixtures that name an unsupplied declaration on purpose no longer compile, so their untyped
   members refuse.
 
-The override-identity and given-name code listed earlier did not refuse anything on this repository,
-and replacing it needs symbol facts a source rewrite cannot carry: it stays for now.
+The override-identity and given-name code first listed under this phase needs symbol facts a
+source rewrite cannot carry. It moved to phase 4, behind the symbol index.
 
 ## Measured (2026-11-11)
 
@@ -128,34 +129,75 @@ across a version's runs.
   stopped walking about 1,300 unrelated JDK templates for scalameta members; not isolated.
 - Core's suite: 87 specs in about 100 s with the fixture cache warm (1,490 compiled fixtures).
 
-## Phase 4: exact structure (contract text changes)
+## Working rules for phases 4 to 6 (owner, 2026-11-11)
 
-| Area | Fact | TASTy instead | Note |
+- **Compiled code must not degrade.** For a module the build compiled, no row may go from a number
+  to `?`, and no number may change, without a derivation showing the old number was wrong. The
+  gates are the frozen self-measurement corpus (byte-identical report, or every moved row
+  explained) and core's suite.
+- **Uncompiled support is a future task.** No code is kept for the sake of sources without compiled
+  classes. They still run, and whatever needs a compiled fact refuses.
+- **The goal is deletion.** A phase that only adds a second path is not done until the syntax path
+  it replaces is deleted.
+
+## Mechanism: a symbol index (recommended; decision D1)
+
+Types can be written into the source. Symbol facts cannot: which declaration a name denotes, which
+inherited member a method overrides, a class's exact parents, the conversions the typer inserted.
+Phases 4 to 6 read those from a **symbol index**: built in the same TASTy walk as `CompiledTypes`,
+keyed by source file and offset, queried by the analyzer where it resolves a name or a member today.
+The analyzer keeps its scalameta trees. Each use of the index deletes the syntax code that answered
+the same question.
+
+## Phase 4: total typing, the index, override identity, given names
+
+No contract change. Expected report movement: none.
+
+| Step | What | Deletes |
+| --- | --- | --- |
+| 4a. Total typing | After `CompiledTypes`, every definition has a written type. A type with no spelling, a `transparent inline` result and a member of a source not compiled get a reserved marker type (as stubs use `_root_.SignatureNotRead`), which refuses by name. | The "no written type" branches: 166 `decltpe` sites in 42 files to review, 4 refusal sites (`ContextBinders`, `Measurement`, `BodyTerms`, `MemberSyntax`). |
+| 4b. Symbol index | Offset → symbol facts for the module's own trees: owner, overridden symbols, the symbol each written name resolves to. | Nothing by itself: groundwork. |
+| 4c. Override identity | Which inherited declaration a member overrides or implements: the symbol's overridden symbols. | `OverrideIdentity` (307), `TypeIdentities.Overrides` (about 200), the matching in `FinalImplementations` (about 60), `Measurement` 226-244: about 550. |
+| 4d. Given names | An anonymous given's name: the symbol's. | `GivenNames` (105). |
+
+## Phase 5: exact structure
+
+Contract text changes (the simple-name closed world becomes exact for compiled sources), no owner
+decision needed. Expected movement: refusals leave, rows move to their next reason or to a number.
+
+| Area | Fact | From the index | Deletes |
 | --- | --- | --- | --- |
-| `ClosedWorld` Ref/Node matching by simple name | Which templates extend which | Exact parent symbols | Removes the "same-named templates share subclasses" overcount. The rule that writes `final` stays on the syntax side. |
-| `Linearization`, `InheritedScopes`, `InheritedTerms` (foreign), `ForeignParents` | Linearization, parent type arguments, members of library parents | `ClassSymbol.linearization`, parent types | Removes "may be overridden through a parent outside the sources". |
-| `ReceiverCalls` 76-170, `Construction` | Callee of a call, by-value or by-name, throwing statements | The `Apply` function symbol and parameter types | |
-| `ContextFunctions` 121-318 | Whether an expected type, dealiased, is a context function | Dealiased `declaredType` | Rule F: never dealias an opaque type outside its scope. |
+| `ClosedWorld` Ref/Node matching by simple name, for sources | Which templates extend which | Exact parent symbols (stubs are already exact, `53ab312`) | About 80, and the "same-named templates share subclasses" overcount. Writing `final` stays the analyzer's. |
+| `Linearization`, `InheritedScopes`, `InheritedTerms` (foreign), `ForeignParents` | Linearization, parent type arguments, members of library parents | The class symbol's linearization and parent types | About 200. |
+| `ReceiverCalls` 76-170, `Construction` | Callee of a call, by-value or by-name, throwing statements | The applied symbol and its parameter types | About 150. |
+| `ContextFunctions` 121-318 | Whether an expected type, dealiased, is a context function | The dealiased declared type (rule F: never through an opaque type outside its scope) | About 180. |
 
-## Phase 5: the large ones (each needs a decision first)
+## Phase 6: the large ones
 
-- **Inline-body reading** (`InlineBodies`, `BodyWalk`, `BodyTerms`, `LibraryInlines`, about 1,500
-  of 2,400 lines). The typed tree resolves every name, so a compile-time operation is a symbol
-  under `scala.compiletime` or `scala.quoted`, or an inline `if`/`match`/quote/splice node.
-  `LibraryInlines` becomes an `isInline` check on scala-library TASTy, even in syntax mode.
-  Open points:
-  - TASTy is pickled before inlining, but `transparent` calls arrive already expanded.
-  - "A given left to implicit search" must still refuse, so synthesized `using` arguments have
-    to be told apart by span.
-- **D43 conversion and extension candidates** (`Conversions`, `Reachable`, `RestatedExtensions`,
-  `Unconverted`, `Insertions`, about 1,300 lines). The typed body shows exactly the conversions
-  the typer inserted. Decision: rewrite D43 from "the candidates a body may meet" to "the
-  conversions the typed body applies". That is a sound subset, but counts move.
-- **Name resolution** (`SourceLookup`, `LookupBindings`, `ShadowedBuiltins`, … about 2,000
-  lines eventually). Build a span → symbol index answering `Found` at `Resolver.lookup`. Types
-  the analyzer builds itself have no span, so the lookup stays. Decision: what happens where the
-  compiler binds `Int` to a declaration the contract treats as unsupplied ("builtin names are
-  never shadowed by what is not supplied").
+The most code, and where `analysis/expansion` sits: 3,747 lines, 98% of its statements unexecuted
+on core's own sources (2026-11-11 coverage run), so the least exercised code on real input.
+
+| Step | What | Deletes | Waits on |
+| --- | --- | --- | --- |
+| 6a. `LibraryInlines` | Whether a standard-library member is inline: its symbol's flag, read from scala-library's TASTy. | The hand-written table (357). | Nothing. |
+| 6b. Conversion and extension candidates | The conversions and extensions a body meets. | `Conversions` (525), `Reachable` (504), `RestatedExtensions` (186), `Unconverted` (91), `Insertions` (101), parts of `TargetViews`: about 1,300, less the new reading of applied conversions. | D2 |
+| 6c. Name resolution | Which declaration a written name denotes. | `ShadowedBuiltins` (761), `LookupBindings` (216), `SuppliedNamespaces` (81), `ImportBinding` (105), `ImportShadowing` (28), most of `SourceLookup` (802), `TermMembers` (167), `InheritedTypeMembers` (480): about 2,000. Lookup of rooted names the analyzer builds itself stays. | D3 |
+| 6d. Inline-body reading | Compile-time operations in an inline body and the inline methods it calls. | About 1,500 of `InlineBodies`, `BodyWalk`, `BodyTerms`, `BodyTypes`, `Calls` (2,045). `transparent` calls arrive already expanded in TASTy and are read as written there. | D4 |
+
+## Decisions pending (owner)
+
+| | Decision | Options |
+| --- | --- | --- |
+| D1 | How compiled facts reach the analyzer | **Symbol index** beside the scalameta trees (recommended): incremental, every step gated, about 5,500 lines removable in all. **TASTy front end**: the analyzer reads typed trees directly; removes far more (most of `analysis/resolution`, `expansion` and the stub rendering) but is a rewrite of the front half, with every count at risk until it converges. **Source rewriting only**: stops after 4a and 4d. |
+| D2 | D43, the conversions and extensions a body may meet | **Rewrite to "the conversions the compiled body applies"** (recommended): a subset of today's candidates, so refusals only leave; deletes about 1,300 lines; the contract text changes and each moved row is explained. **Keep the candidate superset**: no movement, the code stays. |
+| D3 | A builtin name the compiler binds differently from the rule "builtin names are never shadowed by what is not supplied" | **The compiler's binding wins for compiled code** (recommended): the rule remains for uncompiled sources only; unlocks 6c. A row that today counts `scala.Int` where the program means another `Int` becomes that declaration's count, or `?` when it is not rendered: a correction, not a degradation. **Keep the rule over the compiler**: `ShadowedBuiltins` stays and 6c shrinks to about half. |
+| D4 | A given left to implicit search in an inline body | **Read the given the compiler resolved** (recommended): refuse only when that given is inline with a compile-time operation, as for a written call; rows only gain numbers. **Keep refusing every such given**: the index must tell synthesized arguments apart; no movement. |
+
+## Order
+
+4a → 4b → 4c → 4d → 5 → 6a → 6b (D2) → 6c (D3) → 6d (D4). Each step lands with: the syntax code
+deleted, the frozen-corpus report compared with the previous step, core's suite, the plugins'
+tests, CPD, and the SemanticDB dead-code scan clean.
 
 ## Not worth reading from TASTy
 
