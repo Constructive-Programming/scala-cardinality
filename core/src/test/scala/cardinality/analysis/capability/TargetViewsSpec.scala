@@ -1,7 +1,5 @@
 package cardinality.analysis.capability
 
-import scala.meta.*
-
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
@@ -54,11 +52,19 @@ class TargetViewsSpec extends Specification {
 
   private def entries(code: String): List[MethodAnalysis.Entry] =
     cardinality.Compiled.analyzeOpen(
-      List(MethodAnalysis.Input("Views.scala", dialects.Scala3(code).parse[Source].get))
+      cardinality.Compiled.inputs("Views.scala" -> code)
     )
 
   private def one(code: String): Map[String, Count] =
     entries(code).map(entry => entry.name -> entry.count).toMap
+
+  // `ext.Syntax`, which no fixture supplies: extensions with a by-name receiver, as
+  // probes/b3land/fix declares them. Compiled against, then withheld (`Compiled.withheld`).
+  private val syntax = cardinality.Compiled.withheld(
+    "package ext\nobject Syntax {\n  extension (b: => Boolean) {\n" +
+      "    def foo: Boolean = true; def bar: Boolean = true; def baz: Boolean = true\n" +
+      "    def qux: Boolean = true; def quux: Boolean = true\n  }\n}"
+  )
 
   // The abstract declaration of a name an overload shares.
   private def declaration(code: String, name: String): Count =
@@ -384,7 +390,7 @@ class TargetViewsSpec extends Specification {
       trait F { def target(b: Boolean): Boolean; def m(b: Boolean): Boolean = target(b).foo }
       trait T { import ext.Syntax.bar; def target(b: Boolean): Boolean; def m(b: Boolean): Boolean = target(b).bar }
       trait E { export ext.Syntax.baz; def target(b: Boolean): Boolean; def m(b: Boolean): Boolean = target(b).baz }
-    """)
+    """ + syntax)
     view(found("F.target"), "F.m")
       .and(view(found("T.target"), "T.m"))
       .and(view(found("E.target"), "E.m"))
@@ -404,7 +410,7 @@ class TargetViewsSpec extends Specification {
       trait A { def target(b: Boolean): Boolean; def n(b: Boolean): Boolean = { import ext.Syntax.*; val c = !b; target(c) } }
       trait N2 { def target(b: Boolean): Boolean; def n(b: Boolean): Boolean = { import ext.Syntax.quux; !target(b) } }
       trait C { def target(b: Boolean): Boolean; def n(b: Boolean): Boolean = { { import ext.Syntax.*; () }; !target(b) } }
-    """)
+    """ + syntax)
     view(found("W.target"), "W.m")
       .and(view(found("N.target"), "N.m"))
       .and(view(found("A.target"), "A.n"))

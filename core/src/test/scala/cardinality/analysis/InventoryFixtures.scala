@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.matcher.{MatchResult, MustMatchers}
 
@@ -12,9 +10,7 @@ trait InventoryFixtures extends MustMatchers {
   import Inhabitation.Count
 
   protected def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
+    cardinality.Compiled.inputs(sources*)
 
   protected def counts(sources: (String, String)*): Map[String, Count] =
     cardinality.Compiled.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap

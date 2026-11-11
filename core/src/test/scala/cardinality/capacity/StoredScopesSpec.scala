@@ -554,7 +554,8 @@ class StoredScopesSpec extends Specification {
            |trait Base { type Int = Long; val p: H.type = H }
            |object O extends Base { final case class P(x: Int); final case class Q(x: p.X) }
            |object O4 extends zz.Base { final case class U(b: Boolean) }
-           |""".stripMargin
+           |""".stripMargin,
+      cardinality.Compiled.withheldFile("package zz\ntrait Base")
     )
     (constructor("il.O.P.<init>", files*) === Count.Finite(BigInt(2).pow(64)))
       .and(constructor("il.O.Q.<init>", files*).render === "≤2^32")

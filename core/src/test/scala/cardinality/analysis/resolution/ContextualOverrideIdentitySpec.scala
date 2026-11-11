@@ -1,8 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -34,7 +31,7 @@ class ContextualOverrideIdentitySpec extends Specification {
 
   private def count(code: String): Count =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Context.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(cardinality.Compiled.inputs("Context.scala" -> code))
       .find(_.name == "Instance.get")
       .get
       .count
@@ -153,7 +150,7 @@ class ContextualOverrideIdentitySpec extends Specification {
       abstract class Instance[A] extends Base[A] {
         def get(a: A)(using ev: Evidence[A]): A = a
       }
-    """) must beLike {
+    """ + cardinality.Compiled.withheld("package external\nclass Evidence[A]")) must beLike {
       case Count.Unresolved(reasons) =>
         reasons === List("declaration not supplied: external.Evidence (named import Evidence)")
     }

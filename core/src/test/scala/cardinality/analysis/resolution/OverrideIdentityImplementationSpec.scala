@@ -1,7 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
@@ -27,9 +25,7 @@ class OverrideIdentityImplementationSpec extends Specification {
   """
 
   private def analyze(files: (String, String)*): List[MethodAnalysis.Entry] =
-    cardinality.Compiled.analyze(files.toList.map { (path, source) =>
-      MethodAnalysis.Input(path, dialects.Scala3(source).parse[Source].get)
-    })
+    cardinality.Compiled.analyze(cardinality.Compiled.inputs(files*))
 
   private def count(source: String): Count =
     analyze("Identity.scala" -> source).find(_.name == "Instance.get").get.count
@@ -106,7 +102,7 @@ class OverrideIdentityImplementationSpec extends Specification {
       abstract class Instance extends Base[Foreign] {
         def get[X,A](fa:Foreign[X,A]):A = ???
       }
-    """) must beLike {
+    """ + cardinality.Compiled.withheld("package external\nclass Foreign[X, A]")) must beLike {
       case Count.Unresolved(reasons) =>
         reasons === List("declaration not supplied: external.Foreign (named import Foreign)")
     }

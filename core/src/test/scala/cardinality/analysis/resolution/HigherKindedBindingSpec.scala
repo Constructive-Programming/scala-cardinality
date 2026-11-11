@@ -1,8 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -93,7 +90,7 @@ class HigherKindedBindingSpec extends Specification {
 
   private def entries(code: String): Map[String, Count] =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Kinds.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(cardinality.Compiled.inputs("Kinds.scala" -> code))
       .map(entry => entry.name -> entry.count)
       .toMap
 
@@ -329,7 +326,8 @@ class HigherKindedBindingSpec extends Specification {
   // not supply — leaves the reading unknown (before: counted).
   def exportedVocabulary =
     unresolved(
-      "export foo.Function1\nobject T { def f[A](g: Function1[A, A], a: A): A = a }",
+      "export foo.Function1\nobject T { def f[A](g: Function1[A, A], a: A): A = a }" +
+        cardinality.Compiled.withheld("package foo\nclass Function1[A, B]"),
       "T.f",
       "declaration not supplied: foo.Function1 (named export Function1)"
     )

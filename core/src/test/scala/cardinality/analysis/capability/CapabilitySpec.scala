@@ -1,8 +1,5 @@
 package cardinality.analysis.capability
 
-import scala.meta.*
-
-import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -74,11 +71,7 @@ class CapabilitySpec extends Specification {
 
   private def counts(files: (String, String)*): Map[String, Count] =
     cardinality.Compiled
-      .analyze(
-        files.toList.map((path, text) =>
-          MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-        )
-      )
+      .analyze(cardinality.Compiled.inputs(files*))
       .map(entry => entry.name -> entry.count)
       .toMap
 
@@ -206,7 +199,8 @@ class CapabilitySpec extends Specification {
     one("""
       import ext.Builder
       trait Sink[A] { def collect(s: A, b: Builder): Unit = (); def from(x: Int): A }
-    """)("Sink.from") === Count.Finite(0)
+    """ + cardinality.Compiled.withheld("package ext\nclass Builder"))("Sink.from") === Count
+      .Finite(0)
 
   // The reviewed eo counts: transfer's returned lambdas apply place, replace applies modify and
   // collect's first statement evaluates singletonTo — each a definite view.

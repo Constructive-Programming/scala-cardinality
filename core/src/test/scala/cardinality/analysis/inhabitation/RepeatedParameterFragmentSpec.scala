@@ -33,9 +33,8 @@ class RepeatedParameterFragmentSpec extends Specification {
   private val nothing = Sum(Nil)
 
   private def entry(code: String, name: String): MethodAnalysis.Entry = {
-    val source = dialects.Scala3(code).parse[Source].get
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Repeated.scala", source)))
+      .analyze(cardinality.Compiled.inputs("Repeated.scala" -> code))
       .find(_.name == name)
       .get
   }
@@ -111,7 +110,10 @@ class RepeatedParameterFragmentSpec extends Specification {
     )
 
   def unknownElement =
-    entry("def ignore(xs: Missing*): Boolean = true", "ignore").count must beLike {
+    entry(
+      "def ignore(xs: Missing*): Boolean = true" + cardinality.Compiled.withheld("class Missing"),
+      "ignore"
+    ).count must beLike {
       case Count.Unresolved(reasons) => reasons.exists(_.contains("Missing")) must beTrue
     }
 

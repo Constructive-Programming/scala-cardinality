@@ -49,7 +49,7 @@ class TypeMemberSpec extends Specification {
 
   private def entries(code: String): Map[String, Count] =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Members.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(cardinality.Compiled.inputs("Members.scala" -> code))
       .map(entry => entry.name -> entry.count)
       .toMap
 
@@ -300,7 +300,7 @@ class TypeMemberSpec extends Specification {
         def g(): X = ???
       abstract class D extends HasX with Base:
         def g(x: X, y: X): X = ???
-    """)
+    """ + cardinality.Compiled.withheld("package foreign\ntrait Base"))
     refused(found("C.g"), "unsupplied parent Base")
       .and(refused(found("D.g"), "type member X of D.this may be defined by unsupplied parent"))
   }

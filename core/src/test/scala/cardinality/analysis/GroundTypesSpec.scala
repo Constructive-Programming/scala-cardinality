@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
@@ -54,7 +52,7 @@ class GroundTypesSpec extends Specification {
   """
 
   private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map((p, t) => MethodAnalysis.Input(p, dialects.Scala3(t).parse[Source].get))
+    cardinality.Compiled.inputs(sources*)
 
   private def all(sources: (String, String)*) = cardinality.Compiled.analyze(inputs(sources*))
 
@@ -270,7 +268,11 @@ class GroundTypesSpec extends Specification {
   // selector brings the given instance `""` (a fixed value, no input) and no type name.
   def exported =
     unresolvedOn(
-      count("export foo.Int\ndef f(x: Int): Int = x"),
+      count(
+        "export foo.Int\ndef f(x: Int): Int = x" + cardinality.Compiled.withheld(
+          "package foo\nclass Int"
+        )
+      ),
       "declaration not supplied: foo.Int"
     )
       .and(

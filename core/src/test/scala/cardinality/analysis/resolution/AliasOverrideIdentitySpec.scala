@@ -41,7 +41,7 @@ class AliasOverrideIdentitySpec extends Specification {
 
   private def count(code: String, name: String = "Instance.get"): Count =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Aliases.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(cardinality.Compiled.inputs("Aliases.scala" -> code))
       .find(_.name == name)
       .get
       .count
@@ -130,7 +130,7 @@ class AliasOverrideIdentitySpec extends Specification {
       abstract class Instance[Missing] extends Base[Missing] {
         def get(a: Missing): Missing = a
       }
-    """)
+    """ + cardinality.Compiled.withheld("class Missing"))
 
   def capability =
     count("""
@@ -210,7 +210,7 @@ class AliasOverrideIdentitySpec extends Specification {
       object Library { import external.Token; type Alias[A] = Token[A] }
       trait Base[A] { def get(a: Library.Alias[A]): A }
       abstract class Instance[A] extends Base[A] { def get(a: A): A = a }
-    """)
+    """ + cardinality.Compiled.withheld("package external\nclass Token[A]"))
 
   def depth = {
     val code = """
@@ -262,19 +262,14 @@ class AliasOverrideIdentitySpec extends Specification {
   def nearerImport =
     cardinality.Compiled
       .analyze(
-        List(
-          MethodAnalysis.Input(
-            "Import.scala",
-            dialects
-              .Scala3("""
+        cardinality.Compiled.inputs(
+          "Import.scala" -> """
           class Outer[T] {
             object Library { import external.T; type Alias = T }
             trait Base { def get(a: Library.Alias): T }
             abstract class Instance extends Base { def get(a: T): T = a }
           }
-        """).parse[Source]
-              .get
-          )
+        """
         )
       )
       .find(_.name == "Outer.Instance.get")

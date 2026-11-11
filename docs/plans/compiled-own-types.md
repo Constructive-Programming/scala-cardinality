@@ -99,8 +99,8 @@ Compiled classes are now the only source of an inferred type. Where a member has
   fork and get the test classpath through `-Dcardinality.test.classpath`.
 - Every changed expectation is derived from the compiled type in its spec's comment
   (`InferredResultsSpec`, `PureCodeSpec`, `SyntaxFeaturesSpec`, `ContextBindersSpec`, …).
-  Fixtures that name an unsupplied declaration on purpose no longer compile, so their untyped
-  members refuse.
+  Fixtures that name an unsupplied declaration on purpose no longer compiled, so their untyped
+  members refused; most now compile against withheld support ("Gate assets").
 
 The override-identity and given-name code first listed under this phase needs symbol facts a
 source rewrite cannot carry. The TASTy front end (phase 5) answers both from symbols.
@@ -204,6 +204,168 @@ rewrite: the old front end is the oracle until the new one matches it.
 | 4b. Differential runner | Runs two front ends over the same input and classifies every row: identical; better (`?` → number); **worse** (number → `?`, or a different number). Inputs: the frozen self-measurement corpus and every compiled test fixture in `core/target/compiled-fixtures`. |
 | 4c. Row identity | Row names today come from syntax (`<block#1>`, `<new#1>`, `<lambda#1>`, `<extension@4>`). Fix how a symbol gets the same name, so rows pair up; pair by source position where a name cannot match. |
 
+## Gate assets (2026-11-11)
+
+What phases 4 to 6 are measured against, and how to rebuild it. Everything here was produced with
+the scalameta front end at `5f89e91`.
+
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `scripts/measure-corpus.sh <corpus> <report file> [runs]` | One `Report.of` per run over a frozen corpus with this checkout's build, each in a JVM of its own (`bench/runMain cardinality.bench.CorpusRun`, `-Xmx16g -Xss8m`). Only the call is timed; it includes rendering the dependency stubs. Prints each run's wall time, CPU time, GC time, peak heap and peak RSS, the median and range of the first, second and fourth, the rows by kind, and what the report shows of the compiled types; writes the rendered report; fails when two runs render different reports. |
+| `scala-cli run .claude/skills/cardinality-reduction/report-diff.scala -- <before> <after> --rows` | Totals of two rendered reports and every row that moved. |
+| `scripts/build-corpus.sh <new corpus directory> <organization:artifact_3:version>` | A corpus from a published artifact: its binary jar unpacked as `classes/`, each source of its sources jar at the path its TASTy records, and its dependency jars in `classpath.txt`. Nothing is compiled. |
+| `scripts/dead-code.sh` | Compiles every module and its tests, then lists the production symbols of `core` that nothing references, from the build's SemanticDB (`scripts/dead-code.scala` says how to read the three lists). |
+| `sbt coverage "bench/runMain cardinality.bench.CorpusRun <corpus> <report file>" core/coverageReport` | What one corpus executes. Delete `target/out/jvm/scala-3.9.0/scala-cardinality/scoverage-data/scoverage.measurements.*` first; the report beside that directory lists every package. The task ends in an error because the run is below the suite's coverage floor: the report is written before that. |
+
+A corpus is a directory with its sources (each at a path that ends with the one its TASTy records),
+`classes` (the compiled output of exactly those sources, a directory or a jar) and `classpath.txt`
+(one dependency jar per line). The `TYPES` line of a measurement is the check that sources and
+classes match. `ascribed` counts the method rows whose signature spells a type from `_root_`, as the
+compiler's types are written: each matched a compiled member by name, offset and end. `inferred`
+counts the rows still printed `<inferred>`. A corpus whose sources are not where their TASTy records
+them reads `ascribed=0` with every untyped member `inferred` (cats-eo with one directory renamed:
+`ascribed=0 inferred=19`, against `ascribed=17 inferred=0`). A few `inferred` rows beside many
+`ascribed` ones are members whose compiler type has no spelling in source. Code that writes every
+type shows nothing either way: the check works through untyped members only.
+
+### Corpora
+
+All under `/var/cache/users/rhansen/cardinality-tasty/`, with the report of each at `5f89e91` in
+`baseline/<name>-report-5f89e91.txt` beside them.
+
+| Corpus | Built from | Sources |
+| --- | --- | --- |
+| `corpus-core` | core's own sources and classes at `53ab312`, copied by hand with core's dependency classpath | 174 |
+| `corpus-cats-eo` | `dev.constructive:cats-eo_3:1.2.1` | 55 |
+| `corpus-cats-eo-generics` | `dev.constructive:cats-eo-generics_3:1.2.1` | 5 |
+| `corpus-cats-eo-schemes` | `dev.constructive:cats-eo-schemes_3:1.2.1` | 2 |
+| `corpus-cats-kernel` | `org.typelevel:cats-kernel_3:2.13.0` (Scala 3.3.4) | 95 |
+| `corpus-cats-core` | `org.typelevel:cats-core_3:2.13.0` (Scala 3.3.4) | 245 |
+
+Rows by kind, and the cost of one report (median of three runs, lowest and highest in
+parentheses; JDK 25, 32 cores). The machine was shared while these ran (load average 8 to 36), so
+the times are loose: compare two builds only from runs made back to back. Peak heap is the heap
+pools' peaks summed, an upper bound that moves from run to run.
+
+| Corpus | Signatures: finite · ω · beyond · `?` | Numeric | Definitions: finite · ω · beyond · `?` · `—` | Wall, s | CPU, s | Peak heap, GiB |
+| --- | --- | --- | --- | --- | --- | --- |
+| core | 202 · 535 · 31 · 3232 | 768 of 4000 | 280 · 86 · 29 · 241 · 5 | 111.2 (104.1 to 143.3) | 488.2 (457.2 to 555.0) | 8.62 (8.10 to 8.68) |
+| cats-eo | 211 · 60 · 0 · 426 | 271 of 697 | 54 · 3 · 0 · 57 · 37 | 30.1 (25.1 to 38.1) | 167.2 (147.8 to 187.5) | 3.44 (3.42 to 3.51) |
+| cats-eo-generics | 7 · 9 · 0 · 64 | 16 of 80 | 5 · 0 · 0 · 6 · 1 | 24.4 (20.9 to 28.2) | 112.3 (106.4 to 127.3) | 4.04 (3.45 to 4.62) |
+| cats-eo-schemes | 4 · 0 · 0 · 15 | 4 of 19 | 1 · 0 · 0 · 1 · 0 | 15.8 (15.8 to 16.4) | 74.7 (72.6 to 74.9) | 3.08 (3.05 to 3.15) |
+| cats-kernel | 280 · 88 · 0 · 1417 | 368 of 1785 | 77 · 0 · 0 · 59 · 176 | 33.2 (29.2 to 34.8) | 120.9 (115.8 to 142.3) | 3.06 (2.93 to 4.09) |
+| cats-core | 705 · 204 · 0 · 6742 | 909 of 7651 | 494 · 2 · 0 · 506 · 557 | 65.5 (64.4 to 81.4) | 328.0 (324.0 to 371.9) | 5.09 (4.70 to 5.15) |
+
+- The three runs of every corpus rendered the same report. Core's is the earlier baseline
+  (`core-report-ffb94c1.txt`) byte for byte once the location prefix is removed: the harness in
+  the repository reads what the earlier script read.
+- Compiled types reached every corpus but the smallest: 423 rows print one in core, 17 in cats-eo,
+  4 in cats-eo-generics, 61 in cats-kernel, 136 in cats-core, and no row of those five is left
+  `<inferred>` but 5 of cats-core's 7,651, whose compiler type has no spelling here.
+- cats-eo-schemes is the exception and gates almost nothing. Its one untyped member
+  (`Schemes.OnStackLimit`) stays `<inferred>` although its classes match (tasty-query finds it at
+  the same offset and end): `CompiledTypes` writes a pattern name's function type without
+  parentheses (`val ((kids: …), (combine: PSVec[R] => R)) = …`), the edited source does not parse,
+  and every type of that file is dropped without a warning. A TASTy front end has no such step, so
+  this row should come out better.
+
+What each corpus executes, as the share of a package's statements one report runs (scoverage,
+same build):
+
+| Corpus | All of core | `analysis/expansion` |
+| --- | --- | --- |
+| core | 57.4% | 0.8% |
+| cats-eo | 69.1% | 70.0% |
+| cats-eo-generics | 49.6% | 3.0% |
+| cats-eo-schemes | 38.2% | 0.8% |
+| cats-kernel | 47.7% | 0.8% |
+| cats-core | 62.0% | 0.8% |
+| all six | 79.8% | 70.2% |
+
+Only cats-eo reaches the inline-body and conversion reading: its sources hold the inline methods,
+opaque types, extensions and givens the others lack. cats-kernel and cats-core add type-class
+code (givens, implicit conversions, higher kinds) and 1,277 numeric rows, but no inline method, so
+they move `analysis/resolution` and `analysis/inhabitation`, not `analysis/expansion`. A third of
+`analysis/expansion` is run by no corpus and is gated by the test fixtures alone.
+
+### Test fixtures that do not compile
+
+`cardinality.Compiled` compiles every fixture before the analysis reads it, and a TASTy front end
+can read only the ones that compile. At `5f89e91` the suite asked for 1,493 fixtures and the
+compiler rejected 203 of them.
+
+| Why the fixture did not compile | Fixtures | Now |
+| --- | --- | --- |
+| It names a declaration the analysis is not supplied, on purpose | 133 | 125 compile; 8 left |
+| It spells the kind-projector placeholder (`F[A, *]`) | 7 | 7 compile (`-Xkind-projector`) |
+| It is not valid Scala by design: the analyzer must refuse what scalac rejects | 48 | left |
+| It is ill-typed beside the test's point (a body, a member not implemented, a missing language import) | 14 | left |
+| The compiler does not finish in 60 s | 1 | left |
+
+The suite now asks for 1,496 fixtures: 1,424 compile and 72 are rejected, the 71 left above and
+one `CompiledSpec` rejects on purpose. To audit again, start from an empty cache: a fixture's
+`failed` marker holds the test that first asked for it and what stopped the compiler.
+
+```bash
+rm -rf core/target/compiled-fixtures && sbt core/testFull
+grep -h '^asked by' core/target/compiled-fixtures/*/failed   # one line per rejected fixture
+```
+
+- **Withheld support.** A fixture's text carries the declarations it names and the analysis is
+  not to have: `code + Compiled.withheld("package ext\nclass Schema")`. `Compiled.inputs` parses
+  the support as a source of its own under `withheld/`. The harness compiles the support first,
+  compiles the fixture against its classes, and gives the analysis neither the support's text nor
+  its classes. The cache entry keeps them apart: `src/withheld` and `support` beside `src` and
+  `classes`. A source set that also goes to a reader which compiles nothing takes the support as
+  a file of its own (`Compiled.withheldFile`), which that reader leaves out (`Rows.rowsOf`).
+- **What pins it.** A fixture that has support and is still rejected fails its test, so a
+  migrated fixture cannot fall back to being read uncompiled. `CompiledSpec` pins the rest: the
+  same declaration is `?` withheld and 4 supplied, and a text that carries support does not parse
+  when it is read without `Compiled.inputs`.
+- **No expectation changed.** Each migrated example still asserts its refusal (`declaration not
+  supplied: ext.Schema`, `unresolved type: Two (may be imported by zzz.*)`, `inherited parent
+  declaration not supplied: lib.Base`, …), now over a fixture that compiles. A support declares
+  only what the fixture names, so the compiled program binds every other name as the example
+  assumes (`import ext.*` beside a `ext` that declares no `Any`).
+- **Fixtures left, by example.** They go with uncompiled support unless rewritten.
+  - Unsupplied on purpose, left (8). The point is a source that does not compile, so that its
+    untyped members refuse: `InferredResultsSpec` (`callBindings`, `unsuppliedOverride`),
+    `PureCodeSpec.reboundNames`. Scalac rejects the fixture with the declaration supplied too:
+    `AliasOverrideIdentitySpec.nearerImport`, `SingletonIntersectionMethodSpec.marker`. The
+    declaration is supplied to the analysis as a dependency stub, which is not compiled:
+    `ClosedWorldSpec` (`stubOwners`, `stubParents` twice).
+  - Not valid Scala by design (48): `AliasOverrideIdentitySpec` (`arity`, `mutual`, `opaque`,
+    `recursive`), `BinderBoundsSpec` (`cyclicBounds`, `invalidTerminal`),
+    `ContextualOverrideIdentitySpec` (`inlineParameter`, `ordinary`),
+    `EnvironmentCompletenessSpec` (`exportCycles`, `exportOutranks`, `exportRefusals`),
+    `ExistentialInputSpec.aliasArgument`, `GeneralInfixApplicationSpec` (`arity` twice,
+    `qualified`), `GroundEnvironmentSpec.notBuiltin`, `GroundTypesSpec.closedRepeated`,
+    `HigherKindedRefusalSpec` (`argumentKinds`, `arity`, `builtinArity`, `constructorsAsTypes`,
+    `kindMismatch`, `properUse`, `viewBound`, `wildcard`), `InlineScopesSpec.localObject`,
+    `MethodAnalysisSpec.recursive`, `MethodFeatureIntegrationSpec` (`privateRefinedMember`,
+    `privateRepeatedAlias`), `MethodRefinementSpec` (`hiddenEquality`, `recursive`,
+    `shadowedBinder`), `MethodTypePlaceholderSpec.arity`,
+    `OverrideIdentityImplementationSpec.fileIdentity`, `OwnersAndRecordsSpec.deferredBare`,
+    `PolyLambdaCardinalitySpec.arity` (twice), `PureCodeSpec.varPath`,
+    `SingletonIntersectionMethodSpec` (`access` twice, `alias`, `binder`, `negative`),
+    `StdlibModelSpec` (`gap`, `inaccessibleSingleton`, `javaWildcard`, `relativePaths`,
+    `unapplied`).
+  - Ill-typed beside the point (14), each a small rewrite away from compiling:
+    `DefinitionInventorySpec.contextLiterals`, `GroundEnvironmentSpec` (`dynamicParent`,
+    `nestedParentName` twice), `InlineMethodsSpec.searchForms`, `InlineScopesSpec.localClauses`,
+    `MethodAnalysisSpec` (`hiddenField`, `privateConstructor`),
+    `OpaqueTypeScopeSpec.inheritedBoundary`, `OwnersAndRecordsSpec.emptyFamily`,
+    `StdlibModelSpec` (`dependencyNamespaces`, `wildcardParent`), `TopTypesUnionSpec`
+    (`referenceTops`, `shadowInherited`).
+  - Not finished in 60 s (1): `ContextBindersSpec.limits`.
+- **Fixtures the cache never sees.** About twenty spec files read sources without compiling them:
+  the nine stored-value specs on `capacity.Rows` (`rows`, and `rowsOf`, which is `Report.of` over
+  files with no classes), and `CounterSpec`, `CardinalitySpec`, `SignatureSpec`, `ReportSpec` and
+  others through `Counter.definitions` or `Report.of`. Those fixtures are in no cache entry, so
+  neither the differential runner nor a TASTy front end reads them as they are.
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers; a
@@ -225,9 +387,9 @@ front end stays the report's until none is left.
   text and line only.
 - Delete the scalameta front end, the stubs, `CompiledTypes` and the closed world's text edits.
   Rule T becomes trivial: every type is the compiler's.
-- Tests: fixtures already compile through `cardinality.Compiled`. A fixture that names an unsupplied
-  declaration on purpose cannot compile; it becomes "compiled against a jar the analysis is not
-  given", or goes with uncompiled support.
+- Tests: fixtures already compile through `cardinality.Compiled`, and one that names an unsupplied
+  declaration on purpose is compiled against support the analysis is not given ("Gate assets").
+  The 71 that still do not compile go with uncompiled support.
 - Sources without compiled classes are not analyzed at all until uncompiled support returns.
 - Measure again on the frozen corpus: rows, moved rows, wall, CPU, memory.
 

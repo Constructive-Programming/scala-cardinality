@@ -84,7 +84,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "sealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
       "Succ.<init>"
     )
-    val gate = entry("case class Gate(q: Quorum)", "Gate.<init>")
+    val gate =
+      entry(
+        "case class Gate(q: Quorum)" + cardinality.Compiled.withheld("class Quorum"),
+        "Gate.<init>"
+      )
     (holder.count === Count.Finite(BigInt(2).pow(32)))
       .and(holder.count.render === "2^32")
       .and(succ.count === Count.Bounded(EffectiveOmega))
@@ -486,7 +490,8 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "Vec.scala" -> "package example.data\ncase class Vec[A](head: A, tail: A)",
       "Use.scala" -> (
         "package example\nimport example.data.{Vec as V}\ndef half[A](v: V[A]): A = v.head\n" +
-          "def other[A](v: Vec[A]): A = v.head"
+          "def other[A](v: Vec[A]): A = v.head" +
+          cardinality.Compiled.withheld("package example\nclass Vec[A] { def head: A = ??? }")
       )
     )
     val entries = cardinality.Compiled.analyze(source)
@@ -528,7 +533,8 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
     val imported = cardinality.Compiled
       .analyze(
         inputs(
-          "Use.scala" -> "package example\nimport io.circe.Option\ndef none[A]: Option[A] = ???"
+          "Use.scala" -> ("package example\nimport io.circe.Option\ndef none[A]: Option[A] = ???" +
+            cardinality.Compiled.withheld("package io.circe\nclass Option[A]"))
         )
       )
       .find(_.name == "example.none")
@@ -585,7 +591,11 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       "choose"
     )
     val context = entry("def choose[A: Ordering](x: A, y: A): A = x", "choose")
-    val capability = entry("def choose[A](x: A)(using ev: Unknown[A]): A = x", "choose")
+    val capability = entry(
+      "def choose[A](x: A)(using ev: Unknown[A]): A = x" +
+        cardinality.Compiled.withheld("class Unknown[A]"),
+      "choose"
+    )
     // Outside `Hidden`, `Id[A]` is one value (rule F): no `A` to return.
     (representation.count === Count.Finite(0))
       .and(context.count must beLike { case Count.Unresolved(_) => ok })

@@ -1,7 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
 import cardinality.analysis.*
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
@@ -29,12 +27,7 @@ class SingletonIntersectionMethodSpec extends Specification {
   private def entry(code: String, name: String = "pick"): MethodAnalysis.Entry =
     cardinality.Compiled
       .analyze(
-        List(
-          MethodAnalysis.Input(
-            "Singletons.scala",
-            dialects.Scala3(code).parse[Source].get
-          )
-        )
+        cardinality.Compiled.inputs("Singletons.scala" -> code)
       )
       .find(_.name == name)
       .get
@@ -125,6 +118,10 @@ class SingletonIntersectionMethodSpec extends Specification {
           "outer.pick"
         )
       )
-      .and(entry("def pick(): missing.type = ???").count === Count.Finite(1))
+      .and(
+        entry(
+          "def pick(): missing.type = ???" + cardinality.Compiled.withheld("object missing")
+        ).count === Count.Finite(1)
+      )
 
 }

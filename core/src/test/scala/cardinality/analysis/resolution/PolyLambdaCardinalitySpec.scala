@@ -1,8 +1,6 @@
 package cardinality.analysis.resolution
 
-import scala.meta.*
-
-import cardinality.analysis.*
+import cardinality.Compiled.withheld
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -34,10 +32,14 @@ class PolyLambdaCardinalitySpec extends Specification {
 
   private def count(code: String, name: String = "use"): Count =
     cardinality.Compiled
-      .analyze(List(MethodAnalysis.Input("Poly.scala", dialects.Scala3(code).parse[Source].get)))
+      .analyze(cardinality.Compiled.inputs("Poly.scala" -> code))
       .find(_.name == name)
       .get
       .count
+
+  // `External`, a class the fixtures name and no source declares: they are compiled against it and
+  // the analysis is not given it (`Compiled.withheld`).
+  private val externalClass = withheld("class External")
 
   private def unresolved(code: String, reason: String) =
     count(code) must beLike {
@@ -61,7 +63,10 @@ class PolyLambdaCardinalitySpec extends Specification {
     count("case class C[A](x: ([x] =>> x)[A], y: A)", "C.<init>") === Count.Finite(4)
 
   def external =
-    unresolved("def use[A](x: A): ([x] =>> ZIO[Unit, Unit, x])[A] = ???", "ZIO")
+    unresolved(
+      "def use[A](x: A): ([x] =>> ZIO[Unit, Unit, x])[A] = ???" + withheld("class ZIO[R, E, A]"),
+      "ZIO"
+    )
 
   def bounds =
     unresolved("def use[A](x: A): ([x <: A] =>> x)[A] = ???", "constrained type lambda")
@@ -100,11 +105,13 @@ class PolyLambdaCardinalitySpec extends Specification {
   // declares still refuse. With nothing undeclared, `[b] => b => b ?=> b` is outside the closed
   // identity fragment (a rank-n function), not a context function the reading stops at.
   def evidence = {
-    val undeclared = count("def use: [b] => b => Type[b] ?=> Expr[Any] = ???")
+    val quoted = "def use: [b] => b => Type[b] ?=> Expr[Any] = ???" +
+      withheld("class Type[A]\nclass Expr[A]")
+    val unnamed = count(quoted)
     val declared = count("def use: [b] => b => b ?=> b = ???")
-    unresolved("def use: [b] => b => Type[b] ?=> Expr[Any] = ???", "declaration not supplied: Type")
+    unresolved(quoted, "declaration not supplied: Type")
       .and(
-        List(undeclared, declared)
+        List(unnamed, declared)
           .flatMap(reasons)
           .exists(_.contains("context function")) must beFalse
       )
@@ -117,12 +124,20 @@ class PolyLambdaCardinalitySpec extends Specification {
   }
 
   def dependency =
-    unresolved("def use: [a] => a => External[a] = ???", "External")
+    unresolved(
+      "def use: [a] => a => External[a] = ???" + withheld("class External[A]"),
+      "External"
+    )
 
   // The identity alone has one implementation in every environment, the unresolved one included;
   // beside a Boolean the environment decides again.
   def environment =
-    (count("def use(x: External): [a] => a => a = ???") === Count.Finite(1))
-      .and(unresolved("def use(x: External): ([a] => a => a, Boolean) = ???", "External"))
+    (count("def use(x: External): [a] => a => a = ???" + externalClass) === Count.Finite(1))
+      .and(
+        unresolved(
+          "def use(x: External): ([a] => a => a, Boolean) = ???" + externalClass,
+          "External"
+        )
+      )
 
 }

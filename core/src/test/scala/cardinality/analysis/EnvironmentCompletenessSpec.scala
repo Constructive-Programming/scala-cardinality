@@ -206,7 +206,11 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       |  type T = Int
       |  class Fw { export foreign.lib.*; def g(t: T): Boolean = true }
       |}
-      |object O { export Obj.T; export importer.U; def f(t: T): T = t; def g(u: U): U = u }""".stripMargin
+      |object O { export Obj.T; export importer.U; def f(t: T): T = t; def g(u: U): U = u }""".stripMargin +
+        cardinality.Compiled.withheld(
+          "package ext { object Obj { class T }; object importer { class U } }\n" +
+            "package foreign { object lib }"
+        )
     )
     refused(found("Outer.Fw.g"), "wildcard export not supplied: T (wildcard export of foreign.lib)")
       .and(
@@ -326,8 +330,11 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
   // The wildcard of an unsupplied `yyy` leaves `Boolean` out, so it is scala.Boolean: Boolean =>
   // Boolean (4) in both.
   def foreignUnimport = {
-    val found = rows("""object P { import yyy.{Boolean as _, *}; def g(b: Boolean): Boolean = b }
-      |object P2 { import yyy.{Boolean as B, *}; def g2(b: Boolean): Boolean = b }""".stripMargin)
+    val found = rows(
+      """object P { import yyy.{Boolean as _, *}; def g(b: Boolean): Boolean = b }
+      |object P2 { import yyy.{Boolean as B, *}; def g2(b: Boolean): Boolean = b }""".stripMargin +
+        cardinality.Compiled.withheld("package yyy\nclass Boolean")
+    )
     (found("P.g") === Count.Finite(4)).and(found("P2.g2") === Count.Finite(4))
   }
 
@@ -381,7 +388,8 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
     refused(
       counts(
         "a.scala" -> "package p\ntype T = Int",
-        "b.scala" -> "package p\nobject O extends ext.X\nobject Use { import O.*; def g(t: T): Boolean = t }"
+        "b.scala" -> ("package p\nobject O extends ext.X\nobject Use { import O.*; def g(t: T): Boolean = t }" +
+          cardinality.Compiled.withheld("package ext\ntrait X { type T = Boolean }"))
       )("p.Use.g"),
       "inherited type member not resolved: T (unsupplied parent ext.X)"
     )

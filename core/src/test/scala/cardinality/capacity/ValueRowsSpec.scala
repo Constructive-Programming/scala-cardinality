@@ -28,6 +28,7 @@ class ValueRowsSpec extends Specification {
   // alike: the reading that meets them is the value row's own.
   def valueReasons = {
     val files = List(
+      cardinality.Compiled.withheldFile("package vr\nclass Foo"),
       "vr/a.scala" ->
         """|package vr
            |val y: Int = 3

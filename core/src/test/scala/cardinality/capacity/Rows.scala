@@ -2,7 +2,6 @@ package cardinality.capacity
 
 import scala.meta.*
 
-import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.reporting.Report
 import java.nio.file.Files
@@ -31,10 +30,13 @@ private[capacity] object Rows {
   def rows(code: String): Map[(String, Definition.Kind), String] =
     table(Counter.definitions(dialects.Scala3(code).parse[Source].get))
 
-  /** The rows of a source set laid out as files, read as the report reads them. */
+  /** The rows of a source set laid out as files, read as the report reads them. Nothing is compiled
+    * here, so a withheld file (`Compiled.withheldFile`) is left out: the declarations it holds are
+    * not supplied to this reading either.
+    */
   def rowsOf(files: (String, String)*): Map[(String, Definition.Kind), String] = {
     val root = Files.createTempDirectory("cardinality")
-    files.foreach {
+    files.filterNot(_._1.startsWith(cardinality.Compiled.Withheld)).foreach {
       case (name, content) =>
         val file = root.resolve(name)
         Files.createDirectories(file.getParent)
@@ -46,9 +48,7 @@ private[capacity] object Rows {
   /** The method side's count for the signature `name` of a source set. */
   def constructor(name: String, files: (String, String)*): Count =
     cardinality.Compiled
-      .analyze(files.toList.map { (path, text) =>
-        MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-      })
+      .analyze(cardinality.Compiled.inputs(files*))
       .find(_.name == name)
       .map(_.count)
       .getOrElse(throw new AssertionError(s"no signature $name"))

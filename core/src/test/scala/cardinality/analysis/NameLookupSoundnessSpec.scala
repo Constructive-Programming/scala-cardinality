@@ -169,7 +169,8 @@ class NameLookupSoundnessSpec extends Specification with InventoryFixtures {
     refused(
       counts(
         "c.scala" -> "package w\nobject c { type X = Unit }",
-        "w.scala" -> "package w\nclass W extends lib.Base { def g(): c.X = ??? }"
+        "w.scala" -> ("package w\nclass W extends lib.Base { def g(): c.X = ??? }" +
+          cardinality.Compiled.withheld("package lib\ntrait Base"))
       )("w.W.g"),
       "inherited term member not resolved: c (unsupplied parent lib.Base)"
     )

@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
@@ -58,13 +56,25 @@ class UnsuppliedWildcardSpec extends Specification {
       Optic.id is refused, a `_root_` twin keeps 1                     $opticId
   """
 
-  private def inputs(sources: (String, String)*): List[MethodAnalysis.Input] =
-    sources.toList.map { (path, text) =>
-      MethodAnalysis.Input(path, dialects.Scala3(text).parse[Source].get)
-    }
+  // The namespaces no fixture supplies, declaring nothing a fixture names: every fixture is
+  // compiled against them and the analysis is not given them (`Compiled.withheldFile`).
+  private val unsupplied = cardinality.Compiled.withheldFile(
+    """|package zzz {
+       |  object Unsupplied
+       |  package syntax.functor { object Unsupplied }
+       |  package instances.function { object Unsupplied }
+       |}
+       |package zz { object Unsupplied }""".stripMargin
+  )
 
   private def counts(sources: (String, String)*): Map[String, Count] =
-    cardinality.Compiled.analyze(inputs(sources*)).map(e => e.name -> e.count).toMap
+    cardinality.Compiled
+      .analyze(cardinality.Compiled.inputs((sources :+ unsupplied)*))
+      .map(e => e.name -> e.count)
+      .toMap
+
+  // `zzz.Base`, a parent no fixture supplies.
+  private val base = cardinality.Compiled.withheld("package zzz\ntrait Base")
 
   private def refused(found: Count, reason: String): MatchResult[Count] =
     found must beLike { case Count.Unresolved(reasons) => reasons must contain(reason) }
@@ -189,7 +199,8 @@ class UnsuppliedWildcardSpec extends Specification {
     val hidden = "import zzz.{Boolean as _, *}"
     val found = counts(
       two,
-      "p/U.scala" -> s"package p\n$hidden\nimport compose.*\nobject U { def f(b: Boolean): Boolean = b }",
+      "p/U.scala" -> (s"package p\n$hidden\nimport compose.*\nobject U { def f(b: Boolean): Boolean = b }" +
+        cardinality.Compiled.withheld("package zzz\nclass Boolean")),
       "p/C.scala" ->
         s"package p\n$hidden\nimport scala.jdk.CollectionConverters.*\nobject C { def f(b: Boolean): Boolean = b }",
       "p/R.scala" ->
@@ -219,7 +230,7 @@ class UnsuppliedWildcardSpec extends Specification {
             |object Q {
             |  def outer(using Quotes): Unit = {
             |    import quotes.reflect.*
-            |    $single
+            |    ${single.replace("= o", "= ???")}
             |    ()
             |  }
             |}""".stripMargin
@@ -376,11 +387,11 @@ class UnsuppliedWildcardSpec extends Specification {
     val found = counts(
       packages,
       "p/Lib.scala" ->
-        """|package p
+        ("""|package p
            |trait Base { given compose: Ops = new Ops; val other: Ops = new Ops; object two { type C = Int } }
            |class Ops { type C = Int }
            |object Lib extends Base
-           |object Lib2 extends zzz.Base""".stripMargin,
+           |object Lib2 extends zzz.Base""".stripMargin + base),
       "p/U.scala" ->
         """|package p
            |object W { import Lib.*; def h(x: two.C): two.C = x }
@@ -435,7 +446,7 @@ class UnsuppliedWildcardSpec extends Specification {
   def packageObjectHeads = {
     val found = counts(
       "r/Base.scala" -> "package r\ntrait Base { type Two = Int; object compose { type C = Int } }",
-      "q/lib.scala" -> "package q\npackage object lib extends r.Base\npackage object lib2 extends zzz.Base",
+      "q/lib.scala" -> ("package q\npackage object lib extends r.Base\npackage object lib2 extends zzz.Base" + base),
       "q/Thing.scala" -> "package q.lib\nfinal case class Thing(b: Boolean)",
       "q/Thing2.scala" -> "package q.lib2\nfinal case class Thing2(b: Boolean)",
       "p/P.scala" -> "package p\ntype Two = Boolean\npackage compose:\n  type C = Boolean",
