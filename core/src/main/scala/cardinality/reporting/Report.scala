@@ -1,13 +1,12 @@
 package cardinality.reporting
 
 import scala.jdk.CollectionConverters.*
-import scala.meta.{Source as ScalaSource, *}
 
+import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
-import cardinality.analysis.{Measuring, MethodAnalysis}
 import cardinality.capacity.*
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import cardinality.tasty.{CompiledTypes, StubFile, TastyStubs}
+import cardinality.tasty.CompiledTypes
 import dev.constructive.eo.generics.{lens, prism}
 import java.io.IOException
 import java.nio.charset.StandardCharsets.UTF_8
@@ -146,7 +145,7 @@ object Report {
         QueryResult(Report(Nil, errors.map(e => Error(e.path, e.message))), None, None)
       case Right(snapshot) =>
         val parsed = snapshot.sources.map { source =>
-          try parse(source.id -> source.text)
+          try ScalametaFrontEnd.parse(source.id -> source.text)
           catch {
             case _: StackOverflowError =>
               Left(Error(source.id, "parser recursion limit exceeded"))
@@ -164,9 +163,11 @@ object Report {
         else {
           val selected = targetRoots.flatMap(snapshot.roots)
           val stubs =
-            dependencies(request.environment, snapshot.sources.map(_.text))
-          val (inputs, unread) =
-            ascribed(parsed.collect { case Right(input) => input }, request.environment.classes)
+            ScalametaFrontEnd.dependencies(request.environment, snapshot.sources.map(_.text))
+          val (inputs, unread) = ScalametaFrontEnd.ascribed(
+            parsed.collect { case Right(input) => input },
+            request.environment.classes
+          )
           val found = AnalysisQuery.run(
             AnalysisQuery.Request(
               inputs ++ stubs.inputs,
@@ -243,68 +244,21 @@ object Report {
     */
   def of(paths: Seq[Path], environment: Environment = Environment()): Report = {
     val found = paths.toList.distinct.map(path => path -> read(path))
-    val parsed: List[Either[Error, MethodAnalysis.Input]] = found.flatMap {
+    val rows =
+      ScalametaFrontEnd.rows(FrontEnd.Module(found.flatMap(_._2.toOption).flatten, environment))
+    // The front end answers each source in order; a path that could not be read stands where it
+    // was given.
+    val answers = rows.sources.iterator
+    val answered = found.flatMap {
       case (_, Left(error))    => List(Left(error))
-      case (_, Right(sources)) => sources.map(parse)
+      case (_, Right(sources)) => sources.map(_ => answers.next())
     }
-    val (inputs, unread) =
-      ascribed(parsed.collect { case Right(input) => input }, environment.classes)
-    val texts = found.flatMap(_._2.toOption).flatten.map(_._2)
-    val stubs = dependencies(environment, texts)
-    // One library for the whole run: every source is read against the others, so a reference can
-    // leave its file.
-    val library = Library.of((inputs ++ stubs.inputs).map(_.tree))
-    val methods =
-      Measuring.rows(inputs, stubs.inputs, library = Some(library)).groupBy(_.path)
     Report(
-      inputs.map(input =>
-        Source(
-          input.path,
-          Counter.definitions(input.tree, library),
-          methods.getOrElse(input.path, Nil)
-        )
-      ),
-      parsed.collect { case Left(error) => error },
+      answered.collect { case Right(source) => source },
+      answered.collect { case Left(error) => error },
       Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1)))),
-      unsupplied(stubs.errors) ++ unread
+      rows.warnings
     )
-  }
-
-  private def ascribed(
-      inputs: List[MethodAnalysis.Input],
-      classes: Option[CompiledTypes.Classes]
-  ): (List[MethodAnalysis.Input], List[String]) =
-    classes.fold((inputs, Nil))(CompiledTypes.ascribe(inputs, _))
-
-  // The dependency stubs `classpath` renders. Every jar and the JDK are rendered, except what the
-  // stdlib model reads, so the Scala library alone yields only the JDK's. A classpath that cannot be
-  // read is a warning: its names stay unsupplied, which only refuses more.
-  // A stub file is rendered without the sources: the JDK packages outside `java.base` they name
-  // render beside it.
-  private def dependencies(environment: Environment, sources: List[String]): TastyStubs.Result =
-    environment.stubs.fold(rendered(environment.classpath, sources)) { file =>
-      val read = TastyStubs.parse(StubFile.read(file))
-      val named = TastyStubs.jdkFor(sources, read.inputs)
-      TastyStubs.Result(read.inputs ++ named.inputs, read.errors ++ named.errors)
-    }
-
-  private def rendered(classpath: Seq[Path], sources: List[String]): TastyStubs.Result =
-    if (classpath.isEmpty) TastyStubs.Result(Nil, Nil)
-    else
-      try TastyStubs.of(classpath.toList.distinct, _ => true, sources = sources)
-      catch {
-        case scala.util.control.NonFatal(error) =>
-          TastyStubs.Result(Nil, List(s"dependency classpath not read: $error"))
-      }
-
-  // Parses one source, and reports either what it defines or what stopped the parser.
-  private def parse(source: (String, String)): Either[Error, MethodAnalysis.Input] = {
-    val (path, text) = source
-    dialects.Scala3(text).parse[ScalaSource].toEither match {
-      case Right(tree) => Right(MethodAnalysis.Input(path, tree))
-      case Left(error) =>
-        Left(Error(path, s"${error.message} (line ${error.pos.startLine + 1})"))
-    }
   }
 
   // The Scala sources one path holds: a directory is walked recursively, a jar is read as the
@@ -453,7 +407,7 @@ object Report {
     s"  could not read ${location(error.path)}: ${error.message}"
 
   // What a dependency's stubs could not supply, as a warning says it.
-  private def unsupplied(stubs: List[String]): List[String] =
+  private[reporting] def unsupplied(stubs: List[String]): List[String] =
     stubs.map(error => s"dependency stub not read: $error")
 
   // What the report read less of than it was given, after the errors.

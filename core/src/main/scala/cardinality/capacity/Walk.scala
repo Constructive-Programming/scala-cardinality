@@ -615,9 +615,7 @@ private[cardinality] object Walk {
   // its companion, but they have no rows of their own. The instance mark is a segment of its own,
   // which no name can be, so a class `+` (`+#T`) and an object `+#` (`+#.T`) stay apart.
   private def instances(prefix: List[String], d: Defn): List[String] =
-    prefix :+ named(d).value :+ Instance
-
-  private val Instance = ""
+    prefix :+ named(d).value :+ Definition.Instance
 
   private def row(
       prefix: List[String],
@@ -627,25 +625,13 @@ private[cardinality] object Walk {
       unbound: List[Definition.Unbound] = Nil,
   ): Definition =
     Definition(
-      qualified(prefix :+ named(d).value),
+      Definition.qualified(prefix :+ named(d).value),
       kind,
       Counter.parameters(d).map(_.name.value),
       size,
       unbound,
       d.pos.startLine + 1
     )
-
-  // Path segments joined by `.`; the instance mark reads `#` and joins its owner to its member.
-  private def qualified(segments: List[String]): String =
-    segments
-      .zip(None :: segments.map(Some(_)))
-      .map {
-        case (Instance, _)             => "#"
-        case (segment, None)           => segment
-        case (segment, Some(Instance)) => segment
-        case (segment, _)              => s".$segment"
-      }
-      .mkString
 
   // Values and variables are named by the patterns they bind; every other definition the report
   // lists carries its name directly. `Defn` is not sealed, so the last case stands in for the

@@ -142,6 +142,24 @@ object Definition {
     case Opaque
   }
 
+  /** The mark between a class and its instances' members in a name's segments: no name can be it.
+    */
+  private[cardinality] val Instance = ""
+
+  /** A name from its path's segments, joined by `.`; the instance mark reads `#` and joins its
+    * owner to its member (`Outer#Inner`).
+    */
+  private[cardinality] def qualified(segments: List[String]): String =
+    segments
+      .zip(None :: segments.map(Some(_)))
+      .map {
+        case (Instance, _)             => "#"
+        case (segment, None)           => segment
+        case (segment, Some(Instance)) => segment
+        case (segment, _)              => s".$segment"
+      }
+      .mkString
+
   /** How a definition reads in a report: `Getter[S, A]`, or `data.Affine` for a companion. */
   def signature(definition: Definition): String =
     definition.name + (definition.params match {
