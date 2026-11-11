@@ -272,7 +272,7 @@ addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.5")
 
 From 0.0.3, sbt 1 builds (1.10 or later) use the same line and the same keys: sbt
 picks the sbt 1 artifact (`sbt-cardinality_2.12_1.0`). There, dependency stubs are rendered on
-every run instead of cached, and skill seeding is sbt 2 only.
+every run instead of cached.
 
 None of the plugins (sbt 2, sbt 1, Mill) depends on the calculator. Each resolves
 `scala-cardinality_3` at its own version (`cardinalityVersion`) and runs it inside the build tool,
@@ -298,7 +298,7 @@ object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.
 
 `mill foo.cardinalityReport`, `mill foo.cardinalityReportOf <path>...` and
 `mill foo.cardinalityReportSelected <qualified-method-name>...` run the reports below; each
-writes `report.txt` under the command's `out/` directory. The sbt plugin's skill seeding is sbt only.
+writes `report.txt` under the command's `out/` directory. `mill foo.cardinalitySeedSkill` seeds the reduction skill like `sbt cardinalitySeedSkill` (below), with Mill commands.
 
 `sbt cardinalityReport` measures every definition the project's `Compile`
 sources introduce — nested definitions included — and logs a report: what each

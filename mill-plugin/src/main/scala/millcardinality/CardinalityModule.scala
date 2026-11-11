@@ -1,6 +1,6 @@
 package millcardinality
 
-import cardinality.loader.Calculator
+import cardinality.loader.{Calculator, Skill}
 import mainargs.Leftover
 import mill.*
 import mill.api.Result
@@ -85,6 +85,34 @@ trait CardinalityModule extends ScalaModule {
       out.toNIO
     )
     finish(out, errors, "selected report error(s)")
+  }
+
+  /** Where `cardinalitySeedSkill` writes the reduction skill: under the build's root. */
+  def cardinalitySkillFile: T[os.Path] = Task.Input(
+    mill.api.BuildCtx.workspaceRoot / ".claude" / "skills" / "cardinality-reduction" / "SKILL.md"
+  )
+
+  /** Seed the cardinality-reduction skill into this repository: the template that ships with the
+    * plugin, with this module's commands. Refreshes a file the plugin generated; refuses to
+    * overwrite one it did not.
+    */
+  def cardinalitySeedSkill(): Command[PathRef] = Task.Command {
+    val module = moduleSegments.render
+    val values = Map(
+      "project" -> mill.api.BuildCtx.workspaceRoot.last,
+      "version" -> Calculator.version,
+      "seed" -> s"$module.cardinalitySeedSkill",
+      "module" -> module
+    )
+    val output = cardinalitySkillFile()
+    val changed =
+      try Skill.seed(output.toNIO, "mill-cardinality", "mill", values)
+      catch { case e: IllegalStateException => Task.fail(e.getMessage) }
+    Task.log.info(
+      if (changed) s"seeded the cardinality-reduction skill: $output"
+      else s"skill already up to date: $output"
+    )
+    PathRef(output)
   }
 
   private def calculator(jars: Seq[PathRef]): Calculator = Calculator.of(jars.map(_.path.toNIO))

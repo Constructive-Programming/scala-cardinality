@@ -118,6 +118,8 @@ lazy val bench = project
 lazy val loaderSettings = Seq(
   Compile / unmanagedSourceDirectories +=
     (ThisBuild / baseDirectory).value / "plugin-loader" / "src" / "main" / "scala",
+  Compile / unmanagedResourceDirectories +=
+    (ThisBuild / baseDirectory).value / "plugin-loader" / "src" / "main" / "resources",
   Compile / sourceGenerators += Def.task {
     val out = (Compile / sourceManaged).value / "cardinality" / "loader" / "BuildInfo.scala"
     val text = s"""package cardinality.loader
