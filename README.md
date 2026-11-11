@@ -264,10 +264,10 @@ The plugin is on Maven Central for sbt 2, running on JDK 25 or later (its `kyo` 
 built for Java 25); add it to `project/plugins.sbt`:
 
 ```scala
-addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.2")
+addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.3")
 ```
 
-From the next release, sbt 1 builds (1.10 or later) use the same line and the same keys: sbt
+From 0.0.3, sbt 1 builds (1.10 or later) use the same line and the same keys: sbt
 picks the sbt 1 artifact (`sbt-cardinality_2.12_1.0`). There, dependency stubs are rendered on
 every run instead of cached, and skill seeding is sbt 2 only.
 
@@ -276,13 +276,13 @@ None of the plugins (sbt 2, sbt 1, Mill) depends on the calculator. Each resolve
 in a classloader apart from the tool's own: the plugin is built for the tool's Scala, whatever the
 calculator's is. The build tool must therefore run on JDK 25 or later.
 
-The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.2"`.
+The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.3"`.
 
 For Mill (1.3 or later, on JDK 25), load the plugin in `build.mill`'s header and mix
 `CardinalityModule` into a `ScalaModule`:
 
 ```scala
-//| mvnDeps: ["dev.constructive::mill-cardinality_mill1:0.0.2"]
+//| mvnDeps: ["dev.constructive::mill-cardinality_mill1:0.0.3"]
 import millcardinality.CardinalityModule
 
 object foo extends ScalaModule with CardinalityModule { def scalaVersion = "3.9.0" }
