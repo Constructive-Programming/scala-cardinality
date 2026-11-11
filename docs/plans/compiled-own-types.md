@@ -169,6 +169,28 @@ The model rules are not compiler facts and move with their meaning unchanged: th
 (finality is still the analyzer's, never a TASTy flag), rules B, F and X, top types by place, the
 capability reading of abstract and overridden members, lawful key equality, the size algebra.
 
+## What TASTy holds, and what it does not
+
+TASTy is the compiler's tree after type checking and before inlining and erasure. Every Scala 3
+language feature is in it, typed: opaque types, match types, type lambdas, unions, refinements,
+singletons, context functions, givens, extensions, enums, exports, inline definitions with their
+bodies, `inline if` / `inline match`, quotes and splices. tasty-query 1.9.0 models each as a tree
+node or a symbol flag.
+
+What it does not hold, and what that costs the count:
+
+| Not in TASTy | Effect on counting |
+| --- | --- |
+| Source that does not compile | Nothing to read. Accepted: uncompiled support is a future task. |
+| Surface syntax: sugar is desugared (a `for` is `map`/`flatMap` calls, a context bound an evidence parameter, a pattern definition a synthetic value, a default argument a `f$default$n` method, an enum a sealed class and companion), comments, layout | None on the count. Row names and signatures are syntax: the source is still read for display, and compiler-made members (default getters, export forwarders, case-class members, derived givens) must be told from written ones by their flags so the row set stays the same. |
+| What later phases produce: the expansion of a non-transparent inline call or macro, macro-annotation output, bridges, erasure | None: the contract already refuses compile-time operations and never read these. A `transparent` call is the exception: it arrives expanded, with the call kept beside the expansion. |
+| Bodies of Java and Scala 2 classes (class files and pickles hold signatures only) | None: the scalameta front end never read `.java` sources, and dependencies supply no bodies today. |
+| Constant expressions the type checker folded | None found: the contract reads bodies for inline expansion, factories, constructor statements and throws, not for arithmetic. To watch in slice 5d. |
+
+Gained, not lost: a type with no source spelling (an anonymous class, a captured type variable) is
+readable; names, overrides and parents are exact; a Scala 3 dependency's inline bodies are in its
+TASTy; literal constants are exact (the parser loses the sign of `-0.0`).
+
 ## Phase 4: the boundary and a differential gate
 
 No behaviour change. This is what makes "compiled code must not degrade" checkable during a
