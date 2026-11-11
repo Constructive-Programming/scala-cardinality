@@ -1,7 +1,5 @@
 package cardinality.analysis.inhabitation
 
-import cardinality.reporting.*
-import java.nio.file.Files
 import org.specs2.Specification
 
 class OpaqueSumForwardingSpec extends Specification {
@@ -93,8 +91,6 @@ class OpaqueSumForwardingSpec extends Specification {
     ) === Count.Finite(2)
 
   def report = {
-    val directory = Files.createTempDirectory("opaque-forwarding")
-    val path = directory.resolve("Optics.scala")
     val source = """case class PickFold[S,A](pick:S=>Option[A])
       |case class MendTearPrism[S,T,A,B](tear:S=>Either[T,A], mend:B=>T)
       |case class PickMendPrism[S,A,B](pick:S=>Option[A], mend:B=>S)
@@ -102,8 +98,11 @@ class OpaqueSumForwardingSpec extends Specification {
       |case class ManyCalls[S,A](first:S=>Option[A], second:S=>Option[A])
       |case class TransformPayload[S,A](pick:S=>Option[A], step:A=>A)
       |""".stripMargin
-    val _ = Files.writeString(path, source)
-    val found = Report.of(List(path)).methods.map(entry => entry.name -> entry.count).toMap
+    val found = cardinality.Compiled
+      .report("Optics.scala" -> source)
+      .methods
+      .map(entry => entry.name -> entry.count)
+      .toMap
     (found("PickFold.<init>") === Count.Finite(2))
       .and(found("MendTearPrism.<init>") === Count.Finite(1))
       .and(found("PickMendPrism.<init>") === Count.Finite(2))

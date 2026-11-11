@@ -1,7 +1,5 @@
 package cardinality.analysis
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.mutable.Specification
 
@@ -33,14 +31,10 @@ class DeepStackSpec extends Specification {
 
   "a growing goal chain asked from a small stack" should {
     "refuse with the state budget, not overflow" in {
-      val found = onSmallStack(
-        MethodAnalysis
-          .analyze(
-            List(MethodAnalysis.Input("Cyc.scala", dialects.Scala3(source).parse[Source].get))
-          )
-          .find(_.name == "bounds.U.cyc")
-          .map(_.count)
-      )
+      // Compiled on this thread: only the analysis runs on the small stack.
+      val inputs = cardinality.Compiled.ascribed(cardinality.Compiled.inputs("Cyc.scala" -> source))
+      val found =
+        onSmallStack(MethodAnalysis.analyze(inputs).find(_.name == "bounds.U.cyc").map(_.count))
       found must beSome(beLike[Count] {
         case Count.Unresolved(reasons) =>
           reasons.exists(_.contains("Inhabitation state budget exceeded")) must beTrue

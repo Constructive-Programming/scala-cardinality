@@ -9,11 +9,11 @@ import org.specs2.Specification
 class GivenSignatureSpec extends Specification {
 
   private def sig(code: String): Size =
-    Counter.sourceSignature(dialects.Scala3(code).parse[Source].get)
+    Counter.sourceSignature(cardinality.Compiled.source(code))
 
   private def definition(code: String): Size =
     Counter.defnSignature(
-      dialects.Scala3(code).parse[Source].get.stats.collectFirst { case d: Defn => d }.get
+      cardinality.Compiled.source(code).stats.collectFirst { case d: Defn => d }.get
     )
 
   def is = s2"""
@@ -45,7 +45,7 @@ class GivenSignatureSpec extends Specification {
       "trait T { given flag: Boolean }"
     ) === BooleanSize}
     abstract anonymous givens supply their declared type ${sig(
-      "trait T { given Boolean }"
+      "trait T { given Boolean = scala.compiletime.deferred }"
     ) === BooleanSize}
     abstract factories include context parameters ${sig(
       "trait T { given flag(using enabled: Boolean): Boolean }"

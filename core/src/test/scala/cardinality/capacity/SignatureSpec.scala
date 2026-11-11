@@ -7,22 +7,29 @@ import org.specs2.Specification
 // The member signature reading: what a definition declares, summed rather than multiplied. Every
 // typed field, term and method contributes the size of its declared type, so a module with two
 // methods from String to String and one String field is 2ε₀ + ω, while the value-space reading
-// (Counter.source) still multiplies the fields of a constructor. The two readings answer
+// (`Rows.total`, the definition rows summed) still multiplies the fields of a constructor. The two readings answer
 // different questions about the same source, which is why both survive.
+//
+// Every fixture is compiled first (`Compiled`), so a member written without a type has the
+// compiler's (rule T): `def f(b: Boolean) = b` is a `Boolean => Boolean`, 2^2 = 4, and `val n = 1`
+// an `Int`, 2^32. Read without compiled classes both results are unknown, which counts ω.
 class SignatureSpec extends Specification {
 
   private def sig(code: String): Size =
-    Counter.sourceSignature(dialects.Scala3(code).parse[Source].get)
+    Counter.sourceSignature(cardinality.Compiled.source(code))
 
-  private def value(code: String): Size = Counter.source(dialects.Scala3(code).parse[Source].get)
+  private def value(code: String): Size = Rows.total(code)
 
   private def defnOf(code: String): Size =
     Counter.defnSignature(
-      dialects.Scala3(code).parse[Source].get.stats.collectFirst { case d: Defn => d }.get
+      cardinality.Compiled.source(code).stats.collectFirst { case d: Defn => d }.get
     )
 
+  // `x`, the value the fixtures below initialise a member with: compiled against, then withheld.
+  private val withheldX = cardinality.Compiled.withheld("val x: String = \"\"")
+
   private val service =
-    "object Service { def parse(s: String): String = s; def render(s: String): String = s; val name: String = x }"
+    "object Service { def parse(s: String): String = s; def render(s: String): String = s; val name: String = x }" + withheldX
 
   private val module =
     "object M { def f(a: Boolean): Boolean = true }"
@@ -31,7 +38,7 @@ class SignatureSpec extends Specification {
     "object M { def f(a: Int): Boolean = true }"
 
   private val serviceOne =
-    "object Service { def parse(s: String): String = s; val name: String = x }"
+    "object Service { def parse(s: String): String = s; val name: String = x }" + withheldX
 
   def is = s2"""
     two endofunctions and a String field       ${sig(
@@ -80,10 +87,10 @@ class SignatureSpec extends Specification {
     a nullary method is its result             ${sig(
       "object N { def size: Byte = 1 }"
     ) === ByteSize}
-    an undeclared result type is unknown       ${sig(
-      "object U { def f(s: String) = s }"
-    ) === EffectiveEpsilon0}
-    an undeclared value type is unknown        ${sig("object V { val n = 1 }") === EffectiveOmega}
+    a result written without a type is scalac's ${sig(
+      "object U { def f(b: Boolean) = b }"
+    ) === TinySize(4)}
+    a value written without a type is scalac's ${sig("object V { val n = 1 }") === FiniteSize(32)}
     multiple patterns declare one each         ${sig(
       "object P { val a, b: Byte = 1 }"
     ) === FiniteSize(9)}
@@ -94,13 +101,14 @@ class SignatureSpec extends Specification {
       "enum Planet(m: Double) { case Earth extends Planet(1.0) }"
     ) === DoubleSize}
     nested definitions contribute once         ${sig(
-      "object Outer { object Inner { val flag: Boolean = true }; val name: String = x }"
+      "object Outer { object Inner { val flag: Boolean = true }; val name: String = x }" + withheldX
     ) === EffectiveOmega + BooleanSize}
     a recursive member keeps its settled size  ${sig(
       "sealed trait Nat; case object Zero extends Nat; case class Succ(n: Nat) extends Nat"
     ) === EffectiveOmega}
     packages are summed the same way           ${sig(
-      "package a { object One { val b: Boolean = true } }; package b { object Two { val s: String = x } }"
+      "package a { object One { val b: Boolean = true } }; package b { object Two { val s: String = x } }" +
+        cardinality.Compiled.withheld("package b\nval x: String = \"\"")
     ) === EffectiveOmega + BooleanSize}
     a single definition reports its own        ${defnOf(module) === TinySize(4)}
     completed lazy fields remain separate contributions ${sig(

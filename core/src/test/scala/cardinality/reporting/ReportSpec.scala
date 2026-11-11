@@ -72,8 +72,11 @@ class ReportSpec extends Specification {
       an opaque type is refused outside its scope $crossSourceOpaque
     """
 
+  // `Quorum`, a class the fixtures name and no source declares: compiled against, then withheld.
+  private val quorum = cardinality.Compiled.withheld("class Quorum")
+
   private def definitions(code: String): List[Definition] =
-    Counter.definitions(dialects.Scala3(code).parse[Source].get)
+    cardinality.Compiled.definitions(code)
 
   private def definition(code: String, name: String): Definition =
     definitions(code)
@@ -142,10 +145,10 @@ class ReportSpec extends Specification {
     )
 
   def unresolved = {
-    (reasons("case class Holder(a: Quorum, b: Boolean)", "Holder") === List("Quorum"))
+    (reasons("case class Holder(a: Quorum, b: Boolean)" + quorum, "Holder") === List("Quorum"))
       .and(reasons("case class Generic[A](a: A)", "Generic") === List("A"))
       .and(
-        reasons("case class Wrapped(a: Option[Quorum])", "Wrapped") === List("Quorum")
+        reasons("case class Wrapped(a: Option[Quorum])" + quorum, "Wrapped") === List("Quorum")
       )
       .and(
         // A modelled collection is no longer a reason: since the solver counts unbounded
@@ -153,7 +156,7 @@ class ReportSpec extends Specification {
         reasons("case class Counted(a: List[Boolean])", "Counted") === Nil
       )
       .and(
-        reasons("case class Elements(a: List[Quorum])", "Elements") === List(
+        reasons("case class Elements(a: List[Quorum])" + quorum, "Elements") === List(
           "Quorum"
         )
       )
@@ -193,11 +196,12 @@ class ReportSpec extends Specification {
   }
 
   def entryPoints = {
-    val source = dialects.Scala3("case class Pair(a: Boolean, b: Boolean)").parse[Source].get
+    val source = cardinality.Compiled.source("case class Pair(a: Boolean, b: Boolean)")
     val pair = source.stats.collectFirst { case definition: Defn.Class => definition }.get
-    val packageClause = dialects.Scala3("package p { case class X(a: Boolean) }").parse[Stat].get
+    val packageClause =
+      cardinality.Compiled.source("package p { case class X(a: Boolean) }").stats.head
     val packageObject =
-      dialects.Scala3("package object p { case class X(a: Boolean) }").parse[Stat].get
+      cardinality.Compiled.source("package object p { case class X(a: Boolean) }").stats.head
     (Counter.stat(pair) === TinySize(4))
       .and(Counter.defn(pair) === TinySize(4))
       .and(Counter.ctor(pair.ctor) === TinySize(4))
@@ -210,14 +214,12 @@ class ReportSpec extends Specification {
     definitions("package object p { case class X(a: Boolean) }").map(_.name) === List("p.X")
 
   def sourceTotals = {
-    val source = dialects
-      .Scala3("val flag: Boolean = true\ncase class Pair(a: Boolean, b: Boolean)")
-      .parse[Source]
-      .get
-    (Counter.source(source) === TinySize(5))
-      .and(
-        Counter.source(dialects.Scala3("val flag: Boolean = true").parse[Source].get) === UnitSize
+    val source =
+      cardinality.Compiled.source(
+        "val flag: Boolean = true\ncase class Pair(a: Boolean, b: Boolean)"
       )
+    (Counter.source(source) === TinySize(5))
+      .and(Counter.source(cardinality.Compiled.source("val flag: Boolean = true")) === UnitSize)
   }
 
   def signatures = {
@@ -295,7 +297,7 @@ class ReportSpec extends Specification {
   }
 
   def orders = {
-    val root = temporary(
+    val report = cardinality.Compiled.report(
       "Types.scala" ->
         """|case class Huge(f: String => String)
            |case class Many(xs: List[Boolean])
@@ -305,7 +307,7 @@ class ReportSpec extends Specification {
            |type Zero = Nothing
            |""".stripMargin,
     )
-    val rendered = Report.of(List(root)).render
+    val rendered = report.render
     val table = rendered.linesIterator.toList
       .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
       .drop(2)
@@ -333,7 +335,7 @@ class ReportSpec extends Specification {
   }
 
   def renders = {
-    val root = temporary(
+    val report = cardinality.Compiled.report(
       "Types.scala" ->
         """|package p
            |sealed trait Shape
@@ -343,7 +345,7 @@ class ReportSpec extends Specification {
            |type Flag = Boolean
            |""".stripMargin,
     )
-    val rendered = Report.of(List(root)).render
+    val rendered = report.render
     val lines = rendered.linesIterator.toList
     val estimate = lines
       .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
@@ -361,8 +363,8 @@ class ReportSpec extends Specification {
   // (2^32)^(2^32) is above the literal budget, so the row is a symbolic exact count: it prints in
   // its normal form and the headline tallies it with the finite rows, not the unresolved ones.
   def symbolicRow = {
-    val root = temporary("Ints.scala" -> "package p\ndef f(x: Int): Int = x")
-    val rendered = Report.of(List(root)).render
+    val report = cardinality.Compiled.report("Ints.scala" -> "package p\ndef f(x: Int): Int = x")
+    val rendered = report.render
     (rendered must contain("2^(2^37)  p.f  f(x: Int): Int  Ints.scala:2  [method]"))
       .and(rendered must contain("1 signature: 1 finite · 0 countably infinite · 0 unresolved"))
   }
@@ -370,7 +372,7 @@ class ReportSpec extends Specification {
   def appliedType = {
     val found = definitions(
       """|case class Pair[A](a: A, b: A)
-         |enum Opt[A] { case None; case Some(a: A) }
+         |enum Opt[+A] { case None; case Some(a: A) }
          |type TwoBools = Pair[Boolean]
          |case class Use(p: Pair[Boolean], o: Opt[Boolean], t: TwoBools)
          |""".stripMargin,
@@ -409,85 +411,88 @@ class ReportSpec extends Specification {
     )
   }
 
-  private def rowsOf(root: Path): List[(String, Option[Size], List[String])] =
-    Report.of(List(root)).definitions.map(d => (d.name, d.size, d.unbound.map(_.render)))
+  private def rowsOf(files: (String, String)*): List[(String, Option[Size], List[String])] =
+    cardinality.Compiled
+      .report(files*)
+      .definitions
+      .map(d => (d.name, d.size, d.unbound.map(_.render)))
 
   def crossSource = {
-    val root = temporary(
+    val found = rowsOf(
       "Box.scala" -> "package p\ncase class Box(a: Boolean)",
       "Use.scala" -> "package p\ncase class Use(b: Box)",
     )
     // A report reads the supplied sources as one set: `Box` is in a sibling file, and `Use` is
     // worth what a reference to it is worth.
-    rowsOf(root) === List(
+    found === List(
       ("p.Box", Some(BooleanSize), Nil),
       ("p.Use", Some(BooleanSize), Nil),
     )
   }
 
   def crossSourceArgument = {
-    val root = temporary(
+    val found = rowsOf(
       "Pair.scala" -> "package p\ncase class Pair[A](a: A, b: A)",
       "Use.scala" -> "package p\ncase class Use(p: Pair[Boolean])",
     )
-    rowsOf(root) === List(
+    found === List(
       ("p.Pair", Some(EffectiveOmega), List("A")),
       ("p.Use", Some(TinySize(4)), Nil),
     )
   }
 
   def crossSourceQualified = {
-    val root = temporary(
+    val found = rowsOf(
       "Box.scala" -> "package p\ncase class Box(a: Boolean)",
       "Use.scala" -> "package p\ncase class Use(b: p.Box)",
     )
-    rowsOf(root) === List(
+    found === List(
       ("p.Box", Some(BooleanSize), Nil),
       ("p.Use", Some(BooleanSize), Nil),
     )
   }
 
   def crossSourcePackage = {
-    val root = temporary(
+    val found = rowsOf(
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "b/Widget.scala" -> "package b\ncase class Widget(x: Boolean)",
       "a/Use.scala" -> "package a\ncase class Use(w: Widget)",
     )
     // A package member needs no import: inside `a`, `Widget` is `a.Widget`, whatever `b` defines.
-    rowsOf(root).filter(_._1 == "a.Use") === List(("a.Use", Some(BooleanSize), Nil))
+    found.filter(_._1 == "a.Use") === List(("a.Use", Some(BooleanSize), Nil))
   }
 
   def crossSourceAmbiguous = {
-    val root = temporary(
+    val found = rowsOf(
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "b/Widget.scala" -> "package b\ncase class Widget(x: Boolean)",
       "c/Use.scala" -> "package c\ncase class Use(w: Widget)",
     )
     // From a third package, `Widget` could only be an import of either: the report says so rather
     // than picking one.
-    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
+    found.filter(_._1 == "c.Use") === List(("c.Use", Some(EffectiveOmega), List("Widget")))
   }
 
   def crossSourceImported = {
-    val root = temporary(
+    val found = rowsOf(
       "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
       "c/Use.scala" -> "package c\nimport a.Widget\ncase class Use(w: Widget)",
     )
     // The import decides what the name means, and it names a supplied declaration: `a.Widget`.
-    rowsOf(root).filter(_._1 == "c.Use") === List(("c.Use", Some(BooleanSize), Nil))
+    found.filter(_._1 == "c.Use") === List(("c.Use", Some(BooleanSize), Nil))
   }
 
   def crossSourceSealed = {
-    val root = temporary(
+    val found = rowsOf(
       "Nat.scala" -> "package p\nsealed trait Nat\ncase object Zero extends Nat\ncase class Succ(n: Nat) extends Nat",
       "Use.scala" -> "package p\ncase class Use(n: Nat)",
     )
     // Scala keeps a sealed parent's subtypes in its own file ("Cannot extend sealed trait Nat in a
     // different source file"), where the parent sums them; a sibling file reads the sum, recursion
     // included, through the package's system.
-    (rowsOf(root).map(_._1) === List("p.Nat", "p.Zero", "p.Succ", "p.Use"))
+    (found.map(_._1) === List("p.Nat", "p.Zero", "p.Succ", "p.Use"))
       .and(
-        rowsOf(root) === List(
+        found === List(
           ("p.Nat", Some(EffectiveOmega), Nil),
           ("p.Zero", Some(UnitSize), Nil),
           ("p.Succ", Some(EffectiveOmega), Nil),
@@ -497,14 +502,14 @@ class ReportSpec extends Specification {
   }
 
   def crossSourceOpaque = {
-    val root = temporary(
+    val found = rowsOf(
       "Id.scala" -> "package p\nopaque type Id = Byte",
       "User.scala" -> "package p\ncase class User(id: Id, active: Boolean)",
     )
     // An opaque row reads its representation (`Id` is 2^8). A reference from another file is
     // outside the scope that defines it, where the opaque type is one value (rule F): `User` is 2.
-    (rowsOf(root).filter(_._1 == "p.User") === List(("p.User", Some(TinySize(2)), Nil)))
-      .and(rowsOf(root).filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
+    (found.filter(_._1 == "p.User") === List(("p.User", Some(TinySize(2)), Nil)))
+      .and(found.filter(_._1 == "p.Id") === List(("p.Id", Some(ByteSize), Nil)))
   }
 
   def matchType = {
@@ -513,7 +518,7 @@ class ReportSpec extends Specification {
          |type Snd[T] = T match { case (f, s) => s }
          |type Pick[T] = T match
          |  case Int => Boolean
-         |  case x => x
+         |  case _ => T
          |type Two = Fst[(Boolean, Boolean)]
          |type Second = Snd[(Int, Boolean)]
          |type ANumber = Pick[Int]
@@ -522,7 +527,8 @@ class ReportSpec extends Specification {
     )
     // A match type reduces on the argument's syntax: `Fst[(Boolean, Boolean)]` is `Boolean` because
     // the case pattern is that tuple and its body is the first binder. A concrete pattern matches
-    // by spelling and falls through to the binder case when it does not. The definitions' own rows
+    // by spelling and falls through to the wildcard case, whose body is the scrutinee, when it does
+    // not. The definitions' own rows
     // are stuck only on their parameter `T`: each instantiation decides them.
     found.map(d => (d.name, d.size, d.unbound.map(_.render))) === List(
       ("Fst", Some(EffectiveOmega), List("T")),
@@ -617,7 +623,7 @@ class ReportSpec extends Specification {
   def memberAbstract = {
     val found = definitions(
       """|trait O { type Z }
-         |class C(x: O) { type Y = x.Z }
+         |class C(val x: O) { type Y = x.Z }
          |""".stripMargin,
     )
     // A member a body declares abstract is supplied by whoever implements it: unbounded, which the
@@ -632,8 +638,8 @@ class ReportSpec extends Specification {
 
   def memberUnknown = {
     val found = definitions(
-      """|class C(x: NotSupplied) { type Y = x.Z }
-         |""".stripMargin,
+      """|class C(val x: NotSupplied) { type Y = x.Z }
+         |""".stripMargin + cardinality.Compiled.withheld("class NotSupplied { type Z }"),
     )
     // The sources do not say what `x` is, so the reference is the reason, as it was written.
     found.find(_.name == "C#Y").map(d => (d.size, d.unbound.map(_.render))) ===
@@ -658,8 +664,10 @@ class ReportSpec extends Specification {
   }
 
   def openRow = {
-    val root = temporary("Types.scala" -> "package p\ntrait Open\ncase class Uses(o: Open)")
-    val rendered = Report.of(List(root)).render
+    val report = cardinality.Compiled.report(
+      "Types.scala" -> "package p\ntrait Open\ncase class Uses(o: Open)"
+    )
+    val rendered = report.render
     (rendered must contain("open to implementations (Open)"))
       .and(rendered must contain("1 unbounded by an open abstraction"))
   }
@@ -717,17 +725,17 @@ class ReportSpec extends Specification {
   }
 
   def lazyRow = {
-    val root = temporary(
+    val report = cardinality.Compiled.report(
       "Timeline.scala" ->
-        "package p\ncase class Timeline(head: Boolean, tail: => Timeline)",
+        "package p\nfinal class Timeline(head: Boolean, tail: => Timeline)",
     )
-    val rendered = Report.of(List(root)).render
+    val rendered = report.render
     val table = rendered.linesIterator.toList
       .dropWhile(_ != "Stored-value estimates (constructor inputs; `?` = unresolved)")
       .drop(2)
     // A hole the constructor never demands counts its infinite values as well, so `ω` is an
     // answer: the row shows the size, and the summary does not count it as unresolved.
-    (definition("case class Timeline(head: Boolean, tail: => Timeline)", "Timeline").size ===
+    (definition("final class Timeline(head: Boolean, tail: => Timeline)", "Timeline").size ===
       Some(EffectiveOmega))
       .and(table(0) must contain("ω  p.Timeline"))
       .and(rendered must contain("1 with more than one value"))
@@ -742,7 +750,7 @@ class ReportSpec extends Specification {
 
   def blockedRow = {
     val reducer = definition("case class Reducer(run: String => String)", "Reducer")
-    val blocked = definition("case class Blocked(step: Quorum => Quorum)", "Blocked")
+    val blocked = definition("case class Blocked(step: Quorum => Quorum)" + quorum, "Blocked")
     // `String` is a modelled space — countably many — so a function space over it answers ε₀ with
     // nothing left to name. A name the sources do not define still carries its own reason.
     (reducer.size === Some(EffectiveEpsilon0))

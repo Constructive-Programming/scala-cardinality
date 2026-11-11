@@ -406,7 +406,8 @@ class GroundEnvironmentSpec extends Specification {
   // record of the receiver is its declared members alone.
   def dynamicParent = {
     val rows = counts(
-      "d.scala" -> "trait Rec extends Dynamic\ndef f(r: Rec, b: Boolean): Boolean = ???"
+      "d.scala" ->
+        "import scala.language.dynamics\ntrait Rec extends Dynamic\ndef f(r: Rec, b: Boolean): Boolean = ???"
     )
     rows("f") === Count.Finite(4)
   }
@@ -417,7 +418,8 @@ class GroundEnvironmentSpec extends Specification {
   // which Scala 3.9.0 does not make visible in `pv` either. `length` is then any Int (2^32).
   def nestedParentName = {
     val parent = "sealed trait V[+B] extends IterableOnce[B]\n" +
-      "object V { case object E extends V[Nothing] { def length: Int = 0 } }"
+      "object V { case object E extends V[Nothing] {\n" +
+      "  def iterator: Iterator[Nothing] = ???; def length: Int = 0 } }"
     val nested = counts(
       "lib.scala" -> "package nlib\nobject Compat { type IterableOnce[A] = List[A] }",
       "v.scala" -> s"package nv\n$parent"

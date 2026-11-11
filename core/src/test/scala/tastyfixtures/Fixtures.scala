@@ -50,3 +50,8 @@ object Inlines {
 
 abstract class Base(val seed: Int)
 final class Built() extends Base(0)
+
+/** A class whose inherited field holds its own parameter: what `seed` is, only its constructor
+  * says.
+  */
+final class Fed(n: Int) extends Base(n)

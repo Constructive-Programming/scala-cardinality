@@ -518,12 +518,19 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
   // whose summonFrom reads the call site ("plain", then "abcd"; 1, then 5): an extension group's
   // using clause, a context function read as its result, an eta-expanded method with a using
   // clause, and a callee taking a context function all leave a given to implicit search. With its
-  // given written, viaExtensionExplicit is countably many Strings (review-A6 q pins3).
+  // given written, viaExtensionExplicit is countably many Strings (review-A6 q pins3). Compiled,
+  // `literal`'s local `g` has scalac's type, `Int ?=> Int`, which the reading meets before the
+  // right-hand side: `literal` is refused for that type, and `applied`, where no `val` takes the
+  // literal's type, for the literal itself.
   def searchForms = {
     val found = rows("""import scala.compiletime.summonFrom
       |trait Show[A] { def show(a: A): String }
       |object Givens {
       |  inline given anInt: Int = summonFrom { case s: String => s.length; case _ => 0 }
+      |  inline given aShow: Show[Int] = summonFrom {
+      |    case s: String => new Show[Int] { def show(a: Int): String = s }
+      |    case _         => new Show[Int] { def show(a: Int): String = "plain" }
+      |  }
       |}
       |import Givens.given
       |object E {
@@ -537,6 +544,7 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       |  def twice(f: (Int ?=> Int) => Int): Int = f(1)
       |  inline def contextCallee(x: Int): Int = twice(g => x)
       |  inline def literal(x: Int): Int = { val g = (n: Int) ?=> n + x; g(using 1) }
+      |  inline def applied(x: Int): Int = ((n: Int) ?=> n + x)(using 1)
       |}""".stripMargin)
     refused(found("E.viaExtension"), "leaves a given of shown to implicit search")
       .and(refused(found("E.viaContextFunction"), "reads f, of the context function type"))
@@ -544,7 +552,8 @@ class InlineMethodsSpec extends Specification with InventoryFixtures {
       .and(
         refused(found("E.contextCallee"), "calls twice, whose signature has the context function")
       )
-      .and(refused(found("E.literal"), "writes a context function literal"))
+      .and(refused(found("E.literal"), "writes the context function type"))
+      .and(refused(found("E.applied"), "writes a context function literal"))
       .and(found("E.explicitPlus") === pow2(37))
       .and(found("E.viaExtensionExplicit") === Count.Countable)
   }

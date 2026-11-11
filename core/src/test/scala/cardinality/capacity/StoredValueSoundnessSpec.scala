@@ -1,7 +1,5 @@
 package cardinality.capacity
 
-import scala.meta.*
-
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.Specification
 
@@ -339,7 +337,8 @@ class StoredValueSoundnessSpec extends Specification {
       .and(exported(("Use", Class)) === "1")
       .and(
         refused(
-          "sealed trait P\ncase object A extends P\nobject O extends zz.Base { case object Z extends P }\nfinal case class Use(p: P)"
+          "sealed trait P\ncase object A extends P\nobject O extends zz.Base { case object Z extends P }\nfinal case class Use(p: P)" +
+            cardinality.Compiled.withheld("package zz\ntrait Base")
         ) === notSummed("P", "a subtype whose clause may name another P: Z")
       )
       .and(
@@ -488,7 +487,8 @@ class StoredValueSoundnessSpec extends Specification {
       "b/T.scala" -> "package b\nsealed trait T\nfinal case class N(kids: Box[T]) extends T\ncase object L extends T\nfinal case class UseT(t: T)",
     )
     val foreign = rows(
-      "import zz.Chunk\nsealed trait T\nfinal case class N(kids: Chunk[T]) extends T\ncase object L extends T"
+      "import zz.Chunk\nsealed trait T\nfinal case class N(kids: Chunk[T]) extends T\ncase object L extends T" +
+        cardinality.Compiled.withheld("package zz\nclass Chunk[A]")
     )
     (list(("n.UseP", Class)) === "unresolved[recursion through a function's domain: P]")
       .and(option(("q.P", Class)) === "unresolved[recursion through a function's domain: P]")
@@ -631,18 +631,16 @@ class StoredValueSoundnessSpec extends Specification {
          |final case class UsesSorted(s: Sorted[Boolean])
          |final case class Two[A: Ord: Ord](a: A)
          |final case class UsesTwo(t: Two[Unit])
-         |""".stripMargin
+         |""".stripMargin + cardinality.Compiled.withheld(
+        "trait Traverse[F[_]]\ntrait Functor[F[_]]"
+      )
     val found = rows(code)
     (found(("TT", Class)) === "unresolved[Traverse]")
       .and(found(("TB", Class)) === "unresolved[B, Functor]")
       .and(found(("UsesSorted", Class)) === "8")
       .and(found(("UsesTwo", Class)) === "4")
       .and(
-        constructor(
-          "UsesTwo.<init>",
-          "A.scala" -> code,
-          cardinality.Compiled.withheldFile("trait Traverse[F[_]]\ntrait Functor[F[_]]")
-        ) === Count.Finite(4)
+        constructor("UsesTwo.<init>", "A.scala" -> code) === Count.Finite(4)
       )
   }
 
@@ -716,14 +714,10 @@ class StoredValueSoundnessSpec extends Specification {
   // An unknown name is not hidden behind an open abstraction, nor an open one behind a parameter:
   // every class renders, unresolved first.
   def reasonClasses = {
-    val found = Counter
+    val found = cardinality.Compiled
       .definitions(
-        dialects
-          .Scala3(
-            "trait Open\nfinal case class Mixed(o: Open, s: Schema)\nfinal case class Gen[A](o: Open, a: A)"
-          )
-          .parse[Source]
-          .get
+        "trait Open\nfinal case class Mixed(o: Open, s: Schema)\nfinal case class Gen[A](o: Open, a: A)" +
+          cardinality.Compiled.withheld("class Schema")
       )
       .map(d => d.name -> d)
       .toMap

@@ -135,7 +135,8 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
   // Cross-check X1 (fixture c3): inside `C`, `T` is the exported `A.T = Boolean`, not `Outer.T =
   // Int`. In the final `C`, g: Boolean => Boolean = 4; P's one field is a Boolean = 2 (the estimate
   // agrees). In the open `D` (DO overrides both) each of g and h is the other's overridable capability, a Boolean =>
-  // Boolean (capabilities C5): every Boolean function of t, g(true) and g(false) — 2^8.
+  // Boolean (capabilities C5): every Boolean function of t, g(true) and g(false) — 2^8. DO spells
+  // the type `A.T`: a bare `T` there is ambiguous to scalac, between Outer's and the inherited one.
   def exportOutranks = {
     val found = rows("""object Outer {
       |  object A { type T = Boolean }
@@ -147,7 +148,7 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       |    def h(t: T): T = t
       |  }
       |  class D { export A.T; def g(t: T): Boolean = true; def h(t: T): T = t }
-      |  class DO extends D { override def g(t: T): Boolean = false; override def h(t: T): T = t }
+      |  class DO extends D { override def g(t: A.T): Boolean = false; override def h(t: A.T): A.T = t }
       |}""".stripMargin)
     (found("Outer.C.g") === Count.Finite(4))
       .and(found("Outer.C.h") === Count.Finite(4))
@@ -528,9 +529,11 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
     List("C", "V", "W", "Sub").map(c => found(s"H.outer.$c.g") === Count.Finite(1)).reduce(_ and _)
   }
 
-  // `Inner.f` is the pattern's function value (scalac types `g` a Boolean, true 2), never `Outer.f:
-  // Int`; `x` is a value holding `Other`, so `x.T` is `Other.T = Int` (scalac accepts `f(1)`; true
-  // 2^(2^32)), never the object `x`'s Boolean. Both are refused. A pattern member implementing an
+  // `Inner.f` is the pattern's function value, never `Outer.f: Int`: scalac types `g` a Boolean,
+  // which the compiled fixture supplies (rule T). `f` and `z` are the values the pattern bound, one
+  // each, so every `f(n)` is one fixed Boolean and `g` has only its result to choose: true or
+  // false, 2. `x` is a value holding `Other`, so `x.T` is `Other.T = Int` (scalac accepts `f(1)`;
+  // true 2^(2^32)), never the object `x`'s Boolean: refused. A pattern member implementing an
   // inherited declaration is that concrete value: other only (1).
   def patternDefinitions = {
     val found = rows(
@@ -544,10 +547,7 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       |trait P[A] { val seed: A }
       |final class C[A](other: A) extends P[A] { val (seed, z) = (other, other); def g(): A = seed }""".stripMargin
     )
-    refused(
-      found("Outer.Inner.g"),
-      "inferred result type not resolved: written without a type, in a source not compiled"
-    )
+    (found("Outer.Inner.g") === Count.Finite(2))
       .and(refused(found("PInner.f"), "unavailable stable path type: x"))
       .and(found("C.g") === Count.Finite(1))
   }

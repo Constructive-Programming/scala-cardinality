@@ -76,9 +76,52 @@ class CompiledTypesSpec extends Specification {
       val parsed = Spell.source(Files.readString(source)).get
       val input = cardinality.analysis.MethodAnalysis.Input(source.toString, parsed)
       val text = CompiledTypes.ascribe(List(input), classes)._1.map(_.tree.pos.input.text).mkString
-      (text must contain("(x: _root_.scala.Boolean) => !x")).and(
-        text must contain("(a: _root_.scala.Boolean, b: _root_.scala.Boolean) => a && b")
+      (text must contain("(x: _root_.scala.Boolean) => !x"))
+        .and(text must contain("(a: _root_.scala.Boolean, b: _root_.scala.Boolean) => a && b"))
+        .and(
+          text must contain("(f: (_root_.scala.Boolean => _root_.scala.Boolean)) => f(true)")
+        )
+    }
+
+    // `negate: Boolean => Boolean` has |Boolean|^|Boolean| = 2^2 = 4 implementations and `unit:
+    // Unit` one; each is in reach of the other, and neither a Unit nor a function to a Boolean it
+    // could already build adds a choice. A pattern takes no bare function type, so the type is
+    // written in parentheses; a source that does not parse with its types keeps none of them.
+    "type a pattern name of a function type, in parentheses: Boolean => Boolean 4, Unit 1" in {
+      val parsed = Spell.source(Files.readString(source)).get
+      val input = cardinality.analysis.MethodAnalysis.Input(source.toString, parsed)
+      val (typed, problems) = CompiledTypes.ascribe(List(input), classes)
+      (row(compiled, "FunctionPatterns.negate") must startWith("4 "))
+        .and(row(compiled, "FunctionPatterns.unit") must startWith("1 "))
+        .and(typed.map(_.tree.pos.input.text).mkString must contain("(negate: ("))
+        .and(problems must beEmpty)
+    }
+
+    "say which compiled source's types leave the input unparseable" in {
+      val input =
+        cardinality.analysis.MethodAnalysis.Input("S.scala", Spell.source("val a = 1").get)
+      CompiledTypes.edited(input, "p/S.scala", List(5 -> ": =>")) must beLeft(
+        "compiled types not written: p/S.scala does not parse with them, " +
+          "so its members written without a type have none"
       )
+    }
+
+    "match a source to the compiled one its path ends with, the longer of two" in {
+      val compiled = Map(
+        "Exp.scala" -> 1,
+        "lib9/Exp.scala" -> 2,
+        "core/src/A.scala" -> 3,
+        "x/B.scala" -> 4,
+        "y/B.scala" -> 5
+      )
+      def of(path: String) = CompiledTypes.matching(path, compiled).map(_._2)
+      (of("/tmp/root/lib9/Exp.scala") must beSome(2))
+        .and(of("C:\\root\\lib9\\Exp.scala") must beSome(2))
+        .and(of("/tmp/root/Exp.scala") must beSome(1))
+        .and(of("Exp.scala") must beSome(1))
+        .and(of("src/A.scala") must beSome(3))
+        .and(of("B.scala") must beNone)
+        .and(of("C.scala") must beNone)
     }
 
     "read a name typed in its pattern from the source too" in {

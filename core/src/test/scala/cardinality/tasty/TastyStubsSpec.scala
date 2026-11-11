@@ -163,7 +163,15 @@ class TastyStubsSpec extends Specification {
   "every Java fixture class renders to a stub that parses" in {
     (javaStubs.errors must beEmpty).and(
       javaStubs.inputs.map(_.path.split('/').last).sorted must_==
-        List("Box.scala", "Choice.scala", "Coin.scala", "Op.scala", "Shape.scala", "Toggle.scala")
+        List(
+          "Box.scala",
+          "Choice.scala",
+          "Coin.scala",
+          "Op.scala",
+          "Shape.scala",
+          "Sig.scala",
+          "Toggle.scala"
+        )
     )
   }
 

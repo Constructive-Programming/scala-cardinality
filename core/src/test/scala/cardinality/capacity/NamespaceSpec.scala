@@ -33,7 +33,9 @@ class NamespaceSpec extends Specification {
       a generic member instantiates                               $objectGeneric
       a member is read with the reasons its value rests on        $objectReasons
       chained package clauses open the enclosing package          $packageClauses
+      a single package clause opens only its own package          $singleClause
       a package path resolves from the opened packages or the root  $packagePaths
+      a path from a package no clause opens names nothing          $unopenedPath
       an inner package's subpackage shadows an outer package's object  $packageOrder
       an enum's cases are not read as a namespace                 $enumCases
 
@@ -41,6 +43,7 @@ class NamespaceSpec extends Specification {
       another file's explicit import is not lost across packages  $libraryImports
       another file's chained clauses resolve across packages      $libraryClauses
       a wildcard import names the package a name is read from     $wildcardImports
+      two wildcard imports that bind a name leave it ambiguous    $ambiguousWildcards
       an imported name is not open because another package's is   $importedOpenReason
 
     Class members and module members are apart
@@ -49,7 +52,7 @@ class NamespaceSpec extends Specification {
 
     A qualifier's first name is the innermost term binding
       a value, a parameter or an inner object shadows an outer object  $qualifierBindings
-      a value with no known type is not followed                  $untypedValue
+      a value written without a type has scalac's type            $untypedValue
 
     A qualified reference resolves through its qualifier
       a re-export is the other package's type, not itself         $qualifiedReexport
@@ -120,10 +123,7 @@ class NamespaceSpec extends Specification {
   // A source holds its class's 2 values and its module's 1: 3. Before, the module read the class's
   // value from the name they share and the source summed 2 + 2.
   def companionTotal =
-    Counter.source(
-      dialects.Scala3("case class Spot(on: Boolean)\nobject Spot").parse[Source].get
-    ) ===
-      TinySize(3)
+    Rows.total("case class Spot(on: Boolean)\nobject Spot") === TinySize(3)
 
   // |Span| = 2^32 · 2^32 = 2^64, non-empty, so |List[Span]| = ω and |(Boolean, List[Span])| = 2 · ω
   // = ω, read through the object in the file and through the package path from another package.
@@ -160,6 +160,7 @@ class NamespaceSpec extends Specification {
     val imported = rowsOf(
       "W.scala" -> "package t\nfinal case class Widget(x: Boolean)",
       "I.scala" -> "package t\nobject Imp { import zz.Widget; final case class Use(w: Widget) }\ntype ImpY = Imp.Use",
+      zzWidget,
     )
     // A class body's own trait `Foo` shadows the file's class `Foo` (2) and the package's: open.
     val innerTrait =
@@ -192,44 +193,55 @@ class NamespaceSpec extends Specification {
          |}
          |type X = Taint.Outer
          |type P = Taint.Pair[Boolean]
-         |""".stripMargin
+         |""".stripMargin + cardinality.Compiled.withheld("class Schema")
     )
     (found(("X", Alias)) === "unresolved[Schema]").and(found(("P", Alias)) === "unresolved[Schema]")
   }
 
-  // `package a; package b` opens `a` and `a.b`, so `W` is `a.W` (2). A single `package a.b` opens
-  // only `a.b`, where nothing defines `W`, and no package is searched by name alone — not `a`, not
-  // `c` — so the name stays a reason (scalac rejects `Single` too). A source with no package clause
-  // reads in the empty package, whose `V` (2) wins over `c.V` (1).
+  // `package a; package b` opens `a` and `a.b`, so `W` is `a.W` (2). A source with no package
+  // clause reads in the empty package, whose `V` (2) wins over `c.V` (1).
   def packageClauses = {
     val found = rowsOf(
       "W1.scala" -> "package a\nfinal case class W(x: Boolean)",
       "W2.scala" -> "package c\nfinal case class W(x: Unit)\nfinal case class V(x: Unit)",
       "U1.scala" -> "package a\npackage b\nfinal case class Chained(w: W)",
-      "U2.scala" -> "package a.b\nfinal case class Single(w: W)",
       "V.scala" -> "final case class V(x: Boolean)",
       "Y.scala" -> "final case class UsesV(v: V)",
     )
-    (found(("a.b.Chained", Class)) === "2")
-      .and(found(("a.b.Single", Class)) === "unresolved[W]")
-      .and(found(("UsesV", Class)) === "2")
+    (found(("a.b.Chained", Class)) === "2").and(found(("UsesV", Class)) === "2")
   }
 
+  // A single `package a.b` opens only `a.b`, where nothing defines `W`, and no package is searched
+  // by name alone — not `a`, not `c` — so the name stays a reason (scalac rejects `Single` too).
+  def singleClause =
+    rowsOf(
+      "W1.scala" -> "package a\nfinal case class W(x: Boolean)",
+      "W2.scala" -> "package c\nfinal case class W(x: Unit)",
+      "U2.scala" -> "package a.b\nfinal case class Single(w: W)",
+    )(("a.b.Single", Class)) === "unresolved[W]"
+
   // `data` is a subpackage of the opened `dev` under chained clauses; from the root, `dev.data`
-  // and `_root_.dev.data` name the same package. Under a single `package dev.app2` clause, `data`
-  // names nothing: the reference is its own reason.
+  // and `_root_.dev.data` name the same package.
   def packagePaths = {
     val found = rowsOf(
-      "D.scala" -> "package dev.data\nfinal case class Vec(x: Boolean)\nobject Scanner { final case class Span(start: Int, end: Int) }",
+      vec,
       "E.scala" -> "package dev\npackage app\ntype V1 = data.Vec\ntype V2 = _root_.dev.data.Vec\ntype V3 = data.Scanner.Span",
-      "F.scala" -> "package dev.app2\ntype V4 = data.Vec\ntype V5 = dev.data.Vec",
+      "F.scala" -> "package dev.app2\ntype V5 = dev.data.Vec",
     )
     (found(("dev.app.V1", Alias)) === "2")
       .and(found(("dev.app.V2", Alias)) === "2")
       .and(found(("dev.app.V3", Alias)) === "≤2^64")
-      .and(found(("dev.app2.V4", Alias)) === "unresolved[data.Vec]")
       .and(found(("dev.app2.V5", Alias)) === "2")
   }
+
+  private val vec =
+    "D.scala" -> "package dev.data\nfinal case class Vec(x: Boolean)\nobject Scanner { final case class Span(start: Int, end: Int) }"
+
+  // Under a single `package dev.app2` clause, `data` names nothing: the reference is its own reason
+  // (and no Scala program).
+  def unopenedPath =
+    rowsOf(vec, "F.scala" -> "package dev.app2\ntype V4 = data.Vec")(("dev.app2.V4", Alias)) ===
+      "unresolved[data.Vec]"
 
   // A known limit: an enum's class cases are types (`Shape.Circle`), but the estimate does not
   // read an enum as a namespace; the reference stays a reason rather than borrowing a name.
@@ -397,7 +409,7 @@ class NamespaceSpec extends Specification {
     val l =
       "package l\nfinal case class A(n: Int)\nobject F {\n  def f[A](a: A): Int = { final case class Box(x: A); Box(a).hashCode }\n  def g(b: Boolean): Int = { final case class In(b: Boolean); final case class Out(i: In); Out(In(b)).hashCode }\n}"
     val files = List("l/L.scala" -> l, "m/M.scala" -> "package m\nfinal case class In(n: Int)")
-    val tree = dialects.Scala3(l).parse[Source].get
+    val tree = cardinality.Compiled.source(l)
     val box = tree.collect { case c: Defn.Class if c.name.value == "Box" => c }.head
     val param = box.ctor.paramClauses.head.values.head.decltpe.get
     (constructor("l.F.g.Out.<init>", files*) === Count.Finite(2))
@@ -490,35 +502,35 @@ class NamespaceSpec extends Specification {
 
   // `import foreign.*` names no supplied package: `Json` and `Obj` are not `x`'s (they may be
   // `foreign`'s), so both stay reasons. `import x.*` names `x`, which outranks package `p`'s own
-  // `Obj` from another file (scalac binds `x.Obj`): 2 each. Two wildcard packages that both define
-  // `Obj` leave it ambiguous.
+  // `Obj` from another file (scalac binds `x.Obj`): 2 each.
   def wildcardImports = {
-    val x =
-      "x/A.scala" -> "package x\nfinal case class Obj(b: Boolean)\nobject Json { final case class Obj(b: Boolean) }"
+    val x = wildcardTarget
     val foreign = rowsOf(
       x,
-      "y/B.scala" -> "package y\nimport foreign.*\ntype J = Json.Obj\nfinal case class UseBare(j: Obj)"
+      "y/B.scala" -> ("package y\nimport foreign.*\ntype J = Json.Obj\nfinal case class UseBare(j: Obj)" +
+        cardinality.Compiled.withheld("package foreign\nobject Json { class Obj }\nclass Obj"))
     )
     val named = rowsOf(
       x,
       "p/P1.scala" -> "package p\nfinal case class Obj(u: Unit)",
       "p/P2.scala" -> "package p\nimport x.*\nfinal case class UseBare(j: Obj)\ntype J = Json.Obj",
     )
-    val ambiguous = rowsOf(
-      x,
-      "z/Z.scala" -> "package z\nfinal case class Obj(n: Int)",
-      "w/W.scala" -> "package w\nimport x.*\nimport z.*\nfinal case class Amb(j: Obj)",
-    )
     (foreign(("y.J", Alias)) === "unresolved[Json.Obj (may be imported by foreign.*)]")
       .and(foreign(("y.UseBare", Class)) === "unresolved[Obj (may be imported by foreign.*)]")
       .and(named(("p.UseBare", Class)) === "2")
       .and(named(("p.J", Alias)) === "2")
-      .and(
-        ambiguous(
-          ("w.Amb", Class)
-        ) === "unresolved[Obj (ambiguous: several wildcard imports bind it)]"
-      )
   }
+
+  private val wildcardTarget =
+    "x/A.scala" -> "package x\nfinal case class Obj(b: Boolean)\nobject Json { final case class Obj(b: Boolean) }"
+
+  // Two wildcard packages that both define `Obj` leave it ambiguous, to scalac as to the estimate.
+  def ambiguousWildcards =
+    rowsOf(
+      wildcardTarget,
+      "z/Z.scala" -> "package z\nfinal case class Obj(n: Int)",
+      "w/W.scala" -> "package w\nimport x.*\nimport z.*\nfinal case class Amb(j: Obj)",
+    )(("w.Amb", Class)) === "unresolved[Obj (ambiguous: several wildcard imports bind it)]"
 
   // `Widget` is `zz.Widget`'s, explicitly imported: package `x`'s open trait of that name says
   // nothing about it.
@@ -526,6 +538,7 @@ class NamespaceSpec extends Specification {
     rowsOf(
       "x/A.scala" -> "package x\ntrait Widget",
       "y/B.scala" -> "package y\nimport zz.Widget\nfinal case class UsesWidget(w: Widget)",
+      zzWidget,
     )(("y.UsesWidget", Class)) === widget
 
   // `p.X` reads `Prism`'s `X = Span` in Prism's body, where `Span` is `Prism.Span(b: Boolean)` —
@@ -574,12 +587,14 @@ class NamespaceSpec extends Specification {
       .and(files(("t.Holder#Y", Alias)) === "≤2^32")
   }
 
-  // `val p = make()` has no type the estimate reads, and it shadows the object `p`: the reference
-  // is its own reason, never the object's Boolean.
+  // `val p = make()` is written without a type and shadows the object `p`. scalac types it an
+  // `Other` (the compiled fixture supplies it, rule T), so `p.X` is `Other`'s `X = Int`: 2^32
+  // values, printed as the bound ≤2^32, as for `val p = new Other` above. Never the object's
+  // Boolean. (Uncompiled, `p` had no type and the reference was its own reason.)
   def untypedValue =
     rows(
       "object p { type X = Boolean }\nfinal class Other { type X = Int }\nfinal class Holder { def make(): Other = new Other; val p = make(); type Y = p.X }"
-    )(("Holder#Y", Alias)) === "unresolved[p.X]"
+    )(("Holder#Y", Alias)) === "≤2^32"
 
   // `g.Int` is the package's own class (2 values), which scalac binds over `scala.Int` even from
   // another file of the package.
@@ -605,7 +620,7 @@ class NamespaceSpec extends Specification {
          |final case class R[A](a: A, s: Schema)
          |final case class T[A](r: R[A])
          |final case class Chain[A](next: Option[Chain[A]])
-         |""".stripMargin
+         |""".stripMargin + cardinality.Compiled.withheld("package zz\nclass Schema")
     )
     (found(("Q", Class)) === s"unresolved[A, $schema]")
       .and(found(("Q2", Class)) === s"unresolved[B, $schema]")
@@ -670,7 +685,7 @@ class NamespaceSpec extends Specification {
   def lazyCycle = {
     val found = rows(
       """|final class S(val head: Boolean, tail0: => O.Cell)
-         |object O { final case class Cell(s: S); final case class St(h: Boolean, t: => St) }
+         |object O { final case class Cell(s: S); final class St(h: Boolean, t: => St) }
          |final case class UsesCell(c: O.Cell)
          |final class S2(val head: Boolean, tail0: => Cell2)
          |final case class Cell2(s: S2)

@@ -21,6 +21,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       this in an anonymous class, a local class, a local given          $nestedThis
       a qualified this names its own template                           $qualifiedThis
       a local object's members are its own                              $localObject
+      a local class has no companion to select from                     $localClass
       a local type that hides an outer one refuses                      $localTypes
     Applications are read to their last clause
       a clause a callee does not take applies its result's apply        $furtherClauses
@@ -58,9 +59,17 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
   // Fixture locals: pick prints true, then false under a call-site `given Boolean = false`; bound
   // true, then false; viaDefault 5, then 9 under `given Int = 9` — the given implicit search fills
   // at the local call, and the default evaluated there, are expanded at each call site. The def
-  // twin pickD prints true at both.
+  // twin pickD prints true at both. The `Has[Boolean]` given `bound` leaves to search is declared
+  // here and not in the shared prelude, whose other fixture has no use for it.
   def localClauses = {
-    val found = rows(flagGiven + """object U {
+    val found = rows(flagGiven + """object Hs {
+      |  inline given Has[Boolean] = summonFrom {
+      |    case x: Boolean => new Has[Boolean] { def get: Boolean = x }
+      |    case _          => new Has[Boolean] { def get: Boolean = true }
+      |  }
+      |}
+      |import Hs.given
+      |object U {
       |  inline def pick(b: Boolean): Boolean = {
       |    def read(using f: Flag): Boolean = f.b
       |    read
@@ -168,14 +177,16 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
     val found = rows("""object Use {
       |  inline def f(x: Int): Int = { object O { def g(y: Int): Int = y }; O.g(x) }
       |  def fD(x: Int): Int = { object O { def g(y: Int): Int = y }; O.g(x) }
-      |  inline def other(x: Int): Int = { class K; K.g(x) }
       |}""".stripMargin)
-    (found("Use.f") === pow2(37))
-      .and(found("Use.f") === found("Use.fD"))
-      .and(
-        refused(found("Use.other"), "reads the local K, which has no companion this reading reads")
-      )
+    (found("Use.f") === pow2(37)).and(found("Use.f") === found("Use.fD"))
   }
+
+  // `K.g` selects from a companion the local class does not have: no Scala program, read as written.
+  def localClass =
+    refused(
+      rows("object Use { inline def other(x: Int): Int = { class K; K.g(x) } }")("Use.other"),
+      "reads the local K, which has no companion this reading reads"
+    )
 
   // A local class named like a class outside the body would be read as the outer one, whose members
   // are not the local one's.

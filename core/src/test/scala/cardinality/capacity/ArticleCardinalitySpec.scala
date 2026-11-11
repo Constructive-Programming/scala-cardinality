@@ -1,7 +1,5 @@
 package cardinality.capacity
 
-import scala.meta.*
-
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -14,8 +12,12 @@ import org.specs2.execute.Result
 // which is why the larger examples below name a capacity such as 2^16 rather than a number.
 class ArticleCardinalitySpec extends Specification {
 
-  private def tpe(code: String): Size = Counter.`type`(dialects.Scala3(code).parse[Type].get)
-  private def src(code: String): Size = Counter.source(dialects.Scala3(code).parse[Source].get)
+  // A type is read from the alias a compiled source gives it, as every fixture is compiled. A
+  // lazy field is a plain class's by-name parameter (`final class St(head: Boolean, tail: => St)`):
+  // a case class's parameters are `val`s, which scalac does not take by name.
+  private def tpe(code: String): Size = Rows.typeSize(code)
+
+  private def src(code: String): Size = Rows.total(code)
 
   // What each pending target would need before its rule can be asserted instead.
   private val needsParametricity =
@@ -210,22 +212,22 @@ class ArticleCardinalitySpec extends Specification {
       "enum Loop { case Next(next: Loop) }"
     ) === NothingSize} (μX.X solved as a least fixed point)
     a lazy wrapper is one infinite tower     ${src(
-      "case class Loop(next: => Loop)"
+      "final class Loop(next: => Loop)"
     ) === UnitSize} (νX.X, §8)
     conaturals: every depth, plus the limit  ${src(
-      "case class CoNat(pred: => Option[CoNat])"
+      "final class CoNat(pred: => Option[CoNat])"
     ) === EffectiveOmega} (νX.(1 + X), completed lazy type collapsed to ω)
     an endless stream is program-countable   ${src(
-      "case class Stream(h: Boolean, t: => Stream)"
+      "final class Stream(h: Boolean, t: => Stream)"
     ) === EffectiveOmega} (νX.(2*X), ℵ₀ by the §4 finite-program reading)
     LazyList over a countable alphabet       ${tpe(
       "LazyList[String]"
     ) === EffectiveEpsilon0} (finite lists + infinite streams, collapsed to the ε₀ tier)
     a function field also unfolds the cycle  ${src(
-      "sealed trait E; case class One(e: => E) extends E; case class Two(i: Int => E) extends E"
+      "sealed trait E; final class One(e: => E) extends E; case class Two(i: Int => E) extends E"
     ) === EffectiveOmega + EffectiveOmega} (νX.(X + (Int → X)), §4 finite-program reading)
     a self-referring label still unfolds     ${src(
-      "case class M3(m: => M3, o: Option[M3])"
+      "final class M3(m: => M3, o: Option[M3])"
     ) === EffectiveOmega} (the Option arms Some(tower) beside the hole)
     recursion without a seed                 ${target(
       tpe("[A] => (A => A) => A"),

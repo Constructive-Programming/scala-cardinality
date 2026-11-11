@@ -100,7 +100,7 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
       "receiver space of its public constructors and factories not compared: rc.Gen"
     )
 
-  private val factories = rows(
+  private lazy val factories = rows(
     """package fy
       |final case class Pair private (a: Boolean, b: Boolean)
       |object Pair {
@@ -136,7 +136,7 @@ class ReceiverConstructorsSpec extends Specification with InventoryFixtures {
     (factories("fy.Use.cached") === Count.Finite(2))
       .and(factories("fy.Use.hidden") === Count.Finite(2))
 
-  private val delegating = rows(
+  private lazy val delegating = rows(
     """package fz
       |final class Mute private (private val a: Boolean)
       |object Mute { def of(a: Boolean): Mute = new Mute(a) }

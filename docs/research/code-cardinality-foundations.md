@@ -1945,7 +1945,7 @@ implicit conversion a body may meet, a source name — is unchanged.
 `.packageObject`, `.chainedPackage`; `BinderBoundsSpec.rebindableTops`;
 `HigherKindedRefusalSpec.boxedNames` (java.lang's boxed names read by their rooted names: their
 scalars' counts, their own keys), `StdlibModelSpec.javaWildcard` (`java.util.List` a sequence,
-`java.awt.List` refused unsupplied, 4 through a supplied declaration),
+`java.awt.List` refused unsupplied) and `.javaWildcardStub` (4 through a supplied declaration),
 `TastyStubsSpec` (a `java.sql` enum 16 and `java.awt.List` resolved through rendered JDK-module
 stubs), `.finalUnmodelled` (`Integer`, `Optional`),
 `NamespaceScopingSpec.unsuppliedWildcard` (the stored side under `scala.collection.mutable.*`); the Shadowed-builtin-names group of `GroundEnvironmentSpec` (declarations still shadow).

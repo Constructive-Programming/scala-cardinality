@@ -214,7 +214,7 @@ class StoredScopesSpec extends Specification {
   def packageRefusals = {
     val found = rowsOf(
       "lib5/Exp.scala" ->
-        "package lib5\nimport scala.collection.immutable.*\nobject Src { type Boolean = Int }\nexport Src.*",
+        "package lib5\nimport scala.collection.immutable.*\nobject Src { type Boolean = Int; object q { type X = Int } }\nexport Src.*",
       "lib5/W.scala" -> "package lib5\nfinal case class W(b: Boolean)\nfinal case class R(x: q.X)",
       "lib6/Exp.scala" -> "package lib6\nobject Src { private type Boolean = Int }\nexport Src.*",
       "lib6/W.scala" -> "package lib6\nfinal case class W(b: Boolean)",
@@ -440,7 +440,10 @@ class StoredScopesSpec extends Specification {
          |object M extends Serializable { final case class U(b: Boolean) }
          |class E2 extends RuntimeException { final case class U(b: Boolean) }
          |object W { import foo.*; object M2 extends Serializable { final case class U(b: Boolean) } }
-         |""".stripMargin
+         |""".stripMargin +
+        cardinality.Compiled.withheld(
+          "package zz { trait Base }\npackage foo { object Unsupplied }"
+        )
     )
     val refusal = "inherited type member not resolved: Boolean (unsupplied parent zz.Base)"
     refusedWith(found(("un.O4.U", Class)), refusal)
@@ -466,7 +469,7 @@ class StoredScopesSpec extends Specification {
          |object P { type BA = B2; object In extends BA { final case class U(b: Boolean) } }
          |object O4 extends zz.Base { final case class V(b: scala.Boolean) }
          |object O5 extends zz.Base { object In extends Inner { final case class U(b: Boolean) } }
-         |""".stripMargin
+         |""".stripMargin + cardinality.Compiled.withheld("package zz\ntrait Base { trait Inner }")
     )
     refusedWith(
       found(("ir.O.In2.U", Class)),

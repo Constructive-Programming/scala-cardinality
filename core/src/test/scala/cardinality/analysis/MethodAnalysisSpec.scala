@@ -145,7 +145,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       .analyze(
         inputs(
           "Example.scala" ->
-            "case class Hidden[A]()(secret: A)\ndef extract[A](h: Hidden[A]): A = h._1"
+            "case class Hidden[A]()(secret: A)\ndef extract[A](h: Hidden[A]): A = ???"
         )
       )
       .find(_.name == "extract")
@@ -159,7 +159,7 @@ class MethodAnalysisSpec extends Specification with InventoryFixtures {
       .analyze(
         inputs(
           "Example.scala" ->
-            "case class Secret[A] private (value: A)\ndef make[A](x: A): Secret[A] = x"
+            "case class Secret[A] private (value: A)\ndef make[A](x: A): Secret[A] = ???"
         )
       )
       .find(_.name == "make")

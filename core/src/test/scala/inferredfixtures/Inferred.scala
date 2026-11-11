@@ -45,4 +45,9 @@ object Patterns {
 object Lambdas {
   val negate: Boolean => Boolean = x => !x
   val both = List((true, false)).map((a, b) => a && b)
+  val applied = List((b: Boolean) => !b).map(f => f(true))
+}
+
+object FunctionPatterns {
+  val (negate, unit) = ((b: Boolean) => !b, ())
 }

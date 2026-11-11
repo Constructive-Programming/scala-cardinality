@@ -28,6 +28,10 @@ class ImportClausesSpec extends Specification {
       what parents, exports or privacy add to a namespace is not read $unreadMembers
     """
 
+  // `zz`, a namespace no source set supplies: carried by one file of a set, it is compiled against
+  // by all of them and withheld from the reading (`Compiled.withheld`).
+  private val zz = cardinality.Compiled.withheld("package zz\nobject Unsupplied")
+
   private val widgets = List(
     "a/Widget.scala" -> "package a\ncase class Widget(x: Boolean)",
     "b/Widget.scala" -> "package b\ncase class Widget(x: Unit)",
@@ -65,7 +69,9 @@ class ImportClausesSpec extends Specification {
   def importsRefused = {
     val found = rowsOf(
       (widgets ++ List(
-        "c/Use.scala" -> "package c\nimport zz.Widget\ncase class Use(w: Widget)\nimport a.Missing\ncase class Use2(m: Missing)",
+        "c/Use.scala" -> ("package c\nimport zz.Widget\ncase class Use(w: Widget)\nimport a.Missing\ncase class Use2(m: Missing)" +
+          cardinality.Compiled
+            .withheld("package zz { class Widget }\npackage a { class Missing }")),
         "d/Use.scala" -> "package d\nimport scala.jdk.CollectionConverters.*\nimport a.Widget\ncase class Use(w: Widget)",
         "d2/Use.scala" -> "package d2\nimport zz.*\nimport a.Widget\ncase class Use(w: Widget)",
         "e/H.scala" -> "package e\nfinal class C { type T = Boolean }\nfinal class H(val x: C) { import x.T; type Y = T }",
@@ -92,7 +98,7 @@ class ImportClausesSpec extends Specification {
     val found = rowsOf(
       "l/A.scala" -> "package l\nimport scala.jdk.CollectionConverters.*\nfinal case class Framed(id: Int)",
       "l2/B.scala" -> "package l2\nimport scala.quoted.*\nfinal case class E(e: Expr[Int])\nfinal case class I(i: Int)",
-      "l3/C.scala" -> "package l3\nimport zz.*\nfinal case class Z(i: Int)"
+      "l3/C.scala" -> ("package l3\nimport zz.*\nfinal case class Z(i: Int)" + zz)
     )
     (found(("l.Framed", Class)) === "≤2^32")
       .and(found(("l2.I", Class)) === "≤2^32")
@@ -111,7 +117,7 @@ class ImportClausesSpec extends Specification {
     val q = "q/T.scala" -> "package q\ntype T = Boolean"
     val found = rowsOf(
       q,
-      "a/U.scala" -> "package a\nimport q.*\nimport zz.*\nfinal case class U(t: T)",
+      "a/U.scala" -> ("package a\nimport q.*\nimport zz.*\nfinal case class U(t: T)" + zz),
       "b/U.scala" -> "package b\nimport zz.*\nimport q.*\nfinal case class U(t: T)",
       "c/U.scala" -> "package c\nimport zz.*\nimport _root_.q.*\nfinal case class U(t: T)"
     )

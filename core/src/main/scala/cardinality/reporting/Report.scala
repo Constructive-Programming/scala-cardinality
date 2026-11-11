@@ -20,8 +20,9 @@ import java.util.zip.ZipFile
   * The sources can be a project's, or the published `-sources.jar` of a library, which is what
   * makes a dependency's types measurable from outside. `locations` holds where `Report.of` placed
   * each source it read below its input; a report assembled from sources alone places them below the
-  * directory they share (`Report.locations`). `warnings` lists the dependency declarations that
-  * could not be read: their names stay unsupplied, which only refuses more.
+  * directory they share (`Report.locations`). `warnings` lists the dependency declarations and the
+  * compiled types that could not be read: their names stay unsupplied and their members untyped,
+  * which only refuses more.
   */
 final case class Report(
     sources: List[Report.Source],
@@ -184,7 +185,7 @@ object Report {
             Report(
               sources,
               found.errors.map(message => Error("", message)),
-              warnings = stubs.errors ++ unread
+              warnings = unsupplied(stubs.errors) ++ unread
             ),
             Some(snapshot.digest),
             Some(found),
@@ -405,9 +406,12 @@ object Report {
   private def failed(error: Error, location: String => String): String =
     s"  could not read ${location(error.path)}: ${error.message}"
 
-  // A dependency declaration left unsupplied, after the errors.
-  private def warned(warnings: List[String]): List[String] =
-    warnings.map(warning => s"  dependency stub not read: $warning")
+  // What a dependency's stubs could not supply, as a warning says it.
+  private[reporting] def unsupplied(stubs: List[String]): List[String] =
+    stubs.map(error => s"dependency stub not read: $error")
+
+  // What the report read less of than it was given, after the errors.
+  private def warned(warnings: List[String]): List[String] = warnings.map(warning => s"  $warning")
 
   private def row(
       found: DefinitionRow,

@@ -69,7 +69,7 @@ class PolymorphicMemberSpec extends Specification {
     (found("poly1.U.f") === Count.Countable).and(found("poly1.U.g") === Count.Countable)
   }
 
-  private val bounds = counts("""package bounds
+  private lazy val bounds = counts("""package bounds
     |trait T[A, X] { def f[M >: X <: String](a: A): A }
     |trait V[A] { def f[M >: Int <: String](a: A): A }
     |trait L[A] { def f[M >: Int](a: A): A }
@@ -126,7 +126,7 @@ class PolymorphicMemberSpec extends Specification {
   def growingChain =
     refused(bounds("bounds.U.cyc"), "Inhabitation state budget exceeded")
 
-  private val inl = counts("""package inl
+  private lazy val inl = counts("""package inl
     |trait T { inline def f[M](x: M): Boolean }
     |trait U { def f[M](x: M): Boolean }
     |trait T2 { inline def g(b: Boolean): Boolean }
@@ -186,7 +186,7 @@ class PolymorphicMemberSpec extends Specification {
   def deferredInlineExpansion =
     inl("inl.W.i") === Count.Finite(4)
 
-  private val poly2 = counts("""package poly2
+  private lazy val poly2 = counts("""package poly2
     |trait Fold[S, A] { def foldMap[M](f: A => M)(s: S): M }
     |trait Chooser { def choose[M](x: M, y: M): M }
     |trait Test { def test[M](m: M): Boolean }
@@ -237,7 +237,7 @@ class PolymorphicMemberSpec extends Specification {
       .and(paths("paths.U.any") === Count.Finite(1))
   }
 
-  private val aliases = counts("""package aliases
+  private lazy val aliases = counts("""package aliases
     |trait TagC[A] { type T = A; def pick[B](x: B, y: B, t: T): B }
     |trait TagC2[A] { type T = A; def p(t: T): Boolean }
     |trait Box[A] { type T = A; def get[A](t: T): A }
@@ -305,7 +305,7 @@ class PolymorphicMemberSpec extends Specification {
       )
   }
 
-  private val paths = counts("""package paths
+  private lazy val paths = counts("""package paths
     |trait Mixed3[A] { def f[M](a: A): (M => M, A) }
     |trait Mixed4[A] { def f[M](a: A): (M => M, Boolean) }
     |trait Church { def run[M](f: M => M, x: M): M }
@@ -348,7 +348,7 @@ class PolymorphicMemberSpec extends Specification {
         "paths.Church.run)"
     ).and(paths("paths.U.par") must beLike { case Count.Unresolved(_) => ok })
 
-  private val poly4 = counts("""package poly4
+  private lazy val poly4 = counts("""package poly4
     |trait Seeded[F[_]] {
     |  def make[A](a: A): F[A]
     |  def seed[A]: F[A]

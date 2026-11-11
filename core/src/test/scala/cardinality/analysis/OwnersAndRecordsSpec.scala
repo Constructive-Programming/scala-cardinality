@@ -231,14 +231,16 @@ class OwnersAndRecordsSpec extends Specification {
       .and(found("Use.x") === Count.Finite(8))
   }
 
-  // Every leaf inherits the root's abstract `k: Nothing`; no pure, total body implements the
-  // empty type, so the family enumerates no value: a function from it has 1 implementation (the
-  // empty sum is 0 values, absurd elimination) and the stored estimate is 0.
+  // Every leaf has to implement the root's `k: Nothing`, and no pure, total body implements the
+  // empty type: the leaves' `???` supplies nothing. Read through the root's contract the family
+  // enumerates no value: a function from it has 1 implementation (the empty sum is 0 values,
+  // absurd elimination) and the stored estimate is 0. A leaf read on its own is the open question
+  // of docs/research/pure-code.md (a member implementing a declaration of an empty type).
   def emptyFamily = {
     val found = one("""
       sealed trait Root { def k: Nothing }
-      case class L1(i: Int) extends Root
-      case object L2 extends Root
+      case class L1(i: Int) extends Root { def k: Nothing = ??? }
+      case object L2 extends Root { def k: Nothing = ??? }
       object Use { def f(r: Root): Int = ??? }
     """)
     found("Use.f") === Count.Finite(1)

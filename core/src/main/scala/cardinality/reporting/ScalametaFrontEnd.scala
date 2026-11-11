@@ -32,7 +32,10 @@ private[cardinality] object ScalametaFrontEnd extends FrontEnd {
       )
     )
     // One measured source per parsed one, in order: the ascription keeps every input in place.
-    FrontEnd.Rows(parsed.map(_.map(_ => measured.next())), stubs.errors ++ unread)
+    FrontEnd.Rows(
+      parsed.map(_.map(_ => measured.next())),
+      Report.unsupplied(stubs.errors) ++ unread
+    )
   }
 
   /** The inputs with the compiler's types written in, and what of `classes` could not be read. */
