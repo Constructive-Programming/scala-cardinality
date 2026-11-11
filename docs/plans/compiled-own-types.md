@@ -627,12 +627,27 @@ time on the rows still uncovered is not in it.
   reviewed.
 - Done: the gate changes (limit classes, coverage memory, six corpora, withheld support), the
   decided Q4, Q6, Q8, and S1 as "After S1" below describes it.
-- Next: S2, the definitions table. `Readings.definition` reads an object, an enum of value cases
-  and a class of base-type fields today. What its uncovered rows need, largest first: `an abstract
-  class or trait` (the old row is `—`, no size and no reason), `a type alias`, `a class with type
-  parameters`, `a class with parents`, `a field of type …` (a field that is a class of the module
-  or a standard type: the stored-size rules of `capacity.Counter.typeIn`), `an enum with class
-  cases` and `with parameters`. Then S3, constructor rows (`a constructor`).
+- Next: S2, the definitions table, in a new `compiled/Stored.scala` called from
+  `Readings.definition` (which reads an object, an enum of value cases and a class of base-type
+  fields today). The old rules are `capacity.Walk.of` (which row a definition gets) and
+  `capacity.Counter.typeIn` and `builtin` (what a type stores). To port, in this order, each step
+  run against the gate:
+  1. A row is a size, or reasons (`Definition.Unbound`), or neither: an open trait or abstract
+     class and a constructor alias (`type F = [X] =>> …`) are a dash, no size and no reason.
+  2. What a type stores: base types by the class the compiler bound; tuples multiply; a union adds
+     (once where both sides are one type); an intersection is the smaller side; a function is
+     codomain ^ domain, 0 from an empty domain; `Option`, `Either`, `Set`, `Map`,
+     `PartialFunction`, the linear collections and `LazyList` by `builtin`'s rules; a literal or
+     singleton is 1; a type parameter of the measured definition is the reason
+     `Unbound.Parameter`; a throwable or open class of the module is `Unbound.Open`.
+  3. A class row is the product of what its constructor's parameters store, parents ignored; an
+     enum row the sum of its cases; an alias row what its right-hand side stores; a top-level
+     value what its declared type stores.
+  4. A reference to a class of the module is that class's row read with the arguments bound; a
+     reference that reaches itself needs the solver's fixed point (`capacity.Solver`, tied to the
+     old `Scope`) and stays uncovered until it is ported; a sealed family is the sum
+     `capacity.SealedFamilies` reads, with its refusals.
+  Then S3, constructor rows (`a constructor`).
 - To run: `scripts/differential.sh /var/cache/users/rhansen/cardinality-tasty <output directory>`,
   after `sbt core/testFull` has filled `core/target/compiled-fixtures`. While developing, run the
   gate against a copy of `<assets>/covered`: a passing run writes the memory, and a row a
