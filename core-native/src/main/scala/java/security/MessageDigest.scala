@@ -39,8 +39,8 @@ object MessageDigest {
   )
 
   private def sha256(message: Array[Byte]): Array[Byte] = {
-    val h = Array(0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
-      0x5be0cd19)
+    val h = Array(0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+      0x1f83d9ab, 0x5be0cd19)
     val padded = {
       val length = message.length
       val total = ((length + 9 + 63) / 64) * 64
@@ -56,8 +56,10 @@ object MessageDigest {
       var t = 0
       while (t < 16) { w(t) = words.getInt(block + 4 * t); t += 1 }
       while (t < 64) {
-        val s0 = Integer.rotateRight(w(t - 15), 7) ^ Integer.rotateRight(w(t - 15), 18) ^ (w(t - 15) >>> 3)
-        val s1 = Integer.rotateRight(w(t - 2), 17) ^ Integer.rotateRight(w(t - 2), 19) ^ (w(t - 2) >>> 10)
+        val s0 =
+          Integer.rotateRight(w(t - 15), 7) ^ Integer.rotateRight(w(t - 15), 18) ^ (w(t - 15) >>> 3)
+        val s1 =
+          Integer.rotateRight(w(t - 2), 17) ^ Integer.rotateRight(w(t - 2), 19) ^ (w(t - 2) >>> 10)
         w(t) = w(t - 16) + s0 + w(t - 7) + s1
         t += 1
       }

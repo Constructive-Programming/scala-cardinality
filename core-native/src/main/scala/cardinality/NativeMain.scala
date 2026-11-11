@@ -3,7 +3,8 @@ package cardinality
 import cardinality.reporting.Report
 import java.nio.file.Paths
 
-/** Spike entry point of the native binary: `[--stubs <file>] <source path>...` prints the report. */
+/** Spike entry point of the native binary: `[--stubs <file>] <source path>...` prints the report.
+  */
 object NativeMain {
 
   def main(args: Array[String]): Unit = {

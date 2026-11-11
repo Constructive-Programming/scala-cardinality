@@ -21,7 +21,7 @@ developers := List(
 // artifacts here, `sonaRelease` uploads and releases them (SONATYPE_USERNAME / SONATYPE_PASSWORD).
 publishTo := localStaging.value
 
-// The Scala sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is 3.9.0, matching cats-eo 1.2.1).
+// The Scala sbt 2.x itself runs on (sbt 2.1.0-RC1's metabuild is 3.9.0, matching cats-eo 1.3.0).
 // The sbt 2 plugin must be binary-loadable inside sbt, and Scala 3 binary compatibility is backward
 // only. `core` no longer has to follow: the plugins load it apart (`loaderSettings` below).
 scalaVersion := "3.9.0"
@@ -61,10 +61,12 @@ lazy val core = project
     coverageMinimumStmtTotal := 80
   )
 
-// Spike: `core` as a Scala Native binary. The same sources, minus the TASTy reader (tasty-query has
-// no Native build, and a native binary holds no JDK to read): `core-native` supplies a stand-in
-// for `TastyStubs`, a SHA-256 `MessageDigest` (absent from Scala Native's Java library) and a main.
-// Not aggregated: nothing here is published or gated yet.
+// Experimental: `core` as a Scala Native binary (`sbt coreNative/nativeLink`). The same sources,
+// minus the TASTy reader: tasty-query has no Native build, and a native binary holds no JDK to
+// read. `core-native` supplies a stand-in for `TastyStubs` (a classpath is reported as not read; a
+// stub file rendered on the JVM is still read), a SHA-256 `MessageDigest` (absent from Scala
+// Native's Java library) and a main. Its reports match the JVM's; it is slower on large inputs.
+// Not aggregated: nothing here is published, tested or gated.
 lazy val coreNative = (project in file("core-native"))
   .enablePlugins(ScalaNativePlugin)
   .settings(

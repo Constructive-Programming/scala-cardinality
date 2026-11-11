@@ -250,6 +250,10 @@ The build has two modules:
 - `sbt1-plugin` — the same plugin for sbt 1 (Scala 2.12), tested by scripted on a real sbt 1
   (`sbt sbt1Plugin/scripted`).
 - `mill-plugin` — `mill-cardinality`, a Mill module trait, tested with Mill's testkit.
+- `core-native` — experimental: `core` as a Scala Native binary (`sbt coreNative/nativeLink`,
+  `NATIVE_RELEASE=1` for the optimized build). It gives the JVM's reports without a JVM, but cannot
+  read compiled dependencies itself (it reads a stub file rendered on the JVM) and is slower on
+  large inputs. Not published or gated.
 - `plugin-loader` and `plugin-sbt` — sources compiled into the plugins, not modules: the loader all
   three reach `core` through, and the keys and report logic the two sbt plugins share.
 
