@@ -3,7 +3,6 @@ package cardinality.compiled
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
 import cardinality.analysis.resolution.TopTypes
-import cardinality.capacity.{BaseTypes, NothingSize, Size, UnitSize}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Symbols.*
@@ -20,8 +19,7 @@ import tastyquery.Types.*
   * environment already holds, and an object has no abstract one), over the types `Shapes` reads and
   * the method's own unbounded type parameters.
   *
-  * Definition rows: an object; a class without type parameters, parents or a restricted constructor
-  * whose fields are base types; an enum whose cases are all values.
+  * Definition rows are measured by `Stored`.
   */
 final private[compiled] class Readings(world: World)(using Context) {
   import Unread.Uncovered
@@ -125,55 +123,6 @@ final private[compiled] class Readings(world: World)(using Context) {
     else Left(Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))
   }
 
-  // ---- definition rows ----------------------------------------------------------------------
-
-  /** The size of a definition row. */
-  def definition(tree: Tree): Either[String, Size] = tree match {
-    case c: ClassDef if c.symbol.isModuleClass    => Right(UnitSize)
-    case c: ClassDef if c.symbol.isEnum           => enumeration(c)
-    case c: ClassDef if !c.symbol.isAbstractClass => stored(c)
-    case _: ClassDef                              => Left("an abstract class or trait")
-    case _: TypeMember                            => Left("a type alias")
-    case _                                        => Left("a top-level value")
-  }
-
-  // What a class's constructor stores: the product of its fields.
-  private def stored(tree: ClassDef): Either[String, Size] = {
-    val c = tree.symbol
-    val constructor = tree.rhs.constr
-    val fields = Shapes.parameters(constructor)
-    if (c.typeParams.nonEmpty) Left("a class with type parameters")
-    else if (!c.parents.forall(memberless) || c.givenSelfType.nonEmpty) Left("a class with parents")
-    else if (!constructor.symbol.isPublic) Left("a restricted constructor")
-    else Traversals.sequence(fields.map(f => base(f.tpt.toType))).map(_.foldLeft(UnitSize)(_ * _))
-  }
-
-  // An enum without parameters whose cases are all values: one value each.
-  private def enumeration(tree: ClassDef): Either[String, Size] =
-    if (tree.symbol.typeParams.nonEmpty || tree.rhs.constr.paramLists.exists(_.merge.nonEmpty))
-      Left("an enum with parameters")
-    else
-      tree.symbol.sealedChildren match {
-        // An enum has a case; none listed means the classpath lacks the annotation that lists them.
-        case Nil   => Left("an enum whose cases are not listed")
-        case cases =>
-          Traversals
-            .sequence(cases.map {
-              case _: TermSymbol  => Right(UnitSize)
-              case _: ClassSymbol => Left("an enum with class cases")
-            })
-            .map(_.foldLeft(NothingSize)(_ + _))
-      }
-
-  // A base type of the size algebra, by the class the compiler bound.
-  private def base(tpe: Type): Either[String, Size] =
-    World
-      .classNamed(tpe)
-      .flatMap(world.library)
-      .flatMap(Readings.Bases.get)
-      .flatMap(BaseTypes.get)
-      .toRight(s"a field of type ${tpe.showBasic}")
-
 }
 
 private[compiled] object Readings {
@@ -185,27 +134,5 @@ private[compiled] object Readings {
   // class among them.
   private val Memberless =
     Set("java.lang.Object", "scala.Product", "scala.Equals", "java.io.Serializable")
-
-  // The base types of `BaseTypes` that are classes, by fully qualified name.
-  private val Bases: Map[String, String] =
-    (List(
-      "Unit",
-      "Boolean",
-      "Byte",
-      "Short",
-      "Char",
-      "Int",
-      "Long",
-      "Float",
-      "Double",
-      "Any",
-      "Matchable",
-      "Null"
-    ).map(name => s"scala.$name" -> name) ++ List(
-      "java.lang.String" -> "String",
-      "java.lang.Object" -> "Object",
-      "scala.math.BigInt" -> "BigInt",
-      "scala.math.BigDecimal" -> "BigDecimal"
-    )).toMap
 
 }

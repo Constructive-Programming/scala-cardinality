@@ -15,16 +15,16 @@ import tastyquery.Types.*
   *
   * A sum with one missing branch is a wrong sum, so a case the model does not read refuses the
   * whole: an anonymous instance, a given object, an inner or local subtype, an open subtype, an
-  * enum under a sealed family, a class something extends, a class with several parameter clauses, a
-  * parameter that is no member.
+  * enum class under a sealed family, a class something extends, a class with several parameter
+  * clauses, a parameter that is no member.
   *
   * What the reading does not cover yet stays `Uncovered`: a construction that always throws, binds
-  * a pattern or inherits an abstract member of the empty type (slice S6); a restricted field or
-  * constructor (rule B); a case class something extends; a plain class with no parameter (`class L`
-  * and `class L()` are one tree); an enum case with several parameter clauses; a subtype reached
-  * twice; an abstract member of the empty type that takes parameters; a sum whose cases the
-  * classpath does not list; a subtype without a tree; and a subtype that instantiates its parent
-  * otherwise than `instantiated` reads.
+  * a pattern or inherits an abstract member of the empty type (slice S6); an enum's value case
+  * under a sealed family; a restricted field or constructor (rule B); a case class something
+  * extends; a plain class with no parameter (`class L` and `class L()` are one tree); an enum case
+  * with several parameter clauses; a subtype reached twice; an abstract member of the empty type
+  * that takes parameters; a sum whose cases the classpath does not list; a subtype without a tree;
+  * and a subtype that instantiates its parent otherwise than `Sums.carried` reads.
   */
 final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) {
   import Shapes.Env
@@ -92,6 +92,9 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
       // A given object; one with parameters is a class, which the class's own checks stop.
       case value: TermSymbol if value.isGivenOrUsing =>
         Left(Refused(s"sealed family has a given instance outside the fragment: ${symbol.name}"))
+      // An enum's value case under a family of its own is the enum's construction to read first.
+      case value: TermSymbol if value.isEnumCase =>
+        Left(Uncovered(s"an enum case under a sealed family: ${value.displayFullName}"))
       // An object and its class have one owner.
       case _ if !World.inObjects(child) =>
         Left(Refused(s"sealed subtype is an inner or local class: ${child.name}"))
@@ -106,7 +109,7 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
           // subtypes elsewhere.
           if (cls.isEnum) Left(Refused(s"sealed subtype outside the closed fragment: ${cls.name}"))
           else if (Shapes.isFamily(cls))
-            instantiated(cls, cls.parents).flatMap(new Level(below, _, env).familyCases)
+            instantiated(cls).flatMap(new Level(below, _, env).familyCases)
           else if (cls.isAbstractClass)
             Left(Refused(s"sealed family has an open abstract subtype: ${cls.name}"))
           else construction(below).flatMap(_ => caseFields(cls)).map(read => List(cls -> read))
@@ -117,9 +120,8 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
     private def caseFields(child: ClassSymbol | TermSymbol): Either[Unread, List[Shape]] =
       child match {
         case value: TermSymbol =>
-          // An object's parents say how it stands in the sum; a value case's declared type does.
           // It has no type parameter, so what it stands for is no field either.
-          instantiated(value, value.moduleClass.fold(List(value.declaredType))(_.parents))
+          instantiated(value)
         case cls: ClassSymbol =>
           Shapes.tree(cls).flatMap { below =>
             val constructor = below.rhs.constr
@@ -147,76 +149,23 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
               Left(Refused(s"sealed subtype hides a parameter: ${cls.name}"))
             else if (accessors.exists(_ != Visibility.Public))
               Left(Uncovered(s"a restricted field: $name"))
-            else instantiated(cls, cls.parents).flatMap(shapes.fields(below, _, env))
+            else instantiated(cls).flatMap(shapes.fields(below, _, env))
           }
       }
 
-    // How a subtype stands for this level applied to `arguments`: the shapes of its own type
-    // parameters. `C[Y] extends P[a]` holds the values of `C[t]` in `P[t]`, for every `t`, where
-    // each of the subtype's parameters is unbounded and passed to exactly one slot, of its own
-    // variance, and every other slot is pinned bottom-up (`Nothing` into a covariant one, `Any`
-    // into a contravariant one). A slot pinned to another type, a parameter no slot or two slots
-    // carry, a bound and another variance each need more than this reads.
-    private def instantiated(
-        child: Symbol,
-        parents: List[TypeOrMethodic]
-    ): Either[Unread, List[Shape]] = {
-      val parameters = child match {
-        case cls: ClassSymbol => cls.typeParams
-        case _                => Nil
-      }
-      val slots = symbol.typeParams
-      val passed = parents.collectFirst {
-        case tpe: Type if World.classNamed(tpe).contains(symbol) =>
-          tpe.dealias match {
-            case applied: AppliedType => applied.args
-            case _                    => Nil
-          }
-      }
-      val filled = passed.toList.flatten.zip(slots)
-      // Each parameter with the slots that carry it and what they stand for.
-      val bound = parameters.map { parameter =>
-        parameter -> filled.zip(arguments).collect {
-          case ((argument, slot), shape) if carries(argument, parameter) => slot -> shape
-        }
-      }
-      val fits = bound.forall {
-        case (parameter, List((slot, _))) =>
-          slot.declaredVariance == parameter.declaredVariance &&
-          Shapes.unbounded(parameter.declaredBounds)
-        case _ => false
-      }
-      val settled = filled.forall { (argument, slot) =>
-        pinned(argument, slot) || parameters.exists(carries(argument, _))
-      }
-      if (passed.exists(_.sizeIs == slots.size) && settled && fits)
-        Right(bound.map(_._2.head._2))
-      else
-        Left(
+    // What a subtype's own type parameters stand for, where this level is applied to
+    // `arguments`.
+    private def instantiated(child: ClassSymbol | TermSymbol): Either[Unread, List[Shape]] =
+      Sums
+        .carried(child, symbol, arguments)
+        .toRight(
           Uncovered(
             "a sealed subtype that does not pass its own parameters to its parent: " +
               child.displayFullName
           )
         )
-    }
 
   }
-
-  // A slot every instantiation admits: `Nothing` in a covariant one, `Any` in a contravariant one.
-  private def pinned(argument: TypeOrWildcard, slot: ClassTypeParamSymbol): Boolean =
-    argument match {
-      case tpe: Type =>
-        (slot.declaredVariance == Variance.Covariant && tpe.isSameType(defn.NothingType)) ||
-        (slot.declaredVariance == Variance.Contravariant && tpe.isSameType(defn.AnyType))
-      case _ => false
-    }
-
-  // Whether a clause's argument is the subtype's own type parameter.
-  private def carries(argument: TypeOrWildcard, parameter: ClassTypeParamSymbol): Boolean =
-    argument match {
-      case ref: TypeRef => ref.optSymbol.contains(parameter)
-      case _            => false
-    }
 
   // The abstract members of the empty type a template declares, each by its parameters.
   private def absurdMembers(template: ClassDef): List[List[ValDef]] = template.rhs.body.collect {
@@ -257,5 +206,79 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
       )
     )
   }
+
+}
+
+private[compiled] object Sums {
+
+  /** How a subtype stands for its parent applied to `arguments`, by its clause: what each of its
+    * own type parameters stands for, the argument of the parent's slot that carries it.
+    * `C[Y] extends P[a]` holds the values of `C[t]` in `P[t]`, for every `t`, where each of the
+    * subtype's parameters is unbounded and passed to exactly one slot, of its own variance, and
+    * every other slot is pinned bottom-up (`Nothing` into a covariant one, `Any` into a
+    * contravariant one). A slot pinned to another type, a parameter no slot or two slots carry, a
+    * bound and another variance each need more than this reads: none.
+    */
+  def carried[A](child: ClassSymbol | TermSymbol, parent: ClassSymbol, arguments: List[A])(using
+      Context
+  ): Option[List[A]] = {
+    // The subtype's clause and its own type parameters: a class's parents; for an object or a
+    // value case, which has none, the object's parents, those of the anonymous class a value case
+    // with its own `extends` clause is an instance of, or the value case's declared type.
+    val (parents, parameters) = child match {
+      case cls: ClassSymbol  => cls.parents -> cls.typeParams
+      case value: TermSymbol =>
+        value.moduleClass
+          .orElse(value.tree.toList.flatMap(World.classes).map(_.symbol).headOption)
+          .fold(List[TypeOrMethodic](value.declaredType))(_.parents) -> Nil
+    }
+    val passed = parents.collectFirst {
+      case tpe: Type if World.classNamed(tpe).contains(parent) =>
+        tpe.dealias match {
+          case applied: AppliedType => applied.args
+          case _                    => Nil
+        }
+    }
+    val filled = passed.toList.flatten.zip(parent.typeParams).zipWithIndex
+    // Each parameter with the slots that carry it.
+    val bound = parameters.map { parameter =>
+      parameter -> filled.collect {
+        case ((argument, slot), index) if carries(argument, parameter) => slot -> index
+      }
+    }
+    val fits = bound.forall {
+      case (parameter, List((slot, _))) =>
+        slot.declaredVariance == parameter.declaredVariance &&
+        Shapes.unbounded(parameter.declaredBounds)
+      case _ => false
+    }
+    val settled = filled.forall {
+      case ((argument, slot), _) =>
+        pinned(argument, slot) || parameters.exists(carries(argument, _))
+    }
+    Option.when(passed.exists(_.sizeIs == parent.typeParams.size) && settled && fits)(
+      bound.map((_, carriers) => arguments(carriers.head._2))
+    )
+  }
+
+  // A slot every instantiation admits: `Nothing` in a covariant one, `Any` in a contravariant one.
+  private def pinned(argument: TypeOrWildcard, slot: ClassTypeParamSymbol)(using
+      Context
+  ): Boolean =
+    argument match {
+      case tpe: Type =>
+        (slot.declaredVariance == Variance.Covariant && tpe.isSameType(defn.NothingType)) ||
+        (slot.declaredVariance == Variance.Contravariant && tpe.isSameType(defn.AnyType))
+      case _ => false
+    }
+
+  // Whether a clause's argument is the subtype's own type parameter.
+  private def carries(argument: TypeOrWildcard, parameter: ClassTypeParamSymbol)(using
+      Context
+  ): Boolean =
+    argument match {
+      case ref: TypeRef => ref.optSymbol.contains(parameter)
+      case _            => false
+    }
 
 }

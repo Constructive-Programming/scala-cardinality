@@ -49,7 +49,8 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
   ): List[Either[Report.Error, Report.Source]] = {
     // A class file is listed under its class's and its object's name: each class once.
     val trees = own.distinct.flatMap(_.tree).groupBy(_.pos.sourceFile.path)
-    val readings = new Readings(new World(own.toSet))
+    val world = new World(own.toSet)
+    val measure = rowsOf(new Readings(world), new Stored(world))
     // Each compiled path belongs to the source that shares most of it (`Exp.scala` against
     // `lib/Exp.scala`), and a source is read from the one compiled path that belongs to it. Two
     // sources that share as much of a compiled path are not told apart: neither is read from it.
@@ -65,7 +66,7 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
       owners.getOrElse(Some(path), Nil) match {
         case List(compiled) =>
           // A tree this reading cannot walk costs its source, said, not the report.
-          try rowsOf(new Source(path, text), trees(compiled), readings)
+          try measure(new Source(path, text), trees(compiled))
           catch { case NonFatal(failure) => error(s"compiled classes not read: $failure") }
         case Nil if owners.getOrElse(None, Nil).exists(shared(path, _) > 0) =>
           error("compiled classes not told apart from another source's")
@@ -102,8 +103,8 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
         Left(s"a member the classpath does not hold: ${missing.name}")
     }
 
-  private def rowsOf(source: Source, trees: List[ClassDef], readings: Readings)(using
-      Context
+  private def rowsOf(readings: Readings, stored: Stored)(source: Source, trees: List[ClassDef])(
+      using Context
   ): Either[Report.Error, Report.Source] = {
     val (methods, definitions, stale) = Targets.of(source, trees)
     if (stale.nonEmpty)
@@ -118,13 +119,13 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
         Report.Source(
           source.path,
           definitions.map { defined =>
-            val size = reading(readings.definition(defined.tree))
+            val row = reading(stored.row(defined.kind, defined.tree))
             Definition(
               defined.name,
               defined.kind,
               defined.params,
-              size.toOption,
-              size.left.toOption.toList.map(why => Definition.Unbound.Refusal(s"$Uncovered: $why")),
+              row.toOption.flatMap(_.size),
+              row.fold(why => List(Definition.Unbound.Refusal(s"$Uncovered: $why")), _.unbound),
               defined.tree.pos.startLine + 1
             )
           },

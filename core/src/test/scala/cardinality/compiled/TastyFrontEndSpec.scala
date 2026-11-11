@@ -28,6 +28,8 @@ class TastyFrontEndSpec extends Specification {
     a class of the module is the product or sum it declares       $products
     a type the model does not read is refused, as before          $refusals
     a type no slice reads yet is uncovered                        $later
+    a definition row is what it stores, its reasons, or a dash    $stored
+    a definition the stored side does not read yet is uncovered   $unstored
 
   The differential gate
     agrees with the scalameta front end on every row measured     $agrees
@@ -157,6 +159,9 @@ class TastyFrontEndSpec extends Specification {
       |final case class FldC(private val b: Boolean) extends Fld
       |sealed trait Bare
       |final class BareC extends Bare
+      |sealed trait Under
+      |case object U1 extends Under
+      |enum Mixed { case M1 extends Mixed with Under; case M2 }
       |sealed trait Two[A, B]
       |final case class Twice[A](a: A) extends Two[A, A]
       |sealed trait Co[+A]
@@ -236,6 +241,8 @@ class TastyFrontEndSpec extends Specification {
       |  def rst: Rst = ???
       |  def fld: Fld = ???
       |  def bare: Bare = ???
+      |  def under: Under = ???
+      |  def mixed: Mixed = ???
       |  def twice(t: Two[Boolean, Unit]): Boolean = true
       |  def inv[A](c: Co[A]): Boolean = true
       |  def rep: Rep = ???
@@ -260,12 +267,83 @@ class TastyFrontEndSpec extends Specification {
       |}
       |""".stripMargin
 
-  private lazy val input =
-    TastyFrontEndSpec.compiled(
-      "Demo.scala" -> text,
-      "Shapes.scala" -> shapes,
-      "Types.scala" -> types
-    )
+  // The definition rows slice S2 reads, and those it leaves.
+  private val sizes =
+    """package sizes
+      |
+      |final case class Pt(x: Boolean, y: Boolean)
+      |final class Wide(val f: Option[Boolean] => Boolean, o: Option[Boolean]) extends Open
+      |final case class Gen[A](a: A)
+      |final case class Phantom[A](b: Boolean)
+      |final class Hk[F[_], A](x: F[A])
+      |trait Open
+      |abstract class Base(x: Int)
+      |final case class Holds(o: Open)
+      |final case class Uses(g: Gen[Boolean], p: Pt)
+      |final case class Fails(e: Exception)
+      |trait HasM { type M; final case class In(m: M) }
+      |enum Tri { case A, B; case C(b: Boolean) }
+      |enum Box[+T] { case Full(t: T); case Empty }
+      |final case class Boxed(b: Box[Boolean])
+      |enum Lvl(val n: Int) { case Lo extends Lvl(1) with Open; case Hi extends Lvl(2) }
+      |enum Idx[A] { case OfInt extends Idx[Int] }
+      |type Two = (Boolean, Option[Boolean])
+      |type Fn[X] = X => Boolean
+      |type Ctor = [X] =>> List[X]
+      |type Un = Boolean | Unit
+      |type Same = Boolean | Boolean
+      |type Meet = Matchable & Boolean
+      |type Strs = List[String]
+      |type Fns = List[String => String]
+      |type Never = Nothing => Boolean
+      |type Opt = Option[Boolean]
+      |type Mp = Map[Boolean, Unit]
+      |type Pf = PartialFunction[Boolean, Unit]
+      |type St = Set[Option[Boolean]]
+      |type Ei = Either[Boolean, Unit]
+      |type Arr = Array[Nothing]
+      |type Lit = 3
+      |opaque type Hid = Boolean
+      |final case class Sees(h: Hid)
+      |type Ident[A] = A
+      |object Scope {
+      |  opaque type T = Boolean
+      |  final class Wrap(x: T)
+      |  type Al = T
+      |  type Id[X] = X
+      |  final class Via(x: Ident[T])
+      |  final class Held(x: Holder#Me)
+      |  opaque type Up = Inner.Low
+      |  object Inner { opaque type Low = Boolean; final class Deep(x: Up) }
+      |}
+      |class Holder { type Me = Scope.T }
+      |object UseAl { def al(a: Scope.Al): Boolean = true }
+      |final class SeesWrap(w: Scope.Wrap, a: Scope.Al)
+      |final class SeesT(t: Scope.T, i: Scope.Id[Scope.T])
+      |class Prj[A] { type Me = A }
+      |final class Seen(x: Prj[Unit]#Me)
+      |val top: Boolean = true
+      |val empty: EmptyTuple = EmptyTuple
+      |val none: Nothing => Boolean = ???
+      |val meet: Boolean & Matchable = true
+      |sealed trait Fam
+      |case object F1 extends Fam
+      |final case class HasFam(f: Fam)
+      |final case class Rec(next: Option[Rec])
+      |final class Priv private (x: Int)
+      |type Shape = { def area: Int }
+      |type Dep = (x: Boolean) => x.type
+      |type Wild = List[?]
+      |type Path = java.nio.file.Path
+      |val made: Pt = Pt(true, true)
+      |""".stripMargin
+
+  private lazy val input = TastyFrontEndSpec.compiled(
+    "Demo.scala" -> text,
+    "Shapes.scala" -> shapes,
+    "Types.scala" -> types,
+    "Sizes.scala" -> sizes
+  )
 
   private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
   private lazy val source = rows.sources.collect { case Right(source) => source }.head
@@ -340,7 +418,8 @@ class TastyFrontEndSpec extends Specification {
       "sink" -> 2,
       "twin" -> 2,
       "outside" -> 1,
-      "der" -> 2
+      "der" -> 2,
+      "mixed" -> 2
     )
     (expected.map((name, _) => count(s"types.Use.$name")) must_==
       expected.map((_, n) => Count.Finite(n)))
@@ -394,7 +473,8 @@ class TastyFrontEndSpec extends Specification {
   //     that passes a parameter to two slots equates them; an invariant parameter in a covariant
   //     slot holds more than its own type's values; `Any` in a covariant slot is no bottom pin;
   //     a case with a bounded parameter is no case at other types.
-  //   - A case under two sealed levels would be summed twice. A case with a private constructor
+  //   - A case under two sealed levels would be summed twice. An enum's value case under a family
+  //     is the enum's to read first (the enum itself reads it: `mixed` is one of 2). A case with a private constructor
   //     or field is rule B's to read, and `class BareC` is one tree with `class BareC()`.
   //   - A case whose construction throws (an object's body, there ascribed too, an enum case's
   //     argument, a repeated or a named argument of a parent, in order or not, in any clause) has
@@ -421,6 +501,7 @@ class TastyFrontEndSpec extends Specification {
       "whole" -> slots,
       "small" -> slots,
       "diamond" -> "a sealed subtype reached twice",
+      "under" -> "an enum case under a sealed family",
       "rst" -> "a restricted constructor",
       "fld" -> "a restricted field",
       "bare" -> "a sealed subtype without parameters",
@@ -438,6 +519,120 @@ class TastyFrontEndSpec extends Specification {
       "same" -> "a type of the module in an evidence type"
     )
     reasons(true, expected.map(_._1)) must_== expected.map(_._2)
+  }
+
+  // A definition row of `sizes`: its size, and the reasons it is no number, each with its kind.
+  private def row(name: String): (Option[String], List[String]) = {
+    val found = rows.sources
+      .flatMap(_.toOption.toList.flatMap(_.definitions))
+      .filter(_.name == s"sizes.$name")
+      .head
+    (found.size.map(_.render), found.unbound.map(reason => s"${reason.tag}:${reason.subject}"))
+  }
+
+  //   - `Pt` is 2 × 2. `Wide` is (2^3) × (1 + 2) = 24, its parent and the missing `val` no matter
+  //     to what its constructor stores. `Gen` stores an A: no one size, the reason its parameter;
+  //     `Phantom` stores none, 2; `Hk` stores an `F[A]`, the reason its higher-kinded parameter.
+  //   - An open trait and an abstract class have no value of their own: a dash. A field of one may
+  //     hold any subtype's value: the reason is the open type, as for an `Exception`. A field of
+  //     an abstract type member is what each instance chooses.
+  //   - `Uses` is `Gen` at Boolean, 2, times `Pt`, 4. `Tri` is 1 + 1 + 2. `Box` stores a T in one
+  //     case, and `Box[Boolean]` is 2 + 1. `Lvl` is its two cases, its constructor's argument
+  //     shared state and a case's other parent no matter.
+  //   - A tuple multiplies, 2 × 3. `Fn` is a function of its parameter; a constructor alias is a
+  //     dash. A union adds, 2 + 1, once where both sides are one type, 2; an intersection is its
+  //     smaller side, 2. A list of strings is ω and one of functions over them ε₀; a function
+  //     from `Nothing` is the algebra's 0. `Option` adds one, 3; a map is (1 + 1)^2 = 4 and so is
+  //     a partial function; a set is 2^3 = 8; `Either` is 2 + 1; an array of nothing is the empty
+  //     one; a literal type is one value.
+  //   - An opaque alias's row shows its representation, 2, and a class outside its scope stores
+  //     one value of it (rule F). A type is read where it is written: `Scope.Wrap` stores its
+  //     Boolean and `Scope.Al` is that Boolean too, 2 × 2 in `SeesWrap`. `Scope.T` named outside
+  //     is one value, also as the argument of an alias written inside (`SeesT`, 1 × 1), and it is
+  //     a Boolean named inside as the argument of an alias written outside (`Scope.Via`, 2).
+  //     `Scope.Up` is an `Inner.Low` written outside `Inner`: one value, also where `Inner.Deep`
+  //     names it.
+  //   - `Prj[Unit]#Me` is `Prj`'s A as its prefix fixes it: Unit, 1.
+  //   - A top-level value is one value, the empty tuple too. One of a type the algebra reads as
+  //     0, or of an intersection, whose size does not say that a value exists, is undecided.
+  private def stored = {
+    def sized(size: String) = (Some(size), Nil)
+    def unbound(reason: String, size: String = "ω") = (Some(size), List(reason))
+    val expected = List[(String, (Option[String], List[String]))](
+      "Pt" -> sized("4"),
+      "Wide" -> sized("24"),
+      "Gen" -> unbound("param:A"),
+      "Phantom" -> sized("2"),
+      "Hk" -> unbound("param:F[_]"),
+      "Open" -> (None, Nil),
+      "Base" -> (None, Nil),
+      "Holds" -> unbound("open:Open"),
+      "Fails" -> unbound("open:Exception"),
+      "HasM#In" -> unbound("member:M"),
+      "Uses" -> sized("8"),
+      "Tri" -> sized("4"),
+      "Box" -> unbound("param:T", "ω + 1"),
+      "Boxed" -> sized("3"),
+      "Lvl" -> sized("2"),
+      "Two" -> sized("6"),
+      "Fn" -> unbound("param:X"),
+      "Ctor" -> (None, Nil),
+      "Un" -> sized("3"),
+      "Same" -> sized("2"),
+      "Meet" -> sized("2"),
+      "Strs" -> sized("ω"),
+      "Fns" -> sized("ε₀"),
+      "Never" -> sized("0"),
+      "Opt" -> sized("3"),
+      "Mp" -> sized("4"),
+      "Pf" -> sized("4"),
+      "St" -> sized("8"),
+      "Ei" -> sized("3"),
+      "Arr" -> sized("1"),
+      "Lit" -> sized("1"),
+      "Hid" -> sized("2"),
+      "Sees" -> sized("1"),
+      "SeesWrap" -> sized("4"),
+      "Scope.Via" -> sized("2"),
+      "Scope.Inner.Deep" -> sized("1"),
+      "SeesT" -> sized("1"),
+      "Seen" -> sized("1"),
+      "top" -> sized("1"),
+      "empty" -> sized("1"),
+      "none" ->
+        unbound("refusal:value not decided: scala.Function1[scala.Nothing, scala.Boolean]", "1"),
+      "meet" -> unbound("refusal:value not decided: scala.&[scala.Boolean, scala.Matchable]", "1")
+    )
+    expected.map((name, _) => name -> row(name)) must_== expected
+  }
+
+  // What the stored side does not read yet, each row uncovered for its own reason: a sealed
+  // family's sum, as a row and as a field; a definition that reaches itself (the solver's fixed
+  // point); a class's alias read as its prefix sees it from inside an opaque type's scope, where
+  // what it names was written elsewhere; a private constructor (rule B); an enum case that pins its enum's parameter to a type;
+  // a refinement written without a type, which is not told from one of `Object`; a dependent
+  // function type, whose result its parent does not hold; a wildcard argument; a class the algebra has no entry for; and a value of a
+  // class of the module, whose construction says whether it exists.
+  private def unstored = {
+    val expected = List(
+      "Fam" -> "a sealed family",
+      "HasFam" -> "a sealed family",
+      "Rec" -> "a definition that reaches itself",
+      "Scope.Held" -> "an alias of a class beside an opaque type's scope",
+      "Priv" -> "a restricted constructor",
+      "Idx" -> "an enum case that does not pass its own parameters on",
+      "Shape" -> "a refinement of no written type",
+      "Dep" -> "a function type refined by its apply",
+      "Wild" -> "a wildcard type argument",
+      "Path" -> "a class the algebra does not model",
+      "made" -> "a value of a class of the module"
+    )
+    val prefix = s"refusal:${TastyFrontEnd.Uncovered}: "
+    expected.map((name, _) =>
+      row(name)._2.map(reason =>
+        if (reason.startsWith(prefix)) reason.stripPrefix(prefix).takeWhile(_ != ':') else reason
+      )
+    ) must_== expected.map((_, why) => List(why))
   }
 
   // An array of a type parameter is refused by the standard model for good (building one needs a
@@ -462,17 +657,29 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.analysis.BuiltinTypes",
     "cardinality.analysis.MethodAnalysis.Entry",
     "cardinality.analysis.inhabitation.Inhabitation",
+    "cardinality.analysis.inhabitation.Inhabitation.Binding",
     "cardinality.analysis.inhabitation.Inhabitation.Count",
     "cardinality.analysis.inhabitation.Inhabitation.Shape",
-    "cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}",
     "cardinality.analysis.resolution.TopTypes",
+    "cardinality.capacity.BaseTypes",
+    "cardinality.capacity.BooleanSize",
     "cardinality.capacity.Definition",
     "cardinality.capacity.Definition.Kind",
-    "cardinality.capacity.{BaseTypes, NothingSize, Size, UnitSize}",
-    "cardinality.reporting.{FrontEnd, Report}",
+    "cardinality.capacity.Definition.Unbound",
+    "cardinality.capacity.EffectiveEpsilon0",
+    "cardinality.capacity.EffectiveOmega",
+    "cardinality.capacity.NothingSize",
+    "cardinality.capacity.Size",
+    "cardinality.capacity.UnitSize",
+    "cardinality.reporting.FrontEnd",
+    "cardinality.reporting.Report",
     "cardinality.tasty.CompiledTypes",
     "cardinality.types.Traversals"
   )
+
+  // An import clause, on one line or several: its path (a wildcard's included) and the names in
+  // its braces, if any.
+  private val clause = """(?m)^\s*import (?:_root_\.)?([\w.*]+?)(?:\.\{([^}]*)\})?$""".r
 
   // What the allowed imports would still let a row be handed to: the report's own entry points,
   // the scalameta front end, a scalameta tree, the source rewriting.
@@ -487,26 +694,39 @@ class TastyFrontEndSpec extends Specification {
           Files.readString(file.asInstanceOf[Path]).linesIterator
         )
       finally files.close()
-    val imported = lines
-      .map(_.trim)
-      .filter(_.startsWith("import "))
-      .map(_.stripPrefix("import ").stripPrefix("_root_."))
-    (imported.filter(_.startsWith("cardinality.")).toSet must_== allowed)
+    val imported = clause
+      .findAllMatchIn(lines.mkString("\n"))
+      .flatMap { found =>
+        Option(found.group(2)).fold(List(found.group(1)))(
+          _.split(',').toList.map(name => s"${found.group(1)}.${name.trim}")
+        )
+      }
+      .toSet
+    // Every import line is one clause the pattern read whole: none names two paths.
+    val written = lines.map(_.trim).filter(_.startsWith("import "))
+    (imported.filter(_.startsWith("cardinality.")) must_== allowed)
+      .and(written.filter(_.contains(", ")).filterNot(_.contains("{")) must_== Nil)
+      .and(written.size must_== clause.findAllMatchIn(lines.mkString("\n")).size)
       .and(lines.filter(_.contains("scala.meta")) must_== Nil)
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(8)(_))
+          List("package cardinality.compiled").flatMap(List.fill(9)(_))
       )
   }
 
   private lazy val compared =
     Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
 
+  // One row of the fixtures is better past a model limit, and derived: `sizes.Seen` stores a
+  // `Prj[Unit]#Me`, which is `Prj`'s A as the prefix fixes it, Unit, one value. The old reading
+  // does not read a projection through an applied type.
   private def agrees = {
     val verdicts = compared.compared.map(_.verdict).toSet
+    val derived = compared.compared.filter(_.row.name == "sizes.Seen").map(_.row.key -> "1").toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(Differential.failures(compared.compared) must_== Nil)
+      .and(derived.size must_== 1)
+      .and(Differential.failures(compared.compared, derived) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))
   }
 

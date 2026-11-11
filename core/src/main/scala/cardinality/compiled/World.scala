@@ -63,6 +63,32 @@ private[compiled] object World {
     found.result()
   }
 
+  /** A class's tree; a class the module compiled from Java has none. */
+  def tree(c: ClassSymbol): Either[String, ClassDef] =
+    c.tree.toRight(s"a class without TASTy: ${c.displayFullName}")
+
+  /** Type arguments that are types: a wildcard is not read. */
+  def proper(arguments: List[TypeOrWildcard]): Either[String, List[Type]] =
+    arguments.foldRight[Either[String, List[Type]]](Right(Nil)) {
+      case (tpe: Type, rest) => rest.map(tpe :: _)
+      case _                 => Left("a wildcard type argument")
+    }
+
+  /** A named type as it is applied: `C` with no argument, or `C[args]`. */
+  object Named {
+
+    def unapply(tpe: Type): Option[(TypeRef, List[TypeOrWildcard])] = tpe match {
+      case ref: TypeRef         => Some(ref -> Nil)
+      case applied: AppliedType =>
+        applied.tycon match {
+          case ref: TypeRef => Some(ref -> applied.args)
+          case _            => None
+        }
+      case _ => None
+    }
+
+  }
+
   /** The class a type names, its aliases followed and its arguments left aside. */
   def classNamed(tpe: Type)(using Context): Option[ClassSymbol] = tpe.dealias match {
     case ref: TypeRef         => ref.optSymbol.collect { case c: ClassSymbol => c }

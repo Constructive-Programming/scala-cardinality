@@ -40,15 +40,10 @@ final private[compiled] class Shapes(world: World)(using Context) {
   def of(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
     case by: ByNameType => of(by.resultType, env)
     // `Nothing` is a type of its own in the tree, with no class to name.
-    case _: NothingType         => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
-    case repeated: RepeatedType => of(repeated.elemType, env).map(Shape.Repeated(_))
-    case ref: TypeRef           => named(ref, Nil, env)
-    case applied: AppliedType   =>
-      applied.tycon match {
-        case ref: TypeRef =>
-          Traversals.sequence(applied.args.map(proper)).flatMap(named(ref, _, env))
-        case _ => uncovered(tpe)
-      }
+    case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
+    case repeated: RepeatedType      => of(repeated.elemType, env).map(Shape.Repeated(_))
+    case World.Named(ref, arguments) =>
+      World.proper(arguments).left.map(Uncovered(_)).flatMap(named(ref, _, env))
     case other => uncovered(other)
   }
 
@@ -59,11 +54,6 @@ final private[compiled] class Shapes(world: World)(using Context) {
   // a later slice.
   private def standard(name: String, arguments: List[Shape]): Option[Either[Unread, Shape]] =
     BuiltinTypes.known(name, arguments).map(_.left.map(Refused(_)))
-
-  private def proper(argument: TypeOrWildcard): Either[Unread, Type] = argument match {
-    case tpe: Type => Right(tpe)
-    case _         => Left(Uncovered("a wildcard type argument"))
-  }
 
   private def named(ref: TypeRef, arguments: List[Type], env: Env): Either[Unread, Shape] =
     ref.optSymbol match {
@@ -134,8 +124,8 @@ final private[compiled] class Shapes(world: World)(using Context) {
     */
   def fields(tree: ClassDef, arguments: List[Shape], env: Env): Either[Unread, List[Shape]] = {
     val constructor = tree.rhs.constr
-    val binders = constructor.paramLists.flatMap(_.toOption.toList.flatten).map(_.symbol: Symbol)
-    val bound = (binders.zip(arguments) ++ tree.symbol.typeParams.zip(arguments)).toMap
+    val copies = Shapes.typeParameters(constructor)
+    val bound = (copies.zip(arguments) ++ tree.symbol.typeParams.zip(arguments)).toMap
     Traversals.sequence(
       Shapes.parameters(constructor).map(p => of(p.tpt.toType, env.copy(binders = bound)))
     )
@@ -195,6 +185,11 @@ private[compiled] object Shapes {
   def unbounded(bounds: TypeBounds)(using Context): Boolean =
     bounds.low.isSameType(defn.NothingType) && bounds.high.isSameType(defn.AnyType)
 
+  /** A constructor's or method's own type parameters: a constructor's are copies of its class's.
+    */
+  def typeParameters(method: DefDef): List[Symbol] =
+    method.paramLists.flatMap(_.toOption.toList.flatten).map(_.symbol)
+
   /** A constructor's or method's value parameters, clause after clause. */
   def parameters(method: DefDef): List[ValDef] =
     method.paramLists.flatMap(_.left.toOption.toList.flatten)
@@ -205,9 +200,8 @@ private[compiled] object Shapes {
   def isFamily(c: ClassSymbol): Boolean =
     c.openLevel == OpenLevel.Sealed && c.isAbstractClass && !c.isEnum
 
-  /** A class's tree; a class the module compiled from Java has none. */
-  def tree(c: ClassSymbol): Either[Unread, ClassDef] =
-    c.tree.toRight(Unread.Uncovered(s"a class without TASTy: ${c.displayFullName}"))
+  /** A class's tree, or what it needs that is not read. */
+  def tree(c: ClassSymbol): Either[Unread, ClassDef] = World.tree(c).left.map(Unread.Uncovered(_))
 
   // A class written without a parent (the compiler's own parents have no extent) whose
   // constructor is public.

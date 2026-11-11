@@ -430,9 +430,9 @@ D4), the phase 5 table and phase 6 above, `AGENTS.md` and `v1.md` §2.
 | --- | --- | --- |
 | Boundary | `reporting/FrontEnd.scala` | `FrontEnd.rows(Module): Rows`. In: each source's path and text, and the `Report.Environment`. Out: one answer per source in order, its `Entry` and `Definition` rows or a `Report.Error`. |
 | Old front end | `reporting/ScalametaFrontEnd.scala` | The pipeline `Report.of` had inline, moved unchanged; the only one `Report.of` calls. `Report.query` calls its steps directly. |
-| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Shapes.scala`, `Sums.scala`, `Bodies.scala`, `World.scala`, `Source.scala` (1,534 lines) | Reads the compiled classes through tasty-query. |
+| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Shapes.scala`, `Sums.scala`, `Stored.scala`, `Bodies.scala`, `World.scala`, `Source.scala` (1,929 lines) | Reads the compiled classes through tasty-query. |
 | Gate | `core/src/test/scala/cardinality/compiled/Differential.scala` | See "The gate". |
-| Regression | `TastyFrontEndSpec` (19 examples) | Derived counts for each slice, the reason of each row a slice refuses or leaves, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
+| Regression | `TastyFrontEndSpec` (21 examples) | Derived counts for each slice, the reason of each row a slice refuses or leaves, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
 
 The old front end's files changed in two places only, both extractions: `CompiledTypes.loaded` (the
 class loading `read` had inline) and `Definition.qualified` (the name joiner `Walk` had).
@@ -626,28 +626,23 @@ time on the rows still uncovered is not in it.
 - Stretch 2: slices S1, S2, S3, each committed when `scripts/differential.sh` passes and it is
   reviewed.
 - Done: the gate changes (limit classes, coverage memory, six corpora, withheld support), the
-  decided Q4, Q6, Q8, and S1 as "After S1" below describes it.
-- Next: S2, the definitions table, in a new `compiled/Stored.scala` called from
-  `Readings.definition` (which reads an object, an enum of value cases and a class of base-type
-  fields today). The old rules are `capacity.Walk.of` (which row a definition gets) and
-  `capacity.Counter.typeIn` and `builtin` (what a type stores). To port, in this order, each step
-  run against the gate:
-  1. A row is a size, or reasons (`Definition.Unbound`), or neither: an open trait or abstract
-     class and a constructor alias (`type F = [X] =>> …`) are a dash, no size and no reason.
-  2. What a type stores: base types by the class the compiler bound; tuples multiply; a union adds
-     (once where both sides are one type); an intersection is the smaller side; a function is
-     codomain ^ domain, 0 from an empty domain; `Option`, `Either`, `Set`, `Map`,
-     `PartialFunction`, the linear collections and `LazyList` by `builtin`'s rules; a literal or
-     singleton is 1; a type parameter of the measured definition is the reason
-     `Unbound.Parameter`; a throwable or open class of the module is `Unbound.Open`.
-  3. A class row is the product of what its constructor's parameters store, parents ignored; an
-     enum row the sum of its cases; an alias row what its right-hand side stores; a top-level
-     value what its declared type stores.
-  4. A reference to a class of the module is that class's row read with the arguments bound; a
-     reference that reaches itself needs the solver's fixed point (`capacity.Solver`, tied to the
-     old `Scope`) and stays uncovered until it is ported; a sealed family is the sum
-     `capacity.SealedFamilies` reads, with its refusals.
-  Then S3, constructor rows (`a constructor`).
+  decided Q4, Q6, Q8, S1 ("After S1") and S2 without sealed families and recursion ("After S2").
+- Blocked, for the coordinator: the sum of a sealed family on the stored side ("After S2" has the
+  evidence: two worse rows whose old number is derivably wrong, which the gate cannot pass).
+- Next: S3, constructor rows (`a constructor`: 444 / 533 / 1,335 rows on corpus-core, cats-core
+  and the fixtures). The old rule is `analysis/ConstructorPositions`: each parameter is a
+  position, read as a closed shape (`ClosedSpaces.counted`) that must agree in width with the
+  stored-size estimate (`Stored` now gives it), and the row is `Count.product` of the positions.
+  `Readings.later` answers `Left("a constructor")` today.
+- Interface notes from the sibling's ledger of the spec suite (`scripts/spec-ledger.sh`), for S8
+  or earlier: `Report.of` is tied to `ScalametaFrontEnd`; a source that defines nothing is told
+  only by message text; there is no `Limits` parameter; dependencies can only be given as
+  classes; a member the classpath does not hold should be a refusal of its own (Q10); `Exp.scala`
+  and `lib/Exp.scala` are not told apart (the old `CompiledTypes.matching` takes the longest
+  recorded path that is a tail of the source's); a member of an anonymous class inside a
+  context-function literal is not listed (`Literal.anon.<lambda#1>.<new#1>.get`). The inline-body
+  verdicts (S6's compile-time operations, rule X, D2, D4) arrive as the sibling's module
+  `compiledinlines`, to be called where `Readings.later` answers `an inline definition`.
 - To run: `scripts/differential.sh /var/cache/users/rhansen/cardinality-tasty <output directory>`,
   after `sbt core/testFull` has filled `core/target/compiled-fixtures`. While developing, run the
   gate against a copy of `<assets>/covered`: a passing run writes the memory, and a row a
@@ -750,6 +745,76 @@ through a type argument (`trait B[A] { def no: A }; sealed trait H extends B[Not
 a value; a parent's default argument that throws, a secondary constructor that throws and a throw
 in an enclosing object's body are not read as a construction that throws; a case class another
 class extends is its product where it is read alone.
+
+**After S2** (definition rows, `Stored`). Every row pairs; no row is worse; one better row past a
+model limit is derived (`FromUnit`, a constructor alias written with a placeholder).
+
+| Input | Table | Rows | Identical | Better: resolution / model | Worse | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 452 | 0 / 0 | 0 | 0 | 3,548 | 260 of 768 (33.9%) |
+| core | definitions | 641 | 363 | 3 / 0 | 0 | 0 | 275 | 341 of 400 (85.2%) |
+| cats-core | methods | 7,651 | 10 | 2 / 0 | 0 | 0 | 7,639 | 6 of 909 (0.7%) |
+| cats-core | definitions | 1,559 | 1,169 | 21 / 0 | 0 | 0 | 369 | 907 of 1,053 (86.1%) |
+| cats-kernel | methods | 1,785 | 0 | 0 / 0 | 0 | 0 | 1,785 | 0 of 368 (0.0%) |
+| cats-kernel | definitions | 312 | 306 | 0 / 0 | 0 | 0 | 6 | 252 of 253 (99.6%) |
+| cats-eo | methods | 697 | 5 | 0 / 0 | 0 | 0 | 692 | 1 of 271 (0.4%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 12 | 0 / 0 | 0 | 0 | 68 | 11 of 16 (68.8%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 19 | 0 of 4 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 5,397 | 791 | 27 / 6 | 0 | 0 | 4,573 | 726 of 4,443 (16.3%) |
+| fixtures | definitions | 3,858 | 3,461 | 15 / 1 | 0 | 0 | 381 | 3,033 of 3,166 (95.8%) |
+| **all corpora** | methods | 14,232 | 479 | 2 / 0 | 0 | 0 | 13,751 | 278 of 2,336 (11.9%) |
+| **all corpora** | definitions | 2,677 | 1,974 | 30 / 0 | 0 | 0 | 673 | 1,598 of 1,807 (88.4%) |
+
+What S2 reads, each rule with a derived example in `TastyFrontEndSpec` (`stored`, `unstored`):
+
+- A row is a size and, where it is no number, reasons; an open trait or abstract class and a
+  constructor alias are a dash.
+- A concrete class is the product of what its constructor's parameters store, parents ignored; an
+  enum the sum of its cases (`Sums.carried`, the method side's slot rule); an alias its
+  right-hand side; a top-level value one value where its type is known to have one (D30).
+- Types by `Counter.typeIn` and `builtin`'s rules, asked by the class the compiler bound.
+- A type is read where it is written (a class's fields at the class, an object's alias at the
+  alias, arguments where they are), which is how the old estimate decides rule F. The method side
+  follows aliases first and decides at the use site. Both agree with the old rows.
+
+Left uncovered on purpose (corpus-core / cats-core / fixtures definition rows): a sealed family
+(41 / 301 / 206, below); a definition that reaches itself, which needs the solver's fixed point
+(86 / 0 / 0); a class the algebra does not model or of a dependency (133 / 47 / 14); a
+restricted constructor, rule B (3 / 7 / 28); a value of a class of the module, whose construction
+says whether it exists (12 / 0 / 8); other forms of type (0 / 8 / 72: match types, type lambdas,
+polymorphic functions); smaller ones (a refinement of no written type, a function type refined by
+its `apply`, a wildcard argument, an alias applied to another number of arguments, an alias of a
+class beside an opaque type's scope, an enum case that pins its enum's parameter).
+
+**The sum of a sealed family on the stored side is written and taken out again**: it cannot
+reach "no worse row", and the evidence is this. Read as the sum of its cases with the same slot
+rule, it adds 103 identical rows on the fixtures, 149 on cats-core and 6 on corpus-core, and
+then:
+
+- `cats.data.Ior[A, B]` (cats-core): old 0, new `?` for A and B. The old estimate does not see the
+  cases, whose clauses are written infix (`extends (A Ior Nothing)`). The old number is wrong.
+- Fixture `2d9bd461…/Top.scala:3`, `S`: old 1, new 2. `final case class C() extends Id[S]` is a
+  subtype through a generic alias the old estimate does not follow. The old number is wrong.
+- Fixture `8fde8aab…`, `S`, `R`, `Q`, `M`: old 1, 0, 1, 1; new 3, 1, 2, 3. The old estimate drops
+  a case whose construction throws (D26), which decision Q5 puts with S6: these stay uncovered
+  until then.
+- 45 better rows past a model limit, `sealed family not summed`: a subtype open to extension (24,
+  some for a parent the old reading did not read), through an alias (7) or a renamed import (5),
+  an enum case that extends the family (2), a subtype outside its body (1); and four generic
+  families whose row the old estimate gives its parameter as reason where no case stores one.
+
+The first two are numbers that change because the old one is derivably wrong, which the owner's
+rule allows and the gate has no way to accept: a worse row always fails. It needs a decision:
+either `derived.txt` may also list a worse row with its new value and why the old one is wrong,
+or these families stay uncovered until the switch-over.
+
+The same holds, unexercised by any input, for two readings the reviews found where the new
+number would be right and the old wrong; both are left uncovered: a method over a sealed family
+one of whose cases is an enum's value case (the old method side drops the case), and an alias of
+a class read from inside an opaque type's scope.
 
 ### How each model rule reads over symbols
 
