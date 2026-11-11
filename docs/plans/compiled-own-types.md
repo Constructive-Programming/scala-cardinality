@@ -211,25 +211,16 @@ front end's: the costs at `5f89e91`, the rows at `1358b07`, the fixtures at this
 
 ### In progress (gate agent, stretch 3: the spec suite against the compiled front end)
 
-A note for whoever continues from the files alone. It goes when the stretch is committed whole.
+A note for whoever continues from the files alone.
 
-- Committed: `classpath.txt` in each cache entry and `staging/` in the cache
-  (`core/src/test/scala/cardinality/Compiled.scala`; "Test fixtures" below says what they hold).
-  Entries written before have other keys: `rm -rf core/target/compiled-fixtures` drops them.
-- Committed: the front-end switch in `Compiled` (`-Dcardinality.frontend`, decided in one method,
-  `read`; "Test fixtures" below), with `Compiled.definitions`, `capacity.Rows.typeSize` and
-  `Rows.total`, which read off definition rows what the specs took from the scalameta tree.
-- Written, not committed (kept outside the tree while the units are committed in turn, under
-  `/tmp/tg/s3/full/`; rewrite from this description if that is gone): `cardinality.ExampleLog` (a
-  specs2 notifier, one line an example: specification, example, `pass`, `fail` or `pending`, first
-  line of the failure) and `scripts/spec-ledger.sh` (the suite under each mode but the default
-  with that notifier, merged by awk into `docs/baselines/tasty-spec-ledger.tsv`: PASS, UNCOVERED,
-  FAIL, PENDING or TREE for each example that reads rows or the tree).
-- Next, after `sbt scalafmtAll scalafixAll`, `sbt core/testFull`,
-  `bash scripts/check-file-metrics.sh`, CPD and three reviews of the staged diff: commit the
-  ledger (`ExampleLog`, the script, the ledger file from a fresh
-  `scripts/spec-ledger.sh docs/baselines/tasty-spec-ledger.tsv`, the classification table of
-  every specification and the totals in this section).
+- Committed: `classpath.txt` in each cache entry and `staging/` in the cache; the front-end switch
+  in `Compiled` with the helpers that read rows; the ledger (`cardinality.ExampleLog`,
+  `scripts/spec-ledger.sh`, `docs/baselines/tasty-spec-ledger.tsv`) with the classification of
+  every specification. "Test fixtures" and "Specs against the compiled front end" below say what
+  each is.
+- Open: nothing of this stretch. After a front-end slice lands, rerun `scripts/spec-ledger.sh`
+  and diff the ledger: an example may move from UNCOVERED to PASS, and one that moves to FAIL
+  has a cause to read. An expectation moves only with its derivation.
 
 ### Commands
 
@@ -239,6 +230,7 @@ A note for whoever continues from the files alone. It goes when the stretch is c
 | `scala-cli run .claude/skills/cardinality-reduction/report-diff.scala -- <before> <after> --rows` | Totals of two rendered reports and every row that moved. |
 | `scripts/build-corpus.sh <new corpus directory> <organization:artifact_3:version>` | A corpus from a published artifact: its binary jar unpacked as `classes/`, each source of its sources jar at the path its TASTy records, and its dependency jars in `classpath.txt`. Nothing is compiled. |
 | `rm -rf core/target/compiled-fixtures && sbt core/testFull` | Compiles every test fixture afresh; the entries are then corpora a differential runner can read, and `ls core/target/compiled-fixtures/*/failed` are the rejected ones. |
+| `scripts/spec-ledger.sh <ledger file> [work directory]` | Runs `core/testFull` under each mode of the harness's front-end switch and writes, for each example that reads rows, whether it passes with the compiled front end's rows, waits for rows not read yet, or fails ("Specs against the compiled front end" below). The ledger at this commit is `docs/baselines/tasty-spec-ledger.tsv`. |
 | `scripts/dead-code.sh` | Compiles every module and its tests, then lists the production symbols of `core` that nothing references, from the build's SemanticDB (`scripts/dead-code.scala` says how to read the three lists). |
 | `sbt coverage "bench/runMain cardinality.bench.CorpusRun <corpus> <report file>" core/coverageReport` | What one corpus executes. Delete `target/out/jvm/scala-3.9.0/scala-cardinality/scoverage-data/scoverage.measurements.*` first; the report beside that directory lists every package. The task ends in an error because the run is below the suite's coverage floor: the report is written before that. |
 
@@ -397,6 +389,248 @@ dependency jars over files of their own), the reading tests of `ReportSpec` and
 `ReportHygieneSpec` (a directory, a jar, a missing or unparsable file, where a row is placed),
 `TastyStubsSpec`, the `Eo*` specs over the published cats-eo sources, and `CompiledTypesSpec`,
 whose fixture sbt compiles with the tests.
+
+### Specs against the compiled front end
+
+`scripts/spec-ledger.sh docs/baselines/tasty-spec-ledger.tsv` runs core's suite under each mode of
+the harness's switch (four runs, about a minute each on a warm fixture cache) and writes the
+ledger: one line for each example that reads rows, or what only the scalameta front end has, as
+`specification<TAB>example<TAB>status<TAB>cause`, sorted, so two commits' ledgers diff line by
+line. The script's header says how each status is decided. No expectation was changed for it.
+
+| Status | Examples | Meaning |
+| --- | --- | --- |
+| PASS | 188 | Passes with `TastyFrontEnd`'s rows, and still passes when every row not read yet holds a count no example expects. |
+| UNCOVERED | 1,252 | 1,233 fail with `TastyFrontEnd`'s rows and pass once each row not read yet holds what the scalameta pipeline gives the row of its name: they fail for those counts and nothing else. 19 pass, and fail under the sentinel: what they expect, a row not read yet meets too (a refusal, or a total the row is left out of). |
+| FAIL | 108 | Fails with the counts not read yet answered too. The cause column is that failure. |
+| PENDING | 19 | A target `ArticleCardinalitySpec` marks as not met yet, under either front end. |
+| SCALAMETA | 133 | Reads what only the scalameta front end has: its tree, the open world, dependency stubs given as sources. |
+
+The other 316 examples read nothing through the harness. What the ledger cannot see:
+
+- An example passes whatever the sentinel is where it only says what a row is not, or where a
+  row without a count meets its expectation too. Two are known, and read PASS on rows not read
+  yet: `AliasOverrideIdentitySpec`, "keeps a nearer source alias distinct from an outer binder"
+  (`c !== Count.Finite(1)`), and `ArticleCardinalitySpec`, "a data type with no constructors" (a
+  total of 0, which no row adds to).
+- A row is not read yet where every reason it gives starts with `TastyFrontEnd.Uncovered`, and
+  the front end files a type that names a class the classpath does not hold under it (19 of the
+  UNCOVERED causes). Where a fixture withholds the class, that is the final answer, not a slice
+  to come: those examples pin `declaration not supplied` and stay UNCOVERED until the front end
+  refuses in its own words.
+- UNCOVERED says nothing of what the count will be once it is read, and a PENDING example stays
+  PENDING whatever number the compiled front end gives: only its cause changes.
+- The cause is an example's first failure. One that reads two fixtures shows one of them, and
+  one marked SCALAMETA may assert rows as well.
+
+The rows are the compiled front end's: under `probe` the 1,567 examples of class (a) below fail
+at the request; under `tasty` the one method that answers a request calls `TastyFrontEnd.rows`
+and nothing of the scalameta pipeline; 1,004 of the UNCOVERED causes quote a reason only
+`TastyFrontEnd` gives (the others are a total or a size the missing count leaves short); and a
+signature differs where the two spell differently (`pick[A](x: A, y: A)` against the scalameta
+`pick[A](x: A, y: A): A`).
+
+**The 108 FAIL examples, by cause.** No example fails on a number that differs from the number
+its spec pins.
+
+- **64: a fixture is one scalac rejects** (`no compiled classes`), so there is nothing to read.
+  Most pin what the analyzer answers for code that does not compile, which a front end that
+  reads compiled classes never sees: they are deleted with the scalameta front end unless the
+  owner wants those refusals kept another way. Not all: five in `CardinalitySpec` pin counts (ω,
+  ε₀, 1, ω + 2) for by-name enum-case parameters, a lazy field scalac has no spelling for; one
+  in `GeneralInfixApplicationSpec` pins 6; and three read a fixture that compiles beside the
+  rejected one (`SingletonIntersectionMethodSpec`, "refine a proven singleton with Singleton"
+  and "refine a stable path by its own type binder"; `StdlibModelSpec`, "a JDK wildcard reads
+  List by its rooted name, supplied or not"), whose first assertions are on rows. By spec:
+  `HigherKindedRefusalSpec` 8, `AliasOverrideIdentitySpec`, `CardinalitySpec`, `NamespaceSpec`,
+  `SingletonIntersectionMethodSpec` and `StdlibModelSpec` 5 each, `EnvironmentCompletenessSpec`
+  and `MethodRefinementSpec` 3 each, six specs 2 each, thirteen 1 each.
+- **25: the spec pins a refusal and the compiled front end gives a number.** Each needs a
+  derivation from the compiled types before its expectation may move; none was moved.
+  `UnsuppliedWildcardSpec` 11, `ImportClausesSpec` 4, `StoredScopesSpec` 4,
+  `GroundEnvironmentSpec` 2, `TopTypesUnionSpec` 2, `PolyLambdaCardinalitySpec` 1 ("refuses
+  constrained lambda binders"), `TypeMemberScopeSpec` 1 ("a projection through `this` or an
+  owner's member is refused"). All but the last two pin a name the scalameta front end cannot
+  resolve (an unsupplied wildcard import, parent or export that may bind it): the compiler
+  resolved the name, so the question each derivation has to answer is whether the count may
+  rest on a declaration the fixture withholds.
+- **9: a signature is spelled differently.** A result written without a type is not spelled
+  (`pick[A](x: A, y: A)`; `val made` without `: _root_.ext.Schema`, `CompiledSpec`); a curried
+  clause keeps the source's space (`f[A](x: A) (y: A): A`); a braceless match type has no `{`,
+  `;` and `}`, and a refinement over several lines no `;`; a literal type's spaces; the order of
+  a class row among its members. `ReportHygieneSpec` 6, `EoArtifactsSpec` 2, `CompiledSpec` 1.
+- **7: a row has another identity.** A definition inside a `for` or a lambda is not listed as
+  `Comp.f.<for#1>.<block#1>.g` (`NestedScopesSpec` 4), and a secondary constructor's row is not
+  of kind `method` with the signature `this(u: Unit): Open` (`DefinitionInventorySpec` 3).
+- **3: two sources are not told apart.** `Exp.scala` and `lib/Exp.scala` in one module:
+  `compiled classes not told apart from another source's` (`CompiledSpec` 1, `StoredScopesSpec`
+  2). The scalameta front end gives a source the compiled path that is its longest tail
+  (`CompiledTypes.matching`).
+
+**Every specification, by what its examples test.**
+
+- (a) rows of a fixture, read through `Compiled`, `InventoryFixtures` or `capacity.Rows`: they
+  carry over as they are. The ledger's PASS, UNCOVERED, FAIL and PENDING.
+- (b) the scalameta front end's own: what the ledger marks SCALAMETA, and examples that call its
+  internals directly (resolution and substitution over scalameta types, the index and its
+  budgets, `CompiledTypes`, `TastyStubs`, `Spelling`). They are deleted with it, unless they pin
+  a rule of the model that nothing pins on rows (below).
+- (c) the back end (the solver on hand-built goals, `Size`, `Natural`), formats that do not
+  depend on where rows come from, the compiled front end's own spec: unaffected.
+- (c*) reporting and requests, tested by running `Report.of`, `Report.query` or
+  `AnalysisQuery.run` over sources without classes. What they test is unaffected; how they are
+  run is not, since the compiled front end reads no source without its classes: each needs a
+  compiled fixture when `Report.of` changes front end.
+
+| Specification | Examples | (a) rows | (b) scalameta only | (b) other | (c) | (c*) | What the examples that read no rows test |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `AliasOverrideIdentitySpec` | 25 | 25 | 0 | 0 | 0 | 0 |  |
+| `AnalysisQuerySpec` | 14 | 1 | 0 | 5 | 0 | 8 | `AnalysisQuery.run` on sources without classes: budgets on the scalameta index, lookup and expansion (b); request semantics (c*) |
+| `ArticleCardinalitySpec` | 71 | 71 | 0 | 0 | 0 | 0 |  |
+| `BinderBoundsSpec` | 22 | 22 | 0 | 0 | 0 | 0 |  |
+| `CapabilitySpec` | 51 | 51 | 0 | 0 | 0 | 0 |  |
+| `CardinalitySpec` | 156 | 156 | 0 | 0 | 0 | 0 |  |
+| `ClosedWorldSpec` | 7 | 5 | 2 | 0 | 0 | 0 | dependency stubs given as sources |
+| `CompiledSpec` | 6 | 5 | 0 | 1 | 0 | 0 | the harness: a text carrying support does not parse as scalameta |
+| `CompiledTypesSpec` | 10 | 0 | 0 | 8 | 0 | 2 | `CompiledTypes` ascription (b); two read rows of `Report.of` with classes (c*) |
+| `ContextBindersSpec` | 15 | 15 | 0 | 0 | 0 | 0 |  |
+| `ContextualOverrideIdentitySpec` | 18 | 18 | 0 | 0 | 0 | 0 |  |
+| `ConversionClosureSpec` | 9 | 9 | 0 | 0 | 0 | 0 |  |
+| `CounterSpec` | 4 | 4 | 0 | 0 | 0 | 0 |  |
+| `DeepStackSpec` | 1 | 0 | 1 | 0 | 0 | 0 | `MethodAnalysis.analyze` on a small stack |
+| `DefinitionInventorySpec` | 31 | 29 | 1 | 1 | 0 | 0 | `EoBaseline.identity` over the tree; `GivenNames.of` over parsed givens |
+| `EnvironmentBinderSpec` | 5 | 5 | 0 | 0 | 0 | 0 |  |
+| `EnvironmentCompletenessSpec` | 37 | 37 | 0 | 0 | 0 | 0 |  |
+| `EnvironmentSoundnessSpec` | 45 | 45 | 0 | 0 | 0 | 0 |  |
+| `EoArtifactsSpec` | 17 | 2 | 0 | 0 | 9 | 6 | TSV fields, tags and the delta (c); rows of `Counter.definitions` on uncompiled parses (c*) |
+| `EoCaseLedgerSpec` | 11 | 10 | 0 | 0 | 1 | 0 | the archive checksum |
+| `EvidenceTransportCardinalitySpec` | 16 | 15 | 0 | 0 | 1 | 0 | the solver on a hand-built shape |
+| `ExistentialInputSpec` | 23 | 17 | 0 | 0 | 6 | 0 | the solver and `ExistentialInputs.mapAtoms` on hand-built shapes |
+| `ExtensionSignatureSpec` | 15 | 0 | 15 | 0 | 0 | 0 | `Counter.sourceSignature`, `defnSignature` |
+| `GeneralInfixApplicationSpec` | 7 | 7 | 0 | 0 | 0 | 0 |  |
+| `GivenSignatureSpec` | 18 | 0 | 18 | 0 | 0 | 0 | `Counter.sourceSignature`, `defnSignature` |
+| `GroundEnvironmentSpec` | 40 | 40 | 0 | 0 | 0 | 0 |  |
+| `GroundTypesSpec` | 34 | 34 | 0 | 0 | 0 | 0 |  |
+| `HigherKindedBindingSpec` | 69 | 69 | 0 | 0 | 0 | 0 |  |
+| `HigherKindedRefusalSpec` | 16 | 16 | 0 | 0 | 0 | 0 |  |
+| `ImportClausesSpec` | 11 | 11 | 0 | 0 | 0 | 0 |  |
+| `InferredResultsSpec` | 18 | 18 | 0 | 0 | 0 | 0 |  |
+| `InhabitationSpec` | 9 | 0 | 0 | 0 | 9 | 0 | the solver |
+| `InheritedOverrideSpec` | 9 | 9 | 0 | 0 | 0 | 0 |  |
+| `InlineMethodsSpec` | 29 | 29 | 0 | 0 | 0 | 0 |  |
+| `InlineScopesSpec` | 19 | 18 | 0 | 1 | 0 | 0 | `MethodAnalysis.Index` with a budget: a reading cut short caches no verdict |
+| `KindedIdentitySpec` | 4 | 4 | 0 | 0 | 0 | 0 |  |
+| `LeafFamiliesSpec` | 2 | 2 | 0 | 0 | 0 | 0 |  |
+| `MeasuringSpec` | 3 | 0 | 3 | 0 | 0 | 0 | `Measuring.rows` workers, `Index` step accounting |
+| `MethodAnalysisSpec` | 47 | 47 | 0 | 0 | 0 | 0 |  |
+| `MethodFeatureIntegrationSpec` | 16 | 7 | 0 | 2 | 7 | 0 | `TypeSubstitution` on scalameta types (b); the solver (c) |
+| `MethodMatchProjectionSpec` | 15 | 12 | 0 | 3 | 0 | 0 | `TypeSubstitution`, `MatchTypes.reduced` on scalameta types |
+| `MethodRefinementSpec` | 19 | 15 | 0 | 4 | 0 | 0 | `MethodAnalysis.Index.resolve` on hand-built frames |
+| `MethodTypePlaceholderSpec` | 12 | 9 | 0 | 3 | 0 | 0 | scalameta syntax of `*` and `?`; `TypePlaceholders.lambda` |
+| `MethodUnionNullabilitySpec` | 11 | 11 | 0 | 0 | 0 | 0 |  |
+| `NameLookupSoundnessSpec` | 11 | 11 | 0 | 0 | 0 | 0 |  |
+| `NamespaceScopingSpec` | 17 | 17 | 0 | 0 | 0 | 0 |  |
+| `NamespaceSpec` | 46 | 45 | 1 | 0 | 0 | 0 | `Reading.of(tree).read` on a local class's slot |
+| `NaturalSpec` | 9 | 0 | 0 | 0 | 9 | 0 | `Natural` arithmetic |
+| `NestedScopesSpec` | 12 | 12 | 0 | 0 | 0 | 0 |  |
+| `NeutralSaturationSpec` | 25 | 25 | 0 | 0 | 0 | 0 |  |
+| `OpaqueSumForwardingSpec` | 14 | 1 | 0 | 0 | 13 | 0 | the solver; one run of real Scala |
+| `OpaqueTypeScopeSpec` | 20 | 19 | 0 | 0 | 1 | 0 | the fixture type-checks and runs |
+| `OverrideIdentityImplementationSpec` | 13 | 13 | 0 | 0 | 0 | 0 |  |
+| `OwnersAndRecordsSpec` | 16 | 16 | 0 | 0 | 0 | 0 |  |
+| `PolyLambdaCardinalitySpec` | 17 | 17 | 0 | 0 | 0 | 0 |  |
+| `PolymorphicMemberSpec` | 25 | 25 | 0 | 0 | 0 | 0 |  |
+| `PureCodeSpec` | 41 | 29 | 12 | 0 | 0 | 0 | the open world (`analyzeOpen`) |
+| `ReceiverConstructorsSpec` | 14 | 14 | 0 | 0 | 0 | 0 |  |
+| `RecursionProbeSpec` | 5 | 5 | 0 | 0 | 0 | 0 |  |
+| `ReentrySpec` | 14 | 0 | 14 | 0 | 0 | 0 | the open world (`analyzeOpen`) |
+| `ReferenceInhabitantsSpec` | 27 | 0 | 0 | 0 | 27 | 0 | the solver |
+| `RepeatedParameterFragmentSpec` | 15 | 8 | 0 | 1 | 6 | 0 | a scalameta parse fact (b); the solver (c) |
+| `ReportDependenciesSpec` | 10 | 0 | 0 | 3 | 0 | 7 | the stub file and which jars render (b); `Report.of` and `Report.query` over dependency jars, sources without classes (c*) |
+| `ReportHygieneSpec` | 41 | 19 | 0 | 12 | 8 | 2 | `Spelling` over scalameta tokens (b); `Blockers` categories and tallies (c); `Report.of` over mixed inputs (c*) |
+| `ReportQuerySpec` | 6 | 0 | 0 | 0 | 1 | 5 | `Report.query` on sources without classes (c*); a snapshot bound (c) |
+| `ReportSpec` | 49 | 41 | 2 | 0 | 2 | 4 | `Counter.stat`, `defn`, `ctor`, `param`, `source` on tree nodes; `Report.of` over a directory, a jar, a file, an unparsable source (c*); a missing path and an empty report (c) |
+| `SequenceEliminationSpec` | 25 | 23 | 0 | 0 | 2 | 0 | the solver |
+| `SignatureSpec` | 29 | 2 | 27 | 0 | 0 | 0 | `Counter.sourceSignature`, `defnSignature` |
+| `SingletonIntersectionMethodSpec` | 13 | 13 | 0 | 0 | 0 | 0 |  |
+| `SizeSpec` | 64 | 0 | 0 | 0 | 64 | 0 | the `Size` algebra |
+| `SkillSpec` | 4 | 0 | 0 | 0 | 4 | 0 | the seeded skill |
+| `SourceSnapshotSpec` | 13 | 0 | 0 | 0 | 13 | 0 | `SourceSnapshot.capture` |
+| `StdlibModelSpec` | 53 | 53 | 0 | 0 | 0 | 0 |  |
+| `StoredFactoriesSpec` | 3 | 3 | 0 | 0 | 0 | 0 |  |
+| `StoredScopesSpec` | 20 | 20 | 0 | 0 | 0 | 0 |  |
+| `StoredValueSoundnessSpec` | 28 | 28 | 0 | 0 | 0 | 0 |  |
+| `SyntaxFeaturesSpec` | 29 | 29 | 0 | 0 | 0 | 0 |  |
+| `TargetViewsSpec` | 27 | 0 | 27 | 0 | 0 | 0 | the open world (`analyzeOpen`) |
+| `TastyFrontEndSpec` | 13 | 0 | 0 | 0 | 13 | 0 | the compiled front end and its differential gate |
+| `TastyStubsSpec` | 18 | 0 | 9 | 9 | 0 | 0 | dependency stubs given as sources; stub text, `TastyStubs.render`, `Counter.definitions` over stubs |
+| `TerminalHigherOrderSpec` | 30 | 1 | 0 | 0 | 29 | 0 | the solver |
+| `ThrowableSlotsSpec` | 5 | 5 | 0 | 0 | 0 | 0 |  |
+| `TopTypesUnionSpec` | 83 | 82 | 1 | 0 | 0 | 0 | `runtimeClasses.disjoint` on a hand-built index |
+| `TransparentInlineSpec` | 6 | 6 | 0 | 0 | 0 | 0 |  |
+| `TypeMemberBoundarySpec` | 16 | 15 | 0 | 0 | 1 | 0 | the fixture type-checks |
+| `TypeMemberScopeSpec` | 14 | 13 | 0 | 0 | 1 | 0 | the fixture type-checks |
+| `TypeMemberSpec` | 27 | 25 | 0 | 0 | 2 | 0 | the fixtures type-check |
+| `UnsuppliedWildcardSpec` | 30 | 30 | 0 | 0 | 0 | 0 |  |
+| `ValueRowsSpec` | 2 | 2 | 0 | 0 | 0 | 0 |  |
+| **all 89** | **2,016** | **1,567** | **133** | **53** | **229** | **34** | |
+
+Of the 186 (b) examples, the rules of the model that no example pins on rows:
+
+- **Target views and re-entry (C6, the view sandwich D31, C6a; v1.md §2).** `ReentrySpec` (14),
+  `TargetViewsSpec` (27) and 12 of `PureCodeSpec` read the open world, where every overridable
+  member is open without an overriding template in the fixture. On rows only `CapabilitySpec`
+  (`possibleView`, `openImplementation`, `selfView`) supplies an overrider. Not pinned on rows:
+  views through an overload's arity, default arguments, η-expansion, by-name operands,
+  extensions and conversions, context functions, SAM conversion, implicit search, `super`,
+  enclosing and nested templates, imports; re-entry from a local definition, from what a
+  constructor runs, through creators and `copy`, through an abstract given; the sandwich. To
+  keep them, each fixture gets the overriding template the open world stood for.
+- **A throwing default of an overridable member reads as its abstract twin** (`PureCodeSpec`'s
+  open rows; docs/research/pure-code.md): the concrete member with a supplied overrider is not
+  on rows, nor the parent-argument, `var` and statement forms of a constructor that only throws,
+  nor a level's body binding names in its own scope (`bindingScope`).
+- **Dependencies read from compiled classes** (`TastyStubsSpec`, 18; `ClosedWorldSpec`, 2; the
+  fixtures give the dependency as stub sources, which the compiled front end reads from the
+  classpath instead): stored values through a dependency agree with the source or refuse; Java
+  signatures (`Object` as `Any`, raw types, wildcards, statics, a Java enum's constants, hidden
+  state); a Scala 2 `var`'s setter is no member; a class two jars declare is read from the
+  first; a stub's parent is the template of its qualified name. They need fixtures whose
+  dependency is a class directory on the classpath.
+- **Rule T's edges** (`CompiledTypesSpec`, 8): a name typed in its pattern has that type; stale
+  classes are not read as current (the compiled front end refuses the whole source, pinned only
+  by its own spec).
+- **An exhausted budget is `?`** for the index, lookup, alias and projection budgets
+  (`AnalysisQuerySpec`, 5). The compiled front end has no such budgets yet.
+- **A measurement does not depend on the caller's stack** (`DeepStackSpec`). The scalameta
+  pipeline wraps each measurement in `DeepStack`; the compiled front end calls the solver
+  directly, and nothing pins what it does on a small stack.
+- **A local class's slot resolves in the block around it** (`NamespaceSpec.slotLocal`, the type
+  parameter half), and **a non-final class and an open trait may overlap**
+  (`TopTypesUnionSpec.openPair`, which no count reaches by design).
+
+The rest of (b) pins no rule of the model that rows do not pin: the member-signature reading
+(`SignatureSpec`, `GivenSignatureSpec`, `ExtensionSignatureSpec`, 60 examples of
+`Counter.sourceSignature` and `defnSignature`) is in no report and not in the contract (v1.md §2
+has two tables); `MeasuringSpec` pins the workers of `Measuring`; the substitution, placeholder
+and refinement internals are pinned on rows by the same specs' other examples; `Spelling` is a
+format the compiled front end spells itself (the 9 FAIL examples above are its differences).
+
+Gaps in the front end's interface that the switch had to work around:
+
+- `Report.of` is tied to `ScalametaFrontEnd`, so the harness builds a `Report` from
+  `TastyFrontEnd.rows` itself, without `Report.of`'s reading of files, errors and locations. A
+  front end `Report.of` can be given would make `Compiled.report` the production path.
+- A source that defines nothing is an error (`no compiled classes for this source`), told from a
+  source whose classes were not found only by its text; the harness matches the message.
+- The compiled front end takes no `MethodAnalysis.Limits` and has no open-world reading.
+- A dependency can be given only as classes: the fixtures that give stub sources have no
+  reading.
+- A class the classpath does not hold is filed under `Uncovered` (above), and the texts the
+  harness has to match (`Uncovered` aside) are not named constants.
+- `Differential` lists every cache directory with an `ok` marker, so it also reads entries of
+  fixtures since edited or of the layout before `classpath.txt`; it can read each entry against
+  its `classpath.txt` instead of the Scala library alone.
 
 ## Phase 5: the TASTy front end, slice by slice
 

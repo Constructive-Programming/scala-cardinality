@@ -144,12 +144,12 @@ object Compiled {
       throw new AssertionError("rows requested from the fixture harness")
     case FrontEndMode.Tasty    => compiledRows(inputs)
     case FrontEndMode.Sentinel =>
-      // Negative counts, and sizes no fixture has (`7ε₀ + nω`), each used once: two rows not read
-      // yet are not equal either.
-      val next = Iterator.from(1)
       unreadReplaced(compiledRows(inputs))(
-        _.copy(size = Some(Size(7, 7 + next.next(), FinitePart.Zero)), unbound = Nil),
-        _.copy(count = Count.Finite(-next.next()))
+        _.copy(
+          size = Some(Size(7, 7 + unexpected.incrementAndGet(), FinitePart.Zero)),
+          unbound = Nil
+        ),
+        _.copy(count = Count.Finite(-unexpected.incrementAndGet()))
       )
     case FrontEndMode.Filled =>
       val (scalameta, compiled) = (old, compiledRows(inputs))
@@ -170,6 +170,11 @@ object Compiled {
         row => methods.get(row).fold(row)(of => row.copy(count = of.count, captures = of.captures))
       )
   }
+
+  // What `Sentinel` counts with: negative counts, and sizes no fixture has (`7ε₀ + nω`), each used
+  // once in a test JVM, so two rows not read yet are not equal either, whichever requests they
+  // come from.
+  private val unexpected = new java.util.concurrent.atomic.AtomicInteger
 
   // The report with other rows for the ones the compiled front end does not read yet: those whose
   // every reason starts by saying so.
