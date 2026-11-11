@@ -111,6 +111,33 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  # The calculator and the plugins run on JDK 17, 21 and 25. `build` covers 25 (with coverage); this
+  # job runs the same tests and the plugins' end-to-end tests on the older two.
+  jdk:
+    name: Tests on JDK ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '21']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Setup Java (temurin ${{ matrix.java }})
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: sbt
+
+      - name: Tests and plugin end-to-end tests
+        run: sbt -batch 'core/testFull; plugin/scripted; sbt1Plugin/scripted; millPlugin/testFull'
+
   docs:
     name: Documentation site
     runs-on: ubuntu-latest
@@ -234,7 +261,7 @@ jobs:
   # get a read-only token, so they get the summary but no comment.
   report:
     name: Report
-    needs: [build, docs, cpd, metrics]
+    needs: [build, jdk, docs, cpd, metrics]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -258,6 +285,7 @@ jobs:
           CPD_REPORT: ${{ needs.cpd.outputs.report }}
           METRICS: ${{ needs.metrics.outputs.result }}
           DOCS: ${{ needs.docs.outputs.result }}
+          JDK: ${{ needs.jdk.result }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           icon() { case "$1" in success) echo '✅' ;; failure) echo '❌' ;; *) echo '⏭️' ;; esac; }
@@ -278,6 +306,7 @@ jobs:
                 "${STATEMENTS:+$STATEMENTS% statements (floor $FLOOR%), $BRANCHES% branches}"
             fi
             line 'Plugin tests (scripted)' "$SCRIPTED"
+            line 'Tests on JDK 17 and 21' "$JDK"
             line 'Duplicate code (CPD)' "$CPD" "$([ "$CPD" = success ] && echo 'no duplicates of 25+ tokens')"
             line 'File metrics (length / comments)' "$METRICS" "$([ "$METRICS" = success ] && echo 'every file within 1000 lines and 35% comments')"
             line 'Documentation site (Laika)' "$DOCS" "$([ "$DOCS" = success ] && echo 'renders under target/site')"

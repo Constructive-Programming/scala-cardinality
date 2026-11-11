@@ -48,8 +48,6 @@ lazy val core = project
       "org.scalameta" %% "scalameta" % "4.17.4",
       // Compiled dependency declarations (TASTy); 1.9.0 is the release built on Scala 3.9.0.
       "ch.epfl.scala" %% "tasty-query" % "1.9.0",
-      // Parallel measurement (Measuring): kyo 1.0.0-RC7 is built on Scala 3.9.0.
-      "io.getkyo" %% "kyo-core" % "1.0.0-RC7",
       "org.typelevel" %% "cats-core" % "2.13.0",
       "org.specs2" %% "specs2-core" % "4.23.0" % Test,
       "org.specs2" %% "specs2-cats" % "4.23.0" % Test
@@ -93,7 +91,6 @@ lazy val coreNative = (project in file("core-native"))
       "org.scalameta" %% "scalameta" % "4.17.4",
       // scalameta's Native artifact leaves out the fastparse it shades on the JVM.
       "com.lihaoyi" %% "fastparse" % "3.1.1",
-      "io.getkyo" %% "kyo-core" % "1.0.0-RC7",
       "org.typelevel" %% "cats-core" % "2.13.0"
     )
   )
@@ -216,7 +213,11 @@ ThisBuild / scalacOptions ++= Seq(
   "-unchecked",
   "-Wunused:all",
   "-Wvalue-discard",
-  "-Werror"
+  "-Werror",
+  // Java 17 bytecode, compiled against Java 17's API whatever JDK builds it: the calculator and
+  // the plugins run on JDK 17, 21 and 25 (CI builds on each).
+  "-java-output-version",
+  "17"
 )
 
 // Keep the plugin binary-loadable inside sbt's Scala 3.8.4 runtime. Enable the

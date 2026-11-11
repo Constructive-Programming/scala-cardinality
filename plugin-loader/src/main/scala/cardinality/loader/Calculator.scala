@@ -77,8 +77,8 @@ object Calculator {
   /** The calculator's version: the plugin's own. */
   val version: String = BuildInfo.version
 
-  /** The JDK the calculator's dependencies are built for (kyo: Java 25 bytecode). */
-  val Java = 25
+  /** The oldest JDK the calculator runs on: its bytecode and Scala 3's library are Java 17. */
+  val Java = 17
 
   // One loader per set of jars, kept while the build tool runs: a second report skips loading the
   // calculator again, and its library threads are started once.

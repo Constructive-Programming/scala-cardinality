@@ -3,7 +3,7 @@ package cardinality.analysis
 import scala.meta.XtensionCollectionLikeUI
 
 import cardinality.capacity.Library
-import kyo.*
+import java.util.concurrent.{Callable, ExecutionException, Executors, ThreadFactory}
 
 /** The rows of a set of target sources, with an environment beside them (dependency stubs) that is
   * read but never measured, across workers.
@@ -39,13 +39,7 @@ private[cardinality] object Measuring {
     val shared = library.getOrElse(Library.of((targets ++ environment).map(_.tree)))
     val measured =
       if (groups.size <= 1) groups.map(measure(targets, environment, _, quota, shared))
-      else {
-        import AllowUnsafe.embrace.danger
-        val all = Async.foreach(groups, groups.size)(group =>
-          Sync.defer(measure(targets, environment, group, quota, shared))
-        )
-        KyoApp.Unsafe.runAndBlock(Duration.Infinity)(all).getOrThrow.toList
-      }
+      else inParallel(groups)(measure(targets, environment, _, quota, shared))
     val byFile = measured.flatten.groupBy(_.path)
     byFile.keys.toList.sorted.flatMap(byFile)
   }
@@ -55,6 +49,30 @@ private[cardinality] object Measuring {
     * the same from run to run and machine to machine (fewer processors are only slower).
     */
   val defaultWorkers: Int = 4
+
+  // One thread per share, each returning its rows in share order. A worker's failure is rethrown
+  // as itself, not wrapped. Daemon threads, so a build tool exiting mid-measurement is not held.
+  private def inParallel[A, B](shares: List[A])(work: A => B): List[B] = {
+    val pool = Executors.newFixedThreadPool(shares.size, Workers)
+    try
+      shares
+        .map(share => pool.submit((() => work(share)): Callable[B]))
+        .map(future =>
+          try future.get()
+          catch { case e: ExecutionException => throw e.getCause }
+        )
+    finally pool.shutdownNow(): Unit
+  }
+
+  private object Workers extends ThreadFactory {
+
+    def newThread(task: Runnable): Thread = {
+      val thread = new Thread(task, "cardinality-measuring")
+      thread.setDaemon(true)
+      thread
+    }
+
+  }
 
   private def measure(
       targets: List[MethodAnalysis.Input],

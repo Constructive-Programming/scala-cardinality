@@ -264,8 +264,7 @@ only; sbt 1 runs 2.12), and `core` is free to move to a later Scala 3.
 
 ## Reports
 
-The plugin is on Maven Central for sbt 2, running on JDK 25 or later (its `kyo` dependency is
-built for Java 25); add it to `project/plugins.sbt`:
+The plugin is on Maven Central for sbt 2; add it to `project/plugins.sbt`:
 
 ```scala
 addSbtPlugin("dev.constructive" % "sbt-cardinality" % "0.0.3")
@@ -278,11 +277,11 @@ every run instead of cached, and skill seeding is sbt 2 only.
 None of the plugins (sbt 2, sbt 1, Mill) depends on the calculator. Each resolves
 `scala-cardinality_3` at its own version (`cardinalityVersion`) and runs it inside the build tool,
 in a classloader apart from the tool's own: the plugin is built for the tool's Scala, whatever the
-calculator's is. The build tool must therefore run on JDK 25 or later.
+calculator's is. The build tool may run on JDK 17, 21 or 25 (CI tests each).
 
 The calculator alone is `"dev.constructive" %% "scala-cardinality" % "0.0.3"`.
 
-For Mill (1.3 or later, on JDK 25), load the plugin in `build.mill`'s header and mix
+For Mill (1.3 or later), load the plugin in `build.mill`'s header and mix
 `CardinalityModule` into a `ScalaModule`:
 
 ```scala
