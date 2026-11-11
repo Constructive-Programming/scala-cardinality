@@ -5,7 +5,7 @@ import scala.jdk.CollectionConverters.*
 import cardinality.analysis.MethodAnalysis.Entry
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.capacity.Definition
-import cardinality.reporting.{FrontEnd, Report, ScalametaFrontEnd}
+import cardinality.reporting.{Blockers, FrontEnd, Report, ScalametaFrontEnd}
 import cardinality.tasty.CompiledTypes
 import java.nio.file.{Files, Path}
 
@@ -14,9 +14,16 @@ import java.nio.file.{Files, Path}
   *
   * A row of the new front end is its own or it is `Uncovered`: the new front end never asks the old
   * one, so an identical row is one the new front end measured itself. A `Worse` row and a row only
-  * one side has fail the gate (`failures`, and the runner's exit status). A `Better` row and a row
-  * paired by a looser key than its name and line are listed to be explained (`explained`): a better
-  * row needs its derivation, since the old front end is no oracle where it says `?`. Parity is
+  * one side has fail the gate (`failures`); the runner also fails on anything a front end could not
+  * read, on an input it reads no source of, and on a row it measured before and leaves uncovered or
+  * counts otherwise now (`--covered`).
+  *
+  * The old front end is no oracle where it says `?`, so a `Better` row is read by why it said so.
+  * Where every reason is a limit of reading syntax (`resolution`), a number is expected: the run
+  * prints one row per reason to derive as its sample. Where a reason is a limit of the counting
+  * model, the new front end counts what the model refuses: the row fails the gate until it is
+  * derived by hand and listed with its count and the rule that makes it countable (`--derived`). A
+  * row paired by a looser key than its name, kind and line is listed to be explained. Parity is
   * every old numeric row `Identical`; until then the summary says how many are.
   */
 object Differential {
@@ -54,9 +61,13 @@ object Differential {
       signature: String,
       value: Any,
       shown: String,
-      reasons: List[String]
+      reasons: List[String],
+      causes: List[String]
   ) {
     def numeric: Boolean = reasons.isEmpty
+
+    /** What places the row, whichever front end made it and whatever it counts. */
+    def key: String = s"$table $source:$line $name [$kind]"
 
     /** Whether the new front end declined the row instead of measuring it. */
     def uncovered: Boolean =
@@ -84,7 +95,8 @@ object Differential {
         entry.signature,
         value,
         entry.count.render,
-        reasons
+        reasons,
+        reasons.map(Blockers.category)
       )
     }
 
@@ -100,7 +112,12 @@ object Differential {
         Definition.signature(definition),
         if (reasons.isEmpty) definition.size else "?",
         row.size,
-        reasons
+        reasons,
+        // A refusal reads like a method row's reason; any other is its tag.
+        definition.unbound.map {
+          case Definition.Unbound.Refusal(what) => Blockers.category(what)
+          case reason                           => s"definition ${reason.tag}"
+        }
       )
     }
 
@@ -112,12 +129,55 @@ object Differential {
 
   }
 
+  // The refusals that are limits of reading syntax, by category (`Blockers.category`; a definition
+  // row's by its reason's tag). Any other is a limit of the counting model.
+  private val resolution = Set(
+    "declaration not supplied",
+    "unresolved type",
+    "inherited declaration identity not resolved",
+    "inherited override identity not resolved",
+    "inherited type member not resolved",
+    "inherited term member not resolved",
+    "inherited parent declaration not resolved",
+    "inherited parent declaration not supplied",
+    "member may be overridden through a parent outside the sources",
+    "sealed subtype reaches its parent only through a qualified name",
+    "path through a value not followed",
+    "inferred result type not resolved",
+    "construction not resolved",
+    "wildcard export not supplied",
+    "export not followed",
+    "definition unknown",
+    "definition imported"
+  )
+
+  // Whether one reason of the old front end is a limit of reading syntax. A builtin name something
+  // may shadow is one, however the reason words it, and a union's reason is its alternative's. A
+  // `transparent inline` result stays refused whatever the compiler knows (rule X), and a
+  // refinement is a form the estimate does not read, not a name it could not resolve.
+  private def syntactic(cause: String, reason: String): Boolean = {
+    val category = cause.stripPrefix("union _: ")
+    (resolution(category) || category.startsWith("builtin name")) &&
+    !reason.contains("transparent inline") && !reason.contains("a refinement")
+  }
+
   /** One row compared: its verdict, each side's row, and what paired them. */
   final case class Compared(verdict: Verdict, old: Option[Row], next: Option[Row], by: String) {
     def row: Row = old.orElse(next).get
 
+    /** A better row that counts what the model refused: one of the old reasons is no limit of
+      * reading syntax.
+      */
+    def beyondModel: Boolean =
+      verdict == Verdict.Better &&
+        !old.exists(row => row.causes.lazyZip(row.reasons).forall(syntactic))
+
+    private def heading: String =
+      if (verdict != Verdict.Better) verdict.toString.toUpperCase
+      else s"BETTER, past a ${if (beyondModel) "model" else "resolution"} limit"
+
     def render: String =
-      s"${verdict.toString.toUpperCase} (paired by $by)" +
+      s"$heading (paired by $by)" +
         old.map(row => s"\n    scalameta: ${row.render}").mkString +
         next
           .map(row => s"\n    ${if (row.uncovered) "tasty, uncovered" else "tasty"}: ${row.render}")
@@ -191,9 +251,12 @@ object Differential {
         val pairing =
           rows.groupBy(_.by).toList.sortBy(_._1).map((by, rows) => s"${rows.size} by $by")
         val signatures = rows.count(c => c.old.zip(c.next).exists(_.signature != _.signature))
+        val beyond = rows.count(_.beyondModel)
         List(
           s"$table rows: $olds old, ${nexts.size} new",
           "  " + Verdict.values.map(v => s"${by(v)} ${v.toString.toLowerCase}").mkString(" · "),
+          s"  better: ${by(Verdict.Better) - beyond} past a resolution limit, " +
+            s"$beyond past a model limit",
           s"  old numeric rows: ${numeric.size}, of which " +
             Verdict.values
               .map(v => s"${numeric.count(_.verdict == v)} ${v.toString.toLowerCase}")
@@ -205,17 +268,54 @@ object Differential {
       }
       .mkString("\n")
 
-  /** The rows that fail the gate: a worse one, and one only one side has. */
-  def failures(compared: List[Compared]): List[Compared] =
-    compared.filter(c => Set(Verdict.Worse, Verdict.OnlyOld, Verdict.OnlyNew)(c.verdict))
-
-  /** The rows to explain: a better one (its derivation), and one whose two sides differ in name,
-    * kind or scope (what paired them).
+  /** The rows that fail the gate: a worse one, one only one side has, and a better one past a model
+    * limit that `derived` does not list with the count it has now (row key to count).
     */
+  def failures(compared: List[Compared], derived: Map[String, String] = Map.empty): List[Compared] =
+    compared.filter { c =>
+      Set(Verdict.Worse, Verdict.OnlyOld, Verdict.OnlyNew)(c.verdict) ||
+      (c.beyondModel && !c.next.exists(row => derived.get(c.row.key).contains(row.shown)))
+    }
+
+  /** The rows to explain: one whose two sides differ in name, kind or scope (what paired them). */
   def explained(compared: List[Compared]): List[Compared] =
+    compared.filter(c => c.old.nonEmpty && c.next.nonEmpty && c.by != Strict)
+
+  /** The better rows past a resolution limit by the old reasons' categories, most frequent first,
+    * each with one row to derive as its sample.
+    */
+  def samples(compared: List[Compared]): List[(String, Int, Compared)] =
+    compared
+      .filter(c => c.verdict == Verdict.Better && !c.beyondModel)
+      .groupBy(_.old.toList.flatMap(_.causes).distinct.sorted.mkString("; "))
+      .toList
+      .map((causes, rows) => (causes, rows.size, rows.minBy(_.row.key)))
+      .sortBy((causes, count, _) => (-count, causes))
+
+  /** The rows the new front end answers otherwise than at the last passing run (`previous`, row key
+    * to count): one it measured and leaves uncovered now, or one it counts differently. The old
+    * front end does not catch the second where it says `?` itself.
+    */
+  def regressed(compared: List[Compared], previous: Map[String, String]): List[Compared] =
     compared.filter(c =>
-      c.verdict == Verdict.Better || (c.old.nonEmpty && c.next.nonEmpty && c.by != Strict)
+      c.next.exists(row =>
+        previous.get(row.key).exists(before => row.uncovered || before != row.shown)
+      )
     )
+
+  /** The rows the new front end measured itself, each key with its count. Two rows of one key (two
+    * overloads on a line) are kept only where both are measured alike: the key cannot tell them
+    * apart.
+    */
+  def measured(compared: List[Compared]): List[(String, String)] =
+    compared
+      .flatMap(_.next)
+      .groupBy(_.key)
+      .toList
+      .collect {
+        case (key, rows) if rows.forall(!_.uncovered) && rows.map(_.shown).distinct.sizeIs == 1 =>
+          key -> rows.head.shown
+      }
 
   /** What the uncovered rows need, most frequent first. */
   def needs(compared: List[Compared]): List[(String, Int)] =
@@ -229,39 +329,53 @@ object Differential {
 
   // ---- inputs -------------------------------------------------------------------------------
 
-  /** One module both front ends read; `label` is put before its rows' sources, to tell one
-    * fixture's from another's.
+  /** One input: the label put before its rows' sources (to tell one fixture's from another's), and
+    * the module each front end reads. They differ for a fixture with withheld support only: the old
+    * front end spells its compiled types against the support's classes, and the new one is given
+    * nothing of what is withheld.
     */
-  final case class Input(label: String, module: FrontEnd.Module)
+  final case class Input(label: String, old: FrontEnd.Module, next: FrontEnd.Module)
 
-  /** One input compared: its rows, and what a front end could not read (a source, a class). */
-  final case class Outcome(compared: List[Compared], failed: List[String])
+  /** One input compared: its rows, what a front end could not read (a source, a class, the module's
+    * compiled types or its classpath), and what the old front end said of one dependency
+    * declaration it left unsupplied, which only refuses more on its side.
+    */
+  final case class Outcome(compared: List[Compared], failed: List[String], noted: List[String])
 
-  /** A module as the build plugins hand it over: `<root>/core/src/main/scala` sources, `classes`
-    * and `classpath.txt` (the frozen self-measurement corpus).
+  /** A module as the build plugins hand it over (a frozen corpus): every Scala source under `root`,
+    * each at a path that ends with the one its classes record; `classes`; and `classpath.txt`, one
+    * dependency jar per line.
     */
   def corpus(root: Path): Input = {
     val classpath = Files.readAllLines(root.resolve("classpath.txt")).asScala.toList.map(Path.of(_))
     val classes = CompiledTypes.Classes(List(root.resolve("classes")), classpath)
-    Input(
-      "",
-      FrontEnd.Module(
-        scalaFiles(root.resolve("core/src/main/scala"), identity),
-        Report.Environment(classpath, None, Some(classes))
-      )
+    val module = FrontEnd.Module(
+      files(root, _.toString.endsWith(".scala")),
+      Report.Environment(classpath, None, Some(classes))
     )
+    Input(s"${root.getFileName}/", module, module)
   }
 
   /** The compiled test fixtures under `cache` (`cardinality.Compiled`'s): each `<key>/src` with its
     * `classes`, read against `libraries` as the tests read them, under the paths the tests gave. A
     * directory `<key>.<thread>` is a compile's staging the cache left behind, not a fixture.
+    * Sources under `src/withheld` and their classes in `support` are what the fixture compiled
+    * against and the analysis is not given.
     */
   def fixtures(cache: Path, libraries: List[Path]): List[Input] =
     list(cache).filter(fixture).map { dir =>
       val src = dir.resolve("src")
-      val classes = CompiledTypes.Classes(List(dir.resolve("classes")), libraries)
-      val read = Report.Environment(classes = Some(classes))
-      Input(s"${dir.getFileName}/", FrontEnd.Module(scalaFiles(src, src.relativize(_)), read))
+      val sources =
+        // A test names a fixture's source as it likes: every file but the withheld support.
+        files(src, !_.startsWith(cardinality.Compiled.Withheld.stripSuffix("/")))
+      val support = List(dir.resolve("support")).filter(Files.isDirectory(_))
+      def read(classpath: List[Path]) = FrontEnd.Module(
+        sources,
+        Report.Environment(classes =
+          Some(CompiledTypes.Classes(List(dir.resolve("classes")), classpath))
+        )
+      )
+      Input(s"${dir.getFileName}/", read(support ++ libraries), read(libraries))
     }
 
   private def fixture(dir: Path): Boolean =
@@ -273,16 +387,17 @@ object Differential {
     finally found.close()
   }
 
-  private def scalaFiles(root: Path, named: Path => Path): List[(String, String)] = {
+  // Every file under `root` that `source` accepts, at its path below it, with its text.
+  private def files(root: Path, source: Path => Boolean): List[(String, String)] = {
     val found = Files.walk(root)
     try
       found
         .iterator()
         .asScala
-        .filter(_.toString.endsWith(".scala"))
+        .filter(file => Files.isRegularFile(file) && source(root.relativize(file)))
         .toList
         .sortBy(_.toString)
-        .map(file => named(file).toString -> Files.readString(file))
+        .map(file => root.relativize(file).toString -> Files.readString(file))
     finally found.close()
   }
 
@@ -299,17 +414,27 @@ object Differential {
 
   /** Both front ends over one input, `old` being the scalameta front end's answer. */
   def run(input: Input, old: FrontEnd.Rows): Outcome = {
-    val next = answer(TastyFrontEnd, input.module)
+    val next = answer(TastyFrontEnd, input.next)
     def failed(side: String, rows: FrontEnd.Rows) = rows.sources.collect {
       case Left(error) => s"$side could not read ${input.label}${error.path}: ${error.message}"
     }
     def labelled(row: Row) = row.copy(source = input.label + row.source)
+    val sourceless =
+      List(s"no source read in ${input.label}").filter(_ => input.next.sources.isEmpty)
     Outcome(
       compare(old, next).map(c => c.copy(old = c.old.map(labelled), next = c.next.map(labelled))),
-      failed("scalameta", old) ++ failed("tasty", next) ++
-        next.warnings.map(warning => s"tasty warns in ${input.label}: $warning")
+      sourceless ++ failed("scalameta", old) ++ failed("tasty", next) ++
+        old.warnings.filter(whole).map(warning => s"scalameta warns in ${input.label}: $warning") ++
+        next.warnings.map(warning => s"tasty warns in ${input.label}: $warning"),
+      old.warnings.filterNot(whole).map(warning => s"scalameta notes in ${input.label}: $warning")
     )
   }
+
+  // A warning of the old front end that it lost the module's compiled types or its whole
+  // classpath: every row it then refuses would read as a limit of resolution.
+  private def whole(warning: String): Boolean =
+    warning.startsWith("compiled types not read") ||
+      warning.startsWith("dependency classpath not read")
 
   // The scalameta front end's answer, kept in `file` when one is named: the old front end takes
   // about 100 s on the corpus and does not change while the new one is written. The file is named
@@ -322,21 +447,53 @@ object Differential {
       try in.readObject().asInstanceOf[FrontEnd.Rows]
       finally in.close()
     case _ =>
-      val rows = answer(ScalametaFrontEnd, input.module)
-      // An answer that read every source is worth keeping; a failure is computed again.
-      file.filter(_ => rows.sources.forall(_.isRight)).foreach { path =>
-        val out = new java.io.ObjectOutputStream(Files.newOutputStream(path))
-        try out.writeObject(rows)
-        finally out.close()
+      val rows = answer(ScalametaFrontEnd, input.old)
+      // An answer that read every source and its whole environment is worth keeping; a failure is
+      // computed again.
+      file.filter(_ => rows.sources.forall(_.isRight) && !rows.warnings.exists(whole)).foreach {
+        path =>
+          val out = new java.io.ObjectOutputStream(Files.newOutputStream(path))
+          try out.writeObject(rows)
+          finally out.close()
       }
       rows
   }
 
-  /** `corpus <root>` or `fixtures <cache>`, then `--rows` to list every row with the front end that
-    * produced it and `--old <file>` to keep the scalameta rows of a corpus between runs. Prints the
-    * totals, what the uncovered rows need, what was not read, the rows that fail the gate and the
-    * rows to explain; exits with 1 when a row fails the gate or a front end could not read
-    * something.
+  /** What a file of rows lists, one per line: the row's key, which ends with its kind in brackets,
+    * ` | `, and its count up to a `:` (a derivation may follow it).
+    */
+  def listed(lines: Iterable[String]): Map[String, String] =
+    lines
+      .map(_.split("(?<=\\]) \\| ", 2))
+      .collect {
+        case Array(key, rest) => key -> rest.takeWhile(_ != ':')
+      }
+      .toMap
+
+  /** A row of the coverage memory as `listed` reads it back. */
+  def line(key: String, count: String): String = s"$key | $count"
+
+  private def recorded(file: Path): Map[String, String] =
+    if (Files.exists(file)) listed(Files.readAllLines(file).asScala) else Map.empty
+
+  private val flags = Set("--rows", "--old", "--covered", "--derived", "--out")
+
+  /** `corpus <root>` or `fixtures <cache>`, then:
+    *   - `--rows` lists every row with the front end that produced it;
+    *   - `--old <file>` keeps the scalameta rows of a corpus between runs;
+    *   - `--covered <file>` reads the rows the new front end measured at the last passing run, each
+    *     with its count; fails when one is uncovered or counted otherwise now; and, when the run
+    *     passes, writes the rows measured now beside the lines of rows this run did not see (to
+    *     accept a changed count, delete its line);
+    *   - `--derived <file>` names the better rows past a model limit that were derived by hand, one
+    *     per line: the row's key as the run prints it, ` | `, its count, `:`, and the rule that
+    *     makes it countable;
+    *   - `--out <file>` writes what the run prints to a file instead.
+    *
+    * Prints the totals, what the uncovered rows need, what was not read, a sample of the better
+    * rows per old reason, the rows that fail the gate and the rows to explain; exits with 1 when a
+    * row fails the gate, a row measured before is uncovered or counted otherwise, a front end could
+    * not read something, or an input has no source.
     */
   def main(args: Array[String]): Unit = {
     val libraries = sys
@@ -348,20 +505,39 @@ object Differential {
         val name = p.getFileName.toString
         name.startsWith("scala-library") || name.startsWith("scala3-library")
       }
+    val usage = "usage: Differential (corpus <root> | fixtures <cache>) [--rows] [--old <file>] " +
+      "[--covered <file>] [--derived <file>] [--out <file>]"
     val inputs = args.toList match {
       case "corpus" :: root :: _    => List(corpus(Path.of(root)))
       case "fixtures" :: cache :: _ => fixtures(Path.of(cache), libraries)
-      case _                        =>
-        sys.error("usage: Differential (corpus <root> | fixtures <cache>) [--rows] [--old <file>]")
+      case _                        => sys.error(usage)
     }
-    val keep = args.sliding(2).collectFirst { case Array("--old", file) => Path.of(file) }
+    require(args.filter(_.startsWith("--")).forall(flags), usage)
+    // A flag that takes a file is followed by one.
+    require(
+      args
+        .zipAll(args.drop(1), "", "--")
+        .forall((flag, value) => flag == "--rows" || !flags(flag) || !value.startsWith("--")),
+      usage
+    )
     require(inputs.nonEmpty, "no input: no fixture compiled under the cache")
-    require(keep.isEmpty || inputs.size == 1, "--old keeps one input's rows: a corpus")
+    def option(name: String) = args.sliding(2).collectFirst { case Array(`name`, v) => Path.of(v) }
+    require(option("--old").isEmpty || inputs.size == 1, "--old keeps one input's rows: a corpus")
+    val out = option("--out").fold(System.out)(file => new java.io.PrintStream(file.toFile))
+    if (Console.withOut(out)(report(inputs, args.contains("--rows"), option))) sys.exit(1)
+  }
+
+  // Prints one run; whether it fails.
+  private def report(
+      inputs: List[Input],
+      rows: Boolean,
+      option: String => Option[Path]
+  ): Boolean = {
     val started = System.nanoTime
     val outcomes =
       inputs.asJava
         .parallelStream()
-        .map(input => run(input, kept(keep, input)))
+        .map(input => run(input, kept(option("--old"), input)))
         .toList
         .asScala
         .toList
@@ -371,11 +547,31 @@ object Differential {
     println("uncovered rows need:")
     needs(compared).foreach((reason, count) => println(f"  $count%6d  $reason"))
     val unread = outcomes.flatMap(_.failed)
-    unread.foreach(println)
-    val failed = failures(compared)
-    val listed = if (args.contains("--rows")) compared else (failed ++ explained(compared)).distinct
-    listed.sortBy(c => (c.row.source, c.row.line, c.row.name)).foreach(c => println(c.render))
-    if (failed.nonEmpty || unread.nonEmpty) sys.exit(1)
+    (unread ++ outcomes.flatMap(_.noted)).foreach(println)
+    println("better rows past a resolution limit, by the old reasons, each with one to derive:")
+    samples(compared).foreach { (causes, count, sample) =>
+      println(f"  $count%6d  $causes\n${sample.render}")
+    }
+    val previous = option("--covered").fold(Map.empty)(recorded)
+    val lost = regressed(compared, previous)
+    lost.foreach { c =>
+      println("MEASURED BEFORE, UNCOVERED OR COUNTED OTHERWISE NOW")
+      println(s"    ${c.next.get.render}\n    key: ${c.next.get.key}")
+    }
+    val failed = failures(compared, option("--derived").fold(Map.empty)(recorded))
+    val shown = if (rows) compared else (failed ++ explained(compared)).distinct
+    shown.sortBy(c => (c.row.source, c.row.line, c.row.name)).foreach { c =>
+      println(s"${c.render}\n    key: ${c.row.key}")
+    }
+    val failing = failed.nonEmpty || unread.nonEmpty || lost.nonEmpty
+    // A passing run rewrites the memory of the rows it saw and keeps what it holds of rows it did
+    // not see (a fixture another checkout has, a run over part of the cache).
+    if (!failing) option("--covered").foreach { file =>
+      val seen = compared.flatMap(_.next).map(_.key).toSet
+      val unseen = previous.view.filterKeys(!seen(_)).toList
+      Files.write(file, (unseen ++ measured(compared)).sortBy(_._1).map(line).asJava)
+    }
+    failing
   }
 
 }

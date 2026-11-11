@@ -5,6 +5,7 @@ import scala.collection.mutable
 import cardinality.capacity.Definition
 import cardinality.capacity.Definition.Kind
 import tastyquery.Contexts.*
+import tastyquery.Exceptions.MemberNotFoundException
 import tastyquery.Names.{nme, SimpleName}
 import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
@@ -70,8 +71,13 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
     }
   }
 
+  // An annotation whose class the classpath does not hold (a compile-only dependency's) is not
+  // `scala.main`.
   private def entryPoint(symbol: TermSymbol): Boolean =
-    symbol.annotations.exists(_.symbol.displayFullName == "scala.main")
+    symbol.annotations.exists { annotation =>
+      try annotation.symbol.displayFullName == "scala.main"
+      catch { case _: MemberNotFoundException => false }
+    }
 
   private def definition(tree: Tree): Boolean = tree match {
     case _: ClassDef => true
@@ -249,7 +255,13 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
         case t: TypeMember if !t.symbol.isSynthetic => alias(t, under)
         case _                                      => ()
       }
-      if (top) values(c.rhs.body.collect { case v: ValDef if member(v) => v }, under)
+      // A top-level value is a definition row, one per name it binds.
+      if (top) c.rhs.body.foreach {
+        case v: ValDef if member(v) =>
+          val bound = Definition.qualified(under :+ v.name.toString)
+          definitions += Defined(bound, Kind.Value, Nil, v)
+        case _ => ()
+      }
     }
     if (holder(symbol)) inside(prefix, top)
     else if (symbol.isModuleClass) {
@@ -267,14 +279,6 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
       inside(prefix :+ name :+ Definition.Instance, top = false)
     }
   }
-
-  // A top-level value definition is one row, named by the names it binds: `val a, b = …` is
-  // `a, b`. The values of one definition start where it does.
-  private def values(vals: List[ValDef], prefix: List[String]): Unit =
-    vals.groupBy(_.pos.startOffset).toList.sortBy(_._1).foreach { (_, bound) =>
-      val name = bound.map(_.name.toString).mkString(", ")
-      definitions += Defined(Definition.qualified(prefix :+ name), Kind.Value, Nil, bound.head)
-    }
 
   // A type alias: `type F[X] = …` has its parameters, `type F = [X] =>> …` is a constructor, and
   // so is one whose body is a type lambda again (`type F[X] = [Y] =>> …`). The compiled tree is the
