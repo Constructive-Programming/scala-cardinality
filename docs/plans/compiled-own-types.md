@@ -220,6 +220,13 @@ class (b), on rows" below say what each left. After a front-end slice lands, rer
 move from UNCOVERED to PASS, and one that moves to FAIL has a cause to read. An expectation moves
 only with its derivation.
 
+Stretch 5 (the inline-body reading of slice 5d as a piece of its own) is committed and waits for
+the front-end agent to plug it into `Readings`, which answers `an inline definition` for every
+inline method until then: "Inline bodies: `Inlines` and its verdict gate" below has the interface,
+the measurements and the steps. Nothing of it is half done. To check it from the files alone:
+`sbt "core/testOnly cardinality.compiled.InlinesSpec"`, then `InlineVerdicts` over the fixtures and
+each corpus (the command is in that section; exit 1 means a method only `Inlines` refuses).
+
 ### Commands
 
 | Command | What it does |
@@ -792,6 +799,141 @@ Two more examples pin a reading only the scalameta front end has, a report with 
 classpath at all, where a JDK class outside `java.base` is not supplied
 (`DependencyRowsSpec.jdkUnread`, `StdlibModelSpec.javaAwtUnread`): a build always passes a
 classpath, and the compiled front end always has the JDK to read.
+
+### Inline bodies: `Inlines` and its verdict gate
+
+Which inline methods count as methods (AGENTS.md, "Inline methods count as methods"; decisions D2
+and D4), read from typed trees: `core/src/main/scala/cardinality/compiledinlines/Inlines.scala`,
+in the package `cardinality.compiled`.
+
+```scala
+final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => List[ClassSymbol])(
+    using Context
+) {
+  /** Why a method is not counted as a method, if it is not. */
+  def refusal(method: TermSymbol): Option[String]
+}
+```
+
+`own` are the module's top-level classes (`CompiledTypes.loaded`) and `dependencies` those of its
+classpath (`CompiledTypes.dependencies`), asked for only where a body selects a member of a class
+outside the module on a receiver. `refusal` answers for any method: an inline method an expansion
+of which a call site decides (the reason starts with `inline method:`, or is the transparent-result
+reason of rule X), and a method written inside such a method, which every expansion copies
+(`definition inside an inline method:`). `None` is "counts like a `def`"; the reasons keep the
+scalameta front end's prefixes.
+
+How each rule reads:
+
+| Rule | Over the trees |
+| --- | --- |
+| A compile-time operation | The nodes `InlineIf`, `InlineMatch` (`summonFrom` is one without a selector), `Quote`, `Splice` and their patterns; a term reference or a written type whose symbol is declared under `scala.compiletime` or `scala.quoted`; the `Macro` flag. |
+| Wherever it appears | One walk of the whole definition: nested definitions, lambdas, arguments by value and by name, and the default arguments, which the compiler keeps as methods beside the definition (`m$default$N`). What a `throw` is given, and the message of `sys.error`, is not read (AGENTS.md, "Ignore throwing"). |
+| In an inline method it calls | A reference to an inline method brings that method's definition along, read once; the methods reached are decided together, breadth first, so a cycle is decided with everything it reaches and never assumed to pass. |
+| A dependency's inline body | The same walk: the callee's symbol has its tree where its classes hold TASTy. The Scala library's inline methods (`summon`, `assert`, `Tuple.head`) are read from the library's own classes; no table of them is kept. An inline method without a tree refuses (`has no body in the classes read`), a name the classes do not hold refuses, and a method that is not inline (Java, Scala 2, a plain `def`) is a call. |
+| Rule X | `isTransparentInline` and a declared result that is no singleton. An export's forwarder is transparent by construction and is read as the member it forwards to. |
+| D2 | The conversions and extensions the body applies are calls in the tree, read like any call; one the body could have met and did not apply is not in the tree. |
+| D4 | The given the compiler resolved is an argument in the tree; an inline given is an inline call. |
+| An inline override on a receiver | A member selected on `this`, on a parameter (a lambda's included, and a function parameter's `apply`), or on what is selected or called on one (`p.g.f(x)`, `p.m(a).f(x)`: an override may narrow the type in between), when a subclass may override it: every inline method of the program that overrides it is brought along. The module's classes are searched, and the dependencies' where the member's class is not the module's (a dependency extends no class of the module). An ascription and a local value fix the receiver's type. |
+| A runtime class of a type parameter | A type test (`isInstanceOf`, a typed pattern) or `classOf` whose type has no one class whatever the expansion instantiates: a type parameter, an abstract type member, an array of one. |
+
+What the classes hold, as it bears on the reading:
+
+- An inline method's body is kept as written: a call of another inline method, a `transparent`
+  one included, is still a call. So "read the call" needs no `Inlined` node here.
+- An `Inlined` node (in code that is not inline) keeps the expansion and the top-level class it
+  came from, not the call that was expanded. Reading a call site's expansion back to its callee is
+  not possible from it; nothing in this reading needs to.
+- A method written inside an inline method that refuses must refuse too, and `refusal` says so
+  for it. The scalameta front end answers 1 for a one-valued result before it reads the body, so
+  the one-value rule has to stay ahead of `Inlines` in `Readings` for the rows to agree.
+
+Size: `Inlines.scala` is 382 lines with its comments, against the 3,747 of `analysis/expansion`
+(twelve files, `LibraryInlines` and the candidate rule of register D43 among them), which it
+replaces whole. Its spec, `InlinesSpec`, is 18 examples over fixtures it compiles itself, each
+verdict derived beside it.
+
+The gate while no row shows the verdict is `InlineVerdicts`
+(`core/src/test/scala/cardinality/compiled/InlineVerdicts.scala`):
+
+```bash
+sbt "core/Test/runMain cardinality.compiled.InlineVerdicts fixtures core/target/compiled-fixtures --list"
+sbt "core/Test/runMain cardinality.compiled.InlineVerdicts corpus <corpus directory> --list"
+```
+
+For every inline method of an input, and every method written inside one, it compares two
+verdicts that no code shares. The old one is read off the row `ScalametaFrontEnd` answers for the
+method (`Differential.answer`, the code of `analysis/expansion`): refused where a reason of the row
+starts with `inline method` or `definition inside an inline method`, or names the transparent
+result. The new one is `Inlines.refusal` for the method's symbol over the compiled classes. A
+method is paired by its source, line and name. Exit 1: a method only `Inlines` refuses (`worse`),
+or an input a front end could not read. A fixture with dependency units is read as its test reads
+it, the units' classes on the classpath (`Differential.fixtures` reads their sources as sources of
+the module, which is what its own rows are compared over).
+
+| Input | Methods | Same (count, refuse) | Counts where the old refuses | Worse | Masked | Other | Unpaired |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| The compiled fixtures (1,934, 101 with the word `inline`) | 337 | 298 (147, 151) | 35 | 0 | 1 | 1 | 2 |
+| corpus-cats-eo | 82 | 39 (23, 16) | 27 | 0 | 0 | 12 | 4 |
+| corpus-cats-eo-generics | 3 | 3 (0, 3) | 0 | 0 | 0 | 0 | 0 |
+| corpus-cats-eo-schemes, corpus-cats-kernel, corpus-cats-core, corpus-core | 0 | | | | | | |
+
+The last four have no inline method (cats' `@inline` is Scala 2's annotation). `Other` is a method
+whose old row refuses for another reason and shows no inline verdict: `Inlines` counts all 13.
+`Unpaired` is a method with no old row at its line and name: export forwarders (the four of
+cats-eo, which count as the members they forward to, and one in a fixture, which refuses as its
+member does) and a local inline given. `Masked` is `mk` inside `viaLocal`, a method the old row
+counts 1 by its one-value rule and `Inlines` refuses, as the old front end does for every other
+definition inside a refusing inline method.
+
+Each method that counts where the scalameta front end refuses, by what it was refused for, with a
+derivation of one of each:
+
+| Old reason | Fixtures | cats-eo | Why it counts |
+| --- | --- | --- | --- |
+| D2: `may expand the inline conversion …` | 8 | | `inline def first(t: (Int, Int)): Int = t._1` beside `inline given conv: Conversion[Int, String]` whose body uses `codeOf`: no expression of the body needs a `String` from an `Int`, the compiler applied nothing, and every expansion returns `t._1`. |
+| D2: `applies +` / `applies get` / `applies h` / `applies f` / `applies getOption` / `applies reverseGet` (…`which an extension of that name may answer when no member applies`, or `the implicit conversion … may answer`), and `calls inline method …, which applies …` | 12 | 9 | `inline def hOnT(t: lib.T, x: Int): Int = t.h(x)`: `T` declares `h(x: Int): Int`, a member always outranks an extension, and the tree selects `T.h`; the inline extension `h` of `T`'s companion is not applied. In cats-eo, `accessor.get(self.to(s))` selects `Accessor.get`, a member. |
+| D2: `selects reverseGet, no member of … (an extension or conversion is not resolved)` | | 2 | The compiler resolved the extension: the tree calls the inline extension `reverseGet`, whose body `self.from(ra.reverseGet(b))` has no compile-time operation. |
+| D2: `may expand an implicit conversion from outside the sources`; `selects toLong on a value whose type is not read` | 2 | | An import the sources do not supply rebinds nothing the compiler did not resolve; `i.toLong` selects `Int.toLong`. |
+| D4: `leaves a given of … to implicit search` | 1 | 4 | `inline def implicitly1[A](a: A): String = useShow(a)`: the tree passes `Show.anyShow[A]`, the given the compiler chose where the method is written, which is no inline method. |
+| D4: `resolves a given with summon`; a context function type, literal or callee | 4 | | `summon` is the library's `inline def summon[T](using x: T): x.type = x`, read from its classes: it returns its argument. A context function is a function whose argument the tree passes. |
+| A name or type the scalameta reading does not resolve: `selects … on a value whose type is not read` (or `of an abstract type`), `… which the library table does not list`, `creates an instance of a class not read`, `declares the local type`, and the definitions inside those methods | 8 | 8 | `inline def head(t: (Int, Int)): Int = t.head`: `Tuple.head` is an inline method of the library whose body is a runtime selection and a cast, with no compile-time operation. `(new Gn)(x)` calls the `apply` of a class local to the body. |
+| `tests the type XA at run time` | | 4 | `val (x, a) = to(s)` in `Lens.modify`: the pattern is irrefutable and the compiled tree has no type test. The test was in the scalameta front end's input only, where the compiled types are written into the pattern (`val (x: XA, a: A)`). |
+
+No method is worse on the fixtures or on a corpus. One was, while this was built, on a fixture
+written for it (`DependencyRowsSpec.inlineOverride`): an inline override declared in a dependency,
+which is why the dependencies' classes are searched.
+
+Plugging it in (the front-end agent's, in its own files):
+
+1. Move `Inlines.scala` into `core/src/main/scala/cardinality/compiled/` and count it in
+   `TastyFrontEndSpec`'s example over that directory's imports (`List.fill(8)` becomes 9). It is
+   kept beside the directory only because that example pins the number of files; `InlinesSpec`
+   holds the same import rule for it and names its path.
+2. In `Readings`, where an inline method answers `an inline definition`, ask
+   `inlines.refusal(symbol)` instead, with one `Inlines` per module:
+   `new Inlines(own, CompiledTypes.dependencies(classes)._1)`, the second element going to the
+   report's warnings. A refusal is a row's reason as it
+   stands, not `not read from compiled classes yet`. Ask it for a method that is not inline too:
+   one written inside a refusing inline method refuses.
+3. Keep the one-value rule ahead of it, as the scalameta front end has it.
+4. Rerun `scripts/spec-ledger.sh` and `InlineVerdicts`. Expectations that move, each with its
+   derivation: `DependencyRowsSpec.inlineBody` (a dependency's inline body is read, so
+   `picked[A](x: A, y: A): A` counts 2, its two projections) and the examples that pin a refusal
+   of the table above.
+
+Limits, each a place where this reading does no more than the scalameta one:
+
+- A dependency class that does not load is left out of the search for inline overrides, as it is
+  left out of the stubs. `CompiledTypes.dependencies` returns why: `Readings` has to pass it on
+  as a warning of the report, and `InlineVerdicts` fails an input with one. No class of a corpus
+  or a fixture fails to load.
+- `InlineVerdicts` lists a method that counts where the scalameta front end refuses and does not
+  fail on it, whatever the old reason: the reasons do not sort mechanically (a D2 reason ends
+  `which uses scala.compiletime.codeOf` too). Each listed method is read by hand, as the table
+  above records.
+- A cast (`asInstanceOf`) to a type parameter is not a runtime class read: it is erased, and an
+  unsafe cast is outside the model.
 
 ## Phase 5: the TASTy front end, slice by slice
 
