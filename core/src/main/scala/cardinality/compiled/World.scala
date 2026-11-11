@@ -26,6 +26,16 @@ final private[compiled] class World(own: Set[ClassSymbol])(using Context) {
       .when(c.owner.isPackage && !own(c))(c.displayFullName)
       .filter(name => name.startsWith("scala.") || name.startsWith("java."))
 
+  /** Whether building an instance of a template is not read yet (register D26 for classes, slice
+    * S6): it, or a template of the module it extends, evaluates something that always throws or
+    * holds a pattern definition.
+    */
+  def unbuilt(tree: ClassDef): Boolean =
+    tree.symbol.linearization
+      .filter(ofModule)
+      .flatMap(_.tree)
+      .exists(template => Bodies.destructures(template) || Bodies.alwaysThrows(template))
+
   /** The classes some class of the module extends directly; its nested, local and anonymous classes
     * are found in the trees.
     */

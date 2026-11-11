@@ -62,13 +62,12 @@ final private[compiled] class Stored(world: World)(using Context) {
     // value of its own: a dash, no size and no reason.
     case (Kind.Constructor, _)                         => Right(Row(None, Nil))
     case (_, c: ClassDef) if c.symbol.isEnum           => enumeration(c, rowEnv(c)).map(_.row)
-    case (_, c: ClassDef) if Shapes.isFamily(c.symbol) =>
-      Left(s"a sealed family: ${c.symbol.displayFullName}")
-    case (_, c: ClassDef) if c.symbol.isAbstractClass => Right(Row(None, Nil))
-    case (_, c: ClassDef)                             => constructed(c, rowEnv(c)).map(_.row)
-    case (_, t: TypeMember)                           => alias(t)
-    case (_, v: ValDef)                               => topLevel(v)
-    case _                                            => Left("a definition")
+    case (_, c: ClassDef) if Shapes.isFamily(c.symbol) => sum(c, rowEnv(c)).map(_.row)
+    case (_, c: ClassDef) if c.symbol.isAbstractClass  => Right(Row(None, Nil))
+    case (_, c: ClassDef)                              => constructed(c, rowEnv(c)).map(_.row)
+    case (_, t: TypeMember)                            => alias(t)
+    case (_, v: ValDef)                                => topLevel(v)
+    case _                                             => Left("a definition")
   }
 
   // A definition read for its own row: each of its type parameters is a reason the row has no one
@@ -134,6 +133,81 @@ final private[compiled] class Stored(world: World)(using Context) {
               } yield held
           })
           .map(Stored.sum)
+    }
+  }
+
+  // A sealed family is the sum of its subtypes: an object is one value, a concrete class what it
+  // stores, a sealed level below its own sum, each where its clause passes the family's parameters
+  // on (`Sums.carried`). A subtype the file does not name whole leaves the sum unread: an
+  // anonymous, given, inner or local one, an open one, one something extends, one under two
+  // levels; so does a construction that throws (slice S6). The old estimate refuses a family an
+  // enum's case extends, and so does this.
+  private def family(tree: ClassDef, env: Env): Either[String, Held] = {
+    val parent = tree.symbol
+    val name = parent.displayFullName
+    val children = parent.sealedChildren
+    def carried(child: ClassSymbol | TermSymbol) =
+      Sums
+        .carried(child, parent, parent.typeParams.map(env.binders))
+        .toRight(s"a subtype that does not pass its own parameters on: ${child.displayFullName}")
+    def built(template: ClassDef) =
+      Either.cond(
+        !world.unbuilt(template),
+        (),
+        s"a construction that throws or binds a pattern: ${template.symbol.displayFullName}"
+      )
+    def subtype(child: ClassSymbol | TermSymbol): Either[String, Held] = child match {
+      case value: TermSymbol if value.isGivenOrUsing =>
+        Left(s"a family with a given instance: $name")
+      case value: TermSymbol if value.isEnumCase =>
+        val why =
+          s"sealed family not summed: ${parent.name} (an enum case extends it: ${value.name})"
+        Right(Held(EffectiveOmega, List(Unbound.Refusal(why))))
+      case _ if !World.inObjects(child) => Left(s"a family with an inner or local subtype: $name")
+      case value: TermSymbol            =>
+        for {
+          _ <- value.moduleClass.fold(Right(()))(World.tree(_).flatMap(built))
+          _ <- carried(value)
+        } yield Held(UnitSize)
+      case cls: ClassSymbol =>
+        for {
+          below <- World.tree(cls)
+          _ <- built(below)
+          bound <- carried(cls)
+          inside = env.copy(
+            binders = cls.typeParams.zip(bound).toMap,
+            visiting = env.visiting + cls
+          )
+          held <-
+            if (env.visiting(cls)) Left(s"a definition that reaches itself: ${cls.displayFullName}")
+            else if (cls.isEnum) Left(s"an enum under a sealed family: ${cls.displayFullName}")
+            else if (Shapes.isFamily(cls)) family(below, inside)
+            else if (cls.isAbstractClass || world.extended(cls))
+              Left(s"a family with a subtype open to extension: ${cls.displayFullName}")
+            else constructed(below, inside)
+        } yield held
+    }
+    // An anonymous instance lists the family itself; none listed for a family something extends
+    // means the classpath lacks the annotation that lists them.
+    if (children.contains(parent)) Left(s"a family with an anonymous instance: $name")
+    else if (children.isEmpty && world.extended(parent))
+      Left(s"a family whose subtypes are not listed: $name")
+    else built(tree).flatMap(_ => Traversals.sequence(children.map(subtype))).map(Stored.sum)
+  }
+
+  // The cases a family counts, through its sealed levels: one under two levels would be counted
+  // twice.
+  private def leaves(parent: ClassSymbol): List[Symbol] = parent.sealedChildren.flatMap {
+    case cls: ClassSymbol if cls != parent && Shapes.isFamily(cls) => leaves(cls)
+    case leaf                                                      => List(leaf)
+  }
+
+  // A family read from its top.
+  private def sum(tree: ClassDef, env: Env): Either[String, Held] = {
+    val reached = leaves(tree.symbol)
+    reached.diff(reached.distinct).headOption match {
+      case Some(twice) => Left(s"a subtype reached twice: ${twice.displayFullName}")
+      case None        => family(tree, env)
     }
   }
 
@@ -311,9 +385,9 @@ final private[compiled] class Stored(world: World)(using Context) {
     else if (env.isValue) Left(s"a value of a class of the module: ${c.displayFullName}")
     else if (c.isEnum && c.isCaseClass)
       Right(Held(EffectiveOmega, List(Unbound.Refusal(s"enum case type not read: $name"))))
-    else if (Shapes.isFamily(c)) Left(s"a sealed family: ${c.displayFullName}")
     // Any subtype anywhere may add values to an open trait or abstract class.
-    else if (c.isAbstractClass && !c.isEnum) Right(Held(EffectiveOmega, List(Unbound.Open(name))))
+    else if (c.isAbstractClass && !c.isEnum && !Shapes.isFamily(c))
+      Right(Held(EffectiveOmega, List(Unbound.Open(name))))
     else
       World.tree(c).flatMap { tree =>
         // A declaration is read as it stores, whatever position named it.
@@ -322,7 +396,9 @@ final private[compiled] class Stored(world: World)(using Context) {
           visiting = env.visiting + c,
           input = false
         )
-        if (c.isEnum) enumeration(tree, inside) else constructed(tree, inside)
+        if (c.isEnum) enumeration(tree, inside)
+        else if (Shapes.isFamily(c)) sum(tree, inside)
+        else constructed(tree, inside)
       }
   }
 

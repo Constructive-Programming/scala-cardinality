@@ -195,10 +195,9 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
   // of those it extends declares an abstract member of the empty type (its own is its level's to
   // read).
   private def construction(tree: ClassDef): Either[Unread, Unit] = {
-    val templates = tree.symbol.linearization.filter(world.ofModule).flatMap(_.tree)
+    val above = tree.symbol.linearization.drop(1).filter(world.ofModule).flatMap(_.tree)
     Either.cond(
-      !templates.exists(t => Bodies.destructures(t) || Bodies.alwaysThrows(t)) &&
-        templates.drop(1).forall(absurdMembers(_).isEmpty),
+      !world.unbuilt(tree) && above.forall(absurdMembers(_).isEmpty),
       (),
       Uncovered(
         "a construction that throws, binds a pattern or inherits a member of the empty type: " +
