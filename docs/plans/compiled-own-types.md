@@ -1,7 +1,7 @@
 # Compiled own types: reading the module's TASTy
 
-**Status:** phases 1 to 3 implemented (2026-11-10/11). Phases 4 to 6 are planned (re-planned
-2026-11-11); phase 6 waits on the owner decisions listed under "Decisions pending".
+**Status:** phases 1 to 3 implemented (2026-11-10/11). Phases 4 to 6 are planned: a TASTy front
+end replaces the scalameta one (owner decisions, 2026-11-11, under "Decisions").
 
 ## Goal
 
@@ -101,7 +101,7 @@ Compiled classes are now the only source of an inferred type. Where a member has
   members refuse.
 
 The override-identity and given-name code first listed under this phase needs symbol facts a
-source rewrite cannot carry. It moved to phase 4, behind the symbol index.
+source rewrite cannot carry. The TASTy front end (phase 5) answers both from symbols.
 
 ## Measured (2026-11-11)
 
@@ -137,67 +137,90 @@ across a version's runs.
   explained) and core's suite.
 - **Uncompiled support is a future task.** No code is kept for the sake of sources without compiled
   classes. They still run, and whatever needs a compiled fact refuses.
-- **The goal is deletion.** A phase that only adds a second path is not done until the syntax path
-  it replaces is deleted.
+- **The goal is deletion.** The new front end is not done until the scalameta one it replaces is
+  deleted.
 
-## Mechanism: a symbol index (recommended; decision D1)
+## Decisions (owner, 2026-11-11)
 
-Types can be written into the source. Symbol facts cannot: which declaration a name denotes, which
-inherited member a method overrides, a class's exact parents, the conversions the typer inserted.
-Phases 4 to 6 read those from a **symbol index**: built in the same TASTy walk as `CompiledTypes`,
-keyed by source file and offset, queried by the analyzer where it resolves a name or a member today.
-The analyzer keeps its scalameta trees. Each use of the index deletes the syntax code that answered
-the same question.
-
-## Phase 4: total typing, the index, override identity, given names
-
-No contract change. Expected report movement: none.
-
-| Step | What | Deletes |
+| | Decision | Chosen |
 | --- | --- | --- |
-| 4a. Total typing | After `CompiledTypes`, every definition has a written type. A type with no spelling, a `transparent inline` result and a member of a source not compiled get a reserved marker type (as stubs use `_root_.SignatureNotRead`), which refuses by name. | The "no written type" branches: 166 `decltpe` sites in 42 files to review, 4 refusal sites (`ContextBinders`, `Measurement`, `BodyTerms`, `MemberSyntax`). |
-| 4b. Symbol index | Offset → symbol facts for the module's own trees: owner, overridden symbols, the symbol each written name resolves to. | Nothing by itself: groundwork. |
-| 4c. Override identity | Which inherited declaration a member overrides or implements: the symbol's overridden symbols. | `OverrideIdentity` (307), `TypeIdentities.Overrides` (about 200), the matching in `FinalImplementations` (about 60), `Measurement` 226-244: about 550. |
-| 4d. Given names | An anonymous given's name: the symbol's. | `GivenNames` (105). |
+| D1 | How compiled facts reach the analyzer | **A TASTy front end.** The analyzer reads the compiler's symbols and typed trees directly. The scalameta front end, the stub rendering and the source rewriting (`CompiledTypes`, `ClosedWorld`'s text edits) are deleted when it has taken over. Not chosen: a symbol index beside the scalameta trees; source rewriting only. |
+| D2 | D43, the conversions and extensions a body may meet | **The conversions the compiled body applies.** A subset of the old candidates, so refusals only leave. |
+| D3 | A builtin name the compiler binds differently from "builtin names are never shadowed by what is not supplied" | **The compiler's binding wins.** The rule is kept in the contract for uncompiled sources only (a future task). |
+| D4 | A given left to implicit search in an inline body | **Read the given the compiler resolved.** Refuse only when that given is inline with a compile-time operation, as for a written call. |
 
-## Phase 5: exact structure
+## Where the boundary is
 
-Contract text changes (the simple-name closed world becomes exact for compiled sources), no owner
-decision needed. Expected movement: refusals leave, rows move to their next reason or to a number.
+About 30,000 of core's 36,800 lines read scalameta trees. What does not:
 
-| Area | Fact | From the index | Deletes |
-| --- | --- | --- | --- |
-| `ClosedWorld` Ref/Node matching by simple name, for sources | Which templates extend which | Exact parent symbols (stubs are already exact, `53ab312`) | About 80, and the "same-named templates share subclasses" overcount. Writing `final` stays the analyzer's. |
-| `Linearization`, `InheritedScopes`, `InheritedTerms` (foreign), `ForeignParents` | Linearization, parent type arguments, members of library parents | The class symbol's linearization and parent types | About 200. |
-| `ReceiverCalls` 76-170, `Construction` | Callee of a call, by-value or by-name, throwing statements | The applied symbol and its parameter types | About 150. |
-| `ContextFunctions` 121-318 | Whether an expected type, dealiased, is a context function | The dealiased declared type (rule F: never through an opaque type outside its scope) | About 180. |
+- the goal solver (`analysis/inhabitation`, 2,557 of its 3,082 lines): `Shape`, `Binding`, `Count`;
+- the size algebra (`capacity/Size`, 341 lines);
+- the rows a report is made of: `MethodAnalysis.Entry` (path, name, signature, line, kind, count,
+  captures) and `capacity.Definition` (name, kind, params, size, unbound, line).
 
-## Phase 6: the large ones
+So the front end's whole job is: from a compiled module, produce for each target its environment
+(`Binding`s) and goal (`Shape`), and for each definition its `Size`, with the row's name, signature
+and line. The back end stays as it is. Everything between the trees and that boundary (name
+resolution, scopes, imports, inheritance, the stdlib model's lookup by name, inline-body and
+conversion reading, the dependency stubs) is rewritten over symbols, where most of it is a symbol
+or type query instead of a reading of syntax.
 
-The most code, and where `analysis/expansion` sits: 3,747 lines, 98% of its statements unexecuted
-on core's own sources (2026-11-11 coverage run), so the least exercised code on real input.
+The model rules are not compiler facts and move with their meaning unchanged: the closed world
+(finality is still the analyzer's, never a TASTy flag), rules B, F and X, top types by place, the
+capability reading of abstract and overridden members, lawful key equality, the size algebra.
 
-| Step | What | Deletes | Waits on |
-| --- | --- | --- | --- |
-| 6a. `LibraryInlines` | Whether a standard-library member is inline: its symbol's flag, read from scala-library's TASTy. | The hand-written table (357). | Nothing. |
-| 6b. Conversion and extension candidates | The conversions and extensions a body meets. | `Conversions` (525), `Reachable` (504), `RestatedExtensions` (186), `Unconverted` (91), `Insertions` (101), parts of `TargetViews`: about 1,300, less the new reading of applied conversions. | D2 |
-| 6c. Name resolution | Which declaration a written name denotes. | `ShadowedBuiltins` (761), `LookupBindings` (216), `SuppliedNamespaces` (81), `ImportBinding` (105), `ImportShadowing` (28), most of `SourceLookup` (802), `TermMembers` (167), `InheritedTypeMembers` (480): about 2,000. Lookup of rooted names the analyzer builds itself stays. | D3 |
-| 6d. Inline-body reading | Compile-time operations in an inline body and the inline methods it calls. | About 1,500 of `InlineBodies`, `BodyWalk`, `BodyTerms`, `BodyTypes`, `Calls` (2,045). `transparent` calls arrive already expanded in TASTy and are read as written there. | D4 |
+## Phase 4: the boundary and a differential gate
 
-## Decisions pending (owner)
+No behaviour change. This is what makes "compiled code must not degrade" checkable during a
+rewrite: the old front end is the oracle until the new one matches it.
 
-| | Decision | Options |
+| Step | What |
+| --- | --- |
+| 4a. Front-end interface | One entry point the report calls, returning `Entry` and `Definition` rows for a compiled module. The scalameta pipeline becomes its first implementation, unchanged. |
+| 4b. Differential runner | Runs two front ends over the same input and classifies every row: identical; better (`?` → number, or a refusal whose reason is a later one); **worse** (number → `?`, or a different number). Inputs: the frozen self-measurement corpus and every compiled test fixture (the 1,490 in `core/target/compiled-fixtures`). |
+| 4c. Row identity | Row names today come from syntax (`<block#1>`, `<new#1>`, `<lambda#1>`, `<extension@4>`). Fix how a symbol gets the same name, so rows pair up; pair by source position where a name cannot match. |
+
+## Phase 5: the TASTy front end, slice by slice
+
+Each slice lands when the differential runner shows no **worse** row for the rows it covers; a
+better row is recorded with its derivation. Rows a slice does not cover yet stay with the old front
+end.
+
+| Slice | What it reads from symbols and typed trees | Replaces |
 | --- | --- | --- |
-| D1 | How compiled facts reach the analyzer | **Symbol index** beside the scalameta trees (recommended): incremental, every step gated, about 5,500 lines removable in all. **TASTy front end**: the analyzer reads typed trees directly; removes far more (most of `analysis/resolution`, `expansion` and the stub rendering) but is a rewrite of the front half, with every count at risk until it converges. **Source rewriting only**: stops after 4a and 4d. |
-| D2 | D43, the conversions and extensions a body may meet | **Rewrite to "the conversions the compiled body applies"** (recommended): a subset of today's candidates, so refusals only leave; deletes about 1,300 lines; the contract text changes and each moved row is explained. **Keep the candidate superset**: no movement, the code stays. |
-| D3 | A builtin name the compiler binds differently from the rule "builtin names are never shadowed by what is not supplied" | **The compiler's binding wins for compiled code** (recommended): the rule remains for uncompiled sources only; unlocks 6c. A row that today counts `scala.Int` where the program means another `Int` becomes that declaration's count, or `?` when it is not rendered: a correction, not a degradation. **Keep the rule over the compiler**: `ShadowedBuiltins` stays and 6c shrinks to about half. |
-| D4 | A given left to implicit search in an inline body | **Read the given the compiler resolved** (recommended): refuse only when that given is inline with a compile-time operation, as for a written call; rows only gain numbers. **Keep refusing every such given**: the index must tell synthesized arguments apart; no movement. |
+| 5a. Types to shapes | A compiled type as a `Shape`: ground types, products, sums, functions, type parameters, aliases dealiased by the compiler, opaque types by scope (rule F), the stdlib model keyed by symbol, top types by place. | The type reading in `analysis/resolution` (8,950 lines) and `types` (2,264), and every lookup by name: D3 is this slice. |
+| 5b. Definitions table | Class symbols: fields, constructors, sealed children, enum cases, public factories (rule B), recursion. | `capacity` (6,449) but for `Size`. |
+| 5c. Method environments | A target's inputs, receiver fields, captures and enclosing scopes; abstract and overridden members as capabilities; the closed world over exact parent and override symbols; given names; context-function binders from the declared type. | `analysis` top level (5,583), `analysis/capability` (2,517), `analysis/model` (1,530); override identity and given names (the first plan's phase 3 items) are symbol queries here. |
+| 5d. Bodies | Typed trees where the contract reads a body: inline bodies and the inline methods they call (compile-time operations are symbols and tree nodes), the conversions the body applies (D2), the givens it resolved (D4), factory bodies, constructor statements, defaults, capture aliases. | `analysis/expansion` (3,747), including the hand-written `LibraryInlines` table. |
+| 5e. Dependencies as symbols | A dependency's declarations read from its symbols, with the stubs' guards kept: no body is supplied, no signature guessed. | The stub rendering and parsing in `tasty` (1,499); a report no longer parses about 5,200 stub sources. |
 
-## Order
+## Phase 6: switch over and delete
 
-4a → 4b → 4c → 4d → 5 → 6a → 6b (D2) → 6c (D3) → 6d (D4). Each step lands with: the syntax code
-deleted, the frozen-corpus report compared with the previous step, core's suite, the plugins'
-tests, CPD, and the SemanticDB dead-code scan clean.
+- The plugins and `Report` call the TASTy front end. Sources are still read, for a row's signature
+  text and line only.
+- Delete the scalameta front end, the stubs, `CompiledTypes` and the closed world's text edits.
+  Rule T becomes trivial: every type is the compiler's.
+- Tests: fixtures already compile through `cardinality.Compiled`. A fixture that names an unsupplied
+  declaration on purpose cannot compile; it becomes "compiled against a jar the analysis is not
+  given", or goes with uncompiled support.
+- Sources without compiled classes are not analyzed at all until uncompiled support returns.
+- Measure again on the frozen corpus: rows, moved rows, wall, CPU, memory.
+
+## Order, and what is not known yet
+
+4a → 4b → 4c → 5a → 5b → 5c → 5d → 5e → 6. Every step: the differential report, core's suite, the
+plugins' tests, CPD, the dead-code scan.
+
+- **Size of the result.** The front end should shrink a lot (most of resolution is name lookup the
+  compiler already did), but by how much is an estimate until 5a and 5b exist: perhaps a third of
+  today's 30,000 lines.
+- **Rules worded in syntax.** Some contract rules speak of what is "written" or "spelled" (rule T's
+  matching, the simple-name closed world, D43's candidates, the builtin-shadowing rule). Each is
+  restated over symbols when its slice lands, in `v1.md` and `AGENTS.md`.
+- **tasty-query coverage.** It already reads Scala 3 TASTy, Scala 2 pickles and Java classes for
+  the stubs; typed trees of bodies (5d) are new use.
+- **Performance.** Unknown until measured. No stub rendering or parsing should help; reading
+  typed trees for every body the contract reads may cost.
 
 ## Not worth reading from TASTy
 
