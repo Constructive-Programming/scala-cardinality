@@ -4,6 +4,7 @@ import scala.jdk.CollectionConverters.*
 
 import cardinality.Compiled
 import cardinality.analysis.inhabitation.Inhabitation.Count
+import cardinality.analysis.inhabitation.NaturalSyntax
 import cardinality.capacity.Definition
 import cardinality.reporting.Report
 import java.nio.file.{FileSystems, Files, Path}
@@ -28,6 +29,7 @@ class DependencyRowsSpec extends Specification {
       supplies what the module alone cannot name                      $supplied
       is no row of the module                                         $noRows
       a compiled inline body is not read: its caller refuses          $inlineBody
+      an inline override in it is expanded where a receiver may be it $inlineOverride
       a stored value through it is its source's                       $stored
     A Java dependency
       an enum is its constants, a static field of its type is none    $javaEnum
@@ -168,6 +170,36 @@ class DependencyRowsSpec extends Specification {
     refused(counts(throughClasses)("t.picked"), "pick")
       .and(refusedThrough(counts(throughClasses)("t.picked"), counts(alone)("t.picked")))
       .and(counts(throughSource)("t.picked") === Count.Finite(2))
+
+  // A dependency's classes are part of the program: `Sub` overrides `f` inline there, a call site
+  // may type `b` as one, and `Sub.f` spells the call site's code, so `onParam` is refused, naming
+  // it. Nothing overrides `Plain.g`, and `Plain()` is one value: `onPlain` is an Int from an Int,
+  // (2^32)^(2^32) = 2^(32 · 2^32).
+  def inlineOverride = {
+    val found = counts(
+      Compiled.reportOver(
+        Nil,
+        Compiled.dependency(
+          "lib",
+          """package dep
+            |import scala.compiletime.codeOf
+            |class Base { def f(x: Int): Int = x }
+            |final class Sub extends Base { override inline def f(x: Int): Int = codeOf(x).length }
+            |class Plain { def g(x: Int): Int = x }
+            |""".stripMargin
+        ),
+        "m/M.scala" ->
+          """package m
+            |object M {
+            |  inline def onParam(b: dep.Base, x: Int): Int = b.f(x)
+            |  inline def onPlain(b: dep.Plain, x: Int): Int = b.g(x)
+            |}""".stripMargin
+      )
+    )
+    refused(found("m.M.onParam"), "dep.Sub.f").and(
+      found("m.M.onPlain") === Count.Symbolic(NaturalSyntax.pow(2, 32 * BigInt(2).pow(32)))
+    )
+  }
 
   // Holds is Pair × Light × Suit: 4 · 4 · 2 = 32 stored values, through the classes as through the
   // source.

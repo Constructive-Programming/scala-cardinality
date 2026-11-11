@@ -106,9 +106,11 @@ object Compiled {
   def withheldFile(support: String): (String, String) =
     s"$Withheld${support.hashCode.toHexString}.scala" -> support
 
-  // The path prefix of a dependency's source, before its unit's name: compiled, and given to the
-  // analysis as classes.
-  private val Dependency = "dependency/"
+  /** The path prefix of a dependency's source, before its unit's name: compiled, and given to the
+    * analysis as classes. The cache keeps a unit's sources under it in `src`, and its classes under
+    * it beside `classes`.
+    */
+  val Dependency = "dependency/"
 
   /** One source of the dependency unit `unit`, as a file of a set given to `reportOver`. A unit is
     * compiled alone, against the units the set names before it.

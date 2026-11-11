@@ -78,8 +78,30 @@ object CompiledTypes {
       )
     val entries = jdkEntries ++ later
     given context: Context = Context.initialize(entries)
-    val read = later.take(own.size).map(entry => TastyStubs.symbolsOf(entry, _ => true))
-    (context, read.flatMap(_._1).collect { case c: ClassSymbol => c }, read.flatMap(_._2))
+    val (found, failed) = classesOf(later.take(own.size))
+    (context, found, failed)
+  }
+
+  /** The top-level classes of the module's classpath, in the context `loaded` made for it, with why
+    * each class that does not load fails: its dependencies' declarations, which with its own are
+    * the whole program. Each class is read as it is listed, so this is asked only where a reading
+    * needs every one of them.
+    */
+  private[cardinality] def dependencies(
+      classes: Classes
+  )(using Context): (List[ClassSymbol], List[String]) =
+    classesOf(
+      classes.classpath.toList.distinct
+        .map(TastyStubs.readable)
+        .flatMap(path => ClasspathLoaders.read(List(path)))
+    )
+
+  // The top-level classes some entries list, and why each class that does not load fails.
+  private def classesOf(
+      entries: List[ClasspathEntry]
+  )(using Context): (List[ClassSymbol], List[String]) = {
+    val read = entries.map(entry => TastyStubs.symbolsOf(entry, _ => true))
+    (read.flatMap(_._1).collect { case c: ClassSymbol => c }, read.flatMap(_._2))
   }
 
   // Every compiled member, by source file and the offset of its name.
