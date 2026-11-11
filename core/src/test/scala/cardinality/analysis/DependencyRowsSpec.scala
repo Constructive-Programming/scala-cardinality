@@ -42,6 +42,7 @@ class DependencyRowsSpec extends Specification {
       a class two dependencies declare is the first one's             $firstWins
       a dependency's template is the one of its qualified name        $qualified
       a JDK module other than java.base is read where a source names it $jdkModule
+      with no classpath at all a JDK module is not read              $jdkUnread
   """
 
   private def jarOf(c: Class[?]): Path =
@@ -342,16 +343,23 @@ class DependencyRowsSpec extends Specification {
 
   // `java.sql.ClientInfoStatus` is a Java enum of four constants: 2^4 = 16 predicates. `java.awt`'s
   // `List` (java.desktop) is its rooted declaration, a class whose state is not read, and no
-  // `declaration not supplied`. Read with no dependency classpath at all, which only the scalameta
-  // front end can be, neither module is read.
+  // `declaration not supplied`.
   def jdkModule = {
-    val code =
-      "j/J.scala" -> ("package j\nimport java.sql.*\ndef status(s: ClientInfoStatus): Boolean = ???\n" +
-        "object A { import java.awt.*; def list(l: List): Boolean = ??? }\n")
-    val (read, unread) = (counts(Compiled.reportOver(Nil, code)), counts(Compiled.report(code)))
+    val read = counts(Compiled.reportOver(Nil, jdkUse))
     (read("j.status") === Count.Finite(16))
       .and(refused(read("j.A.list"), "hidden constructor state: java.awt.List"))
-      .and(refused(unread("j.status"), "declaration not supplied"))
+  }
+
+  private val jdkUse = "j/J.scala" ->
+    ("package j\nimport java.sql.*\ndef status(s: ClientInfoStatus): Boolean = ???\n" +
+      "object A { import java.awt.*; def list(l: List): Boolean = ??? }\n")
+
+  // A report with no dependency classpath at all reads neither module. A build always passes one,
+  // and the compiled front end always has the JDK to read: this reading is the scalameta front
+  // end's alone.
+  def jdkUnread = {
+    val unread = counts(Compiled.report(jdkUse))
+    refused(unread("j.status"), "declaration not supplied")
       .and(refused(unread("j.A.list"), "declaration not supplied: java.awt.List"))
   }
 

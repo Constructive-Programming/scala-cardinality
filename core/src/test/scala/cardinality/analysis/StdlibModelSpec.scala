@@ -59,6 +59,7 @@ class StdlibModelSpec extends Specification {
       an unsupplied wildcard rebinds no model name                  $wildcardRefusal
       a supplied namespace answers instead                          $wildcardSupplied
       a JDK wildcard reads List by its rooted name                   $javaWildcard
+      a JDK class outside java.base is refused with no classpath     $javaAwtUnread
       a stub of a JDK class is read as that declaration              $javaWildcardStub
       listed stdlib namespaces shadow no model name                 $listedNamespaces
       dependency namespaces are listed from their artifacts         $dependencyNamespaces
@@ -633,8 +634,6 @@ class StdlibModelSpec extends Specification {
   // `java.util.*` brings `java.util.List`, which outranks `scala.List`: `List` is that rooted name,
   // whose values are the sequences a Scala List holds (ω from an a). `F[List[A]]` there is
   // `F[java.util.List[A]]`, not the Scala one (0), and the rooted spelling is the same type (1).
-  // `java.awt.List` is a component the model does not read: with no declaration of it supplied, it
-  // is refused by its rooted name.
   def javaWildcard = {
     val code = """import java.util.*
       |object W {
@@ -645,8 +644,13 @@ class StdlibModelSpec extends Specification {
     (count(code, "W.l") === Count.Countable)
       .and(count(code, "W.k") === Count.Finite(0))
       .and(count(code, "W.j") === Count.Finite(1))
-      .and(refused(count(awtUse, "A.l"), "declaration not supplied: java.awt.List"))
   }
+
+  // `java.awt.List` is a component the model does not read: with no dependency classpath it is
+  // refused by its rooted name. A build always passes a classpath, and the compiled front end
+  // always has the JDK to read (`DependencyRowsSpec.jdkModule`): this reading is the scalameta
+  // front end's alone.
+  def javaAwtUnread = refused(count(awtUse, "A.l"), "declaration not supplied: java.awt.List")
 
   private val awtUse = "import java.awt.*\nobject A { def l(a: List): Boolean = ??? }"
 

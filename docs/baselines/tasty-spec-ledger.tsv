@@ -107,6 +107,7 @@ BinderBoundsSpec	a subtype bound beside a callable	UNCOVERED	Unresolved(List(not
 BinderBoundsSpec	a top bound a channel may rebind is a bound to read	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: A)) != Finite(3)
 BinderBoundsSpec	a value's reading is marked apart from its path	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: A)) != Finite(4)
 BinderBoundsSpec	a view's field is read through its own bound	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: A)) != Finite(1)
+BinderBoundsSpec	an F-bound is a legal clause	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: A)) != Finite(1)
 BinderBoundsSpec	an F-bound through a rigid application is a view	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: F)) != Finite(1)
 BinderBoundsSpec	an F-bound through a structure is refused	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: A)) is incorrect: List(not read from compiled classes yet: a bounded or higher-kinded type parameter: A) does not contain recursive bound not read: A <: P[A]
 BinderBoundsSpec	an invalid clause refuses a one-valued result too	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
@@ -233,9 +234,9 @@ CardinalitySpec	Vector[Unit]	UNCOVERED	java.lang.AssertionError: no size for the
 CardinalitySpec	a capacity alternative keeps its width	UNCOVERED	java.lang.AssertionError: no size for the alias of Either[String, Int]
 CardinalitySpec	a chain of consumers carries the nu count	UNCOVERED	TinySize(0) != TinySize(3)
 CardinalitySpec	a countable alternative keeps its one	UNCOVERED	java.lang.AssertionError: no size for the alias of Option[String]
-CardinalitySpec	a custom lazy list matches the built in	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
-CardinalitySpec	a custom string list retains the highest tier	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
-CardinalitySpec	a custom unit list collapses like the built in	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+CardinalitySpec	a custom lazy list matches the built in	UNCOVERED	TinySize(0) != ω
+CardinalitySpec	a custom string list retains the highest tier	UNCOVERED	TinySize(0) != ε₀
+CardinalitySpec	a custom unit list collapses like the built in	UNCOVERED	TinySize(0) != ω
 CardinalitySpec	a definition agrees with its reference	UNCOVERED	TinySize(0) != 2ω
 CardinalitySpec	a field of a two-way sum keeps its count	UNCOVERED	TinySize(0) != 2ω
 CardinalitySpec	a finite alternative adds its count	UNCOVERED	java.lang.AssertionError: no size for the alias of Either[String, Boolean]
@@ -251,7 +252,7 @@ CardinalitySpec	a tail into another's cycle is no cycle	UNCOVERED	TinySize(0) !=
 CardinalitySpec	abstract class recursion stays unknown	UNCOVERED	TinySize(0) != ω
 CardinalitySpec	abstract lazy arm gets no cycle	UNCOVERED	TinySize(0) != ω
 CardinalitySpec	alias chain defined bottom-up	PASS	
-CardinalitySpec	an empty alphabet leaves only a finite base	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+CardinalitySpec	an empty alphabet leaves only a finite base	UNCOVERED	TinySize(0) != TinySize(1)
 CardinalitySpec	an empty domain stays empty	UNCOVERED	java.lang.AssertionError: no size for the alias of Nothing => String
 CardinalitySpec	an empty label space keeps a cycle empty	UNCOVERED	passes on a row not read yet
 CardinalitySpec	an enum is one definition	UNCOVERED	TinySize(0) != ω
@@ -276,7 +277,7 @@ CardinalitySpec	deterministic mutual towers, one each	UNCOVERED	TinySize(0) != T
 CardinalitySpec	either of two countable types keeps both	UNCOVERED	java.lang.AssertionError: no size for the alias of Either[String, String]
 CardinalitySpec	empty case class	PASS	
 CardinalitySpec	endless Boolean stream, program-countable	UNCOVERED	TinySize(0) != ω
-CardinalitySpec	enum arms to different successors	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+CardinalitySpec	enum arms to different successors	UNCOVERED	TinySize(2) != ω + 2
 CardinalitySpec	enum of singletons	PASS	
 CardinalitySpec	enum with constructor arguments	UNCOVERED	TinySize(0) != TinySize(2)
 CardinalitySpec	enum with parameterised cases	UNCOVERED	TinySize(0) != TinySize(3)
@@ -383,9 +384,10 @@ CounterSpec	Can parse simple products	PASS
 CounterSpec	Looks inside packages	PASS	
 CounterSpec	Skips unknown statements, bounds unknown types	UNCOVERED	TinySize(0) != ω
 DeepStackSpec	a growing goal chain asked from a small stack should refuse with the state budget, not overflow	SCALAMETA	
+DefinitionInventorySpec	a `summon` between two anonymous binders is refused	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 DefinitionInventorySpec	a bound's evidence position is named by its evidence	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) is incorrect: the value is false
 DefinitionInventorySpec	a case with a parent keeps the enum's binders	UNCOVERED	'?' != '1'
-DefinitionInventorySpec	a context-function literal binds its own clause once	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+DefinitionInventorySpec	a context-function literal binds its own clause once	FAIL	java.util.NoSuchElementException: key not found: Literal.anon.<lambda#1>.<new#1>.get
 DefinitionInventorySpec	a given alias is a method of its clauses	UNCOVERED	'?' != '2'
 DefinitionInventorySpec	a level passing the argument or a body import is not followed	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: $anon)) is incorrect: the value is false
 DefinitionInventorySpec	a local given alias is a row with clauses, a step without	UNCOVERED	'?' != '4'
@@ -413,6 +415,22 @@ DefinitionInventorySpec	each name of a declaration is a slot of the others	UNCOV
 DefinitionInventorySpec	hidden parent state a body may not reach is refused	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: $anon)) is incorrect: the value is false
 DefinitionInventorySpec	new rows have unique identities that moving does not change	SCALAMETA	
 DefinitionInventorySpec	the primary's arguments: by-name, repeated, none, evidence	FAIL	java.util.NoSuchElementException: key not found: (method,this(u: Unit): P)
+DependencyRowsSpec	`Object` is `Any`; a wildcard is read, a raw type is not	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: javafixtures.Sig$.AnyFn)) != Countable
+DependencyRowsSpec	a JDK module other than java.base is read where a source names it	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: java.sql.ClientInfoStatus)) != Finite(16)
+DependencyRowsSpec	a class of it has a count where the module alone refuses	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: scala.meta.internal.io.OutputStreamIO)) != Finite(1)
+DependencyRowsSpec	a class two dependencies declare is the first one's	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: dup.Coin)) != Finite(4)
+DependencyRowsSpec	a class's state and a sealed interface's subclasses are not read	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: javafixtures.Box)) is incorrect: not read from compiled classes yet: a class of a dependency: javafixtures.Box doesn't contain 'hidden constructor state'
+DependencyRowsSpec	a compiled inline body is not read: its caller refuses	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) is incorrect: not read from compiled classes yet: an inline definition doesn't contain 'pick'
+DependencyRowsSpec	a dependency's template is the one of its qualified name	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: p.T)) != Finite(4)
+DependencyRowsSpec	a sealed class with a child the pickle does not declare refuses	UNCOVERED	passes on a row not read yet
+DependencyRowsSpec	a stored value through it is its source's	UNCOVERED	Some((None,List(Refusal(not read from compiled classes yet: a field of type tastyfixtures.Pair)))) != Some((Some(32),List()))
+DependencyRowsSpec	an enum is its constants, a static field of its type is none	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: javafixtures.Coin)) != Finite(4)
+DependencyRowsSpec	an interface is the record of its abstract methods	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: javafixtures.Toggle)) != Finite(4)
+DependencyRowsSpec	counts as its source does, or refuses	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: tastyfixtures.Pair)) != Finite(16)
+DependencyRowsSpec	is no row of the module	PASS	
+DependencyRowsSpec	nothing of it is read without it	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: javafixtures)) is incorrect: not read from compiled classes yet: a member the classpath does not hold: javafixtures doesn't contain 'declaration not supplied'
+DependencyRowsSpec	supplies what the module alone cannot name	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: tastyfixtures)) is incorrect: not read from compiled classes yet: a member the classpath does not hold: tastyfixtures doesn't contain 'declaration not supplied'
+DependencyRowsSpec	with no classpath at all a JDK module is not read	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: java.sql.ClientInfoStatus)) is incorrect: not read from compiled classes yet: a class of a dependency: java.sql.ClientInfoStatus doesn't contain 'declaration not supplied'
 EnvironmentBinderSpec	a composite read through the optics' results	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: totalTotal)) != Finite(1)
 EnvironmentBinderSpec	a constructor's evidence fields: one get, None or getOption each	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Finite(1)
 EnvironmentBinderSpec	a member no supplied value can be applied to builds nothing	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: ForgetfulApplicative)) != Finite(0)
@@ -443,7 +461,7 @@ EnvironmentCompletenessSpec	an abstract var is a declared slot	UNCOVERED	Unresol
 EnvironmentCompletenessSpec	an export in a parent or beside a declaration is refused	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 EnvironmentCompletenessSpec	an export of what the exported object inherits outranks	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Inner)) != Finite(4)
 EnvironmentCompletenessSpec	an export outranks an import of its own body	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: C)) != Finite(4)
-EnvironmentCompletenessSpec	an export outranks an outer definition	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+EnvironmentCompletenessSpec	an export outranks an outer definition	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: C)) != Finite(4)
 EnvironmentCompletenessSpec	an export that hides a local capture is refused	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: D)) is incorrect: the value is false
 EnvironmentCompletenessSpec	an extension method hides a local capture	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: C)) != Finite(1)
 EnvironmentCompletenessSpec	an inherited member under type arguments is refused	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: BaseG.this.X)) is incorrect: the value is false
@@ -563,7 +581,7 @@ GeneralInfixApplicationSpec	enforces the same source constructor arity	FAIL	java
 GeneralInfixApplicationSpec	reads an infix source trait as the record prefix syntax reads	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: <)) != Finite(2)
 GeneralInfixApplicationSpec	reports missing external effect dependencies rather than syntax	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: <)) != Unresolved(List(declaration not supplied: < (not declared in the sources or stdlib-model/1)))
 GeneralInfixApplicationSpec	resolves aliases with the same operand order as prefix syntax	PASS	
-GeneralInfixApplicationSpec	resolves nested qualified and root-qualified prefix operands	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+GeneralInfixApplicationSpec	resolves nested qualified and root-qualified prefix operands	PASS	
 GeneralInfixApplicationSpec	resolves source products in methods and constructor fields	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: Pair)) != Finite(4)
 GeneralInfixApplicationSpec	respects left and right associative parser nesting	PASS	
 GivenSignatureSpec	a generic given retains the ordinary method approximation	SCALAMETA	
@@ -632,6 +650,7 @@ GroundTypesSpec	a closed Int callable is never ω	PASS
 GroundTypesSpec	a colliding closed position is a value space, not functions	UNCOVERED	List(Unresolved(List(not read from compiled classes yet: a constructor))) != List(Finite(4722366482869645213696))
 GroundTypesSpec	a declared ground member is a supplied value	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: V)) != Finite(0)
 GroundTypesSpec	a finite function position stays finite	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Symbolic(Pow(Lit(2),Pow(Lit(2),Lit(137438953477))))
+GroundTypesSpec	a function type's repeated parameter is a sequence (no Scala)	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 GroundTypesSpec	a ground-result callable on an atom is split by its literals	PASS	
 GroundTypesSpec	a literal type is one constant of its ground type	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: 3)) != Finite(4294967296)
 GroundTypesSpec	a mixed position names its own reason	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) is incorrect: the value is false
@@ -645,7 +664,7 @@ GroundTypesSpec	an export binds a ground name; a given import binds none	UNCOVER
 GroundTypesSpec	an infinite closed position keeps the estimate's tier	UNCOVERED	'?' != 'ε₀'
 GroundTypesSpec	an infinite closed space saturates	PASS	
 GroundTypesSpec	closed callables split by their value space	PASS	
-GroundTypesSpec	closed repeated arguments are transparent sequences	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+GroundTypesSpec	closed repeated arguments are transparent sequences	PASS	
 GroundTypesSpec	floating point counts its equals classes	PASS	
 GroundTypesSpec	ground goals are their literals	PASS	
 GroundTypesSpec	higher-order use of a ground domain stays unresolved	PASS	
@@ -669,7 +688,7 @@ HigherKindedBindingSpec	a class's bound is a position read where it is written	U
 HigherKindedBindingSpec	a class's bound is evidence for its members	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: K)) != Finite(2)
 HigherKindedBindingSpec	a constructor field of F[Unit]	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Finite(1)
 HigherKindedBindingSpec	a curried type-lambda alias is applied	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: F)) != Finite(1)
-HigherKindedBindingSpec	a foreign callee reports only itself	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: .Kinds$package.PR)) is incorrect: the value is false
+HigherKindedBindingSpec	a foreign callee reports only itself	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: cats)) is incorrect: the value is false
 HigherKindedBindingSpec	a foreign evidence names the foreign type	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) is incorrect: the value is false
 HigherKindedBindingSpec	a higher-kinded evidence joins the environment	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: F)) != Finite(1)
 HigherKindedBindingSpec	a higher-kinded transparent alias takes a builtin constructor	PASS	
@@ -816,9 +835,10 @@ InlineScopesSpec	a conversion private to another package is never inserted	UNCOV
 InlineScopesSpec	a deferred inline member is an inline body's capability	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) != Finite(4)
 InlineScopesSpec	a given whose type a wildcard may hide is read as its declaration	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) != Finite(4)
 InlineScopesSpec	a listed namespace's wildcard binds its own terms only	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) is incorrect: the value is false
+InlineScopesSpec	a local class has no companion to select from	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 InlineScopesSpec	a local method or given read like a supplied one	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) != Symbolic(Pow(Lit(2),Lit(137438953472)))
 InlineScopesSpec	a local method's using clause, context bound and default	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) is incorrect: the value is false
-InlineScopesSpec	a local object's members are its own	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+InlineScopesSpec	a local object's members are its own	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) != Symbolic(Pow(Lit(2),Lit(137438953472)))
 InlineScopesSpec	a local type that hides an outer one refuses	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) is incorrect: the value is false
 InlineScopesSpec	a passing body is eliminated by the solver like its def twin	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) != Finite(2)
 InlineScopesSpec	a qualified this names its own template	UNCOVERED	Unresolved(List(not read from compiled classes yet: an inline definition)) is incorrect: the value is false
@@ -978,8 +998,9 @@ NamespaceSpec	a local class's slot reads the block around it	SCALAMETA
 NamespaceSpec	a member is read with the reasons its value rests on	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != 'unresolved[Schema]'
 NamespaceSpec	a namespace's own `Option` is not the builtin	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != '4'
 NamespaceSpec	a nested definition's binder stays a reason whatever its spelling	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != 'instantiation[B]'
-NamespaceSpec	a package path resolves from the opened packages or the root	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+NamespaceSpec	a package path resolves from the opened packages or the root	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != '2'
 NamespaceSpec	a parameter shadows a sibling type and a base type	UNCOVERED	'unresolved[not read from compiled classes yet: a class with type parameters]' != 'instantiation[Item]'
+NamespaceSpec	a path from a package no clause opens names nothing	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 NamespaceSpec	a qualified foreign name borrows nothing	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Unresolved(List(declaration not supplied: org.apache.avro.Schema.Type (selected through named import Schema)))
 NamespaceSpec	a qualified miss is the reference as written	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 NamespaceSpec	a re-export is the other package's type, not itself	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != 'ω'
@@ -988,13 +1009,14 @@ NamespaceSpec	a refused slot names what the estimate stopped at	UNCOVERED	Unreso
 NamespaceSpec	a sealed child's own parameters are not the parent's	UNCOVERED	'unresolved[not read from compiled classes yet: an abstract class or trait]' != 'unresolved[sealed family not summed: P (sealed subtype binds a parameter to no slot of its parent: C (A, of P))]'
 NamespaceSpec	a sealed trait's companion does not stand in for its sum	UNCOVERED	'unresolved[not read from compiled classes yet: an abstract class or trait]' != '2'
 NamespaceSpec	a sibling parameter's path reads its declared type	UNCOVERED	'?' != '2^32'
+NamespaceSpec	a single package clause opens only its own package	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 NamespaceSpec	a slot never lends a size resting on an unknown name	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Unresolved(List(declaration not supplied: Schema (not declared in the sources or stdlib-model/1)))
 NamespaceSpec	a slot reads a type defined in several packages in its own	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Finite(4)
 NamespaceSpec	a source type named like a base type is the source's	UNCOVERED	'unresolved[not read from compiled classes yet: a field of type g.Int]' != '2'
 NamespaceSpec	a type is not a namespace	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 NamespaceSpec	a value written without a type has scalac's type	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != '≤2^32'
 NamespaceSpec	a value, a parameter or an inner object shadows an outer object	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != '1'
-NamespaceSpec	a wildcard import names the package a name is read from	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+NamespaceSpec	a wildcard import names the package a name is read from	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != 'unresolved[Json.Obj (may be imported by foreign.*)]'
 NamespaceSpec	an enum's cases are not read as a namespace	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != 'unresolved[Shape.Circle]'
 NamespaceSpec	an imported name borrows no same-named source type	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Unresolved(List(declaration not supplied: zz.Widget (named import Widget)))
 NamespaceSpec	an imported name is not open because another package's is	UNCOVERED	'unresolved[not read from compiled classes yet: a member the classpath does not hold: zz]' != 'unresolved[Widget (imported from zz.Widget, not supplied)]'
@@ -1008,10 +1030,11 @@ NamespaceSpec	an open trait of an object is open	UNCOVERED	'unresolved[not read 
 NamespaceSpec	an open trait's companion does not stand in for the trait	UNCOVERED	'unresolved[not read from compiled classes yet: an abstract class or trait]' != '—'
 NamespaceSpec	another file's chained clauses resolve across packages	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != '2'
 NamespaceSpec	another file's explicit import is not lost across packages	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != 'unresolved[Widget (imported from zz.Widget, not supplied)]'
-NamespaceSpec	chained package clauses open the enclosing package	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+NamespaceSpec	chained package clauses open the enclosing package	UNCOVERED	'unresolved[not read from compiled classes yet: a field of type a.W]' != '2'
 NamespaceSpec	nested objects resolve	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != '2'
 NamespaceSpec	only a definition's own recursion borrows its fixed point	UNCOVERED	'unresolved[not read from compiled classes yet: a class with type parameters]' != 'unresolved[A, Schema (imported from zz.Schema, not supplied)]'
 NamespaceSpec	the standard library may be spelled in full	UNCOVERED	'unresolved[not read from compiled classes yet: a type alias]' != '≤2^32'
+NamespaceSpec	two wildcard imports that bind a name leave it ambiguous	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 NestedScopesSpec	a case clause's binder is refused, never counted	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing definition: h)) is incorrect: the value is false
 NestedScopesSpec	a case pattern or guard leaves the typing context as it is	UNCOVERED	'?' != '4'
 NestedScopesSpec	a comprehension's binder is refused, never counted	FAIL	java.util.NoSuchElementException: key not found: Comp.f.<for#1>.<block#1>.g
@@ -1141,24 +1164,25 @@ PolymorphicMemberSpec	one whose type may be empty is refused	UNCOVERED	Unresolve
 PolymorphicMemberSpec	records of unrelated traits are distinct evidence	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) != Finite(16)
 PolymorphicMemberSpec	∀C. C is empty: a supplied one is absurd, a goal one has none	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: UsesAbsurd)) != Finite(1)
 PureCodeSpec	Throwable is its own rigid-constructor key	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: F)) != Finite(1)
-PureCodeSpec	a bound may supply a binder: such a member is kept	SCALAMETA	
-PureCodeSpec	a constructor that only throws builds no instance	SCALAMETA	
+PureCodeSpec	a ??? an unsupplied import may rebind is not typed	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+PureCodeSpec	a bound may supply a binder: such a member is kept	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Lower)) is incorrect: the value is false
+PureCodeSpec	a constructor that only throws builds no instance	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: OK2)) != Finite(1)
 PureCodeSpec	a final class's throwing member is its concrete code	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: FinalAny)) != Finite(4)
 PureCodeSpec	a final subclass is the record of its parameters	UNCOVERED	'?' != '2^(2^32)'
 PureCodeSpec	a fixed member that only throws is concrete code	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: FK)) != Finite(4)
-PureCodeSpec	a level's body binds names in its own scope	SCALAMETA	
+PureCodeSpec	a level's body binds names in its own scope	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: TK)) != Finite(1)
 PureCodeSpec	a member object carries the instance it belongs to	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: D)) != Finite(1)
-PureCodeSpec	a member without a result type that may override is kept	SCALAMETA	
+PureCodeSpec	a member without a result type that may override is kept	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: Impl)) != Finite(4)
 PureCodeSpec	a module helper that only throws inhabits no type	PASS	
 PureCodeSpec	a plain parameter of a sealed leaf is no field	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: S)) is incorrect: the value is false
 PureCodeSpec	a private var field of a sealed subtype stays hidden	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: H)) is incorrect: the value is false
-PureCodeSpec	a private var field stays hidden state	SCALAMETA	
-PureCodeSpec	a rebound ??? or sys is no throw	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
-PureCodeSpec	a record keeps a member no override can implement	SCALAMETA	
+PureCodeSpec	a private var field stays hidden state	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: RVH)) is incorrect: the value is false
+PureCodeSpec	a rebound ??? or sys is no throw	PASS	
+PureCodeSpec	a record keeps a member no override can implement	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: OpenBoom)) != Finite(1)
 PureCodeSpec	a right-hand side that only throws is a Nothing	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: Nothing)) != Finite(0)
 PureCodeSpec	a sealed case or enum built by a throwing body is refused	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: S)) is incorrect: the value is false
 PureCodeSpec	a source class named Throwable shadows the model	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: Throwable)) != Finite(4)
-PureCodeSpec	a subclass's instance is its parent's: both vacuous	SCALAMETA	
+PureCodeSpec	a subclass's instance is its parent's: both vacuous	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: P)) != Finite(1)
 PureCodeSpec	a supplied throwable is transparent data	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: Nothing)) != Finite(1)
 PureCodeSpec	a template an object encloses does not build the object	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: C)) != Finite(4)
 PureCodeSpec	a throw this reading does not recognize stays unresolved	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: .Rebound.sys.type)) is incorrect: the value is false
@@ -1172,13 +1196,13 @@ PureCodeSpec	a var is no stable path, by Scala's typing rule	FAIL	java.lang.Asse
 PureCodeSpec	an abstract var is a record member, a concrete one a value	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: RAV)) != Finite(4)
 PureCodeSpec	an alias nested out of reach does not stand for a parent	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: na.S)) != Finite(2)
 PureCodeSpec	an empty block is no throw	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: A)) != Finite(4)
-PureCodeSpec	an empty type is read from its structure	SCALAMETA	
-PureCodeSpec	an open member that only throws stays an open capability	SCALAMETA	
-PureCodeSpec	an open subclass's overridable members are reasons	SCALAMETA	
+PureCodeSpec	an empty type is read from its structure	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: H1)) != Finite(1)
+PureCodeSpec	an open member that only throws stays an open capability	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: OpenGet)) != Finite(16)
+PureCodeSpec	an open subclass's overridable members are reasons	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: MyErr)) is incorrect: the value is false
 PureCodeSpec	an unsupplied wildcard import rebinds no builtin name	PASS	
-PureCodeSpec	at the record's or receiver's type arguments	SCALAMETA	
+PureCodeSpec	at the record's or receiver's type arguments	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: K1)) != Finite(1)
 PureCodeSpec	its abstract twin still makes the receiver vacuous	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: AbsBoom)) != Finite(1)
-PureCodeSpec	one of an empty type reads as its abstract twin: vacuous	SCALAMETA	
+PureCodeSpec	one of an empty type reads as its abstract twin: vacuous	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: OpenBoom)) != Finite(1)
 PureCodeSpec	top-level vals are built with their file's definitions	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: TopC)) != Finite(4)
 PureCodeSpec	var fields of a sealed family or case class are its product	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: S)) != Finite(32)
 ReceiverConstructorsSpec	a factory read through one and two delegating calls, not three	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: fz.One)) != Finite(4)
@@ -1200,20 +1224,20 @@ RecursionProbeSpec	a member row of the recursive trait refuses with the record's
 RecursionProbeSpec	a row read through the abstract recursive type refuses	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: R)) doesn't contain 'recursive type not read: R'
 RecursionProbeSpec	mutually recursive traits refuse the same way	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: A)) doesn't contain 'recursive type not read: A'
 RecursionProbeSpec	the refusal is the same with a seed parameter, at a goal, or through an alias	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: R)) doesn't contain 'recursive type not read: R'
-ReentrySpec	a body returning its parameter of the result type searches none	SCALAMETA	
-ReentrySpec	a creator application or `copy` builds as `new` does	SCALAMETA	
-ReentrySpec	a literal searches only where its type is not the result type	SCALAMETA	
-ReentrySpec	a name bound again, or the definition's own recursion, is no mention	SCALAMETA	
-ReentrySpec	a receiver's subclass with code of its own may run any member	SCALAMETA	
-ReentrySpec	a refused binding, readings that disagree, or ≥ 2 stay `?`	SCALAMETA	
-ReentrySpec	a secondary constructor's body, for a local or a member target	SCALAMETA	
-ReentrySpec	a subclass's construction runs its parents'	SCALAMETA	
-ReentrySpec	an abstract given a sibling may summon is a possible view	SCALAMETA	
-ReentrySpec	an enclosing parameter or a plain constructor parameter	SCALAMETA	
-ReentrySpec	evaluated at a result, a statement or a nested block: dropped	SCALAMETA	
-ReentrySpec	in a branch, a lambda applied in place or an η-expansion: `?`	SCALAMETA	
-ReentrySpec	inside a match arm, a try, an interpolation or a loop: `?`	SCALAMETA	
-ReentrySpec	strict initializers and template statements	SCALAMETA	
+ReentrySpec	a body returning its parameter of the result type searches none	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) != Finite(16)
+ReentrySpec	a creator application or `copy` builds as `new` does	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: E)) is incorrect: List(not read from compiled classes yet: an enclosing class: E) does not contain overridable member may re-enter the measured declaration: E.other
+ReentrySpec	a literal searches only where its type is not the result type	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) is incorrect: List(not read from compiled classes yet: a contextual definition) does not contain overridable member may re-enter the measured declaration: T.other
+ReentrySpec	a name bound again, or the definition's own recursion, is no mention	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing definition: m)) != Finite(65536)
+ReentrySpec	a receiver's subclass with code of its own may run any member	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: C)) is incorrect: List(not read from compiled classes yet: an enclosing class: C) does not contain overridable member may re-enter the measured declaration: C.other
+ReentrySpec	a refused binding, readings that disagree, or ≥ 2 stay `?`	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: D)) is incorrect: List(not read from compiled classes yet: an enclosing class: D) does not contain overridable member may re-enter the measured declaration: D.m
+ReentrySpec	a secondary constructor's body, for a local or a member target	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing definition: <init>)) is incorrect: List(not read from compiled classes yet: an enclosing definition: <init>) does not contain overridable member may re-enter the measured declaration: D.other
+ReentrySpec	a subclass's construction runs its parents'	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: C)) is incorrect: List(not read from compiled classes yet: an enclosing class: C) does not contain overridable member may re-enter the measured declaration: C.m
+ReentrySpec	an abstract given a sibling may summon is a possible view	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) is incorrect: List(not read from compiled classes yet: a contextual definition) does not contain overridable member may re-enter the measured declaration: T3.other
+ReentrySpec	an enclosing parameter or a plain constructor parameter	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: $anon)) != Finite(1)
+ReentrySpec	evaluated at a result, a statement or a nested block: dropped	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing definition: m)) != Finite(16)
+ReentrySpec	in a branch, a lambda applied in place or an η-expansion: `?`	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing definition: m)) is incorrect: List(not read from compiled classes yet: an enclosing definition: m) does not contain overridable member may re-enter the measured declaration: C2.m
+ReentrySpec	inside a match arm, a try, an interpolation or a loop: `?`	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing definition: m)) is incorrect: List(not read from compiled classes yet: an enclosing definition: m) does not contain overridable member may re-enter the measured declaration: C1.m
+ReentrySpec	strict initializers and template statements	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Init)) is incorrect: List(not read from compiled classes yet: an enclosing class: Init) does not contain overridable member may re-enter the measured declaration: Init.other
 RepeatedParameterFragmentSpec	count an empty repeated constructor	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Finite(1)
 RepeatedParameterFragmentSpec	count length-dependent selection beside a fallback	PASS	
 RepeatedParameterFragmentSpec	eliminate a constructor slot's sequence by length	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Countable
@@ -1340,15 +1364,17 @@ SingletonIntersectionMethodSpec	count an accessible empty module and constructor
 SingletonIntersectionMethodSpec	eliminate idempotent intersections without multiplying	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: (scala.Boolean & scala.Boolean))) != Finite(4)
 SingletonIntersectionMethodSpec	keep different singleton identities distinct	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: .B.type)) != Finite(1)
 SingletonIntersectionMethodSpec	keep distinct module intersections empty	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: (.A.type & .B.type))) != Finite(0)
-SingletonIntersectionMethodSpec	normalize stable alias identity	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+SingletonIntersectionMethodSpec	normalize stable alias identity	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Env)) != Finite(1)
 SingletonIntersectionMethodSpec	preserve a supplied stable path and its widened provenance	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: x.type)) != Finite(1)
 SingletonIntersectionMethodSpec	preserve module member environment diagnostics	UNCOVERED	passes on a row not read yet
-SingletonIntersectionMethodSpec	refine a proven singleton with Singleton	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
-SingletonIntersectionMethodSpec	refine a stable path by its own type binder	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+SingletonIntersectionMethodSpec	refine a proven singleton with Singleton	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: (.Token.type & scala.Singleton))) != Finite(1)
+SingletonIntersectionMethodSpec	refine a stable path by its own type binder	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: (x.type & A))) != Finite(1)
+SingletonIntersectionMethodSpec	refuse a `Singleton` bound by an unsupplied import	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+SingletonIntersectionMethodSpec	reject a var's singleton	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+SingletonIntersectionMethodSpec	reject forward references; a missing path is terminal	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: .missing.type)) != Finite(1)
 SingletonIntersectionMethodSpec	reject inaccessible paths and alias leaks	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 SingletonIntersectionMethodSpec	reject uncertain stable-value overlap	UNCOVERED	passes on a row not read yet
 SingletonIntersectionMethodSpec	reject unrelated trait and structural intersections	UNCOVERED	passes on a row not read yet
-SingletonIntersectionMethodSpec	reject unstable and forward references; a missing path is terminal	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 StdlibModelSpec	Either spellings are one evidence identity	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) is incorrect: the value is false
 StdlibModelSpec	FunctionN and arrow spellings keep one override identity	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Impl)) != Finite(2)
 StdlibModelSpec	FunctionN is the function it spells	PASS	
@@ -1362,7 +1388,9 @@ StdlibModelSpec	Map and Set over an open argument are refused	PASS
 StdlibModelSpec	None and Nil singletons have their one value	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: scala.None.type)) != Finite(1)
 StdlibModelSpec	Some, EmptyTuple and Option	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: scala.Tuple$package.EmptyTuple.type)) != Finite(1)
 StdlibModelSpec	TupleN, scala.TupleN and tuple syntax are one product	PASS	
-StdlibModelSpec	a JDK wildcard reads List by its rooted name, supplied or not	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+StdlibModelSpec	`util.Either` is the model's, like the rooted spellings	PASS	
+StdlibModelSpec	a JDK class outside java.base is refused with no classpath	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: java.awt.List)) is incorrect: the value is false
+StdlibModelSpec	a JDK wildcard reads List by its rooted name	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: F)) != Finite(0)
 StdlibModelSpec	a constructor chooses only its parameters	UNCOVERED	Unresolved(List(not read from compiled classes yet: a constructor)) != Finite(2)
 StdlibModelSpec	a fixed receiver's parents are implemented	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: lib)) != Finite(1)
 StdlibModelSpec	a gap inside the supplied sources stays unresolved	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
@@ -1377,9 +1405,11 @@ StdlibModelSpec	a nested object reads its open owner's parents	UNCOVERED	Unresol
 StdlibModelSpec	a package scala of the sources outranks the root package	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: Option)) is incorrect: the value is false
 StdlibModelSpec	a parent whose standing its own search asks is the model's	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) != Finite(4)
 StdlibModelSpec	a renamed import names the path and the name	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: zz)) != Unresolved(List(declaration not supplied: zz.Widget (renamed import W)))
+StdlibModelSpec	a root-anchored simple name is a top-level declaration	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 StdlibModelSpec	a sealed template whose subtypes are fixed is a fixed receiver	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: P)) is incorrect: the value is false
 StdlibModelSpec	a selection through an import names the full path	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: apache)) is incorrect: the value is false
 StdlibModelSpec	a source declaration shadows the model	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: List)) != Finite(1)
+StdlibModelSpec	a stub of a JDK class is read as that declaration	SCALAMETA	
 StdlibModelSpec	a supplied namespace answers instead	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of the module: lib.Option)) != Finite(1)
 StdlibModelSpec	a supplied namespace's missing member names the wildcard	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: Missing)) is incorrect: the value is false
 StdlibModelSpec	a union does not discriminate a model sequence's class	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: (scala.package.Vector[scala.Int] | scala.Predef.String))) is incorrect: the value is false
@@ -1392,14 +1422,14 @@ StdlibModelSpec	an import's own head may be rebound	UNCOVERED	Unresolved(List(no
 StdlibModelSpec	an inaccessible source module's singleton stays refused	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 StdlibModelSpec	an open template's foreign parent is reported	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) is incorrect: the value is false
 StdlibModelSpec	an override over List keeps its identity	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing object with parents: forList$)) != Countable
-StdlibModelSpec	an unapplied entry is an operator, applied where it is read	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
+StdlibModelSpec	an unapplied entry is an operator, applied where it is read	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: ([A, B] =>> scala.util.Either[A, B]))) != Finite(4)
+StdlibModelSpec	an unapplied entry where a proper type is expected is refused	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 StdlibModelSpec	an unresolved path's singleton is the one value it names	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: .far.away.Unsupplied.type)) != Finite(1)
 StdlibModelSpec	an unsupplied wildcard rebinds no model name	PASS	
 StdlibModelSpec	boxed scalars and Optional count as what they hold	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: F)) != Finite(0)
 StdlibModelSpec	compile-time reflection is outside the model	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) is incorrect: the value is false
-StdlibModelSpec	dependency namespaces are listed from their artifacts	UNCOVERED	Unresolved(List(not read from compiled classes yet: a class of a dependency: kyo.Stream)) is incorrect: the value is false
+StdlibModelSpec	dependency namespaces are listed from their artifacts	UNCOVERED	Unresolved(List(not read from compiled classes yet: a member the classpath does not hold: kyo)) is incorrect: the value is false
 StdlibModelSpec	listed stdlib namespaces shadow no model name	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing definition: m)) is incorrect: the value is false
-StdlibModelSpec	only fully qualified paths reach the model	FAIL	java.lang.AssertionError: no compiled classes: scalac rejects this fixture
 StdlibModelSpec	single-pass types are read as the sequence they yield	UNCOVERED	Unresolved(List(not read from compiled classes yet: a type: Nothing)) != Finite(1)
 StdlibModelSpec	tuple spellings keep one override identity	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing object with parents: tupleAccessor$)) != Finite(1)
 StoredFactoriesSpec	fields no public member shows are one value	UNCOVERED	'unresolved[not read from compiled classes yet: a restricted constructor]' != '1'
@@ -1482,33 +1512,33 @@ SyntaxFeaturesSpec	local definitions read the enclosing method's binders	UNCOVER
 SyntaxFeaturesSpec	names are part of a rigid argument's key	UNCOVERED	Unresolved(List(not read from compiled classes yet: a bounded or higher-kinded type parameter: F)) != Finite(0)
 SyntaxFeaturesSpec	quoted code is compile-time reflection	PASS	
 SyntaxFeaturesSpec	runtime type evidence reveals its type argument	UNCOVERED	Unresolved(List(not read from compiled classes yet: a contextual definition)) is incorrect: the value is false
-TargetViewsSpec	`Outer.this.m` of a final outer is another declaration	SCALAMETA	
-TargetViewsSpec	`Outer.this.m` of an open outer may be overridden to re-enter	SCALAMETA	
-TargetViewsSpec	`super.m` runs a parent's definition	SCALAMETA	
-TargetViewsSpec	a block's import reaches the statements after it in the block	SCALAMETA	
-TargetViewsSpec	a block's local given shadows the member of its name	SCALAMETA	
-TargetViewsSpec	a by-name `==` overload; a by-value one evaluates its operand	SCALAMETA	
-TargetViewsSpec	a call on a local binding has no declaration read	SCALAMETA	
-TargetViewsSpec	a context-function parameter, or an alias of one	SCALAMETA	
-TargetViewsSpec	a conversion taking its argument by name	SCALAMETA	
-TargetViewsSpec	a default argument still selects the declaration	SCALAMETA	
-TargetViewsSpec	a lambda converted to a SAM; one returned as a function	SCALAMETA	
-TargetViewsSpec	a nested object or class whose body re-enters is a possible view	SCALAMETA	
-TargetViewsSpec	a nested object that names nothing is no view	SCALAMETA	
-TargetViewsSpec	a parent's default body resolves its names where written	SCALAMETA	
-TargetViewsSpec	a partially applied method is η-expanded	SCALAMETA	
-TargetViewsSpec	a right-associative operator's operand may be by name	SCALAMETA	
-TargetViewsSpec	a self alias is the receiver	SCALAMETA	
-TargetViewsSpec	an argument list fills the clause its `using` flag selects	SCALAMETA	
-TargetViewsSpec	an argument, tuple field, condition, scrutinee, unary or `!=` operand, `equals` receiver	SCALAMETA	
-TargetViewsSpec	an enclosing receiver's call through a nested object may re-enter	SCALAMETA	
-TargetViewsSpec	an enclosing receiver's call through the object path is a view	SCALAMETA	
-TargetViewsSpec	an extension whose receiver is by name	SCALAMETA	
-TargetViewsSpec	an import or export of an extension from outside the sources	SCALAMETA	
-TargetViewsSpec	an overload calling the declaration is a definite view	SCALAMETA	
-TargetViewsSpec	an overload the arity does not settle is a possible view	SCALAMETA	
-TargetViewsSpec	an η-expanded method is not run: a possible view	SCALAMETA	
-TargetViewsSpec	implicit search selecting a given that re-enters	SCALAMETA	
+TargetViewsSpec	`Outer.this.m` of a final outer is another declaration	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Inner)) != Finite(16)
+TargetViewsSpec	`Outer.this.m` of an open outer may be overridden to re-enter	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Inner)) is incorrect: List(not read from compiled classes yet: an enclosing class: Inner) does not contain overridable member may re-enter the measured declaration: Outer.Inner.m
+TargetViewsSpec	`super.m` runs a parent's definition	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) is incorrect: List(not read from compiled classes yet: an enclosing class: T) does not contain overridable member may re-enter the measured declaration: T.m
+TargetViewsSpec	a block's import reaches the statements after it in the block	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: W)) is incorrect: List(not read from compiled classes yet: an enclosing class: W) does not contain overridable member may re-enter the measured declaration: W.m
+TargetViewsSpec	a block's local given shadows the member of its name	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: G)) != Finite(16)
+TargetViewsSpec	a by-name `==` overload; a by-value one evaluates its operand	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Eq)) is incorrect: List(not read from compiled classes yet: an enclosing class: Eq) does not contain overridable member may re-enter the measured declaration: Eq.m
+TargetViewsSpec	a call on a local binding has no declaration read	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Q)) is incorrect: List(not read from compiled classes yet: an enclosing class: Q) does not contain overridable member may re-enter the measured declaration: Q.m
+TargetViewsSpec	a context-function parameter, or an alias of one	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) is incorrect: List(not read from compiled classes yet: an enclosing class: T) does not contain overridable member may re-enter the measured declaration: T.m
+TargetViewsSpec	a conversion taking its argument by name	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) is incorrect: List(not read from compiled classes yet: an enclosing class: T) does not contain overridable member may re-enter the measured declaration: T.m
+TargetViewsSpec	a default argument still selects the declaration	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: D)) != Finite(16)
+TargetViewsSpec	a lambda converted to a SAM; one returned as a function	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) is incorrect: List(not read from compiled classes yet: an enclosing class: T) does not contain overridable member may re-enter the measured declaration: T.m
+TargetViewsSpec	a nested object or class whose body re-enters is a possible view	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) is incorrect: List(not read from compiled classes yet: an enclosing class: T) does not contain overridable member may re-enter the measured declaration: T.m
+TargetViewsSpec	a nested object that names nothing is no view	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) != Finite(16)
+TargetViewsSpec	a parent's default body resolves its names where written	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: S0)) != Finite(1)
+TargetViewsSpec	a partially applied method is η-expanded	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: P)) is incorrect: List(not read from compiled classes yet: an enclosing class: P) does not contain overridable member may re-enter the measured declaration: P.m
+TargetViewsSpec	a right-associative operator's operand may be by name	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: R)) is incorrect: List(not read from compiled classes yet: an enclosing class: R) does not contain overridable member may re-enter the measured declaration: R.m
+TargetViewsSpec	a self alias is the receiver	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: S)) != Finite(4)
+TargetViewsSpec	an argument list fills the clause its `using` flag selects	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: U)) is incorrect: List(not read from compiled classes yet: an enclosing class: U) does not contain overridable member may re-enter the measured declaration: U.m
+TargetViewsSpec	an argument, tuple field, condition, scrutinee, unary or `!=` operand, `equals` receiver	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Arg)) != Finite(4)
+TargetViewsSpec	an enclosing receiver's call through a nested object may re-enter	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Outer)) is incorrect: List(not read from compiled classes yet: an enclosing class: Outer) does not contain overridable member may re-enter the measured declaration: Outer.m
+TargetViewsSpec	an enclosing receiver's call through the object path is a view	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Outer)) != Finite(4)
+TargetViewsSpec	an extension whose receiver is by name	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: S)) is incorrect: List(not read from compiled classes yet: an enclosing class: S) does not contain overridable member may re-enter the measured declaration: S.m
+TargetViewsSpec	an import or export of an extension from outside the sources	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: F)) is incorrect: List(not read from compiled classes yet: an enclosing class: F) does not contain overridable member may re-enter the measured declaration: F.m
+TargetViewsSpec	an overload calling the declaration is a definite view	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Ovl)) != Finite(4)
+TargetViewsSpec	an overload the arity does not settle is a possible view	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Amb)) is incorrect: List(not read from compiled classes yet: an enclosing class: Amb) does not contain overridable member may re-enter the measured declaration: Amb.target
+TargetViewsSpec	an η-expanded method is not run: a possible view	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: Eta)) is incorrect: List(not read from compiled classes yet: an enclosing class: Eta) does not contain overridable member may re-enter the measured declaration: Eta.m
+TargetViewsSpec	implicit search selecting a given that re-enters	UNCOVERED	Unresolved(List(not read from compiled classes yet: an enclosing class: T)) is incorrect: List(not read from compiled classes yet: an enclosing class: T) does not contain overridable member may re-enter the measured declaration: T.m
 TastyStubsSpec	a Java class's state and a sealed interface's subclasses are not read	SCALAMETA	
 TastyStubsSpec	a Java enum is the closed set of its constants	SCALAMETA	
 TastyStubsSpec	a Java interface is the record of its abstract methods	SCALAMETA	
