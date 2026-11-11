@@ -80,13 +80,15 @@ lazy val core = project
 // on demand, never in CI, and publish nothing.
 lazy val bench = project
   .enablePlugins(JmhPlugin)
-  .dependsOn(core)
+  // Core's tests too: the differential gate of the front-end rewrite (scripts/differential.sh)
+  // lives beside the spec that pins it, as `cardinality.compiled.Differential`, and runs here.
+  .dependsOn(core, core % "compile->test")
   .settings(
     name := "scala-cardinality-bench",
     publish / skip := true,
     coverageEnabled := false,
-    // `bench/runMain cardinality.bench.CorpusRun` (scripts/measure-corpus.sh): a JVM of its own
-    // per run, with the heap and stack a whole-module report needs.
+    // `bench/runMain cardinality.bench.CorpusRun` (scripts/measure-corpus.sh) and the differential
+    // gate: a JVM of its own per run, with the heap and stack a whole-module report needs.
     Compile / run / fork := true,
     Compile / run / javaOptions ++= Seq("-Xmx16g", "-Xss8m")
   )

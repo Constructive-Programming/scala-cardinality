@@ -69,14 +69,20 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
           catch { case NonFatal(failure) => error(s"compiled classes not read: $failure") }
         case Nil if owners.getOrElse(None, Nil).exists(shared(path, _) > 0) =>
           error("compiled classes not told apart from another source's")
-        // A source that defines nothing has no classes, and neither has one the build did not
-        // compile: the two are not told apart (the plan's Q8).
+        // A source that defines nothing has no classes and no rows; one that defines something
+        // and has no classes was not compiled.
+        case Nil if Defining.findFirstIn(text).isEmpty => Right(Report.Source(path, Nil, Nil))
         case Nil     => error("no compiled classes for this source")
         case several =>
           error(s"compiled from more than one source: ${several.sorted.mkString(", ")}")
       }
     }
   }
+
+  // A keyword that starts a definition; in a comment or a string it counts too, which only keeps
+  // the error.
+  private val Defining =
+    """\b(class|object|trait|enum|def|val|var|type|given|extension|export)\b""".r
 
   // How much of their paths a source and a compiled path share: the length of the one that ends
   // the other, none when neither does.

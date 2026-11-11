@@ -216,6 +216,7 @@ the scalameta front end at `5f89e91`.
 | `scripts/measure-corpus.sh <corpus> <report file> [runs]` | One `Report.of` per run over a frozen corpus with this checkout's build, each in a JVM of its own (`bench/runMain cardinality.bench.CorpusRun`, `-Xmx16g -Xss8m`). Only the call is timed; it includes rendering the dependency stubs. Prints each run's wall time, CPU time, GC time, peak heap and peak RSS, the median and range of the first, second and fourth, the rows by kind, and what the report shows of the compiled types; writes the rendered report; fails when two runs render different reports. |
 | `scala-cli run .claude/skills/cardinality-reduction/report-diff.scala -- <before> <after> --rows` | Totals of two rendered reports and every row that moved. |
 | `scripts/build-corpus.sh <new corpus directory> <organization:artifact_3:version>` | A corpus from a published artifact: its binary jar unpacked as `classes/`, each source of its sources jar at the path its TASTy records, and its dependency jars in `classpath.txt`. Nothing is compiled. |
+| `scripts/differential.sh <assets> <output directory> [input ...]` | The differential gate of the front-end rewrite over every corpus and the compiled fixtures: "Front end: design and status", "The gate". |
 | `scripts/dead-code.sh` | Compiles every module and its tests, then lists the production symbols of `core` that nothing references, from the build's SemanticDB (`scripts/dead-code.scala` says how to read the three lists). |
 | `sbt coverage "bench/runMain cardinality.bench.CorpusRun <corpus> <report file>" core/coverageReport` | What one corpus executes. Delete `target/out/jvm/scala-3.9.0/scala-cardinality/scoverage-data/scoverage.measurements.*` first; the report beside that directory lists every package. The task ends in an error because the run is below the suite's coverage floor: the report is written before that. |
 
@@ -368,8 +369,8 @@ grep -h '^asked by' core/target/compiled-fixtures/*/failed   # one line per reje
 
 ## Phase 5: the TASTy front end, slice by slice
 
-Each slice lands when the differential runner shows no **worse** row for the rows it covers; a
-better row is recorded with its derivation ("Refined slice order" below has the full rule). A row
+Each slice lands when the differential runner shows no **worse** row for the rows it covers and its
+better rows are accounted for ("The gate" and "Refined slice order" below have the full rule). A row
 no slice covers yet is left uncovered by the new front end, which never asks the old one; the old
 front end stays the report's until none is left.
 
@@ -429,9 +430,9 @@ D4), the phase 5 table and phase 6 above, `AGENTS.md` and `v1.md` §2.
 | --- | --- | --- |
 | Boundary | `reporting/FrontEnd.scala` | `FrontEnd.rows(Module): Rows`. In: each source's path and text, and the `Report.Environment`. Out: one answer per source in order, its `Entry` and `Definition` rows or a `Report.Error`. |
 | Old front end | `reporting/ScalametaFrontEnd.scala` | The pipeline `Report.of` had inline, moved unchanged; the only one `Report.of` calls. `Report.query` calls its steps directly. |
-| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Source.scala` (998 lines) | Reads the compiled classes through tasty-query. |
+| New front end | `compiled/TastyFrontEnd.scala`, `Targets.scala`, `Readings.scala`, `Source.scala` (1,012 lines) | Reads the compiled classes through tasty-query. |
 | Gate | `core/src/test/scala/cardinality/compiled/Differential.scala` | See "The gate". |
-| Regression | `TastyFrontEndSpec` (13 examples) | Derived counts for the first slice, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
+| Regression | `TastyFrontEndSpec` (16 examples) | Derived counts for the first slice, the gate's verdicts, row names for what the compiler desugars, and the front end's imports against an allow-list (`allowed`). |
 
 The old front end's files changed in two places only, both extractions: `CompiledTypes.loaded` (the
 class loading `read` had inline) and `Definition.qualified` (the name joiner `Walk` had).
@@ -514,46 +515,76 @@ What it does not undo:
 ### The gate
 
 ```bash
-sbt 'core/testFull'                                          # fills core/target/compiled-fixtures
-sbt 'core/Test/compile' 'export core/Test/fullClasspath'     # prints the classpath, once
-java -Xmx16g -Xss8m -cp <classpath> cardinality.compiled.Differential \
-  corpus <corpus> --old /tmp/corpus-old.bin
-java -Xmx12g -Xss8m -cp <classpath> cardinality.compiled.Differential \
-  fixtures core/target/compiled-fixtures
+sbt 'core/testFull'                                # fills core/target/compiled-fixtures
+scripts/differential.sh <assets> <output directory> [input ...]
 ```
 
-- `<classpath>`: the exported list joined with `:`. In it `${OUT}/…/scala-cardinality_3.jar` and
-  `…_3-tests.jar` are `target/out/jvm/scala-3.9.0/scala-cardinality/classes` and `test-classes`;
-  `${CSR_CACHE}` is the coursier cache, `${SBT_BOOT}` is `~/.sbt/boot`.
-- `<corpus>`: a directory with `core/src/main/scala/**` (sources), `classes/` (their compiled output)
-  and `classpath.txt` (one dependency jar per line). The frozen one is
-  `/var/cache/users/rhansen/cardinality-tasty/corpus-core` (core at `53ab312`).
-- `--old <file>` keeps the scalameta rows of the corpus (about 100 s to compute) between runs. Delete
-  the file when the old front end, the row types or the corpus change; a file of another class
-  version fails to load.
-- `--rows` lists every row with the front end that produced it.
+- `<assets>` holds the frozen corpora (`corpus-*`, "Gate assets" above; here
+  `/var/cache/users/rhansen/cardinality-tasty`). The script runs `cardinality.compiled.Differential`
+  once per corpus and once over the compiled fixtures (`bench/runMain`, `-Xmx16g -Xss8m`), writes
+  each run to `<output directory>/<input>.txt`, prints the totals and exits 1 when a run fails.
+  Naming inputs (`corpus-core`, `fixtures`) runs only those.
+- `<assets>/old/<input>-<hash>.bin` keeps the scalameta rows of a corpus between runs (`--old`): the
+  six take about four minutes to compute. The hash is of the checkout's `build.sbt` and `project/` files, core's main
+  sources but the new front end's, and the gate's own source, so a change to any computes them
+  again. Nothing removes the files of earlier hashes.
+- `<assets>/covered/<input>.txt` holds the rows the new front end measured at the last passing run,
+  each with its count (`--covered`). A row listed there that is uncovered or counted otherwise now
+  fails the run. A passing run rewrites the rows it saw and keeps the lines of rows it did not see
+  (another checkout's fixtures, a run over part of the cache). To accept a changed count, delete
+  its line. Where two rows share a key (two overloads on one line) the key is kept only when both
+  are measured alike.
+- `core/src/test/resources/compiled/derived.txt` lists the better rows past a model limit that
+  were derived by hand (`--derived`): the row's key as the run prints it, ` | `, its count, `:`, and
+  the rule that makes it countable. The row passes while it has that count. A fixture's key holds
+  its digest, so editing the fixture asks for the derivation again.
+- `--rows`, given to the runner itself (`bench/runMain cardinality.compiled.Differential corpus
+  <dir> --rows`), lists every row with the front end that produced it.
 - Verdicts: 4b's, with identical also `?` on both sides, and uncovered, only old, only new.
 - Pairing, strictest first: name, kind and line; then position (the name without `<kind#n>`
   segments, same kind and line); then name and line across kinds. A key pairs only when both sides
   have as many rows under it.
-- Exit 1: a worse row, a row only one side has, or a source or class a front end could not read.
-- Listed to be explained: every better row, and every row paired by a looser key than the first.
+- A better row is read by why the old front end refused it (`Differential.resolution`, by the
+  reason's category). **A resolution limit** is a limit of reading syntax: a declaration not
+  supplied or a type not resolved, an import, export or wildcard that may bind a name (a builtin
+  one included), an inferred type, a parent outside the sources or reached through a qualified
+  name, an override or inherited member whose identity was not resolved, a path through a value, an
+  object's construction that rests on what `???` names. A number is expected there; the run prints
+  the count per reason and one row to derive as its sample. **A model limit** is every other reason
+  (a recursive type, a capability record, a field not observed injectively, an open template, a
+  self type, a receiver space, a sealed family's or an enum's construction, a `transparent inline`
+  result, a refinement, a budget): the new front end counts what the model refuses, and the row fails until it
+  is in `derived.txt`. A row with several reasons is past a model limit as soon as one of them is.
+- Exit 1: a worse row; a row only one side has; a better row past a model limit that is not
+  derived with its count; a row measured before that is uncovered or counted otherwise now; a
+  source or class either front end could not read, the module's compiled types or its classpath
+  where the old one could not; an input no source is read of. What the old front end says of one
+  dependency declaration it left unsupplied is printed, not failed: it only refuses more there.
+- Listed to be explained: every row paired by a looser key than the first.
 - A fixture is every directory of the cache with an `ok` marker and no `.` in its name (a
-  `<key>.<thread>` directory is a compile's staging left behind). It is read against the Scala
-  library alone, as the tests read it; one compiled against more leaves uncovered the rows whose
-  types name those classes (24 rows: `a member the classpath does not hold`).
+  `<key>.<thread>` directory is a compile's staging left behind). Its sources are those under `src`
+  but `src/withheld`, which with their classes in `support` are what the fixture compiled against
+  and the analysis is not given. The old front end spells its compiled types against `support`, as
+  the tests do; the new one is given the Scala library alone, so a type that names a withheld or
+  otherwise missing class is `a member the classpath does not hold` where it is read. A row is
+  still measured where no type is read: a goal of one value, a member of an object never built.
 
 What it cannot see:
 
-- A wrong number on a row that is `?` on the old side reads as better: each better row needs its
-  derivation. That is 81% of the corpus's method rows.
-- `?` on both sides is identical whatever the reasons (6 corpus and 30 fixture method rows the new
-  front end answers `?` itself).
-- An uncovered row is exempt without memory: a row measured at one commit and uncovered at the next
-  passes, and only the totals move. Compare the summary with the table below.
+- A wrong number past a resolution limit that is not the reason's sample. Nothing records that a
+  sample was derived.
+- `?` on both sides is identical whatever the reasons.
+- The coverage memory is by the new row's key: a row that is renamed (a scope, a kind, a line) and
+  left uncovered in one change is not found.
+- A declaration that really is withheld from a fixture reads, on the old side, like one the syntax
+  could not resolve (`declaration not supplied`): a better row there is past a resolution limit.
+  The two such rows today count 1 by rules that read no type (a goal of one value, an object never
+  built).
+- A fixture's stubs: a test that hands the old front end rendered stubs (`TastyStubsSpec`) is
+  compared here without them.
 - Signatures are only counted, and captures are not compared (the new front end lists none yet).
 
-### Measured, first slice (2026-11-11)
+### Measured, first slice (2026-11-11, before the fixtures were recompiled)
 
 | Input | Rows old / new | Paired by name, kind, line | By position | Across kinds | Identical | Better | Worse | Unpaired | Uncovered |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -587,6 +618,48 @@ run with `--old` already kept, under `time`, `-Xlog:gc` and those two limits). T
 front end takes 98 s and 9.0 GiB (the "Measured" table above). The first figure is a floor, not a
 result: it loads the module and 36 jars, names all 4,641 rows and solves 485 of them. The solver's
 time on the rows still uncovered is not in it.
+
+### Status by slice
+
+**In progress** (kept current, so that the work can be taken over from the files alone).
+
+- Stretch 2: slices S1, S2, S3, each committed when `scripts/differential.sh` passes and it is
+  reviewed.
+- Done: the gate changes (limit classes, coverage memory, six corpora, withheld support) and the
+  decided Q4, Q6, Q8.
+- Next: S1, types of the module's sources as shapes, in a new `compiled/Shapes.scala` called from
+  `Readings.shape`. Plain case classes, enums and sealed families of the closed fragment first; a
+  class the reading does not cover stays `Uncovered`.
+- To run: `scripts/differential.sh /var/cache/users/rhansen/cardinality-tasty <output directory>`,
+  after `sbt core/testFull` has filled `core/target/compiled-fixtures`.
+
+Each table is one run of `scripts/differential.sh` over the six corpora and the compiled fixtures
+(1,424 that compile, of 1,496). Rows is each side's count (they are equal: nothing is unpaired).
+Identical includes `?` on both sides where the new front end refuses the row itself. Unpaired is
+the rows only one side has. "Old numeric identical" is the share of the old rows without a reason
+that the new front end measures itself with the same count.
+
+**Before S1** (what stretch 1 read, with the gate's limit classes and coverage memory). Every row of
+every input pairs; the three better rows past a model limit are derived in `derived.txt`.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Worse | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 227 | 0 / 0 | 0 | 0 | 3,773 | 221 of 768 (28.8%) |
+| core | definitions | 641 | 258 | 0 / 0 | 0 | 0 | 383 | 258 of 400 (64.5%) |
+| cats-core | methods | 7,651 | 5 | 2 / 0 | 0 | 0 | 7,644 | 5 of 909 (0.6%) |
+| cats-core | definitions | 1,559 | 339 | 0 / 0 | 0 | 0 | 1,220 | 339 of 1,053 (32.2%) |
+| cats-kernel | methods | 1,785 | 0 | 0 / 0 | 0 | 0 | 1,785 | 0 of 368 (0.0%) |
+| cats-kernel | definitions | 312 | 34 | 0 / 0 | 0 | 0 | 278 | 34 of 253 (13.4%) |
+| cats-eo | methods | 697 | 2 | 0 / 0 | 0 | 0 | 695 | 0 of 271 (0.0%) |
+| cats-eo | definitions | 151 | 53 | 0 / 0 | 0 | 0 | 98 | 53 of 94 (56.4%) |
+| cats-eo-generics | methods | 80 | 12 | 0 / 0 | 0 | 0 | 68 | 11 of 16 (68.8%) |
+| cats-eo-generics | definitions | 12 | 4 | 0 / 0 | 0 | 0 | 8 | 4 of 6 (66.7%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 19 | 0 of 4 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 5,397 | 606 | 25 / 3 | 0 | 0 | 4,763 | 576 of 4,443 (13.0%) |
+| fixtures | definitions | 3,858 | 1,521 | 10 / 0 | 0 | 0 | 2,327 | 1,521 of 3,166 (48.0%) |
+| **all corpora** | methods | 14,232 | 246 | 2 / 0 | 0 | 0 | 13,984 | 237 of 2,336 (10.1%) |
+| **all corpora** | definitions | 2,677 | 689 | 0 / 0 | 0 | 0 | 1,988 | 689 of 1,807 (38.1%) |
 
 ### How each model rule reads over symbols
 
@@ -632,8 +705,9 @@ The slices are the plan's 5a to 5e, with 5c in three steps, in this order:
 | S7 (5e) | As planned. |
 | S8 (6) | `Report.query` over the new rows; the specs' harness; delete the scalameta front end, the stubs and `CompiledTypes`. |
 
-A slice lands when both differential runs exit 0, every better row is derived, and the uncovered
-count has fallen by what the slice claims.
+A slice lands when `scripts/differential.sh` passes on every input (so every better row past a
+model limit is derived), one sample per reason of the better rows past a resolution limit is
+derived, and the uncovered count has fallen by what the slice claims.
 
 ### Size estimate
 
@@ -658,62 +732,29 @@ and no code yet.
 - **The closed world over dependencies** needs every class of the module and its dependencies (see
   the rule table). Loading every dependency class's parents and members has a cost not measured yet;
   the stubs render about 5,200 sources for the same reason. Measure in S4.
-- **Tests.** The 204 cached fixtures that do not compile have no rows in the new front end (phase 6
-  names the two ways out). `TastyFrontEndSpec.compiled` duplicates `cardinality.Compiled`
-  (`core/src/test/scala/cardinality/Compiled.scala`), which should also record the classpath a
-  fixture compiled against: merge them.
-- **The gate is run by hand.** `TastyFrontEndSpec` runs in CI; the two differential runs do not, and
-  the corpus is on one machine. To rebuild it: check core out at `53ab312`, compile it, copy
-  `core/src/main/scala` and the compiled classes, and write core's dependency classpath one jar per
-  line. The new main code is exercised by that one spec: check the coverage floor
-  (`coverageMinimumStmtTotal := 80` in `build.sbt`, `sbt coverageAll`) before the next slice.
+- **Tests.** The 72 cached fixtures that do not compile have no rows in the new front end ("Test
+  fixtures that do not compile" above lists them). `TastyFrontEndSpec.compiled` duplicates
+  `cardinality.Compiled` (`core/src/test/scala/cardinality/Compiled.scala`), which should also
+  record the classpath a fixture compiled against: merge them.
+- **The gate is run by hand.** `TastyFrontEndSpec` runs in CI; `scripts/differential.sh` does not,
+  and the corpora are on one machine ("Gate assets" above says how each is built). The new main code is
+  exercised by that one spec: check the coverage floor (`coverageMinimumStmtTotal := 80` in
+  `build.sbt`, `sbt coverageAll`) once in each stretch.
 
-### Open questions for the owner
+### Decisions on the open questions (coordinator, on the owner's behalf, 2026-11-11)
 
-Until one is decided the new front end leaves the rows it touches uncovered, paired by a looser key,
-or unread. The two counts that move without a decision are derived in the rule table (construction).
+Decided on the owner's values: better or equal measurement, then less source, then speed.
 
-- **Q1. Scope names the compiler desugars** (a `for`, an untupled parameter, a polymorphic function
-  literal: 6 rows). Keep the tree's names (`<lambda#n>`) in the report, or reconstruct the source's
-  from positions? Proposed: keep the tree's. Before S8.
-- **Q2. `given g: T = deferred`**: a method row (old) or a declaration row (the tree)? Proposed:
-  declaration. Before S8.
-- **Q3. Signatures of inferred members.** Print the signature as written (now), or add the
-  compiler's type, and then rooted at `_root_` as the old rows do, or short? Proposed: as written.
-  Before S8.
-- **Q4. Top-level pattern definitions.** One definition row per bound name (now), or one per
-  definition named by its pattern? The plan asks for the same row set; the old name carries rule T's
-  ascriptions, which go. Proposed: one per definition, named by the names it binds (`c, d`). Before
-  S2.
-- **Q5. Construction (D26) on desugared values.** The tree splits `val (a, b) = (???, true)` into
-  `val a = ???; val b = true`, so the object is never built, where the syntax rule sees a tuple and
-  says built. `val a, b: Int = ???` is two values with one written initializer: the old rule excludes
-  the whole definition as the measured choice. `val _ = ???` is a bare match on `???`, and a match
-  whose selector throws is not in the rule's list. Restate the rule over the tree's values (an
-  initializer is what the tree evaluates), or keep the source's statements? Proposed: the tree's values, with one definition's values excluded
-  together. The 8 fixture rows beside such a definition are uncovered until then. Before S6.
-- **Q6. Budgets.** With dependencies the old front end gives each target 300,000 of its own steps
-  and solver depth 64; without, none. The new one calls the solver with its defaults today (256
-  states, no depth limit). The steps count syntax work that no longer exists. Keep the
-  step quota in some form, or only the solver's own budgets, and then with depth 64 always?
-  Proposed: the solver's only, depth 64 always. Before S8.
-- **Q7. Stale classes.** No count reads the source, so classes of another text give a row whose
-  signature and count disagree. The check: the name of every class, object, method and value row is
-  spelled at its offset, on the line and column the classes recorded. It is weaker than rule T's
-  match, which includes the span: it misses an edit that keeps every line's length, an edit after
-  the last definition, and alias rows. The build plugins compile before they report, so only a
-  direct `Report.of` call with mismatched inputs can hit it. Accept; or compare the whole file's line
-  sizes (in TASTy, not exposed by tasty-query); or have the plugins pass a digest? Proposed: line
-  sizes, in S8.
-- **Q8. A source that defines nothing** has no classes. Answer it as an empty source, as the old
-  front end does, or as `no compiled classes for this source` (now)? Empty would also hide a source
-  the build did not compile. Proposed: empty when the text holds no definition keyword. Before S8.
-- **Q9. Must refusal reasons match?** "Byte-identical report" says yes; the gate compares counts
-  only, and the new front end's reasons will differ wherever a syntax refusal has no counterpart.
-  Proposed: no; list the reasons that changed at the switch-over. Before S8.
-- **Q10. A member the classpath does not hold.** Uncovered (now), though no slice will ever read it,
-  or a refusal of its own? With a build's classpath it does not occur. Proposed: a refusal, once the
-  fixtures record their classpath. Before S8.
-- **Q11. `Report.query`** is not behind the boundary: its targets, names and budgets are the
-  scalameta index's. Reimplement it as a filter over the new rows (proposed), or keep a budgeted
-  measurement per target? With Q6, in S8.
+| | Question | Decided | State |
+| --- | --- | --- | --- |
+| Q1 | Scope names the compiler desugars (a `for`, an untupled parameter, a polymorphic function literal) | Keep the tree's names. List the renamed rows at the switch-over. | The gate pairs them by position. |
+| Q2 | `given g: T = deferred` | A declaration row. | Done; the rows pair across kinds. |
+| Q3 | Signatures of inferred members | Printed as written. | Done. |
+| Q4 | Top-level pattern and multi-name definitions | One definition row per bound name, as the tree gives them and as method rows are. No merging. | Done. No input holds one. The first that does fails the gate with unpaired rows, and nothing in the gate accepts them: it then needs a list of rows renamed by decision. |
+| Q5 | Construction (D26) on desugared values | Restated over the tree's values, one definition's values excluded together. The tree is what the program evaluates: where the old rule disagrees, the old number is the wrong one, and each such row is a derived better row or a derived correction. | With S6. Until then a member beside such a definition is uncovered. |
+| Q6 | Budgets | The solver's own only, depth 64 always. Then check whether `analysis/DeepStack` is still needed with the depth always bounded, and delete it if not. | Depth 64 done in `Readings`. `DeepStack` belongs to the old `MethodAnalysis.measure`: check at the switch-over. |
+| Q7 | Stale classes | Accept the partial check: the plugins compile before they report. No more code. | Done. |
+| Q8 | A source that defines nothing | Empty when its text holds no definition keyword, an error otherwise. | Done (`TastyFrontEnd.Defining`). |
+| Q9 | Must refusal reasons match? | No. A refusal stays a refusal or becomes a derived number. List the reasons that changed at the switch-over. | The gate compares counts. |
+| Q10 | A member the classpath does not hold | A refusal of its own, once fixtures record their classpath. | Uncovered until then. |
+| Q11 | `Report.query` | A filter over the new rows. | With S8. |

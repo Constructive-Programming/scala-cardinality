@@ -24,6 +24,7 @@ class TastyFrontEndSpec extends Specification {
     what the counting model refuses is a row of its own           $refused
     classes compiled from another text refuse the source          $stale
     it imports and names nothing of the scalameta reading         $imports
+    a source without definitions is empty, a bound name is a row  $sources
 
   The differential gate
     agrees with the scalameta front end on every row measured     $agrees
@@ -32,6 +33,8 @@ class TastyFrontEndSpec extends Specification {
     leaves a row only one side has unpaired                       $unpaired
     pairs a row by position where its scope is named otherwise    $position
     does not pair a lost row with an extra one of another owner   $owners
+    fails a better row past a model limit until it is derived     $limits
+    fails a row measured before, uncovered or counted otherwise   $memory
   """
 
   private val text =
@@ -101,7 +104,7 @@ class TastyFrontEndSpec extends Specification {
   private lazy val input =
     TastyFrontEndSpec.compiled("Demo.scala" -> text, "Shapes.scala" -> shapes)
 
-  private lazy val rows = Differential.answer(TastyFrontEnd, input.module)
+  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
   private lazy val source = rows.sources.collect { case Right(source) => source }.head
 
   private def count(name: String): Count = source.methods.find(_.name == name).get.count
@@ -148,7 +151,7 @@ class TastyFrontEndSpec extends Specification {
 
   // Every definition moved by one character: no name is where the classes say it is.
   private def stale = {
-    val moved = input.module.copy(sources = List("Demo.scala" -> (" " + text)))
+    val moved = input.next.copy(sources = List("Demo.scala" -> (" " + text)))
     Differential.answer(TastyFrontEnd, moved).sources must beLike {
       case List(Left(error)) => error.message must startWith("compiled classes do not match")
     }
@@ -199,11 +202,11 @@ class TastyFrontEndSpec extends Specification {
   }
 
   private lazy val compared =
-    Differential.run(input, Differential.answer(ScalametaFrontEnd, input.module))
+    Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
 
   private def agrees = {
     val verdicts = compared.compared.map(_.verdict).toSet
-    (compared.failed must_== Nil)
+    ((compared.failed, compared.noted) must_== (Nil, Nil))
       .and(Differential.failures(compared.compared) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))
   }
@@ -273,6 +276,91 @@ class TastyFrontEndSpec extends Specification {
       exactly("T.<init>" -> Verdict.OnlyOld, "U.<init>" -> Verdict.OnlyNew)
     )
 
+  // The old front end refused `named` for a name it could not resolve, which the compiler knows:
+  // a number is expected. It refused `modelled` because the counting model does not read a
+  // recursive type, and `transparent` by rule X: a number there counts what the model refuses,
+  // until someone derives it, with that number.
+  private def limits = {
+    val recursive = Count.Unresolved(List("recursive type not read: T"))
+    val ruleX =
+      Count.Unresolved(List("inferred result type not resolved: transparent inline method"))
+    val compared = Differential.compare(
+      answer(
+        entry("named", unknown),
+        entry("modelled", recursive, 2),
+        entry("transparent", ruleX, 3)
+      ),
+      answer(
+        entry("named", Count.Finite(2)),
+        entry("modelled", Count.Finite(2), 2),
+        entry("transparent", Count.Finite(2), 3)
+      )
+    )
+    def derived(count: String) =
+      compared.filter(_.row.name != "named").map(_.row.key -> count).toMap
+    (Differential.failures(compared).map(_.row.name) must_== List("modelled", "transparent"))
+      .and(Differential.failures(compared, derived("2")) must_== Nil)
+      .and(Differential.failures(compared, derived("3")).size must_== 2)
+      .and(Differential.samples(compared).map(_._1) must_== List("unresolved type"))
+  }
+
+  // `lost` was measured and is uncovered now, `refused` was the front end's own `?` and is
+  // uncovered now, `moved` is counted otherwise; `fresh` is uncovered and was never measured;
+  // `kept` is as before. `twin` is two rows of one key, one of them uncovered: the key cannot tell
+  // them apart, so it is not remembered. What is written is read back as it was.
+  private def memory = {
+    val refusal = Count.Unresolved(List("recursive type not read: T"))
+    val compared = Differential.compare(
+      answer(
+        entry("kept", Count.Finite(2)),
+        entry("lost", Count.Finite(2), 2),
+        entry("moved", unknown, 3),
+        entry("fresh", Count.Finite(2), 4),
+        entry("refused", refusal, 5),
+        entry("twin", Count.Finite(2), 6),
+        entry("twin", Count.Finite(2), 6)
+      ),
+      answer(
+        entry("kept", Count.Finite(2)),
+        entry("lost", declined, 2),
+        entry("moved", Count.Finite(3), 3),
+        entry("fresh", declined, 4),
+        entry("refused", declined, 5),
+        entry("twin", Count.Finite(2), 6),
+        entry("twin", declined, 6)
+      )
+    )
+    def key(name: String) = compared.find(_.row.name == name).get.row.key
+    val before =
+      Map(key("kept") -> "2", key("lost") -> "2", key("moved") -> "2", key("refused") -> "?")
+    val now = Differential.measured(compared)
+    (Differential.regressed(compared, before).map(_.row.name) must contain(
+      exactly("lost", "moved", "refused")
+    )).and(now must contain(exactly(key("kept") -> "2", key("moved") -> "3")))
+      .and(Differential.listed(now.map(Differential.line)) must_== now.toMap)
+      .and(
+        Differential.listed(List("method F.scala:3 | [method] | 1: its rule")) must_==
+          Map("method F.scala:3 | [method]" -> "1")
+      )
+  }
+
+  // A source that defines nothing has no classes and no rows; a top-level definition of two names
+  // is a definition row and a method row per name.
+  private def sources = {
+    val module = TastyFrontEndSpec
+      .compiled(
+        "Empty.scala" -> "package demo\nimport scala.util.Try\n",
+        "Two.scala" -> "val a, b = true\n"
+      )
+      .next
+    Differential.answer(TastyFrontEnd, module).sources must beLike {
+      case List(Right(empty), Right(two)) =>
+        ((empty.methods, empty.definitions) must_== (Nil, Nil))
+          .and(two.definitions.map(_.name) must_== List("a", "b"))
+          .and(two.methods.map(_.name) must_== List("a", "b"))
+    }
+  }
+
 }
 
 object TastyFrontEndSpec {
@@ -300,10 +388,8 @@ object TastyFrontEndSpec {
     if (dotty.tools.dotc.Main.process(arguments.toArray, reporter).hasErrors)
       sys.error(s"fixture does not compile: ${reporter.allErrors.map(_.message).mkString("; ")}")
     val compiled = CompiledTypes.Classes(List(classes), libraries.map(Path.of(_)))
-    Differential.Input(
-      "",
-      FrontEnd.Module(sources.toList, Report.Environment(classes = Some(compiled)))
-    )
+    val module = FrontEnd.Module(sources.toList, Report.Environment(classes = Some(compiled)))
+    Differential.Input("", module, module)
   }
 
 }

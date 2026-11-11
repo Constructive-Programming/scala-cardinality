@@ -75,7 +75,8 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
             parameters.lazyZip(inputs).map { (p, read) =>
               Binding(s"$self.${p.name}", read, Some(p.name.toString))
             },
-            result
+            result,
+            maxDepth = Readings.Depth
           )
     } yield count
   }
@@ -280,6 +281,9 @@ final private[compiled] class Readings(own: Set[ClassSymbol])(using Context) {
 }
 
 private[compiled] object Readings {
+
+  /** The solver's depth budget, the same for every row; its state budget is its own default. */
+  val Depth = 64
 
   /** Why a type gives no shape: no slice reads it yet, or the counting model refuses it. */
   private enum Unread {
