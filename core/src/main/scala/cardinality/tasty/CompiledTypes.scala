@@ -19,8 +19,8 @@ import tastyquery.jdk.ClasspathLoaders
   * The compiler's type is the answer, not a guess, so the syntax-only inference (`InferredResults`)
   * no longer has to refuse it. A member keeps its source untouched where the compiled one is not
   * found at the same name and span (a stale or foreign class), where its type has no spelling here,
-  * and where it is `transparent inline`, whose callers see the expansion's type instead (Rule X).
-  * Phase 1 covers template and top-level members, not locals.
+  * and where it is `transparent inline`, whose callers see the expansion's type instead (Rule X). A
+  * source that does not parse with its types written keeps none of them, and is reported.
   */
 object CompiledTypes {
 
@@ -30,7 +30,9 @@ object CompiledTypes {
   /** A compiled member found in a source: its name, where its definition ends, and its result. */
   final private case class Compiled(name: String, end: Int, result: Option[String])
 
-  /** The inputs with the compiled result types written in, and what could not be read. */
+  /** The inputs with the compiled result types written in, and what could not be read: the classes
+    * as a whole, or a source that does not parse with its types written, which is left as it was.
+    */
   def ascribe(
       inputs: List[MethodAnalysis.Input],
       classes: Classes
@@ -39,7 +41,12 @@ object CompiledTypes {
     else
       try {
         val compiled = read(classes)
-        (inputs.map(input => written(input, matching(input.path, compiled))), Nil)
+        val results = inputs
+          .map(input => matching(input.path, compiled).fold(Right(input))(written(input, _, _)))
+        (
+          inputs.lazyZip(results).map((input, result) => result.getOrElse(input)),
+          results.collect { case Left(problem) => problem }
+        )
       } catch {
         case NonFatal(error) => (inputs, List(s"compiled types not read: $error"))
       }
@@ -124,18 +131,21 @@ object CompiledTypes {
       } catch { case NonFatal(_) => None }
   }
 
-  // The compiled members of the one compiled source whose path `path` names; none when no single
-  // one does.
-  private def matching(
-      path: String,
-      compiled: Map[String, Map[Int, List[Compiled]]]
-  ): Map[Int, List[Compiled]] = {
+  /** The compiled source `path` names, as its TASTy records it, with what is held for it. A source
+    * is read where its build left it, so its path ends with the recorded one: where it ends with
+    * two (`Exp.scala` and `lib9/Exp.scala`), the longer is its own. Otherwise the single recorded
+    * path that ends with `path`; none when no one source is named.
+    */
+  private[tasty] def matching[A](path: String, compiled: Map[String, A]): Option[(String, A)] = {
     def normal(p: String) = p.replace('\\', '/').stripPrefix("/")
-    val candidates = compiled.filter { (source, _) =>
-      val (a, b) = (normal(path), normal(source))
-      a == b || a.endsWith("/" + b) || b.endsWith("/" + a)
-    }
-    if (candidates.size == 1) candidates.head._2 else Map.empty
+    // Whether `whole` is `tail`, or ends with it at a separator.
+    def ends(whole: String, tail: String) = ("/" + normal(whole)).endsWith("/" + normal(tail))
+    val recorded = compiled.toList
+    val longer = recorded.filter((source, _) => !ends(path, source) && ends(source, path))
+    recorded
+      .filter((source, _) => ends(path, source))
+      .maxByOption((source, _) => normal(source).length)
+      .orElse(Option.when(longer.sizeIs == 1)(longer.head))
   }
 
   /** Where a compiled type is written: after a member's name and parameters (`: T`), around a name
@@ -152,11 +162,14 @@ object CompiledTypes {
     */
   final private case class Untyped(name: String, at: Int, end: Int, site: Site)
 
-  // The input with a type written at each untyped definition that has a compiled match.
+  // The input with a type written at each untyped definition that has a compiled match, or what
+  // is reported where the types leave it unparseable. `recorded` names the source as its TASTy
+  // does: relative to the build's source root, so the report names nothing of this machine.
   private def written(
       input: MethodAnalysis.Input,
+      recorded: String,
       compiled: Map[Int, List[Compiled]]
-  ): MethodAnalysis.Input = {
+  ): Either[String, MethodAnalysis.Input] = {
     val edits = untyped(input.tree).flatMap { u =>
       compiled
         .getOrElse(u.at, Nil)
@@ -164,24 +177,48 @@ object CompiledTypes {
           case Compiled(name, end, Some(tpe)) if name == u.name && end == u.end =>
             u.site match {
               case Site.After(at)          => List(at -> (": " + tpe))
-              case Site.Around(start, end) => List(end -> (": " + tpe + ")"), start -> "(")
+              case Site.Around(start, end) =>
+                List(end -> (": " + enclosed(tpe) + ")"), start -> "(")
             }
           case _ => Nil
         }
         .distinct
     }
-    if (edits.isEmpty) input
-    else {
-      val text = input.tree.pos.input.text
-      val ascribed = edits.sortBy(-_._1).foldLeft(text) {
-        case (text, (at, word)) =>
-          val c = text.charAt(at - 1)
-          val gap =
-            if (!word.startsWith(":") || c.isLetterOrDigit || "_`)]".contains(c)) "" else " "
-          text.substring(0, at) + gap + word + text.substring(at)
-      }
-      Spell.source(ascribed).toOption.fold(input)(MethodAnalysis.Input(input.path, _))
+    if (edits.isEmpty) Right(input) else edited(input, recorded, edits)
+  }
+
+  // A pattern takes no bare function type, and reads a bare `A | B` as two patterns: the type is
+  // written bare only where the pattern then is one name of that type, in parentheses otherwise.
+  private def enclosed(tpe: String): String =
+    Spell.source(s"val (x: $tpe) = x").toOption.map(_.stats) match {
+      case Some(List(Defn.Val(_, List(Pat.Typed(_: Pat.Var, _)), None, _))) => tpe
+      case _                                                                => s"($tpe)"
     }
+
+  /** The input with each word inserted at its offset, or what is reported where it is left as it
+    * was: with the words in, it does not parse.
+    */
+  private[tasty] def edited(
+      input: MethodAnalysis.Input,
+      recorded: String,
+      edits: List[(Int, String)]
+  ): Either[String, MethodAnalysis.Input] = {
+    val text = input.tree.pos.input.text
+    val ascribed = edits.sortBy(-_._1).foldLeft(text) {
+      case (text, (at, word)) =>
+        val c = text.charAt(at - 1)
+        val gap =
+          if (!word.startsWith(":") || c.isLetterOrDigit || "_`)]".contains(c)) "" else " "
+        text.substring(0, at) + gap + word + text.substring(at)
+    }
+    Spell
+      .source(ascribed)
+      .toOption
+      .map(MethodAnalysis.Input(input.path, _))
+      .toRight(
+        s"compiled types not written: $recorded does not parse with them, " +
+          "so its members written without a type have none"
+      )
   }
 
   // Every definition written without a type: members and locals (not `transparent inline`, whose
