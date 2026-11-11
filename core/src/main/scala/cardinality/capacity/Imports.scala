@@ -100,12 +100,24 @@ final private[cardinality] case class Imports(
     */
   def ++(inner: Imports): Imports =
     if (inner eq Imports.none) this
-    else
+    else {
+      // The selectors of one clause share the clauses written before it: each is read once.
+      val prior = new java.util.IdentityHashMap[Imports, Imports]
+      def behind(outer: Imports): Imports = Option(prior.get(outer)).getOrElse {
+        val read = this ++ outer
+        prior.put(outer, read)
+        read
+      }
       Imports(
-        named ++ inner.named.map((n, s) => n -> s.copy(outer = this ++ s.outer)),
+        named ++ inner.named.map((n, s) => n -> s.copy(outer = behind(s.outer))),
         inner.wildcards.filterNot(w => wildcards.exists(_.same(w))) ++ wildcards,
-        foreign ++ inner.foreign
+        // An empty side keeps the other as it is: `Set.empty ++ names` would copy a package's
+        // names one by one on every view entered (`Scope.within`).
+        if (inner.foreign.isEmpty) foreign
+        else if (foreign.isEmpty) inner.foreign
+        else foreign ++ inner.foreign
       )
+    }
 
 }
 
