@@ -1,6 +1,5 @@
 package cardinality
 
-import cardinality.loader.Skill
 import sbt.*
 import sbt.Keys.*
 import sbt.util.CacheImplicits.given
@@ -24,16 +23,6 @@ object CardinalityPlugin extends AutoPlugin {
       "The dependencies' declarations rendered as stubs: cached by sbt by the jars' contents."
     )
 
-    val cardinalitySkillFile = settingKey[File](
-      "Where cardinalitySeedSkill writes the reduction skill, under the build's root by default."
-    )
-
-    val cardinalitySeedSkill = taskKey[File](
-      "Seed the cardinality-reduction skill into this repository: write the template that ships " +
-        "with the plugin, parameterized by the build, to cardinalitySkillFile. Refreshes a file " +
-        "the plugin generated; refuses to overwrite one it did not."
-    )
-
   }
 
   import autoImport.*
@@ -51,13 +40,9 @@ object CardinalityPlugin extends AutoPlugin {
 
   override def projectSettings: Seq[Setting[?]] = CardinalityTool.defaults(autoImport) ++
     dependencySettings ++ reportSettings ++ Seq(
-      // Seeding is a repository-level act: the default lands beside the other agent instructions
-      // at the build's root, wherever the task is run from.
-      cardinalitySkillFile := (ThisBuild / baseDirectory).value / ".claude" / "skills" /
-        "cardinality-reduction" / "SKILL.md",
       // `Def.uncached`: seeding must re-check the target file every run, never be served stale.
       cardinalitySeedSkill := Def.uncached {
-        seedSkill(
+        CardinalityTool.seedSkill(
           streams.value.log,
           cardinalitySkillFile.value,
           (ThisBuild / baseDirectory).value,
@@ -156,23 +141,5 @@ object CardinalityPlugin extends AutoPlugin {
       file: HashedVirtualFileRef
     }
   )
-
-  // Writes the reduction skill this repository's agents use, parameterized by the build (the
-  // template is shared with mill-cardinality, see `Skill`).
-  private def seedSkill(log: Logger, output: File, buildRoot: File, pluginVersion: String): File = {
-    val values = Map(
-      "project" -> buildRoot.getName,
-      "version" -> pluginVersion,
-      "seed" -> "cardinalitySeedSkill"
-    )
-    val changed =
-      try Skill.seed(output.toPath, "sbt-cardinality", "sbt", values)
-      catch { case e: IllegalStateException => sys.error(e.getMessage) }
-    log.info(
-      if (changed) s"seeded the cardinality-reduction skill: $output"
-      else s"skill already up to date: $output"
-    )
-    output
-  }
 
 }

@@ -23,6 +23,12 @@ object CardinalityPlugin extends AutoPlugin {
 
   override def projectSettings: Seq[Setting[?]] = CardinalityTool.defaults(autoImport) ++ Seq(
     cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.files,
+    cardinalitySeedSkill := CardinalityTool.seedSkill(
+      streams.value.log,
+      cardinalitySkillFile.value,
+      (ThisBuild / baseDirectory).value,
+      version.value
+    ),
     cardinalityReport := CardinalityTool.report(
       calculator.value,
       (Compile / sources).value,

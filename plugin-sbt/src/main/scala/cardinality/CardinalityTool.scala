@@ -1,10 +1,10 @@
 package cardinality
 
-import cardinality.loader.Calculator
+import cardinality.loader.{Calculator, Skill}
 import java.nio.file.Path as NioPath
 import lmcoursier.{CoursierConfiguration, CoursierDependencyResolution}
 import sbt.*
-import sbt.Keys.target
+import sbt.Keys.{baseDirectory, target}
 
 /** What the two sbt plugins do the same way: one source compiled into each. */
 private[cardinality] object CardinalityTool {
@@ -14,7 +14,11 @@ private[cardinality] object CardinalityTool {
     keys.cardinalityVersion := Calculator.version,
     keys.cardinalityReportFile := target.value / "cardinality" / "report.txt",
     keys.cardinalityQuerySupport := Nil,
-    keys.cardinalityQueryLimits := Map.empty
+    keys.cardinalityQueryLimits := Map.empty,
+    // Seeding is a repository-level act: the default lands beside the other agent instructions
+    // at the build's root, wherever the task is run from.
+    keys.cardinalitySkillFile := (ThisBuild / baseDirectory).value / ".claude" / "skills" /
+      "cardinality-reduction" / "SKILL.md"
   )
 
   val paths = Def.spaceDelimited("<path>...")
@@ -83,6 +87,25 @@ private[cardinality] object CardinalityTool {
       support: Seq[File],
       limits: Map[String, Long]
   )
+
+  /** Writes the reduction skill this repository's agents use, parameterized by the build (the
+    * template is shared with mill-cardinality, see `Skill`).
+    */
+  def seedSkill(log: Logger, output: File, buildRoot: File, pluginVersion: String): File = {
+    val values = Map(
+      "project" -> buildRoot.getName,
+      "version" -> pluginVersion,
+      "seed" -> "cardinalitySeedSkill"
+    )
+    val changed =
+      try Skill.seed(output.toPath, "sbt-cardinality", "sbt", values)
+      catch { case e: IllegalStateException => sys.error(e.getMessage) }
+    log.info(
+      if (changed) s"seeded the cardinality-reduction skill: $output"
+      else s"skill already up to date: $output"
+    )
+    output
+  }
 
   private def nio(files: Seq[File]): Seq[NioPath] = files.map(_.getAbsoluteFile.toPath)
 

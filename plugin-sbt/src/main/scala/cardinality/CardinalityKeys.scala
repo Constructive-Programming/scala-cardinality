@@ -36,4 +36,14 @@ trait CardinalityKeys {
     "The scala-cardinality version the reports run: the plugin's own by default."
   )
 
+  val cardinalitySkillFile = settingKey[File](
+    "Where cardinalitySeedSkill writes the reduction skill, under the build's root by default."
+  )
+
+  val cardinalitySeedSkill = taskKey[File](
+    "Seed the cardinality-reduction skill into this repository: write the template that ships " +
+      "with the plugin, parameterized by the build, to cardinalitySkillFile. Refreshes a file " +
+      "the plugin generated; refuses to overwrite one it did not."
+  )
+
 }
