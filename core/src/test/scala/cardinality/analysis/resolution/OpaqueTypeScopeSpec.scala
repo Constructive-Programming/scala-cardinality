@@ -191,7 +191,7 @@ class OpaqueTypeScopeSpec extends Specification {
         "Type.scala" ->
           "package sample; opaque type T[A] = A; trait Parent[A] { val value: T[A] }",
         "Use.scala" ->
-          "package sample; class Child[A] extends Parent[A] { def get: A = ??? }"
+          "package sample; abstract class Child[A] extends Parent[A] { def get: A = ??? }"
       )
     )
 

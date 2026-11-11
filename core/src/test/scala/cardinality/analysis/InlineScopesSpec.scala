@@ -58,9 +58,17 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
   // Fixture locals: pick prints true, then false under a call-site `given Boolean = false`; bound
   // true, then false; viaDefault 5, then 9 under `given Int = 9` — the given implicit search fills
   // at the local call, and the default evaluated there, are expanded at each call site. The def
-  // twin pickD prints true at both.
+  // twin pickD prints true at both. The `Has[Boolean]` given `bound` leaves to search is declared
+  // here and not in the shared prelude, whose other fixture has no use for it.
   def localClauses = {
-    val found = rows(flagGiven + """object U {
+    val found = rows(flagGiven + """object Hs {
+      |  inline given Has[Boolean] = summonFrom {
+      |    case x: Boolean => new Has[Boolean] { def get: Boolean = x }
+      |    case _          => new Has[Boolean] { def get: Boolean = true }
+      |  }
+      |}
+      |import Hs.given
+      |object U {
       |  inline def pick(b: Boolean): Boolean = {
       |    def read(using f: Flag): Boolean = f.b
       |    read

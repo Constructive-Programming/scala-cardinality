@@ -249,7 +249,7 @@ class TopTypesUnionSpec extends Specification {
   // (A & AnyRef is A: 1, it was refused), absorbing in a union (A | AnyRef is ω, an output).
   def referenceTops =
     (count("def ai(x: AnyRef, y: java.lang.Object): Boolean = true", "ai") === Count.Finite(2))
-      .and(count("def mt[A](a: A): A & AnyRef = a", "mt") === Count.Finite(1))
+      .and(count("def mt[A](a: A): A & AnyRef = ???", "mt") === Count.Finite(1))
       .and(count("def mm[A](a: A): A & Matchable = a", "mm") === Count.Finite(1))
       .and(count("def ab[A](a: A): A | AnyRef = a", "ab") === Count.Countable)
 
@@ -269,7 +269,7 @@ class TopTypesUnionSpec extends Specification {
   // Boolean has 4 values over Red's 2 → 4^2; a Boolean over 2 inputs → 2^2.
   def shadowInherited = {
     val code = colours + "trait Base { type Any = Boolean }\nobject O extends Base { " +
-      "def f(x: Red): Red | Any = x; def g(x: Red): Any = x; def h(x: Red): Red & Any = x }"
+      "def f(x: Red): Red | Any = x; def g(x: Red): Any = ???; def h(x: Red): Red & Any = ??? }"
     (count(code, "O.f") === Count.Finite(16))
       .and(count(code, "O.g") === Count.Finite(4))
       .and(reasonContains(code, "O.h", "unsupported intersection relationship: Red & Any"))

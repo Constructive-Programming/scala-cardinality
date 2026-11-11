@@ -764,7 +764,7 @@ class StdlibModelSpec extends Specification {
   def dependencyNamespaces = {
     val cats = "import cats.syntax.functor.*\nobject C { def f(i: Int, b: Boolean): Boolean = ??? }"
     val kyo = "import _root_.kyo.*\nobject K { def f(i: Int, b: Boolean): Boolean = ??? }"
-    val member = "import _root_.kyo.*\nobject K { def f(s: Stream): Boolean = ??? }"
+    val member = "import _root_.kyo.*\nobject K { def f(s: Stream[Int, Any]): Boolean = ??? }"
     (count(cats, "C.f") === Count.Symbolic(pow(2, BigInt("8589934592"))))
       .and(count(kyo, "K.f") === Count.Symbolic(pow(2, BigInt("8589934592"))))
       .and(refused(count(member, "K.f"), "declaration not supplied: kyo.Stream (wildcard import)"))
@@ -904,8 +904,9 @@ class StdlibModelSpec extends Specification {
     ) ===
       Count.Finite(1)).and(
       countIn(
-        "A.scala" -> "package r\nimport lib.*\ntrait T extends IterableOnce[String]",
-        "B.scala" -> "package r\nobject O extends T { def g(): Int = ??? }"
+        "A.scala" -> ("package r\nimport lib.*\ntrait T extends IterableOnce[String]" + lib),
+        "B.scala" ->
+          "package r\nobject O extends T { def iterator: Iterator[String] = ???; def g(): Int = ??? }"
       )("r.O.g") === Count.Finite(BigInt(2).pow(32))
     )
 
