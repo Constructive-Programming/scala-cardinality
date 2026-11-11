@@ -2,10 +2,12 @@ package cardinality.capacity
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
 
-/** How the name-resolution specs read a source set: each stored-value row as a reader sees it, and
-  * one constructor's method-side count.
+/** How the stored-value specs read definition rows: each row of a source set as a reader sees it, a
+  * type's size, a source's total, and one constructor's method-side count.
   */
 private[capacity] object Rows {
+
+  import Definition.Kind
 
   /** A row's number, `—` for an abstraction, or the class of its `?` with the reasons it names. */
   def verdict(d: Definition): String =
@@ -24,7 +26,27 @@ private[capacity] object Rows {
 
   /** One source's rows, read alone: compiled first, as every fixture is (`Compiled`). */
   def rows(code: String): Map[(String, Definition.Kind), String] =
-    table(Counter.definitions(cardinality.Compiled.source(code)))
+    table(cardinality.Compiled.definitions(code))
+
+  /** The size a reference to the type `code` spells holds: what the row of its alias reads. */
+  def typeSize(code: String): Size =
+    cardinality.Compiled
+      .definitions(s"type T = $code")
+      .find(_.name == "T")
+      .flatMap(_.size)
+      .getOrElse(throw new AssertionError(s"no size for the alias of $code"))
+
+  /** What one source's definitions hold together: its class, enum, module and top-level value rows,
+    * summed in row order. An abstraction, an alias and an opaque type add no value of their own.
+    * `Counter.source` adds a definition to the sum of the ones nested in it, and a capacity does
+    * not add associatively: the two differ for capacities nested in a module, which no fixture has.
+    */
+  def total(code: String): Size =
+    cardinality.Compiled
+      .definitions(code)
+      .filter(d => Set(Kind.Class, Kind.Enum, Kind.Object, Kind.Value)(d.kind))
+      .flatMap(_.size)
+      .foldLeft(NothingSize)(_ + _)
 
   /** The rows of a source set laid out as files, read as the report reads a compiled module: the
     * files on disk and their classes. Support the set withholds (`Compiled.withheld`,

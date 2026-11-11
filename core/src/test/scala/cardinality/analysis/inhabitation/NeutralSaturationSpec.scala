@@ -60,7 +60,7 @@ class NeutralSaturationSpec extends Specification {
   private def refusedExactly(found: Count, reason: String): Result =
     found must beLike { case Count.Unresolved(reasons) => reasons must contain(reason) }
 
-  private val sums = counts("""package sums1
+  private lazy val sums = counts("""package sums1
     |final class FF[S, T, A, B](read: S => Either[T, A], write: (S, B) => T)
     |object U {
     |  def compose[S, A, B](outer: S => Option[A], inner: A => Option[B]): S => Option[B] =
@@ -144,7 +144,7 @@ class NeutralSaturationSpec extends Specification {
       .and(found("keys.U.plain").render === "2^(2^16)")
   }
 
-  private val sat = counts("""package sat
+  private lazy val sat = counts("""package sat
     |trait Wrap[F[_]] { def wrap[M](m: M): F[M] }
     |trait Lift[F[_]] { def lift[M](m: M): F[M] }
     |final class Picker[S, A](val pick: S => Option[A], val mend: A => S)
@@ -179,7 +179,7 @@ class NeutralSaturationSpec extends Specification {
   def recordField =
     refused(sat("sat.U.field"), "sum elimination over an unbounded argument space: inner#0")
 
-  private val named = counts("""package named
+  private lazy val named = counts("""package named
     |object U {
     |  def first[S, A](s: S, step: S => S, `te:st`: S => Option[A]): Option[A] = None
     |  def lit[A](`g:h`: A => Int, h: Int => A, a: A): Int = 0
@@ -208,7 +208,7 @@ class NeutralSaturationSpec extends Specification {
       "polymorphic capability binder: M (free-theorem quotient not modelled for sat.Lift.lift)"
     )
 
-  private val c11 = counts("""package c11
+  private lazy val c11 = counts("""package c11
     |object T {
     |  def branchAbsurd[A, B, C](y: Either[(A => Nothing, B, B => B), B], u: (C => C) => A): B = ???
     |  def branchAbsurdPlain[A, B, C](y: Either[(A => Nothing, B, B => B), B], u: C => A, c: C): B = ???

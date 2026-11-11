@@ -1,7 +1,7 @@
 package cardinality.analysis
 
 import cardinality.analysis.inhabitation.*
-import cardinality.capacity.{BooleanSize, Counter}
+import cardinality.capacity.BooleanSize
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
 
@@ -91,8 +91,8 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |  def reduces[A, B](p: (A, B)): Fst[(A, B)] = p._1
       |}""".stripMargin
     val found = rows(code)
-    val stored = Counter
-      .definitions(cardinality.Compiled.source(code))
+    val stored = cardinality.Compiled
+      .definitions(code)
       .map(d => d.name -> (d.size, d.unbound.map(_.render)))
       .toMap
     val stuck = "match type stuck on a named tuple"

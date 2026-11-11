@@ -714,12 +714,10 @@ class StoredValueSoundnessSpec extends Specification {
   // An unknown name is not hidden behind an open abstraction, nor an open one behind a parameter:
   // every class renders, unresolved first.
   def reasonClasses = {
-    val found = Counter
+    val found = cardinality.Compiled
       .definitions(
-        cardinality.Compiled.source(
-          "trait Open\nfinal case class Mixed(o: Open, s: Schema)\nfinal case class Gen[A](o: Open, a: A)" +
-            cardinality.Compiled.withheld("class Schema")
-        )
+        "trait Open\nfinal case class Mixed(o: Open, s: Schema)\nfinal case class Gen[A](o: Open, a: A)" +
+          cardinality.Compiled.withheld("class Schema")
       )
       .map(d => d.name -> d)
       .toMap

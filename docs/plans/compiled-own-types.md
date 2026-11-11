@@ -216,19 +216,20 @@ A note for whoever continues from the files alone. It goes when the stretch is c
 - Committed: `classpath.txt` in each cache entry and `staging/` in the cache
   (`core/src/test/scala/cardinality/Compiled.scala`; "Test fixtures" below says what they hold).
   Entries written before have other keys: `rm -rf core/target/compiled-fixtures` drops them.
+- Committed: the front-end switch in `Compiled` (`-Dcardinality.frontend`, decided in one method,
+  `read`; "Test fixtures" below), with `Compiled.definitions`, `capacity.Rows.typeSize` and
+  `Rows.total`, which read off definition rows what the specs took from the scalameta tree.
 - Written, not committed (kept outside the tree while the units are committed in turn, under
-  `/tmp/tg/s3/full/`; rewrite from this description if that is gone): the front-end switch in
-  `Compiled` (`-Dcardinality.frontend=tasty|sentinel|filled|probe`, decided in one method,
-  `read`); `Compiled.definitions`, `capacity.Rows.typeSize` and `Rows.total`, which read off
-  definition rows what the specs took from the scalameta tree; `cardinality.ExampleLog` (a specs2
-  notifier, one line an example) and `scripts/spec-ledger.sh` (the suite under each mode, merged
-  into `docs/baselines/tasty-spec-ledger.tsv`). The default suite was green with all of it (89
-  specifications, 2,016 examples).
-- Next, each after `sbt scalafmtAll scalafixAll`, `sbt core/testFull`,
-  `bash scripts/check-file-metrics.sh`, CPD and three reviews of its staged diff: commit the
-  switch with the helpers that read rows; then the ledger (`ExampleLog`, the script, the ledger
-  file from a fresh `scripts/spec-ledger.sh docs/baselines/tasty-spec-ledger.tsv`, the
-  classification table of every specification and the totals in this section).
+  `/tmp/tg/s3/full/`; rewrite from this description if that is gone): `cardinality.ExampleLog` (a
+  specs2 notifier, one line an example: specification, example, `pass`, `fail` or `pending`, first
+  line of the failure) and `scripts/spec-ledger.sh` (the suite under each mode but the default
+  with that notifier, merged by awk into `docs/baselines/tasty-spec-ledger.tsv`: PASS, UNCOVERED,
+  FAIL, PENDING or TREE for each example that reads rows or the tree).
+- Next, after `sbt scalafmtAll scalafixAll`, `sbt core/testFull`,
+  `bash scripts/check-file-metrics.sh`, CPD and three reviews of the staged diff: commit the
+  ledger (`ExampleLog`, the script, the ledger file from a fresh
+  `scripts/spec-ledger.sh docs/baselines/tasty-spec-ledger.tsv`, the classification table of
+  every specification and the totals in this section).
 
 ### Commands
 
@@ -342,9 +343,24 @@ ones that ended left there, so a compiler that ran out of time leaves nothing am
   pins it: the same declaration is `?` withheld and 4 supplied, and a text that carries support
   does not parse when it is read without `Compiled.inputs`.
 - **Every spec goes through it.** The stored-value specs parsed their fixtures and never compiled
-  them. They now read `Compiled.source(code)` (one source, with the compiler's types written in)
-  or `Compiled.report(files*)` (a source set on disk read by `Report.of` with its classes). A type
-  fragment is read from `type T = …` in a compiled source.
+  them. They read `Compiled.definitions(code)` (one source's rows; `Compiled.source(code)` where
+  an example needs the tree itself) or `Compiled.report(files*)` (a source set on disk read by
+  `Report.of` with its classes). A type fragment is read from `type T = …` in a compiled source.
+- **One switch for the front end.** The rows a spec reads come from `Compiled.analyze` (method
+  rows), `Compiled.definitions` (one source's definition rows) and `Compiled.report` (a source set
+  as files), which `InventoryFixtures` and `capacity.Rows` go through. One method, `Compiled.read`,
+  decides where they come from, by the system property `cardinality.frontend`
+  (`sbt 'set core / Test / javaOptions += "-Dcardinality.frontend=tasty"' core/testFull`): the
+  scalameta pipeline when it is unset, which is the only mode the suite is green under, or
+  `TastyFrontEnd` over the fixture's classes and the classpath its entry records (`tasty`, and
+  `sentinel`, `filled` and `probe`, which a ledger is read from: `FrontEndMode` says what each
+  is). The withheld support is on neither, so what a fixture withholds stays unsupplied.
+  `Compiled.source`, `ascribed`, `analyzeOpen` and a request with dependency stubs given as sources
+  read what only the scalameta front end has, and fail under any other mode saying so.
+  `Rows.typeSize` (the alias row of `type T = …`) stands where `Counter.type` did in
+  `CardinalitySpec` and `ArticleCardinalitySpec`, and `Rows.total` (a source's class, enum, module
+  and top-level value rows, summed) where `Counter.source` did in those two, `CounterSpec`,
+  `SignatureSpec` and `NamespaceSpec`. No expectation changed.
 - **The rejected fixtures are a list.** `core/src/test/resources/rejected-fixtures.txt` holds the
   fixtures scalac is meant to reject, and the suite fails where it and the compiler disagree, so
   it cannot drift. It holds 70: 61 not valid Scala by design (the analyzer must refuse what scalac

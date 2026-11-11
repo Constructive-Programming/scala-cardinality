@@ -123,7 +123,7 @@ class MethodFeatureIntegrationSpec extends Specification {
     ) === Count.Finite(4)
 
   def fixedMatchPattern = {
-    val source = cardinality.Compiled.source(
+    val rows = cardinality.Compiled.definitions(
       """type F[A, B] = A match {
         |  case B => Boolean
         |  case _ => Unit
@@ -131,7 +131,7 @@ class MethodFeatureIntegrationSpec extends Specification {
         |case class Result(value: F[Boolean, Boolean])
         |""".stripMargin
     )
-    Counter.definitions(source).find(_.name == "Result").get.size === Some(TinySize(2))
+    rows.find(_.name == "Result").get.size === Some(TinySize(2))
   }
 
   def privateRefinedMember =

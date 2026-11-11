@@ -1,7 +1,5 @@
 package cardinality.capacity
 
-import scala.meta.*
-
 import org.specs2.Specification
 
 // Expected values are the true cardinalities, not what Counter returns today.
@@ -12,18 +10,9 @@ class CardinalitySpec extends Specification {
   // A type is read from the alias a compiled source gives it, as every fixture is compiled. A
   // lazy field is a plain class's by-name parameter (`final class St(head: Boolean, tail: => St)`):
   // a case class's parameters are `val`s, which scalac does not take by name.
-  private def tpe(code: String): Size =
-    Counter.`type`(
-      cardinality.Compiled
-        .source(s"type T = $code")
-        .stats
-        .collectFirst {
-          case alias: Defn.Type => alias.body
-        }
-        .get
-    )
+  private def tpe(code: String): Size = Rows.typeSize(code)
 
-  private def src(code: String): Size = Counter.source(cardinality.Compiled.source(code))
+  private def src(code: String): Size = Rows.total(code)
 
   def is = s2"""
   Primitives
@@ -209,8 +198,8 @@ class CardinalitySpec extends Specification {
     recursion in a function domain has no count      ${src(
       "case class P(b: Boolean, t: P => P)"
     ) === EffectiveOmega} (not 0: P(true, x => x) is a closed value; §8 covers covariant recursion only)
-    and its row says so, not the placeholder ω  ${Counter
-      .definitions(cardinality.Compiled.source("case class P(b: Boolean, t: P => P)"))
+    and its row says so, not the placeholder ω  ${cardinality.Compiled
+      .definitions("case class P(b: Boolean, t: P => P)")
       .find(_.name == "P")
       .map(_.unbound.map(_.render)) === Some(List("recursion through a function's domain: P"))}
     sealed parent without concrete subtypes    ${src(

@@ -539,8 +539,8 @@ class TopTypesUnionSpec extends Specification {
   // input: 1 · 2^32 (walkCtor). A top behind an alias is ω on the stored side too, not refused.
   def walkType = {
     def stored(code: String, name: String) =
-      cardinality.capacity.Counter
-        .definitions(cardinality.Compiled.source(code))
+      cardinality.Compiled
+        .definitions(code)
         .find(_.name == name)
         .flatMap(_.size)
         .map(_.render)
@@ -602,8 +602,8 @@ class TopTypesUnionSpec extends Specification {
   def aliasSingletonCtor = {
     val code = "type Top = Any\nobject O\nfinal case class K(x: (Top, O.type), b: Boolean)\n" +
       "final case class D(x: (Any, O.type), b: Boolean)"
-    val stored = cardinality.capacity.Counter
-      .definitions(cardinality.Compiled.source(code))
+    val stored = cardinality.Compiled
+      .definitions(code)
       .find(_.name == "K")
       .flatMap(_.size)
       .map(_.render)

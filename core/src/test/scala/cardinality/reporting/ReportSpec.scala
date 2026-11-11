@@ -76,7 +76,7 @@ class ReportSpec extends Specification {
   private val quorum = cardinality.Compiled.withheld("class Quorum")
 
   private def definitions(code: String): List[Definition] =
-    Counter.definitions(cardinality.Compiled.source(code))
+    cardinality.Compiled.definitions(code)
 
   private def definition(code: String, name: String): Definition =
     definitions(code)

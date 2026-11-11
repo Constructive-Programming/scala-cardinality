@@ -7,7 +7,7 @@ import org.specs2.Specification
 // The member signature reading: what a definition declares, summed rather than multiplied. Every
 // typed field, term and method contributes the size of its declared type, so a module with two
 // methods from String to String and one String field is 2ε₀ + ω, while the value-space reading
-// (Counter.source) still multiplies the fields of a constructor. The two readings answer
+// (`Rows.total`, the definition rows summed) still multiplies the fields of a constructor. The two readings answer
 // different questions about the same source, which is why both survive.
 //
 // Every fixture is compiled first (`Compiled`), so a member written without a type has the
@@ -18,7 +18,7 @@ class SignatureSpec extends Specification {
   private def sig(code: String): Size =
     Counter.sourceSignature(cardinality.Compiled.source(code))
 
-  private def value(code: String): Size = Counter.source(cardinality.Compiled.source(code))
+  private def value(code: String): Size = Rows.total(code)
 
   private def defnOf(code: String): Size =
     Counter.defnSignature(

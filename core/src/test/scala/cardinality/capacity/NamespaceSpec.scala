@@ -120,8 +120,7 @@ class NamespaceSpec extends Specification {
   // A source holds its class's 2 values and its module's 1: 3. Before, the module read the class's
   // value from the name they share and the source summed 2 + 2.
   def companionTotal =
-    Counter.source(cardinality.Compiled.source("case class Spot(on: Boolean)\nobject Spot")) ===
-      TinySize(3)
+    Rows.total("case class Spot(on: Boolean)\nobject Spot") === TinySize(3)
 
   // |Span| = 2^32 · 2^32 = 2^64, non-empty, so |List[Span]| = ω and |(Boolean, List[Span])| = 2 · ω
   // = ω, read through the object in the file and through the package path from another package.

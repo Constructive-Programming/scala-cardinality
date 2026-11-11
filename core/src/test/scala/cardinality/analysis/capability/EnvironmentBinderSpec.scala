@@ -24,7 +24,7 @@ class EnvironmentBinderSpec extends Specification {
       an open producer of the argument type keeps the refusal            $open
   """
 
-  private val found: Map[String, Count] =
+  private lazy val found: Map[String, Count] =
     cardinality.Compiled
       .analyze(List(MethodAnalysis.Input("Env.scala", dialects.Scala3(code).parse[Source].get)))
       .map(entry => entry.name -> entry.count)

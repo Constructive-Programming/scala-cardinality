@@ -16,7 +16,7 @@ class MeasuringSpec extends Specification {
   // Packages reading each other (a cycle, solved in rounds), sealed families, records and
   // polymorphic members, spread over files so every worker reads packages another one solves.
   // Compiled once (`Compiled`): every reading below is given the same typed sources.
-  private val inputs = cardinality.Compiled.ascribed(
+  private lazy val inputs = cardinality.Compiled.ascribed(
     List(
       input(
         "a/A.scala",

@@ -14,44 +14,37 @@ class CounterSpec extends Specification {
       """
 
   def parseProduct: MatchResult[Size] = {
-    (Counter.source(cardinality.Compiled.source("case class Four(a: Boolean, b: Boolean)")) must
+    (Rows.total("case class Four(a: Boolean, b: Boolean)") must
       beEqualTo(TinySize(4)))
       .and(
-        Counter.source(
-          cardinality.Compiled.source("case class ThirtyThree(a: Boolean, b: Int)")
-        ) must
+        Rows.total("case class ThirtyThree(a: Boolean, b: Int)") must
           beEqualTo(FiniteSize(33))
       )
       .and(
-        Counter.source(cardinality.Compiled.source("case class NinetySix(a: Long, b: Int)")) must
+        Rows.total("case class NinetySix(a: Long, b: Int)") must
           beEqualTo(FiniteSize(96))
       )
       .and(
         // Two floating-point stand-ins multiply to a width of unmodelled precision, still marked.
-        Counter
-          .source(cardinality.Compiled.source("case class NinetySix(a: Double, b: Double)")) must
+        Rows.total("case class NinetySix(a: Double, b: Double)") must
           beEqualTo(LossyInfiniteSize(128))
       )
   }
 
   def parseListOfSomething: MatchResult[Size] = {
-    Counter.source(cardinality.Compiled.source("case class NinetySix(a: List[Double])")) must
+    Rows.total("case class NinetySix(a: List[Double])") must
       beEqualTo(EffectiveOmega)
   }
 
   def parsePackage: MatchResult[Size] = {
-    Counter.source(
-      cardinality.Compiled.source("package foo\ncase class Four(a: Boolean, b: Boolean)")
-    ) must
+    Rows.total("package foo\ncase class Four(a: Boolean, b: Boolean)") must
       beEqualTo(TinySize(4))
   }
 
   def parseUnknown: MatchResult[Size] = {
-    Counter.source(
-      cardinality.Compiled.source(
-        "import a.b\ntrait T\ncase class X(a: Color)" +
-          cardinality.Compiled.withheld("class Color\npackage a { object b }")
-      )
+    Rows.total(
+      "import a.b\ntrait T\ncase class X(a: Color)" +
+        cardinality.Compiled.withheld("class Color\npackage a { object b }")
     ) must
       beEqualTo(EffectiveOmega)
   }

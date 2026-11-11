@@ -1,7 +1,5 @@
 package cardinality.capacity
 
-import scala.meta.*
-
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -17,18 +15,9 @@ class ArticleCardinalitySpec extends Specification {
   // A type is read from the alias a compiled source gives it, as every fixture is compiled. A
   // lazy field is a plain class's by-name parameter (`final class St(head: Boolean, tail: => St)`):
   // a case class's parameters are `val`s, which scalac does not take by name.
-  private def tpe(code: String): Size =
-    Counter.`type`(
-      cardinality.Compiled
-        .source(s"type T = $code")
-        .stats
-        .collectFirst {
-          case alias: Defn.Type => alias.body
-        }
-        .get
-    )
+  private def tpe(code: String): Size = Rows.typeSize(code)
 
-  private def src(code: String): Size = Counter.source(cardinality.Compiled.source(code))
+  private def src(code: String): Size = Rows.total(code)
 
   // What each pending target would need before its rule can be asserted instead.
   private val needsParametricity =
