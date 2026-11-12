@@ -196,35 +196,66 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   }
 
   // What a local definition reads of the methods around it: each of their parameters, by its
-  // name. Left to later steps: a parameter's name that another definition or binder of the
-  // outermost method has too (an inner one hides the outer), and a definition in a case clause,
-  // whose pattern may bind names.
+  // name. Left to later steps: a parameter's name that a scope between that method and the
+  // definition binds again (a block's definition, an inner method's parameter, a class's
+  // member, the definition's own parameter: the definition sees the inner name), and a
+  // definition in a case clause, whose pattern may bind names. A definition elsewhere in the
+  // method that shares the name hides nothing here.
   private def local(tree: ValOrDefDef, methods: List[DefDef]): Either[String, Unit] =
-    methods.headOption.fold(Right(()): Either[String, Unit]) { outermost =>
-      val names = List.newBuilder[String]
-      var cases = 0
-      var inCase = false
-      new Traversers.TreeTraverser {
-        override def traverse(node: Tree): Unit = node match {
-          case clause: CaseDef =>
-            cases += 1
-            super.traverse(clause)
-            cases -= 1
-          case definition: ValOrDefDef =>
-            names += definition.name.toString
-            if (definition.symbol == tree.symbol) inCase = cases > 0
-            super.traverse(definition)
-          case binder: Bind =>
-            names += binder.name.toString
-            super.traverse(binder)
-          case other => super.traverse(other)
+    methods.headOption match {
+      case None            => Right(())
+      case Some(outermost) =>
+        // The scopes open at each point, innermost first: the definition a scope is of, if any,
+        // and the names it binds. A block's names count over the whole block.
+        type Scope = (Option[Symbol], Set[String])
+        var scopes = List.empty[Scope]
+        var cases = 0
+        var seen = Option.empty[(List[Scope], Boolean)]
+        def within(scope: Scope)(body: => Unit): Unit = {
+          val saved = scopes
+          scopes = scope :: scopes
+          body
+          scopes = saved
         }
-      }.traverse(outermost)
-      val taken = (methods :+ tree).collect { case method: DefDef => Shapes.parameters(method) }
-      val all = names.result()
-      val hidden = taken.flatten.map(_.name.toString).find(name => all.count(_ == name) > 1)
-      if (inCase) Left("a definition in a case clause")
-      else hidden.map(name => s"a capture another definition may hide: $name").toLeft(())
+        def named(stats: List[Tree]) = stats.collect {
+          case d: ValOrDefDef => d.name.toString
+        }.toSet
+        new Traversers.TreeTraverser {
+          override def traverse(node: Tree): Unit = node match {
+            case clause: CaseDef =>
+              cases += 1
+              super.traverse(clause)
+              cases -= 1
+            case block: Block       => within(None -> named(block.stats))(super.traverse(block))
+            case template: ClassDef =>
+              // Its members, and the alias it may give itself (`new T { self => … }`).
+              val alias = template.rhs.self.map(_.name.toString).toSet
+              within(None -> (named(template.rhs.body) ++ alias))(super.traverse(template))
+            case definition: ValOrDefDef =>
+              val own = definition match {
+                case method: DefDef => Shapes.parameters(method).map(_.name.toString).toSet
+                case _: ValDef      => Set.empty[String]
+              }
+              within(Some(definition.symbol) -> own) {
+                if (definition.symbol == tree.symbol) seen = Some(scopes -> (cases > 0))
+                super.traverse(definition)
+              }
+            case other => super.traverse(other)
+          }
+        }.traverse(outermost)
+        seen match {
+          case None                => Left("a definition not found in the method around it")
+          case Some((_, true))     => Left("a definition in a case clause")
+          case Some((open, false)) =>
+            methods.iterator
+              .flatMap { method =>
+                val nearer = open.takeWhile(!_._1.contains(method.symbol)).flatMap(_._2).toSet
+                Shapes.parameters(method).map(_.name.toString).filter(nearer)
+              }
+              .nextOption()
+              .map(name => s"a capture a nearer scope binds again: $name")
+              .toLeft(())
+        }
     }
 
   // A row's captures, as the report lists them: the names its receivers supply, the parameters

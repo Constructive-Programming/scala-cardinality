@@ -1235,12 +1235,14 @@ time on the rows still uncovered is not in it.
   its index into `World.scala`, `Shapes.named`, `Stored.named`, the finality test of `Receivers`
   and the callers of `world.extended`/`overridden`/`unjudged`: add beside those, do not
   restructure them.
+- Done ("Stretch 4, third unit"): a captured parameter is refused only where a scope between
+  its method and the definition binds its name again (it was: anywhere in the method).
 - Next: item 2, capability records (a class or trait with members named by a type:
-  `Shapes.declared`, the old `CapabilityRecords`: an open record is the product of its public
+  `Shapes.declared`; the old `CapabilityRecords`: an open record is the product of its public
   constructor fields and its abstract members, a final one of its observable constructor
-  parameters), then item 3, sealed and enum receivers, then items 4 to 6. Left in item 1: local
-  named classes and objects (a subclass in the same body may override them), definitions in a
-  function literal, a case clause or a constructor's body, hidden names.
+  parameters), then item 3, sealed and enum receivers, then items 4 to 6. Left in item 1, each
+  under 100 rows with the fixtures: a local named class or object, definitions in a function
+  literal, a case clause or a constructor's body, names a nearer scope binds again.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
@@ -1972,6 +1974,13 @@ corpora 1,660 method rows are identical (1,633 before), 1,086 of the 2,337 old n
   refusal the compiled tree resolves, to rewrite at the switch: `LeafFamiliesSpec` "an
   extension, a parent's field, an overload, a later clause", `SyntaxFeaturesSpec` "a binder
   behind a reading that stops is refused".
+
+**Stretch 4, third unit** (the hidden-capture check follows scopes). A captured parameter is
+refused only where a scope on the path from its method to the definition binds the name again:
+a block of the path, an inner method's parameters, a class's members or self alias, the
+definition's own parameters (`a capture a nearer scope binds again`, was `a capture another
+definition may hide`). A same-named definition elsewhere in the method hides nothing. 37 more
+corpus method rows are identical (1,760); no row is worse.
 
 ### How each model rule reads over symbols
 
