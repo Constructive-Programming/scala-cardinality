@@ -35,8 +35,8 @@ import tastyquery.Trees.*
   * own; a deferred `inline val`, or a deferred inline method over a type parameter; a construction
   * that always throws or binds a pattern (S6); and what implicit search chooses (S5's remainder): a
   * member of a given instance without parameters, a contextual parameter without a name, an
-  * abstract given without a name or with parameters, an abstract extension method. A given written
-  * `= deferred` is a capability like an abstract member.
+  * abstract given without a name, an abstract extension method. A given written `= deferred` is a
+  * capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -155,6 +155,23 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
   ): Either[Unread, List[Binding]] =
     Traversals.sequence(receivers.map(supplied(_, measured, env))).map(_.flatten)
 
+  /** The names the receivers give a member's captures, as the report lists them: each constructor
+    * parameter and each member a subclass supplies, the measured one aside. (The old front end also
+    * lists a value that is an alias of one of those, and a later overload as `name#2`: the gate
+    * classes both differences.)
+    */
+  def names(receivers: List[ClassDef], measured: TermSymbol): List[String] =
+    receivers.flatMap { tree =>
+      Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ tree.rhs.body.collect {
+        case member: ValOrDefDef
+            if Receivers.open(member) && !member.symbol.isExtensionMethod &&
+              member.symbol != measured && !member.name.toString.endsWith("_=") &&
+              // A deferred inline method is supplied to inline code alone.
+              (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
+          member.name.toString
+      }
+    }
+
   private def supplied(
       tree: ClassDef,
       measured: TermSymbol,
@@ -180,10 +197,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
           if (member.symbol.isExtensionMethod) Left("an extension method")
           else if (Readings.contextual(member.symbol) && member.name.toString.startsWith("given_"))
             Left("an anonymous given")
-          // The old front end reads an abstract given as a value of its type, whatever clauses
-          // it takes; it is a function of them, and the two counts differ.
-          else if (member.symbol.isGivenOrUsing && paramsOf(member).nonEmpty)
-            Left("an abstract given with parameters")
           else Readings.later(member.symbol)
         unread match {
           case Left(what) =>
@@ -211,17 +224,14 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield fields ++ members.flatten
   }
 
-  private def paramsOf(member: ValOrDefDef): List[ValDef] = member match {
-    case method: DefDef => Shapes.parameters(method)
-    case _: ValDef      => Nil
-  }
-
   // Whether a method's signature may name a type parameter: it has its own, or one is in scope
   // (through an alias too, so the signature is not searched).
   private def generic(method: DefDef, env: Shapes.Env): Boolean =
     Shapes.typeParameters(method).nonEmpty || env.binders.nonEmpty
 
-  // An abstract method is one function, from the parameters of all its clauses to its result. A
+  // An abstract method is one function, from the parameters of all its clauses to its result; an
+  // abstract given with a `using` clause is such a method (the old front end read it as a value
+  // of its result type: a listed correction). A
   // one-valued result (`Unit`, an opaque type outside its scope) is built without it.
   private def capability(
       self: String,

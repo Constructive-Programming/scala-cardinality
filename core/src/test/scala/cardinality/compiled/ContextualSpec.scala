@@ -51,6 +51,8 @@ class ContextualSpec extends Specification {
       |trait Anon { given Boolean = deferred; def get: Boolean = true }
       |trait Fed { given feed(using b: Boolean): Boolean; def get: Boolean = true }
       |final class Flat[A](using Option[A]) { def f(x: A): A = x }
+      |object Shared { class s; given s: s = new s }
+      |trait Two { given g: Boolean = deferred; given k: Option[Boolean] = Some(g) }
       |trait Exts { extension (b: Boolean) def tag: Boolean; def get: Boolean = true }
       |""".stripMargin
 
@@ -85,8 +87,18 @@ class ContextualSpec extends Specification {
 
   // Each class extending `Later` gives its own `g`, so `other` is a Boolean computed from one:
   // 2^2. `g` itself is one of 2.
+  // A class a given merely shares its name with keeps its constructor row. Beside a deferred
+  // given `g`, the alias given `Two.k` is an `Option[Boolean]` (3 values) computed from `g`'s Boolean: 3^2.
+  // An abstract given with a `using` clause is a function of it: `Fed.feed` is one of the 2^2
+  // functions Boolean => Boolean, so `Fed.get`, a Boolean computed from it, is one of 2^4 = 16.
+  // (The old front end reads `feed` as a Boolean and says 2^2 = 4, though it reads the same
+  // member written `implicit def` as the function: a correction.)
   private def deferred =
-    (count("Later.other") must_== Count.Finite(4)).and(count("Later.g") must_== Count.Finite(2))
+    (count("Later.other") must_== Count.Finite(4))
+      .and(count("Later.g") must_== Count.Finite(2))
+      .and(count("Shared.s.<init>") must_== Count.Finite(1))
+      .and(count("Two.k") must_== Count.Finite(9))
+      .and(count("Fed.get") must_== Count.Finite(16))
 
   // An extension method is a method of all its clauses: `flip` is one of the 2^2 functions, `or`
   // returns `x` or `y`, and `choose` returns `x` or the A its `Option[A]` may hold, 2.
@@ -97,8 +109,7 @@ class ContextualSpec extends Specification {
 
   // Left to implicit search, and so uncovered: a contextual parameter without a name (a `using`
   // type, a context bound's evidence, a constructor's too), a member of a given instance, and among a class's members
-  // a deferred given without a name, an abstract given with parameters (the old front end reads
-  // it as a value, where it is a function of them) and an abstract extension method.
+  // a deferred given without a name and an abstract extension method.
   private def later = {
     val expected = List(
       "Params.anon" -> "an anonymous contextual parameter",
@@ -106,7 +117,6 @@ class ContextualSpec extends Specification {
       "Flat.f" -> "an anonymous contextual parameter",
       "shown.show" -> "a member of a given instance",
       "Anon.get" -> "an anonymous given among the members of an enclosing class",
-      "Fed.get" -> "an abstract given with parameters among the members of an enclosing class",
       "Exts.get" -> "an extension method among the members of an enclosing class"
     )
     val prefix = s"${TastyFrontEnd.Uncovered}: "
@@ -118,10 +128,17 @@ class ContextualSpec extends Specification {
     } must_== expected.map(_._2)
   }
 
+  // Two rows differ, each derived above: `Two.k` counts where the old front end refuses for
+  // re-entry, and `Fed.get` is the correction of an abstract given read as a function.
   private def agrees = {
     val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
+    def key(name: String) = compared.compared.filter(_.row.name == name).map(_.row.key)
+    val derived = key("ctx.Two.k").map(_ -> "9").toMap
+    val corrected = key("ctx.Fed.get").map(_ -> "4 -> 16").toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(Differential.failures(compared.compared) must_== Nil)
+      .and((derived.size, corrected.size) must_== (1, 1))
+      .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
+      .and(Differential.unused(compared.compared, corrected) must_== Nil)
   }
 
 }

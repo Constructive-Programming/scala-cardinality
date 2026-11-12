@@ -5,7 +5,6 @@ import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
 import cardinality.analysis.resolution.TopTypes
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
-import tastyquery.Exceptions.MemberNotFoundException
 import tastyquery.Symbols.*
 import tastyquery.Trees.*
 
@@ -57,8 +56,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         if (inlines.inlineMethod(tree.symbol) || built(owner, tree))
           (tree match {
             case constructor: DefDef if primary => constructors.count(constructor).map(_ -> Nil)
-            case _                              => counted(tree, around)
+            case _ => counted(tree, around).map(_ -> captures(tree, around))
           }).left.flatMap {
+            // A row the model refuses lists no captures, as the old front end's does not.
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
             case Uncovered(what)        => Left(what)
           }
@@ -75,36 +75,21 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   private def counted(
       tree: ValOrDefDef,
       around: List[ClassDef]
-  ): Either[Unread, (Count, List[String])] = {
-    val (binders, parameters, declared) = tree match {
-      case v: ValDef => (Nil, Nil, v.tpt)
-      case d: DefDef =>
-        (d.paramLists.flatMap(_.toOption.toList.flatten), Shapes.parameters(d), d.resultTpt)
-    }
+  ): Either[Unread, Count] = {
+    val (binders, parameters, declared) = signature(tree)
     val self = tree.symbol.displayFullName
-    // The measured method's type parameters, each an atom of its own, and the method as the site
-    // rule F reads an opaque type from.
-    val env = Shapes.Env(
-      receivers.atoms(around) ++
-        binders.map(binder => (binder.symbol: Symbol) -> Shape.Atom(s"$self[${binder.name}]")),
-      tree.symbol
-    )
+    val env = environment(tree, around)
     for {
       _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
       _ <- Traversals.sequence(binders.map(Readings.unbounded))
       result <- shapes.of(declared.toType, env)
-      // Read where the count needs it; a one-valued goal's captures are what can be read.
-      held = () => receivers.bindings(around, tree.symbol, env)
-      names = () =>
-        try held().toOption.toList.flatten.flatMap(_.label).distinct.sorted
-        catch { case _: MemberNotFoundException => Nil }
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
         else
           for {
             _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
             _ <- Readings.plainInputs(parameters)
-            held <- held()
+            held <- receivers.bindings(around, tree.symbol, env)
             inputs <- shapes.inputs(parameters, env)
           } yield Inhabitation.count(
             held ++ parameters.lazyZip(inputs).map { (p, read) =>
@@ -113,7 +98,40 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             result,
             maxDepth = Readings.Depth
           )
-    } yield count -> names()
+    } yield count
+  }
+
+  // A member's type parameters, value parameters and declared result.
+  private def signature(tree: ValOrDefDef) = tree match {
+    case v: ValDef => (Nil, Nil, v.tpt)
+    case d: DefDef =>
+      (d.paramLists.flatMap(_.toOption.toList.flatten), Shapes.parameters(d), d.resultTpt)
+  }
+
+  // The measured method's type parameters, each an atom of its own, beside its receivers', and the
+  // method as the site rule F reads an opaque type from.
+  private def environment(tree: ValOrDefDef, around: List[ClassDef]): Shapes.Env = {
+    val self = tree.symbol.displayFullName
+    Shapes.Env(
+      receivers.atoms(around) ++ signature(tree)._1.map { binder =>
+        (binder.symbol: Symbol) -> Shape.Atom(s"$self[${binder.name}]")
+      },
+      tree.symbol
+    )
+  }
+
+  // A row's captures, as the report lists them: the names its receivers supply, and for an
+  // extension method the parameters of its `extension` clause, written before the method.
+  private def captures(tree: ValOrDefDef, around: List[ClassDef]): List[String] = {
+    val group = tree match {
+      case method: DefDef if method.symbol.isExtensionMethod && !method.pos.isUnknown =>
+        Shapes
+          .parameters(method)
+          .filter(p => !p.pos.isUnknown && p.pos.startOffset < method.pos.startOffset)
+          .map(_.name.toString)
+      case _ => Nil
+    }
+    (receivers.names(around, tree.symbol) ++ group).distinct.sorted
   }
 
   // Every owner up to the package is an object that inherits nothing.
@@ -184,7 +202,15 @@ private[compiled] object Readings {
         }
         World
           .classNamed(declared.toType)
-          .exists(c => c.owner == symbol.owner && c.name.toString == symbol.name.toString)
+          .exists { c =>
+            // Made with the given, at its own place (`Targets.instances`): a class written apart
+            // that the given shares its name with is an alias's type.
+            c.owner == symbol.owner && c.name.toString == symbol.name.toString &&
+            c.tree.forall { made =>
+              made.pos.isUnknown || member.pos.isUnknown ||
+              made.pos.startOffset == member.pos.startOffset
+            }
+          }
       case _ => false
     }
 

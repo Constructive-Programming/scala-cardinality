@@ -62,12 +62,19 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
   }.traverse(root)
 
   private def instances(stats: List[Tree]): Unit = {
+    // A given instance's class is made with the given, at the given's own place: a class written
+    // apart that a given merely shares its name with (`class s; given s: s = new s`) is an
+    // ordinary class.
     val built = stats.collect {
-      case d: ValOrDefDef if d.symbol.isGivenOrUsing => d.name.toString
-    }.toSet
+      case d: ValOrDefDef if d.symbol.isGivenOrUsing => d.name.toString -> d.pos
+    }
     stats.foreach {
-      case c: ClassDef if built(nameOf(c.symbol)) => givens += c.symbol
-      case _                                      => ()
+      case c: ClassDef if built.exists { (name, at) =>
+            name == nameOf(c.symbol) &&
+            (at.isUnknown || c.pos.isUnknown || at.startOffset == c.pos.startOffset)
+          } =>
+        givens += c.symbol
+      case _ => ()
     }
   }
 

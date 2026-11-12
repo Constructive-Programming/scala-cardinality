@@ -1211,9 +1211,16 @@ time on the rows still uncovered is not in it.
 - Done since: S4's first step, receivers ("After S4"; `Receivers`, `ReceiversSpec`), and S5's
   first step, contextual scope ("After S5"; `ContextualSpec`). The stretch stops here, by
   instruction: the report goes to the coordinator.
-- Next, when resumed: what "After S4" and "After S5" list as left uncovered (the largest are
-  sealed receivers, open classes that inherit, locals, anonymous contextual parameters), then
-  S6.
+- Stretch 3 (finish S4 and S5 without the cross-module index, which the sibling builds in
+  `compiledworld/`: do not edit that directory). Done: the gate compares captures and accepts a
+  bound tightened to any exact value within it; an abstract given with a `using` clause is read
+  as a function (a correction, in `ContextualSpec`); a class that shares a given's name keeps its
+  constructor row ("Stretch 3, first unit").
+- Next, in this order: members of a given instance without parameters; context function types;
+  the closed world's final for a sealed family's subtype (`Stored.unclosed`, each better row
+  derived by rule); sealed and enum receivers; locals and anonymous classes; contextual
+  parameters without a name. `sbt coverageAll` once. Leave "a member something overrides" and a
+  parent from a dependency behind their named `Left`s for the index.
 - A scratch probe for reviewers is kept outside the tree at `/tmp/ProbeScratch.scala` (both
   front ends' rows of the sources given as arguments, and the compiled front end's time and
   peak heap over a corpus): copy it into `core/src/test/scala/cardinality/compiled/` to use it,
@@ -1780,6 +1787,36 @@ method rows and 328 of cats-core's 7,651 itself, and answers the rest as uncover
 
 The new front end is 3,087 lines in `core/src/main/scala/cardinality/compiled/` (twelve
 files), `Inlines` (about 390) among them.
+
+**Stretch 3, first unit** (the coordinator's decisions on the open points of stretch 2).
+
+- The gate compares the captures of every row both front ends count (a refused row lists none
+  on either side). The compiled front end lists each constructor parameter and each
+  subclass-supplied member of the classes around a row, and an extension group's own
+  parameters. Over all inputs 140 rows differ, all in classes the gate accepts and prints: 3 "a
+  second overload by its name" (the old front end lists `name#2`), 34 "the old lists more: an
+  alias of a capture" (`val again = captured`), 103 "the new lists more: names the old did not
+  bind" (a capture whose type the old reading did not resolve, in a row counted 1 by its
+  result). Two listings neither of which holds the other fail the gate; none does. The classes
+  are told by the names alone, not checked row by row. Matching the old listing exactly costs
+  real code: the alias rule is about 40 lines (a fixed point over a body's values, with the
+  type comparison of `CaptureAliases`), and the 103 rows cannot match at all, since they follow
+  what the old reading failed to resolve. For the owner: may captures change in these three
+  ways?
+- TIGHTENED: an old bound and an exact new value within it (`≤2^9` against 257), not only the
+  bound's own value. A value above the bound is worse. No input holds a new such row: the four
+  tightened rows are those of S3.
+- An abstract given with a `using` clause is a function of it. Correction, in `ContextualSpec`
+  (no gate input holds one): `trait Fed { given feed(using b: Boolean): Boolean; def get:
+  Boolean }`, row `Fed.get`: old 4, new 16. `feed` is one of the 2^2 functions Boolean =>
+  Boolean, and `get` a Boolean computed from it: 2^4. The old front end reads `feed` as a
+  Boolean (2^2), though it reads the same member written `implicit def` as the function.
+- `Targets.instances` and `Readings.instance` take a class for a given instance's only where it
+  starts at the given's own place: `object Shared { class s; given s: s = new s }` keeps its row
+  `Shared.s.<init>`, and such a given counts as the alias it is.
+- A trait with a deferred given beside an alias given that reads it is derived in
+  `ContextualSpec`: `given g: Boolean = deferred; given k: Option[Boolean] = Some(g)`, `k` is
+  3^2 = 9.
 
 ### How each model rule reads over symbols
 
