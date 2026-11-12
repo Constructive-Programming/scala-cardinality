@@ -90,25 +90,46 @@ private[compiled] object World {
       case _                 => Left("a wildcard type argument")
     }
 
-  /** Whether a type as it is written names one of `symbols`, through its prefix, arguments, an
-    * annotation, a refinement's parent, a union or an intersection; an alias is not followed.
+  /** The first symbol a type as it is written names that passes `test`: through its prefix (a
+    * path's values included), its arguments and a wildcard's bounds, an annotation, a refinement of
+    * a type or a value and its parent, a union or an intersection; an alias is not followed.
     */
-  def mentions(tpe: TypeOrWildcard, symbols: Set[Symbol])(using Context): Boolean = tpe match {
-    case ref: TypeRef =>
-      ref.optSymbol.exists(symbols) || (ref.prefix match {
-        case prefix: Type => mentions(prefix, symbols)
-        case _            => false
-      })
-    case applied: AppliedType =>
-      mentions(applied.tycon, symbols) || applied.args.exists(mentions(_, symbols))
-    case annotated: AnnotatedType => mentions(annotated.typ, symbols)
-    case refined: RefinedType     => mentions(refined.parent, symbols)
-    case by: ByNameType           => mentions(by.resultType, symbols)
-    case repeated: RepeatedType   => mentions(repeated.elemType, symbols)
-    case and: AndType             => mentions(and.first, symbols) || mentions(and.second, symbols)
-    case or: OrType               => mentions(or.first, symbols) || mentions(or.second, symbols)
-    case _                        => false
+  def mentioned(tpe: TypeOrWildcard, test: Symbol => Boolean)(using Context): Option[Symbol] = {
+    def first(types: TypeOrWildcard*) = types.iterator.flatMap(mentioned(_, test)).nextOption()
+    tpe match {
+      case ref: TypeRef =>
+        ref.optSymbol
+          .filter(test)
+          .orElse(ref.prefix match {
+            case prefix: Type => mentioned(prefix, test)
+            case _            => None
+          })
+      case path: TermRef =>
+        path.optSymbol
+          .filter(test)
+          .orElse(path.prefix match {
+            case prefix: Type => mentioned(prefix, test)
+            case _            => None
+          })
+      case applied: AppliedType      => first(applied.tycon :: applied.args*)
+      case wildcard: WildcardTypeArg => first(wildcard.bounds.low, wildcard.bounds.high)
+      case annotated: AnnotatedType  => first(annotated.typ)
+      // A refined method's signature is not walked: its parent and a value's type are.
+      case refined: TermRefinement =>
+        first(refined.parent :: List(refined.refinedType).collect { case value: Type => value }*)
+      case refined: TypeRefinement =>
+        first(refined.parent, refined.refinedBounds.low, refined.refinedBounds.high)
+      case by: ByNameType         => first(by.resultType)
+      case repeated: RepeatedType => first(repeated.elemType)
+      case and: AndType           => first(and.first, and.second)
+      case or: OrType             => first(or.first, or.second)
+      case _                      => None
+    }
   }
+
+  /** Whether a type as it is written names one of `symbols` (`mentioned`). */
+  def mentions(tpe: TypeOrWildcard, symbols: Set[Symbol])(using Context): Boolean =
+    mentioned(tpe, symbols).nonEmpty
 
   /** A named type as it is applied: `C` with no argument, or `C[args]`. */
   object Named {

@@ -19,10 +19,15 @@ import tastyquery.Types.*
   * environment already holds, and an object has no abstract one), over the types `Shapes` reads and
   * the method's own unbounded type parameters.
   *
+  * An inline method counts as a method unless an expansion of it is decided at a call site, which
+  * `Inlines` says: its refusal is the row's reason, the model's own.
+  *
   * A class's row is its primary constructor's, read by `Constructors` where the class is declared.
   * Definition rows are measured by `Stored`.
   */
-final private[compiled] class Readings(world: World, stored: Stored)(using Context) {
+final private[compiled] class Readings(world: World, stored: Stored, inlines: Inlines)(using
+    Context
+) {
   import Unread.Uncovered
 
   private val shapes = new Shapes(world)
@@ -43,7 +48,9 @@ final private[compiled] class Readings(world: World, stored: Stored)(using Conte
       _ <- static(owner)
       _ <- plain(owner)
       count <-
-        if (built(owner, tree))
+        // A call of an inline method is its expansion, which builds no object: the old front
+        // end counts one in an object that is never built like any other.
+        if (inlines.inlineMethod(tree.symbol) || built(owner, tree))
           (tree match {
             case constructor: DefDef if primary => constructors.count(constructor)
             case _                              => counted(tree)
@@ -57,8 +64,10 @@ final private[compiled] class Readings(world: World, stored: Stored)(using Conte
     } yield count
   }
 
+  // A `transparent inline` result is refused first (rule X: callers see the expansion's type).
   // A goal with one value has one implementation whatever the environment holds (v1.md §2), so
-  // the result is read first; else the count is the solver's over the parameters.
+  // the result is read next, before what an inline body does, as the old front end reads it;
+  // else the count is the solver's over the parameters.
   private def counted(tree: ValOrDefDef): Either[Unread, Count] = {
     val (binders, parameters, declared) = tree match {
       case v: ValDef => (Nil, Nil, v.tpt)
@@ -73,12 +82,14 @@ final private[compiled] class Readings(world: World, stored: Stored)(using Conte
       tree.symbol
     )
     for {
+      _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
       _ <- Traversals.sequence(binders.map(Readings.unbounded))
       result <- shapes.of(declared.toType, env)
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
         else
           for {
+            _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
             _ <- Readings.plainInputs(parameters)
             inputs <- Traversals.sequence(parameters.map(p => shapes.of(p.tpt.toType, env)))
           } yield Inhabitation.count(
@@ -131,7 +142,7 @@ private[compiled] object Readings {
     if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
     else Left(Unread.Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))
 
-  /** Parameters the reading takes as plain inputs: none inline or contextual. */
+  /** Parameters the reading takes as plain inputs: none contextual. */
   def plainInputs(parameters: List[ValDef]): Either[Unread, Unit] =
     parameters
       .map(p => later(p.symbol))
@@ -140,8 +151,7 @@ private[compiled] object Readings {
 
   // What a member's or a parameter's flags, or a constructor's name, leave to slices not read yet.
   def later(symbol: TermSymbol): Either[String, Unit] =
-    if (symbol.isInline) Left("an inline definition")
-    else if (symbol.isGivenOrUsing || symbol.isImplicit) Left("a contextual definition")
+    if (symbol.isGivenOrUsing || symbol.isImplicit) Left("a contextual definition")
     else if (symbol.isExtensionMethod) Left("an extension method")
     else if (World.isConstructor(symbol)) Left("a secondary constructor")
     else Right(())

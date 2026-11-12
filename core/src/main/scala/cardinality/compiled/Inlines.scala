@@ -53,7 +53,8 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
         }
         .nextOption()
 
-  private def inlineMethod(symbol: TermSymbol): Boolean =
+  /** Whether a symbol is an inline method: a call of it is its expansion. */
+  def inlineMethod(symbol: TermSymbol): Boolean =
     symbol.isInline && symbol.kind == TermSymbolKind.Def
 
   private val verdicts = mutable.Map.empty[TermSymbol, Option[String]]
@@ -86,7 +87,7 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
   // returns, unless the declared type is a singleton, which leaves nothing narrower. An export's
   // forwarder is transparent by construction: it is the member it forwards to, narrowed where
   // that member is.
-  private def narrowed(method: TermSymbol): Option[String] =
+  def narrowed(method: TermSymbol): Option[String] =
     if (method.isExport) read(method).brings.iterator.flatMap(narrowed).nextOption()
     else
       method.tree.collect {
@@ -217,7 +218,7 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
         case _: InlineMatch                                            => stop("uses inline match")
         case _: Quote | _: Splice | _: QuotePattern | _: SplicePattern =>
           stop("uses a quote or a splice")
-        case TypeApply(test: Select, arguments) if selects(test, "isInstanceOf") =>
+        case TypeApply(test: TermReferenceTree, arguments) if selects(test, "isInstanceOf") =>
           arguments.foreach(argument => reified(argument.toType, "tests the type"))
         case TypeApply(reference: TermReferenceTree, arguments) if is(reference, Inlines.ClassOf) =>
           arguments.foreach(argument => reified(argument.toType, "reifies the class of"))
@@ -263,12 +264,35 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
     }
 
     // Whether a member is selected on what a call site may type as a subclass: `this` (a member
-    // named alone is selected on it), a parameter, or what is selected or called on one, whose
-    // type an override may narrow. An ascription fixes the receiver's type, and so does a local
+    // named alone is selected on it), a parameter, what is selected or called on one, whose type
+    // an override may narrow, or a receiver whose type an expansion instantiates. An ascription
+    // to a type that names no type parameter fixes the receiver's type, and so does such a local
     // value's declaration.
     private def onReceiver(reference: TermReferenceTree): Boolean = reference match {
-      case Select(qualifier, _) => narrowable(qualifier)
+      case Select(qualifier, _) => narrowable(qualifier) || instantiated(qualifier.tpe)
       case _: Ident             => symbolOf(reference).exists(_.owner.isClass)
+    }
+
+    // The type parameters an expansion instantiates: the method's own, and those of the classes
+    // around it, which the call site's prefix binds.
+    private val typeParameters: Set[Symbol] =
+      (definition.paramLists.collect { case Right(types) => types.map(_.symbol) }.flatten ++
+        World
+          .owners(definition.symbol)
+          .collect { case c: ClassSymbol => c.typeParams }
+          .flatten).toSet
+
+    // Whether a receiver's type differs between expansions: it names one of those type
+    // parameters or a parameter (its singleton, a member of its path), itself or through the
+    // declared type of the local value it is read from.
+    private def instantiated(tpe: TermType): Boolean = tpe match {
+      case tpe: Type =>
+        World.mentioned(tpe, symbol => typeParameters(symbol) || parameters(symbol)).nonEmpty ||
+        (tpe match {
+          case local: TermRef => instantiated(local.underlying)
+          case _              => false
+        })
+      case _ => false
     }
 
     private def narrowable(receiver: TermTree): Boolean = receiver match {
@@ -288,7 +312,7 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
 
     // A type the body writes or the compiler inferred for it.
     private def written(tpt: TypeTree): Unit =
-      try compileTimeType(tpt.toType).foreach(name => stop(s"uses $name"))
+      try World.mentioned(tpt.toType, compileTime).foreach(symbol => stop(s"uses ${named(symbol)}"))
       catch {
         // A qualifier that names a package is no type.
         case _: InvalidProgramStructureException => ()
@@ -321,33 +345,6 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
 
   private def array(constructor: Type): Boolean =
     World.classNamed(constructor).exists(_.displayFullName == "scala.Array")
-
-  // The first name of `scala.compiletime` or `scala.quoted` a type applies, if it applies one.
-  private def compileTimeType(tpe: Type): Option[String] = tpe match {
-    case ref: TypeRef =>
-      ref.optSymbol
-        .filter(compileTime)
-        .map(named)
-        .orElse(ref.prefix match {
-          case prefix: Type => compileTimeType(prefix)
-          case _            => None
-        })
-    case applied: AppliedType =>
-      compileTimeType(applied.tycon).orElse(
-        applied.args.iterator
-          .flatMap {
-            case argument: Type            => compileTimeType(argument)
-            case wildcard: WildcardTypeArg =>
-              compileTimeType(wildcard.bounds.low).orElse(compileTimeType(wildcard.bounds.high))
-          }
-          .nextOption()
-      )
-    case and: AndType             => compileTimeType(and.first).orElse(compileTimeType(and.second))
-    case or: OrType               => compileTimeType(or.first).orElse(compileTimeType(or.second))
-    case annotated: AnnotatedType => compileTimeType(annotated.typ)
-    case byName: ByNameType       => compileTimeType(byName.resultType)
-    case _                        => None
-  }
 
   // Whether a symbol is declared under `scala.compiletime` or `scala.quoted`.
   private def compileTime(symbol: Symbol): Boolean = World.owners(symbol).exists { around =>

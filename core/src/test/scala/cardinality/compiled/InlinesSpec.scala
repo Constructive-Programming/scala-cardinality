@@ -306,6 +306,8 @@ class InlinesSpec extends Specification {
   // its inline `f` is expanded, and `f` spells the call site's code. So `onParam`, `onThis` (a
   // member named alone is selected on `this`), `onLambda` (an expansion binds the lambda's
   // parameter to its argument), `onHeld` (an override of `held` may return a `Sub`) and `onFunction` (`Wrap` overrides `apply` inline) do not count.
+  // A receiver whose type names the method's type parameter (`onTyped`) or is a parameter's
+  // singleton (`onSingleton`) or a member of its path (`onPath`) is typed by the expansion too.
   // An ascription and a local value fix the receiver's type, `Fixed` is final and `Other.f` has no
   // inline override: each counts.
   def overrides = {
@@ -315,12 +317,17 @@ class InlinesSpec extends Specification {
       |final class Fixed { def f(x: Int): Int = x }
       |class Holder { def held: Base = new Base }
       |class Other { def f(x: Int): Int = x }
+      |abstract class Path { type T <: Base; def get: T }
       |final class Wrap extends (Int => Int) { inline def apply(x: Int): Int = codeOf(x).length }
       |object M {
       |  inline def onParam(b: Base, x: Int): Int = b.f(x)
       |  inline def onLambda(b: Base, x: Int): Int = ((c: Base) => c.f(x))(b)
       |  inline def onHeld(h: Holder, x: Int): Int = h.held.f(x)
       |  inline def onFunction(g: Int => Int, x: Int): Int = g(x)
+      |  def head[A](xs: List[A]): A = xs.head
+      |  inline def onTyped[A <: Base](xs: List[A], x: Int): Int = head[A](xs).f(x)
+      |  inline def onSingleton(b: Base, x: Int): Int = { val y: b.type = b; y.f(x) }
+      |  inline def onPath(h: Path, x: Int): Int = { val y: h.T = h.get; y.f(x) }
       |  inline def ascribed(b: Base, x: Int): Int = (b: Base).f(x)
       |  inline def local(b: Base, x: Int): Int = { val y = b; y.f(x) }
       |  inline def onFinal(b: Fixed, x: Int): Int = b.f(x)
@@ -330,7 +337,10 @@ class InlinesSpec extends Specification {
       "onParam",
       "onThis",
       "onLambda",
-      "onHeld"
+      "onHeld",
+      "onTyped",
+      "onSingleton",
+      "onPath"
     )
       .and(refuses(found, "calls inline method Wrap.apply, which uses")("onFunction"))
       .and(counts(found)("ascribed", "local", "onFinal", "onOther"))
@@ -372,8 +382,9 @@ class InlinesSpec extends Specification {
       |  inline def caseInt(x: Any): Int = x match { case _: Int => 1; case _ => 2 }
       |}
       |class C[A] { type TA = Array[A]; inline def viaMember(x: Any): Boolean = x.isInstanceOf[TA] }
+      |class D { inline def unqualified[A]: Boolean = isInstanceOf[A] }
       |""".stripMargin)
-    refuses(found, "tests the type")("isA", "caseA", "isArray", "viaMember")
+    refuses(found, "tests the type")("isA", "caseA", "isArray", "viaMember", "unqualified")
       .and(refuses(found, "reifies the class of")("classA"))
       .and(counts(found)("isString", "isStrings", "isList", "caseInt"))
   }
@@ -428,7 +439,7 @@ class InlinesSpec extends Specification {
   // names no scalameta tree and no row of the scalameta front end.
   def imports = {
     val lines = Files
-      .readString(Path.of("src/main/scala/cardinality/compiledinlines/Inlines.scala"))
+      .readString(Path.of("src/main/scala/cardinality/compiled/Inlines.scala"))
       .linesIterator
       .toList
     val imported = lines.map(_.trim).filter(_.startsWith("import ")).map(_.stripPrefix("import "))

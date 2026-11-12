@@ -30,6 +30,7 @@ class TastyFrontEndSpec extends Specification {
     a definition row is what it stores, its reasons, or a dash    $stored
     a definition the stored side does not read yet is uncovered   $unstored
     a class's row is the product of its constructor's positions   $constructors
+    an inline method counts unless a call site decides it         $inlines
 
   The differential gate
     agrees with the scalameta front end on every row measured     $agrees
@@ -55,6 +56,18 @@ class TastyFrontEndSpec extends Specification {
       |object Refused { def arr[A](xs: Array[A]): Int = 0 }
       |object Pattern { val (a, b) = (true, false); def g(x: Boolean): Boolean = x }
       |object Nameless { val _ = ???; def g(x: Boolean): Boolean = x }
+      |object In {
+      |  import scala.compiletime.erasedValue
+      |  inline def pick[A](x: A, y: A): A = x
+      |  inline def typed[A](x: A, y: A): A = inline erasedValue[A] match {
+      |    case _: Int => x
+      |    case _      => y
+      |  }
+      |  inline def one[A](x: A): Unit = inline erasedValue[A] match { case _ => () }
+      |  inline def param(inline b: Boolean): Boolean = b
+      |  transparent inline def narrow(b: Boolean): Unit = ()
+      |}
+      |object KI { val z: Boolean = ???; inline def g(b: Boolean): Boolean = !b }
       |""".stripMargin
 
   // What the compiler desugars or adds, each with the name the scalameta front end gives its row:
@@ -424,6 +437,26 @@ class TastyFrontEndSpec extends Specification {
     (count("demo.O.pick") must_== Count.Finite(2))
       .and(count("demo.O.both") must_== Count.Finite(4))
       .and(count("demo.O.n") must_== Count.Finite(BigInt(2).pow(32)))
+
+  // An inline method counts like a `def` (AGENTS.md, "Inline methods count as methods"): `pick`
+  // returns x or y, 2, and `param`, whose inline parameter has its argument's value, is one of
+  // the 2^2 functions. `typed` matches on its type argument at compile time, so each expansion
+  // may differ: the row is refused with the model's reason, not left to a later slice. `one`
+  // does the same and returns `Unit`: a goal with one value is 1 before the body is read, but
+  // after rule X, which refuses the `transparent` `narrow` whose declared `Unit` is no singleton.
+  // A call of an inline method is its expansion and builds no object: `KI.g` is one of the 2^2,
+  // though `KI` is never built.
+  private def inlines =
+    (count("demo.In.pick") must_== Count.Finite(2))
+      .and(count("demo.In.param") must_== Count.Finite(4))
+      .and(count("demo.In.one") must_== Count.Finite(1))
+      .and(count("demo.KI.g") must_== Count.Finite(4))
+      .and(count("demo.In.narrow") must beLike {
+        case Count.Unresolved(List(reason)) => reason must startWith("transparent inline result")
+      })
+      .and(count("demo.In.typed") must beLike {
+        case Count.Unresolved(List(reason)) => reason must startWith("inline method: ")
+      })
 
   // An object is one value; `P` holds 2 × 2; `W` 2^32 × 2, a capacity; `Suit` 1 + 1 + 1.
   private def definitions = {
@@ -866,7 +899,7 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(10)(_))
+          List("package cardinality.compiled").flatMap(List.fill(11)(_))
       )
   }
 

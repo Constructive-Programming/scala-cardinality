@@ -1206,9 +1206,11 @@ time on the rows still uncovered is not in it.
   Q8, S1, S2 with the sum of a sealed family ("After the sealed sums and the merge"), S3, the
   merge of the sibling's `9c4e107`, and `Differential.fixtures` reading `src/dependency/` as
   dependencies against each fixture's `classpath.txt`.
-- Next, in the coordinator's order: (1) plug `Inlines` in where `Readings.later` answers `an
-  inline definition` ("Inline bodies", "Plugging it in"); (2) S4, then S5, each with
-  `scripts/spec-ledger.sh` totals beside its table; then stop and report.
+- Done since: `Inlines` plugged into `Readings` ("After `Inlines`"), with the first run of
+  `scripts/spec-ledger.sh` on this branch and every new FAIL named and classed.
+- Next, in the coordinator's order: S4, then S5, each with `scripts/spec-ledger.sh` totals beside
+  its table; then stop and report. `TastyFrontEndSpec` is near the 1,000-line limit: S4's
+  examples go to a spec of their own.
 - Interface notes from the sibling's ledger of the spec suite (`scripts/spec-ledger.sh`), for S8
   or earlier: `Report.of` is tied to `ScalametaFrontEnd`; a source that defines nothing is told
   only by message text; there is no `Limits` parameter; dependencies can only be given as
@@ -1527,6 +1529,81 @@ Open, for the owner:
 - Whether the closed world makes a subtype final that is not written final and has a member a
   subclass could override, where nothing supplied extends it. The old estimate refuses such a
   family; the new front end leaves it uncovered rather than decide.
+
+**After `Inlines`** (the sibling's inline-body reading, moved into `compiled/` and asked by
+`Readings`). Every row pairs; the two worse rows are the listed corrections; the 25 better method
+rows past a model limit that the inline verdict adds in the fixtures are derived in `derived.txt`.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 509 | 1 / 0 | 0 | 0 | 0 | 3,490 | 316 of 768 (41.1%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 228 | 13 / 0 | 0 | 0 | 0 | 7,410 | 224 of 909 (24.6%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 44 | 0 / 0 | 0 | 0 | 0 | 1,741 | 44 of 368 (12.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 35 | 0 / 0 | 0 | 0 | 0 | 662 | 28 of 271 (10.3%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 13 | 0 / 0 | 0 | 0 | 0 | 67 | 12 of 16 (75.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 0 | 19 | 0 of 5 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 2,506 | 59 / 30 | 4 | 0 | 0 | 4,147 | 2,327 of 5,485 (42.4%) |
+| fixtures | definitions | 5,588 | 4,923 | 65 / 8 | 0 | 1 | 0 | 591 | 4,342 of 4,513 (96.2%) |
+| **all corpora** | methods | 14,232 | 829 | 14 / 0 | 0 | 0 | 0 | 13,389 | 624 of 2,337 (26.7%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+How it is plugged in: `TastyFrontEnd` builds one `Inlines` per module, over the module's classes
+and, listed only when an inline body selects a member of a class outside the module, its
+classpath's (a class that does not load then is a warning of the report). `Readings.counted` asks
+in this order: rule X (`Inlines.narrowed`: a `transparent inline` result that is no singleton is
+`?`); the one-value rule (a goal with one value is 1 before the body is read, as the old front end
+has it); `Inlines.refusal`, whose reason is the row's `?` as it stands, the model's own and not
+`not read from compiled classes yet`; then the solver. An inline method of an object that is
+never built counts like any other, as the old front end counts it: a call is its expansion and
+builds no object. An inline parameter is a plain input. A method written inside an inline method
+is asked too, and is still uncovered for its enclosing definition until S4.
+
+Fixes to `Inlines` from this stretch's reviews, each with an example in `InlinesSpec`: a receiver
+whose type names a type parameter of the method or of a class around it, or a parameter (its
+singleton, a member of its path), is typed by the expansion, so an inline override is brought
+along (`onTyped`, `onSingleton`, `onPath`); a type test named without a qualifier is a type test
+(`unqualified`); a compile-time type inside a wildcard's bounds or a refinement is seen
+(`World.mentioned`, which replaces the module's own walk).
+
+The 25 derived rows, by the old reason (the counts are those of a `def` of the same signature):
+
+| Old reason | Rows | Why it counts |
+| --- | --- | --- |
+| D2: `may expand the inline conversion …`, `may expand an implicit conversion from outside the sources`, `applies +, whose arguments this reading does not type …`, `applies +, which an extension of that name may answer` | 14 | The compiled tree applies no conversion and no extension there: the member applies. |
+| D2: `selects plusOne on scala.Int, which the library table does not list` | 1 | The compiler resolved the extension of the same object, which is no inline method. |
+| D4: `leaves a given of useShow to implicit search`; a context function type, literal or callee | 4 | The tree passes the given, or the function's argument, that the compiler chose where the method is written. |
+| A name the scalameta reading does not resolve: `selects head on Tuple2, which the library table does not list`, `reads Inlines, which the wildcard import … may bind`, `declares the local type`, `creates an instance of a class not read`, `selects … on a value whose type is not read` | 6 | The compiled tree names what the compiler resolved; no body reached has a compile-time operation. |
+
+`InlineVerdicts` over the fixtures after the plug-in: 1,934 inputs, 337 methods; same verdict 296
+(147 count, 149 refuse), counts where the old refuses 37, worse 0, masked 1, other 1, unpaired 2.
+
+Spec ledger (`scripts/spec-ledger.sh`), first run on this branch, against the sibling's baseline
+`docs/baselines/tasty-spec-ledger.tsv` (taken before S1):
+
+| | PASS | UNCOVERED | FAIL | PENDING | SCALAMETA |
+| --- | --- | --- | --- | --- | --- |
+| baseline (`9c4e107`, before S1) | 193 | 1,338 | 99 | 19 | 81 |
+| after `Inlines` | 508 | 951 | 172 | 19 | 81 |
+
+314 examples went from UNCOVERED to PASS and one from FAIL to PASS (`StoredScopesSpec`, "a
+path's first name through a followed export"). 74 went from UNCOVERED to FAIL: each reads a
+fixture the differential gate reads too, where no row is worse but the two listed corrections, so
+each fails for one of four reasons, none a wrong number. They are to be settled at the switch-over
+(S8), when the specs' expectations move to the compiled front end:
+
+| Class | Examples | What the example pins |
+| --- | --- | --- |
+| The same `?`, other words (16) | `EnvironmentSoundnessSpec`: "refuse a sealed family extended through an alias", "refuse a sealed family with a child in any block", "refuse a sealed family with an inner or local child"; `GroundEnvironmentSpec`: "an enum's cases shadow it after a wildcard import"; `ImportClausesSpec`: "an import of an inherited member says so"; `NamespaceScopingSpec`: "a generic definition named without arguments has no value space", "an abstract type member shadows an outer type"; `NamespaceSpec`: "an enum's cases are not read as a namespace", "an open trait of an object is open"; `ReportSpec`: "an abstract member is open"; `StoredScopesSpec`: "a singleton case is a term only, a plain object no enum", "a wildcard, a selector, a path and a bare name bind the case", "case parameters read in the companion, the body imports cases"; `StoredValueSoundnessSpec`: "a parameterised family instantiates through its slots"; `ThrowableSlotsSpec`: "every root-import spelling of a throwable is the open class"; `ValueRowsSpec`: "an inhabited, undeclared or unresolved type" | A refusal's text: the name's spelling (`open[Throwable]` against `open[java.lang.Throwable]`, `enum case type not read: A` against `en.E.A`), the order of two reasons, or which of two true reasons is given. The row is `?` on both sides. |
+| The same `?`, the inline verdict's words (28) | `InferredResultsSpec`: "a transparent inline method's result is refused"; `InlineMethodsSpec`: "a conversion is read by its type, wherever it may be found", "a cycle of inline calls is decided as one", "a member an argument's or a subclass's class may override", "a member that does not apply falls back to an extension", "a passing-looking method calling a failing one", "a type test on an array reads its element type", "an extension on its own type parameter may answer anything", "an extension restating the member is never taken (P2)", "an inline parameter inspected by a callee", "implicit search through extensions, context functions, eta", "inline vals and inline givens named in the body", "names the reading cannot resolve", "the A5 fixtures stay refused"; `InlineScopesSpec`: "a clause a callee does not take applies its result's apply", "a conversion behind any number of aliases is found", "a listed namespace's wildcard binds its own terms only", "a local method's using clause, context bound and default", "classOf of an array of a type variable reifies the variable", "library and Predef results applied again", "only a template extending the receiver overrides its member", "this in an anonymous class, a local class, a local given"; `SyntaxFeaturesSpec`: "an inline method counts unless its expansion reads its call"; `TransparentInlineSpec`: "a closed transparent result is still narrowed at the call site", "a declared top type hides what callers observe", "a narrower class, None, or a declared singleton", "a transparent function result is refused too", "a transparent result of an open class may be a subclass" | The scalameta reading's reason for an inline method. `Inlines` refuses the same method with its own reason (what the compiled tree shows). |
+| A count where the old front end refuses, inline (16) | `ConversionClosureSpec`: "imported into the body's scope", "imported into the body's scope #2", "in the companion of a type the body writes", "reached through a given of a reached companion, transitively", "reached through a referenced member's declared type", "reached through the signature of a given the body may summon"; `DependencyRowsSpec`: "a compiled inline body is not read: its caller refuses"; `InlineMethodsSpec`: "a channel outside the sources refuses all but identities", "a given left to implicit search, summon, valueOf", "an exported or a local conversion is found where it is visible", "an inline conversion of the sources refuses every body", "library members, extractors, named arguments, overriding", "reasons quote what they name"; `InlineScopesSpec`: "a conversion private to another package is never inserted", "a given whose type a wildcard may hide is read as its declaration", "a local type that hides an outer one refuses" | A refusal that decisions D2 and D4 replace by reading the compiled tree, or a name the scalameta reading did not resolve: the classes of the table above. |
+| A count where the old front end refuses for a limit of reading syntax (13) | `GroundEnvironmentSpec`: "a constructor position reads the inherited member on both sides"; `ImportClausesSpec`: "a clause the sources do not supply stays its reason"; `MethodAnalysisSpec`: "keep a file-private type from a sibling file", "keep an import after the reference from binding it"; `NamespaceScopingSpec`: "a class member's owner binds as any type name does"; `PureCodeSpec`: "an alias nested out of reach does not stand for a parent"; `StoredScopesSpec`: "abstract, opaque and parameterised members are not read"; `StoredValueSoundnessSpec`: "a parent name an object rebinds names another type", "a subtype through a renamed import", "a subtype through an alias, or reached twice"; `TypeMemberScopeSpec`: "an opaque alias spelled through `this` is not followed"; `UnsuppliedWildcardSpec`: "nor a builtin a constructor slot reads, unlike `zz.*`", "refuses a member of a record its field type names" | A refusal for a name, import, alias or scope the compiler resolved: the gate's better rows past a resolution limit, and the derived ones. |
+| Tightened (1) | `GroundEnvironmentSpec`: "a symbolic value space agrees only with a wide estimate" | `≤2^8`, now the exact `2^8` (a row of the tightened table). |
 
 ### How each model rule reads over symbols
 
