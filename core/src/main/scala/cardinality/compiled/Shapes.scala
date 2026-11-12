@@ -58,15 +58,34 @@ final private[compiled] class Shapes(world: World)(using Context) {
     World.proper(arguments).left.map(Uncovered(_))
 
   // A type as an argument of an uninterpreted application: its identity, not its values. A
-  // binder is its atom or constructor; a class or an opaque alias is its name over its arguments'
-  // keys (an alias is followed first: `Id[A]` is `A`). Any other form is not read yet.
+  // binder is its atom, its constructor or an application of one; one standing for a written
+  // constructor is the type written. A class or an opaque alias is its name over its arguments'
+  // keys (an alias is followed first: `Id[A]` is `A`). A binder bound to a value's shape, and any
+  // other form, is not read.
   private def key(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
     case World.Named(ref, arguments) =>
       applied(arguments).flatMap { proper =>
         ref.optSymbol match {
           case Some(binder) if env.binders.contains(binder) =>
-            if (proper.isEmpty) Right(env.binders(binder))
-            else named(ref, proper, env)
+            (env.binders(binder), proper) match {
+              // A written constructor used whole is the type written, in its own scope.
+              case (Shape.Constructor(id), Nil) if closures.contains(id) =>
+                val (written, outer) = closures(id)
+                key(written, outer)
+              // A binder's own atom or constructor, or an application of one, is its identity. A
+              // class's parameter bound to another shape holds the values of its argument, and
+              // two types with one shape are two types: not read as a key.
+              case (
+                    shape @ (Shape.Atom(_) | Shape.Constructor(_) |
+                    Shape.Applied(Head.Rigid(_), _)),
+                    _
+                  ) =>
+                bound(ref, shape, proper, env, key)
+              case _ =>
+                Left(
+                  Uncovered(s"a class's parameter bound to a value, as a type: ${ref.showBasic}")
+                )
+            }
           // An opaque alias seen inside its scope is its representation (rule F).
           case Some(alias: TypeMemberSymbol) if World.owners(env.site).contains(alias.owner) =>
             alias.typeDef match {
@@ -100,17 +119,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
   private def named(ref: TypeRef, arguments: List[Type], env: Env): Either[Unread, Shape] =
     ref.optSymbol match {
       case Some(binder) if env.binders.contains(binder) =>
-        (env.binders(binder), arguments) match {
-          case (shape, Nil) => Right(shape)
-          // A higher-kinded binder applied is an uninterpreted application over its arguments,
-          // each read as the type it is (`key`), not as its values.
-          case (Shape.Constructor(id), applied) =>
-            Traversals.sequence(applied.map(key(_, env))).map(Shape.rigid(id, _))
-          case _ =>
-            Left(
-              Uncovered(s"an applied type parameter not read as a constructor: ${ref.showBasic}")
-            )
-        }
+        bound(ref, env.binders(binder), arguments, env, of)
       // An evidence type compares its arguments as types, and two types of the program with one
       // shape are two types: their shapes are not read there.
       case Some(symbol) if env.nominal && world.shaped(symbol) =>
@@ -120,7 +129,10 @@ final private[compiled] class Shapes(world: World)(using Context) {
         val library =
           world.library(c).map(_.replaceFirst("^scala\\.ContextFunction", "scala.Function"))
         val inside = if (library.exists(Shapes.Evidence)) env.copy(nominal = true) else env
-        Traversals.sequence(arguments.map(of(_, inside))).flatMap { read =>
+        val higher = c.typeParams.map(_.declaredBounds.high.isInstanceOf[TypeLambda])
+        val shapes =
+          arguments.zipWithIndex.map((a, i) => argument(a, higher.lift(i).contains(true), inside))
+        Traversals.sequence(shapes).flatMap { read =>
           library.flatMap(standard(_, read)) match {
             case Some(known)                        => known
             case None if world.readByDeclaration(c) => declared(c, read, env)
@@ -135,6 +147,55 @@ final private[compiled] class Shapes(world: World)(using Context) {
           case _                                             => uncovered(ref)
         }
       case _ => uncovered(ref)
+    }
+
+  // The type constructors written as type arguments (`Functor[[X] =>> Either[E, X]]`,
+  // `Functor[List]`), each kept with the environment it was read in, by the token that stands for
+  // it. A token is never a key: a key reads the written type instead.
+  private val closures = scala.collection.mutable.Map.empty[String, (Type, Env)]
+
+  // A class's type argument is read as a type's shape. For a parameter that takes a type
+  // constructor, it is that constructor instead: a binder's own if it reads as one, otherwise the
+  // written type kept as a closure.
+  private def argument(tpe: Type, higher: Boolean, env: Env): Either[Unread, Shape] =
+    of(tpe, env) match {
+      case read @ Right(Shape.Constructor(_)) => read
+      case read if !higher                    => read
+      case _                                  =>
+        val token = s"closure:${closures.size}"
+        closures(token) = (tpe, env)
+        Right(Shape.Constructor(token))
+    }
+
+  // A binder applied to arguments: what it stands for, read as a value (`of`) or as a type (`key`).
+  private def bound(
+      ref: TypeRef,
+      shape: Shape,
+      arguments: List[Type],
+      env: Env,
+      read: (Type, Env) => Either[Unread, Shape]
+  ): Either[Unread, Shape] =
+    (shape, arguments) match {
+      case (_, Nil) => Right(shape)
+      // A binder that stands for a written constructor (`[X] =>> Either[E, X]`, `List`) is that
+      // constructor applied to the arguments, read with the binders of both the site that wrote
+      // it and the site that applies it. One symbol bound differently at the two sites (a class's
+      // parameter passed back to the class) would take the applying site's meaning: refused.
+      case (Shape.Constructor(id), applied) if closures.contains(id) =>
+        val (written, outer) = closures(id)
+        val rebound =
+          outer.binders.exists((symbol, meaning) => env.binders.get(symbol).exists(_ != meaning))
+        if (rebound)
+          Left(Uncovered(s"a written constructor over a parameter bound again: ${ref.showBasic}"))
+        else read(written.appliedTo(applied), env.copy(binders = outer.binders ++ env.binders))
+      // A higher-kinded binder applied is an uninterpreted application over its arguments,
+      // each read as the type it is (`key`), not as its values.
+      case (Shape.Constructor(id), applied) =>
+        Traversals.sequence(applied.map(key(_, env))).map(Shape.rigid(id, _))
+      case _ =>
+        Left(
+          Uncovered(s"an applied type parameter not read as a constructor: ${ref.showBasic}")
+        )
     }
 
   // Rule F: outside the scope its representation is visible in (its owner), an opaque alias is one
@@ -246,7 +307,8 @@ final private[compiled] class Shapes(world: World)(using Context) {
     def refused(left: Boolean, what: String) =
       Either.cond(!left, (), Uncovered(s"a capability record $what: $name"))
     val read = env.copy(binders =
-      (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap
+      env.binders ++
+        (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap
     )
     // A template whose construction always throws, or a class written `final abstract`, has no
     // value: the empty sum.
@@ -334,10 +396,15 @@ final private[compiled] class Shapes(world: World)(using Context) {
       // A deferred inline method is called from inline code alone: the compiler rejects a call of
       // it from any other body, to which it therefore supplies nothing. One over a type parameter
       // may have no implementation at some instance, which says something of the instance: not
-      // read. (Its signature may name one through an alias too, so it is not searched.)
+      // read. (Its signature may name one through an alias too, so it is not searched.) The
+      // templates around it, and no measured site, have the type parameters its signature may name.
       case (_, method: DefDef) if symbol.isInline && !inlineSite =>
         Either.cond(
-          Shapes.typeParameters(method).isEmpty && env.binders.isEmpty,
+          Shapes.typeParameters(method).isEmpty && World.owners(symbol.owner).forall {
+            case owner: ClassSymbol => owner.typeParams.isEmpty
+            case _: PackageSymbol   => true
+            case _                  => false
+          },
           None,
           Uncovered(s"a deferred inline method over a type parameter: ${method.name}")
         )
@@ -366,7 +433,9 @@ final private[compiled] class Shapes(world: World)(using Context) {
     val copies = Shapes.typeParameters(constructor)
     val bound = (copies.zip(arguments) ++ tree.symbol.typeParams.zip(arguments)).toMap
     Traversals.sequence(
-      Shapes.parameters(constructor).map(p => of(p.tpt.toType, env.copy(binders = bound)))
+      Shapes
+        .parameters(constructor)
+        .map(p => of(p.tpt.toType, env.copy(binders = env.binders ++ bound)))
     )
   }
 

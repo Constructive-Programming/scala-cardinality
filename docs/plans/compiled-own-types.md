@@ -1468,6 +1468,31 @@ time on the rows still uncovered is not in it.
 
 ### Status by slice
 
+### Stretch 5, second unit: type constructors written as class arguments
+
+A class's type parameter that takes a type constructor (`F[_]`) may be given a written one:
+`Wrap[[X] =>> Either[Boolean, X], Boolean]`, `Functor[List]`. `Shapes.argument` keeps such an
+argument as a closure: the written type with the environment it was read in, behind a token
+that the parameter is bound to. Applying the parameter (`F[A]` in a field) applies the written
+type to the arguments and reads it with the binders of both sites. Three readings refuse
+instead of counting:
+
+- One symbol bound differently at the two sites, as when a class's own parameter is passed back
+  to the class (`def back(w: Wrap[[X] =>> (A, X), Boolean]): A` inside `Wrap`): read with the
+  applying site's binding it would give 0 or 16 where 1 and 4 are right.
+- A closure used whole as a type key reads the written type in its own scope, never the token,
+  since two reads of one type mint two tokens.
+- A class's proper parameter bound to a value's shape (`A` bound to the values of `Int`) is not a
+  type key: `G[A]` inside a record and `G[Int]` at the site would be two types. This was a wrong
+  number of the first unit (`def m[G[_]](b: Bx[G, Int]): G[Int] = b.v` read 0, where 1 is right);
+  two cats-core rows that the first unit counted 1 under such keys,
+  `IndexedStateTContravariantMonoidal.unit` and `.product` (`?` under scalameta), are uncovered
+  again, their lines deleted from the coverage memory.
+
+A deferred inline method now asks the templates around it for type parameters, not the
+environment, which since this unit holds the site's binders too. Method rows are otherwise
+identical on all seven inputs.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1512,11 +1537,14 @@ time on the rows still uncovered is not in it.
 - Stretch 5 (the coordinator's order: item 4, records' remaining reasons, item 5, item 6).
   Decisions recorded: the 41 Ior corrections stay grouped under one rule with worked examples;
   the canEqual and As corrections stand; the three new ledger FAILs go on the rewrite-at-switch
-  list. Done: higher-kinded type parameters ("Stretch 5, first unit"). Next: merge `tasty-gate`
-  at `7aba1c6` (the coordinator's instruction), run the full gate on the shared assets, then
-  the rest of item 4 (bounded proper parameters, unions, singletons, type members,
-  refinements), then the records' remaining reasons. "A member something overrides" is the
-  gate agent's next unit.
+  list. Done: higher-kinded type parameters ("Stretch 5, first unit"); the merge of `tasty-gate`
+  at `7aba1c6` (`9bcea74`, verified by the coordinator); type constructors written as class
+  arguments ("Stretch 5, second unit"). Scope change: item 5 (self types, enclosing objects
+  with parents, abstract type members, constructor rows in a class) moved to the gate agent;
+  this branch keeps item 4, the records' remaining reasons and item 6. Do not merge the gate
+  agent's head until the coordinator says so (no criss-cross merge). Next: the rest of item 4
+  (bounded proper parameters, intersections, refinements, opaque members through paths,
+  unions, singletons), then the records' remaining reasons, then item 6.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
