@@ -81,6 +81,7 @@ class ReceiversSpec extends Specification {
       |trait Bounded { type T <: AnyRef; def get(t: T): T = t }
       |class Pinned private () { type T; def get(t: T, u: T): T = t }
       |final class Fin { type T; def get(t: T, u: T): T = t }
+      |trait WishedM { type T; inline def wish: T; def get: Boolean = true }
       |trait Kinded { type F[_]; def get(x: F[Int]): F[Int] = x }
       |trait Typed { type T }
       |abstract class Holds extends Typed { def seed: T; final class Fixed extends Typed { def get(t: T): T = t } }
@@ -259,6 +260,7 @@ class ReceiversSpec extends Specification {
       "Bounded.get" -> "a bounded abstract type member, or one of another kind than F[_]",
       "Pinned.get" -> "an abstract type member of a class no class written elsewhere extends",
       "Fin.get" -> "an abstract type member of a class no class written elsewhere extends",
+      "WishedM.get" -> "a deferred inline method over a type parameter",
       "Holds.Fixed.get" -> "a type",
       "Twice.Again.get" -> "an abstract type member two enclosing instances hold",
       "Mixed.get" -> "an abstract type member another declaration of its name bounds or hides"
