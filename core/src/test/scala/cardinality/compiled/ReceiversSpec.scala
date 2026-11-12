@@ -119,6 +119,7 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Impl.show") must_== Count.Finite(16))
       .and(count("recv.Single.other") must_== Count.Finite(4))
       .and(count("recv.Base.get") must_== Count.Finite(4))
+      .and(count("recv.shown.show") must_== Count.Finite(4))
 
   // What S4's first step leaves, each row uncovered for its own reason: a class with a member
   // something overrides (a capability); a parent of the module with constructor parameters or in
@@ -126,7 +127,7 @@ class ReceiversSpec extends Specification {
   // is abstract or may be extended; a sealed class (the receiver splits into its cases); a self
   // type; a deferred `inline val`, and a deferred inline method where a type parameter is in
   // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
-  // type member; a capability with type parameters of its own; a member of a given instance (S5).
+  // type member; a capability with type parameters of its own.
   private def later = {
     val expected = List(
       "Wide.get" -> "an enclosing class with a member something overrides",
@@ -139,7 +140,6 @@ class ReceiversSpec extends Specification {
       "Lifted.get" -> "a capability with type parameters of its own",
       "Wished.get" -> "a deferred inline method over a type parameter",
       "Dead.In.get" -> "an object whose construction always throws or binds a pattern",
-      "shown.show" -> "a member of a given instance",
       "Self.me" -> "an enclosing class with a self type",
       "Deferred.m" -> "a deferred inline value of an enclosing class",
       "Thrown.get" -> "an enclosing class whose construction always throws or binds a pattern",

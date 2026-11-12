@@ -1216,11 +1216,18 @@ time on the rows still uncovered is not in it.
   bound tightened to any exact value within it; an abstract given with a `using` clause is read
   as a function (a correction, in `ContextualSpec`); a class that shares a given's name keeps its
   constructor row ("Stretch 3, first unit").
-- Next, in this order: members of a given instance without parameters; context function types;
-  the closed world's final for a sealed family's subtype (`Stored.unclosed`, each better row
-  derived by rule); sealed and enum receivers; locals and anonymous classes; contextual
-  parameters without a name. `sbt coverageAll` once. Leave "a member something overrides" and a
-  parent from a dependency behind their named `Left`s for the index.
+- Done since ("Stretch 3, second unit"): members of a given instance without parameters; context
+  function types; the closed world's final for a sealed family's subtype, each better row
+  derived; `sbt coverageAll` (91.50% of statements, floor 80).
+- Not done, and next when resumed, none of which waits for the index: sealed and enum receivers
+  (the receiver as one binding of its sum); locals and anonymous classes (`an enclosing
+  definition`: enclosing parameters as captures, shadowing, case and for binders); contextual
+  parameters without a name (the competition among givens, imports and parents); self types
+  and abstract type members of a receiver; bounded and higher-kinded type parameters. Behind
+  named `Left`s for the index: `an enclosing class with a member something overrides`, `an
+  enclosing class that inherits and is abstract or may be extended`, `a parent with constructor
+  parameters or in a class`, `a class of a dependency`, `a family with a subtype not written
+  final whose parent is outside the module`.
 - A scratch probe for reviewers is kept outside the tree at `/tmp/ProbeScratch.scala` (both
   front ends' rows of the sources given as arguments, and the compiled front end's time and
   peak heap over a corpus): copy it into `core/src/test/scala/cardinality/compiled/` to use it,
@@ -1817,6 +1824,82 @@ files), `Inlines` (about 390) among them.
 - A trait with a deferred given beside an alias given that reads it is derived in
   `ContextualSpec`: `given g: Boolean = deferred; given k: Option[Boolean] = Some(g)`, `k` is
   3^2 = 9.
+
+**Stretch 3, second unit** (given instances, context functions, the closed world's final).
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 978 | 1 / 0 | 0 | 0 | 0 | 3,021 | 507 of 768 (66.0%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 328 | 37 / 3 | 0 | 13 | 0 | 7,270 | 282 of 909 (31.0%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 158 | 3 / 0 | 0 | 0 | 0 | 1,624 | 144 of 368 (39.1%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 143 | 0 / 1 | 0 | 0 | 0 | 553 | 121 of 271 (44.6%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 26 | 0 / 0 | 0 | 0 | 0 | 54 | 12 of 16 (75.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 0 | 19 | 0 of 5 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,572 | 69 / 37 | 4 | 1 | 0 | 3,063 | 3,358 of 5,485 (61.2%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 1,633 | 41 / 4 | 0 | 13 | 0 | 12,541 | 1,066 of 2,337 (45.6%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A given instance without parameters is an object: its members count over nothing of its own,
+  like an object's with parents (`ContextualSpec`, `ReceiversSpec`).
+- A context function type is read as the function type (`A ?=> B` as `A => B`): a body is
+  counted, not searched.
+- A subtype of a sealed family that no class of the module extends is final in the closed world,
+  written `final` or not, whatever members it declares or inherits from a class of the module
+  (the coordinator's decision 2). `Stored.unclosed` is deleted. 24 definition rows of the
+  fixtures count where the old estimate refuses "a subtype open to extension", each listed in
+  `derived.txt` under that one rule (an object is one value, a class what its constructor
+  stores: `Boolean` + object 3, two objects 2, `Int` + object `≤2^33`), and three more in
+  `TastyFrontEndSpec`. A subtype not written final whose parent is outside the module stays
+  uncovered, for parity with its `final` twin, which the old estimate counts.
+- One more derived row: `p.g.apply(i: Int): Long` in a given instance, 2^(2^38).
+
+Spec ledger: PASS 606, UNCOVERED 846, FAIL 179, PENDING 19, SCALAMETA 81. Ten examples went
+from UNCOVERED to PASS and one to FAIL: `LeafFamiliesSpec` "an extension, a parent's field, an
+overload, a later clause", which pins the refusal of a family the closed world now sums (3
+against "a subtype open to extension").
+
+Found by review, in no gate input: a family of three `final` classes that each pass arguments
+to one stateful module parent (`final class D(val a: Boolean) extends Q2(a, a) with F2`, …) is ω
+to the old estimate and 7 to the compiled front end; 7 is right (2 + 1 + 4), each class alone
+agrees. It would need a correction if an input held one. A concrete `sealed class` with
+subclasses is 2 to both front ends where its values are 5: shared with the old estimate.
+
+What the uncovered rows need at this commit, by first blocker (corpus rows / fixture rows; a row
+has a next blocker, so each is an upper bound on what removing it gains):
+
+| Blocker | Corpus | Fixtures | Whose |
+| --- | --- | --- | --- |
+| an enclosing definition (locals, anonymous classes) | 2,483 | 279 | S4 remainder |
+| a class that is no product, sum or type-only template (capability records) | 1,958 | 487 | S4 remainder (records) |
+| an enclosing class that inherits and is abstract or may be extended | 1,783 | 342 | the index |
+| a class of a dependency | 1,277 | 77 | the sibling's S7 |
+| an enclosing class with a bounded or higher-kinded type parameter | 1,231 | 59 | S1's second step |
+| a bounded or higher-kinded type parameter | 1,060 | 222 | S1's second step |
+| an enclosing sealed class or enum | 1,076 | 33 | S4 remainder |
+| a type (unions, singletons, type members, refinements) | 560 | 514 | S1's second step |
+| an enclosing class with a member something overrides | 84 | 367 | the index |
+| an enclosing object with parents (constructor rows) | 245 | 117 | S4 remainder |
+| an enclosing class with a self type | 304 | 16 | S4 remainder |
+| a parent with constructor parameters or in a class | 197 | 94 | the index |
+| a definition that reaches itself | 119 | 146 | S2 (solver) |
+| an anonymous contextual parameter | 100 | 107 | S5 remainder |
+| a member the classpath does not hold | 0 | 166 | Q10 |
+| a class the algebra does not model | 137 | 20 | S2 |
+| a family with an anonymous instance | 110 | 20 | S6 or a model decision |
+| a constructor position the method side refuses | 33 | 79 | S2 (solver) |
+| an enclosing class (constructor rows in a class) | 57 | 50 | S4 remainder |
+| an enclosing class whose construction always throws or binds a pattern | 38 | 39 | S6 |
+| a restricted constructor (rule B) | 30 | 45 | S6 |
+| an enclosing class with an abstract type member | 31 | 42 | S4 remainder |
+| every other reason (about twenty, each under 70 rows) | 204 | 304 | |
+| **all** | 13,057 | 3,622 | |
 
 ### How each model rule reads over symbols
 

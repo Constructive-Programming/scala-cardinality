@@ -31,6 +31,8 @@ class ContextualSpec extends Specification {
       |  def imp(x: Boolean)(implicit y: Boolean): Boolean = x
       |  def anon[A](x: A)(using Option[A]): A = x
       |  def bound[A: List](x: A): A = x
+      |  def ctxRes[A](a: A): A ?=> A = a
+      |  def ctxIn[A](f: A ?=> A, a: A): A = a
       |}
       |final class Held(a: Boolean)(using b: Boolean) { def get: Boolean = a }
       |object Givens {
@@ -77,13 +79,19 @@ class ContextualSpec extends Specification {
 
   // A given alias is a value or method of its type: `named` is one of 2 Booleans, `pair` builds
   // the one pair of `a` with itself, `flag` is one of 2, and `conv` returns `Unit`, one value. A
-  // concrete given supplies nothing to the members beside it: `other` is one of 2.
+  // concrete given supplies nothing to the members beside it: `other` is one of 2. A given
+  // instance without parameters is an object: its `show` is one of the 2^2 functions. A context
+  // function is a function: `ctxRes` returns `a` or the A it is given, 2, and `ctxIn` returns
+  // `a`, `f(a)`, `f(f(a))`, …: ω.
   private def givens =
     (count("Givens.named") must_== Count.Finite(2))
       .and(count("Givens.pair") must_== Count.Finite(1))
       .and(count("Givens.flag") must_== Count.Finite(2))
       .and(count("Givens.conv") must_== Count.Finite(1))
       .and(count("Givens.other") must_== Count.Finite(2))
+      .and(count("shown.show") must_== Count.Finite(4))
+      .and(count("Params.ctxRes") must_== Count.Finite(2))
+      .and(count("Params.ctxIn") must_== Count.Countable)
 
   // Each class extending `Later` gives its own `g`, so `other` is a Boolean computed from one:
   // 2^2. `g` itself is one of 2.
@@ -108,14 +116,13 @@ class ContextualSpec extends Specification {
       .and(count(".choose") must_== Count.Finite(2))
 
   // Left to implicit search, and so uncovered: a contextual parameter without a name (a `using`
-  // type, a context bound's evidence, a constructor's too), a member of a given instance, and among a class's members
-  // a deferred given without a name and an abstract extension method.
+  // type, a context bound's evidence, a constructor's too), and among a class's members a
+  // deferred given without a name and an abstract extension method.
   private def later = {
     val expected = List(
       "Params.anon" -> "an anonymous contextual parameter",
       "Params.bound" -> "an anonymous contextual parameter",
       "Flat.f" -> "an anonymous contextual parameter",
-      "shown.show" -> "a member of a given instance",
       "Anon.get" -> "an anonymous given among the members of an enclosing class",
       "Exts.get" -> "an extension method among the members of an enclosing class"
     )

@@ -34,9 +34,8 @@ import tastyquery.Trees.*
   * higher-kinded type parameter; an abstract type member; a capability with type parameters of its
   * own; a deferred `inline val`, or a deferred inline method over a type parameter; a construction
   * that always throws or binds a pattern (S6); and what implicit search chooses (S5's remainder): a
-  * member of a given instance without parameters, a contextual parameter without a name, an
-  * abstract given without a name, an abstract extension method. A given written `= deferred` is a
-  * capability like an abstract member.
+  * contextual parameter without a name, an abstract given without a name, an abstract extension
+  * method. A given written `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -49,11 +48,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     case c: ClassSymbol if c.isModuleClass =>
       for {
         tree <- World.tree(c)
-        _ <- Either.cond(
-          !c.moduleValue.exists(_.isGivenOrUsing),
-          (),
-          s"a member of a given instance: ${c.name}"
-        )
         _ <- inherits(tree)
         outer <- around(c.owner, inner)
         // An object in a class is built with an instance of that class, one around a class before
