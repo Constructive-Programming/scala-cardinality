@@ -72,6 +72,9 @@ class ReceiversSpec extends Specification {
       |sealed abstract class Fam { def get: Boolean = true }
       |case object One extends Fam
       |trait Self { self: Base => def me: Boolean = true }
+      |class Own(b: Boolean) { own => def get: Boolean = own.b }
+      |class Gen[A](a: A) { g => def pick(x: A): A = g.a }
+      |trait Narrowed[A] { self: Env[A] => def get: Boolean = true }
       |trait Deferred { inline val flag: Boolean; def m: Boolean = true }
       |class Thrown(b: Boolean) { val z: Boolean = ???; def get: Boolean = b }
       |trait Member { type T; def get(t: T): T = t }
@@ -92,7 +95,9 @@ class ReceiversSpec extends Specification {
   // Boolean computed from the two the instance holds, `val` or not: 2^(2 × 2) = 16. A parameter
   // that hides a field's name hides no value: `Shadow.pick` returns `this.x` or `x`. A method's own
   // type parameter is another type than the class's of that name: `Poly.choose` cannot return
-  // `captured`, 2. A row's captures are the names of what its receivers supply.
+  // `captured`, 2. A row's captures are the names of what its receivers supply. A self alias
+  // without a type is of the class's own type, which adds nothing: `Own.get` is a Boolean computed
+  // from `b`, 2^2, and `Gen.pick` returns `a` (read through the alias) or `x`, 2.
   private def fields =
     (count("recv.Env.choose") must_== Count.Finite(3))
       .and(count("recv.Pair.get") must_== Count.Finite(16))
@@ -100,6 +105,8 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Poly.choose") must_== Count.Finite(2))
       .and(entry("recv.Env.choose").captures must_== List("captured"))
       .and(entry("recv.Pair.get").captures must_== List("a", "b"))
+      .and(count("recv.Own.get") must_== Count.Finite(4))
+      .and(count("recv.Gen.pick") must_== Count.Finite(2))
 
   // An abstract member is whatever a subclass supplies. `Cap.pick` can only return `seed`: 1.
   // `Step.pick` returns `seed`, `step(seed)`, `step(step(seed))`, …: ω. `Log.log` builds `Unit`,
@@ -209,7 +216,7 @@ class ReceiversSpec extends Specification {
 
   // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
   // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
-  // type; a deferred `inline val`, and a deferred inline method where a type parameter is in
+  // type narrower than the class; a deferred `inline val`, and a deferred inline method where a type parameter is in
   // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
   // type member; a capability with type parameters of its own.
   private def later = {
@@ -220,6 +227,7 @@ class ReceiversSpec extends Specification {
       "Wished.get" -> "a deferred inline method over a type parameter",
       "Dead.In.get" -> "an object whose construction always throws or binds a pattern",
       "Self.me" -> "an enclosing class with a self type",
+      "Narrowed.get" -> "an enclosing class with a self type",
       "Deferred.m" -> "a deferred inline value of an enclosing class",
       "Thrown.get" -> "an enclosing class whose construction always throws or binds a pattern",
       "Member.get" -> "an enclosing class with an abstract type member"

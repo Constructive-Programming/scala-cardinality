@@ -216,7 +216,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
   // old front end reads a record (a sealed case's construction that throws is S6's still).
   // Left for later steps, each named: parents (what they declare, the index's overriders),
   // overriders tasty-query does not read, a construction that binds a pattern, an abstract member
-  // hidden at the use site, a sealed class, a self type, an abstract type member, a concrete
+  // hidden at the use site, a sealed class, a self type narrower than the class, an abstract type member, a concrete
   // member something overrides, a member named like the measured definition (it may be that one
   // on another receiver), a restricted constructor and a parameter that is no public field (rule
   // B), a class something extends, and what `member` leaves.
@@ -262,7 +262,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
         _ <- refused(world.unbuilt(template), "whose construction binds a pattern")
         _ <- refused(supplied.exists(!_.symbol.isPublic), "with a member hidden at the use site")
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
-        _ <- refused(c.givenSelfType.nonEmpty, "with a self type")
+        _ <- refused(!World.ownSelf(c), "with a self type")
         _ <- refused(Shapes.abstractTypeMember(template), "with an abstract type member")
         _ <- refused(
           overriding.contains(ClosedProgram.Overriding.Supplied),
@@ -387,7 +387,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
     c.openLevel != OpenLevel.Sealed && !c.isCaseClass && Shapes.bare(tree) &&
     Shapes
       .parameters(tree.rhs.constr)
-      .isEmpty && c.givenSelfType.isEmpty && !(Shapes.isFinal(c) && c.isAbstractClass) &&
+      .isEmpty && World.ownSelf(c) && !(Shapes.isFinal(c) && c.isAbstractClass) &&
     tree.rhs.body.forall {
       case member: TypeMember =>
         member.symbol.typeDef match {

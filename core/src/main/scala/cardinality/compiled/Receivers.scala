@@ -39,12 +39,12 @@ import tastyquery.Types.*
   * whose private constructor parameters a subclass passes, a constructor field something overrides,
   * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
   * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
-  * settle; a self type; a bounded type parameter, or one of another kind than `F[_]`; an abstract
-  * type member; a capability with type parameters of its own; a deferred `inline val`, or a
-  * deferred inline method over a type parameter; a construction that always throws or binds a
-  * pattern (S6); and what implicit search chooses (S5's remainder): a contextual parameter without
-  * a name, an abstract given without a name, an abstract extension method. A given written
-  * `= deferred` is a capability like an abstract member.
+  * settle; a self type narrower than the class (`World.ownSelf`); a bounded type parameter, or one
+  * of another kind than `F[_]`; an abstract type member; a capability with type parameters of its
+  * own; a deferred `inline val`, or a deferred inline method over a type parameter; a construction
+  * that always throws or binds a pattern (S6); and what implicit search chooses (S5's remainder): a
+  * contextual parameter without a name, an abstract given without a name, an abstract extension
+  * method. A given written `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -270,7 +270,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         overriding.contains(ClosedProgram.Overriding.Unknown),
         "an enclosing class whose overriders are not read"
       )
-      _ <- refused(c.givenSelfType.nonEmpty, "an enclosing class with a self type")
+      _ <- refused(!World.ownSelf(c), "an enclosing class with a self type")
       _ <- refused(
         Shapes.abstractTypeMember(tree) || (!sum && inheriting.getOrElse(Nil).exists {
           case member: TypeMemberSymbol => member.isAbstractMember

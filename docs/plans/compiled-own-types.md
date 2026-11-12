@@ -232,6 +232,14 @@ symbols" have what changed and the measurements. Nothing of it is half done;
 that reach one parent through two parents (475 corpus rows), generic classes without TASTy, and a
 check of the dependencies' classes in `ClosedVerdicts`, which compares the module's classes only.
 
+Stretch 9 merged `tasty-front` at `9bcea74` (`ff83f6c`) and reads a self type that adds nothing to
+its class (`World.ownSelf`: an untyped alias `self =>` records the class's own type); a self type
+narrower than the class stays uncovered. Enclosing objects with parents and constructor rows in a
+class are next. Edits to the shared coverage memory
+(`/var/cache/users/rhansen/cardinality-tasty/covered/`): the gate run after `ff83f6c` added the rows
+that merge newly measures, through `scripts/differential.sh`, and a second run over `corpus-cats-eo`
+and `fixtures` added two more once their derivations were in `derived.txt`. No row was removed.
+
 ### Commands
 
 | Command | What it does |

@@ -80,6 +80,15 @@ final private[compiled] class World(
 
 private[compiled] object World {
 
+  /** Whether a class's self type adds nothing to it: none is written, or the one written is a
+    * supertype of the class (an untyped alias `self =>` records the class's own type), so `this` is
+    * of the class's own type. A self type that cannot be compared adds something.
+    */
+  def ownSelf(c: ClassSymbol)(using Context): Boolean =
+    c.givenSelfType.forall { self =>
+      scala.util.Try(c.appliedRefInsideThis.isSubType(self)).getOrElse(false)
+    }
+
   /** Whether a class is one whose members every value has (`Any`, `Matchable`, `AnyVal` and the
     * compiler's parents of a case class), which call nothing back.
     */
