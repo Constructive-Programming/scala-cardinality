@@ -910,7 +910,7 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(14)(_))
+          List("package cardinality.compiled").flatMap(List.fill(15)(_))
       )
   }
 

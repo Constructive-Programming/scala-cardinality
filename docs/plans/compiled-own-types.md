@@ -224,14 +224,13 @@ Stretch 5 (the inline-body reading, `Inlines`) is committed and plugged into `Re
 
 Stretch 6 (the closed world over symbols, `ClosedProgram`, and the dependency classes without
 TASTy, `DependencyClasses`) is committed, and stretch 7 wired both into the compiled front end
-(`e952ebe`, `b3f8fce`): "Wired into the front end" at the end of the section "The
-closed world and dependency classes over symbols" has what changed, the differential before and
-after, the corrections, the cost and what is left under the four blockers it was aimed at.
-Nothing of it is half done; `ClosedProgram.mixes` is written and asked by nothing yet. Left for
-whoever continues: an overridden concrete member read as a
-capability (the old reading's open member), the blocker `an enclosing class with a member
-something overrides`; generic classes without TASTy; and a check of the dependencies' classes in
-`ClosedVerdicts`, which compares the module's classes only.
+(`e952ebe`, `b3f8fce`); stretch 8 read the open member and parents with constructor parameters
+(`e0eb38a`, `4c87c8d`). "Wired into the front end" and "The open member and parents with
+constructor parameters" at the end of the section "The closed world and dependency classes over
+symbols" have what changed and the measurements. Nothing of it is half done;
+`ClosedProgram.mixes` is written and asked by nothing yet. Left for whoever continues: templates
+that reach one parent through two parents (475 corpus rows), generic classes without TASTy, and a
+check of the dependencies' classes in `ClosedVerdicts`, which compares the module's classes only.
 
 ### Commands
 
@@ -1206,6 +1205,57 @@ and peak heap): corpus-core 3.4–3.6 s at `37668ad`, 3.3–3.4 s at `e952ebe`, 
 heap unchanged (1.25 and 1.05 GiB). The class files of classes without TASTy are
 read once per module, the classpath's only where a question is about a class outside the module.
 
+#### The open member and parents with constructor parameters (stretch 8)
+
+- An open member (`e0eb38a`): a concrete member a class of the program overrides varies across
+  instances, so `Receivers` reads it as a capability, as an abstract one is, its own body one of
+  its behaviors. `Reentry` decides the two views the scalameta front end has
+  (`TargetViews`): a member whose own body evaluates the measured one on the instance as its
+  result, a block statement or a block `val`'s value (`definite`, kept to calls no conversion,
+  extension, given, same-arity overload or import can redirect) supplies nothing; one any
+  behavior of which may reach the measured member (`may`: a call of its name, a super accessor,
+  code outside the module called on the instance, the instance given away, an instance of its
+  class built, a name that does not resolve, every body followed with its overriders,
+  `ClosedProgram.overriders`) leaves the row. Whatever `definite` misses is left by `may`, never
+  counted. An abstract member is a capability whatever its implementations call, as before.
+- Parents with constructor parameters (`4c87c8d`): where the template or a class it extends
+  passes the arguments, the parent holds a function of what the template holds; where a subclass
+  passes them, each public field of the parent is a capability. A private field of such a
+  parent, a field the line answers otherwise, a constructor field something overrides (two
+  values: what the parent was given and what the getter answers) and a parent in a class still
+  leave the receiver.
+
+The differential, after `b3f8fce` and after `4c87c8d`; every input passes (definitions unchanged):
+
+| Input | Table | Identical | Better | Worse | Uncovered |
+| --- | --- | --- | --- | --- | --- |
+| cats-core | definitions | 1357 | 21 | 1 | 180 |
+| cats-core | methods | 411 → 413 | 213 | 19 | 7008 → 7006 |
+| cats-eo | definitions | 130 | 6 | 0 | 15 |
+| cats-eo | methods | 159 → 164 | 3 → 5 | 0 | 535 → 528 |
+| cats-eo-generics | definitions | 7 | 0 | 0 | 5 |
+| cats-eo-generics | methods | 27 | 0 | 0 | 53 |
+| cats-eo-schemes | definitions | 1 | 0 | 0 | 1 |
+| cats-eo-schemes | methods | 4 | 0 | 0 | 15 |
+| cats-kernel | definitions | 307 | 0 | 0 | 5 |
+| cats-kernel | methods | 176 → 182 | 3 | 0 | 1606 → 1600 |
+| core | definitions | 369 | 3 | 0 | 269 |
+| core | methods | 1003 | 1 | 0 | 2996 |
+| fixtures | definitions | 4931 | 98 | 1 | 558 |
+| fixtures | methods | 3820 → 4121 | 143 → 147 | 2 | 2777 → 2472 |
+
+- Derived in `derived.txt`: `W.conv` (2^(2^96), a conversion that does not apply), cats-eo's
+  `SimpleLens.place` and `transfer` (ω: `S` is `T`, so `combine`'s result can be split again)
+  and the fixtures `Passed.mid.<new#1>.seed` (2) and `Passed.imported.<new#1>.seed` (16), whose
+  parent's private parameter the instance's own construction passes.
+- The two blockers are gone from the corpora: `an enclosing class with a member something
+  overrides` 474 → 0 and `a parent with constructor parameters or in a class` 181 → 0 (12 fixture
+  rows remain under the second: parents in a class and private fields a subclass passes). Their
+  rows mostly stop at the next reason: `an enclosing sealed class or enum` (1,528 → 1,682), `an
+  enclosing class with a bounded or higher-kinded type parameter` (1,343 → 1,458), `an enclosing
+  class with a self type` (349 → 617).
+- Cost, three runs each: corpus-core 3.4 s, cats-core 2.8–3.0 s, peak heap 1.25 and 1.15 GiB.
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its
@@ -1541,8 +1591,12 @@ identical on all seven inputs.
   at `7aba1c6` (`9bcea74`, verified by the coordinator); type constructors written as class
   arguments ("Stretch 5, second unit"). Scope change: item 5 (self types, enclosing objects
   with parents, abstract type members, constructor rows in a class) moved to the gate agent;
-  this branch keeps item 4, the records' remaining reasons and item 6. Do not merge the gate
-  agent's head until the coordinator says so (no criss-cross merge). Next: the rest of item 4
+  this branch keeps item 4, the records' remaining reasons and item 6. Done since: the merge of
+  `tasty-gate` at `ff83f6c` (the coordinator's instruction; the gate agent's merge of `9bcea74`
+  over the open member and parents with constructor parameters), which merged without
+  conflicts; two rows the branches measure together are derived (`T.g` of a fixture, 2^8, and
+  cats-eo's `MultiFocusFromList.fromList`, 0). Merge a later head of the gate agent only when
+  the coordinator says so. Next: the rest of item 4
   (bounded proper parameters, intersections, refinements, opaque members through paths,
   unions, singletons), then the records' remaining reasons, then item 6.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
@@ -1566,6 +1620,14 @@ identical on all seven inputs.
   after `sbt core/testFull` has filled `core/target/compiled-fixtures`. While developing, run the
   gate against a copy of `<assets>/covered`: a passing run writes the memory, and a row a
   work-in-progress reading counted and the finished one leaves then fails the next run.
+- The shared coverage memory (`/var/cache/users/rhansen/cardinality-tasty/covered/`), a rule for
+  both agents from the coordinator: never restore a saved copy over it. Development gates run on
+  a private assets directory (this branch: `/tmp/tf/assets`, with copies of the corpora and of
+  the memory, the other assets linked). The shared memory takes targeted edits only, each
+  recorded here:
+  - Deleted, proven unsound (stretch 5, second unit): cats-core's
+    `IndexedStateTContravariantMonoidal.unit` and `.product` (`IndexedStateT.scala:485` and
+    `:491`), counted 1 under a type key read from a class's parameter bound to a value.
 
 Each table is one run of `scripts/differential.sh` over the six corpora and the compiled fixtures
 (1,424 that compile, of 1,496). Rows is each side's count (they are equal: nothing is unpaired).

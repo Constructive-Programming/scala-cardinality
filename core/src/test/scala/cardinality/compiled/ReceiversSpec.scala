@@ -15,7 +15,7 @@ class ReceiversSpec extends Specification {
     every constructor parameter is a value of the environment     $fields
     an abstract member is a capability, a concrete one nothing    $capabilities
     a class around the class or its object supplies the same      $nested
-    a template that inherits is read by its own state where fixed $inherited
+    a template that inherits, or a sum, reads what it holds       $inherited
     a local definition reads the methods it is written in         $locals
     a receiver this slice does not read is uncovered              $later
     the scalameta front end agrees on every row measured          $agrees
@@ -138,7 +138,11 @@ class ReceiversSpec extends Specification {
   // 2^(2^2) = 16 (`Never` is `abstract final`: it implements nothing and has no instance, and its
   // body is read as written against the abstract `show`). `Twin` inherits two abstract `f`s that
   // do not match, `TA.Base.f(TA.P)` and `TB.Mid.f(TB.P)`: each gives 2 `R`s, one per Boolean in
-  // its `P`, so `g` returns one of 2 + 2 = 4 (one capability for both would give 2).
+  // its `P`, so `g` returns one of 2 + 2 = 4 (one capability for both would give 2). A concrete
+  // member a subclass overrides varies across instances, so it is a capability: `Wide.more`, which
+  // `Narrow` overrides, is a Boolean beside `b`, and `get` is a Boolean computed from both,
+  // 2^(2 × 2) = 16. `Sub` passes its `c` to `Base`, so what `Base` holds is `c`: `more` is a
+  // Boolean computed from `c`, 2^2.
   // A sealed family or an enum is one value of its sum as a receiver: which case, and what the
   // case holds. `Fam` has the one case `One`, so `get` is one of 2 Booleans; `Color` has two
   // cases, so `f` is one of the 2^2 functions of them. The row captures the receiver as a whole.
@@ -154,6 +158,8 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Half.get") must_== Count.Finite(16))
       .and(count("recv.Never.get") must_== Count.Finite(16))
       .and(count("recv.Twin.g") must_== Count.Finite(4))
+      .and(count("recv.Wide.get") must_== Count.Finite(16))
+      .and(count("recv.Sub.more") must_== Count.Finite(4))
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
@@ -201,17 +207,14 @@ class ReceiversSpec extends Specification {
       )
   }
 
-  // What S4's first step leaves, each row uncovered for its own reason: a class with a member
-  // something overrides (a capability); a parent of the module with constructor parameters or in
+  // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
   // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
   // type; a deferred `inline val`, and a deferred inline method where a type parameter is in
   // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
   // type member; a capability with type parameters of its own.
   private def later = {
     val expected = List(
-      "Wide.get" -> "an enclosing class with a member something overrides",
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
-      "Sub.more" -> "a parent with constructor parameters or in a class",
       "Closed.get" -> "an enclosing concrete sealed class or enum case",
       "Lifted.get" -> "a capability with type parameters of its own",
       "Wished.get" -> "a deferred inline method over a type parameter",

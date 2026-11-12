@@ -225,6 +225,31 @@ final private[compiled] class ClosedProgram(
       }
     )
 
+  /** What may override `member` in the instances of `owner`'s subclasses: the declarations of its
+    * name in every class a subclass's linearization holds outside `owner`'s (the subclass itself,
+    * what it mixes in beside `owner`), and `None` for a subclass no symbol stands for, whose body
+    * is not read.
+    */
+  def overriders(owner: ClassSymbol, member: TermOrTypeSymbol): List[Option[TermSymbol]] = {
+    val below = subclasses(owner)
+    val ownerLine = linearized(owner)._1.toSet
+    val name = member.name.toString
+    below.found
+      .flatMap(s => linearized(s)._1)
+      .filterNot(ownerLine)
+      .distinct
+      .flatMap(_.declarations.collect {
+        case d: TermSymbol if d.name.toString == name => Some(d)
+      }) ++ below.unnamed.collect {
+      case u
+          if u.methods(scala.reflect.NameTransformer.encode(name)) ||
+            u.parents.flatMap(linearized(_)._1).filterNot(ownerLine).exists {
+              _.declarations.exists(_.name.toString == name)
+            } =>
+        None
+    }
+  }
+
   /** Whether an instance may be of both classes: one extends the other, or a class of the program
     * extends both, or the classes that extend one of them are not all known.
     */

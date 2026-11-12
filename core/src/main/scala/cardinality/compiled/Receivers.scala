@@ -18,7 +18,9 @@ import tastyquery.Types.*
   *     function from all its parameters to its result. One with a one-valued result supplies
   *     nothing: every body builds that value without it.
   *   - A concrete member supplies nothing: it computes from what the environment already holds.
-  *     That holds where no class of the program overrides it (the closed world, `ClosedProgram`).
+  *     That holds where no class of the program overrides it (the closed world, `ClosedProgram`);
+  *     one a class of the program overrides varies across instances, and is a capability as an
+  *     abstract member is, its own body one of its behaviors.
   *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`).
   *   - A class that inherits is read by its own state alone where every member it inherits is
   *     implemented and none can be overridden: a concrete class that is final or that nothing
@@ -33,19 +35,21 @@ import tastyquery.Types.*
   * A sealed family or an enum is one value of its sum as a receiver: which case, and what the case
   * holds (`split`). Not read yet, each a `Left` naming it: a concrete sealed class or an enum
   * case's own class; a sum this reading does not take; a class that reaches one parent through two
-  * of its parents, or whose inherited members are not read; a parent with constructor parameters,
-  * in a class or a body (its members may read state the class's own code may not), and for a class
-  * that is not fixed a parent without TASTy that is no trait; a member something overrides (a
-  * capability), or overriders the classes read do not settle; a self type; a bounded type
-  * parameter, or one of another kind than `F[_]`; an abstract type member; a capability with type
-  * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
-  * parameter; a construction that always throws or binds a pattern (S6); and what implicit search
-  * chooses (S5's remainder): a contextual parameter without a name, an abstract given without a
-  * name, an abstract extension method. A given written `= deferred` is a capability like an
-  * abstract member.
+  * of its parents, or whose inherited members are not read; a parent in a class or a body, a parent
+  * whose private constructor parameters a subclass passes, a constructor field something overrides,
+  * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
+  * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
+  * settle; a self type; a bounded type parameter, or one of another kind than `F[_]`; an abstract
+  * type member; a capability with type parameters of its own; a deferred `inline val`, or a
+  * deferred inline method over a type parameter; a construction that always throws or binds a
+  * pattern (S6); and what implicit search chooses (S5's remainder): a contextual parameter without
+  * a name, an abstract given without a name, an abstract extension method. A given written
+  * `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
+
+  private val reentry = new Reentry(world)
 
   /** The classes around a member, outermost first. An object holds no state of its own; a
     * definition a class is written in is skipped (`Readings.enclosing` reads its methods); an
@@ -87,40 +91,82 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
   // What a template that inherits may still be read as: its own state alone. That holds where
   // every member it inherits is implemented and none can be overridden (an object, a concrete
   // class that is final or that nothing extends: the closed world's final), so that each computes
-  // from what the template holds, and where no parent of the module takes constructor parameters,
-  // which a parent's member may read and the template's own code may not.
+  // from what the template holds.
   //
   // A template that may be extended, or is abstract, reads what it inherits as it resolves it
   // (`inherited`): an abstract member is a capability, a concrete one computes from the instance
-  // where nothing overrides it. That holds where no parent holds state: none takes constructor
-  // parameters (which the class that finally extends it passes), none is in a class, and none is
-  // a class without TASTy, whose constructors set state no signature shows.
+  // where nothing overrides it.
+  //
+  // A parent's constructor parameters are state its members may read: a function of what the
+  // template holds where the template, or a class it extends, passes their arguments; where a
+  // subclass passes them, each is a free value, which a public field of the parent observes (a
+  // capability, `free`) and a private one, or a field the line overrides, hides (not read). A
+  // constructor field something overrides is two values, what the parent was given and what its
+  // getter answers (not read). A parent in a class holds that class's instance too, reached through
+  // whatever path names it (not read). A fixed template reads its module's parents alone; one of
+  // them without a tree (compiled from Java) is not read. A template that is not fixed reads every
+  // parent, and one without a tree that is no trait sets state in constructors no signature shows.
   private def inherits(tree: ClassDef): Either[String, Unit] = {
     val c = tree.symbol
     val parents = World.ancestors(c)
-    // A parent in a class holds that class's instance too, reached through whatever path names it.
-    // A fixed template reads its module's parents alone; one of them without a tree (compiled from
-    // Java) is not read. A template that is not fixed reads every parent, and one without a tree
-    // that is no trait sets state in constructors no signature shows.
     val whole = fixed(c)
+    def fields(k: ClassSymbol) = k.declarations.collect {
+      case field: TermSymbol if field.isParamAccessor => field
+    }
     def why(parent: ClassSymbol): Option[String] =
       if (!World.inObjects(parent)) Some("a parent with constructor parameters or in a class")
       else
         parent.tree match {
-          case Some(t) =>
-            Option.when(Shapes.parameters(t.rhs.constr).nonEmpty)(
+          case Some(_) =>
+            // A private field, or one the line answers otherwise than the parameter it was given.
+            val hidden = fields(parent).exists { field =>
+              !field.isPublic ||
+              scala.util
+                .Try(resolved(field, c.linearization, c))
+                .toOption
+                .flatten
+                .exists(_ != field)
+            }
+            Option.when(!passed(c, parent) && hidden)(
               "a parent with constructor parameters or in a class"
             )
           case None if whole           => Some("a parent compiled from Java")
           case None if !parent.isTrait => Some("a parent without TASTy that is no trait")
           case None                    => None
         }
-    parents
-      .filter(parent => !whole || world.ofModule(parent))
-      .flatMap(parent => why(parent).map(reason => s"$reason: ${parent.name}"))
-      .headOption
+    val overriddenField = (c :: parents).flatMap(fields).find { field =>
+      world.overriding(c, field) == ClosedProgram.Overriding.Supplied
+    }
+    overriddenField
+      .map(field =>
+        s"an enclosing class with a constructor field something overrides: ${field.name}"
+      )
+      .orElse(
+        parents
+          .filter(parent => !whole || world.ofModule(parent))
+          .flatMap(parent => why(parent).map(reason => s"$reason: ${parent.name}"))
+          .headOption
+      )
       .toLeft(())
   }
+
+  // Whether the template, or a class it extends, passes the arguments of `parent`'s constructor.
+  private def passed(c: ClassSymbol, parent: ClassSymbol): Boolean =
+    (c :: World.ancestors(c)).exists { k =>
+      k != parent && k.tree.exists(_.rhs.parents.exists {
+        case term: TermTree =>
+          term.tpe match {
+            case tpe: Type => World.classNamed(tpe).contains(parent)
+            case _         => false
+          }
+        case _ => false
+      })
+    }
+
+  // A parent's field whose argument a subclass passes: a value each instance chooses (a private
+  // one refuses the template first, in `inherits`).
+  private def free(c: ClassSymbol, member: TermSymbol): Boolean =
+    member.isParamAccessor && member.owner != c && !passed(c, member.owner.asClass)
 
   // Whether the template, or a class it extends, reaches one parent through two of its parents.
   private def reachesTwice(c: ClassSymbol): Boolean = {
@@ -219,17 +265,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       )
       // What a sum receiver inherits, or a case overrides, computes from the case it is, which
       // the sum holds.
-      _ <-
-        if (sum) Right(())
-        else
-          for {
-            _ <- inherits(tree)
-            _ <- inheriting
-            _ <- refused(
-              overriding.contains(ClosedProgram.Overriding.Supplied),
-              "an enclosing class with a member something overrides"
-            )
-          } yield ()
+      _ <- if (sum) Right(()) else inherits(tree).flatMap(_ => inheriting)
       _ <- refused(
         overriding.contains(ClosedProgram.Overriding.Unknown),
         "an enclosing class whose overriders are not read"
@@ -283,23 +319,48 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     receivers.flatMap { tree =>
       if (Receivers.split(tree.symbol)) List(Receivers.whole(tree.symbol))
       else
-        Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ tree.rhs.body.collect {
-          case member: ValOrDefDef
-              if Receivers.open(member) && !member.symbol.isExtensionMethod &&
-                member.symbol != measured && !member.name.toString.endsWith("_=") &&
-                // A deferred inline method is supplied to inline code alone.
-                (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
-            member.name.toString
-        } ++ inheritedOpen(tree.symbol)
-          .filter(member => member != measured && !member.name.toString.endsWith("_="))
+        Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ supplies(tree, measured)
+          .collect {
+            case member
+                if !member.symbol.isExtensionMethod && !member.name.toString.endsWith("_=") &&
+                  // A deferred inline method is supplied to inline code alone.
+                  (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
+              member.name.toString
+          } ++ inheritedOpen(tree.symbol, measured)
+          .filter(!_.name.toString.endsWith("_="))
           .map(_.name.toString)
     }
 
-  // The abstract members a template that is not fixed inherits: capabilities, as its own are.
-  private def inheritedOpen(c: ClassSymbol): List[TermSymbol] =
+  // The members a template that is not fixed inherits and a subclass may supply: capabilities, as
+  // its own are, the measured one aside.
+  private def inheritedOpen(c: ClassSymbol, measured: TermSymbol): List[TermSymbol] =
     inherited(c).getOrElse(Nil).collect {
-      case member: TermSymbol if abstractLike(member) => member
+      case member: TermSymbol
+          if (abstractLike(member) || overridden(c, member) || free(c, member)) &&
+            member != measured &&
+            !reentry.definite(member, measured) =>
+        member
     }
+
+  // Whether an overridden member may be a behavior of the measured one's own (`Reentry`).
+  private def reenters(c: ClassSymbol, member: TermSymbol, measured: TermSymbol): Boolean =
+    overridden(c, member) && reentry.may(c, member, measured)
+
+  // The members of a template's own body a subclass supplies, the measured one aside.
+  private def supplies(tree: ClassDef, measured: TermSymbol): List[ValOrDefDef] =
+    tree.rhs.body.collect {
+      case member: ValOrDefDef
+          if (Receivers.open(member) || overridden(tree.symbol, member.symbol)) &&
+            member.symbol != measured && !reentry.definite(member.symbol, measured) =>
+        member
+    }
+
+  // A concrete member a class of the program overrides varies across instances as an abstract
+  // one does: it is a capability of the template, its own body one of its behaviors.
+  private def overridden(c: ClassSymbol, member: TermSymbol): Boolean =
+    // A constructor field something overrides refuses the template (`inherits`).
+    !abstractLike(member) && !member.isParamAccessor &&
+      world.overriding(c, member) == ClosedProgram.Overriding.Supplied
 
   private def supplied(
       tree: ClassDef,
@@ -320,38 +381,42 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
             Unread.Uncovered(s"an enclosing sum not read: $reason")
           case uncovered => uncovered
         }
-    } else fields(tree, measured, env)
+    } else own(tree, measured, env)
 
   // What a receiver that is no sum supplies: its constructor's parameters and its members a
   // subclass supplies, `measured` aside.
-  private def fields(template: ClassDef, measured: TermSymbol, env: Shapes.Env) = {
+  private def own(template: ClassDef, measured: TermSymbol, env: Shapes.Env) = {
     val self = template.symbol.displayFullName
     def held(of: ValOrDefDef, shape: Shape) =
       Binding(s"$self.${of.name}", shape, Some(of.name.toString))
     val parameters = Shapes.parameters(template.rhs.constr)
-    val capabilities = template.rhs.body.collect {
-      case member: ValOrDefDef if Receivers.open(member) && member.symbol != measured =>
-        member
-    }
+    val capabilities = supplies(template, measured)
     for {
       _ <- Readings.plainInputs(parameters)
       fields <- shapes.inputs(parameters, env)
       members <- Traversals.sequence(capabilities.map { member =>
-        shapes.member(member, "an enclosing class", env).map(_.map(held(member, _)))
+        if (reenters(template.symbol, member.symbol, measured))
+          Left(
+            Uncovered(
+              s"${Receivers.Reenters} among the members of an enclosing class: ${member.name}"
+            )
+          )
+        else shapes.member(member, "an enclosing class", env).map(_.map(held(member, _)))
       })
       more <- Traversals.sequence(
-        inheritedOpen(template.symbol)
-          .filter(_ != measured)
-          .map(inheritedCapability(template.symbol, _, env))
+        inheritedOpen(template.symbol, measured)
+          .map(inheritedCapability(template.symbol, _, measured, env))
       )
     } yield parameters.lazyZip(fields).map(held) ++ members.flatten ++ more.flatten
   }
 
-  // An inherited abstract member as a capability, read from its signature as the template sees
-  // it: a value of its type, or one function from all its parameters to its result.
+  // An inherited member a subclass supplies (abstract, overridden, or a free parent field) as a
+  // capability, read from its signature as the template sees it: a value of its type, or one
+  // function from all its parameters to its result.
   private def inheritedCapability(
       c: ClassSymbol,
       member: TermSymbol,
+      measured: TermSymbol,
       env: Shapes.Env
   ): Either[Unread, Option[Binding]] = {
     val name = member.name.toString
@@ -359,7 +424,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     // signature.
     val identity = s"${c.displayFullName}.${member.signedName}"
     val unread =
-      if (member.isExtensionMethod) Left("an extension method")
+      if (reenters(c, member, measured)) Left(Receivers.Reenters)
+      else if (member.isExtensionMethod) Left("an extension method")
       else if (Readings.contextual(member) && name.startsWith("given_")) Left("an anonymous given")
       else if (member.isInline) Left("a deferred inline member")
       else Readings.later(member)
@@ -418,6 +484,9 @@ private[compiled] object Receivers {
     * concrete code.
     */
   def accessor(member: TermSymbol): Boolean = member.name.toString.contains("$$")
+
+  /** Why an overridden member a behavior of which may call the measured one is not read. */
+  val Reenters = "an overridden member that may call it"
 
   /** A member a subclass supplies: an abstract one, or a given written `= deferred`
     * (`scala.compiletime.deferred`, as the compiler resolved the name), which each class extending
