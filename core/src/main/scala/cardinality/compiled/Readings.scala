@@ -33,6 +33,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   import Unread.Uncovered
 
   private val shapes = new Shapes(world)
+  private val bounds = new Bounds(shapes)
   private val receivers = new Receivers(world, shapes)
   private val constructors = new Constructors(shapes, stored, receivers)
 
@@ -121,8 +122,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
                 .map(taken.lazyZip(_).map(bound(method)))
             })
             inputs <- shapes.inputs(parameters, env)
+            values = held ++ captured.flatten ++ parameters.lazyZip(inputs).map(bound(tree))
+            // The proofs of the bounds of the parameters the result or a value mentions (`Bounds`).
+            proofs <- bounds.proofs(result :: values.map(_.shape), env)
           } yield Inhabitation.count(
-            held ++ captured.flatten ++ parameters.lazyZip(inputs).map(bound(tree)),
+            values ++ proofs,
             result,
             maxDepth = Readings.Depth
           )

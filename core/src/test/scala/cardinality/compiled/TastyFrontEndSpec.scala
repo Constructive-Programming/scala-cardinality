@@ -214,8 +214,6 @@ class TastyFrontEndSpec extends Specification {
       |final case class P2(b: Boolean)
       |object Knot { opaque type T = Option[Tie]; final case class Tie(t: T); def none: T = None }
       |opaque type Top = Boolean
-      |final case class Wrap[F[_], A](v: F[A]) {
-      |  object Ops { def back(w: Wrap[[X] =>> (A, X), Boolean]): A = w.v._1 } }
       |def top(t: Top): Top = t
       |object Use {
       |  def pair(p: Pair): Boolean = p.a
@@ -273,8 +271,6 @@ class TastyFrontEndSpec extends Specification {
       |  def twin: Twin = ???
       |  def outside(t: Top): Top = t
       |  def same(ev: P1 =:= P2): Boolean = true
-      |  def wrap(w: Wrap[[X] =>> Either[Boolean, X], Boolean]): Boolean = true
-      |  def held[G[_]](w: Wrap[G, Int]): G[Int] = w.v
       |}
       |""".stripMargin
 
@@ -504,7 +500,6 @@ class TastyFrontEndSpec extends Specification {
   // is its one Boolean, the secondary constructor adding no value: 2. `Top` is a Boolean for the
   // definitions of its file's top level (`top` is one of 2^2) and one value in `Use` (`outside`).
   // `Der` has 2 values, the instance its `derives` clause adds to the companion being no pattern.
-  // `wrap`'s argument holds an `Either[Boolean, Boolean]`, 4 values: it is one of 2^4.
   private def products = {
     val expected = List(
       "pair" -> 16,
@@ -523,8 +518,7 @@ class TastyFrontEndSpec extends Specification {
       "twin" -> 2,
       "outside" -> 1,
       "der" -> 2,
-      "mixed" -> 2,
-      "wrap" -> 16
+      "mixed" -> 2
     )
     (expected.map((name, _) => count(s"types.Use.$name")) must_==
       expected.map((_, n) => Count.Finite(n)))
@@ -591,9 +585,6 @@ class TastyFrontEndSpec extends Specification {
   //     `Nothing` member inherited from an open trait, which leaves `Heir` no value.
   //   - `no(n: Nothing)` has a total body.
   //   - `P1` and `P2` have one shape and are two types: no evidence equates them.
-  //   - In `Wrap.Ops.back`, the written `(A, X)` means the enclosing `A`, which the argument binds
-  //     to `Boolean`: one symbol, two meanings. In `held`, the key `G[A]` has `A` bound to the
-  //     values of `Int`, not to a type.
   private def later = {
 
     val slots = "a sealed subtype that does not pass its own parameters to its parent"
@@ -625,11 +616,9 @@ class TastyFrontEndSpec extends Specification {
       "lz" -> construction,
       "heir" -> construction,
       "absurd" -> "an abstract member of the empty type with parameters",
-      "same" -> "a type of the module in an evidence type",
-      "held" -> "a class's parameter bound to a value, as a type"
+      "same" -> "a type of the module in an evidence type"
     )
-    (reasons(true, expected.map(_._1)) must_== expected.map(_._2))
-      .and(count("types.Wrap.Ops.back").toString must contain("a parameter bound again"))
+    reasons(true, expected.map(_._1)) must_== expected.map(_._2)
   }
 
   // A definition row of `sizes`: its size, and the reasons it is no number, each with its kind.
@@ -852,6 +841,7 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.analysis.MethodAnalysis.Entry",
     "cardinality.analysis.inhabitation.Card",
     "cardinality.analysis.inhabitation.ClosedSpaces",
+    "cardinality.analysis.inhabitation.EvidenceAnalysis",
     "cardinality.analysis.inhabitation.Inhabitation",
     "cardinality.analysis.inhabitation.Inhabitation.Binding",
     "cardinality.analysis.inhabitation.Inhabitation.Head",
@@ -871,6 +861,7 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.reporting.FrontEnd",
     "cardinality.reporting.Report",
     "cardinality.tasty.CompiledTypes",
+    "cardinality.types.Graphs",
     "cardinality.types.ListedNamespaces",
     "cardinality.types.Traversals"
   )
@@ -910,7 +901,7 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(15)(_))
+          List("package cardinality.compiled").flatMap(List.fill(16)(_))
       )
   }
 

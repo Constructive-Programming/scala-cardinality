@@ -493,21 +493,21 @@ private[compiled] object Shapes {
   /** What a type parameter of a measured definition or a receiver stands for, its identity being
     * its owner's name and its own: one atom where any type instantiates it; a rigid constructor
     * where any invariant type constructor of proper parameters does (`F[_]`), applied as an
-    * uninterpreted head (`key`). A bound, a variance, or a constructor of constructors is not read
-    * yet.
+    * uninterpreted head (`key`). A proper parameter with bounds is an atom too, its bounds being
+    * proofs beside it (`Bounds`). A variance, or a constructor of constructors, is not read yet.
     */
   def binder(owner: Symbol, parameter: TypeParamSymbol, copies: List[Symbol] = Nil)(using
       Context
   ): Either[Unread, Shape] = {
     val bounds = parameter.declaredBounds
     val id = s"${owner.displayFullName}[${parameter.name}]"
-    if (unbounded(bounds)) Right(Shape.Atom(id))
+    if (proper(bounds)) Right(Shape.Atom(id))
     // A class's parameter keeps its variance on the constructor's copy of it.
     else if (constructor(parameter) && !copies.exists(Shapes.variant)) Right(Shape.Constructor(id))
     else
       Left(
         Unread.Uncovered(
-          s"a bounded type parameter, or one of another kind than F[_]: ${parameter.name}"
+          s"a type parameter of another kind than F[_], or a bounded or variant F[_]: ${parameter.name}"
         )
       )
   }
@@ -568,6 +568,10 @@ private[compiled] object Shapes {
     case declared: TypeParamSymbol => tastyquery.Variances.variant(declared)
     case _                         => false
   }
+
+  // The bounds of a proper type parameter: no type lambda above or below.
+  private def proper(bounds: TypeBounds): Boolean =
+    !bounds.high.isInstanceOf[TypeLambda] && !bounds.low.isInstanceOf[TypeLambda]
 
   /** Bounds any type meets. */
   def unbounded(bounds: TypeBounds)(using Context): Boolean =
