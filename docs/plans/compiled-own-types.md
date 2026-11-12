@@ -220,12 +220,18 @@ class (b), on rows" below say what each left. After a front-end slice lands, rer
 move from UNCOVERED to PASS, and one that moves to FAIL has a cause to read. An expectation moves
 only with its derivation.
 
-Stretch 5 (the inline-body reading of slice 5d as a piece of its own) is committed and waits for
-the front-end agent to plug it into `Readings`, which answers `an inline definition` for every
-inline method until then: "Inline bodies: `Inlines` and its verdict gate" below has the interface,
-the measurements and the steps. Nothing of it is half done. To check it from the files alone:
-`sbt "core/testOnly cardinality.compiled.InlinesSpec"`, then `InlineVerdicts` over the fixtures and
-each corpus (the command is in that section; exit 1 means a method only `Inlines` refuses).
+Stretch 5 (the inline-body reading, `Inlines`) is committed and plugged into `Readings`.
+
+Stretch 6 (the closed world over symbols, `ClosedProgram`, and the dependency classes without
+TASTy, `DependencyClasses`) is committed, and stretch 7 wired both into the compiled front end
+(`e952ebe`, `b3f8fce`): "Wired into the front end" at the end of the section "The
+closed world and dependency classes over symbols" has what changed, the differential before and
+after, the corrections, the cost and what is left under the four blockers it was aimed at.
+Nothing of it is half done; `ClosedProgram.mixes` is written and asked by nothing yet. Left for
+whoever continues: an overridden concrete member read as a
+capability (the old reading's open member), the blocker `an enclosing class with a member
+something overrides`; generic classes without TASTy; and a check of the dependencies' classes in
+`ClosedVerdicts`, which compares the module's classes only.
 
 ### Commands
 
@@ -934,6 +940,271 @@ Limits, each a place where this reading does no more than the scalameta one:
   above records.
 - A cast (`asInstanceOf`) to a type parameter is not a runtime class read: it is erased, and an
   unsafe cast is outside the model.
+
+### The closed world and dependency classes over symbols: `ClosedProgram`, `DependencyClasses`
+
+Two pieces of the compiled front end that nothing calls yet, in
+`core/src/main/scala/cardinality/compiledworld/` (package `cardinality.compiled`; beside the
+directory for the same reason `Inlines` was: `TastyFrontEndSpec` pins its number of files).
+
+**`ClosedProgram`** (223 lines) is the closed world by exact symbols, in place of
+`analysis/ClosedWorld.scala` (380 lines, by simple name, over parsed sources and stubs).
+
+```scala
+final private[compiled] class ClosedProgram(
+    own: List[ClassSymbol],                              // CompiledTypes.loaded, second
+    unloaded: List[String],                              // CompiledTypes.loaded, third
+    dependencies: => (List[ClassSymbol], List[String])   // CompiledTypes.dependencies, by name
+)(using Context) {
+  def subclasses(c: ClassSymbol): Subclasses             // Subclasses(found, complete)
+  def finalClass(c: ClassSymbol): Boolean
+  def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): Overriding  // No | Unknown | Supplied
+  def mixes(left: ClassSymbol, right: ClassSymbol): Boolean
+}
+```
+
+What each answers:
+
+- `subclasses(c)`: the classes of the program that extend `c` at any depth, nested, local,
+  anonymous and given ones included, and whether they are all of them. A class written `final`
+  and an object have none. A Scala 3 sealed class whose children are all classes and objects is
+  answered from the compiler's list, without listing anything; one with an anonymous child (the
+  compiler lists the class itself) or an enum's value case (an anonymous class) is found by
+  listing.
+- `finalClass(c)`: written `final`, or an object, or a concrete class (no trait, not `abstract`,
+  `open` or `sealed`) with `Subclasses(Nil, complete = true)`. A non-public constructor does not
+  open it.
+- `overriding(owner, member)`: asked from each subclass's side. For a subclass `s`, the classes
+  of its linearization before `owner` are what the member resolves through in `s`: a subclass of
+  `owner`, or a parent mixed in beside it. `Supplied` where one of them declares a member that
+  matches by signature (an abstract declaration counts only in a subclass of `owner`: mixed in
+  beside, it leaves the member `owner`'s). So a member brought by a mixed-in parent that does not
+  extend `owner` is found, which asking the overrider (`allOverriddenSymbols`) does not find.
+  `No` for a private or final member and where no subclass has one. Where a signature is not
+  read, a declaration of the name is taken for an overrider, as the scalameta reading takes one.
+- `mixes(a, b)`: one extends the other, or a class of the program extends both.
+
+Where the program is not all known, no answer is "none": `complete` is false, `overriding` is
+`Unknown` (the row's `member may be overridden through a parent outside the sources`),
+`finalClass` is false, `mixes` is true. That is so for:
+
+- a class that does not load: of the module, every answer; of the classpath, every answer about
+  a class outside the module;
+- a parent that is not read (a class compiled against something the classpath does not hold):
+  it may extend any class outside the module, and it may override a member of the class it is
+  mixed in beside, but it hides no class of the module (the classes it is a parent of are still
+  filed under their other parents, and under each other);
+- the JDK, which is not listed: a class of it is closed only where it is written `final`;
+- a class without TASTy (Java, Scala 2): its local and anonymous subclasses are class files no
+  symbol stands for (`javafixtures.Lone` has one, which overrides `on`), so it is closed only
+  where it is written `final`, and the subclasses that are found are not known to be all.
+
+The rule for the Scala library and the JDK, and why. The library's classes are on the dependency
+classpath and are listed like any dependency's: they have TASTy, so their subclasses are all
+found, and a library class nothing extends is final as one of the module would be
+(`scala.Some`), while `scala.Function1` has the library's and the module's implementers. The JDK
+is the context's own and is never listed (30,000 classes without TASTy): listing it would
+answer nothing, since its classes are tree-less and stay open by the rule above. So neither makes
+everything open or everything final. Two assumptions are left: a Scala 3 class of a dependency
+is taken not to be extended by a local or anonymous class of a Java or Scala 2 dependency, and
+a class a dependency jar declares again after the JDK is the JDK's (`CompiledTypes.dependencies`
+leaves it out).
+
+Cost. The module's part is one walk of the module's trees, on the first question about a class
+of the module. The dependencies are listed and indexed on the first question about a class
+outside the module that is neither final nor a sealed class answered from its children, and
+never for a question about a class of the module:
+
+| Corpus | Classes of the module | Module's trees walked, every class and member answered | Dependencies listed and indexed, once |
+| --- | --- | --- | --- |
+| corpus-cats-eo | 257 | 54 ms | 714 ms |
+| corpus-cats-eo-generics | 26 | 123 ms | 893 ms |
+| corpus-cats-eo-schemes | 4 | under 1 ms | 625 ms |
+| corpus-cats-kernel | 458 | 111 ms | 237 ms |
+| corpus-core | 1,228 | 249 ms | 1,503 ms |
+| corpus-cats-core | 2,349 | 335 ms | 224 ms |
+
+The second column's time includes the walk of the trees that lists the questions. The
+dependencies' time is the listing (reading every class of the classpath, the Scala library
+included) and the index over it; corpus-core's is the largest because its classpath is
+(scalameta, tasty-query, the compiler).
+
+**The differential**, `ClosedVerdicts` (`core/src/test/scala/cardinality/compiled/`):
+
+```bash
+sbt "core/Test/runMain cardinality.compiled.ClosedVerdicts fixtures core/target/compiled-fixtures --list"
+sbt "core/Test/runMain cardinality.compiled.ClosedVerdicts corpus <corpus directory> --list"
+```
+
+For every class and trait a module's sources write and every member one defines, it compares
+`analysis.ClosedWorld` asked by name over the scalameta front end's inputs (`extended`,
+`overriding`: what decides the `final`s it writes) with `ClosedProgram` asked by symbol
+(`subclasses`, `overriding`). Exit 1: an answer where the new one does not know and the old one
+does (`coarser`), or a finer answer no fact of the old reading's inputs explains.
+
+| Input | Classes paired | Same | Finer | Opener | Coarser | Members paired | Same | Finer | Opener | Coarser |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| corpus-cats-eo | 66 | 65 | 1 | 0 | 0 | 277 | 276 | 1 | 0 | 0 |
+| corpus-cats-eo-generics | 6 | 6 | 0 | 0 | 0 | 32 | 32 | 0 | 0 | 0 |
+| corpus-cats-eo-schemes | 2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| corpus-cats-kernel | 279 | 275 | 0 | 4 | 0 | 1,249 | 1,222 | 27 | 0 | 0 |
+| corpus-core | 302 | 243 | 59 | 0 | 0 | 1,840 | 1,836 | 4 | 0 | 0 |
+| corpus-cats-core | 1,158 | 1,137 | 20 | 1 | 0 | 4,395 | 4,099 | 295 | 1 | 0 |
+| The compiled fixtures | 3,207 | 3,199 | 5 | 3 | 0 | 2,164 | 2,112 | 52 | 0 | 0 |
+
+- Finer, the old answer open and the new one closed. Each is filed under a fact of the old
+  reading's inputs it cannot tell apart, which makes the difference plausible and does not prove
+  it (the facts are weak for common names; the lists are for reading by hand): another template or alias has the class's simple name
+  (cats-core's `SortedSetHash` extends cats-kernel's `SortedSetHash`, so by name it extends
+  itself); another template defines the member's name; a parent clause spells the simple name
+  and names another class (`extends Exception` beside a trait `other.Exception`).
+- Finer, the old answer unknown and the new one closed: a parent the old reading has no
+  declaration of (a library class), which the symbols read.
+- Opener, the new answer open and the old one closed: four traits of cats-kernel and one class of cats-core that a package object extends
+  (`package object all extends AllInstances with …`), which the old reading does not take for a
+  template; three fixture classes of the same kind; and cats-core's abstract `As.substitute`,
+  which an anonymous class implements. The old answer is the unsound one in each.
+- Coarser: none.
+- Unpaired: a class or member only one side lists at that source, line and name. The old side
+  lists what classes and traits write; the new one every class of the trees (enums and their
+  cases, classes in bodies, members the compiler adds at a written position).
+
+**`DependencyClasses`** (166 lines) answers what a dependency's class without TASTy is,
+from its symbols:
+
+```scala
+final private[compiled] class DependencyClasses(
+    classFile: ClassSymbol => (List[String], Boolean)   // CompiledTypes.javaFacts(classes)
+)(using Context) {
+  def of(c: ClassSymbol): Either[String, Declared]
+}
+enum Declared {
+  case Sum(cases: List[TermOrTypeSymbol])                        // one of its cases
+  case Fields(constructor: TermSymbol, fields: List[TermSymbol]) // what its primary constructor is given
+  case Record(abstracts: List[TermSymbol], concrete: List[TermSymbol]) // no state: its abstract members
+}
+```
+
+| Class | Answer | The stubs' guard it keeps |
+| --- | --- | --- |
+| A Java enum | `Sum` of its constants, by the class file's `ACC_ENUM` fields | A static field of the enum's type is no constant (`Coin.DEFAULT`). |
+| A Java interface | `Record`: its abstract methods; default methods are `concrete` | Statics and constants are the companion's; what `Object` declares is left out. |
+| A sealed Java class or interface | refused | Its permitted classes are not read. |
+| Any other Java class | refused, `open class with hidden constructor state` | No signature ties a constructor's parameters to the state. |
+| A Scala 2 sealed trait or abstract class | `Sum` of its children | Refused where a child is local or anonymous (the pickle lists the class itself), and where the class has instances of its own. |
+| A Scala 2 case class | `Fields` of its public primary constructor | The primary is the constructor naming every field; none is chosen among several. |
+| A Scala 2 trait, or abstract class without constructor parameters | `Record` | |
+| A class with TASTy | refused: it is its tree's to read | |
+
+No body is read anywhere: a `concrete` member is code that is not supplied, which a count may
+call and may not read, never a capability and never a throw.
+
+**Integration**: done in stretch 7 ("Wired into the front end", below), but for
+`ClosedProgram.mixes`, which nothing asks yet.
+
+#### Wired into the front end (stretch 7)
+
+The integration is done on `tasty-gate` (after merging `tasty-front` at `0538b5b`),
+but for `ClosedProgram.mixes`:
+
+- `ClosedProgram` and `DependencyClasses` are in `compiled/`. `TastyFrontEnd` builds one
+  `ClosedProgram` per module, which takes the same lazy dependency listing as `Inlines`, and one
+  `DependencyClasses`, which reads Java class files only when a class without TASTy is asked
+  about. `World.extended`, `World.finalClass` and `World.overriding` ask it; the module-only
+  `extended`, `overridden` and `unjudged` are deleted.
+- Classes without TASTy are closed by their class files: `CompiledTypes.unnamed` lists the local
+  and anonymous classes of the module's output and of its classpath that no symbol stands for,
+  with their super class, interfaces and declared methods (`JavaClassfile` reads them). One under
+  a class is a subclass of it that overrides the members it declares, by name; one whose class
+  file does not read, or whose parent does not resolve, leaves the answer incomplete. So
+  `javafixtures.Lone` is open (its `Lone$1` overrides `on`), `javafixtures.Solo` final, and
+  `Toggle.same` closed, as the stubs have them.
+- `Shapes` and `Stored` read a dependency's class with TASTy by its declaration, its bodies
+  unread (`World.readByDeclaration`); `Shapes` reads one without TASTy through
+  `DependencyClasses`. A dependency's opaque type is one value (rule F). The standard library and
+  the JDK stay the standard model's: the `scala` package and the subpackages the library declares,
+  and `java` (`World.standard`, the stubs' `stdlibOwned`); a library's own namespace under
+  `scala`, such as scalameta's, is a dependency like any other. An evidence type compares every
+  type read by shape as a type (`World.shaped`).
+- `Receivers` reads a template that is abstract or may be extended by what it inherits, as it
+  resolves it (a concrete member mixed in beside an abstract one implements it; an abstract
+  redeclaration in a subclass of the concrete one's class makes it abstract again): an inherited
+  abstract member or deferred given is a capability read from its signature as the template sees
+  it (`typeAsSeenFrom`, each overload its own capability), and a concrete one supplies nothing
+  where no class of the program overrides it. Not read yet: a template that reaches one parent
+  through two of its parents (the old reading refuses these too, and their counts are not
+  derived), a parent with constructor parameters, in a class, or without TASTy and no trait. The
+  compiler's super accessors (`superT$$m`) are no capabilities.
+- `ClosedProgram.overriding` asks, for a member declared in an ancestor of `owner`, about the
+  classes before the member's declaring class in each subclass's linearization, outside what
+  `owner` extends; method names of class files are compared encoded.
+
+The differential, before (`37668ad`, the merge of `tasty-front`) and after (`b3f8fce`); every
+input passes, against the memory of the run before:
+
+| Input | Table | Identical | Better | Worse | Uncovered |
+| --- | --- | --- | --- | --- | --- |
+| cats-core | definitions | 1318 → 1357 | 21 | 1 | 219 → 180 |
+| cats-core | methods | 373 → 411 | 89 → 213 | 15 → 19 | 7174 → 7008 |
+| cats-eo | definitions | 128 → 130 | 6 | 0 | 17 → 15 |
+| cats-eo | methods | 153 → 159 | 1 → 3 | 0 | 543 → 535 |
+| cats-eo-generics | definitions | 7 | 0 | 0 | 5 |
+| cats-eo-generics | methods | 27 | 0 | 0 | 53 |
+| cats-eo-schemes | definitions | 1 | 0 | 0 | 1 |
+| cats-eo-schemes | methods | 4 | 0 | 0 | 15 |
+| cats-kernel | definitions | 307 | 0 | 0 | 5 |
+| cats-kernel | methods | 167 → 176 | 3 | 0 | 1615 → 1606 |
+| core | definitions | 369 | 3 | 0 | 269 |
+| core | methods | 999 → 1003 | 1 | 0 | 3000 → 2996 |
+| fixtures | definitions | 4931 | 97 → 98 | 1 | 559 → 558 |
+| fixtures | methods | 3623 → 3820 | 109 → 143 | 1 → 2 | 3009 → 2777 |
+
+- Better past a model limit, all derived in `derived.txt`: 124 members of the type class
+  instances of cats-core (`ListInstances`, `OptionInstances`, `SeqInstances`,
+  `VectorInstances`, `EitherInstances`: each derived from its signature, the Option ones case by
+  case, the sequence ones countably many), two of cats-eo's `SplitCombineLens` (`modify` 2,
+  `replace` 1) and three of the fixtures (`T extends IterableOnce[Int]`).
+- Corrected, with both values and the derivation in `corrected.txt`: four `align`s of cats-core's
+  instances (the ruling on `Ior`: List, Seq and Vector 1 → ω, Option 1 → 16), and the fixture
+  `S.productArity` 2^128 → 2^64 (`canEqual` is `S`'s own and nothing extends `S`, so it supplies
+  nothing, where the old reading counted it a capability). These are the 4 and 1 rows the table's
+  worse column gains.
+- Better past a resolution limit, which needs no derivation (the old reading named something it
+  could not resolve): 31 more method rows and one definition row of the fixtures, refused there
+  for a declaration it was not supplied (26: a dependency's class, read now by its declaration),
+  an inherited override it could not identify (5) or an imported definition (1).
+
+The blockers the stretch aimed at, with the two it also touches, as the gate's "uncovered rows
+need" lists them (each row counted once, under its first reason):
+
+| Reason | Corpora before | Corpora after | Fixtures before | Fixtures after |
+| --- | --- | --- | --- | --- |
+| an enclosing class that inherits and is abstract or may be extended | 2382 | 0 | 339 | 0 |
+| a class of a dependency | 1415 | 574 | 77 | 29 |
+| an enclosing class with a member something overrides | 103 | 474 | 381 | 433 |
+| a parent with constructor parameters or in a class | 179 | 181 | 75 | 96 |
+| an enclosing class whose overriders are not read | 0 | 0 | 7 | 0 |
+| an opaque type of a dependency | 6 | 0 | 12 | 0 |
+
+- `an enclosing class that inherits and is abstract or may be extended` is gone. Its rows now
+  count or stop at the next reason: mostly `an enclosing class with a member something
+  overrides` (the old reading reads such a member as an open capability; not ported), `a class
+  of a dependency` and the two-parent case.
+- `a class of a dependency` that remains names, on corpus-core and cats-core, the standard library
+  or the JDK (`scala.collection`, `scala.math`, `scala.util`, `scala.concurrent`, `java.nio`):
+  classes the standard model does not hold, which the old reading does not read either.
+  scalameta's classes are read now (corpus-core's rows of this reason: 1,078 → 215), their rows
+  then stopping at `a class that is no product, sum or type-only template` (a record of abstract
+  members, which no class is read as yet).
+- `a parent with constructor parameters or in a class` (179 → 181, 75 → 96, rows that stopped at
+  the inheriting template before) is unchanged in kind: such a parent's members may read state
+  the template's own code may not.
+
+Cost of the compiled front end, three runs each (`TastyFrontEnd.rows` over the corpus, wall time
+and peak heap): corpus-core 3.4–3.6 s at `37668ad`, 3.3–3.4 s at `e952ebe`, 3.6–3.9 s at
+`b3f8fce` (which reads scalameta's classes); cats-core 2.7–2.9 s, 2.9–3.0 s and 2.7–3.4 s; peak
+heap unchanged (1.25 and 1.05 GiB). The class files of classes without TASTy are
+read once per module, the classpath's only where a question is about a class outside the module.
 
 ## Phase 5: the TASTy front end, slice by slice
 
@@ -2117,6 +2388,49 @@ corpus method rows are identical (1,760); no row is worse.
 - An open point for the owner: `F[Any]` against `F[AnyRef]` is 0 to both front ends, the two
   being distinct keys; AGENTS.md reads `AnyRef` as `Any` everywhere, so it might be 1.
 - Spec ledger: PASS 673, UNCOVERED 775, FAIL 183, PENDING 19, SCALAMETA 81.
+
+**Merge of `tasty-gate` at `7aba1c6`** (the closed-world index `ClosedProgram` and dependency
+classes `DependencyClasses`, wired in by the gate agent). Conflicts resolved in `Receivers`
+(a sum receiver skips the inheritance reading and the overriding check together; the Unknown
+overriders check stays for every receiver; inherited abstract members of a template that is
+not fixed are capabilities beside the members `Shapes.member` reads), `Shapes` (a record asks
+`world.overriding`), the two lists (both sides kept) and `ReceiversSpec`. With members of
+anonymous classes now read, cats-core's anonymous instances ask the index about parents outside
+the module, which lists the classpath: a second standard-library jar declaring `scala.caps`
+again is refused by tasty-query, and is not reported as a lost class (the context holds it).
+34 rows the two branches open together are derived (the anonymous `Either` instance's members,
+the `NonEmptyParallel` zip instances, `Other.get` 0 over a rigid `G[Option[B]]`, `m.M.onPlain`).
+The full gate ran on the shared assets and refreshed the coverage memory.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,384 | 1 / 0 | 0 | 0 | 0 | 2,615 | 559 of 768 (72.8%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 629 | 42 / 213 | 0 | 62 | 0 | 6,705 | 392 of 909 (43.1%) |
+| cats-core | definitions | 1,559 | 1,357 | 21 / 0 | 0 | 1 | 0 | 180 | 1,049 of 1,053 (99.6%) |
+| cats-kernel | methods | 1,785 | 185 | 3 / 0 | 0 | 0 | 0 | 1,597 | 164 of 368 (44.6%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 182 | 0 / 3 | 0 | 0 | 0 | 512 | 152 of 271 (56.1%) |
+| cats-eo | definitions | 151 | 130 | 6 / 0 | 0 | 0 | 0 | 15 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 4,131 | 110 / 46 | 4 | 3 | 0 | 2,452 | 3,893 of 5,485 (71.0%) |
+| fixtures | definitions | 5,588 | 4,931 | 66 / 32 | 0 | 1 | 0 | 558 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,415 | 46 / 216 | 0 | 62 | 0 | 11,493 | 1,287 of 2,337 (55.1%) |
+| **all corpora** | definitions | 2,677 | 2,171 | 30 / 0 | 0 | 1 | 0 | 475 | 1,747 of 1,807 (96.7%) |
+
+Spec ledger: PASS 727, UNCOVERED 711, FAIL 193, PENDING 19, SCALAMETA 81 (from 673 / 775 /
+183). Ten examples went from UNCOVERED to FAIL, each pinning a refusal of the old reading that
+the two branches now count: `AliasOverrideIdentitySpec` (five guards of alias, type-lambda and
+expansion limits), `DefinitionInventorySpec` "an unmatched inherited given leaves the identity
+unresolved", `DependencyRowsSpec` "a dependency's template is the one of its qualified name",
+`GroundEnvironmentSpec` "an overload is a second member; another shape is refused",
+`HigherKindedBindingSpec` "inherited substitution keeps nominal identity" (`Other.get` 0,
+derived) and `StdlibModelSpec` "IterableOnce leaves iterator to the sources". They go on the
+rewrite-at-switch list; the last one (a Boolean counted ω over an inherited `iterator`
+capability) is for the gate agent to confirm, being its reading of inherited members.
 
 ### How each model rule reads over symbols
 

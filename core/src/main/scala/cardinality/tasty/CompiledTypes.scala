@@ -84,17 +84,58 @@ object CompiledTypes {
 
   /** The top-level classes of the module's classpath, in the context `loaded` made for it, with why
     * each class that does not load fails: its dependencies' declarations, which with its own are
-    * the whole program. Each class is read as it is listed, so this is asked only where a reading
-    * needs every one of them.
+    * the whole program. A class the JDK declares too is the JDK's, and is not listed. Each class is
+    * read as it is listed, so this is asked only where a reading needs every one of them.
     */
   private[cardinality] def dependencies(
       classes: Classes
   )(using Context): (List[ClassSymbol], List[String]) =
-    classesOf(
-      classes.classpath.toList.distinct
-        .map(TastyStubs.readable)
-        .flatMap(path => ClasspathLoaders.read(List(path)))
-    )
+    classesOf(TastyStubs.firstLoaded(classpath(classes), jdk._2))
+
+  /** What a Java class's class file says and its symbol does not, for the classes of the JDK and of
+    * the module's classpath: the names of its enum constants, in order, and whether it is sealed. A
+    * class file that is not found or read is sealed with no constants.
+    */
+  private[cardinality] def javaFacts(classes: Classes): ClassSymbol => (List[String], Boolean) = {
+    val read = TastyStubs.javaClassfiles(jdk._1 ++ classpath(classes))
+    c => {
+      val file = read(c)
+      (file.enumConstants, file.sealedClass)
+    }
+  }
+
+  /** A class no symbol stands for, from its class file: its binary name (`a/b/Outer$1`), the binary
+    * names of the classes it extends, and the names of the methods an instance declares.
+    */
+  final case class ClassFile(binary: String, parents: List[String], methods: List[String])
+
+  /** The local and anonymous classes of the classes without TASTy (`Lone$1`, `Foo$$anon$1`) in the
+    * module's output (`ofModule`) or on its classpath. A class with TASTy holds its own in its
+    * tree.
+    */
+  private[cardinality] def unnamed(classes: Classes, ofModule: Boolean): List[ClassFile] = {
+    val paths = if (ofModule) classes.output.toList else classes.classpath.toList.distinct
+    for {
+      entry <- paths.map(TastyStubs.readable).flatMap(path => ClasspathLoaders.read(List(path)))
+      pkg <- entry.listAllPackages()
+      all = pkg.listAllClassDatas()
+      withTasty = all.filter(_.hasTastyFile).map(_.binaryName).toSet
+      data <- all
+      name = data.binaryName
+      if data.hasClassFile && !withTasty.exists(top => name.startsWith(top + "$")) &&
+        name.split('$').drop(1).exists(part => part.headOption.exists(_.isDigit) || part == "anon")
+    } yield {
+      val file = JavaClassfile.read(IArray.genericWrapArray(data.readClassFileBytes()).toArray)
+      val prefix =
+        if (pkg.dotSeparatedName.isEmpty) "" else pkg.dotSeparatedName.replace('.', '/') + "/"
+      ClassFile(prefix + name, file.parents, file.methods)
+    }
+  }
+
+  private def classpath(classes: Classes): List[ClasspathEntry] =
+    classes.classpath.toList.distinct
+      .map(TastyStubs.readable)
+      .flatMap(path => ClasspathLoaders.read(List(path)))
 
   // The top-level classes some entries list, and why each class that does not load fails.
   private def classesOf(

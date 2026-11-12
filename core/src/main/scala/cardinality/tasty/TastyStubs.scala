@@ -225,7 +225,9 @@ object TastyStubs {
   /** A Java class's `.class` file facts, read from the rendered entries (a Java class's nested
     * classes are files of the same package, `Outer$Inner`).
     */
-  private def javaClassfiles(entries: List[ClasspathEntry]): ClassSymbol => JavaClassfile = {
+  private[tasty] def javaClassfiles(
+      entries: List[ClasspathEntry]
+  ): ClassSymbol => JavaClassfile = {
     val packages = entries
       .flatMap(e =>
         try e.listAllPackages()

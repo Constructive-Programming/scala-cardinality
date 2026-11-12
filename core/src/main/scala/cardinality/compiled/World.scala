@@ -1,17 +1,23 @@
 package cardinality.compiled
 
+import cardinality.types.ListedNamespaces
 import tastyquery.Contexts.*
-import tastyquery.Exceptions.InvalidProgramStructureException
 import tastyquery.Names.nme
 import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
 import tastyquery.Trees.*
 import tastyquery.Types.*
 
-/** The classes of the module: the top-level ones it compiles, and what is inside them. No class
-  * outside the module extends one of them (the closed world).
+/** The classes of the module (the top-level ones it compiles, and what is inside them) and which
+  * classes outside it are read by their declarations. What extends a class and what overrides a
+  * member is the closed world's to say (`ClosedProgram`), and what a dependency's class without
+  * TASTy is, `DependencyClasses`'.
   */
-final private[compiled] class World(own: Set[ClassSymbol])(using Context) {
+final private[compiled] class World(
+    own: Set[ClassSymbol],
+    closed: ClosedProgram,
+    dependencies: DependencyClasses
+)(using Context) {
 
   /** Whether a symbol is the module's: one of its top-level classes, or inside one. */
   def ofModule(symbol: Symbol): Boolean = World.owners(symbol).exists {
@@ -19,13 +25,12 @@ final private[compiled] class World(own: Set[ClassSymbol])(using Context) {
     case _              => false
   }
 
-  /** The fully qualified name of a top-level class under `scala` or `java` that the module does not
-    * compile itself: the only names the standard model and the base types are asked.
+  /** The fully qualified name of a top-level class of the standard library or the JDK
+    * (`World.standard`) that the module does not compile itself: the only names the standard model
+    * and the base types are asked.
     */
   def library(c: ClassSymbol): Option[String] =
-    Option
-      .when(c.owner.isPackage && !own(c))(c.displayFullName)
-      .filter(name => name.startsWith("scala.") || name.startsWith("java."))
+    Option.when(c.owner.isPackage && !own(c) && World.standard(c))(c.displayFullName)
 
   /** Whether building an instance of a template is not read yet (register D26 for classes, slice
     * S6): it, or a template of the module it extends, evaluates something that always throws or
@@ -37,32 +42,54 @@ final private[compiled] class World(own: Set[ClassSymbol])(using Context) {
       .flatMap(_.tree)
       .exists(template => Bodies.destructures(template) || Bodies.alwaysThrows(template))
 
-  /** The classes some class of the module extends directly; its nested, local and anonymous classes
-    * are found in the trees.
-    */
-  lazy val extended: Set[ClassSymbol] =
-    own.toList.flatMap(_.tree).flatMap(World.classes).flatMap(_.symbol.parentClasses).toSet
-
-  /** The members some class of the module overrides (an anonymous or local one included), and the
-    * classes whose overriders are not known: a class whose overrides tasty-query fails to read
-    * (overloads of different kinds), and every class it extends.
-    */
-  lazy val (overridden: Set[Symbol], unjudged: Set[ClassSymbol]) = {
-    val (failed, read) =
-      own.toList.flatMap(_.tree).flatMap(World.classes).map(_.symbol).partitionMap { c =>
-        try
-          Right(c.declarations.flatMap {
-            case member: TermSymbol => member.allOverriddenSymbols
-            case _                  => Nil
-          })
-        catch { case _: InvalidProgramStructureException => Left(c.linearization) }
-      }
-    (read.flatten.toSet[Symbol], failed.flatten.toSet)
+  /** Whether a class of the program extends `c`, or the classes that do are not all known. */
+  def extended(c: ClassSymbol): Boolean = {
+    val below = closed.subclasses(c)
+    below.any || !below.complete
   }
+
+  /** Whether a class is read by its declaration: one of the module, or of a dependency with TASTy,
+    * whose declarations are the program's and whose bodies are not read. The standard library and
+    * the JDK are read by the standard model or not at all.
+    */
+  def readByDeclaration(c: ClassSymbol): Boolean =
+    ofModule(c) || (c.tree.nonEmpty && !World.standard(c))
+
+  /** Whether a type of `symbol` is read by its shape: the module's, or a dependency's outside the
+    * standard library and the JDK (a class by its declaration or its symbols, an opaque type as one
+    * value).
+    */
+  def shaped(symbol: Symbol): Boolean = ofModule(symbol) || !World.standard(symbol)
+
+  /** What a dependency's class without TASTy is (`DependencyClasses`). */
+  def withoutTasty(c: ClassSymbol): Either[String, DependencyClasses.Declared] =
+    dependencies.of(c)
+
+  /** Whether no instance of `c` is of a subclass (the closed world's final). */
+  def finalClass(c: ClassSymbol): Boolean = closed.finalClass(c)
+
+  /** How a class extending `owner` may override `member`, one `owner` declares or inherits. */
+  def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): ClosedProgram.Overriding =
+    closed.overriding(owner, member)
 
 }
 
 private[compiled] object World {
+
+  /** Whether a symbol is declared in the standard library or the JDK's `java` packages, which the
+    * standard model reads: the `scala` package and the subpackages the standard library declares (a
+    * library's own namespace beside them, such as scalameta's, is a dependency like any other, as
+    * the stubs have it). Another JDK namespace (`javax`) is read like a Java dependency.
+    */
+  def standard(symbol: Symbol): Boolean =
+    owners(symbol).collectFirst {
+      case p: PackageSymbol => p.displayFullName.split('.').toList
+    } match {
+      case Some("java" :: _)                => true
+      case Some("scala" :: Nil)             => true
+      case Some("scala" :: subpackage :: _) => ListedNamespaces.scalaPackages.contains(subpackage)
+      case _                                => false
+    }
 
   /** A symbol and everything around it, innermost first. */
   def owners(symbol: Symbol): List[Symbol] =

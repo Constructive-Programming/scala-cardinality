@@ -75,6 +75,9 @@ class ReceiversSpec extends Specification {
       |trait Deferred { inline val flag: Boolean; def m: Boolean = true }
       |class Thrown(b: Boolean) { val z: Boolean = ???; def get: Boolean = b }
       |trait Member { type T; def get(t: T): T = t }
+      |object TA { final case class P(b: Boolean); trait Base[R] { def f(p: P): R } }
+      |object TB { final case class P(b: Boolean); trait Mid[R] extends TA.Base[R] { def f(p: P): R } }
+      |trait Twin[R] extends TB.Mid[R] { def g(): R = ??? }
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Receivers.scala" -> text)
@@ -129,7 +132,13 @@ class ReceiversSpec extends Specification {
   // extends it (the closed world's final): `get` is a Boolean computed from `flag`, 2^2, and so is
   // `show` from `flag` and `b`, 2^(2 × 2). An object holds nothing: `Single.other` is one of the
   // 2^2 functions. A class something extends is read alike where nothing overrides a member of
-  // it: `Base.get` is computed from `b`, 2^2.
+  // it: `Base.get` is computed from `b`, 2^2. A template that may be extended, or is abstract,
+  // reads what it inherits as it resolves it: `Half` and `Never` inherit the abstract
+  // `show: Boolean => Boolean`, one of 2^2 functions, so `get` is a Boolean computed from it,
+  // 2^(2^2) = 16 (`Never` is `abstract final`: it implements nothing and has no instance, and its
+  // body is read as written against the abstract `show`). `Twin` inherits two abstract `f`s that
+  // do not match, `TA.Base.f(TA.P)` and `TB.Mid.f(TB.P)`: each gives 2 `R`s, one per Boolean in
+  // its `P`, so `g` returns one of 2 + 2 = 4 (one capability for both would give 2).
   // A sealed family or an enum is one value of its sum as a receiver: which case, and what the
   // case holds. `Fam` has the one case `One`, so `get` is one of 2 Booleans; `Color` has two
   // cases, so `f` is one of the 2^2 functions of them. The row captures the receiver as a whole.
@@ -142,6 +151,9 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Fam.get") must_== Count.Finite(2))
       .and(count("recv.Color.f") must_== Count.Finite(4))
       .and(entry("recv.Color.f").captures must_== List("<receiver recv.Color>"))
+      .and(count("recv.Half.get") must_== Count.Finite(16))
+      .and(count("recv.Never.get") must_== Count.Finite(16))
+      .and(count("recv.Twin.g") must_== Count.Finite(4))
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
@@ -191,8 +203,7 @@ class ReceiversSpec extends Specification {
 
   // What S4's first step leaves, each row uncovered for its own reason: a class with a member
   // something overrides (a capability); a parent of the module with constructor parameters or in
-  // a class (its members may read state the class's own code may not); a class that inherits and
-  // is abstract or may be extended; a sealed class (the receiver splits into its cases); a self
+  // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
   // type; a deferred `inline val`, and a deferred inline method where a type parameter is in
   // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
   // type member; a capability with type parameters of its own.
@@ -201,8 +212,6 @@ class ReceiversSpec extends Specification {
       "Wide.get" -> "an enclosing class with a member something overrides",
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
       "Sub.more" -> "a parent with constructor parameters or in a class",
-      "Half.get" -> "an enclosing class that inherits and is abstract or may be extended",
-      "Never.get" -> "an enclosing class that inherits and is abstract or may be extended",
       "Closed.get" -> "an enclosing concrete sealed class or enum case",
       "Lifted.get" -> "a capability with type parameters of its own",
       "Wished.get" -> "a deferred inline method over a type parameter",
