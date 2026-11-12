@@ -38,7 +38,7 @@ Key references motivating this work:
 
 - [Counting type inhabitants](https://web.archive.org/web/20181221193229/https://alexknvl.com/posts/counting-type-inhabitants.html)
   (Alex Knvl, 2018): the type arithmetic condensed in
-  [docs/type-arithmetic.md](docs/type-arithmetic.md)
+  [docs/site/arithmetic/counting-data.md](docs/site/arithmetic/counting-data.md)
 - [The Hidden Powers of Total Program Cardinality](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-9351ba774d4d)
 - [The Hidden Powers of Total Program Cardinality (2 of 2)](https://medium.com/@rodolfohansen/the-hidden-powers-of-total-program-cardinality-2-of-2-ceb0a3af13dd)
 
@@ -172,7 +172,7 @@ are historical.
 The calculator is an early work in progress. It parses Scala source with
 [scalameta](https://scalameta.org/) and counts products, tagged sums,
 exponentials, powersets and primitives, following the type arithmetic condensed
-in [docs/type-arithmetic.md](docs/type-arithmetic.md), and reports the cardinality
+in [docs/site/arithmetic/counting-data.md](docs/site/arithmetic/counting-data.md), and reports the cardinality
 of the definitions a source introduces — classes, enums, modules, type aliases and
 opaque types, nested definitions included.
 
@@ -214,12 +214,17 @@ sealed hierarchies spanning files — pinned as pending targets in the test suit
 
 ## Documentation
 
-[`docs/`](docs) holds the pages that get published as the documentation site — currently
-[type arithmetic](docs/type-arithmetic.md), the counting rules the calculator targets and
-the tests that pin them down. The README stays the entry point for the repository itself.
+[`docs/`](docs) is the source of truth. [`docs/site/`](docs/site) is the published
+subset: [getting started](docs/site/getting-started.md),
+[reading a report](docs/site/reading-a-report.md),
+[counting data](docs/site/arithmetic/counting-data.md),
+[counting methods](docs/site/arithmetic/counting-methods.md) and
+[references](docs/site/references/index.md). Internal notes under `docs/plans`, `docs/research`
+and `docs/baselines` are not rendered. The README stays the entry point for the repository
+itself.
 
 ```bash
-sbt siteRender                      # renders docs/ into target/site
+sbt siteRender                      # renders docs/site/ into target/site
 python3 -m http.server -d target/site 8000
 ```
 

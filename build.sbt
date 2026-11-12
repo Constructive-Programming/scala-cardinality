@@ -288,9 +288,11 @@ addCommandAlias("mutationAll", "core/stryker")
 // ----------------------------------------------------------------
 // Documentation site
 // ----------------------------------------------------------------
-// `docs/` is the source of truth for the repository and for the site, so there is no
-// copy to keep in sync: `siteRender` runs Laika (the same engine and Helium theme the
-// sister project `eo` uses) over that directory and writes `target/site`.
+// `docs/` is the source of truth for the repository; `docs/site/` is the published
+// subset. There is no copy to keep in sync: `siteRender` runs Laika (the same engine and
+// Helium theme the sister project `eo` uses) over `docs/site/` and writes `target/site`.
+// Internal notes under `docs/plans`, `docs/research` and `docs/baselines` stay out of the
+// input tree, so they are neither rendered nor reachable from the site.
 //
 // Two deviations from `eo`'s setup, both forced by sbt 2: its `sbt-typelevel-site`
 // plugin has no sbt 2 build, so the render step lives in `project/SiteRenderer.scala`
@@ -301,7 +303,7 @@ addCommandAlias("mutationAll", "core/stryker")
 // `siteRender` is declared at the build level so `sbt siteRender` resolves, but only the
 // root project renders: the site belongs to the repository, not to a module, and aggregating
 // the task would write it once per module. Root has no sources, so nothing else is tied to it.
-lazy val siteRender = taskKey[Unit]("Render docs/ into the static site under target/site")
+lazy val siteRender = taskKey[Unit]("Render docs/site/ into the static site under target/site")
 
 // Uncached on purpose: writing the site is a side effect, so it must re-read `docs/` on
 // every run rather than trust a cache entry that only tracks a directory path.
@@ -310,6 +312,6 @@ root / siteRender := Def.uncached {
   // workflow wants one path it can point at.
   val output = (ThisBuild / baseDirectory).value / "target" / "site"
   IO.delete(output)
-  SiteRenderer.render((ThisBuild / baseDirectory).value / "docs", output)
+  SiteRenderer.render((ThisBuild / baseDirectory).value / "docs" / "site", output)
   streams.value.log.info(s"Site written to ${output.getAbsolutePath}")
 }

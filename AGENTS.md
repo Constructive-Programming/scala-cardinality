@@ -173,10 +173,10 @@ The analyzer's code does not define what a number means; these documents do.
 - [docs/plans/v1.md §2](docs/plans/v1.md), "Agreed counting contract". It sets the two
   questions (implementation cardinality and stored-value cardinality), the scope and
   equivalence, the assumptions and what each output means.
-- [docs/counting-type-inhabitants.md](docs/counting-type-inhabitants.md) covers the method side:
+- [docs/site/arithmetic/counting-methods.md](docs/site/arithmetic/counting-methods.md) covers the method side:
   observational equivalence, parametric atoms, sums, products and exponentials, least fixed
   points and absurd elimination.
-- [docs/type-arithmetic.md](docs/type-arithmetic.md) covers the stored-value side.
+- [docs/site/arithmetic/counting-data.md](docs/site/arithmetic/counting-data.md) covers the stored-value side.
 - The per-rule notes are in [docs/research/](docs/research). The evidence register,
   [code-cardinality-foundations.md](docs/research/code-cardinality-foundations.md), records the
   sources and the status of each rule.
