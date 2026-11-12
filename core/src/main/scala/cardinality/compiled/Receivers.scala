@@ -33,8 +33,10 @@ import tastyquery.Trees.*
   * capability), or overriders the classes read do not settle; a self type; a bounded or
   * higher-kinded type parameter; an abstract type member; a capability with type parameters of its
   * own; a deferred `inline val`, or a deferred inline method over a type parameter; a construction
-  * that always throws or binds a pattern (S6); a given instance and contextual parameters and
-  * members (S5).
+  * that always throws or binds a pattern (S6); and what implicit search chooses (S5's remainder): a
+  * member of a given instance without parameters, a contextual parameter without a name, an
+  * abstract given without a name or with parameters, an abstract extension method. A given written
+  * `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -106,7 +108,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     // A concrete member a class of the module overrides is a capability of this class.
     val overridden = tree.rhs.body.exists {
       case member: ValOrDefDef =>
-        !member.symbol.isAbstractMember && world.overridden(member.symbol)
+        !Receivers.open(member) && world.overridden(member.symbol)
       case _ => false
     }
     for {
@@ -165,14 +167,25 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         .map(Binding(s"$self.${value.name}", _, Some(value.name.toString)))
     val parameters = Shapes.parameters(tree.rhs.constr)
     val capabilities = tree.rhs.body.collect {
-      case member: ValOrDefDef if member.symbol.isAbstractMember && member.symbol != measured =>
+      case member: ValOrDefDef if Receivers.open(member) && member.symbol != measured =>
         member
     }
     for {
       _ <- Readings.plainInputs(parameters)
       fields <- Traversals.sequence(parameters.map(held))
       members <- Traversals.sequence(capabilities.map { member =>
-        Readings.later(member.symbol) match {
+        // An extension method is no member of its receiver's instances, and a given without a
+        // name is found by search alone: neither is read as a capability yet.
+        val unread =
+          if (member.symbol.isExtensionMethod) Left("an extension method")
+          else if (Readings.contextual(member.symbol) && member.name.toString.startsWith("given_"))
+            Left("an anonymous given")
+          // The old front end reads an abstract given as a value of its type, whatever clauses
+          // it takes; it is a function of them, and the two counts differ.
+          else if (member.symbol.isGivenOrUsing && paramsOf(member).nonEmpty)
+            Left("an abstract given with parameters")
+          else Readings.later(member.symbol)
+        unread match {
           case Left(what) =>
             Left(Uncovered(s"$what among the members of an enclosing class: ${member.name}"))
           case Right(()) =>
@@ -198,6 +211,11 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield fields ++ members.flatten
   }
 
+  private def paramsOf(member: ValOrDefDef): List[ValDef] = member match {
+    case method: DefDef => Shapes.parameters(method)
+    case _: ValDef      => Nil
+  }
+
   // Whether a method's signature may name a type parameter: it has its own, or one is in scope
   // (through an alias too, so the signature is not searched).
   private def generic(method: DefDef, env: Shapes.Env): Boolean =
@@ -221,6 +239,27 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       } yield Option.when(result != Shape.Product(Nil))(
         Binding(s"$self.${member.name}", Shape.Function(inputs, result), Some(member.name.toString))
       )
+  }
+
+}
+
+private[compiled] object Receivers {
+
+  /** A member a subclass supplies: an abstract one, or a given written `= deferred`
+    * (`scala.compiletime.deferred`, as the compiler resolved the name), which each class extending
+    * the trait gives.
+    */
+  def open(member: ValOrDefDef)(using Context): Boolean = {
+    val body = member match {
+      case method: DefDef => method.rhs
+      case value: ValDef  => value.rhs
+    }
+    member.symbol.isAbstractMember || (member.symbol.isGivenOrUsing && body.exists {
+      case reference: TermReferenceTree =>
+        val named = reference.symbol
+        named.name.toString == "deferred" && World.under(named, "scala.compiletime")
+      case _ => false
+    })
   }
 
 }

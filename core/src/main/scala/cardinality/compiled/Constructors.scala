@@ -27,7 +27,8 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   *     values has no agreed reading and is refused.
   *
   * Not read yet: a position the method side refuses (a recursive type), which takes the estimate's
-  * tier; one the estimate does not read; one over a singleton or evidence.
+  * tier; one the estimate does not read; one over a singleton or evidence; a contextual one without
+  * a name.
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored)(using Context) {
   import Constructors.Position

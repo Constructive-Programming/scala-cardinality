@@ -152,19 +152,41 @@ private[compiled] object Readings {
     if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
     else Left(Unread.Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))
 
-  /** Parameters the reading takes as plain inputs: none contextual. */
+  /** Parameters the reading takes as inputs. A contextual one with a name is a value like any other
+    * (slice S5): only implicit search tells it apart, and a body is counted, not searched. One
+    * without a name (`using T`, a context bound's evidence) is found by search alone, among
+    * whatever else is in scope: not read yet.
+    */
   def plainInputs(parameters: List[ValDef]): Either[Unread, Unit] =
     parameters
-      .map(p => later(p.symbol))
-      .collectFirst { case Left(why) => Unread.Uncovered(why) }
+      // The compiler names it `x$N` or `evidence$N`; a constructor's is not flagged synthetic.
+      .find(p => contextual(p.symbol) && p.name.toString.contains("$"))
+      .map(p => Unread.Uncovered(s"an anonymous contextual parameter: ${p.name}"))
       .toLeft(())
 
-  // What a member's or a parameter's flags, or a constructor's name, leave to slices not read yet.
-  def later(symbol: TermSymbol): Either[String, Unit] =
-    if (symbol.isGivenOrUsing || symbol.isImplicit) Left("a contextual definition")
-    else if (symbol.isExtensionMethod) Left("an extension method")
-    else if (World.isConstructor(symbol)) Left("a secondary constructor")
+  def contextual(symbol: TermSymbol): Boolean = symbol.isGivenOrUsing || symbol.isImplicit
+
+  /** What a member's kind leaves to slices not read yet. A given alias, an implicit definition and
+    * an extension method count as the methods they are (S5); a given instance is a class.
+    */
+  def later(symbol: TermSymbol)(using Context): Either[String, Unit] =
+    if (World.isConstructor(symbol)) Left("a secondary constructor")
+    else if (contextual(symbol) && instance(symbol)) Left("a given instance")
     else Right(())
+
+  // A given instance's value or method: it builds the class the compiler names like it.
+  private def instance(symbol: TermSymbol)(using Context): Boolean =
+    symbol.isModuleVal || symbol.tree.exists {
+      case member: ValOrDefDef =>
+        val declared = member match {
+          case method: DefDef => method.resultTpt
+          case value: ValDef  => value.tpt
+        }
+        World
+          .classNamed(declared.toType)
+          .exists(c => c.owner == symbol.owner && c.name.toString == symbol.name.toString)
+      case _ => false
+    }
 
   /** The solver's depth budget, the same for every row; its state budget is its own default. */
   val Depth = 64

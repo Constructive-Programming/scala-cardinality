@@ -347,11 +347,8 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
     World.classNamed(constructor).exists(_.displayFullName == "scala.Array")
 
   // Whether a symbol is declared under `scala.compiletime` or `scala.quoted`.
-  private def compileTime(symbol: Symbol): Boolean = World.owners(symbol).exists { around =>
-    around.isPackage && Inlines.CompileTime.exists { root =>
-      around.displayFullName == root || around.displayFullName.startsWith(root + ".")
-    }
-  }
+  private def compileTime(symbol: Symbol): Boolean =
+    Inlines.CompileTime.exists(World.under(symbol, _))
 
   // A symbol as a reason names it: its path, an object by its own name, and without the object
   // the compiler makes of a file's top-level definitions.

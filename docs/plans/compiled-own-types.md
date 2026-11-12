@@ -1208,11 +1208,16 @@ time on the rows still uncovered is not in it.
   dependencies against each fixture's `classpath.txt`.
 - Done since: `Inlines` plugged into `Readings` ("After `Inlines`"), with the first run of
   `scripts/spec-ledger.sh` on this branch and every new FAIL named and classed.
-- Done since: S4's first step, receivers ("After S4"; `Receivers`, `ReceiversSpec`).
-- Next: S5 (contextual scope), with `scripts/spec-ledger.sh` totals beside its table; then stop
-  and report. What S4 leaves is listed under "After S4".
-- `core/src/test/scala/cardinality/compiled/ProbeScratch.scala`, if present, is a scratch probe
-  for reviewers (both front ends' rows of the sources given as arguments): never commit it.
+- Done since: S4's first step, receivers ("After S4"; `Receivers`, `ReceiversSpec`), and S5's
+  first step, contextual scope ("After S5"; `ContextualSpec`). The stretch stops here, by
+  instruction: the report goes to the coordinator.
+- Next, when resumed: what "After S4" and "After S5" list as left uncovered (the largest are
+  sealed receivers, open classes that inherit, locals, anonymous contextual parameters), then
+  S6.
+- A scratch probe for reviewers is kept outside the tree at `/tmp/ProbeScratch.scala` (both
+  front ends' rows of the sources given as arguments, and the compiled front end's time and
+  peak heap over a corpus): copy it into `core/src/test/scala/cardinality/compiled/` to use it,
+  and never commit it.
 - Interface notes from the sibling's ledger of the spec suite (`scripts/spec-ledger.sh`), for S8
   or earlier: `Report.of` is tied to `ScalametaFrontEnd`; a source that defines nothing is told
   only by message text; there is no `Limits` parameter; dependencies can only be given as
@@ -1693,6 +1698,88 @@ front end lists are the labels of the receivers' bindings. Against the old rule 
 bound from an owner other than the row's own) they differ in three known places, none a count:
 a row refused by the model lists none; a second abstract overload is listed under its name, not
 `name#2`; a concrete alias of a capture (`val again = captured`) is not listed.
+
+**After S5** (contextual scope, where implicit search has nothing to choose). Every row pairs.
+The worse rows are listed corrections: fourteen in cats-core and two in the fixtures.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 978 | 1 / 0 | 0 | 0 | 0 | 3,021 | 507 of 768 (66.0%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 328 | 37 / 3 | 0 | 13 | 0 | 7,270 | 282 of 909 (31.0%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 158 | 3 / 0 | 0 | 0 | 0 | 1,624 | 144 of 368 (39.1%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 129 | 0 / 1 | 0 | 0 | 0 | 567 | 107 of 271 (39.5%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 26 | 0 / 0 | 0 | 0 | 0 | 54 | 12 of 16 (75.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 0 | 19 | 0 of 5 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,517 | 68 / 36 | 4 | 1 | 0 | 3,120 | 3,303 of 5,485 (60.2%) |
+| fixtures | definitions | 5,588 | 4,923 | 65 / 8 | 0 | 1 | 0 | 591 | 4,342 of 4,513 (96.2%) |
+| **all corpora** | methods | 14,232 | 1,619 | 41 / 4 | 0 | 13 | 0 | 12,555 | 1,052 of 2,337 (45.0%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+What S5 reads, with derived examples in `ContextualSpec`: a body is counted, not searched, so a
+`using` or `implicit` parameter with a name is a value like any other (of the method, of an
+enclosing class's constructor, of a capability); a given alias, an implicit value or method and
+an implicit conversion count as the methods they are, and a concrete given supplies nothing to
+the members beside it; a given written `= deferred` (`scala.compiletime.deferred`, as the
+compiler resolved the name) is a capability of its trait's other members, like an abstract
+member; an extension method counts over all its clauses; the members and constructor of a given
+instance with parameters count like a class's.
+
+Left uncovered: a contextual parameter without a name (`using T`, a context bound's evidence),
+which the old front end binds and then refuses or not by what else implicit search could find
+(the competition of givens, imports and parents in scope: not ported); a member of a given
+instance without parameters; among a class's members a deferred given without a name, an
+abstract given with parameters and an abstract extension method; context function types.
+
+Corrections added by S5 (`corrected.txt`), the rule of the `cats.evidence.As` rows above:
+
+| Row | Old | New |
+| --- | --- | --- |
+| cats-core `cats.evidence.AsSupport.asFromPredef` | 0 | `?`: sealed family has anonymous instances in its file: As |
+| cats-core `cats.evidence.As.refl` | 0 | the same `?` |
+| cats-core `cats.evidence.As.witness` | 1 | the same `?` |
+
+Spec ledger after S5:
+
+| | PASS | UNCOVERED | FAIL | PENDING | SCALAMETA |
+| --- | --- | --- | --- | --- | --- |
+| after S4 | 582 | 871 | 178 | 19 | 81 |
+| after S5 | 596 | 857 | 178 | 19 | 81 |
+
+Fourteen examples went from UNCOVERED to PASS; FAIL did not grow.
+
+Found in S5's review, not in any gate input, for the coordinator:
+
+- An abstract given with a `using` clause, as a capability of its class's other members: the old
+  front end reads it as a value of its type (`trait E { given cap(using x: Boolean):
+  Option[Boolean]; def f: Option[Boolean] }`: 27 = 3^3), where it is a function of its
+  parameter (3^9). The old front end itself counts 3^9 for the same member written `implicit
+  def`. The compiled front end leaves the row uncovered rather than change the number unlisted.
+- `Targets.instances` takes a class for a given instance's when a given of the same statement
+  list has its name: `object G { class s; given s: s = new s }` loses the row `G.s.<init>` that
+  the old front end has. It predates this stretch.
+- Rows of a trait with two givens written `= deferred` count where the old front end refuses
+  for re-entry (`given g: Boolean = deferred; given k: Option[Boolean] = Some(g)`: `k` is 3^2):
+  right by the rule above, and underived only because no input holds one.
+
+Time and memory of the compiled front end at this commit (`TastyFrontEnd.rows` over the frozen
+corpus in one JVM, classes loaded included; the scalameta front end's medians are in "Corpora"):
+
+| Corpus | Rows (methods) | Wall | Peak heap | Scalameta front end |
+| --- | --- | --- | --- | --- |
+| corpus-core | 4,000 | 3.2 s | 1.25 GiB | 111.2 s, 8.62 GiB |
+| corpus-cats-core | 7,651 | 2.6 s | 1.06 GiB | 65.5 s, 5.09 GiB |
+
+The comparison is not like for like yet: the compiled front end measures 978 of core's 4,000
+method rows and 328 of cats-core's 7,651 itself, and answers the rest as uncovered at once.
+
+The new front end is 3,087 lines in `core/src/main/scala/cardinality/compiled/` (fourteen
+files), `Inlines` (about 390) among them.
 
 ### How each model rule reads over symbols
 

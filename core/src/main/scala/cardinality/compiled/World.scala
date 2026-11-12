@@ -90,6 +90,12 @@ private[compiled] object World {
     c.linearization.drop(1).filterNot(parent => universal(parent.displayFullName))
   }
 
+  /** Whether a symbol is declared under the package `root`, or under a package inside it. */
+  def under(symbol: Symbol, root: String): Boolean = owners(symbol).exists { around =>
+    around.isPackage &&
+    (around.displayFullName == root || around.displayFullName.startsWith(root + "."))
+  }
+
   /** Whether a method is a constructor, primary or secondary. */
   def isConstructor(symbol: Symbol): Boolean = symbol.name == nme.Constructor
 

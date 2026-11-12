@@ -792,8 +792,8 @@ class TastyFrontEndSpec extends Specification {
   // as ω (`Holder`): refused. A position mixing a type parameter with an `Int` has no agreed
   // reading. A reason of the estimate declines a ground position only: `Rest` names its type
   // parameter, under a repeated type, and keeps the method side's ω. A recursive position takes
-  // the estimate's tier, and a `using` clause is contextual:
-  // not read yet.
+  // the estimate's tier: not read yet. A `using` parameter with a name is a position like any
+  // other: `Using` holds an `Open`, as `Holds` does.
   private def constructors = {
     val uncovered = s"${TastyFrontEnd.Uncovered}: "
     val expected = List(
@@ -815,7 +815,7 @@ class TastyFrontEndSpec extends Specification {
       "Holder" -> "constructor position readings disagree",
       "Mixed" -> "constructor position mixes type parameters with transparent ground values",
       "Rec" -> s"${uncovered}a constructor position the method side refuses",
-      "Using" -> s"${uncovered}a contextual definition"
+      "Using" -> "open to implementations"
     )
     expected.map((name, _) => name -> constructed(name)) must_== expected
   }
