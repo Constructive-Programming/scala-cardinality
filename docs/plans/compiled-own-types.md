@@ -1238,17 +1238,14 @@ time on the rows still uncovered is not in it.
 - Done ("Stretch 4, third unit"): a captured parameter is refused only where a scope between
   its method and the definition binds its name again (it was: anywhere in the method).
 - Done ("Stretch 4, fourth unit"): capability records without parents.
-- Done ("Stretch 4, fifth unit"): sealed and enum receivers. Items 1 to 3 are committed; the
-  stretch stops here and reports.
-- Next, when resumed: item 4 (bounded and higher-kinded type parameters: 1,904 + 1,536 corpus
-  rows; then unions, singletons, type members, refinements: 775), the records' remaining
-  reasons (parents of the module: 410; a parameter that is no public field: 339; a restricted
-  constructor: 265; a self type: 297), item 5 (self types: 402, objects with parents: 245,
-  abstract type members, constructor rows in a class), item 6 (anonymous contextual
-  parameters: 138), and families whose cases do not pass their own parameters on (130, the Ior
-  shape as a receiver). Left in item 1, each under 100 rows with the fixtures: a local named
-  class or object, definitions in a function literal, a case clause or a constructor's body,
-  names a nearer scope binds again.
+- Stretch 5 (the coordinator's order: item 4, records' remaining reasons, item 5, item 6).
+  Decisions recorded: the 41 Ior corrections stay grouped under one rule with worked examples;
+  the canEqual and As corrections stand; the three new ledger FAILs go on the rewrite-at-switch
+  list. Done: higher-kinded type parameters ("Stretch 5, first unit"). Next: merge `tasty-gate`
+  at `7aba1c6` (the coordinator's instruction), run the full gate on the shared assets, then
+  the rest of item 4 (bounded proper parameters, unions, singletons, type members,
+  refinements), then the records' remaining reasons. "A member something overrides" is the
+  gate agent's next unit.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
@@ -2083,6 +2080,43 @@ corpus method rows are identical (1,760); no row is worse.
 - Spec ledger: PASS 640, UNCOVERED 808, FAIL 183, PENDING 19, SCALAMETA 81. Capture
   differences: 3 second overloads, 42 aliases only the old lists, 129 names only the new lists,
   2 of both.
+
+**Stretch 5, first unit** (higher-kinded type parameters). All inputs pass.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,380 | 1 / 0 | 0 | 0 | 0 | 2,619 | 559 of 768 (72.8%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 552 | 42 / 57 | 0 | 58 | 0 | 6,942 | 385 of 909 (42.4%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 176 | 3 / 0 | 0 | 0 | 0 | 1,606 | 162 of 368 (44.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 171 | 0 / 1 | 0 | 0 | 0 | 525 | 149 of 271 (55.0%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,927 | 72 / 41 | 4 | 2 | 0 | 2,700 | 3,691 of 5,485 (67.3%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,314 | 46 / 58 | 0 | 58 | 0 | 11,756 | 1,275 of 2,337 (54.6%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A type parameter of a measured definition, of a method around it or of a receiver whose bounds
+  are those of any invariant type constructor of proper, unbounded parameters (`F[_]`,
+  `G[_, _]`) is a rigid constructor (`Shapes.binder`), and `F[X]` is the uninterpreted
+  application over `X`'s key (`Shapes.key`): a binder is its atom, a static class or an opaque
+  alias outside its scope is its name over its arguments' keys, an alias is followed (`Id[A]` is
+  `A`), an opaque alias inside its scope is its representation. A variance on the constructor's
+  parameter (`F[+_]`: subtyping between applications), a path-dependent type, a union, a
+  singleton or a refinement as an argument, and constructor rows of such classes stay uncovered.
+  tasty-query keeps a lambda parameter's variance private: `tastyquery/Variances.scala` reads it
+  from inside the package, and through the flags the bytecode keeps public.
+- Two rows derived: `IndexedStateTContravariantMonoidal.unit` and `.product`, 1 each: a sealed
+  abstract class that nothing extends has no case, so its members are never called.
+- An open point for the owner: `F[Any]` against `F[AnyRef]` is 0 to both front ends, the two
+  being distinct keys; AGENTS.md reads `AnyRef` as `Any` everywhere, so it might be 1.
+- Spec ledger: PASS 673, UNCOVERED 775, FAIL 183, PENDING 19, SCALAMETA 81.
 
 ### How each model rule reads over symbols
 

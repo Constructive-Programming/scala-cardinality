@@ -18,7 +18,7 @@ import tastyquery.Trees.*
   *     nothing: every body builds that value without it.
   *   - A concrete member supplies nothing: it computes from what the environment already holds.
   *     That holds where no class of the module overrides it (the closed world).
-  *   - The class's type parameters are atoms.
+  *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`).
   *   - A class that inherits is read by its own state alone where every member it inherits is
   *     implemented and none can be overridden: a concrete class that is final or that nothing
   *     extends. An object is such a template with no state.
@@ -32,12 +32,12 @@ import tastyquery.Trees.*
   * or extended (what it inherits is a capability); a parent of the module with constructor
   * parameters, in a class or a body (its members may read state the class's own code may not); a
   * member something overrides (a capability), or overriders the classes read do not settle; a self
-  * type; a bounded or higher-kinded type parameter; an abstract type member; a capability with type
-  * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
-  * parameter; a construction that always throws or binds a pattern (S6); and what implicit search
-  * chooses (S5's remainder): a contextual parameter without a name, an abstract given without a
-  * name, an abstract extension method. A given written `= deferred` is a capability like an
-  * abstract member.
+  * type; a bounded type parameter, or one of another kind than `F[_]`; an abstract type member; a
+  * capability with type parameters of its own; a deferred `inline val`, or a deferred inline method
+  * over a type parameter; a construction that always throws or binds a pattern (S6); and what
+  * implicit search chooses (S5's remainder): a contextual parameter without a name, an abstract
+  * given without a name, an abstract extension method. A given written `= deferred` is a capability
+  * like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
 
@@ -133,10 +133,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       _ <- refused(world.unjudged(c), "an enclosing class whose overriders are not read")
       _ <- refused(c.givenSelfType.nonEmpty, "an enclosing class with a self type")
       _ <- refused(
-        c.typeParams.exists(binder => !Shapes.unbounded(binder.declaredBounds)),
-        "an enclosing class with a bounded or higher-kinded type parameter"
-      )
-      _ <- refused(
         Shapes.abstractTypeMember(tree),
         "an enclosing class with an abstract type member"
       )
@@ -147,12 +143,20 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield ()
   }
 
-  /** The atoms of the receivers' type parameters, and of the copies their constructors hold. */
-  def atoms(receivers: List[ClassDef]): Map[Symbol, Shape] = receivers.flatMap { tree =>
-    val c = tree.symbol
-    val named = c.typeParams.map(binder => Shape.Atom(s"${c.displayFullName}[${binder.name}]"))
-    c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named)
-  }.toMap
+  /** What the receivers' type parameters stand for (`Shapes.binder`), and the copies their
+    * constructors hold.
+    */
+  def atoms(receivers: List[ClassDef]): Either[Unread, Map[Symbol, Shape]] =
+    Traversals
+      .sequence(receivers.map { tree =>
+        val c = tree.symbol
+        Traversals
+          .sequence(c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr))))
+          .map(named =>
+            c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named)
+          )
+      })
+      .map(_.flatten.toMap)
 
   /** What the receivers supply to `measured`: their constructors' parameters and their abstract
     * members, `measured` aside (a member is no capability of its own).

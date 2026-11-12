@@ -1,7 +1,7 @@
 package cardinality.compiled
 
 import cardinality.analysis.BuiltinTypes
-import cardinality.analysis.inhabitation.Inhabitation.Shape
+import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.OpenLevel
@@ -44,8 +44,42 @@ final private[compiled] class Shapes(world: World)(using Context) {
     // `Nothing` is a type of its own in the tree, with no class to name.
     case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
     case repeated: RepeatedType      => of(repeated.elemType, env).map(Shape.Repeated(_))
+    case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
+    case other                       => uncovered(other)
+  }
+
+  private def applied(arguments: List[TypeOrWildcard]): Either[Unread, List[Type]] =
+    World.proper(arguments).left.map(Uncovered(_))
+
+  // A type as an argument of an uninterpreted application: its identity, not its values. A
+  // binder is its atom or constructor; a class or an opaque alias is its name over its arguments'
+  // keys (an alias is followed first: `Id[A]` is `A`). Any other form is not read yet.
+  private def key(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
     case World.Named(ref, arguments) =>
-      World.proper(arguments).left.map(Uncovered(_)).flatMap(named(ref, _, env))
+      applied(arguments).flatMap { proper =>
+        ref.optSymbol match {
+          case Some(binder) if env.binders.contains(binder) =>
+            if (proper.isEmpty) Right(env.binders(binder))
+            else named(ref, proper, env)
+          // An opaque alias seen inside its scope is its representation (rule F).
+          case Some(alias: TypeMemberSymbol) if World.owners(env.site).contains(alias.owner) =>
+            alias.typeDef match {
+              case TypeMemberDefinition.OpaqueTypeAlias(_, body) => key(body.appliedTo(proper), env)
+              case _                                             => uncovered(tpe)
+            }
+          // A static class or opaque alias is the same type at every use; one reached through a
+          // value's path, and an abstract type member, may differ per path: not read.
+          case Some(named @ (_: ClassSymbol | _: TypeMemberSymbol))
+              if World.inObjects(named) && (named match {
+                case member: TypeMemberSymbol => member.isOpaqueTypeAlias
+                case _                        => true
+              }) =>
+            Traversals
+              .sequence(proper.map(key(_, env)))
+              .map(Shape.Applied(Head.Nominal(named.displayFullName), _))
+          case _ => uncovered(tpe)
+        }
+      }
     case other => uncovered(other)
   }
 
@@ -60,8 +94,17 @@ final private[compiled] class Shapes(world: World)(using Context) {
   private def named(ref: TypeRef, arguments: List[Type], env: Env): Either[Unread, Shape] =
     ref.optSymbol match {
       case Some(binder) if env.binders.contains(binder) =>
-        if (arguments.isEmpty) Right(env.binders(binder))
-        else Left(Uncovered(s"a type parameter applied: ${ref.showBasic}"))
+        (env.binders(binder), arguments) match {
+          case (shape, Nil) => Right(shape)
+          // A higher-kinded binder applied is an uninterpreted application over its arguments,
+          // each read as the type it is (`key`), not as its values.
+          case (Shape.Constructor(id), applied) =>
+            Traversals.sequence(applied.map(key(_, env))).map(Shape.rigid(id, _))
+          case _ =>
+            Left(
+              Uncovered(s"an applied type parameter not read as a constructor: ${ref.showBasic}")
+            )
+        }
       // An evidence type compares its arguments as types, and two types of the module with one
       // shape are two types: their shapes are not read there.
       case Some(symbol) if env.nominal && world.ofModule(symbol) =>
@@ -325,6 +368,49 @@ private[compiled] object Shapes {
 
   // The types whose arguments are compared as types.
   private val Evidence = Set("scala.<:<", "scala.=:=")
+
+  /** What a type parameter of a measured definition or a receiver stands for, its identity being
+    * its owner's name and its own: one atom where any type instantiates it; a rigid constructor
+    * where any invariant type constructor of proper parameters does (`F[_]`), applied as an
+    * uninterpreted head (`key`). A bound, a variance, or a constructor of constructors is not read
+    * yet.
+    */
+  def binder(owner: Symbol, parameter: TypeParamSymbol, copies: List[Symbol] = Nil)(using
+      Context
+  ): Either[Unread, Shape] = {
+    val bounds = parameter.declaredBounds
+    val id = s"${owner.displayFullName}[${parameter.name}]"
+    if (unbounded(bounds)) Right(Shape.Atom(id))
+    // A class's parameter keeps its variance on the constructor's copy of it.
+    else if (constructor(parameter) && !copies.exists(Shapes.variant)) Right(Shape.Constructor(id))
+    else
+      Left(
+        Unread.Uncovered(
+          s"a bounded type parameter, or one of another kind than F[_]: ${parameter.name}"
+        )
+      )
+  }
+
+  // Bounds any invariant type constructor of proper, unbounded parameters meets: `[X] =>> Any`
+  // above, nothing below (written as a lambda too, on a method's own parameter).
+  private def constructor(parameter: TypeParamSymbol)(using Context): Boolean = {
+    val bounds = parameter.declaredBounds
+    val bottom = bounds.low match {
+      case lambda: TypeLambda => lambda.resultType.isSameType(defn.NothingType)
+      case low                => low.isSameType(defn.NothingType)
+    }
+    bottom && !Shapes.variant(parameter) && (bounds.high match {
+      case lambda: TypeLambda =>
+        lambda.paramTypeBounds.forall(unbounded) && lambda.resultType.isSameType(defn.AnyType)
+      case _ => false
+    })
+  }
+
+  /** Whether a type parameter declares a variance on a parameter of its own (`F[+_]`). */
+  def variant(parameter: Symbol): Boolean = parameter match {
+    case declared: TypeParamSymbol => tastyquery.Variances.variant(declared)
+    case _                         => false
+  }
 
   /** Bounds any type meets. */
   def unbounded(bounds: TypeBounds)(using Context): Boolean =

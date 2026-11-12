@@ -17,8 +17,8 @@ import tastyquery.Trees.*
   * Method rows: a method or value whose environment is its own parameters, those of the methods a
   * local definition is written in (`local` says what of them is not read yet), and what the classes
   * around it hold (`Receivers`; a concrete member around it computes from what the environment
-  * already holds, and an object holds nothing), over the types `Shapes` reads and the method's own
-  * unbounded type parameters.
+  * already holds, and an object holds nothing), over the types `Shapes` reads and the type
+  * parameters as `Shapes.binder` reads them.
   *
   * An inline method counts as a method unless an expansion of it is decided at a call site, which
   * `Inlines` says: its refusal is the row's reason, the model's own.
@@ -87,8 +87,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       around: List[ClassDef],
       methods: List[DefDef]
   ): Either[Unread, Count] = {
-    val (binders, parameters, declared) = signature(tree)
-    val env = environment(tree, around, methods)
+    val (_, parameters, declared) = signature(tree)
     // A value of the environment: a parameter of the member or of a method it is written in.
     def bound(of: ValOrDefDef)(parameter: ValDef, shape: Shape) =
       Binding(
@@ -98,9 +97,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       )
     for {
       _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
-      _ <- Traversals.sequence(
-        (binders ++ methods.flatMap(signature(_)._1)).map(Readings.unbounded)
-      )
+      env <- environment(tree, around, methods)
       result <- shapes.of(declared.toType, env)
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
@@ -132,23 +129,24 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       (d.paramLists.flatMap(_.toOption.toList.flatten), Shapes.parameters(d), d.resultTpt)
   }
 
-  // The type parameters of the measured method and of the methods around it, each an atom of its
-  // own, beside its receivers', and the
+  // The type parameters of the measured method and of the methods around it (`Shapes.binder`),
+  // beside its receivers', and the
   // method as the site rule F reads an opaque type from.
   private def environment(
       tree: ValOrDefDef,
       around: List[ClassDef],
       methods: List[DefDef]
-  ): Shapes.Env =
-    Shapes.Env(
-      receivers.atoms(around) ++ (methods :+ tree).flatMap { of =>
-        val self = of.symbol.displayFullName
+  ): Either[Unread, Shapes.Env] =
+    for {
+      receiving <- receivers.atoms(around)
+      own <- Traversals.sequence((methods :+ tree).flatMap { of =>
         signature(of)._1.map { binder =>
-          (binder.symbol: Symbol) -> Shape.Atom(s"$self[${binder.name}]")
+          Shapes
+            .binder(of.symbol, binder.symbol.asInstanceOf[TypeParamSymbol])
+            .map(binder.symbol -> _)
         }
-      },
-      tree.symbol
-    )
+      })
+    } yield Shapes.Env(receiving ++ own, tree.symbol)
 
   // The methods a definition is written in, outermost first, at whatever depth (a member of a
   // class in a body, or of a template inside such a class, is written in them too), and the
@@ -309,7 +307,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
 private[compiled] object Readings {
 
-  /** A proper type parameter any type instantiates. */
+  /** A proper type parameter any type instantiates (a constructor row's: its positions are read as
+    * value spaces, where a rigid constructor has no reading yet).
+    */
   def unbounded(binder: TypeParam)(using Context): Either[Unread, Unit] =
     if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
     else Left(Unread.Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))

@@ -843,6 +843,7 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.analysis.inhabitation.ClosedSpaces",
     "cardinality.analysis.inhabitation.Inhabitation",
     "cardinality.analysis.inhabitation.Inhabitation.Binding",
+    "cardinality.analysis.inhabitation.Inhabitation.Head",
     "cardinality.analysis.inhabitation.Inhabitation.Count",
     "cardinality.analysis.inhabitation.Inhabitation.Shape",
     "cardinality.analysis.resolution.TopTypes",
