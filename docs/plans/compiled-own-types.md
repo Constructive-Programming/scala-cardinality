@@ -1556,12 +1556,17 @@ time on the rows still uncovered is not in it.
   its index into `World.scala`, `Shapes.named`, `Stored.named`, the finality test of `Receivers`
   and the callers of `world.extended`/`overridden`/`unjudged`: add beside those, do not
   restructure them.
-- Next: item 2, capability records (a class or trait with members named by a type:
-  `Shapes.declared`, the old `CapabilityRecords`: an open record is the product of its public
-  constructor fields and its abstract members, a final one of its observable constructor
-  parameters), then item 3, sealed and enum receivers, then items 4 to 6. Left in item 1: local
-  named classes and objects (a subclass in the same body may override them), definitions in a
-  function literal, a case clause or a constructor's body, hidden names.
+- Done ("Stretch 4, third unit"): a captured parameter is refused only where a scope between
+  its method and the definition binds its name again (it was: anywhere in the method).
+- Done ("Stretch 4, fourth unit"): capability records without parents.
+- Stretch 5 (the coordinator's order: item 4, records' remaining reasons, item 5, item 6).
+  Decisions recorded: the 41 Ior corrections stay grouped under one rule with worked examples;
+  the canEqual and As corrections stand; the three new ledger FAILs go on the rewrite-at-switch
+  list. Done: higher-kinded type parameters ("Stretch 5, first unit"). Next: merge `tasty-gate`
+  at `7aba1c6` (the coordinator's instruction), run the full gate on the shared assets, then
+  the rest of item 4 (bounded proper parameters, unions, singletons, type members,
+  refinements), then the records' remaining reasons. "A member something overrides" is the
+  gate agent's next unit.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
@@ -2293,6 +2298,189 @@ corpora 1,660 method rows are identical (1,633 before), 1,086 of the 2,337 old n
   refusal the compiled tree resolves, to rewrite at the switch: `LeafFamiliesSpec` "an
   extension, a parent's field, an overload, a later clause", `SyntaxFeaturesSpec` "a binder
   behind a reading that stops is refused".
+
+**Stretch 4, third unit** (the hidden-capture check follows scopes). A captured parameter is
+refused only where a scope on the path from its method to the definition binds the name again:
+a block of the path, an inner method's parameters, a class's members or self alias, the
+definition's own parameters (`a capture a nearer scope binds again`, was `a capture another
+definition may hide`). A same-named definition elsewhere in the method hides nothing. 37 more
+corpus method rows are identical (1,760); no row is worse.
+
+**Stretch 4, fourth unit** (capability records). All inputs pass.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,357 | 1 / 0 | 0 | 0 | 0 | 2,642 | 542 of 768 (70.6%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 396 | 42 / 47 | 0 | 15 | 0 | 7,151 | 320 of 909 (35.2%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 176 | 3 / 0 | 0 | 0 | 0 | 1,606 | 162 of 368 (44.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 157 | 0 / 1 | 0 | 0 | 0 | 539 | 135 of 271 (49.8%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,820 | 72 / 41 | 4 | 2 | 0 | 2,807 | 3,586 of 5,485 (65.4%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,121 | 46 / 48 | 0 | 15 | 0 | 12,002 | 1,179 of 2,337 (50.4%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A class or trait of the module with members, named by a type (`Shapes.record`), is a
+  capability record: a trait or abstract class is the tuple of its public constructor fields and
+  of what its abstract members supply (a value, or one function from all of a method's
+  parameters; a one-valued result supplies nothing); a concrete class nothing extends is the
+  tuple of its public fields; a class written `final abstract`, or whose construction always
+  throws, is the empty sum, as the old front end reads it. A member restating one of `Any`'s
+  (`toString`, `hashCode`, `equals(Any)`, by name and parameters) is outside the model; every
+  other member counts. `Shapes.member` now reads a supplied member for receivers and records
+  alike (`RecordsSpec`).
+- Left uncovered, each named `a capability record …`: with parents (382 corpus rows), with a
+  parameter that is no public field (336, rule B's observers), with a restricted constructor
+  (261), with a self type (296), with a member named like the measured definition (119), with
+  an abstract type member, with a member hidden at the use site, with a member something
+  overrides, of a sealed class, of a class something extends, whose construction binds a
+  pattern, whose overriders are not read.
+- Correction: fixture `5a9bcf40…/Capability.scala:3` `U.eq2[A](e: Eq2[A]): Boolean`, 2 becomes
+  4. `trait Eq2[A] { def x: A; def canEqual(that: Any): Boolean }` has no parent, so `canEqual`
+  restates nothing: it is an abstract member any implementation supplies, a Boolean of a
+  one-valued input. The model excludes only `Any`'s universal members; the old reading dropped
+  `canEqual` by its name. The ledger example `CapabilitySpec` "`Any`'s and `Product`'s members
+  are universal (`canEqual`)" pins the old 2: a spec to rewrite at the switch, with
+  `MethodAnalysisSpec` "do not project an abstract case class as a product" (now 1, derived:
+  `Holder[A]`'s abstract `value: A` is the record) and `InlineScopesSpec` "a qualifier is
+  converted from its own type's implicit scope" (an inline method the record reading now
+  counts, derived).
+- Three rows derived: `extract[A](h: Holder[A]): A`, 1; `app.C.onT` and `app.C.hOnT`, inline
+  methods over a final class with no field, 2^(2^37) each.
+- Spec ledger: PASS 637, UNCOVERED 811, FAIL 183, PENDING 19, SCALAMETA 81.
+
+**Stretch 4, fifth unit** (sealed and enum receivers). All inputs pass.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,380 | 1 / 0 | 0 | 0 | 0 | 2,619 | 559 of 768 (72.8%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 488 | 42 / 55 | 0 | 58 | 0 | 7,008 | 360 of 909 (39.6%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 176 | 3 / 0 | 0 | 0 | 0 | 1,606 | 162 of 368 (44.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 157 | 0 / 1 | 0 | 0 | 0 | 539 | 135 of 271 (49.8%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,835 | 72 / 41 | 4 | 2 | 0 | 2,792 | 3,600 of 5,485 (65.6%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,236 | 46 / 56 | 0 | 58 | 0 | 11,836 | 1,236 of 2,337 (52.9%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A member of a sealed family or of an enum counts with its receiver as one value of the
+  family's sum, which case and what that case holds (`Receivers.split`, `Shapes.receiver`), as
+  the old front end splits it; the family's own fields and members are not bound beside it, and
+  what it inherits or a case overrides computes from the case. The row captures `<receiver
+  full.Name>`. A sum this reading does not take leaves the row uncovered (`an enclosing sum not
+  read`), never refused: the old front end still counts a row whose goal stands without the
+  split. A concrete sealed class and an enum case's own class stay uncovered.
+- 43 corrections, two rules (`corrected.txt`):
+  - the Ior rule (39 rows of cats-core, receiver members of `cats.data.Ior` such as `fold` 1 to
+    3, `putLeft` 1 to 9, `isLeft` 1 to 8, `left` 1 to 4, `pad` 1 to 16, `exists` 1 to 32,
+    `toList` 1 to ω; members of the instances `IorInstances…` such as `size` 1 to 2^192 and
+    `get` 1 to 2^(2^65); `IorFunctions.left` and `right` 0 to 1; `Validated.toIor` 0 to 1).
+    `Ior[A, B]` is A + B + A × B; the old reading took it for empty, so it counted the one
+    function from it, or nothing into it. A reviewer re-derived sixteen of them by hand.
+  - the As rule (4 rows: `As.andThen`, `As.compose`, `AsInstances.liskov.<new#1>.id` and
+    `.compose`, old 1 or 0, new the model's `?` "sealed family has anonymous instances in its
+    file: As"), as in stretch 2.
+- Eight rows derived: members of the anonymous type class instances in `ConstInstances` and
+  `ValidatedInstances`, whose receiver is now the one-case sum of a sealed abstract class
+  (`foldLeft` 1, `size` 2^64, `get` 1, `mapAccumulate` 1, `bifoldLeft` ω, `bimap` 1, `leftMap`
+  1).
+- Spec ledger: PASS 640, UNCOVERED 808, FAIL 183, PENDING 19, SCALAMETA 81. Capture
+  differences: 3 second overloads, 42 aliases only the old lists, 129 names only the new lists,
+  2 of both.
+
+**Stretch 5, first unit** (higher-kinded type parameters). All inputs pass.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,380 | 1 / 0 | 0 | 0 | 0 | 2,619 | 559 of 768 (72.8%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 552 | 42 / 57 | 0 | 58 | 0 | 6,942 | 385 of 909 (42.4%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 176 | 3 / 0 | 0 | 0 | 0 | 1,606 | 162 of 368 (44.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 171 | 0 / 1 | 0 | 0 | 0 | 525 | 149 of 271 (55.0%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,927 | 72 / 41 | 4 | 2 | 0 | 2,700 | 3,691 of 5,485 (67.3%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,314 | 46 / 58 | 0 | 58 | 0 | 11,756 | 1,275 of 2,337 (54.6%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A type parameter of a measured definition, of a method around it or of a receiver whose bounds
+  are those of any invariant type constructor of proper, unbounded parameters (`F[_]`,
+  `G[_, _]`) is a rigid constructor (`Shapes.binder`), and `F[X]` is the uninterpreted
+  application over `X`'s key (`Shapes.key`): a binder is its atom, a static class or an opaque
+  alias outside its scope is its name over its arguments' keys, an alias is followed (`Id[A]` is
+  `A`), an opaque alias inside its scope is its representation. A variance on the constructor's
+  parameter (`F[+_]`: subtyping between applications), a path-dependent type, a union, a
+  singleton or a refinement as an argument, and constructor rows of such classes stay uncovered.
+  tasty-query keeps a lambda parameter's variance private: `tastyquery/Variances.scala` reads it
+  from inside the package, and through the flags the bytecode keeps public.
+- Two rows derived: `IndexedStateTContravariantMonoidal.unit` and `.product`, 1 each: a sealed
+  abstract class that nothing extends has no case, so its members are never called.
+- An open point for the owner: `F[Any]` against `F[AnyRef]` is 0 to both front ends, the two
+  being distinct keys; AGENTS.md reads `AnyRef` as `Any` everywhere, so it might be 1.
+- Spec ledger: PASS 673, UNCOVERED 775, FAIL 183, PENDING 19, SCALAMETA 81.
+
+**Merge of `tasty-gate` at `7aba1c6`** (the closed-world index `ClosedProgram` and dependency
+classes `DependencyClasses`, wired in by the gate agent). Conflicts resolved in `Receivers`
+(a sum receiver skips the inheritance reading and the overriding check together; the Unknown
+overriders check stays for every receiver; inherited abstract members of a template that is
+not fixed are capabilities beside the members `Shapes.member` reads), `Shapes` (a record asks
+`world.overriding`), the two lists (both sides kept) and `ReceiversSpec`. With members of
+anonymous classes now read, cats-core's anonymous instances ask the index about parents outside
+the module, which lists the classpath: a second standard-library jar declaring `scala.caps`
+again is refused by tasty-query, and is not reported as a lost class (the context holds it).
+34 rows the two branches open together are derived (the anonymous `Either` instance's members,
+the `NonEmptyParallel` zip instances, `Other.get` 0 over a rigid `G[Option[B]]`, `m.M.onPlain`).
+The full gate ran on the shared assets and refreshed the coverage memory.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,384 | 1 / 0 | 0 | 0 | 0 | 2,615 | 559 of 768 (72.8%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 629 | 42 / 213 | 0 | 62 | 0 | 6,705 | 392 of 909 (43.1%) |
+| cats-core | definitions | 1,559 | 1,357 | 21 / 0 | 0 | 1 | 0 | 180 | 1,049 of 1,053 (99.6%) |
+| cats-kernel | methods | 1,785 | 185 | 3 / 0 | 0 | 0 | 0 | 1,597 | 164 of 368 (44.6%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 182 | 0 / 3 | 0 | 0 | 0 | 512 | 152 of 271 (56.1%) |
+| cats-eo | definitions | 151 | 130 | 6 / 0 | 0 | 0 | 0 | 15 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 4,131 | 110 / 46 | 4 | 3 | 0 | 2,452 | 3,893 of 5,485 (71.0%) |
+| fixtures | definitions | 5,588 | 4,931 | 66 / 32 | 0 | 1 | 0 | 558 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,415 | 46 / 216 | 0 | 62 | 0 | 11,493 | 1,287 of 2,337 (55.1%) |
+| **all corpora** | definitions | 2,677 | 2,171 | 30 / 0 | 0 | 1 | 0 | 475 | 1,747 of 1,807 (96.7%) |
+
+Spec ledger: PASS 727, UNCOVERED 711, FAIL 193, PENDING 19, SCALAMETA 81 (from 673 / 775 /
+183). Ten examples went from UNCOVERED to FAIL, each pinning a refusal of the old reading that
+the two branches now count: `AliasOverrideIdentitySpec` (five guards of alias, type-lambda and
+expansion limits), `DefinitionInventorySpec` "an unmatched inherited given leaves the identity
+unresolved", `DependencyRowsSpec` "a dependency's template is the one of its qualified name",
+`GroundEnvironmentSpec` "an overload is a second member; another shape is refused",
+`HigherKindedBindingSpec` "inherited substitution keeps nominal identity" (`Other.get` 0,
+derived) and `StdlibModelSpec` "IterableOnce leaves iterator to the sources". They go on the
+rewrite-at-switch list; the last one (a Boolean counted ω over an inherited `iterator`
+capability) is for the gate agent to confirm, being its reading of inherited members.
 
 ### How each model rule reads over symbols
 

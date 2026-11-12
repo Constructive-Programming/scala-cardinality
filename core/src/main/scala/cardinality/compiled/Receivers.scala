@@ -21,7 +21,7 @@ import tastyquery.Types.*
   *     That holds where no class of the program overrides it (the closed world, `ClosedProgram`);
   *     one a class of the program overrides varies across instances, and is a capability as an
   *     abstract member is, its own body one of its behaviors.
-  *   - The class's type parameters are atoms.
+  *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`).
   *   - A class that inherits is read by its own state alone where every member it inherits is
   *     implemented and none can be overridden: a concrete class that is final or that nothing
   *     extends. An object is such a template with no state.
@@ -32,17 +32,19 @@ import tastyquery.Types.*
   * A class around the class, and one around an object the member is in, supplies the same: an inner
   * instance holds its outer one.
   *
-  * Not read yet, each a `Left` naming it: a sealed class or an enum (the receiver splits into its
-  * cases); a class that reaches one parent through two of its parents, or whose inherited members
-  * are not read; a parent in a class or a body, a parent whose private constructor parameters a
-  * subclass passes, a constructor field something overrides, and for a class that is not fixed a
-  * parent without TASTy that is no trait; an overridden member a behavior of which may call the
-  * measured one (`Reentry`), or overriders the classes read do not settle; a self type; a bounded
-  * or higher-kinded type parameter; an abstract type member; a capability with type parameters of
-  * its own; a deferred `inline val`, or a deferred inline method over a type parameter; a
-  * construction that always throws or binds a pattern (S6); and what implicit search chooses (S5's
-  * remainder): a contextual parameter without a name, an abstract given without a name, an abstract
-  * extension method. A given written `= deferred` is a capability like an abstract member.
+  * A sealed family or an enum is one value of its sum as a receiver: which case, and what the case
+  * holds (`split`). Not read yet, each a `Left` naming it: a concrete sealed class or an enum
+  * case's own class; a sum this reading does not take; a class that reaches one parent through two
+  * of its parents, or whose inherited members are not read; a parent in a class or a body, a parent
+  * whose private constructor parameters a subclass passes, a constructor field something overrides,
+  * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
+  * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
+  * settle; a self type; a bounded type parameter, or one of another kind than `F[_]`; an abstract
+  * type member; a capability with type parameters of its own; a deferred `inline val`, or a
+  * deferred inline method over a type parameter; a construction that always throws or binds a
+  * pattern (S6); and what implicit search chooses (S5's remainder): a contextual parameter without
+  * a name, an abstract given without a name, an abstract extension method. A given written
+  * `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -253,30 +255,27 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } ++ inheriting.getOrElse(Nil).collect {
       case member: TermSymbol if !abstractLike(member) => world.overriding(c, member)
     }
+    val sum = Receivers.split(c)
     for {
+      // A sealed family or an enum is the sum of its cases (`split`); a concrete sealed class or
+      // an enum case's own class is not read yet.
       _ <- refused(
-        c.openLevel == OpenLevel.Sealed || c.isEnum || c.parentClasses.exists(_.isEnum),
-        "an enclosing sealed class or enum"
+        !sum && (c.openLevel == OpenLevel.Sealed || c.parentClasses.exists(_.isEnum)),
+        "an enclosing concrete sealed class or enum case"
       )
-      _ <- inherits(tree)
-      _ <- inheriting
+      // What a sum receiver inherits, or a case overrides, computes from the case it is, which
+      // the sum holds.
+      _ <- if (sum) Right(()) else inherits(tree).flatMap(_ => inheriting)
       _ <- refused(
         overriding.contains(ClosedProgram.Overriding.Unknown),
         "an enclosing class whose overriders are not read"
       )
       _ <- refused(c.givenSelfType.nonEmpty, "an enclosing class with a self type")
       _ <- refused(
-        c.typeParams.exists(binder => !Shapes.unbounded(binder.declaredBounds)),
-        "an enclosing class with a bounded or higher-kinded type parameter"
-      )
-      _ <- refused(
-        tree.rhs.body.exists {
-          case member: TypeMember => member.symbol.isAbstractMember
-          case _                  => false
-        } || inheriting.getOrElse(Nil).exists {
+        Shapes.abstractTypeMember(tree) || (!sum && inheriting.getOrElse(Nil).exists {
           case member: TypeMemberSymbol => member.isAbstractMember
           case _                        => false
-        },
+        }),
         "an enclosing class with an abstract type member"
       )
       _ <- refused(
@@ -286,12 +285,20 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield ()
   }
 
-  /** The atoms of the receivers' type parameters, and of the copies their constructors hold. */
-  def atoms(receivers: List[ClassDef]): Map[Symbol, Shape] = receivers.flatMap { tree =>
-    val c = tree.symbol
-    val named = c.typeParams.map(binder => Shape.Atom(s"${c.displayFullName}[${binder.name}]"))
-    c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named)
-  }.toMap
+  /** What the receivers' type parameters stand for (`Shapes.binder`), and the copies their
+    * constructors hold.
+    */
+  def atoms(receivers: List[ClassDef]): Either[Unread, Map[Symbol, Shape]] =
+    Traversals
+      .sequence(receivers.map { tree =>
+        val c = tree.symbol
+        Traversals
+          .sequence(c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr))))
+          .map(named =>
+            c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named)
+          )
+      })
+      .map(_.flatten.toMap)
 
   /** What the receivers supply to `measured`: their constructors' parameters and their abstract
     * members, `measured` aside (a member is no capability of its own).
@@ -310,15 +317,18 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     */
   def names(receivers: List[ClassDef], measured: TermSymbol): List[String] =
     receivers.flatMap { tree =>
-      Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ supplies(tree, measured).collect {
-        case member
-            if !member.symbol.isExtensionMethod && !member.name.toString.endsWith("_=") &&
-              // A deferred inline method is supplied to inline code alone.
-              (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
-          member.name.toString
-      } ++ inheritedOpen(tree.symbol, measured)
-        .filter(!_.name.toString.endsWith("_="))
-        .map(_.name.toString)
+      if (Receivers.split(tree.symbol)) List(Receivers.whole(tree.symbol))
+      else
+        Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ supplies(tree, measured)
+          .collect {
+            case member
+                if !member.symbol.isExtensionMethod && !member.name.toString.endsWith("_=") &&
+                  // A deferred inline method is supplied to inline code alone.
+                  (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
+              member.name.toString
+          } ++ inheritedOpen(tree.symbol, measured)
+          .filter(!_.name.toString.endsWith("_="))
+          .map(_.name.toString)
     }
 
   // The members a template that is not fixed inherits and a subclass may supply: capabilities, as
@@ -356,58 +366,53 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       tree: ClassDef,
       measured: TermSymbol,
       env: Shapes.Env
-  ): Either[Unread, List[Binding]] = {
-    val self = tree.symbol.displayFullName
-    def held(value: ValDef) =
+  ): Either[Unread, List[Binding]] =
+    if (Receivers.split(tree.symbol)) {
+      // The receiver is one value of its family's sum: which case, and what that case holds.
+      val label = Receivers.whole(tree.symbol)
+      // A sum this reading does not take leaves the row uncovered, not refused: the old front end
+      // still counts a row whose goal stands without the split (an infinite one).
       shapes
-        .of(value.tpt.toType, env)
-        .map(Binding(s"$self.${value.name}", _, Some(value.name.toString)))
-    val parameters = Shapes.parameters(tree.rhs.constr)
-    val capabilities = supplies(tree, measured)
+        .receiver(tree.symbol, env)
+        .map(sum => List(Binding(label, sum, Some(label))))
+        .left
+        .map {
+          case Unread.Refused(reason) =>
+            Unread.Uncovered(s"an enclosing sum not read: $reason")
+          case uncovered => uncovered
+        }
+    } else own(tree, measured, env)
+
+  // What a receiver that is no sum supplies: its constructor's parameters and its members a
+  // subclass supplies, `measured` aside.
+  private def own(template: ClassDef, measured: TermSymbol, env: Shapes.Env) = {
+    val self = template.symbol.displayFullName
+    def held(of: ValOrDefDef, shape: Shape) =
+      Binding(s"$self.${of.name}", shape, Some(of.name.toString))
+    val parameters = Shapes.parameters(template.rhs.constr)
+    val capabilities = supplies(template, measured)
     for {
       _ <- Readings.plainInputs(parameters)
-      fields <- Traversals.sequence(parameters.map(held))
+      fields <- shapes.inputs(parameters, env)
       members <- Traversals.sequence(capabilities.map { member =>
-        // An extension method is no member of its receiver's instances, and a given without a
-        // name is found by search alone: neither is read as a capability yet.
-        val unread =
-          if (reenters(tree.symbol, member.symbol, measured)) Left(Receivers.Reenters)
-          else if (member.symbol.isExtensionMethod) Left("an extension method")
-          else if (Readings.contextual(member.symbol) && member.name.toString.startsWith("given_"))
-            Left("an anonymous given")
-          else Readings.later(member.symbol)
-        unread match {
-          case Left(what) =>
-            Left(Uncovered(s"$what among the members of an enclosing class: ${member.name}"))
-          case Right(()) =>
-            member match {
-              // Each implementation of a deferred `inline val` is a constant of its own.
-              case value: ValDef if value.symbol.isInline =>
-                Left(Uncovered(s"a deferred inline value of an enclosing class: ${value.name}"))
-              // A deferred inline method is called from inline code alone: the compiler rejects
-              // a call of it from any other body, to which it therefore supplies nothing. One over
-              // a type parameter may have no implementation at some instance, which says
-              // something of the receiver: not read.
-              case method: DefDef if method.symbol.isInline && !measured.isInline =>
-                Either.cond(
-                  !generic(method, env),
-                  None,
-                  Uncovered(s"a deferred inline method over a type parameter: ${method.name}")
-                )
-              case value: ValDef  => held(value).map(Some(_))
-              case method: DefDef => capability(self, method, env)
-            }
-        }
+        if (reenters(template.symbol, member.symbol, measured))
+          Left(
+            Uncovered(
+              s"${Receivers.Reenters} among the members of an enclosing class: ${member.name}"
+            )
+          )
+        else shapes.member(member, "an enclosing class", env).map(_.map(held(member, _)))
       })
       more <- Traversals.sequence(
-        inheritedOpen(tree.symbol, measured)
-          .map(inheritedCapability(tree.symbol, _, measured, env))
+        inheritedOpen(template.symbol, measured)
+          .map(inheritedCapability(template.symbol, _, measured, env))
       )
-    } yield fields ++ members.flatten ++ more.flatten
+    } yield parameters.lazyZip(fields).map(held) ++ members.flatten ++ more.flatten
   }
 
-  // An inherited abstract member as a capability, read from its signature as the template sees
-  // it: a value of its type, or one function from all its parameters to its result.
+  // An inherited member a subclass supplies (abstract, overridden, or a free parent field) as a
+  // capability, read from its signature as the template sees it: a value of its type, or one
+  // function from all its parameters to its result.
   private def inheritedCapability(
       c: ClassSymbol,
       member: TermSymbol,
@@ -461,36 +466,15 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield binding
   }
 
-  // Whether a method's signature may name a type parameter: it has its own, or one is in scope
-  // (through an alias too, so the signature is not searched).
-  private def generic(method: DefDef, env: Shapes.Env): Boolean =
-    Shapes.typeParameters(method).nonEmpty || env.binders.nonEmpty
-
-  // An abstract method is one function, from the parameters of all its clauses to its result; an
-  // abstract given with a `using` clause is such a method (the old front end read it as a value
-  // of its result type: a listed correction). A
-  // one-valued result (`Unit`, an opaque type outside its scope) is built without it.
-  private def capability(
-      self: String,
-      member: DefDef,
-      env: Shapes.Env
-  ): Either[Unread, Option[Binding]] = {
-    val parameters = Shapes.parameters(member)
-    if (Shapes.typeParameters(member).nonEmpty)
-      Left(Uncovered(s"a capability with type parameters of its own: ${member.name}"))
-    else
-      for {
-        _ <- Readings.plainInputs(parameters)
-        result <- shapes.of(member.resultTpt.toType, env)
-        inputs <- shapes.inputs(parameters, env)
-      } yield Option.when(result != Shape.Product(Nil))(
-        Binding(s"$self.${member.name}", Shape.Function(inputs, result), Some(member.name.toString))
-      )
-  }
-
 }
 
 private[compiled] object Receivers {
+
+  /** A receiver read as one value of its sum: a sealed family or an enum. */
+  def split(c: ClassSymbol): Boolean = Shapes.isFamily(c) || c.isEnum
+
+  /** The name a sum receiver is bound and listed under, as the old front end names it. */
+  def whole(c: ClassSymbol): String = s"<receiver ${c.displayFullName.replace("$.", ".")}>"
 
   /** An anonymous class (`new T { … }`), which nothing can extend. */
   def anonymous(c: ClassSymbol): Boolean = c.name.toString == "$anon"

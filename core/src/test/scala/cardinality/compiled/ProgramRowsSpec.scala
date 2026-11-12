@@ -25,6 +25,7 @@ class ProgramRowsSpec extends Specification {
       an inherited deferred given is a capability                     $deferredGiven
       a member a parent mixed in beside the template overrides varies $mixedIn
       a parent reached through two parents is not read yet            $twoPaths
+      a member a case overrides computes from the case a sum holds    $sumOverridden
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
     A parent's constructor parameters
@@ -111,6 +112,15 @@ class ProgramRowsSpec extends Specification {
       |trait C[T] extends A[T] { def g: T = seed }
       |class D extends X[Int] with C[Int] { def seed: Int = 1; def other: Int = 2 }
       |""".stripMargin)("C.g") must_== Count.Finite(2)
+
+  // `S` is a sealed family of two case objects: as a receiver it is one value of their sum, 2.
+  // `A` overrides `g`, but what `g` returns computes from the case, which the sum holds, so `g` is
+  // no capability beside it: `m` is a Boolean computed from the case, 2^2 = 4.
+  def sumOverridden =
+    rows("""sealed trait S { def g: Boolean = true; def m: Boolean = g }
+      |case object A extends S { override def g: Boolean = false }
+      |case object B extends S
+      |""".stripMargin)("S.m") must_== Count.Finite(4)
 
   // `B` redeclares `A`'s concrete `f` abstract: in `C` it is abstract, a capability beside
   // `seed`, and `g` returns either: 2.

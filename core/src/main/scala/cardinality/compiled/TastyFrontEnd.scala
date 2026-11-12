@@ -31,13 +31,15 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
           case Left(why)                       => refused(module.sources, why)
           case Right((context, own, unloaded)) =>
             given Context = context
-            // The classpath's classes are listed only where an inline body selects a member of
-            // one (`Inlines`): a class that does not load then is a warning of the report. A
-            // listing that fails costs the source that asked, each time one asks.
+            // The classpath's classes are listed only where a reading needs them (an inline body
+            // selecting a member of one, `Inlines`; a question about a class outside the module,
+            // `ClosedProgram`): a class that does not load then is a warning of the report.
             var missed = List.empty[String]
             lazy val dependencies = {
               val (found, failed) = CompiledTypes.dependencies(classes)
-              missed = failed
+              // A class tasty-query refuses to enter twice (a second jar of the standard library
+              // declaring `scala.caps` again) is the class the context already holds: not lost.
+              missed = failed.filterNot(_.contains("trying to add a second entry"))
               found
             }
             // The closed world asks for the same listing, and for the classpath's classes no

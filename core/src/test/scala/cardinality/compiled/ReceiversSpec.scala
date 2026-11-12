@@ -15,7 +15,7 @@ class ReceiversSpec extends Specification {
     every constructor parameter is a value of the environment     $fields
     an abstract member is a capability, a concrete one nothing    $capabilities
     a class around the class or its object supplies the same      $nested
-    a template that inherits is read by its own state where fixed $inherited
+    a template that inherits, or a sum, reads what it holds       $inherited
     a local definition reads the methods it is written in         $locals
     a receiver this slice does not read is uncovered              $later
     the scalameta front end agrees on every row measured          $agrees
@@ -60,6 +60,8 @@ class ReceiversSpec extends Specification {
       |object Hid { def mk(helper: Boolean): Help = new Help { def get: Boolean = true } }
       |object Deep { def mk(y: Boolean): Fn = new Fn { object H { def h: Boolean = y }; def run(b: Boolean): Boolean = b } }
       |object DeepHid { def mk(helper: Boolean): Fn = new Fn { object H extends Help { def get: Boolean = true }; def run(b: Boolean): Boolean = b } }
+      |object Self { def mk(y: Boolean): Fn = new Fn { y => def run(b: Boolean): Boolean = b } }
+      |enum Color(val rgb: Int) { case Red extends Color(1); case Green extends Color(2); def f: Boolean = true }
       |object LocalK { def f(y: Boolean): Boolean = { class K { def get: Boolean = y }; new K().get } }
       |trait Wished[A] { inline def wish: A; def get: Boolean = true }
       |trait Kept { def kept: Boolean; def get: Boolean = kept }
@@ -141,12 +143,18 @@ class ReceiversSpec extends Specification {
   // `Narrow` overrides, is a Boolean beside `b`, and `get` is a Boolean computed from both,
   // 2^(2 × 2) = 16. `Sub` passes its `c` to `Base`, so what `Base` holds is `c`: `more` is a
   // Boolean computed from `c`, 2^2.
+  // A sealed family or an enum is one value of its sum as a receiver: which case, and what the
+  // case holds. `Fam` has the one case `One`, so `get` is one of 2 Booleans; `Color` has two
+  // cases, so `f` is one of the 2^2 functions of them. The row captures the receiver as a whole.
   private def inherited =
     (count("recv.Impl.get") must_== Count.Finite(4))
       .and(count("recv.Impl.show") must_== Count.Finite(16))
       .and(count("recv.Single.other") must_== Count.Finite(4))
       .and(count("recv.Base.get") must_== Count.Finite(4))
       .and(count("recv.shown.show") must_== Count.Finite(4))
+      .and(count("recv.Fam.get") must_== Count.Finite(2))
+      .and(count("recv.Color.f") must_== Count.Finite(4))
+      .and(entry("recv.Color.f").captures must_== List("<receiver recv.Color>"))
       .and(count("recv.Half.get") must_== Count.Finite(16))
       .and(count("recv.Never.get") must_== Count.Finite(16))
       .and(count("recv.Twin.g") must_== Count.Finite(4))
@@ -159,7 +167,8 @@ class ReceiversSpec extends Specification {
   // anonymous class, which is final, reads the same: `Mk`'s `run` is a Boolean computed from `b`
   // and the `y` of the method the instance is made in, 16; an object inside such a class reads `y`
   // too (`Deep`: a Boolean computed from it, 2^2); a parameter named like a member the class
-  // inherits cannot be named inside it, and is left (`Hid`; `DeepHid`, where an object in the class inherits it). Left for later: a name an
+  // inherits cannot be named inside it, and is left (`Hid`; `DeepHid`, where an object in the class inherits it), and so is one the class's self alias
+  // takes (`Self`). Left for later: a name an
   // inner definition takes again (`Hide`), a definition in a function literal, whose parameter
   // may be a generator's binder (`Lit`), a member of a local class, which a subclass in the same
   // body may override (`LocalK`), one in a case clause (`Pat`) and one in a constructor's body, which runs before the instance
@@ -174,13 +183,14 @@ class ReceiversSpec extends Specification {
       .and(count("recv.LocC.outer.inner") must_== Count.Finite(4))
       .and(entry("recv.Loc.outer.inner").captures must_== List("y"))
       .and(entry("recv.LocC.outer.inner").captures must_== List("y", "z"))
-      .and(left("recv.Hide.outer.inner") must_== "a capture another definition may hide")
+      .and(left("recv.Hide.outer.inner") must_== "a capture a nearer scope binds again")
       .and(count("recv.Mk.mk.<new#1>.run") must_== Count.Finite(16))
       .and(entry("recv.Mk.mk.<new#1>.run").captures must_== List("y"))
       .and(left("recv.LocalK.f.K.get") must_== "a local class or object")
       .and(left("recv.Hid.mk.<new#1>.get") must_== "a capture an inherited member hides")
       .and(count("recv.Deep.mk.<new#1>.H.h") must_== Count.Finite(4))
       .and(left("recv.DeepHid.mk.<new#1>.H.get") must_== "a capture an inherited member hides")
+      .and(left("recv.Self.mk.<new#1>.run") must_== "a capture a nearer scope binds again")
       .and(
         rows.sources
           .flatMap(_.toOption.toList.flatMap(_.methods))
@@ -198,15 +208,14 @@ class ReceiversSpec extends Specification {
   }
 
   // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
-  // a class (its members may read state the class's own code may not); a sealed class (the receiver splits into its cases); a self
+  // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
   // type; a deferred `inline val`, and a deferred inline method where a type parameter is in
   // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
   // type member; a capability with type parameters of its own.
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
-      "Fam.get" -> "an enclosing sealed class or enum",
-      "Closed.get" -> "an enclosing sealed class or enum",
+      "Closed.get" -> "an enclosing concrete sealed class or enum case",
       "Lifted.get" -> "a capability with type parameters of its own",
       "Wished.get" -> "a deferred inline method over a type parameter",
       "Dead.In.get" -> "an object whose construction always throws or binds a pattern",

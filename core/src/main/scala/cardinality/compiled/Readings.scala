@@ -17,8 +17,8 @@ import tastyquery.Trees.*
   * Method rows: a method or value whose environment is its own parameters, those of the methods a
   * local definition is written in (`local` says what of them is not read yet), and what the classes
   * around it hold (`Receivers`; a concrete member around it computes from what the environment
-  * already holds, and an object holds nothing), over the types `Shapes` reads and the method's own
-  * unbounded type parameters.
+  * already holds, and an object holds nothing), over the types `Shapes` reads and the type
+  * parameters as `Shapes.binder` reads them.
   *
   * An inline method counts as a method unless an expansion of it is decided at a call site, which
   * `Inlines` says: its refusal is the row's reason, the model's own.
@@ -87,8 +87,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       around: List[ClassDef],
       methods: List[DefDef]
   ): Either[Unread, Count] = {
-    val (binders, parameters, declared) = signature(tree)
-    val env = environment(tree, around, methods)
+    val (_, parameters, declared) = signature(tree)
     // A value of the environment: a parameter of the member or of a method it is written in.
     def bound(of: ValOrDefDef)(parameter: ValDef, shape: Shape) =
       Binding(
@@ -98,9 +97,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       )
     for {
       _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
-      _ <- Traversals.sequence(
-        (binders ++ methods.flatMap(signature(_)._1)).map(Readings.unbounded)
-      )
+      env <- environment(tree, around, methods)
       result <- shapes.of(declared.toType, env)
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
@@ -132,23 +129,24 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       (d.paramLists.flatMap(_.toOption.toList.flatten), Shapes.parameters(d), d.resultTpt)
   }
 
-  // The type parameters of the measured method and of the methods around it, each an atom of its
-  // own, beside its receivers', and the
+  // The type parameters of the measured method and of the methods around it (`Shapes.binder`),
+  // beside its receivers', and the
   // method as the site rule F reads an opaque type from.
   private def environment(
       tree: ValOrDefDef,
       around: List[ClassDef],
       methods: List[DefDef]
-  ): Shapes.Env =
-    Shapes.Env(
-      receivers.atoms(around) ++ (methods :+ tree).flatMap { of =>
-        val self = of.symbol.displayFullName
+  ): Either[Unread, Shapes.Env] =
+    for {
+      receiving <- receivers.atoms(around)
+      own <- Traversals.sequence((methods :+ tree).flatMap { of =>
         signature(of)._1.map { binder =>
-          (binder.symbol: Symbol) -> Shape.Atom(s"$self[${binder.name}]")
+          Shapes
+            .binder(of.symbol, binder.symbol.asInstanceOf[TypeParamSymbol])
+            .map(binder.symbol -> _)
         }
-      },
-      tree.symbol
-    )
+      })
+    } yield Shapes.Env(receiving ++ own, tree.symbol)
 
   // The methods a definition is written in, outermost first, at whatever depth (a member of a
   // class in a body, or of a template inside such a class, is written in them too), and the
@@ -196,35 +194,66 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   }
 
   // What a local definition reads of the methods around it: each of their parameters, by its
-  // name. Left to later steps: a parameter's name that another definition or binder of the
-  // outermost method has too (an inner one hides the outer), and a definition in a case clause,
-  // whose pattern may bind names.
+  // name. Left to later steps: a parameter's name that a scope between that method and the
+  // definition binds again (a block's definition, an inner method's parameter, a class's
+  // member, the definition's own parameter: the definition sees the inner name), and a
+  // definition in a case clause, whose pattern may bind names. A definition elsewhere in the
+  // method that shares the name hides nothing here.
   private def local(tree: ValOrDefDef, methods: List[DefDef]): Either[String, Unit] =
-    methods.headOption.fold(Right(()): Either[String, Unit]) { outermost =>
-      val names = List.newBuilder[String]
-      var cases = 0
-      var inCase = false
-      new Traversers.TreeTraverser {
-        override def traverse(node: Tree): Unit = node match {
-          case clause: CaseDef =>
-            cases += 1
-            super.traverse(clause)
-            cases -= 1
-          case definition: ValOrDefDef =>
-            names += definition.name.toString
-            if (definition.symbol == tree.symbol) inCase = cases > 0
-            super.traverse(definition)
-          case binder: Bind =>
-            names += binder.name.toString
-            super.traverse(binder)
-          case other => super.traverse(other)
+    methods.headOption match {
+      case None            => Right(())
+      case Some(outermost) =>
+        // The scopes open at each point, innermost first: the definition a scope is of, if any,
+        // and the names it binds. A block's names count over the whole block.
+        type Scope = (Option[Symbol], Set[String])
+        var scopes = List.empty[Scope]
+        var cases = 0
+        var seen = Option.empty[(List[Scope], Boolean)]
+        def within(scope: Scope)(body: => Unit): Unit = {
+          val saved = scopes
+          scopes = scope :: scopes
+          body
+          scopes = saved
         }
-      }.traverse(outermost)
-      val taken = (methods :+ tree).collect { case method: DefDef => Shapes.parameters(method) }
-      val all = names.result()
-      val hidden = taken.flatten.map(_.name.toString).find(name => all.count(_ == name) > 1)
-      if (inCase) Left("a definition in a case clause")
-      else hidden.map(name => s"a capture another definition may hide: $name").toLeft(())
+        def named(stats: List[Tree]) = stats.collect {
+          case d: ValOrDefDef => d.name.toString
+        }.toSet
+        new Traversers.TreeTraverser {
+          override def traverse(node: Tree): Unit = node match {
+            case clause: CaseDef =>
+              cases += 1
+              super.traverse(clause)
+              cases -= 1
+            case block: Block       => within(None -> named(block.stats))(super.traverse(block))
+            case template: ClassDef =>
+              // Its members, and the alias it may give itself (`new T { self => … }`).
+              val alias = template.rhs.self.map(_.name.toString).toSet
+              within(None -> (named(template.rhs.body) ++ alias))(super.traverse(template))
+            case definition: ValOrDefDef =>
+              val own = definition match {
+                case method: DefDef => Shapes.parameters(method).map(_.name.toString).toSet
+                case _: ValDef      => Set.empty[String]
+              }
+              within(Some(definition.symbol) -> own) {
+                if (definition.symbol == tree.symbol) seen = Some(scopes -> (cases > 0))
+                super.traverse(definition)
+              }
+            case other => super.traverse(other)
+          }
+        }.traverse(outermost)
+        seen match {
+          case None                => Left("a definition not found in the method around it")
+          case Some((_, true))     => Left("a definition in a case clause")
+          case Some((open, false)) =>
+            methods.iterator
+              .flatMap { method =>
+                val nearer = open.takeWhile(!_._1.contains(method.symbol)).flatMap(_._2).toSet
+                Shapes.parameters(method).map(_.name.toString).filter(nearer)
+              }
+              .nextOption()
+              .map(name => s"a capture a nearer scope binds again: $name")
+              .toLeft(())
+        }
     }
 
   // A row's captures, as the report lists them: the names its receivers supply, the parameters
@@ -278,7 +307,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
 private[compiled] object Readings {
 
-  /** A proper type parameter any type instantiates. */
+  /** A proper type parameter any type instantiates (a constructor row's: its positions are read as
+    * value spaces, where a rigid constructor has no reading yet).
+    */
   def unbounded(binder: TypeParam)(using Context): Either[Unread, Unit] =
     if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
     else Left(Unread.Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))
