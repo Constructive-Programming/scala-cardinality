@@ -1,13 +1,12 @@
 package cardinality.analysis
 
-import scala.jdk.CollectionConverters.*
-
 import cardinality.Compiled
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.analysis.inhabitation.NaturalSyntax
 import cardinality.capacity.Definition
+import cardinality.compiled.Programs
 import cardinality.reporting.Report
-import java.nio.file.{FileSystems, Files, Path}
+import java.nio.file.{Files, Path}
 import org.specs2.Specification
 import org.specs2.execute.Result
 
@@ -46,30 +45,6 @@ class DependencyRowsSpec extends Specification {
       a JDK module other than java.base is read where a source names it $jdkModule
       with no classpath at all a JDK module is not read              $jdkUnread
   """
-
-  private def jarOf(c: Class[?]): Path =
-    Path.of(c.getProtectionDomain.getCodeSource.getLocation.toURI)
-
-  // The classes of one package of the test classes, as a class directory of its own: a dependency
-  // that holds nothing else.
-  private def packaged(name: String): Path = {
-    val all = jarOf(classOf[tastyfixtures.Endo[?]])
-    val out = Files.createTempDirectory("dependency")
-    sys.addShutdownHook(Compiled.deleted(out))
-    val zipped = Option.unless(Files.isDirectory(all))(FileSystems.newFileSystem(all))
-    try {
-      val from = zipped.fold(all)(_.getPath("/")).resolve(name)
-      val files = Files.walk(from)
-      try
-        files.iterator.asScala.filter(Files.isRegularFile(_)).foreach { file =>
-          val to = out.resolve(name).resolve(from.relativize(file).toString)
-          Files.createDirectories(to.getParent)
-          Files.copy(file, to)
-        }
-      finally files.close()
-    } finally zipped.foreach(_.close())
-    out
-  }
 
   private def counts(report: Report): Map[String, Count] =
     report.methods.map(entry => entry.name -> entry.count).toMap
@@ -116,7 +91,7 @@ class DependencyRowsSpec extends Specification {
       |""".stripMargin
 
   private lazy val throughClasses =
-    Compiled.reportOver(List(packaged("tastyfixtures")), usesScala3)
+    Compiled.reportOver(List(Programs.packaged("tastyfixtures")), usesScala3)
 
   private lazy val throughSource = Compiled.report(usesScala3, "f/F.scala" -> fixtureSource)
   private lazy val alone = Compiled.report(usesScala3)
@@ -236,7 +211,7 @@ class DependencyRowsSpec extends Specification {
       |""".stripMargin
 
   private lazy val throughJava = counts(
-    Compiled.reportOver(List(packaged("javafixtures")), usesJava)
+    Compiled.reportOver(List(Programs.packaged("javafixtures")), usesJava)
   )
 
   private lazy val aloneJava = counts(Compiled.report(usesJava))
@@ -285,8 +260,8 @@ class DependencyRowsSpec extends Specification {
 
   // scalameta's `io_2.13` and `common2_2.13`, compiled by Scala 2.
   private val scala2Jars = List(
-    jarOf(classOf[scala.meta.io.AbsolutePath]),
-    jarOf(classOf[scala.meta.internal.SingletonReference[?]])
+    Programs.jarOf(classOf[scala.meta.io.AbsolutePath]),
+    Programs.jarOf(classOf[scala.meta.internal.SingletonReference[?]])
   )
 
   private val usesScala2 = "s/S.scala" ->
