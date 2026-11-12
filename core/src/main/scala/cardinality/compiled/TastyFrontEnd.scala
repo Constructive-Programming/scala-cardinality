@@ -40,7 +40,27 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
               missed = failed
               found
             }
-            val sources = read(module.sources, own, new Inlines(own.toSet, dependencies))
+            // The closed world asks for the same listing, and for the classpath's classes no
+            // symbol stands for, only where a question is about a class outside the module.
+            val closed = new ClosedProgram(
+              own.distinct,
+              unloaded,
+              (dependencies, missed),
+              CompiledTypes.unnamed(classes, ofModule = true),
+              CompiledTypes.unnamed(classes, ofModule = false)
+            )
+            val sources =
+              read(
+                module.sources,
+                own,
+                new Inlines(own.toSet, dependencies),
+                closed,
+                // A class file is read only for a class without TASTy that a type names.
+                {
+                  lazy val facts = CompiledTypes.javaFacts(classes)
+                  new DependencyClasses(c => facts(c))
+                }
+              )
             FrontEnd.Rows(
               sources,
               (unloaded ++ missed).map(why => s"compiled class not read: $why")
@@ -55,12 +75,17 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
   private def refused(sources: List[(String, String)], why: String): FrontEnd.Rows =
     FrontEnd.Rows(sources.map((path, _) => Left(Report.Error(path, why))), Nil)
 
-  private def read(sources: List[(String, String)], own: List[ClassSymbol], inlines: Inlines)(using
-      Context
-  ): List[Either[Report.Error, Report.Source]] = {
+  private def read(
+      sources: List[(String, String)],
+      own: List[ClassSymbol],
+      inlines: Inlines,
+      closed: ClosedProgram,
+      dependencyClasses: DependencyClasses
+  )(using Context): List[Either[Report.Error, Report.Source]] = {
     // A class file is listed under its class's and its object's name: each class once.
     val trees = own.distinct.flatMap(_.tree).groupBy(_.pos.sourceFile.path)
-    val world = new World(own.toSet)
+    val world =
+      new World(own.toSet, closed, dependencyClasses)
     val stored = new Stored(world)
     val measure = rowsOf(new Readings(world, stored, inlines), stored)
     // Each compiled path belongs to the source that shares most of it (`Exp.scala` against

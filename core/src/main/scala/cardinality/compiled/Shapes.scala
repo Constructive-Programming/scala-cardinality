@@ -17,14 +17,20 @@ private[compiled] enum Unread {
 
 /** Types as the method side reads them (slice S1; docs/plans/compiled-own-types.md, "Front end:
   * design and status"). A class the standard model holds is read by it, under its fully qualified
-  * name (the compiler bound it, decision D3). A class of the module is read by its declaration
-  * (v1.md §2):
+  * name (the compiler bound it, decision D3). A class of the module, and one of a dependency with
+  * TASTy outside the standard library and the JDK (`World.readByDeclaration`; its bodies are not
+  * read), is read by its declaration (v1.md §2):
   *
   *   - a case class whose one parameter list is its whole product (no written parent, no member but
   *     a secondary constructor, no restricted field or constructor) is the product of its fields;
   *   - an enum and a sealed family are the sum of their cases (`Sums`);
   *   - a trait or class with only type members is one value;
-  *   - an opaque alias is one value outside the scope its representation is visible in (rule F).
+  *   - an opaque alias is one value outside the scope its representation is visible in (rule F),
+  *     which every dependency's is, the standard library's aside.
+  *
+  * A dependency's class without TASTy (Java, Scala 2) is read from its symbols
+  * (`DependencyClasses`): the sum of its constants or children, or the product of its primary
+  * constructor's parameters; a generic one and a record of abstract members are not read yet.
   *
   * A type that reaches itself and an enum's class case as a type are refused (`recursive type not
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`: above
@@ -60,9 +66,9 @@ final private[compiled] class Shapes(world: World)(using Context) {
       case Some(binder) if env.binders.contains(binder) =>
         if (arguments.isEmpty) Right(env.binders(binder))
         else Left(Uncovered(s"a type parameter applied: ${ref.showBasic}"))
-      // An evidence type compares its arguments as types, and two types of the module with one
+      // An evidence type compares its arguments as types, and two types of the program with one
       // shape are two types: their shapes are not read there.
-      case Some(symbol) if env.nominal && world.ofModule(symbol) =>
+      case Some(symbol) if env.nominal && world.shaped(symbol) =>
         Left(Uncovered(s"a type of the module in an evidence type: ${symbol.displayFullName}"))
       case Some(c: ClassSymbol) =>
         // A context function is a function: only implicit search tells its argument apart.
@@ -71,9 +77,11 @@ final private[compiled] class Shapes(world: World)(using Context) {
         val inside = if (library.exists(Shapes.Evidence)) env.copy(nominal = true) else env
         Traversals.sequence(arguments.map(of(_, inside))).flatMap { read =>
           library.flatMap(standard(_, read)) match {
-            case Some(known)               => known
-            case None if world.ofModule(c) => declared(c, read, env)
-            case None => Left(Uncovered(s"a class of a dependency: ${c.displayFullName}"))
+            case Some(known)                        => known
+            case None if world.readByDeclaration(c) => declared(c, read, env)
+            case None if World.standard(c)          =>
+              Left(Uncovered(s"a class of a dependency: ${c.displayFullName}"))
+            case None => withoutTasty(c, env)
           }
         }
       case Some(alias: TypeMemberSymbol) =>
@@ -84,20 +92,56 @@ final private[compiled] class Shapes(world: World)(using Context) {
       case _ => uncovered(ref)
     }
 
-  // Rule F: outside the scope its representation is visible in (its owner), an opaque alias of the
-  // module is one value; inside, it is its representation. A dependency's is left to its slice:
-  // the standard library's have readings of their own (a named tuple is its fields).
+  // Rule F: outside the scope its representation is visible in (its owner), an opaque alias is one
+  // value; inside, it is its representation. No measured site is inside a dependency's scope.
+  // The standard library's are left to their own readings (a named tuple is its fields).
   private def opaque(
       alias: TypeMemberSymbol,
       body: Type,
       arguments: List[Type],
       env: Env
   ): Either[Unread, Shape] =
-    if (!world.ofModule(alias))
+    if (World.under(alias, "scala"))
       Left(Uncovered(s"an opaque type of a dependency: ${alias.displayFullName}"))
     else if (!World.owners(env.site).contains(alias.owner)) Right(Shape.Product(Nil))
     // The compiler refuses an alias that refers to itself: a cycle passes through a class.
     else of(body.appliedTo(arguments), env)
+
+  // A dependency's class without TASTy (Java, Scala 2), read from its symbols: a sum of its
+  // constants or its children, the product of its primary constructor's parameters. A generic
+  // one, a record of abstract members and what the symbols do not say are not read yet.
+  private def withoutTasty(c: ClassSymbol, env: Env): Either[Unread, Shape] = {
+    import DependencyClasses.Declared
+    def field(symbol: TermSymbol) = symbol.declaredType match {
+      case tpe: Type => of(tpe, env.copy(visiting = env.visiting + c))
+      case _         => Left(Uncovered(s"a parameter of a method type: ${symbol.name}"))
+    }
+    if (env.visiting(c)) recursive(c)
+    else if (c.typeParams.nonEmpty)
+      Left(Uncovered(s"a generic class without TASTy: ${c.displayFullName}"))
+    else
+      world.withoutTasty(c).left.map(why => Uncovered(s"a class of a dependency: $why")).flatMap {
+        case Declared.Sum(cases) =>
+          Traversals
+            .sequence(cases.map {
+              case child: ClassSymbol if !child.isModuleClass =>
+                withoutTasty(child, env.copy(visiting = env.visiting + c))
+              case _ => Right(Shape.Product(Nil))
+            })
+            .map(Shape.Sum(_))
+        case Declared.Fields(_, fields) =>
+          Traversals.sequence(fields.map(field)).map(Shape.Product(_))
+        case Declared.Record(_, _) =>
+          Left(
+            Uncovered(
+              s"a class that is no product, sum or type-only template: ${c.displayFullName}"
+            )
+          )
+      }
+  }
+
+  private def recursive(c: ClassSymbol): Either[Unread, Shape] =
+    Left(Refused(s"recursive type not read: ${c.displayFullName}"))
 
   // ---- classes of the module ----------------------------------------------------------------
 
@@ -107,7 +151,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
       // A member of a class nested in a class or a body may read what is around it.
       if (!World.inObjects(c))
         Left(Uncovered(s"a class nested in a class or a body: ${c.displayFullName}"))
-      else if (env.visiting(c)) Left(Refused(s"recursive type not read: ${c.displayFullName}"))
+      else if (env.visiting(c)) recursive(c)
       else if (c.typeParams.sizeIs != arguments.size)
         Left(Uncovered(s"a type constructor: ${c.displayFullName}"))
       else if (c.isEnum && c.isCaseClass)

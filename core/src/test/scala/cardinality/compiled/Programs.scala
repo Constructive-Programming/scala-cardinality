@@ -57,6 +57,18 @@ private[cardinality] object Programs {
     def dependencies: (List[ClassSymbol], List[String]) =
       CompiledTypes.dependencies(classes)(using context)
 
+    /** The closed world over the module and its classpath. */
+    def closed: ClosedProgram = {
+      given Context = context
+      new ClosedProgram(
+        own,
+        unloaded,
+        dependencies,
+        CompiledTypes.unnamed(classes, ofModule = true),
+        CompiledTypes.unnamed(classes, ofModule = false)
+      )
+    }
+
   }
 
   /** `code` compiled against `classpath`, and loaded with `read` (by default the same) and the

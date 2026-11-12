@@ -29,7 +29,7 @@ class ClosedProgramSpec extends Specification {
       a question about the module's own class does not read them       $lazily
       a class that does not load leaves no answer about them sure      $unloaded
       a parent that is not read hides no class of the module           $unreadParent
-      a class without TASTy is closed only where it is written final   $java
+      a class without TASTy is extended by what its class files name  $java
     The Scala library and the JDK
       the library is listed like a dependency, a sealed class by its children $library
       the JDK is not listed: only what is written closes a class of it $jdk
@@ -43,7 +43,10 @@ class ClosedProgramSpec extends Specification {
     val closed = new ClosedProgram(
       loaded.own,
       loaded.unloaded,
-      if (dependencies) loaded.dependencies else sys.error("the dependencies are not read")
+      if (dependencies) loaded.dependencies else sys.error("the dependencies are not read"),
+      cardinality.tasty.CompiledTypes.unnamed(loaded.classes, ofModule = true),
+      if (dependencies) cardinality.tasty.CompiledTypes.unnamed(loaded.classes, ofModule = false)
+      else sys.error("the dependencies are not read")
     )
 
     def cls(name: String): ClassSymbol =
@@ -69,7 +72,7 @@ class ClosedProgramSpec extends Specification {
       }
 
     def subclasses(name: String): (Set[String], Boolean) = {
-      val Subclasses(found, complete) = closed.subclasses(cls(name))
+      val Subclasses(found, complete, _) = closed.subclasses(cls(name))
       (found.map(_.name.toString).toSet, complete)
     }
 
@@ -276,18 +279,25 @@ class ClosedProgramSpec extends Specification {
       .and(p.mixes("dep.Plain", "dep.Sub") must beTrue)
   }
 
-  // A class without TASTy may be extended by a local or an anonymous class no symbol stands for:
-  // `Lone.off` returns one, which overrides `on`. So `Lone` is not known to be final, nor `on` to
-  // be closed, and only `Box.Point`, written final, is. The classes that are found are found:
-  // `Shape` extends `Box`, and `Choice.Yes` and `Choice.No` implement `Choice`.
+  // A class without TASTy may be extended by a local or an anonymous class no symbol stands
+  // for, which its class file names: `Lone.off` returns `Lone$1`, which extends `Lone` and
+  // declares `on`. So `Lone` is not final and its `on` is overridden. Nothing extends `Solo`,
+  // named or not: it is final and its `on` closed, as a Scala class's would be. `Box.Point` is
+  // written final, `Shape` extends `Box`, `Choice.Yes` and `Choice.No` implement `Choice`, and
+  // nothing overrides the default method `Toggle.same` (no class file of the fixtures extends
+  // `Toggle`: `Lone` and `Solo` are the checks a lost class file would fail).
   def java = {
     val p = program("class Mine", List(Programs.packaged("javafixtures")))
-    val names = List("Lone", "Box.Point", "Box", "Choice").map("javafixtures." + _)
-    (p.isFinal(names*) must_== List(false, true, false, false))
-      .and(p.subclasses("javafixtures.Lone") must_== (Set(), false))
-      .and(p.overriding("javafixtures.Lone", "javafixtures.Lone", "on") must_== Overriding.Unknown)
-      .and(p.subclasses("javafixtures.Box") must_== (Set("Shape"), false))
-      .and(p.subclasses("javafixtures.Choice") must_== (Set("Yes", "No"), false))
+    val names = List("Lone", "Solo", "Box.Point", "Box", "Choice").map("javafixtures." + _)
+    def unnamed(name: String) = p.closed.subclasses(p.cls(name)).unnamed.map(_.name)
+    (p.isFinal(names*) must_== List(false, true, true, false, false))
+      .and(p.subclasses("javafixtures.Lone") must_== (Set(), true))
+      .and(unnamed("javafixtures.Lone") must_== List("javafixtures/Lone$1"))
+      .and(p.overriding("javafixtures.Lone", "javafixtures.Lone", "on") must_== Overriding.Supplied)
+      .and(p.overriding("javafixtures.Solo", "javafixtures.Solo", "on") must_== Overriding.No)
+      .and(p.overriding("javafixtures.Toggle", "javafixtures.Toggle", "same") must_== Overriding.No)
+      .and(p.subclasses("javafixtures.Box") must_== (Set("Shape"), true))
+      .and(p.subclasses("javafixtures.Choice") must_== (Set("Yes", "No"), true))
   }
 
   // `Mid` extends `gone.Gone`, which the classes read do not hold. `Leaf` and `Leaf2` are still

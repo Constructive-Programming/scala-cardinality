@@ -43,17 +43,19 @@ import tastyquery.Types.*
   *     is its representation inside its scope and one value outside it (rule F), wherever the
   *     reading started, as the old estimate reads it. (The method side follows aliases first and
   *     decides at the use site: `Shapes`.)
-  *   - A reference to a concrete class, an enum or a sealed family of the module is what it stores
-  *     with its arguments bound; one to an open class, an unbound type parameter, an abstract type
-  *     member, a class named without its arguments, an enum case's class or `AnyVal` is a reason.
+  *   - A reference to a concrete class, an enum or a sealed family of the module, or of a
+  *     dependency with TASTy outside the standard library and the JDK, is what it stores with its
+  *     arguments bound; one to an open class, an unbound type parameter, an abstract type member, a
+  *     class named without its arguments, an enum case's class or `AnyVal` is a reason.
   *
   * What it does not read yet is a `Left`, naming what it met. The main ones: a sealed family with a
   * subtype it does not read whole (`family`), a definition that reaches itself (the solver's fixed
   * point), a restricted constructor (rule B), an enum case whose clause does not pass its own
-  * parameters on, a class the algebra does not model or of a dependency, an opaque type of a
-  * dependency or of a class named inside it, an alias of a class beside an opaque type's scope, a
-  * wildcard argument, a refinement of no written type, a function type refined by its `apply`, any
-  * other form of type, and what a value of a class of the module needs (its construction).
+  * parameters on, a class the algebra does not model or of a dependency without TASTy, an opaque
+  * type of the standard library or of a class named inside it, an alias of a class beside an opaque
+  * type's scope, a wildcard argument, a refinement of no written type, a function type refined by
+  * its `apply`, any other form of type, and what a value of a class of the module needs (its
+  * construction).
   */
 final private[compiled] class Stored(world: World)(using Context) {
   import Stored.{Env, Held, Row}
@@ -362,9 +364,9 @@ final private[compiled] class Stored(world: World)(using Context) {
       case Some(c: ClassSymbol) =>
         World.proper(arguments).flatMap(each(_, env)).flatMap { sizes =>
           world.library(c) match {
-            case Some(name)                => standard(name, sizes, env.input)
-            case None if world.ofModule(c) => declared(c, sizes, env)
-            case None                      => Left(s"a class of a dependency: ${c.displayFullName}")
+            case Some(name)                         => standard(name, sizes, env.input)
+            case None if world.readByDeclaration(c) => declared(c, sizes, env)
+            case None => Left(s"a class of a dependency: ${c.displayFullName}")
           }
         }
       // The empty tuple is a base type, though the library spells it as an alias of a singleton.
@@ -427,7 +429,8 @@ final private[compiled] class Stored(world: World)(using Context) {
   private def opaque(alias: TypeMemberSymbol, env: Env)(
       inside: => Either[String, Held]
   ): Either[String, Held] =
-    if (!world.ofModule(alias)) Left(s"an opaque type of a dependency: ${alias.displayFullName}")
+    if (World.under(alias, "scala"))
+      Left(s"an opaque type of a dependency: ${alias.displayFullName}")
     else if (!World.owners(env.site).contains(alias.owner)) Right(Held(UnitSize))
     else
       alias.owner match {

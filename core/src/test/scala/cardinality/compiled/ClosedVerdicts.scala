@@ -137,7 +137,13 @@ object ClosedVerdicts {
     val classes = input.next.environment.classes.get
     val (context, own, unloaded) = CompiledTypes.loaded(classes)
     given Context = context
-    val closed = new ClosedProgram(own.distinct, unloaded, CompiledTypes.dependencies(classes))
+    val closed = new ClosedProgram(
+      own.distinct,
+      unloaded,
+      CompiledTypes.dependencies(classes),
+      CompiledTypes.unnamed(classes, ofModule = true),
+      CompiledTypes.unnamed(classes, ofModule = false)
+    )
     val all = own.distinct.flatMap(_.tree).flatMap(World.classes)
     val started = System.nanoTime()
     val after = all.flatMap { tree =>
@@ -147,7 +153,7 @@ object ClosedVerdicts {
         val (source, name) = (tree.pos.sourceFile.path, c.name.toString)
         val below = closed.subclasses(c)
         val extended =
-          if (below.found.nonEmpty) Overriding.Supplied
+          if (below.any) Overriding.Supplied
           else if (below.complete) Overriding.No
           else Overriding.Unknown
         val members = tree.rhs.body

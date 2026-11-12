@@ -171,6 +171,7 @@ class TastyStubsSpec extends Specification {
           "Op.scala",
           "Shape.scala",
           "Sig.scala",
+          "Solo.scala",
           "Toggle.scala"
         )
     )

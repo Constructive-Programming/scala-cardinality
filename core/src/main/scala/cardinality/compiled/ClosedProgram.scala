@@ -3,6 +3,7 @@ package cardinality.compiled
 import scala.collection.mutable
 import scala.util.control.NonFatal
 
+import cardinality.tasty.CompiledTypes
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.OpenLevel
 import tastyquery.SourceLanguage
@@ -30,14 +31,19 @@ import tastyquery.Symbols.*
   *   - a parent that is not read may extend any class outside the module, and may override any
   *     member of the class that mixes it in;
   *   - the JDK is not listed, so a class of it is closed only where it is written `final`;
-  *   - a class without TASTy (Java, Scala 2) has local and anonymous subclasses no symbol stands
-  *     for, so it too is closed only where it is written `final`, and the library's and the
-  *     dependencies' Scala 3 classes are taken not to be extended by such a class.
+  *   - a class without TASTy (Java, Scala 2) has local and anonymous classes no symbol stands for
+  *     (`Lone$1`). `ownFiles` and `classpathFiles` list them from their class files
+  *     (`CompiledTypes.unnamed`), for the module's output and its classpath: the classes each
+  *     extends, by binary name, and the methods it declares. One of them under a class is a
+  *     subclass of it that overrides the members it declares, by name. Where a parent of one does
+  *     not resolve, it may extend anything.
   */
 final private[compiled] class ClosedProgram(
     own: List[ClassSymbol],
     unloaded: List[String],
-    dependencies: => (List[ClassSymbol], List[String])
+    dependencies: => (List[ClassSymbol], List[String]),
+    ownFiles: => List[CompiledTypes.ClassFile],
+    classpathFiles: => List[CompiledTypes.ClassFile]
 )(using Context) {
   import ClosedProgram.*
 
@@ -55,18 +61,57 @@ final private[compiled] class ClosedProgram(
 
   }
 
-  private val world = new World(own.toSet)
+  private val ownTops = own.toSet
+
+  private def ofModule(symbol: Symbol): Boolean = World.owners(symbol).exists {
+    case c: ClassSymbol => ownTops(c)
+    case _              => false
+  }
+
   private lazy val module = new Part(own)
   private lazy val listing = dependencies
   private lazy val listed: Set[Symbol] = listing._1.toSet
-  private lazy val outside = new Part(listing._1.filterNot(world.ofModule))
+  private lazy val outside = new Part(listing._1.filterNot(ofModule))
+
+  // The classes no symbol stands for in a part of the program, and whether every parent of each
+  // resolved. One that extends another has that one's parents and declares its methods too.
+  private def indexed(files: List[CompiledTypes.ClassFile]): (List[Unnamed], Boolean) = {
+    val byName = files.map(file => file.binary -> file).toMap
+    def resolved(binary: String, seen: Set[String]): List[(Option[ClassSymbol], List[String])] =
+      byName.get(binary) match {
+        // A class file that does not read has no parents: every other class has a super class.
+        case Some(file) if file.parents.isEmpty => List((None, Nil))
+        case Some(file) if !seen(binary)        =>
+          file.parents.flatMap(resolved(_, seen + binary)).map((k, m) => (k, m ++ file.methods))
+        case Some(_) => List((None, Nil))
+        case None    => List((named(binary), Nil))
+      }
+    val read = files.map { file =>
+      val parents = resolved(file.binary, Set.empty)
+      val methods = file.methods ++ parents.flatMap(_._2)
+      (
+        Unnamed(file.binary, parents.flatMap(_._1).distinct, methods.toSet),
+        parents.forall(_._1.nonEmpty)
+      )
+    }
+    (read.map(_._1), read.forall(_._2))
+  }
+
+  private lazy val (moduleUnnamed: List[Unnamed], moduleUnnamedRead: Boolean) = indexed(ownFiles)
+
+  private lazy val (outsideUnnamed: List[Unnamed], outsideUnnamedRead: Boolean) =
+    indexed(classpathFiles)
+
+  // The classes no symbol stands for, among `among`, that extend `c`.
+  private def unnamedBelow(c: ClassSymbol, among: List[Unnamed]): List[Unnamed] =
+    among.filter(_.parents.exists(linearized(_)._1.contains(c)))
 
   private val extenders = mutable.Map.empty[ClassSymbol, Subclasses]
 
   /** The classes of the program that extend `c`, at any depth, and whether they are all of them. */
   def subclasses(c: ClassSymbol): Subclasses = extenders.get(c).getOrElse {
     val found =
-      if (c.openLevel == OpenLevel.Final || c.isModuleClass) Subclasses(Nil, complete = true)
+      if (c.openLevel == OpenLevel.Final || c.isModuleClass) Subclasses.Empty
       else sealedBelow(c).getOrElse(listedBelow(c))
     extenders.update(c, found)
     found
@@ -86,21 +131,28 @@ final private[compiled] class ClosedProgram(
       }
       Option.when(children.forall(_.nonEmpty)) {
         val under = children.flatten.map(subclasses)
-        Subclasses((children.flatten ++ under.flatMap(_.found)).distinct, under.forall(_.complete))
+        Subclasses(
+          (children.flatten ++ under.flatMap(_.found)).distinct,
+          under.forall(_.complete),
+          under.flatMap(_.unnamed).distinct
+        )
       }
     }
 
   private def listedBelow(c: ClassSymbol): Subclasses =
-    // A parent the module does not read is no class of the module, and leads to none. A class
-    // the module compiles without TASTy (from Java) has local and anonymous classes no symbol
-    // stands for, which may extend any class of the module.
-    if (world.ofModule(c))
-      Subclasses(module.below.getOrElse(c, Nil), unloaded.isEmpty && own.forall(_.tree.nonEmpty))
+    // A parent the module does not read is no class of the module, and leads to none.
+    if (ofModule(c))
+      Subclasses(
+        module.below.getOrElse(c, Nil),
+        unloaded.isEmpty && moduleUnnamedRead,
+        unnamedBelow(c, moduleUnnamed)
+      )
     else
       Subclasses(
         (module.below.getOrElse(c, Nil) ++ outside.below.getOrElse(c, Nil)).distinct,
         unloaded.isEmpty && module.parentsRead && listing._2.isEmpty && outside.parentsRead &&
-          c.tree.nonEmpty && World.owners(c).exists(listed)
+          moduleUnnamedRead && outsideUnnamedRead && World.owners(c).exists(listed),
+        unnamedBelow(c, moduleUnnamed ++ outsideUnnamed)
       )
 
   /** Whether no instance of `c` is of a subclass: it is written `final`, or it is an object, or it
@@ -111,7 +163,7 @@ final private[compiled] class ClosedProgram(
   def finalClass(c: ClassSymbol): Boolean =
     c.openLevel == OpenLevel.Final || c.isModuleClass ||
       (!c.isTrait && !c.isAbstractClass && c.openLevel == OpenLevel.Closed &&
-        subclasses(c) == Subclasses(Nil, complete = true))
+        subclasses(c) == Subclasses.Empty)
 
   private val overriders = mutable.Map.empty[(ClassSymbol, TermOrTypeSymbol), Overriding]
 
@@ -128,19 +180,22 @@ final private[compiled] class ClosedProgram(
       if (member.isPrivate || member.isFinalMember || World.isConstructor(member)) Overriding.No
       else {
         val below = subclasses(owner)
+        val ownerLine = linearized(owner)._1.toSet
         val each = below.found.map { subclass =>
           val (line, whole) = linearized(subclass)
           // A line that is not whole is in no sure order: everything of it that `owner` does not
           // extend may come before `owner`.
+          // What may override a member is before its declaring class and outside what `owner`
+          // extends (`owner` resolves the member to itself there).
           val between =
-            if (whole) line.takeWhile(_ != owner)
-            else line.filterNot(linearized(owner)._1.toSet)
+            if (whole) line.takeWhile(_ != member.owner).filterNot(ownerLine)
+            else line.filterNot(ownerLine)
           val declared =
             try
               between.exists { k =>
                 member.matchingSymbol(k, subclass).exists { found =>
                   found != member && !found.isPrivate &&
-                  (!found.isAbstractMember || k.isSubClass(owner))
+                  (!found.isAbstractMember || k.isSubClass(member.owner.asClass))
                 }
               }
             // A signature that is not read: a declaration of the name between the two is taken
@@ -153,8 +208,20 @@ final private[compiled] class ClosedProgram(
           else if (whole || !unreadBeside(subclass, owner)) Overriding.No
           else Overriding.Unknown
         }
+        // A class no symbol stands for overrides what it declares, by name, and so does what it
+        // mixes in beside `owner`.
+        val nameless = below.unnamed.map { subclass =>
+          val between = subclass.parents.flatMap(linearized(_)._1).filterNot(ownerLine)
+          val name = member.name.toString
+          // A class file spells a method by its encoded name (`$plus` for `+`).
+          if (
+            subclass.methods(scala.reflect.NameTransformer.encode(name)) ||
+            between.exists(_.declarations.exists(d => d.name.toString == name && !d.isPrivate))
+          ) Overriding.Supplied
+          else Overriding.No
+        }
         val rest = if (below.complete) Overriding.No else Overriding.Unknown
-        (rest :: each).maxBy(_.ordinal)
+        (rest :: each ::: nameless).maxBy(_.ordinal)
       }
     )
 
@@ -165,7 +232,8 @@ final private[compiled] class ClosedProgram(
     val ((leftLine, leftWhole), (rightLine, rightWhole)) = (linearized(left), linearized(right))
     !leftWhole || !rightWhole || leftLine.contains(right) || rightLine.contains(left) || {
       val (lefts, rights) = (subclasses(left), subclasses(right))
-      !lefts.complete || !rights.complete || lefts.found.exists(rights.found.toSet)
+      !lefts.complete || !rights.complete || lefts.found.exists(rights.found.toSet) ||
+      lefts.unnamed.exists(rights.unnamed.toSet)
     }
   }
 
@@ -173,8 +241,55 @@ final private[compiled] class ClosedProgram(
 
 private[compiled] object ClosedProgram {
 
-  /** The classes of the program that extend a class, and whether they are all of them. */
-  final case class Subclasses(found: List[ClassSymbol], complete: Boolean)
+  /** The classes of the program that extend a class: the ones a symbol stands for, whether they and
+    * the `unnamed` ones are all of them, and the ones no symbol stands for.
+    */
+  final case class Subclasses(
+      found: List[ClassSymbol],
+      complete: Boolean,
+      unnamed: List[Unnamed] = Nil
+  ) {
+
+    /** Whether a class of the program extends it. */
+    def any: Boolean = found.nonEmpty || unnamed.nonEmpty
+
+  }
+
+  object Subclasses {
+
+    /** No subclass, for sure. */
+    val Empty: Subclasses = Subclasses(Nil, complete = true)
+
+  }
+
+  /** A local or anonymous class of a class without TASTy: its binary name, the classes it extends
+    * that resolve, and the names of the methods an instance of it declares.
+    */
+  final case class Unnamed(name: String, parents: List[ClassSymbol], methods: Set[String])
+
+  // The class a binary name stands for (`a/b/Outer$Inner`): a top-level class, then its member
+  // classes, an object's among them.
+  private def named(binary: String)(using Context): Option[ClassSymbol] = {
+    val at = binary.lastIndexOf('/')
+    val parts = binary.substring(at + 1).split('$').toList.filter(_.nonEmpty)
+    val pkg = binary.take(at.max(0)).replace('/', '.')
+    try
+      parts match {
+        case Nil         => None
+        case top :: rest =>
+          rest.foldLeft(Option(ctx.findStaticClass(if (pkg.isEmpty) top else s"$pkg.$top"))) {
+            (outer, name) =>
+              outer.flatMap { k =>
+                (k :: k.companionClass.toList)
+                  .flatMap(_.declarations)
+                  .collectFirst {
+                    case member: ClassSymbol if member.name.toString == name => member
+                  }
+              }
+          }
+      }
+    catch { case NonFatal(_) => None }
+  }
 
   /** How a member may be overridden: not at all, or only by a class that is not read, or by a class
     * of the program.
