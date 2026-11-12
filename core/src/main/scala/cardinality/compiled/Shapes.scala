@@ -506,20 +506,27 @@ private[compiled] object Shapes {
     else
       Left(
         Unread.Uncovered(
-          s"a type parameter of another kind than F[_], or a bounded or variant F[_]: ${parameter.name}"
+          s"a type parameter of another kind than an invariant F[_]: ${parameter.name}"
         )
       )
   }
 
-  // Bounds any invariant type constructor of proper, unbounded parameters meets: `[X] =>> Any`
-  // above, nothing below (written as a lambda too, on a method's own parameter).
+  // Whether a parameter is an invariant type constructor of proper, unbounded parameters:
+  // `[X] =>> Any` above (written as a lambda too, on a method's own parameter), nothing below,
+  // and no variance on it or on its parameters.
   private def constructor(parameter: TypeParamSymbol)(using Context): Boolean = {
     val bounds = parameter.declaredBounds
     val bottom = bounds.low match {
       case lambda: TypeLambda => lambda.resultType.isSameType(defn.NothingType)
       case low                => low.isSameType(defn.NothingType)
     }
-    bottom && !Shapes.variant(parameter) && (bounds.high match {
+    // A class's parameter declared `+F[_]` or `-F[_]` relates its applications by subtyping.
+    val invariant = parameter match {
+      case declared: ClassTypeParamSymbol =>
+        declared.declaredVariance == tastyquery.Modifiers.Variance.Invariant
+      case _ => true
+    }
+    bottom && invariant && !Shapes.variant(parameter) && (bounds.high match {
       case lambda: TypeLambda =>
         lambda.paramTypeBounds.forall(unbounded) && lambda.resultType.isSameType(defn.AnyType)
       case _ => false

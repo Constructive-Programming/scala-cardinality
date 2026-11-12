@@ -1566,6 +1566,17 @@ the solver's refusal of a proof beside a sum; and `As.reify` (0, where a witness
 anonymous-instance refusal of the As group. The fixtures for this unit and the closures of the
 second unit are in `TypeParametersSpec`.
 
+### Stretch 5, fourth unit: rigid constructors in constructor rows
+
+A constructor row reads an invariant, unbounded `F[_]` parameter of its class as the rigid
+constructor `Shapes.binder` gives; a position over it is a type parameter's slot, left to the
+shape model. A class parameter that itself declares a variance (`+F[_]`, `-F[_]`) is no rigid
+constructor anywhere now, since its applications are related by subtyping (a reviewer's finding:
+`final class C[+F[_]](val a: F[Option[Int]], val b: F[Some[Int]])` would read 1 where 2 is
+right); no row of the inputs had one. Method rows: cats-core 842 identical (161 more) and one
+better past a resolution limit (`EitherK.<init>`, 1: the one `Either[F[A], G[A]]` in reach is
+`run`), cats-eo 191 (4 more), fixtures 4,541 (23 more).
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1622,7 +1633,13 @@ second unit are in `TypeParametersSpec`.
   the coordinator says so. Next: the rest of item 4
   (bounded proper parameters, intersections, refinements, opaque members through paths,
   unions, singletons), then the records' remaining reasons, then item 6. Done since: bounded
-  proper parameters ("Stretch 5, third unit").
+  proper parameters ("Stretch 5, third unit"); rigid constructors in constructor rows ("Stretch 5,
+  fourth unit"). Scope change: the records' remaining reasons (parents, members something
+  overrides, rule B, abstract type members of records) moved to the gate agent, which works in
+  `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in
+  order: the rest of item 4 (types, bounded or other-kind type parameters, abstract type members,
+  capabilities with type parameters of their own), members named like the measured definition,
+  then item 6.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not

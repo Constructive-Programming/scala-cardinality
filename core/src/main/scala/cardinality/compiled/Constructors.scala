@@ -22,13 +22,15 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   *     Where the estimate has a reason not to size a ground position (an open class), no number
   *     stands for it and the row is `?` with that reason; where its only reason is a type
   *     parameter, the method side's reading stands alone.
-  *   - A type parameter's slot is left to the shape model, which counts the values the caller
-  *     supplies (`Pair[A](x: A, y: A)` has four). A position mixing type parameters with ground
-  *     values has no agreed reading and is refused.
+  *   - A type parameter is an atom, or a rigid constructor for `F[_]` (`Shapes.binder`); its slot
+  *     is left to the shape model, which counts the values the caller supplies (`Pair[A](x: A, y:
+  *     A)` has four). A position mixing type parameters with ground values has no agreed reading
+  *     and is refused.
   *
-  * Not read yet: a position the method side refuses (a recursive type), which takes the estimate's
-  * tier; one the estimate does not read; one over a singleton or evidence; a contextual one without
-  * a name.
+  * Not read yet: a bounded type parameter (the row hands no proof to its positions), or one of
+  * another kind than an invariant `F[_]`; a position the method side refuses (a recursive type),
+  * which takes the estimate's tier; one the estimate does not read; one over a singleton or
+  * evidence; a contextual one without a name.
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored)(using Context) {
   import Constructors.Position
@@ -39,14 +41,21 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored)(using
     val owner = constructor.symbol.owner.asClass
     val self = owner.displayFullName
     val binders = constructor.paramLists.flatMap(_.toOption.toList.flatten)
-    // The class's type parameters and the constructor's copies of them, each one atom.
-    val atoms = binders.map(binder => Shape.Atom(s"$self[${binder.name}]"))
-    val variables = binders.map(_.symbol: Symbol) ++ owner.typeParams
-    val env = Shapes.Env(variables.zip(atoms ++ atoms).toMap, constructor.symbol)
+    val copies = Shapes.typeParameters(constructor)
+    val variables = copies ++ owner.typeParams
     val parameters = Shapes.parameters(constructor)
     for {
       tree <- Shapes.tree(owner)
-      _ <- Traversals.sequence(binders.map(Readings.unbounded))
+      // The class's type parameters and the constructor's copies of them: each an atom, or a
+      // rigid constructor for `F[_]` (`Shapes.binder`). A bounded one is not read: the row hands
+      // no proof to the positions.
+      atoms <- Traversals.sequence(binders.zip(owner.typeParams).map { (binder, parameter) =>
+        Shapes.binder(owner, parameter, copies).flatMap {
+          case atom: Shape.Atom => Readings.unbounded(binder).map(_ => atom)
+          case rigid            => Right(rigid)
+        }
+      })
+      env = Shapes.Env(variables.zip(atoms ++ atoms).toMap, constructor.symbol)
       _ <- Readings.plainInputs(parameters)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
     } yield Constructors.product(self, placed)
