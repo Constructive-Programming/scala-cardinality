@@ -56,8 +56,13 @@ final class Calculator private (jars: Seq[Path]) {
 
   private def count(result: AnyRef): Int = result.asInstanceOf[java.lang.Integer].intValue
 
-  // The entry point's method of that name, run with the calculator's loader as the thread's.
-  private def call(method: String, arguments: AnyRef*): AnyRef = {
+  // The entry point's method of that name, run with the calculator's loader as the thread's. One
+  // call at a time in the JVM: a report holds its sources' trees and its dependencies' stubs, and a
+  // build tool running one per module in parallel (a root `cardinalityReport`) would hold them all
+  // at once and exhaust the heap that each report alone fits in.
+  // ponytail: a JVM-wide lock, so a waiting task keeps its worker thread; a build-tool tag would
+  // free it, at one per plugin.
+  private def call(method: String, arguments: AnyRef*): AnyRef = Calculator.running.synchronized {
     val thread = Thread.currentThread
     val before = thread.getContextClassLoader
     thread.setContextClassLoader(loader)
@@ -83,6 +88,9 @@ object Calculator {
   // One loader per set of jars, kept while the build tool runs: a second report skips loading the
   // calculator again, and its library threads are started once.
   private var loaded: Option[(Seq[(Path, Long)], Calculator)] = None
+
+  // Held while a calculator runs: one report or stub rendering at a time, whichever loader.
+  private val running = new Object
 
   /** The calculator of these jars; refused where the build tool's JVM cannot run it. */
   def of(jars: Seq[Path]): Calculator = synchronized {

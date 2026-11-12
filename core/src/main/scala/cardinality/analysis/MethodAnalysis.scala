@@ -90,6 +90,10 @@ object MethodAnalysis {
     // Read on nearly every lookup, so computed once per frame.
     lazy val chain: List[Frame] = this :: parent.fold(Nil)(_.chain)
 
+    // A frame keys many memos, and its structural hash walks its parents and statements: the same
+    // hash, computed once (every field is immutable).
+    override lazy val hashCode: Int = scala.util.hashing.MurmurHash3.caseClassHash(this)
+
     /** The name the frame's definition or scope has in its owner's path (none for a file root). */
     def name: Option[String] = path.lastOption
 

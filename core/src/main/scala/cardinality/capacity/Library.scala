@@ -33,6 +33,20 @@ final class Library private[cardinality] (
   private def solvedAt(path: List[TypeName]): Option[Scope] =
     overlay.get(path).orElse(table.solved(path, visible)).map(_.detached)
 
+  // The objects walks enter, by tree and key: an object's names and layer are read once per library
+  // instead of on every view of its body. Trees compare by identity. `empty` is shared by every
+  // reading without a library, so it keeps nothing.
+  private val modules =
+    new java.util.concurrent.ConcurrentHashMap[(Defn.Object, TypeName), Namespaces.Module]
+
+  private[capacity] def module(
+      d: Defn.Object,
+      name: TypeName,
+      prefix: TypeName
+  ): Namespaces.Module =
+    if (this eq Library.empty) Namespaces.Module(name, prefix, d)
+    else modules.computeIfAbsent((d, prefix), _ => Namespaces.Module(name, prefix, d))
+
   // Every package path the source set opens or nests inside: `a.b.c` makes `a` and `a.b` packages.
   private val paths: Set[List[TypeName]] = declared.keySet.flatMap(_.inits)
 

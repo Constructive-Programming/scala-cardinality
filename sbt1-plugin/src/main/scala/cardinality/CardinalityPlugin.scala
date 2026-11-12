@@ -54,22 +54,43 @@ object CardinalityPlugin extends AutoPlugin {
     }
   )
 
-  private def calculator = Def.task {
-    val jars = CardinalityTool.jars(
+  private lazy val calculator = Def.task(Calculator.of(calculatorJars.value.map(_.toPath)))
+
+  private lazy val calculatorJars = Def.task {
+    CardinalityTool.jars(
       csrConfiguration.value,
       cardinalityVersion.value,
       target.value,
       streams.value.log
     )
-    Calculator.of(jars.map(_.toPath))
   }
 
-  // ponytail: the dependencies' stubs are rendered on every run; sbt 2's plugin caches them by
-  // the jars' contents. sbt 1's `FileFunction.cached` would do once class directories hash.
-  private def stubs = Def.task {
-    val out = (target.value / "cardinality" / "stubs.bin").toPath
-    calculator.value.stubs(cardinalityDependencyClasspath.value.map(_.toPath), out)
-    out
+  // The dependencies' stubs, rendered again only when their stamp changes: every file of the
+  // classpath (a class directory walked) and of the calculator by size and modification time, and
+  // the JDK, whose classes render too. sbt 2's plugin keys its cached task by the same inputs.
+  private lazy val stubs = Def.task {
+    val dir = target.value / "cardinality"
+    val out = dir / "stubs.bin"
+    val stampFile = dir / "stubs.stamp"
+    val classpath = cardinalityDependencyClasspath.value
+    val stamp = stampOf(calculatorJars.value ++ classpath)
+    val log = streams.value.log
+    val render = calculator.value
+    if (out.exists && stampFile.exists && IO.read(stampFile) == stamp)
+      log.debug(s"dependency stubs up to date: $out")
+    else {
+      render.stubs(classpath.map(_.toPath), out.toPath)
+      IO.write(stampFile, stamp)
+    }
+    out.toPath
+  }
+
+  private def stampOf(files: Seq[File]): String = {
+    val stamps = files.flatMap { root =>
+      val all = if (root.isDirectory) (root ** -DirectoryFilter).get.sorted else Seq(root)
+      all.map(f => s"${f.getAbsolutePath} ${f.length} ${f.lastModified}")
+    }
+    Hash.toHex(Hash((sys.props("java.version") +: stamps).mkString("\n")))
   }
 
 }

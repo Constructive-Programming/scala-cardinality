@@ -342,7 +342,7 @@ private[cardinality] object Walk {
   // their keys: its rows report the values a qualified reference from outside reads.
   private[capacity] def moduleView(scope: Scope, d: Defn.Object): Option[Scope] =
     scope.term(named(d)).collect {
-      case Bound.Module(prefix, _) => Namespaces.Module(named(d), prefix, d).view(scope)
+      case Bound.Module(prefix, _) => scope.library.module(d, named(d), prefix).view(scope)
     }
 
   // The type members a body declares: what a qualified reference can resolve to. A member with a
