@@ -1778,7 +1778,7 @@ corpus in one JVM, classes loaded included; the scalameta front end's medians ar
 The comparison is not like for like yet: the compiled front end measures 978 of core's 4,000
 method rows and 328 of cats-core's 7,651 itself, and answers the rest as uncovered at once.
 
-The new front end is 3,087 lines in `core/src/main/scala/cardinality/compiled/` (fourteen
+The new front end is 3,087 lines in `core/src/main/scala/cardinality/compiled/` (twelve
 files), `Inlines` (about 390) among them.
 
 ### How each model rule reads over symbols
