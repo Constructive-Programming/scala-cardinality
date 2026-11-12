@@ -107,8 +107,9 @@ final private[cardinality] class BinderBounds(resolver: Resolver, observer: Fram
       upper: Boolean
   ): Either[String, Shape] =
     resolver.resolve(bound, context) match {
-      case Right(shape) if EvidenceAnalysis.endpoint(shape) || closed(shape) => Right(shape)
-      case Right(_)                                                          =>
+      case Right(shape) if EvidenceAnalysis.endpoint(shape) || EvidenceAnalysis.closed(shape) =>
+        Right(shape)
+      case Right(_) =>
         Left(s"bound to a structural type requires coercion analysis: ${Spelling.of(parameter)}")
       case Left(_) if upper && membersOnly(bound, context) =>
         Left(s"upper bound requires capability analysis: ${Spelling.of(parameter)}")
@@ -219,15 +220,5 @@ private[cardinality] object BinderBounds {
     case applied: Type.Apply => applied.tpe
     case other               => other
   }
-
-  // A structural bound whose values the solver can eliminate and build: no path, proof, package or
-  // constructor inside it.
-  private def closed(shape: Shape): Boolean =
-    !Shape.exists(shape) {
-      case _: Shape.Singleton | _: Shape.Evidence | _: Shape.Existential => true
-      case _: Shape.Poly                                                 => true
-      case _: Shape.Constructor | _: Shape.Repeated                      => true
-      case _                                                             => false
-    }
 
 }

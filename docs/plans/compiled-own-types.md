@@ -1543,6 +1543,29 @@ A deferred inline method now asks the templates around it for type parameters, n
 environment, which since this unit holds the site's binders too. Method rows are otherwise
 identical on all seven inputs.
 
+### Stretch 5, third unit: bounded proper type parameters
+
+`Bounds` reads the bounds of a proper type parameter from its symbol, as `BinderBounds` reads
+them from syntax: `A <: U` is the proof `A <:< U`, `A >: L` the proof `L <:< A`, joined to the
+environment as `<bound#i>` values; `Any` above, `Nothing` below, and `AnyRef`, `Matchable` or
+`AnyVal` above give no proof. Only another type parameter, a rigid application or a closed type
+is a proof; a trait of the module whose record reads is closed, as the old resolution reads it. A
+bound is read for the parameters the result and the values mention, and for those its bounds
+mention in turn. Refused as before: a cycle of upper bounds through values (`A <: Option[A]`) and
+a structural bound. Not read yet (uncovered): a bound that holds a top type, whose place a proof
+does not carry (`A >: AnyRef` would build one value where any object is a result), and a
+structural lower bound beside a class bound anywhere among the parameters read (the old reading
+asks which class the lower bound's values are instances of). `Shapes.binder` makes such a
+parameter an atom; constructor rows and sums still refuse it. `closed` moved from `BinderBounds`
+to `EvidenceAnalysis`, which the compiled front end may import, as it may `Graphs`.
+
+Method rows: cats-core 681 identical (22 more), fixtures 4,518 (74 more), the other inputs as
+before. Four cats-core rows are corrections, listed with derivations: `Ior.getOrElse` (1, where
+an Ior receiver gives 4), `Ior.mergeLeft` and `Ior.mergeRight` (1, where it gives 2), all three now
+the solver's refusal of a proof beside a sum; and `As.reify` (0, where a witness exists), now the
+anonymous-instance refusal of the As group. The fixtures for this unit and the closures of the
+second unit are in `TypeParametersSpec`.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1598,7 +1621,8 @@ identical on all seven inputs.
   cats-eo's `MultiFocusFromList.fromList`, 0). Merge a later head of the gate agent only when
   the coordinator says so. Next: the rest of item 4
   (bounded proper parameters, intersections, refinements, opaque members through paths,
-  unions, singletons), then the records' remaining reasons, then item 6.
+  unions, singletons), then the records' remaining reasons, then item 6. Done since: bounded
+  proper parameters ("Stretch 5, third unit").
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not

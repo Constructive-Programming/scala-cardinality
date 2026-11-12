@@ -33,6 +33,17 @@ private[cardinality] object EvidenceAnalysis {
         s"unsupported evidence relationship: $name requires free-atom or rigid-application endpoints"
       )
 
+  /** A structural bound whose values the solver can eliminate and build: no path, proof, package or
+    * constructor inside it.
+    */
+  def closed(shape: Shape): Boolean =
+    !Shape.exists(shape) {
+      case _: Singleton | _: Evidence | _: Existential => true
+      case _: Poly                                     => true
+      case _: Constructor | _: Repeated                => true
+      case _                                           => false
+    }
+
   /** A shape a proof may relate by identity: a free atom or a rigid application. */
   def endpoint(shape: Shape): Boolean = shape match {
     case _: Atom | _: Applied => true
