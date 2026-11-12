@@ -203,6 +203,16 @@ final private[compiled] class Shapes(world: World)(using Context) {
     case _: ValDef => false
   }
 
+  /** A class of the module as the receiver of a member written in it: its type parameters are the
+    * atoms `env` binds them to.
+    */
+  def receiver(c: ClassSymbol, env: Env): Either[Unread, Shape] =
+    Traversals
+      .sequence(c.typeParams.map { binder =>
+        env.binders.get(binder).toRight(Uncovered(s"a type parameter not bound: ${binder.name}"))
+      })
+      .flatMap(declared(c, _, env))
+
   /** What a member a subclass supplies gives a body that holds the instance (`where` names that
     * instance in a reason): a value of its type, or one function from all of a method's parameters
     * to its result; an abstract given with a `using` clause is such a method (the old front end

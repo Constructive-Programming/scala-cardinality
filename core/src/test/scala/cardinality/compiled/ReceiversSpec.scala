@@ -61,6 +61,7 @@ class ReceiversSpec extends Specification {
       |object Deep { def mk(y: Boolean): Fn = new Fn { object H { def h: Boolean = y }; def run(b: Boolean): Boolean = b } }
       |object DeepHid { def mk(helper: Boolean): Fn = new Fn { object H extends Help { def get: Boolean = true }; def run(b: Boolean): Boolean = b } }
       |object Self { def mk(y: Boolean): Fn = new Fn { y => def run(b: Boolean): Boolean = b } }
+      |enum Color(val rgb: Int) { case Red extends Color(1); case Green extends Color(2); def f: Boolean = true }
       |object LocalK { def f(y: Boolean): Boolean = { class K { def get: Boolean = y }; new K().get } }
       |trait Wished[A] { inline def wish: A; def get: Boolean = true }
       |trait Kept { def kept: Boolean; def get: Boolean = kept }
@@ -129,12 +130,18 @@ class ReceiversSpec extends Specification {
   // `show` from `flag` and `b`, 2^(2 × 2). An object holds nothing: `Single.other` is one of the
   // 2^2 functions. A class something extends is read alike where nothing overrides a member of
   // it: `Base.get` is computed from `b`, 2^2.
+  // A sealed family or an enum is one value of its sum as a receiver: which case, and what the
+  // case holds. `Fam` has the one case `One`, so `get` is one of 2 Booleans; `Color` has two
+  // cases, so `f` is one of the 2^2 functions of them. The row captures the receiver as a whole.
   private def inherited =
     (count("recv.Impl.get") must_== Count.Finite(4))
       .and(count("recv.Impl.show") must_== Count.Finite(16))
       .and(count("recv.Single.other") must_== Count.Finite(4))
       .and(count("recv.Base.get") must_== Count.Finite(4))
       .and(count("recv.shown.show") must_== Count.Finite(4))
+      .and(count("recv.Fam.get") must_== Count.Finite(2))
+      .and(count("recv.Color.f") must_== Count.Finite(4))
+      .and(entry("recv.Color.f").captures must_== List("<receiver recv.Color>"))
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
@@ -196,8 +203,7 @@ class ReceiversSpec extends Specification {
       "Sub.more" -> "a parent with constructor parameters or in a class",
       "Half.get" -> "an enclosing class that inherits and is abstract or may be extended",
       "Never.get" -> "an enclosing class that inherits and is abstract or may be extended",
-      "Fam.get" -> "an enclosing sealed class or enum",
-      "Closed.get" -> "an enclosing sealed class or enum",
+      "Closed.get" -> "an enclosing concrete sealed class or enum case",
       "Lifted.get" -> "a capability with type parameters of its own",
       "Wished.get" -> "a deferred inline method over a type parameter",
       "Dead.In.get" -> "an object whose construction always throws or binds a pattern",

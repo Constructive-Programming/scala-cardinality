@@ -26,16 +26,18 @@ import tastyquery.Trees.*
   * A class around the class, and one around an object the member is in, supplies the same: an inner
   * instance holds its outer one.
   *
-  * Not read yet, each a `Left` naming it: a sealed class or an enum (the receiver splits into its
-  * cases); a class that inherits and is abstract, open or extended (what it inherits is a
-  * capability); a parent of the module with constructor parameters, in a class or a body (its
-  * members may read state the class's own code may not); a member something overrides (a
-  * capability), or overriders the classes read do not settle; a self type; a bounded or
-  * higher-kinded type parameter; an abstract type member; a capability with type parameters of its
-  * own; a deferred `inline val`, or a deferred inline method over a type parameter; a construction
-  * that always throws or binds a pattern (S6); and what implicit search chooses (S5's remainder): a
-  * contextual parameter without a name, an abstract given without a name, an abstract extension
-  * method. A given written `= deferred` is a capability like an abstract member.
+  * A sealed family or an enum is one value of its sum as a receiver: which case, and what the case
+  * holds (`split`). Not read yet, each a `Left` naming it: a concrete sealed class or an enum
+  * case's own class; a sum this reading does not take; a class that inherits and is abstract, open
+  * or extended (what it inherits is a capability); a parent of the module with constructor
+  * parameters, in a class or a body (its members may read state the class's own code may not); a
+  * member something overrides (a capability), or overriders the classes read do not settle; a self
+  * type; a bounded or higher-kinded type parameter; an abstract type member; a capability with type
+  * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
+  * parameter; a construction that always throws or binds a pattern (S6); and what implicit search
+  * chooses (S5's remainder): a contextual parameter without a name, an abstract given without a
+  * name, an abstract extension method. A given written `= deferred` is a capability like an
+  * abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
 
@@ -111,14 +113,24 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         !Receivers.open(member) && world.overridden(member.symbol)
       case _ => false
     }
+    val sum = Receivers.split(c)
     for {
+      // A sealed family or an enum is the sum of its cases (`split`); a concrete sealed class or
+      // an enum case's own class is not read yet.
       _ <- refused(
-        c.openLevel == OpenLevel.Sealed || c.isEnum || c.parentClasses.exists(_.isEnum),
-        "an enclosing sealed class or enum"
+        !sum && (c.openLevel == OpenLevel.Sealed || c.parentClasses.exists(_.isEnum)),
+        "an enclosing concrete sealed class or enum case"
       )
-      _ <- inherits(tree)
+      // What a sum receiver inherits, or a case overrides, computes from the case it is, which
+      // the sum holds.
+      _ <-
+        if (sum) Right(())
+        else
+          for {
+            _ <- inherits(tree)
+            _ <- refused(overridden, "an enclosing class with a member something overrides")
+          } yield ()
       _ <- refused(world.unjudged(c), "an enclosing class whose overriders are not read")
-      _ <- refused(overridden, "an enclosing class with a member something overrides")
       _ <- refused(c.givenSelfType.nonEmpty, "an enclosing class with a self type")
       _ <- refused(
         c.typeParams.exists(binder => !Shapes.unbounded(binder.declaredBounds)),
@@ -159,26 +171,47 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     */
   def names(receivers: List[ClassDef], measured: TermSymbol): List[String] =
     receivers.flatMap { tree =>
-      Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ tree.rhs.body.collect {
-        case member: ValOrDefDef
-            if Receivers.open(member) && !member.symbol.isExtensionMethod &&
-              member.symbol != measured && !member.name.toString.endsWith("_=") &&
-              // A deferred inline method is supplied to inline code alone.
-              (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
-          member.name.toString
-      }
+      if (Receivers.split(tree.symbol)) List(Receivers.whole(tree.symbol))
+      else
+        Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ tree.rhs.body.collect {
+          case member: ValOrDefDef
+              if Receivers.open(member) && !member.symbol.isExtensionMethod &&
+                member.symbol != measured && !member.name.toString.endsWith("_=") &&
+                // A deferred inline method is supplied to inline code alone.
+                (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
+            member.name.toString
+        }
     }
 
   private def supplied(
       tree: ClassDef,
       measured: TermSymbol,
       env: Shapes.Env
-  ): Either[Unread, List[Binding]] = {
-    val self = tree.symbol.displayFullName
+  ): Either[Unread, List[Binding]] =
+    if (Receivers.split(tree.symbol)) {
+      // The receiver is one value of its family's sum: which case, and what that case holds.
+      val label = Receivers.whole(tree.symbol)
+      // A sum this reading does not take leaves the row uncovered, not refused: the old front end
+      // still counts a row whose goal stands without the split (an infinite one).
+      shapes
+        .receiver(tree.symbol, env)
+        .map(sum => List(Binding(label, sum, Some(label))))
+        .left
+        .map {
+          case Unread.Refused(reason) =>
+            Unread.Uncovered(s"an enclosing sum not read: $reason")
+          case uncovered => uncovered
+        }
+    } else fields(tree, measured, env)
+
+  // What a receiver that is no sum supplies: its constructor's parameters and its members a
+  // subclass supplies, `measured` aside.
+  private def fields(template: ClassDef, measured: TermSymbol, env: Shapes.Env) = {
+    val self = template.symbol.displayFullName
     def held(of: ValOrDefDef, shape: Shape) =
       Binding(s"$self.${of.name}", shape, Some(of.name.toString))
-    val parameters = Shapes.parameters(tree.rhs.constr)
-    val capabilities = tree.rhs.body.collect {
+    val parameters = Shapes.parameters(template.rhs.constr)
+    val capabilities = template.rhs.body.collect {
       case member: ValOrDefDef if Receivers.open(member) && member.symbol != measured =>
         member
     }
@@ -194,6 +227,12 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
 }
 
 private[compiled] object Receivers {
+
+  /** A receiver read as one value of its sum: a sealed family or an enum. */
+  def split(c: ClassSymbol): Boolean = Shapes.isFamily(c) || c.isEnum
+
+  /** The name a sum receiver is bound and listed under, as the old front end names it. */
+  def whole(c: ClassSymbol): String = s"<receiver ${c.displayFullName.replace("$.", ".")}>"
 
   /** An anonymous class (`new T { … }`), which nothing can extend. */
   def anonymous(c: ClassSymbol): Boolean = c.name.toString == "$anon"

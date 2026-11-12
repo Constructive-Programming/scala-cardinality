@@ -1238,13 +1238,17 @@ time on the rows still uncovered is not in it.
 - Done ("Stretch 4, third unit"): a captured parameter is refused only where a scope between
   its method and the definition binds its name again (it was: anywhere in the method).
 - Done ("Stretch 4, fourth unit"): capability records without parents.
-- Next: item 3, sealed and enum receivers (`an enclosing sealed class or enum`: 1,676 corpus
-  rows; the old `SealedReceivers`: the receiver is one binding of its family's sum), then the
-  records' remaining reasons where cheap (parents of the module: 382; a parameter that is no
-  public field, rule B's observers: 336; a restricted constructor: 261; a self type: 296), then
-  items 4 to 6. Left in item 1, each under 100 rows with the fixtures: a local named class or
-  object, definitions in a function literal, a case clause or a constructor's body, names a
-  nearer scope binds again.
+- Done ("Stretch 4, fifth unit"): sealed and enum receivers. Items 1 to 3 are committed; the
+  stretch stops here and reports.
+- Next, when resumed: item 4 (bounded and higher-kinded type parameters: 1,904 + 1,536 corpus
+  rows; then unions, singletons, type members, refinements: 775), the records' remaining
+  reasons (parents of the module: 410; a parameter that is no public field: 339; a restricted
+  constructor: 265; a self type: 297), item 5 (self types: 402, objects with parents: 245,
+  abstract type members, constructor rows in a class), item 6 (anonymous contextual
+  parameters: 138), and families whose cases do not pass their own parameters on (130, the Ior
+  shape as a receiver). Left in item 1, each under 100 rows with the fixtures: a local named
+  class or object, definitions in a function literal, a case clause or a constructor's body,
+  names a nearer scope binds again.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
@@ -2033,6 +2037,52 @@ corpus method rows are identical (1,760); no row is worse.
 - Three rows derived: `extract[A](h: Holder[A]): A`, 1; `app.C.onT` and `app.C.hOnT`, inline
   methods over a final class with no field, 2^(2^37) each.
 - Spec ledger: PASS 637, UNCOVERED 811, FAIL 183, PENDING 19, SCALAMETA 81.
+
+**Stretch 4, fifth unit** (sealed and enum receivers). All inputs pass.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,380 | 1 / 0 | 0 | 0 | 0 | 2,619 | 559 of 768 (72.8%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 488 | 42 / 55 | 0 | 58 | 0 | 7,008 | 360 of 909 (39.6%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 176 | 3 / 0 | 0 | 0 | 0 | 1,606 | 162 of 368 (44.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 157 | 0 / 1 | 0 | 0 | 0 | 539 | 135 of 271 (49.8%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,835 | 72 / 41 | 4 | 2 | 0 | 2,792 | 3,600 of 5,485 (65.6%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,236 | 46 / 56 | 0 | 58 | 0 | 11,836 | 1,236 of 2,337 (52.9%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A member of a sealed family or of an enum counts with its receiver as one value of the
+  family's sum, which case and what that case holds (`Receivers.split`, `Shapes.receiver`), as
+  the old front end splits it; the family's own fields and members are not bound beside it, and
+  what it inherits or a case overrides computes from the case. The row captures `<receiver
+  full.Name>`. A sum this reading does not take leaves the row uncovered (`an enclosing sum not
+  read`), never refused: the old front end still counts a row whose goal stands without the
+  split. A concrete sealed class and an enum case's own class stay uncovered.
+- 43 corrections, two rules (`corrected.txt`):
+  - the Ior rule (39 rows of cats-core, receiver members of `cats.data.Ior` such as `fold` 1 to
+    3, `putLeft` 1 to 9, `isLeft` 1 to 8, `left` 1 to 4, `pad` 1 to 16, `exists` 1 to 32,
+    `toList` 1 to ω; members of the instances `IorInstances…` such as `size` 1 to 2^192 and
+    `get` 1 to 2^(2^65); `IorFunctions.left` and `right` 0 to 1; `Validated.toIor` 0 to 1).
+    `Ior[A, B]` is A + B + A × B; the old reading took it for empty, so it counted the one
+    function from it, or nothing into it. A reviewer re-derived sixteen of them by hand.
+  - the As rule (4 rows: `As.andThen`, `As.compose`, `AsInstances.liskov.<new#1>.id` and
+    `.compose`, old 1 or 0, new the model's `?` "sealed family has anonymous instances in its
+    file: As"), as in stretch 2.
+- Eight rows derived: members of the anonymous type class instances in `ConstInstances` and
+  `ValidatedInstances`, whose receiver is now the one-case sum of a sealed abstract class
+  (`foldLeft` 1, `size` 2^64, `get` 1, `mapAccumulate` 1, `bifoldLeft` ω, `bimap` 1, `leftMap`
+  1).
+- Spec ledger: PASS 640, UNCOVERED 808, FAIL 183, PENDING 19, SCALAMETA 81. Capture
+  differences: 3 second overloads, 42 aliases only the old lists, 129 names only the new lists,
+  2 of both.
 
 ### How each model rule reads over symbols
 
