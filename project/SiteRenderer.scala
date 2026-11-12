@@ -17,8 +17,8 @@ import java.io.File
   * overlay the sister project `eo` uses (Laika + Helium). Laika runs inside the build JVM, so this
   * is invoked from the `siteRender` task rather than from a shell command.
   *
-  * Internal notes (`docs/plans`, `docs/research`, `docs/baselines`) sit outside the input
-  * directory and are therefore neither rendered nor reachable from the site.
+  * Internal notes (`docs/plans`, `docs/research`, `docs/baselines`) sit outside the input directory
+  * and are therefore neither rendered nor reachable from the site.
   */
 object SiteRenderer {
 
