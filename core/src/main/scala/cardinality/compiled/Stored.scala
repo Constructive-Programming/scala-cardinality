@@ -429,8 +429,8 @@ final private[compiled] class Stored(world: World)(using Context) {
   private def opaque(alias: TypeMemberSymbol, env: Env)(
       inside: => Either[String, Held]
   ): Either[String, Held] =
-    if (World.under(alias, "scala"))
-      Left(s"an opaque type of a dependency: ${alias.displayFullName}")
+    if (World.standard(alias))
+      Left(s"an opaque type of the standard library: ${alias.displayFullName}")
     else if (!World.owners(env.site).contains(alias.owner)) Right(Held(UnitSize))
     else
       alias.owner match {

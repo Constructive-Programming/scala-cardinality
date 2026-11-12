@@ -861,6 +861,7 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.reporting.FrontEnd",
     "cardinality.reporting.Report",
     "cardinality.tasty.CompiledTypes",
+    "cardinality.types.ListedNamespaces",
     "cardinality.types.Traversals"
   )
 

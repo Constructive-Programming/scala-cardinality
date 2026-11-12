@@ -101,8 +101,8 @@ final private[compiled] class Shapes(world: World)(using Context) {
       arguments: List[Type],
       env: Env
   ): Either[Unread, Shape] =
-    if (World.under(alias, "scala"))
-      Left(Uncovered(s"an opaque type of a dependency: ${alias.displayFullName}"))
+    if (World.standard(alias))
+      Left(Uncovered(s"an opaque type of the standard library: ${alias.displayFullName}"))
     else if (!World.owners(env.site).contains(alias.owner)) Right(Shape.Product(Nil))
     // The compiler refuses an alias that refers to itself: a cycle passes through a class.
     else of(body.appliedTo(arguments), env)

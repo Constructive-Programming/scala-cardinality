@@ -1,5 +1,6 @@
 package cardinality.compiled
 
+import cardinality.types.ListedNamespaces
 import tastyquery.Contexts.*
 import tastyquery.Names.nme
 import tastyquery.Symbols.*
@@ -24,13 +25,12 @@ final private[compiled] class World(
     case _              => false
   }
 
-  /** The fully qualified name of a top-level class under `scala` or `java` that the module does not
-    * compile itself: the only names the standard model and the base types are asked.
+  /** The fully qualified name of a top-level class of the standard library or the JDK
+    * (`World.standard`) that the module does not compile itself: the only names the standard model
+    * and the base types are asked.
     */
   def library(c: ClassSymbol): Option[String] =
-    Option
-      .when(c.owner.isPackage && !own(c))(c.displayFullName)
-      .filter(name => name.startsWith("scala.") || name.startsWith("java."))
+    Option.when(c.owner.isPackage && !own(c) && World.standard(c))(c.displayFullName)
 
   /** Whether building an instance of a template is not read yet (register D26 for classes, slice
     * S6): it, or a template of the module it extends, evaluates something that always throws or
@@ -76,8 +76,20 @@ final private[compiled] class World(
 
 private[compiled] object World {
 
-  /** Whether a symbol is declared in the standard library or the JDK. */
-  def standard(symbol: Symbol): Boolean = under(symbol, "scala") || under(symbol, "java")
+  /** Whether a symbol is declared in the standard library or the JDK's `java` packages, which the
+    * standard model reads: the `scala` package and the subpackages the standard library declares (a
+    * library's own namespace beside them, such as scalameta's, is a dependency like any other, as
+    * the stubs have it). Another JDK namespace (`javax`) is read like a Java dependency.
+    */
+  def standard(symbol: Symbol): Boolean =
+    owners(symbol).collectFirst {
+      case p: PackageSymbol => p.displayFullName.split('.').toList
+    } match {
+      case Some("java" :: _)                => true
+      case Some("scala" :: Nil)             => true
+      case Some("scala" :: subpackage :: _) => ListedNamespaces.scalaPackages.contains(subpackage)
+      case _                                => false
+    }
 
   /** A symbol and everything around it, innermost first. */
   def owners(symbol: Symbol): List[Symbol] =

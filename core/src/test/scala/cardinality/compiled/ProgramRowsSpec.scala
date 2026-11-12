@@ -17,6 +17,7 @@ class ProgramRowsSpec extends Specification {
     A dependency's class is read by its declaration or its symbols
       a case class with TASTy is the product of its fields            $caseClass
       an opaque type of a dependency is one value                     $opaque
+      a library's namespace under `scala` is a dependency like another $underScala
       a Java enum is its constants; a Java class's state is not read  $java
     What a template inherits
       a concrete member wins over an abstract one mixed in after it   $concreteWins
@@ -27,21 +28,23 @@ class ProgramRowsSpec extends Specification {
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
-  private def rows(code: String, classpath: List[Path] = Nil): Map[String, Count] = {
+  private def rows(code: String, classpath: List[Path] = Nil): Map[String, Count] =
+    module(code, classpath).flatMap(_.methods).map(entry => entry.name -> entry.count).toMap
+
+  // `code` compiled against `classpath` and read with it by the compiled front end.
+  private def module(code: String, classpath: List[Path]): List[Report.Source] = {
     val classes = Programs.compiled(code, classpath)
     val libraries = classpath ++ Programs.libraries
     val module = FrontEnd.Module(
       List("Example.scala" -> code),
       Report.Environment(libraries, classes = Some(CompiledTypes.Classes(List(classes), libraries)))
     )
-    TastyFrontEnd
-      .rows(module)
-      .sources
-      .flatMap(_.toOption)
-      .flatMap(_.methods)
-      .map(entry => entry.name -> entry.count)
-      .toMap
+    TastyFrontEnd.rows(module).sources.flatMap(_.toOption)
   }
+
+  // Each definition of `code`, compiled and read as `rows` reads it, with its size as rendered.
+  private def definitions(code: String, classpath: List[Path]): Map[String, Option[String]] =
+    module(code, classpath).flatMap(_.definitions).map(d => d.name -> d.size.map(_.render)).toMap
 
   private def uncovered(count: Count, what: String) = count must beLike {
     case Count.Unresolved(List(reason)) => reason must contain(what)
@@ -61,6 +64,17 @@ class ProgramRowsSpec extends Specification {
   def opaque =
     rows("object M { def g(i: dep.Ids.Id): dep.Ids.Id = ??? }", List(dependency))("M.g") must_==
       Count.Finite(1)
+
+  // `scala.mylib` is no package of the standard library: its `Flag` is one Boolean, read by its
+  // declaration on both sides, so `h` is one of 2^2 predicates and `Holds`, which stores a `Flag`,
+  // has 2 values.
+  def underScala = {
+    val library = Programs.compiled("package scala.mylib\nfinal case class Flag(on: Boolean)")
+    val code = "object M { def h(f: scala.mylib.Flag): Boolean = ??? }\n" +
+      "final case class Holds(f: scala.mylib.Flag)"
+    (rows(code, List(library))("M.h") must_== Count.Finite(4))
+      .and(definitions(code, List(library))("Holds") must beSome("2"))
+  }
 
   // `Coin` has the constants HEADS and TAILS, so `c` is one of 2^2 predicates. A `Box.Point`
   // keeps state its constructor sets, which no signature shows: not read.
