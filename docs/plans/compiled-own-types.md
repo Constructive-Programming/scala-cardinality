@@ -237,7 +237,10 @@ abstract type members of a receiver; "Self types, constructor rows and abstract 
 (stretch 9)" at the end of the section has what changed. Edits to the shared coverage memory
 (`/var/cache/users/rhansen/cardinality-tasty/covered/`): the gate run after `ff83f6c` added the rows
 that merge newly measures, through `scripts/differential.sh`, and a second run over `corpus-cats-eo`
-and `fixtures` added two more once their derivations were in `derived.txt`. No row was removed.
+and `fixtures` added two more once their derivations were in `derived.txt`. The gate run at
+`cc72929` (after merging `tasty-front` at `5357531`) added the rows the stretch newly measures:
+cats-core 102, cats-eo 9, cats-eo-generics 6, cats-kernel 91, corpus-core 158, fixtures 479. No row
+was removed.
 
 ### Commands
 
