@@ -64,7 +64,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
     case World.Named(ref, arguments) =>
       applied(arguments).flatMap { proper =>
         ref.optSymbol match {
-          case Some(binder) if env.binders.contains(binder) =>
+          case Some(binder) if Shapes.bound(ref, binder, env) =>
             if (proper.isEmpty) Right(env.binders(binder))
             else named(ref, proper, env)
           // An opaque alias seen inside its scope is its representation (rule F).
@@ -99,7 +99,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
 
   private def named(ref: TypeRef, arguments: List[Type], env: Env): Either[Unread, Shape] =
     ref.optSymbol match {
-      case Some(binder) if env.binders.contains(binder) =>
+      case Some(binder) if Shapes.bound(ref, binder, env) =>
         (env.binders(binder), arguments) match {
           case (shape, Nil) => Right(shape)
           // A higher-kinded binder applied is an uninterpreted application over its arguments,
@@ -442,15 +442,51 @@ private[compiled] object Shapes {
       )
   }
 
-  // Bounds any invariant type constructor of proper, unbounded parameters meets: `[X] =>> Any`
+  /** What an abstract type member of a receiver stands for on its instance, as a type parameter
+    * would (`binder`): one atom, or a rigid constructor for `F[_]`. A bound is not read yet.
+    */
+  def typeMember(owner: ClassSymbol, member: TypeMemberSymbol)(using
+      Context
+  ): Either[Unread, Shape] = {
+    val id = s"${owner.displayFullName}#${member.name}"
+    member.typeDef match {
+      case TypeMemberDefinition.AbstractType(bounds) if unbounded(bounds)   => Right(Shape.Atom(id))
+      case TypeMemberDefinition.AbstractType(bounds) if constructor(bounds) =>
+        Right(Shape.Constructor(id))
+      case _ =>
+        Left(
+          Unread.Uncovered(
+            s"a bounded abstract type member, or one of another kind than F[_]: ${member.name}"
+          )
+        )
+    }
+  }
+
+  // Whether a reference names what the environment binds: a type parameter, or an abstract type
+  // member on the instance of the receiver that holds it (`this.T`, `typeMember`'s identity), never
+  // one reached through another path or another instance.
+  private def bound(ref: TypeRef, binder: Symbol, env: Env)(using Context): Boolean =
+    env.binders.get(binder).exists { shape =>
+      (binder, ref.prefix) match {
+        case (_: TypeMemberSymbol, self: ThisType) =>
+          val id = s"${self.cls.displayFullName}#${binder.name}"
+          shape == Shape.Atom(id) || shape == Shape.Constructor(id)
+        case (_: TypeMemberSymbol, _) => false
+        case _                        => true
+      }
+    }
+
+  private def constructor(parameter: TypeParamSymbol)(using Context): Boolean =
+    constructor(parameter.declaredBounds) && !Shapes.variant(parameter)
+
+  // Bounds any type constructor of proper, unbounded parameters meets: `[X] =>> Any`
   // above, nothing below (written as a lambda too, on a method's own parameter).
-  private def constructor(parameter: TypeParamSymbol)(using Context): Boolean = {
-    val bounds = parameter.declaredBounds
+  private def constructor(bounds: TypeBounds)(using Context): Boolean = {
     val bottom = bounds.low match {
       case lambda: TypeLambda => lambda.resultType.isSameType(defn.NothingType)
       case low                => low.isSameType(defn.NothingType)
     }
-    bottom && !Shapes.variant(parameter) && (bounds.high match {
+    bottom && (bounds.high match {
       case lambda: TypeLambda =>
         lambda.paramTypeBounds.forall(unbounded) && lambda.resultType.isSameType(defn.AnyType)
       case _ => false

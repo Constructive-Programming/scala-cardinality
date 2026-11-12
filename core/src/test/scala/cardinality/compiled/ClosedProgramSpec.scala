@@ -22,8 +22,6 @@ class ClosedProgramSpec extends Specification {
       when a subclass declares it, by signature and not by name        $overridden
       when a parent mixed in beside its class brings it to a subclass  $mixedIn
       not by a private, a final or a mixed-in abstract declaration     $notOverridden
-    Two classes share an instance
-      when one extends the other or a class of the program extends both $shared
     The dependencies are part of the program
       a class of one may extend or override another's                  $dependencies
       a question about the module's own class does not read them       $lazily
@@ -80,8 +78,6 @@ class ClosedProgramSpec extends Specification {
 
     def overriding(owner: String, in: String, name: String, parameter: String = ""): Overriding =
       closed.overriding(cls(owner), member(in, name, parameter))
-
-    def mixes(left: String, right: String): Boolean = closed.mixes(cls(left), cls(right))
 
   }
 
@@ -145,9 +141,8 @@ class ClosedProgramSpec extends Specification {
   }
 
   // `Kind`'s children are `One` and `Two`, and `Two` is open: `Deep` extends it. `Odd` has an
-  // anonymous instance, which overrides `f`, and `Color.Red` is an anonymous class too, which is
-  // a `Color` and a `Marker`: both are found, though the compiler's list of children names no
-  // class for them.
+  // anonymous instance, which overrides `f`: it is found, though the compiler's list of children
+  // names no class for it.
   def sealedClasses = {
     val p = program("""sealed trait Kind
       |final class One extends Kind
@@ -155,14 +150,9 @@ class ClosedProgramSpec extends Specification {
       |class Deep extends Two
       |sealed trait Odd { def f: Int = 0 }
       |object Uses { val odd: Odd = new Odd { override def f: Int = 1 } }
-      |trait Marker
-      |trait Apart
-      |enum Color extends Marker { case Red, Green }
       |""".stripMargin)
     (p.subclasses("Kind") must_== (Set("One", "Two", "Deep"), true))
       .and(p.overriding("Odd", "Odd", "f") must_== Overriding.Supplied)
-      .and(p.mixes("Color", "Marker") must beTrue)
-      .and(p.mixes("Color", "Apart") must beFalse)
   }
 
   // `Sub` declares `f(x: Int)` and `X`: those members of `Base` are open. It declares no
@@ -215,20 +205,6 @@ class ClosedProgramSpec extends Specification {
       .and(p.overriding("Kept", "Kept", "m") must_== Overriding.Supplied)
   }
 
-  // `Both` is a `Left` and a `Right`; nothing is a `Left` and an `Apart`; a `Sub` is a `Left`.
-  def shared = {
-    val p = program("""trait Left
-      |trait Right
-      |trait Apart
-      |class Both extends Left with Right
-      |class Sub extends Left
-      |""".stripMargin)
-    (p.mixes("Left", "Right") must beTrue)
-      .and(p.mixes("Left", "Apart") must beFalse)
-      .and(p.mixes("Sub", "Left") must beTrue)
-      .and(p.mixes("Sub", "Both") must beFalse)
-  }
-
   private val dependencyCode = """package dep
     |class Base { def f(x: Int): Int = x; def g: Int = 0 }
     |class Sub extends Base { override def f(x: Int): Int = 0 }
@@ -276,7 +252,6 @@ class ClosedProgramSpec extends Specification {
       .and(p.isFinal("dep.Plain", "dep.Sub", "Mine") must_== List(false, false, true))
       .and(p.overriding("dep.Base", "dep.Base", "g") must_== Overriding.Unknown)
       .and(p.overriding("dep.Base", "dep.Base", "f") must_== Overriding.Supplied)
-      .and(p.mixes("dep.Plain", "dep.Sub") must beTrue)
   }
 
   // A class without TASTy may be extended by a local or an anonymous class no symbol stands

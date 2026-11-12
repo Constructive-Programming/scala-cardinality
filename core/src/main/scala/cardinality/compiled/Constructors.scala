@@ -23,33 +23,40 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   *     stands for it and the row is `?` with that reason; where its only reason is a type
   *     parameter, the method side's reading stands alone.
   *   - A type parameter's slot is left to the shape model, which counts the values the caller
-  *     supplies (`Pair[A](x: A, y: A)` has four). A position mixing type parameters with ground
-  *     values has no agreed reading and is refused.
+  *     supplies (`Pair[A](x: A, y: A)` has four), and for a class in a class those the instance
+  *     around it holds, on which it is built (`Receivers`). A position mixing type parameters with
+  *     ground values has no agreed reading and is refused.
   *
   * Not read yet: a position the method side refuses (a recursive type), which takes the estimate's
   * tier; one the estimate does not read; one over a singleton or evidence; a contextual one without
   * a name.
   */
-final private[compiled] class Constructors(shapes: Shapes, stored: Stored)(using Context) {
+final private[compiled] class Constructors(shapes: Shapes, stored: Stored, receivers: Receivers)(
+    using Context
+) {
   import Constructors.Position
   import Unread.Uncovered
 
-  /** The count of a class's primary constructor. */
-  def count(constructor: DefDef): Either[Unread, Count] = {
+  /** The count of a class's primary constructor, built on an instance of each class `around` it
+    * (outermost first): a position over a type parameter may take a value that instance holds.
+    */
+  def count(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] = {
     val owner = constructor.symbol.owner.asClass
     val self = owner.displayFullName
     val binders = constructor.paramLists.flatMap(_.toOption.toList.flatten)
     // The class's type parameters and the constructor's copies of them, each one atom.
     val atoms = binders.map(binder => Shape.Atom(s"$self[${binder.name}]"))
     val variables = binders.map(_.symbol: Symbol) ++ owner.typeParams
-    val env = Shapes.Env(variables.zip(atoms ++ atoms).toMap, constructor.symbol)
     val parameters = Shapes.parameters(constructor)
     for {
+      outer <- receivers.atoms(around)
+      env = Shapes.Env(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
+      held <- receivers.bindings(around, constructor.symbol, env)
       tree <- Shapes.tree(owner)
       _ <- Traversals.sequence(binders.map(Readings.unbounded))
       _ <- Readings.plainInputs(parameters)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
-    } yield Constructors.product(self, placed)
+    } yield Constructors.product(self, placed, held)
   }
 
   private def position(
@@ -141,7 +148,7 @@ private[compiled] object Constructors {
 
   // The product of the positions' value spaces with the shape model's count of the slots left to
   // it; any position without a number leaves the row `?`.
-  private def product(self: String, positions: List[Position]): Count =
+  private def product(self: String, positions: List[Position], held: List[Binding]): Count =
     positions.collect { case Unresolved(reasons) => reasons }.flatten match {
       case Nil =>
         val shaped = positions.collect { case Shaped(name, shape) => name -> shape }
@@ -149,7 +156,7 @@ private[compiled] object Constructors {
           positions.collect { case Exact(space) => space },
           positions.collect { case Estimated(size) => size },
           Inhabitation.count(
-            shaped.map((name, shape) => Binding(s"$self.$name", shape, Some(name))),
+            held ++ shaped.map((name, shape) => Binding(s"$self.$name", shape, Some(name))),
             Shape.Product(shaped.map(_._2)),
             maxDepth = Readings.Depth
           )

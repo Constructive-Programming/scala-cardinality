@@ -227,15 +227,14 @@ TASTy, `DependencyClasses`) is committed, and stretch 7 wired both into the comp
 (`e952ebe`, `b3f8fce`); stretch 8 read the open member and parents with constructor parameters
 (`e0eb38a`, `4c87c8d`). "Wired into the front end" and "The open member and parents with
 constructor parameters" at the end of the section "The closed world and dependency classes over
-symbols" have what changed and the measurements. Nothing of it is half done;
-`ClosedProgram.mixes` is written and asked by nothing yet. Left for whoever continues: templates
+symbols" have what changed and the measurements. Nothing of it is half done. Left for whoever continues: templates
 that reach one parent through two parents (475 corpus rows), generic classes without TASTy, and a
 check of the dependencies' classes in `ClosedVerdicts`, which compares the module's classes only.
 
-Stretch 9 merged `tasty-front` at `9bcea74` (`ff83f6c`) and reads a self type that adds nothing to
-its class (`World.ownSelf`: an untyped alias `self =>` records the class's own type); a self type
-narrower than the class stays uncovered. Enclosing objects with parents and constructor rows in a
-class are next. Edits to the shared coverage memory
+Stretch 9 merged `tasty-front` at `9bcea74` (`ff83f6c`), read a self type that adds nothing to its
+class (`7825fbf`), and then constructor rows in a class or in an object with parents and the
+abstract type members of a receiver; "Self types, constructor rows and abstract type members
+(stretch 9)" at the end of the section has what changed. Edits to the shared coverage memory
 (`/var/cache/users/rhansen/cardinality-tasty/covered/`): the gate run after `ff83f6c` added the rows
 that merge newly measures, through `scripts/differential.sh`, and a second run over `corpus-cats-eo`
 and `fixtures` added two more once their derivations were in `derived.txt`. No row was removed.
@@ -966,7 +965,6 @@ final private[compiled] class ClosedProgram(
   def subclasses(c: ClassSymbol): Subclasses             // Subclasses(found, complete)
   def finalClass(c: ClassSymbol): Boolean
   def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): Overriding  // No | Unknown | Supplied
-  def mixes(left: ClassSymbol, right: ClassSymbol): Boolean
 }
 ```
 
@@ -989,11 +987,10 @@ What each answers:
   extend `owner` is found, which asking the overrider (`allOverriddenSymbols`) does not find.
   `No` for a private or final member and where no subclass has one. Where a signature is not
   read, a declaration of the name is taken for an overrider, as the scalameta reading takes one.
-- `mixes(a, b)`: one extends the other, or a class of the program extends both.
 
 Where the program is not all known, no answer is "none": `complete` is false, `overriding` is
 `Unknown` (the row's `member may be overridden through a parent outside the sources`),
-`finalClass` is false, `mixes` is true. That is so for:
+`finalClass` is false. That is so for:
 
 - a class that does not load: of the module, every answer; of the classpath, every answer about
   a class outside the module;
@@ -1106,13 +1103,14 @@ enum Declared {
 No body is read anywhere: a `concrete` member is code that is not supplied, which a count may
 call and may not read, never a capability and never a throw.
 
-**Integration**: done in stretch 7 ("Wired into the front end", below), but for
-`ClosedProgram.mixes`, which nothing asks yet.
+**Integration**: done in stretch 7 ("Wired into the front end", below). Whether two classes
+share an instance (`mixes`) was written and asked by nothing, and is deleted: the old front end
+asks it of a capability record's member named like the measured one, which the compiled reading
+refuses outright, and a self type needs no such answer (stretch 9, below).
 
 #### Wired into the front end (stretch 7)
 
-The integration is done on `tasty-gate` (after merging `tasty-front` at `0538b5b`),
-but for `ClosedProgram.mixes`:
+The integration is done on `tasty-gate` (after merging `tasty-front` at `0538b5b`):
 
 - `ClosedProgram` and `DependencyClasses` are in `compiled/`. `TastyFrontEnd` builds one
   `ClosedProgram` per module, which takes the same lazy dependency listing as `Inlines`, and one
@@ -1263,6 +1261,45 @@ The differential, after `b3f8fce` and after `4c87c8d`; every input passes (defin
   enclosing class with a bounded or higher-kinded type parameter` (1,343 → 1,458), `an enclosing
   class with a self type` (349 → 617).
 - Cost, three runs each: corpus-core 3.4 s, cats-core 2.8–3.0 s, peak heap 1.25 and 1.15 GiB.
+
+#### Self types, constructor rows and abstract type members (stretch 9)
+
+- **Self types.** An untyped self alias (`self =>`) records the class's own type as its self type,
+  so it was refused wherever a self type was. `World.ownSelf` reads a self type the class already
+  conforms to (`appliedRefInsideThis <:< givenSelfType`) as none: `this` is of the class's own type.
+  It frees receivers, capability records and type-only templates alike. A self type narrower than
+  the class (11 classes in cats-core, `ApplyArityFunctions { self: Apply[F] => }` among them) stays
+  uncovered: reading it is reading what a second parent brings, the case of templates that reach a
+  parent through two parents, and it is left with them.
+- **Constructor rows.** A constructor ignores the objects around it: an object's members compute
+  from no state a position may take, so an object with parents is read like one without. A class
+  in a class is built on an instance of it (`Constructors.count` takes the receivers around): a
+  position over a type parameter places the caller's value or one the instance holds (`Outer[A](a:
+  A) { class Two(x: A, y: A) }` is 3^2), a ground position is its value space, and the row lists
+  the instance's captures, as the old front end counts and lists them.
+- **Abstract type members.** An unbounded abstract type member of a receiver, declared or
+  inherited, is an atom (`F[_]`-shaped: a rigid constructor), bound in the environment beside the
+  type parameters and read only on the instance (`this.T`; another path to one is not read).
+  Refused, as the old front end refuses: a bounded one; one two enclosing instances hold; one of a
+  class no class written elsewhere extends (final, a value class, a private constructor of it or of
+  a class it extends, a class private to a template around it), whose types are those the program
+  picks; a sum's. tasty-query takes a parent's private type member for one a subclass inherits
+  from elsewhere when it matches members (`P2 { private type X = Boolean }` beside `Q { type X }`
+  makes two `to` methods one), so a private type member of a parent named like a held one refuses,
+  and so does a declaration of the name elsewhere in the line that bounds it. A member is bound to
+  the receiver that holds it: `this.T` of a fixed class inside it, which holds none, is not read.
+- **`ClosedProgram.mixes`** is deleted: nothing in reach asks whether two templates share an
+  instance.
+
+Measured on the private gate copy, the merge (`ff83f6c`) against this stretch's head: method rows
+identical, cats-core 644 to 701 (better 255 to 265), cats-kernel 191 to 275, cats-eo 187 to 188,
+cats-eo-generics 31 to 37, corpus-core 1,385 to 1,531 (better 1 to 13), fixtures 4,435 to 4,580
+(better 161 to 172); no row worse but the corrected ones. Blockers: `an enclosing class with a self
+type` 735 to 184, `a capability record with a self type` 683 to 0, `an enclosing object with
+parents` 245 to 0, `an enclosing class` 57 to 0, `an enclosing class with an abstract type member`
+394 to 19 (sums), with 282 rows at `a bounded abstract type member`. Rows freed stop next at
+the capability records' reasons (a member something overrides 54 to 508, a member named like the
+measured definition 348 to 415) and at capabilities with type parameters of their own (148 to 274).
 
 ## Phase 5: the TASTy front end, slice by slice
 

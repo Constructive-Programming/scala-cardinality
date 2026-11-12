@@ -24,7 +24,7 @@ import tastyquery.Symbols.*
   * question about a class of the module reads the module alone.
   *
   * What is not listed is not known to be absent, and an answer says so (`complete` is false,
-  * `Overriding.Unknown`, `finalClass` is false, `mixes` is true):
+  * `Overriding.Unknown`, `finalClass` is false):
   *
   *   - a class that does not load (`unloaded` for the module, the second half of `dependencies` for
   *     the classpath) may extend anything its part of the program may;
@@ -247,18 +247,6 @@ final private[compiled] class ClosedProgram(
               _.declarations.exists(_.name.toString == name)
             } =>
         None
-    }
-  }
-
-  /** Whether an instance may be of both classes: one extends the other, or a class of the program
-    * extends both, or the classes that extend one of them are not all known.
-    */
-  def mixes(left: ClassSymbol, right: ClassSymbol): Boolean = {
-    val ((leftLine, leftWhole), (rightLine, rightWhole)) = (linearized(left), linearized(right))
-    !leftWhole || !rightWhole || leftLine.contains(right) || rightLine.contains(left) || {
-      val (lefts, rights) = (subclasses(left), subclasses(right))
-      !lefts.complete || !rights.complete || lefts.found.exists(rights.found.toSet) ||
-      lefts.unnamed.exists(rights.unnamed.toSet)
     }
   }
 

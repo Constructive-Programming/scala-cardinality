@@ -77,7 +77,18 @@ class ReceiversSpec extends Specification {
       |trait Narrowed[A] { self: Env[A] => def get: Boolean = true }
       |trait Deferred { inline val flag: Boolean; def m: Boolean = true }
       |class Thrown(b: Boolean) { val z: Boolean = ???; def get: Boolean = b }
-      |trait Member { type T; def get(t: T): T = t }
+      |trait Member { type T; def seed: T; def get(t: T): T = t }
+      |trait Bounded { type T <: AnyRef; def get(t: T): T = t }
+      |class Pinned private () { type T; def get(t: T, u: T): T = t }
+      |final class Fin { type T; def get(t: T, u: T): T = t }
+      |trait Kinded { type F[_]; def get(x: F[Int]): F[Int] = x }
+      |trait Typed { type T }
+      |abstract class Holds extends Typed { def seed: T; final class Fixed extends Typed { def get(t: T): T = t } }
+      |abstract class Twice extends Typed { abstract class Again extends Typed { def get(t: T): T = t } }
+      |trait Low { type T >: Int }
+      |abstract class Mixed extends Low with Typed { def get(t: T): T = t }
+      |class Maker[A](a: A) { final class Two(x: A, y: A); final class Flag(b: Boolean) }
+      |object Built extends Base(true) { final class Q(b: Boolean, c: Boolean) }
       |object TA { final case class P(b: Boolean); trait Base[R] { def f(p: P): R } }
       |object TB { final case class P(b: Boolean); trait Mid[R] extends TA.Base[R] { def f(p: P): R } }
       |trait Twin[R] extends TB.Mid[R] { def g(): R = ??? }
@@ -129,10 +140,22 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Kept.get") must_== Count.Finite(4))
 
   // An inner instance holds its outer one, and so does an object in a class: the one A in reach is
-  // the outer class's.
+  // the outer class's. A class in a class is built on an instance of it: a constructor position
+  // over a type parameter takes the caller's value or the instance's, so `Maker.Two` places one
+  // of `x`, `y` and `a` in each of its two positions, 3^2 = 9; a ground position is its value
+  // space, `Maker.Flag` 2, whatever the instance holds. An object holds no such value, parents or
+  // not: `Built.Q` is its two Booleans, 2^2. An abstract type member is an atom on the instance:
+  // `Member.get` returns `t` or `seed`, 2, and one of kind `F[_]` is a rigid constructor:
+  // `Kinded.get` can only return `x`, 1.
   private def nested =
     (count("recv.Outer.Inner.x") must_== Count.Finite(1))
       .and(count("recv.Holder.In.get") must_== Count.Finite(1))
+      .and(count("recv.Maker.Two.<init>") must_== Count.Finite(9))
+      .and(entry("recv.Maker.Two.<init>").captures must_== List("a"))
+      .and(count("recv.Maker.Flag.<init>") must_== Count.Finite(2))
+      .and(count("recv.Built.Q.<init>") must_== Count.Finite(4))
+      .and(count("recv.Member.get") must_== Count.Finite(2))
+      .and(count("recv.Kinded.get") must_== Count.Finite(1))
 
   // A template whose inherited members are all implemented and can none be overridden holds its
   // own state alone: each inherited member computes from it. `Impl` is concrete and nothing
@@ -217,8 +240,11 @@ class ReceiversSpec extends Specification {
   // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
   // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
   // type narrower than the class; a deferred `inline val`, and a deferred inline method where a type parameter is in
-  // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
-  // type member; a capability with type parameters of its own.
+  // scope; a class whose construction always throws, or in an object whose does (S6); a bounded
+  // abstract type member, one of a class only its own scope may extend, whose types are those
+  // the program picks, one two enclosing instances hold, one another declaration bounds, and
+  // `this.T` of a fixed class, which holds no type member of its own, inside one that holds it; a
+  // capability with type parameters of its own.
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
@@ -230,7 +256,12 @@ class ReceiversSpec extends Specification {
       "Narrowed.get" -> "an enclosing class with a self type",
       "Deferred.m" -> "a deferred inline value of an enclosing class",
       "Thrown.get" -> "an enclosing class whose construction always throws or binds a pattern",
-      "Member.get" -> "an enclosing class with an abstract type member"
+      "Bounded.get" -> "a bounded abstract type member, or one of another kind than F[_]",
+      "Pinned.get" -> "an abstract type member of a class no class written elsewhere extends",
+      "Fin.get" -> "an abstract type member of a class no class written elsewhere extends",
+      "Holds.Fixed.get" -> "a type",
+      "Twice.Again.get" -> "an abstract type member two enclosing instances hold",
+      "Mixed.get" -> "an abstract type member another declaration of its name bounds or hides"
     )
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     expected.map { (name, _) =>

@@ -2,8 +2,8 @@ package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Shape}
 import cardinality.types.Traversals
-import tastyquery.Contexts.Context
-import tastyquery.Modifiers.OpenLevel
+import tastyquery.Contexts.*
+import tastyquery.Modifiers.{OpenLevel, Visibility}
 import tastyquery.Symbols.*
 import tastyquery.Trees.*
 import tastyquery.Types.*
@@ -21,7 +21,9 @@ import tastyquery.Types.*
   *     That holds where no class of the program overrides it (the closed world, `ClosedProgram`);
   *     one a class of the program overrides varies across instances, and is a capability as an
   *     abstract member is, its own body one of its behaviors.
-  *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`).
+  *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`),
+  *     and so are its abstract type members, declared or inherited, on its own instance
+  *     (`Shapes.typeMember`).
   *   - A class that inherits is read by its own state alone where every member it inherits is
   *     implemented and none can be overridden: a concrete class that is final or that nothing
   *     extends. An object is such a template with no state.
@@ -40,11 +42,13 @@ import tastyquery.Types.*
   * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
   * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
   * settle; a self type narrower than the class (`World.ownSelf`); a bounded type parameter, or one
-  * of another kind than `F[_]`; an abstract type member; a capability with type parameters of its
-  * own; a deferred `inline val`, or a deferred inline method over a type parameter; a construction
-  * that always throws or binds a pattern (S6); and what implicit search chooses (S5's remainder): a
-  * contextual parameter without a name, an abstract given without a name, an abstract extension
-  * method. A given written `= deferred` is a capability like an abstract member.
+  * of another kind than `F[_]`; an abstract type member of a sum, a bounded one or one of another
+  * kind than `F[_]`, one two enclosing instances hold, one of a class no class written elsewhere
+  * extends, one another declaration of its name bounds or hides; a capability with type parameters
+  * of its own; a deferred `inline val`, or a deferred inline method over a type parameter; a
+  * construction that always throws or binds a pattern (S6); and what implicit search chooses (S5's
+  * remainder): a contextual parameter without a name, an abstract given without a name, an abstract
+  * extension method. A given written `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -271,8 +275,9 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         "an enclosing class whose overriders are not read"
       )
       _ <- refused(!World.ownSelf(c), "an enclosing class with a self type")
+      // A class's abstract type members are atoms (`atoms`); a sum's are not read yet.
       _ <- refused(
-        Shapes.abstractTypeMember(tree) || (!sum && inheriting.getOrElse(Nil).exists {
+        sum && (Shapes.abstractTypeMember(tree) || inheriting.getOrElse(Nil).exists {
           case member: TypeMemberSymbol => member.isAbstractMember
           case _                        => false
         }),
@@ -286,19 +291,73 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
   }
 
   /** What the receivers' type parameters stand for (`Shapes.binder`), and the copies their
-    * constructors hold.
+    * constructors hold; and what their abstract type members, declared or inherited, stand for
+    * (`Shapes.typeMember`), on the instance alone (`this.T`; `Shapes` reads no other path to one).
     */
   def atoms(receivers: List[ClassDef]): Either[Unread, Map[Symbol, Shape]] =
     Traversals
       .sequence(receivers.map { tree =>
         val c = tree.symbol
-        Traversals
-          .sequence(c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr))))
-          .map(named =>
-            c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named)
+        val members = (tree.rhs.body.collect { case member: TypeMember => member.symbol } ++
+          inherited(c).getOrElse(Nil)).collect {
+          case member: TypeMemberSymbol if member.isAbstractMember => member
+        }
+        for {
+          named <- Traversals.sequence(
+            c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr)))
           )
+          _ <- members.headOption
+            .flatMap(_ => pinned(c))
+            .orElse(members.view.flatMap(alike(c, _)).headOption)
+            .map(Uncovered(_))
+            .toLeft(())
+          held <- Traversals.sequence(members.map(Shapes.typeMember(c, _)))
+        } yield c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named) ++
+          members.zip(held)
       })
-      .map(_.flatten.toMap)
+      .flatMap { pairs =>
+        // Two instances around the member each hold their own type of one declaration.
+        val members = pairs.flatten.map(_._1).collect { case m: TypeMemberSymbol => m }
+        members.diff(members.distinct).headOption match {
+          case Some(twice) =>
+            Left(Uncovered(s"an abstract type member two enclosing instances hold: ${twice.name}"))
+          case None => Right(pairs.flatten.toMap)
+        }
+      }
+
+  // Why the types an abstract type member of `c` stands for are only those the program's classes
+  // pick, as the old front end reads it: it counts one as any type only where a class written
+  // anywhere may extend `c`, which is not so where `c` is never extended (final, `final abstract`,
+  // a value class), where a restricted constructor of it or of a class it extends is callable only
+  // in its scope, or where `c` or a class around it is private to a template.
+  private def pinned(c: ClassSymbol): Option[String] = {
+    def confined(s: TermOrTypeSymbol, toPackage: Boolean) = s.visibility match {
+      case Visibility.Private | Visibility.PrivateThis => true
+      case Visibility.ScopedPrivate(scope)             => toPackage || !scope.isPackage
+      case _                                           => false
+    }
+    (if (Shapes.isFinal(c) || c.isSubClass(defn.AnyValClass)) Some(s"${c.name} is never extended")
+     else
+       (c :: World.ancestors(c))
+         .find(_.tree.exists(k => confined(k.rhs.constr.symbol, toPackage = true)))
+         .map(k => s"the constructor of ${k.name} is not public")
+         .orElse(World.owners(c).collectFirst {
+           case k: ClassSymbol if confined(k, toPackage = false) => s"${k.name} is private"
+         })).map(why =>
+      s"an abstract type member of a class no class written elsewhere extends: $why"
+    )
+  }
+
+  // Another declaration of an abstract type member's name along `c`'s parents: a private one,
+  // which tasty-query takes for the member when it matches members, or one that bounds it, which
+  // the member's own declaration does not show.
+  private def alike(c: ClassSymbol, member: TypeMemberSymbol): Option[String] =
+    World.ancestors(c).flatMap(_.declarations).collectFirst {
+      case other: TypeMemberSymbol
+          if other != member && other.name == member.name &&
+            (other.isPrivate || Shapes.typeMember(c, other).isLeft) =>
+        s"an abstract type member another declaration of its name bounds or hides: ${member.name}"
+    }
 
   /** What the receivers supply to `measured`: their constructors' parameters and their abstract
     * members, `measured` aside (a member is no capability of its own).

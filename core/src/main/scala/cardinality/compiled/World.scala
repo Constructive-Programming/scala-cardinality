@@ -80,9 +80,9 @@ final private[compiled] class World(
 
 private[compiled] object World {
 
-  /** Whether a class's self type adds nothing to it: none is written, or the one written is a
-    * supertype of the class (an untyped alias `self =>` records the class's own type), so `this` is
-    * of the class's own type. A self type that cannot be compared adds something.
+  /** Whether `this` is of the class's own type: its self type, if any, is a supertype of the class
+    * (an untyped alias `self =>` records the class's own). A self type that cannot be compared is
+    * not the class's own.
     */
   def ownSelf(c: ClassSymbol)(using Context): Boolean =
     c.givenSelfType.forall { self =>
