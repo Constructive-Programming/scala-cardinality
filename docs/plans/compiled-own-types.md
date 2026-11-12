@@ -1208,9 +1208,11 @@ time on the rows still uncovered is not in it.
   dependencies against each fixture's `classpath.txt`.
 - Done since: `Inlines` plugged into `Readings` ("After `Inlines`"), with the first run of
   `scripts/spec-ledger.sh` on this branch and every new FAIL named and classed.
-- Next, in the coordinator's order: S4, then S5, each with `scripts/spec-ledger.sh` totals beside
-  its table; then stop and report. `TastyFrontEndSpec` is near the 1,000-line limit: S4's
-  examples go to a spec of their own.
+- Done since: S4's first step, receivers ("After S4"; `Receivers`, `ReceiversSpec`).
+- Next: S5 (contextual scope), with `scripts/spec-ledger.sh` totals beside its table; then stop
+  and report. What S4 leaves is listed under "After S4".
+- `core/src/test/scala/cardinality/compiled/ProbeScratch.scala`, if present, is a scratch probe
+  for reviewers (both front ends' rows of the sources given as arguments): never commit it.
 - Interface notes from the sibling's ledger of the spec suite (`scripts/spec-ledger.sh`), for S8
   or earlier: `Report.of` is tied to `ScalametaFrontEnd`; a source that defines nothing is told
   only by message text; there is no `Limits` parameter; dependencies can only be given as
@@ -1604,6 +1606,93 @@ each fails for one of four reasons, none a wrong number. They are to be settled 
 | A count where the old front end refuses, inline (16) | `ConversionClosureSpec`: "imported into the body's scope", "imported into the body's scope #2", "in the companion of a type the body writes", "reached through a given of a reached companion, transitively", "reached through a referenced member's declared type", "reached through the signature of a given the body may summon"; `DependencyRowsSpec`: "a compiled inline body is not read: its caller refuses"; `InlineMethodsSpec`: "a channel outside the sources refuses all but identities", "a given left to implicit search, summon, valueOf", "an exported or a local conversion is found where it is visible", "an inline conversion of the sources refuses every body", "library members, extractors, named arguments, overriding", "reasons quote what they name"; `InlineScopesSpec`: "a conversion private to another package is never inserted", "a given whose type a wildcard may hide is read as its declaration", "a local type that hides an outer one refuses" | A refusal that decisions D2 and D4 replace by reading the compiled tree, or a name the scalameta reading did not resolve: the classes of the table above. |
 | A count where the old front end refuses for a limit of reading syntax (13) | `GroundEnvironmentSpec`: "a constructor position reads the inherited member on both sides"; `ImportClausesSpec`: "a clause the sources do not supply stays its reason"; `MethodAnalysisSpec`: "keep a file-private type from a sibling file", "keep an import after the reference from binding it"; `NamespaceScopingSpec`: "a class member's owner binds as any type name does"; `PureCodeSpec`: "an alias nested out of reach does not stand for a parent"; `StoredScopesSpec`: "abstract, opaque and parameterised members are not read"; `StoredValueSoundnessSpec`: "a parent name an object rebinds names another type", "a subtype through a renamed import", "a subtype through an alias, or reached twice"; `TypeMemberScopeSpec`: "an opaque alias spelled through `this` is not followed"; `UnsuppliedWildcardSpec`: "nor a builtin a constructor slot reads, unlike `zz.*`", "refuses a member of a record its field type names" | A refusal for a name, import, alias or scope the compiler resolved: the gate's better rows past a resolution limit, and the derived ones. |
 | Tightened (1) | `GroundEnvironmentSpec`: "a symbolic value space agrees only with a wide estimate" | `≤2^8`, now the exact `2^8` (a row of the tightened table). |
+
+**After S4** (receivers: a member of a class reads what the instance holds). Every row pairs. The
+worse rows are listed corrections: eleven in cats-core and two in the fixtures.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 967 | 1 / 0 | 0 | 0 | 0 | 3,032 | 506 of 768 (65.9%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 321 | 37 / 3 | 0 | 10 | 0 | 7,280 | 282 of 909 (31.0%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 151 | 3 / 0 | 0 | 0 | 0 | 1,631 | 144 of 368 (39.1%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 123 | 0 / 1 | 0 | 0 | 0 | 573 | 105 of 271 (38.7%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 26 | 0 / 0 | 0 | 0 | 0 | 54 | 12 of 16 (75.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 0 | 19 | 0 of 5 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,363 | 68 / 36 | 4 | 1 | 0 | 3,274 | 3,173 of 5,485 (57.8%) |
+| fixtures | definitions | 5,588 | 4,923 | 65 / 8 | 0 | 1 | 0 | 591 | 4,342 of 4,513 (96.2%) |
+| **all corpora** | methods | 14,232 | 1,588 | 41 / 4 | 0 | 10 | 0 | 12,589 | 1,049 of 2,337 (44.9%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+What S4 reads, with derived examples in `ReceiversSpec`: every parameter of the primary
+constructor of each class around a member is a value of its environment, `val` or not; every
+abstract member is a capability (a value, or one function from all a method's parameters to its
+result; a one-valued result supplies nothing); a concrete member supplies nothing where no class
+of the module overrides it; the classes' type parameters are atoms. A class that inherits is read
+by its own state alone where it is an object or a concrete class that is final or that nothing
+extends (the closed world's final) and no parent of the module holds state of its own. An object
+with parents is read the same way. A row's captures are the names of what its receivers supply.
+
+Left uncovered, each by its own reason: a sealed class or an enum as receiver (it splits into its
+cases); a class that inherits and is abstract or may be extended; a parent of the module with
+constructor parameters, in a class or without a tree; a concrete member something overrides, or
+overriders tasty-query does not read; a self type; a bounded or higher-kinded class type
+parameter; an abstract type member; a capability with type parameters of its own; a deferred
+`inline val`, and a deferred inline method where a type parameter is in scope; a class or an
+object around it whose construction always throws or binds a pattern (S6); given instances and
+contextual parameters and members (S5); local definitions, anonymous and local classes
+(`an enclosing definition`); rule B's secondary constructors and factories for a class named by
+a type. The closed-world index over dependencies is not built: a class of the module is asked
+only what the module's own classes extend and override.
+
+Corrections added by S4 (`corrected.txt`), all method rows:
+
+| Row | Old | New | Derivation |
+| --- | --- | --- | --- |
+| cats-core `cats.evidence.As.reflAny`, `fromPredef` | 0 | `?`: sealed family has anonymous instances in its file: As | The old 0 rests on reading `As` as a sealed family without a value. It has one: `reflAny = new (Any As Any) { … }`, an anonymous instance whose type is written infix, which the old reading does not see. The model refuses a sealed family with an anonymous instance. |
+| cats-core `cats.evidence.As.compose`, `onF`, `conF`, `invF` | 1 | the same `?` | The old 1 is the one function from an input taken for empty. |
+| cats-core `cats.syntax.IorIdOps.rightIor`, `leftIor` | 0 | 1 | `Ior[X, Y]` is X + Y + X × Y (the correction of `cats.data.Ior`). `IorIdOps[A](a: A)` holds one A and no B is in reach: `Right(a)`, `Left(a)`. |
+| cats-core `cats.syntax.OptionOps.toRightIor`, `toLeftIor` | 0 | 3 | `OptionOps[A](oa: Option[A])` and `b: B`: where `oa` is `None` one choice, where it is `Some(a)` three (`Left(b)`, `Right(a)`, `Both(b, a)`): 1 × 3. |
+| fixture `1e44fbe4…/Aliases.scala:4` `Outer.Base.get(a: Library.Alias): T` | 1 | 0 | `Library.Alias` is `Library`'s own `T`, `Unit` (an alias's right-hand side is read where it is written), and the result `T` is `Outer`'s type parameter, of which nothing in reach holds a value: no parametric implementation. The old reading resolved the alias to `Outer`'s `T` and counted the identity. |
+
+Better rows past a model limit that S4 adds, each derived in `derived.txt`:
+
+| Rule | Rows | Count |
+| --- | --- | --- |
+| `Ior` is A + B + A × B, so a function to C over its cases yields Cs | cats-core `cats.Align.alignWithIterator` | ω |
+| No class of the module overrides a member of the trait, so its concrete members supply nothing (the old reading held two to be overridable) | cats-core `ValidatedFunctions.invalid`, `valid` | 1, 1 |
+| Rule F: a result that is an opaque type outside its scope is one value | cats-eo `ComposedTraversal.to` | 1 |
+| A given initialized with a value named `deferred` that is not `scala.compiletime.deferred` is a concrete member | fixture `7dcd4c40…` `V.deferred`, `V.other`, `TXs.TX.other`, `TL.other` | 2 each |
+| An import through a value binds what the compiler resolved | fixture `7124cd7e…` `NP.y` | 2 |
+| An alias with a bounded parameter reduces (`Alias[A] = A`) | fixture `10e29c04…` `Base.get` | 1 |
+
+Spec ledger after S4:
+
+| | PASS | UNCOVERED | FAIL | PENDING | SCALAMETA |
+| --- | --- | --- | --- | --- | --- |
+| after `Inlines` | 508 | 951 | 172 | 19 | 81 |
+| after S4 | 582 | 871 | 178 | 19 | 81 |
+
+74 examples went from UNCOVERED to PASS. Six went from UNCOVERED to FAIL, each a count where the
+old front end refuses for a limit of reading syntax (the gate's better rows past a resolution
+limit, or derived above): `ClosedWorldSpec` "a parent outside the sources may override it:
+refused" (the parent is a class the compiled front end holds, and nothing overrides the member);
+`EnvironmentCompletenessSpec` "a clause whose prefix is no path refuses the builtin" and "a
+wildcard export outside the sources refuses the name"; `GroundEnvironmentSpec` "aliases, enum
+bodies, explicit exports and unread steps"; `OwnersAndRecordsSpec` "a deferred given is
+abstract: every class extending it gives one" (the `V`, `TX`, `TL` rows above);
+`UnsuppliedWildcardSpec` "an import whose prefix is no path".
+
+Open, for the coordinator: the gate compares counts, not captures. The captures the compiled
+front end lists are the labels of the receivers' bindings. Against the old rule (every name
+bound from an owner other than the row's own) they differ in three known places, none a count:
+a row refused by the model lists none; a second abstract overload is listed under its name, not
+`name#2`; a concrete alias of a capture (`val again = captured`) is not listed.
 
 ### How each model rule reads over symbols
 

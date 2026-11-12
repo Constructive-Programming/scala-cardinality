@@ -122,6 +122,9 @@ final private[compiled] class Shapes(world: World)(using Context) {
   /** A class's constructor parameters, read with its type parameters bound to `arguments`: the
     * constructor's own copies of them, which its parameter types name, and the class's.
     */
+  def inputs(parameters: List[ValDef], env: Env): Either[Unread, List[Shape]] =
+    Traversals.sequence(parameters.map(parameter => of(parameter.tpt.toType, env)))
+
   def fields(tree: ClassDef, arguments: List[Shape], env: Env): Either[Unread, List[Shape]] = {
     val constructor = tree.rhs.constr
     val copies = Shapes.typeParameters(constructor)

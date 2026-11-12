@@ -145,15 +145,15 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
             )
           },
           methods.map { method =>
+            val read = reading(readings.method(method.measured))
             Entry(
               source.path,
               method.name,
               source.signature(method.shown),
               method.shown.pos.startLine + 1,
               method.kind,
-              reading(readings.method(method.measured))
-                .fold(why => Count.Unresolved(List(s"$Uncovered: $why")), identity),
-              Nil
+              read.fold(why => Count.Unresolved(List(s"$Uncovered: $why")), _._1),
+              read.fold(_ => Nil, _._2)
             )
           }
         )

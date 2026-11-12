@@ -1,6 +1,7 @@
 package cardinality.compiled
 
 import tastyquery.Contexts.*
+import tastyquery.Exceptions.InvalidProgramStructureException
 import tastyquery.Names.nme
 import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
@@ -42,6 +43,23 @@ final private[compiled] class World(own: Set[ClassSymbol])(using Context) {
   lazy val extended: Set[ClassSymbol] =
     own.toList.flatMap(_.tree).flatMap(World.classes).flatMap(_.symbol.parentClasses).toSet
 
+  /** The members some class of the module overrides (an anonymous or local one included), and the
+    * classes whose overriders are not known: a class whose overrides tasty-query fails to read
+    * (overloads of different kinds), and every class it extends.
+    */
+  lazy val (overridden: Set[Symbol], unjudged: Set[ClassSymbol]) = {
+    val (failed, read) =
+      own.toList.flatMap(_.tree).flatMap(World.classes).map(_.symbol).partitionMap { c =>
+        try
+          Right(c.declarations.flatMap {
+            case member: TermSymbol => member.allOverriddenSymbols
+            case _                  => Nil
+          })
+        catch { case _: InvalidProgramStructureException => Left(c.linearization) }
+      }
+    (read.flatten.toSet[Symbol], failed.flatten.toSet)
+  }
+
 }
 
 private[compiled] object World {
@@ -63,6 +81,14 @@ private[compiled] object World {
     */
   val Memberless: Set[String] =
     Set("java.lang.Object", "scala.Product", "scala.Equals", "java.io.Serializable")
+
+  /** The classes a class inherits members from: `Any`, `Object`, `AnyVal` and the compiler's own
+    * parents of a case class declare none a count reads.
+    */
+  def ancestors(c: ClassSymbol)(using Context): List[ClassSymbol] = {
+    val universal = Memberless ++ Set("scala.Any", "scala.Matchable", "scala.AnyVal")
+    c.linearization.drop(1).filterNot(parent => universal(parent.displayFullName))
+  }
 
   /** Whether a method is a constructor, primary or secondary. */
   def isConstructor(symbol: Symbol): Boolean = symbol.name == nme.Constructor

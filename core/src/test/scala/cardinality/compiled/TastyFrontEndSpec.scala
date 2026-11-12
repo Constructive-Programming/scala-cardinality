@@ -476,10 +476,10 @@ class TastyFrontEndSpec extends Specification {
       .and(count("demo.K.z") must_== Count.Finite(2))
       .and(count("demo.KL.g") must_== Count.Finite(4))
 
-  // A member of a class, a constructor, and a member beside a pattern definition, named or not
-  // (which values its object's constructor evaluates is not read yet).
+  // A member beside a pattern definition, named or not (which values its object's constructor
+  // evaluates is not read yet). (A member of a class is `ReceiversSpec`'s.)
   private def uncovered = {
-    val rows = List("demo.C.m", "demo.Pattern.g", "demo.Nameless.g")
+    val rows = List("demo.Pattern.g", "demo.Nameless.g")
     rows.map(count) must contain(beLike[Count] {
       case Count.Unresolved(List(reason)) => reason must startWith(TastyFrontEnd.Uncovered)
     }).forall
@@ -899,7 +899,7 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(11)(_))
+          List("package cardinality.compiled").flatMap(List.fill(12)(_))
       )
   }
 

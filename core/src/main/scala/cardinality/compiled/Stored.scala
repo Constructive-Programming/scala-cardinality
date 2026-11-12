@@ -244,11 +244,10 @@ final private[compiled] class Stored(world: World)(using Context) {
         (fields || !field.isParamAccessor)
       case _ => false
     }
-    val memberless = World.Memberless ++ Set("scala.Any", "scala.Matchable", "scala.AnyVal")
-    val (inside, outside) = c.linearization.drop(1).partition(world.ofModule)
+    val (inside, outside) = World.ancestors(c).partition(world.ofModule)
     !Shapes.isFinal(c) &&
     (!c.isCaseClass || declares(template, false) ||
-      outside.exists(base => !memberless(base.displayFullName)) ||
+      outside.nonEmpty ||
       inside.flatMap(_.tree).exists(declares(_, true)))
   }
 
