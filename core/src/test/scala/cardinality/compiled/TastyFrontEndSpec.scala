@@ -568,9 +568,9 @@ class TastyFrontEndSpec extends Specification {
   }
 
   // What no slice reads yet, each for its own reason.
-  //   - A case class with a member, a written parent, a private field, a private constructor or a
-  //     second parameter list is more than its product; and a member of an enum nested in a class
-  //     may read the instance around it (`key` reads `k`).
+  //   - A capability record with a written parent, a private field or a private constructor is
+  //     not read yet (`record` and `curried`, whose fields are public, are: `RecordsSpec`); and a
+  //     member of an enum nested in a class may read the instance around it (`key` reads `k`).
   //   - A case that pins its parent's parameter to a type holds values of `Index[Int]` only; one
   //     that passes a parameter to two slots equates them; an invariant parameter in a covariant
   //     slot holds more than its own type's values; `Any` in a covariant slot is no bottom pin;
@@ -586,16 +586,14 @@ class TastyFrontEndSpec extends Specification {
   //   - `no(n: Nothing)` has a total body.
   //   - `P1` and `P2` have one shape and are two types: no evidence equates them.
   private def later = {
-    val product = "a class that is no product, sum or type-only template"
+
     val slots = "a sealed subtype that does not pass its own parameters to its parent"
     val construction =
       "a construction that throws, binds a pattern or inherits a member of the empty type"
     val expected = List(
-      "record" -> product,
-      "line" -> product,
-      "veiled" -> product,
-      "shut" -> product,
-      "curried" -> product,
+      "line" -> "a capability record with parents",
+      "veiled" -> "a capability record with a parameter that is no public field",
+      "shut" -> "a capability record with a restricted constructor",
       "nested" -> "a class nested in a class or a body",
       "index" -> slots,
       "twice" -> slots,

@@ -38,7 +38,6 @@ import tastyquery.Trees.*
   * method. A given written `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
-  import Unread.Uncovered
 
   /** The classes around a member, outermost first. An object holds no state of its own; a
     * definition a class is written in is skipped (`Readings.enclosing` reads its methods); an
@@ -126,10 +125,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         "an enclosing class with a bounded or higher-kinded type parameter"
       )
       _ <- refused(
-        tree.rhs.body.exists {
-          case member: TypeMember => member.symbol.isAbstractMember
-          case _                  => false
-        },
+        Shapes.abstractTypeMember(tree),
         "an enclosing class with an abstract type member"
       )
       _ <- refused(
@@ -179,10 +175,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       env: Shapes.Env
   ): Either[Unread, List[Binding]] = {
     val self = tree.symbol.displayFullName
-    def held(value: ValDef) =
-      shapes
-        .of(value.tpt.toType, env)
-        .map(Binding(s"$self.${value.name}", _, Some(value.name.toString)))
+    def held(of: ValOrDefDef, shape: Shape) =
+      Binding(s"$self.${of.name}", shape, Some(of.name.toString))
     val parameters = Shapes.parameters(tree.rhs.constr)
     val capabilities = tree.rhs.body.collect {
       case member: ValOrDefDef if Receivers.open(member) && member.symbol != measured =>
@@ -190,66 +184,11 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     }
     for {
       _ <- Readings.plainInputs(parameters)
-      fields <- Traversals.sequence(parameters.map(held))
+      fields <- shapes.inputs(parameters, env)
       members <- Traversals.sequence(capabilities.map { member =>
-        // An extension method is no member of its receiver's instances, and a given without a
-        // name is found by search alone: neither is read as a capability yet.
-        val unread =
-          if (member.symbol.isExtensionMethod) Left("an extension method")
-          else if (Readings.contextual(member.symbol) && member.name.toString.startsWith("given_"))
-            Left("an anonymous given")
-          else Readings.later(member.symbol)
-        unread match {
-          case Left(what) =>
-            Left(Uncovered(s"$what among the members of an enclosing class: ${member.name}"))
-          case Right(()) =>
-            member match {
-              // Each implementation of a deferred `inline val` is a constant of its own.
-              case value: ValDef if value.symbol.isInline =>
-                Left(Uncovered(s"a deferred inline value of an enclosing class: ${value.name}"))
-              // A deferred inline method is called from inline code alone: the compiler rejects
-              // a call of it from any other body, to which it therefore supplies nothing. One over
-              // a type parameter may have no implementation at some instance, which says
-              // something of the receiver: not read.
-              case method: DefDef if method.symbol.isInline && !measured.isInline =>
-                Either.cond(
-                  !generic(method, env),
-                  None,
-                  Uncovered(s"a deferred inline method over a type parameter: ${method.name}")
-                )
-              case value: ValDef  => held(value).map(Some(_))
-              case method: DefDef => capability(self, method, env)
-            }
-        }
+        shapes.member(member, "an enclosing class", env).map(_.map(held(member, _)))
       })
-    } yield fields ++ members.flatten
-  }
-
-  // Whether a method's signature may name a type parameter: it has its own, or one is in scope
-  // (through an alias too, so the signature is not searched).
-  private def generic(method: DefDef, env: Shapes.Env): Boolean =
-    Shapes.typeParameters(method).nonEmpty || env.binders.nonEmpty
-
-  // An abstract method is one function, from the parameters of all its clauses to its result; an
-  // abstract given with a `using` clause is such a method (the old front end read it as a value
-  // of its result type: a listed correction). A
-  // one-valued result (`Unit`, an opaque type outside its scope) is built without it.
-  private def capability(
-      self: String,
-      member: DefDef,
-      env: Shapes.Env
-  ): Either[Unread, Option[Binding]] = {
-    val parameters = Shapes.parameters(member)
-    if (Shapes.typeParameters(member).nonEmpty)
-      Left(Uncovered(s"a capability with type parameters of its own: ${member.name}"))
-    else
-      for {
-        _ <- Readings.plainInputs(parameters)
-        result <- shapes.of(member.resultTpt.toType, env)
-        inputs <- shapes.inputs(parameters, env)
-      } yield Option.when(result != Shape.Product(Nil))(
-        Binding(s"$self.${member.name}", Shape.Function(inputs, result), Some(member.name.toString))
-      )
+    } yield parameters.lazyZip(fields).map(held) ++ members.flatten
   }
 
 }

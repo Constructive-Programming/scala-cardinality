@@ -1237,12 +1237,14 @@ time on the rows still uncovered is not in it.
   restructure them.
 - Done ("Stretch 4, third unit"): a captured parameter is refused only where a scope between
   its method and the definition binds its name again (it was: anywhere in the method).
-- Next: item 2, capability records (a class or trait with members named by a type:
-  `Shapes.declared`; the old `CapabilityRecords`: an open record is the product of its public
-  constructor fields and its abstract members, a final one of its observable constructor
-  parameters), then item 3, sealed and enum receivers, then items 4 to 6. Left in item 1, each
-  under 100 rows with the fixtures: a local named class or object, definitions in a function
-  literal, a case clause or a constructor's body, names a nearer scope binds again.
+- Done ("Stretch 4, fourth unit"): capability records without parents.
+- Next: item 3, sealed and enum receivers (`an enclosing sealed class or enum`: 1,676 corpus
+  rows; the old `SealedReceivers`: the receiver is one binding of its family's sum), then the
+  records' remaining reasons where cheap (parents of the module: 382; a parameter that is no
+  public field, rule B's observers: 336; a restricted constructor: 261; a self type: 296), then
+  items 4 to 6. Left in item 1, each under 100 rows with the fixtures: a local named class or
+  object, definitions in a function literal, a case clause or a constructor's body, names a
+  nearer scope binds again.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
@@ -1981,6 +1983,56 @@ a block of the path, an inner method's parameters, a class's members or self ali
 definition's own parameters (`a capture a nearer scope binds again`, was `a capture another
 definition may hide`). A same-named definition elsewhere in the method hides nothing. 37 more
 corpus method rows are identical (1,760); no row is worse.
+
+**Stretch 4, fourth unit** (capability records). All inputs pass.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 1,357 | 1 / 0 | 0 | 0 | 0 | 2,642 | 542 of 768 (70.6%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 396 | 42 / 47 | 0 | 15 | 0 | 7,151 | 320 of 909 (35.2%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 176 | 3 / 0 | 0 | 0 | 0 | 1,606 | 162 of 368 (44.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 157 | 0 / 1 | 0 | 0 | 0 | 539 | 135 of 271 (49.8%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 31 | 0 / 0 | 0 | 0 | 0 | 49 | 16 of 16 (100.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 4 | 0 / 0 | 0 | 0 | 0 | 15 | 4 of 5 (80.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,820 | 72 / 41 | 4 | 2 | 0 | 2,807 | 3,586 of 5,485 (65.4%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 2,121 | 46 / 48 | 0 | 15 | 0 | 12,002 | 1,179 of 2,337 (50.4%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A class or trait of the module with members, named by a type (`Shapes.record`), is a
+  capability record: a trait or abstract class is the tuple of its public constructor fields and
+  of what its abstract members supply (a value, or one function from all of a method's
+  parameters; a one-valued result supplies nothing); a concrete class nothing extends is the
+  tuple of its public fields; a class written `final abstract`, or whose construction always
+  throws, is the empty sum, as the old front end reads it. A member restating one of `Any`'s
+  (`toString`, `hashCode`, `equals(Any)`, by name and parameters) is outside the model; every
+  other member counts. `Shapes.member` now reads a supplied member for receivers and records
+  alike (`RecordsSpec`).
+- Left uncovered, each named `a capability record …`: with parents (382 corpus rows), with a
+  parameter that is no public field (336, rule B's observers), with a restricted constructor
+  (261), with a self type (296), with a member named like the measured definition (119), with
+  an abstract type member, with a member hidden at the use site, with a member something
+  overrides, of a sealed class, of a class something extends, whose construction binds a
+  pattern, whose overriders are not read.
+- Correction: fixture `5a9bcf40…/Capability.scala:3` `U.eq2[A](e: Eq2[A]): Boolean`, 2 becomes
+  4. `trait Eq2[A] { def x: A; def canEqual(that: Any): Boolean }` has no parent, so `canEqual`
+  restates nothing: it is an abstract member any implementation supplies, a Boolean of a
+  one-valued input. The model excludes only `Any`'s universal members; the old reading dropped
+  `canEqual` by its name. The ledger example `CapabilitySpec` "`Any`'s and `Product`'s members
+  are universal (`canEqual`)" pins the old 2: a spec to rewrite at the switch, with
+  `MethodAnalysisSpec` "do not project an abstract case class as a product" (now 1, derived:
+  `Holder[A]`'s abstract `value: A` is the record) and `InlineScopesSpec` "a qualifier is
+  converted from its own type's implicit scope" (an inline method the record reading now
+  counts, derived).
+- Three rows derived: `extract[A](h: Holder[A]): A`, 1; `app.C.onT` and `app.C.hOnT`, inline
+  methods over a final class with no field, 2^(2^37) each.
+- Spec ledger: PASS 637, UNCOVERED 811, FAIL 183, PENDING 19, SCALAMETA 81.
 
 ### How each model rule reads over symbols
 

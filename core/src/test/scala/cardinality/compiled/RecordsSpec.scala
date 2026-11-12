@@ -1,0 +1,106 @@
+package cardinality.compiled
+
+import cardinality.analysis.inhabitation.Inhabitation.Count
+import cardinality.reporting.ScalametaFrontEnd
+import org.specs2.Specification
+
+/** Capability records in the compiled front end (docs/plans/compiled-own-types.md, stretch 4): a
+  * class or trait with members, named by a parameter's type. Every expected count is derived in its
+  * example's comment, and the scalameta front end is asked for the same rows.
+  */
+class RecordsSpec extends Specification {
+
+  def is = s2"""
+  A capability record is what a body can observe of it
+    an abstract member is what any implementation supplies       $open
+    a final class is the tuple of its public fields               $fixed
+    a record this step does not read is uncovered                 $later
+    the scalameta front end agrees on every row measured          $agrees
+  """
+
+  private val text =
+    """package rec
+      |
+      |trait CanGet[S, A] { def get(s: S): A }
+      |trait Src[A] { def x: A; def y: A = x }
+      |trait Monoid[A] { def empty: A; def combine(x: A, y: A): A }
+      |trait Log { def log(b: Boolean): Unit; def id: Boolean }
+      |final class Box2[A](val a: A, val b: A)
+      |trait Ext { extension (b: Boolean) def tag: Boolean }
+      |trait Over { def equals(x: Boolean, y: Boolean): Boolean }
+      |final abstract class Never
+      |final class Hid(secret: Boolean) { def reveal: Boolean = secret }
+      |class Base(val b: Boolean)
+      |class Sub extends Base(true)
+      |object Use {
+      |  def read[S, A](s: S, g: CanGet[S, A]): A = g.get(s)
+      |  def noSource[S, A](g: CanGet[S, A]): A = ???
+      |  def pick[A](t: Src[A]): A = t.x
+      |  def twice[A](m: Monoid[A], a: A): A = a
+      |  def ask(l: Log): Boolean = l.id
+      |  def fromBox[A](b: Box2[A]): A = b.a
+      |  def makeBox[A](x: A, y: A): Box2[A] = Box2(x, y)
+      |  def tagged(e: Ext): Boolean = true
+      |  def hid(h: Hid): Boolean = true
+      |  def over(o: Over, b: Boolean): Boolean = b
+      |  def never(n: Never): Boolean = true
+      |  def make(): Never = ???
+      |  def base(b: Base): Boolean = true
+      |}
+      |""".stripMargin
+
+  private lazy val input = TastyFrontEndSpec.compiled("Records.scala" -> text)
+  private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+
+  private def count(name: String): Count =
+    rows.sources
+      .flatMap(_.toOption.toList.flatMap(_.methods))
+      .find(_.name == s"rec.Use.$name")
+      .get
+      .count
+
+  // A trait is any implementation of its abstract members. `read` can only apply `get` to `s`:
+  // 1; `noSource` has no S to apply it to: 0. A concrete member computes from the others: `pick`
+  // returns `x`, 1. `twice` returns `a`, `empty`, or any combination of them: ω. `log` builds
+  // `Unit`, which needs no member: `ask` is a Boolean computed from `id`, 2^2. A member named like
+  // one of `Any`'s with other parameters is a member like any: `over` is a Boolean computed from
+  // `b` (2 values) and the function `equals` holds (2^(2 × 2) = 16 values): 2^(2 × 16) = 2^32.
+  private def open =
+    (count("read") must_== Count.Finite(1))
+      .and(count("noSource") must_== Count.Finite(0))
+      .and(count("pick") must_== Count.Finite(1))
+      .and(count("twice") must_== Count.Countable)
+      .and(count("ask") must_== Count.Finite(4))
+      .and(count("over") must_== Count.Finite(BigInt(2).pow(32)))
+
+  // A final class holds its public fields: `fromBox` returns `a` or `b`, 2, and `makeBox` builds
+  // one of the 2 × 2 pairs of `x` and `y`. A class written `final abstract` has no value: `never`
+  // is the one function from it, and `make` has no total body.
+  private def fixed =
+    (count("fromBox") must_== Count.Finite(2))
+      .and(count("makeBox") must_== Count.Finite(4))
+      .and(count("never") must_== Count.Finite(1))
+      .and(count("make") must_== Count.Finite(0))
+
+  // Not read yet, each by its reason: an extension member, a parameter that is no public field
+  // (rule B reads what a member observes of it), a class something extends.
+  private def later = {
+    val prefix = s"${TastyFrontEnd.Uncovered}: "
+    def reason(name: String) = count(name) match {
+      case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
+      case other                       => other.toString
+    }
+    List("tagged", "hid", "base").map(reason) must_== List(
+      "an extension method among the members of a capability record",
+      "a capability record with a parameter that is no public field",
+      "a capability record of a class something extends"
+    )
+  }
+
+  private def agrees = {
+    val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
+    ((compared.failed, compared.noted) must_== (Nil, Nil))
+      .and(Differential.failures(compared.compared) must_== Nil)
+  }
+
+}
