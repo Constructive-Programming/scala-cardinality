@@ -220,12 +220,19 @@ class (b), on rows" below say what each left. After a front-end slice lands, rer
 move from UNCOVERED to PASS, and one that moves to FAIL has a cause to read. An expectation moves
 only with its derivation.
 
-Stretch 5 (the inline-body reading of slice 5d as a piece of its own) is committed and waits for
-the front-end agent to plug it into `Readings`, which answers `an inline definition` for every
-inline method until then: "Inline bodies: `Inlines` and its verdict gate" below has the interface,
-the measurements and the steps. Nothing of it is half done. To check it from the files alone:
-`sbt "core/testOnly cardinality.compiled.InlinesSpec"`, then `InlineVerdicts` over the fixtures and
-each corpus (the command is in that section; exit 1 means a method only `Inlines` refuses).
+Stretch 5 (the inline-body reading, `Inlines`) is committed and plugged into `Readings`.
+
+Stretch 6 is committed and waits for the front-end agent: the closed world over symbols
+(`ClosedProgram`) and the dependency classes without TASTy (`DependencyClasses`), with their
+specs and the gate `ClosedVerdicts`. "The closed world and dependency classes over symbols"
+below has the interfaces, the measurements and the integration steps. Nothing of it is half
+done, and nothing calls the two classes yet. To check it from the files alone:
+`sbt "core/testOnly cardinality.compiled.ClosedProgramSpec cardinality.compiled.DependencyClassesSpec"`,
+then `ClosedVerdicts` over each corpus and the fixtures (the commands are in that section; the
+fixtures take about a quarter of an hour, since the scalameta side renders its stubs for each).
+Left for whoever continues: reading the parents of the class files no symbol stands for, which
+would let a class without TASTy be closed (the section's last integration step), and a check of
+the dependencies' classes in `ClosedVerdicts`, which compares the module's classes only.
 
 ### Commands
 
@@ -934,6 +941,212 @@ Limits, each a place where this reading does no more than the scalameta one:
   above records.
 - A cast (`asInstanceOf`) to a type parameter is not a runtime class read: it is erased, and an
   unsafe cast is outside the model.
+
+### The closed world and dependency classes over symbols: `ClosedProgram`, `DependencyClasses`
+
+Two pieces of the compiled front end that nothing calls yet, in
+`core/src/main/scala/cardinality/compiledworld/` (package `cardinality.compiled`; beside the
+directory for the same reason `Inlines` was: `TastyFrontEndSpec` pins its number of files).
+
+**`ClosedProgram`** (223 lines) is the closed world by exact symbols, in place of
+`analysis/ClosedWorld.scala` (380 lines, by simple name, over parsed sources and stubs).
+
+```scala
+final private[compiled] class ClosedProgram(
+    own: List[ClassSymbol],                              // CompiledTypes.loaded, second
+    unloaded: List[String],                              // CompiledTypes.loaded, third
+    dependencies: => (List[ClassSymbol], List[String])   // CompiledTypes.dependencies, by name
+)(using Context) {
+  def subclasses(c: ClassSymbol): Subclasses             // Subclasses(found, complete)
+  def finalClass(c: ClassSymbol): Boolean
+  def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): Overriding  // No | Unknown | Supplied
+  def mixes(left: ClassSymbol, right: ClassSymbol): Boolean
+}
+```
+
+What each answers:
+
+- `subclasses(c)`: the classes of the program that extend `c` at any depth, nested, local,
+  anonymous and given ones included, and whether they are all of them. A class written `final`
+  and an object have none. A Scala 3 sealed class whose children are all classes and objects is
+  answered from the compiler's list, without listing anything; one with an anonymous child (the
+  compiler lists the class itself) or an enum's value case (an anonymous class) is found by
+  listing.
+- `finalClass(c)`: written `final`, or an object, or a concrete class (no trait, not `abstract`,
+  `open` or `sealed`) with `Subclasses(Nil, complete = true)`. A non-public constructor does not
+  open it.
+- `overriding(owner, member)`: asked from each subclass's side. For a subclass `s`, the classes
+  of its linearization before `owner` are what the member resolves through in `s`: a subclass of
+  `owner`, or a parent mixed in beside it. `Supplied` where one of them declares a member that
+  matches by signature (an abstract declaration counts only in a subclass of `owner`: mixed in
+  beside, it leaves the member `owner`'s). So a member brought by a mixed-in parent that does not
+  extend `owner` is found, which asking the overrider (`allOverriddenSymbols`) does not find.
+  `No` for a private or final member and where no subclass has one. Where a signature is not
+  read, a declaration of the name is taken for an overrider, as the scalameta reading takes one.
+- `mixes(a, b)`: one extends the other, or a class of the program extends both.
+
+Where the program is not all known, no answer is "none": `complete` is false, `overriding` is
+`Unknown` (the row's `member may be overridden through a parent outside the sources`),
+`finalClass` is false, `mixes` is true. That is so for:
+
+- a class that does not load: of the module, every answer; of the classpath, every answer about
+  a class outside the module;
+- a parent that is not read (a class compiled against something the classpath does not hold):
+  it may extend any class outside the module, and it may override a member of the class it is
+  mixed in beside, but it hides no class of the module (the classes it is a parent of are still
+  filed under their other parents, and under each other);
+- the JDK, which is not listed: a class of it is closed only where it is written `final`;
+- a class without TASTy (Java, Scala 2): its local and anonymous subclasses are class files no
+  symbol stands for (`javafixtures.Lone` has one, which overrides `on`), so it is closed only
+  where it is written `final`, and the subclasses that are found are not known to be all.
+
+The rule for the Scala library and the JDK, and why. The library's classes are on the dependency
+classpath and are listed like any dependency's: they have TASTy, so their subclasses are all
+found, and a library class nothing extends is final as one of the module would be
+(`scala.Some`), while `scala.Function1` has the library's and the module's implementers. The JDK
+is the context's own and is never listed (30,000 classes without TASTy): listing it would
+answer nothing, since its classes are tree-less and stay open by the rule above. So neither makes
+everything open or everything final. Two assumptions are left: a Scala 3 class of a dependency
+is taken not to be extended by a local or anonymous class of a Java or Scala 2 dependency, and
+a class a dependency jar declares again after the JDK is the JDK's (`CompiledTypes.dependencies`
+leaves it out).
+
+Cost. The module's part is one walk of the module's trees, on the first question about a class
+of the module. The dependencies are listed and indexed on the first question about a class
+outside the module that is neither final nor a sealed class answered from its children, and
+never for a question about a class of the module:
+
+| Corpus | Classes of the module | Module's trees walked, every class and member answered | Dependencies listed and indexed, once |
+| --- | --- | --- | --- |
+| corpus-cats-eo | 257 | 54 ms | 714 ms |
+| corpus-cats-eo-generics | 26 | 123 ms | 893 ms |
+| corpus-cats-eo-schemes | 4 | under 1 ms | 625 ms |
+| corpus-cats-kernel | 458 | 111 ms | 237 ms |
+| corpus-core | 1,228 | 249 ms | 1,503 ms |
+| corpus-cats-core | 2,349 | 335 ms | 224 ms |
+
+The second column's time includes the walk of the trees that lists the questions. The
+dependencies' time is the listing (reading every class of the classpath, the Scala library
+included) and the index over it; corpus-core's is the largest because its classpath is
+(scalameta, tasty-query, the compiler).
+
+**The differential**, `ClosedVerdicts` (`core/src/test/scala/cardinality/compiled/`):
+
+```bash
+sbt "core/Test/runMain cardinality.compiled.ClosedVerdicts fixtures core/target/compiled-fixtures --list"
+sbt "core/Test/runMain cardinality.compiled.ClosedVerdicts corpus <corpus directory> --list"
+```
+
+For every class and trait a module's sources write and every member one defines, it compares
+`analysis.ClosedWorld` asked by name over the scalameta front end's inputs (`extended`,
+`overriding`: what decides the `final`s it writes) with `ClosedProgram` asked by symbol
+(`subclasses`, `overriding`). Exit 1: an answer where the new one does not know and the old one
+does (`coarser`), or a finer answer no fact of the old reading's inputs explains.
+
+| Input | Classes paired | Same | Finer | Opener | Coarser | Members paired | Same | Finer | Opener | Coarser |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| corpus-cats-eo | 66 | 65 | 1 | 0 | 0 | 277 | 276 | 1 | 0 | 0 |
+| corpus-cats-eo-generics | 6 | 6 | 0 | 0 | 0 | 32 | 32 | 0 | 0 | 0 |
+| corpus-cats-eo-schemes | 2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| corpus-cats-kernel | 279 | 275 | 0 | 4 | 0 | 1,249 | 1,222 | 27 | 0 | 0 |
+| corpus-core | 302 | 243 | 59 | 0 | 0 | 1,840 | 1,836 | 4 | 0 | 0 |
+| corpus-cats-core | 1,158 | 1,137 | 20 | 1 | 0 | 4,395 | 4,099 | 295 | 1 | 0 |
+| The compiled fixtures | 3,207 | 3,199 | 5 | 3 | 0 | 2,164 | 2,112 | 52 | 0 | 0 |
+
+- Finer, the old answer open and the new one closed. Each is filed under a fact of the old
+  reading's inputs it cannot tell apart, which makes the difference plausible and does not prove
+  it (the facts are weak for common names; the lists are for reading by hand): another template or alias has the class's simple name
+  (cats-core's `SortedSetHash` extends cats-kernel's `SortedSetHash`, so by name it extends
+  itself); another template defines the member's name; a parent clause spells the simple name
+  and names another class (`extends Exception` beside a trait `other.Exception`).
+- Finer, the old answer unknown and the new one closed: a parent the old reading has no
+  declaration of (a library class), which the symbols read.
+- Opener, the new answer open and the old one closed: four traits of cats-kernel and one class of cats-core that a package object extends
+  (`package object all extends AllInstances with …`), which the old reading does not take for a
+  template; three fixture classes of the same kind; and cats-core's abstract `As.substitute`,
+  which an anonymous class implements. The old answer is the unsound one in each.
+- Coarser: none.
+- Unpaired: a class or member only one side lists at that source, line and name. The old side
+  lists what classes and traits write; the new one every class of the trees (enums and their
+  cases, classes in bodies, members the compiler adds at a written position).
+
+**`DependencyClasses`** (166 lines) answers what a dependency's class without TASTy is,
+from its symbols:
+
+```scala
+final private[compiled] class DependencyClasses(
+    classFile: ClassSymbol => (List[String], Boolean)   // CompiledTypes.javaFacts(classes)
+)(using Context) {
+  def of(c: ClassSymbol): Either[String, Declared]
+}
+enum Declared {
+  case Sum(cases: List[TermOrTypeSymbol])                        // one of its cases
+  case Fields(constructor: TermSymbol, fields: List[TermSymbol]) // what its primary constructor is given
+  case Record(abstracts: List[TermSymbol], concrete: List[TermSymbol]) // no state: its abstract members
+}
+```
+
+| Class | Answer | The stubs' guard it keeps |
+| --- | --- | --- |
+| A Java enum | `Sum` of its constants, by the class file's `ACC_ENUM` fields | A static field of the enum's type is no constant (`Coin.DEFAULT`). |
+| A Java interface | `Record`: its abstract methods; default methods are `concrete` | Statics and constants are the companion's; what `Object` declares is left out. |
+| A sealed Java class or interface | refused | Its permitted classes are not read. |
+| Any other Java class | refused, `open class with hidden constructor state` | No signature ties a constructor's parameters to the state. |
+| A Scala 2 sealed trait or abstract class | `Sum` of its children | Refused where a child is local or anonymous (the pickle lists the class itself), and where the class has instances of its own. |
+| A Scala 2 case class | `Fields` of its public primary constructor | The primary is the constructor naming every field; none is chosen among several. |
+| A Scala 2 trait, or abstract class without constructor parameters | `Record` | |
+| A class with TASTy | refused: it is its tree's to read | |
+
+No body is read anywhere: a `concrete` member is code that is not supplied, which a count may
+call and may not read, never a capability and never a throw.
+
+**Integration** (the front-end agent's, in its own files):
+
+1. Move the two files into `core/src/main/scala/cardinality/compiled/` and count them in
+   `TastyFrontEndSpec`'s example over that directory.
+2. Build one `ClosedProgram` per module where `World` is built, from the three values
+   `TastyFrontEnd` already has (`own`, the load failures, `CompiledTypes.dependencies(classes)`
+   by name; `Inlines` takes the same listing, so share one `lazy val`).
+3. Replace the module-only questions of `World`:
+   - `world.extended(c)` (direct parents, module only) by `closed.subclasses(c)`: `found` non-empty
+     is "extended"; not `complete` is a refusal, not "not extended".
+   - `Shapes.isFinal(c) || (c.openLevel == OpenLevel.Closed && !world.extended(c))`
+     (`Receivers`) by `closed.finalClass(c)`.
+   - `world.overridden(member)` and `world.unjudged(c)` by `closed.overriding(owner, member)`:
+     `No` is concrete code, `Supplied` a capability, `Unknown` the refusal `member may be
+     overridden through a parent outside the sources`. Ask it with the receiver's class as
+     `owner`, for inherited members too.
+   - a pair of classes that may share an instance by `closed.mixes`.
+   `Inlines` keeps its own search for inline overriders; it can ask `subclasses` instead.
+4. A Scala 3 class of a dependency has a tree, and the cleanest reading is the module's own,
+   not a parallel one: in `Shapes.named` and `Stored.named`, where `world.ofModule(c)` admits
+   `declared(c, …)` and anything else is `a class of a dependency`, admit every class with a
+   tree, with these guards:
+   - closed-world questions go to `ClosedProgram` (a dependency's class may be extended in
+     another dependency);
+   - nothing of `Bodies` is asked for a class outside the module: a constructor's statements,
+     a parent's constructor arguments, a default, a factory's body are not supplied. Where the
+     module's reading needs one (`World.unbuilt`, an inherited field set by a parent's argument
+     as in `tastyfixtures.Fed`), a dependency's class refuses;
+   - an opaque alias of a dependency is one value (rule F): no measured site is inside its
+     scope, so `Shapes.opaque` and `Stored.opaque` answer `Shape.Product(Nil)` and its stored
+     twin instead of `an opaque type of a dependency`;
+   - a restricted constructor or member of a dependency is callable only from the site's own
+     package (`private[p]`), as rule B has it.
+5. A class without a tree goes to `DependencyClasses.of(c)`, built once with
+   `CompiledTypes.javaFacts(classes)`: a `Sum` is the sum of its cases (a constant or an object
+   one value, a class read in turn); `Fields` the product of the constructor's parameter types,
+   the class's type parameters bound as `Shapes.fields` binds a module class's; a `Record` the
+   capability record of `abstracts`, with `concrete` callable as opaque code. A refusal is the
+   row's reason. In a Java signature `Object` is `Any`, a wildcard is refused by `World.proper`
+   and a raw type is a type constructor without its arguments, all by the type reading as it
+   stands.
+6. Expectations that move when this is wired, each with its reason: a member of a class without
+   TASTy is `Unknown` where the stubs call it closed (`DependencyRowsSpec.javaInterface`: the
+   default method `Toggle.same`). The stubs do not see the anonymous class either; the new
+   answer is a refusal until the class files no symbol stands for are read for their parents
+   (their `super_class` and `interfaces`, beside what `JavaClassfile` reads), which would let
+   `subclasses` be complete for classes without TASTy.
 
 ## Phase 5: the TASTy front end, slice by slice
 
