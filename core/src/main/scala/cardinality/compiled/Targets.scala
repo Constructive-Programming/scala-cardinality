@@ -255,9 +255,9 @@ final private class Targets(source: Source, trees: List[ClassDef])(using Context
         case t: TypeMember if !t.symbol.isSynthetic => alias(t, under)
         case _                                      => ()
       }
-      // A top-level value is a definition row, one per name it binds.
+      // A top-level value is a definition row, one per name it binds; a given is a method row only.
       if (top) c.rhs.body.foreach {
-        case v: ValDef if member(v) =>
+        case v: ValDef if member(v) && !v.symbol.isGivenOrUsing =>
           val bound = Definition.qualified(under :+ v.name.toString)
           definitions += Defined(bound, Kind.Value, Nil, v)
         case _ => ()

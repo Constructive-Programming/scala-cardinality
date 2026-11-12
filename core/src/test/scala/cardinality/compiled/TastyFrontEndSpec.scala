@@ -322,7 +322,48 @@ class TastyFrontEndSpec extends Specification {
       |val meet: Boolean & Matchable = true
       |sealed trait Fam
       |case object F1 extends Fam
-      |final case class HasFam(f: Fam)
+      |final case class HasFam(f: Fam, b: Boolean)
+      |sealed abstract class Ior[+A, +B]
+      |object Ior {
+      |  final case class Left[+A](a: A) extends (A Ior Nothing)
+      |  final case class Right[+B](b: B) extends (Nothing Ior B)
+      |  final case class Both[+A, +B](a: A, b: B) extends (A Ior B)
+      |}
+      |final case class Iors(i: Ior[Boolean, Boolean])
+      |object UseIor { def split(i: Ior[Boolean, Boolean]): Boolean = true }
+      |sealed trait Thr
+      |case object T1 extends Thr { val z: Int = ??? }
+      |sealed trait Wide2
+      |class Leaf2(val b: Boolean) extends Wide2
+      |class Under2 extends Leaf2(true)
+      |sealed trait Loose
+      |case class Free(b: Boolean) extends Loose { def more: Int = 1 }
+      |sealed trait Kept { def b: Boolean }
+      |case class Plain(b: Boolean) extends Kept { override def toString: String = "p" }
+      |sealed trait Twice2
+      |sealed trait T2a extends Twice2
+      |sealed trait T2b extends Twice2
+      |case object T2c extends T2a with T2b
+      |sealed abstract class Lvl2
+      |sealed trait Lvl2a extends Lvl2
+      |case object Lvl2b extends Lvl2a
+      |case object Lvl2c extends Lvl2
+      |sealed trait Dbl
+      |sealed trait Dbl1 extends Dbl
+      |case object DblBoth extends Dbl with Dbl1
+      |sealed trait Impl { def k: Int }
+      |case class ImplC(i: Boolean) extends Impl { def k: Int = 1 }
+      |sealed trait Outer
+      |case class OuterC(b: Boolean) extends RuntimeException with Outer
+      |sealed trait Mixed
+      |final case class MixedC(f: String => String) extends Mixed
+      |enum MixedE { case M1 extends MixedE with Mixed; case M2 }
+      |final case class HasMixed(m: Mixed)
+      |sealed trait Deep
+      |sealed trait DeepL extends Deep
+      |enum DeepE { case D1 extends DeepE with DeepL }
+      |sealed trait Prot
+      |case class ProtC(b: Boolean) extends Prot { protected def more: Int = 1 }
       |final case class Rec(next: Option[Rec])
       |final class Priv private (x: Int)
       |type Shape = { def area: Int }
@@ -450,6 +491,9 @@ class TastyFrontEndSpec extends Specification {
       expected.map((_, n) => Count.Finite(n)))
       .and(count("types.Tokens.inside") must_== Count.Finite(4))
       .and(count("types.top") must_== Count.Finite(4))
+      // An input `Ior[Boolean, Boolean]` splits into its 8 values: 2^8 functions to Boolean.
+      .and(count("sizes.UseIor.split") must_== Count.Finite(256))
+      .and(count("sizes.Iors.<init>") must_== Count.Finite(8))
   }
 
   // Each row's `?`, without what it names: the model's reason, or what a later slice reads. A row
@@ -578,6 +622,15 @@ class TastyFrontEndSpec extends Specification {
   //     `Scope.Up` is an `Inner.Low` written outside `Inner`: one value, also where `Inner.Deep`
   //     names it.
   //   - `Prj[Unit]#Me` is `Prj`'s A as its prefix fixes it: Unit, 1.
+  //   - A sealed family is the sum of its cases: `Fam` is its one object, and `HasFam` 1 × 2.
+  //     `Ior[A, B]` is A + B + A × B, no one size, the reasons its parameters; at Boolean and
+  //     Boolean it is 2 + 2 + 4 = 8 (`Iors`). (Its row shows 3ω: each unbound parameter is ω, and
+  //     ω + ω + ω × ω is 3ω in the size algebra.) A case class not written final is a case where
+  //     nothing extends it and it declares no member a subclass could override: `Plain`
+  //     implements its level's `b` and overrides `toString`, so `Kept` is its 2. A case under a
+  //     sealed trait that extends a sealed class is the trait's: `Lvl2` is 1 + 1.
+  //     An enum's value case that extends a family makes the row the old estimate's refusal,
+  //     whatever its other cases hold: `Mixed` has no size and that reason alone.
   //   - A top-level value is one value, the empty tuple too. One of a type the algebra reads as
   //     0, or of an intersection, whose size does not say that a value exists, is undecided.
   private def stored = {
@@ -622,6 +675,14 @@ class TastyFrontEndSpec extends Specification {
       "Scope.Inner.Deep" -> sized("1"),
       "SeesT" -> sized("1"),
       "Seen" -> sized("1"),
+      "Fam" -> sized("1"),
+      "HasFam" -> sized("2"),
+      "Ior" -> (Some("3ω"), List("param:A", "param:B")),
+      "Iors" -> sized("8"),
+      "Kept" -> sized("2"),
+      "Lvl2" -> sized("2"),
+      "Mixed" ->
+        (None, List("refusal:sealed family not summed: Mixed (an enum case extends it: M1)")),
       "top" -> sized("1"),
       "empty" -> sized("1"),
       "none" ->
@@ -632,16 +693,29 @@ class TastyFrontEndSpec extends Specification {
   }
 
   // What the stored side does not read yet, each row uncovered for its own reason: a sealed
-  // family's sum, as a row and as a field; a definition that reaches itself (the solver's fixed
-  // point); a class's alias read as its prefix sees it from inside an opaque type's scope, where
+  // family whose object's construction throws (`Thr`), with a subtype something extends
+  // (`Wide2`), with a case class not written final that a subclass could tell apart (`Loose`
+  // declares a member, `Prot` a protected one, `Impl` implements its level's abstract `def`,
+  // `Outer` has a parent outside the module with members), or with a case under two of its levels
+  // (`Twice2`; `Dbl`, whose clause names the family and its level both), or with an enum's value
+  // case under a sealed level (`Deep`) or behind a reference (`HasMixed`); a definition that
+  // reaches itself (the solver's fixed point); a class's alias read as its prefix sees it from inside an opaque type's scope, where
   // what it names was written elsewhere; a private constructor (rule B); an enum case that pins its enum's parameter to a type;
   // a refinement written without a type, which is not told from one of `Object`; a dependent
   // function type, whose result its parent does not hold; a wildcard argument; a class the algebra has no entry for; and a value of a
   // class of the module, whose construction says whether it exists.
   private def unstored = {
     val expected = List(
-      "Fam" -> "a sealed family",
-      "HasFam" -> "a sealed family",
+      "Thr" -> "a construction that always throws or binds a pattern",
+      "Wide2" -> "a family with a subtype something extends",
+      "Loose" -> "a family with a subtype not written final that a subclass could tell apart",
+      "Twice2" -> "a subtype reached twice",
+      "Dbl" -> "a subtype reached twice",
+      "Deep" -> "an enum case under a sealed family",
+      "HasMixed" -> "an enum case under a sealed family",
+      "Outer" -> "a family with a subtype not written final that a subclass could tell apart",
+      "Prot" -> "a family with a subtype not written final that a subclass could tell apart",
+      "Impl" -> "a family with a subtype not written final that a subclass could tell apart",
       "Rec" -> "a definition that reaches itself",
       "Scope.Held" -> "an alias of a class beside an opaque type's scope",
       "Priv" -> "a restricted constructor",
@@ -802,12 +876,25 @@ class TastyFrontEndSpec extends Specification {
   // One row of the fixtures is better past a model limit, and derived: `sizes.Seen` stores a
   // `Prj[Unit]#Me`, which is `Prj`'s A as the prefix fixes it, Unit, one value. The old reading
   // does not read a projection through an applied type.
+  //
+  // Four rows are corrections (the owner's ruling on `Ior`): its cases are `Left(a: A)`,
+  // `Right(b: B)` and `Both(a: A, b: B)`, so its value space is A + B + A × B, and at Boolean and
+  // Boolean 2 + 2 + 4 = 8. The old reading does not see cases written infix (`extends (A Ior
+  // Nothing)`) and takes the family for empty: a field of it 0, a constructor over it 0, and a
+  // function from it the one empty function, where there are 2^8.
   private def agrees = {
     val verdicts = compared.compared.map(_.verdict).toSet
-    val derived = compared.compared.filter(_.row.name == "sizes.Seen").map(_.row.key -> "1").toMap
+    // The row of that name that is not identical (`sizes.Ior` is also its companion's row).
+    def keys(name: String, value: String) = compared.compared
+      .filter(c => c.row.name == name && c.verdict != Verdict.Identical)
+      .map(_.row.key -> value)
+    val derived = keys("sizes.Seen", "1").toMap
+    val corrected = (keys("sizes.Ior", "0 -> ? A; B") ++ keys("sizes.Iors", "0 -> 8") ++
+      keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8")).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(derived.size must_== 1)
-      .and(Differential.failures(compared.compared, derived) must_== Nil)
+      .and((derived.size, corrected.size) must_== (1, 4))
+      .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
+      .and(Differential.unused(compared.compared, corrected) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))
   }
 

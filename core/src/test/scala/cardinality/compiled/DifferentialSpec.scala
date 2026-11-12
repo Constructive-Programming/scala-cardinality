@@ -77,7 +77,9 @@ class DifferentialSpec extends Specification {
   // A number changes only where the old one is derivably wrong, and then the row is listed with
   // both values: `fixed` is; `silent` is not listed; `stale` is listed with a new value it no
   // longer has and `misread` with an old value it never had. A listed row that is not worse
-  // (`same`) is a dead line, reported; one of a source this run does not hold is not.
+  // (`same`) is a dead line, reported; one of a source this run does not hold is not, unless the
+  // run holds every source of that kind. A line that is no `key | value: derivation`, or whose key
+  // is listed twice, is malformed.
   private def corrected = {
     val compared = Differential.compare(
       answer(
@@ -103,9 +105,16 @@ class DifferentialSpec extends Specification {
         s"${key("misread")} | 1 -> 8: never",
         s"${key("same")} | 0 -> 2: fixed since",
         "method B.scala:1 elsewhere [method] | 0 -> 1: another input"
-      )
+      ),
+      whole = true
     )
+    val lines = List("a [method] | 1: rule", "a [method] | 2: rule", "b [method] | 1", "no bar")
     (Differential.failures(compared).size must_== 4)
+      .and(Differential.malformed(lines :+ "c [alias] | 0 -> ? A; B: sum") must_== lines)
+      .and(
+        Differential.unused(compared, Map("method gone.scala:1 x [method]" -> "0 -> 1"), _ => true)
+          must_== List("method gone.scala:1 x [method]")
+      )
       .and(
         Differential.failures(compared, corrected = listed).map(_.row.name).toSet must_==
           Set("silent", "stale", "misread")

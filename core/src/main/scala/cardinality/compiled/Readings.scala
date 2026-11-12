@@ -120,7 +120,7 @@ final private[compiled] class Readings(world: World, stored: Stored)(using Conte
 
   // A parent that declares no member a count reads (v1.md §2).
   private def memberless(parent: Type): Boolean =
-    World.classNamed(parent).exists(c => Readings.Memberless(c.displayFullName))
+    World.classNamed(parent).exists(c => World.Memberless(c.displayFullName))
 
 }
 
@@ -148,10 +148,5 @@ private[compiled] object Readings {
 
   /** The solver's depth budget, the same for every row; its state budget is its own default. */
   val Depth = 64
-
-  // The parents that declare no member a count reads (v1.md §2), the compiler's own for a case
-  // class among them.
-  private val Memberless =
-    Set("java.lang.Object", "scala.Product", "scala.Equals", "java.io.Serializable")
 
 }

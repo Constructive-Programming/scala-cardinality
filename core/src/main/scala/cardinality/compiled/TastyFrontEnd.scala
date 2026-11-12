@@ -87,11 +87,14 @@ private[cardinality] object TastyFrontEnd extends FrontEnd {
     """\b(class|object|trait|enum|def|val|var|type|given|extension|export)\b""".r
 
   // How much of their paths a source and a compiled path share: the length of the one that ends
-  // the other, none when neither does.
+  // the other, none when neither does; one more for the path itself, which comes before a source
+  // it merely ends (`Exp.scala` before `lib/Exp.scala`).
   private def shared(path: String, compiled: String): Int = {
     def normal(p: String) = p.replace('\\', '/').stripPrefix("/")
     val (a, b) = (normal(path), normal(compiled))
-    if (a == b || a.endsWith("/" + b) || b.endsWith("/" + a)) math.min(a.length, b.length) else 0
+    if (a == b) a.length + 1
+    else if (a.endsWith("/" + b) || b.endsWith("/" + a)) math.min(a.length, b.length)
+    else 0
   }
 
   // A type that names a member the classpath does not hold (a class of a jar the module was

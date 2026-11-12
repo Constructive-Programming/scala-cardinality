@@ -1199,19 +1199,16 @@ time on the rows still uncovered is not in it.
 
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
-- Stretch 2: slices S1, S2, S3, each committed when `scripts/differential.sh` passes and it is
-  reviewed.
+- Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
+  and it is reviewed three ways, the last fix round included.
 - Done: the gate changes (limit classes, coverage memory, six corpora, withheld support; then
-  TIGHTENED rows and listed corrections), the decided Q4, Q6, Q8, S1, S2 without sealed families
-  and recursion, and S3 ("After S3").
-- Next, in the coordinator's order: (1) restore the sum of a sealed family on the stored side
-  ("After S2" has what the first attempt showed), with `cats.data.Ior` and fixture `2d9bd461…`
-  `S` as listed corrections in `corrected.txt`, each of the 45 better rows past a model limit
-  derived (by rule, with the list), the families whose construction throws left uncovered until
-  S6, and `Ior[Boolean, Boolean]` = 8 pinned on both sides in `TastyFrontEndSpec`; (2) merge the
-  sibling's `9c4e107`, fix `Differential.fixtures` for `src/dependency/` and `classpath.txt`, run
-  `core/testFull`; (3) plug `Inlines` in where `Readings.later` answers `an inline definition`;
-  (4) S4, then S5, each with `scripts/spec-ledger.sh` totals beside the table.
+  TIGHTENED rows, listed corrections, malformed and dead lines of the lists), the decided Q4, Q6,
+  Q8, S1, S2 with the sum of a sealed family ("After the sealed sums and the merge"), S3, the
+  merge of the sibling's `9c4e107`, and `Differential.fixtures` reading `src/dependency/` as
+  dependencies against each fixture's `classpath.txt`.
+- Next, in the coordinator's order: (1) plug `Inlines` in where `Readings.later` answers `an
+  inline definition` ("Inline bodies", "Plugging it in"); (2) S4, then S5, each with
+  `scripts/spec-ledger.sh` totals beside its table; then stop and report.
 - Interface notes from the sibling's ledger of the spec suite (`scripts/spec-ledger.sh`), for S8
   or earlier: `Report.of` is tied to `ScalametaFrontEnd`; a source that defines nothing is told
   only by message text; there is no `Limits` parameter; dependencies can only be given as
@@ -1447,7 +1444,8 @@ value. A review produced rows no input holds where the old bound is a rounded ca
 exact number is below it (`P1(t: Option[Paths.x.T])`: old `≤2^9`, new 257). Such a row is worse
 to the gate, and it is no correction either, since the old bound still holds.
 
-Corrections (every number this rewrite changes): none yet.
+Corrections (every number this rewrite changes): the table under "After the sealed sums and the
+merge".
 
 The old front end's rows did not move. S3 extracted `agrees` and the disagreement message from
 `analysis/ConstructorPositions.scala` into `analysis/inhabitation/ClosedSpaces.scala` (a pure
@@ -1455,7 +1453,80 @@ extraction, read line by line in review). With it in place, `scripts/measure-cor
 reports byte-identical to `baseline/*-report-1358b07.txt` for corpus-core, cats-core, cats-kernel,
 cats-eo and cats-eo-generics. cats-eo-schemes is byte-identical to `…-report-5f89e91.txt` and
 differs from `…-1358b07.txt` in one row (`Schemes.OnStackLimit`, an untyped value): `1358b07` is
-the sibling's rule T fix, which this branch does not hold before the merge. To recheck after it.
+the sibling's rule T fix, which this branch does not hold before the merge.
+Rechecked after the merge, with the sealed sums in place: the cats-eo-schemes report is
+byte-identical to `baseline/cats-eo-schemes-report-1358b07.txt`.
+
+**After the sealed sums and the merge** (the stored-side sum of a sealed family restored in S2;
+the sibling's `9c4e107` merged, so the fixtures are 1,934 and each is read against its own
+`classpath.txt`, its `src/dependency/` units given as classes). Every row pairs. Two rows are
+worse, both listed corrections; the eight better definition rows past a model limit in the
+fixtures are derived in `derived.txt`.
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 509 | 1 / 0 | 0 | 0 | 0 | 3,490 | 316 of 768 (41.1%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 228 | 13 / 0 | 0 | 0 | 0 | 7,410 | 224 of 909 (24.6%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 44 | 0 / 0 | 0 | 0 | 0 | 1,741 | 44 of 368 (12.0%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 33 | 0 / 0 | 0 | 0 | 0 | 664 | 28 of 271 (10.3%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 13 | 0 / 0 | 0 | 0 | 0 | 67 | 12 of 16 (75.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 0 | 19 | 0 of 5 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 2,346 | 59 / 5 | 4 | 0 | 0 | 4,332 | 2,247 of 5,485 (41.0%) |
+| fixtures | definitions | 5,588 | 4,923 | 65 / 8 | 0 | 1 | 0 | 591 | 4,342 of 4,513 (96.2%) |
+| **all corpora** | methods | 14,232 | 827 | 14 / 0 | 0 | 0 | 0 | 13,391 | 624 of 2,337 (26.7%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+What the sum reads, with derived examples in `TastyFrontEndSpec` (`stored`, `unstored`): a sealed
+family is the sum of its subtypes, an object one value, a concrete class what it stores, a sealed
+level its own sum, each where its clause passes the family's parameters on (`Sums.carried`). A
+case under a sealed level is that level's, and one reached under two levels leaves the family
+uncovered. A generic family's row carries the sum over its parameters in the form of a generic
+product: the parameters as its reasons.
+
+Left uncovered: a family nested in a class or a body; an anonymous, given, inner or local subtype;
+an enum under a family, or an enum's value case reached through a level or a reference (the row of
+a family such a case extends directly is the old one, no size and its refusal); an open abstract
+subtype; a subtype something extends; a subtype not written final that a subclass could tell apart
+(a plain class, a parent outside the module with members, a member to override), which the old
+estimate refuses and the closed world may close: an open question below; a construction that
+always throws or binds a pattern (S6); a family that reaches itself (the solver).
+
+Corrections (every number this rewrite changes; `corrected.txt` holds the two rows of the gate's
+inputs, `TastyFrontEndSpec.agrees` the four of its own fixture):
+
+| Row | Old | New | Derivation |
+| --- | --- | --- | --- |
+| cats-core `cats.data.Ior` (`Ior.scala:47`), definition | 0 | depends on A and B (`?` with the reasons A, B; size shown 3ω) | The owner's ruling: the cases are `Left(a: A)`, `Right(b: B)` and `Both(a: A, b: B)`, so the value space is A + B + A × B. The old estimate does not see cases whose clause is written infix (`extends (A Ior Nothing)`) and takes the family for empty. |
+| fixture `a5a7ef45…/Top.scala:3` `S`, definition | 1 | 2 | `S` has the cases `S1()` and `C()`, one value each: `C extends Id[S]` with `Id[X] = X`, so `C` is a subtype of `S` and the compiler lists it. The old estimate does not follow a generic alias in an `extends` clause. |
+| spec fixture `sizes.Ior`, definition | 0 | depends on A and B | As `cats.data.Ior`, on a copy of its shape. |
+| spec fixture `sizes.Iors`, definition (`Iors(i: Ior[Boolean, Boolean])`) | 0 | 8 | 2 + 2 + 2 × 2 at Boolean and Boolean. |
+| spec fixture `sizes.Iors.<init>`, constructor | 0 | 8 | The same position as an input. |
+| spec fixture `sizes.UseIor.split`, method (`split(i: Ior[Boolean, Boolean]): Boolean`) | 1 | 2^8 | The input splits into its 8 values, each sent to one of 2. |
+
+Better rows past a model limit, by rule (all in the fixtures, all definitions):
+
+| Rule | Rows | Count |
+| --- | --- | --- |
+| A generic family none of whose cases stores a parameter is the number of its cases at every argument; the old estimate gives a generic refusal | `q.Affine` (two fixtures), `O.Tag`, `Two` (two fixtures) | 1, 2, 2 |
+| A value class cannot be extended, so a case that is one is closed though not written final; the old estimate did not read its parent `AnyVal` | `w.W` (two fixtures) | 3 = 2 + 1 |
+| `Function1[Unit, *]` is a type lambda, so its alias is a constructor alias (from S2) | `FromUnit` | a dash |
+
+Open, for the owner:
+
+- Printing `A + B + A·B`. A definition row holds one size and a list of reasons, so a generic
+  family shows `3ω` (each unbound parameter is ω) with the reasons A and B, as a generic product
+  shows `ω` with its parameter. A formula needs a symbolic size in the row model (a polynomial
+  over the parameters, kept through `Size`'s sum and product and rendered by the report and the
+  artifacts), and a decision on how a total adds such rows.
+- Whether the closed world makes a subtype final that is not written final and has a member a
+  subclass could override, where nothing supplied extends it. The old estimate refuses such a
+  family; the new front end leaves it uncovered rather than decide.
 
 ### How each model rule reads over symbols
 

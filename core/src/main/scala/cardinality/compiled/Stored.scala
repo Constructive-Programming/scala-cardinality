@@ -12,15 +12,19 @@ import cardinality.capacity.{
 }
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
+import tastyquery.Modifiers.{TermSymbolKind, Visibility}
 import tastyquery.Symbols.*
 import tastyquery.Trees.{
   ClassDef,
+  DefDef,
   OpaqueTypeAliasDefinitionTree,
   PolyTypeDefinitionTree,
+  TermTree,
   Tree,
   TypeAliasDefinitionTree,
   TypeDefinitionTree,
   TypeMember,
+  TypeTree,
   ValDef
 }
 import tastyquery.Types.*
@@ -30,8 +34,9 @@ import tastyquery.Types.*
   * abstraction, which has no value of its own.
   *
   *   - An object is one value; a concrete class is the product of what its constructor's parameters
-  *     store, whatever it extends; an enum is the sum of its cases; an alias is what its right-hand
-  *     side stores; a top-level value is one value where its declared type is known to have one.
+  *     store, whatever it extends; an enum is the sum of its cases and a sealed family of its
+  *     subtypes; an alias is what its right-hand side stores; a top-level value is one value where
+  *     its declared type is known to have one.
   *   - A base type is its table's size; tuples multiply, unions add, an intersection is its smaller
   *     side, a function is codomain ^ domain; the standard collections follow `standard`; a literal
   *     or singleton type is one value, a refinement the type it refines.
@@ -40,17 +45,17 @@ import tastyquery.Types.*
   *     is its representation inside its scope and one value outside it (rule F), wherever the
   *     reading started, as the old estimate reads it. (The method side follows aliases first and
   *     decides at the use site: `Shapes`.)
-  *   - A reference to a concrete class or an enum of the module is what that definition stores with
-  *     its arguments bound; one to an open class, an unbound type parameter, an abstract type
+  *   - A reference to a concrete class, an enum or a sealed family of the module is what it stores
+  *     with its arguments bound; one to an open class, an unbound type parameter, an abstract type
   *     member, a class named without its arguments, an enum case's class or `AnyVal` is a reason.
   *
-  * What it does not read yet is a `Left`, naming what it met. The main ones: a sealed family, a
-  * definition that reaches itself (the solver's fixed point), a restricted constructor (rule B), an
-  * enum case whose clause does not pass its own parameters on, a class the algebra does not model
-  * or of a dependency, an opaque type of a dependency or of a class named inside it, an alias of a
-  * class beside an opaque type's scope, a wildcard argument, a refinement of no written type, a
-  * function type refined by its `apply`, any other form of type, and what a value of a class of the
-  * module needs (its construction).
+  * What it does not read yet is a `Left`, naming what it met. The main ones: a sealed family with a
+  * subtype it does not read whole (`family`), a definition that reaches itself (the solver's fixed
+  * point), a restricted constructor (rule B), an enum case whose clause does not pass its own
+  * parameters on, a class the algebra does not model or of a dependency, an opaque type of a
+  * dependency or of a class named inside it, an alias of a class beside an opaque type's scope, a
+  * wildcard argument, a refinement of no written type, a function type refined by its `apply`, any
+  * other form of type, and what a value of a class of the module needs (its construction).
   */
 final private[compiled] class Stored(world: World)(using Context) {
   import Stored.{Env, Held, Row}
@@ -62,12 +67,13 @@ final private[compiled] class Stored(world: World)(using Context) {
     // value of its own: a dash, no size and no reason.
     case (Kind.Constructor, _)                         => Right(Row(None, Nil))
     case (_, c: ClassDef) if c.symbol.isEnum           => enumeration(c, rowEnv(c)).map(_.row)
-    case (_, c: ClassDef) if Shapes.isFamily(c.symbol) => sum(c, rowEnv(c)).map(_.row)
-    case (_, c: ClassDef) if c.symbol.isAbstractClass  => Right(Row(None, Nil))
-    case (_, c: ClassDef)                              => constructed(c, rowEnv(c)).map(_.row)
-    case (_, t: TypeMember)                            => alias(t)
-    case (_, v: ValDef)                                => topLevel(v)
-    case _                                             => Left("a definition")
+    case (_, c: ClassDef) if Shapes.isFamily(c.symbol) =>
+      strayed(c.symbol).map(Right(_)).getOrElse(familyOnce(c, rowEnv(c)).map(_.row))
+    case (_, c: ClassDef) if c.symbol.isAbstractClass => Right(Row(None, Nil))
+    case (_, c: ClassDef)                             => constructed(c, rowEnv(c)).map(_.row)
+    case (_, t: TypeMember)                           => alias(t)
+    case (_, v: ValDef)                               => topLevel(v)
+    case _                                            => Left("a definition")
   }
 
   // A definition read for its own row: each of its type parameters is a reason the row has no one
@@ -114,10 +120,7 @@ final private[compiled] class Stored(world: World)(using Context) {
   // extra values.
   private def enumeration(tree: ClassDef, env: Env): Either[String, Held] = {
     val enumClass = tree.symbol
-    def carried(child: ClassSymbol | TermSymbol) =
-      Sums
-        .carried(child, enumClass, enumClass.typeParams.map(env.binders))
-        .toRight(s"an enum case that does not pass its own parameters on: ${child.displayFullName}")
+    val carried = passed(enumClass, env, "an enum case")
     enumClass.sealedChildren match {
       // An enum has a case: none means the classpath lacks the annotation that lists them.
       case Nil   => Left(s"an enum whose cases are not listed: ${enumClass.displayFullName}")
@@ -136,33 +139,34 @@ final private[compiled] class Stored(world: World)(using Context) {
     }
   }
 
+  // The arguments a case of `parent` binds its own parameters to (`Sums.carried`).
+  private def passed(parent: ClassSymbol, env: Env, what: String)(
+      child: ClassSymbol | TermSymbol
+  ): Either[String, List[Held]] =
+    Sums
+      .carried(child, parent, parent.typeParams.map(env.binders))
+      .toRight(s"$what that does not pass its own parameters on: ${child.displayFullName}")
+
   // A sealed family is the sum of its subtypes: an object is one value, a concrete class what it
   // stores, a sealed level below its own sum, each where its clause passes the family's parameters
-  // on (`Sums.carried`). A subtype the file does not name whole leaves the sum unread: an
-  // anonymous, given, inner or local one, an open one, one something extends, one under two
-  // levels; so does a construction that throws (slice S6). The old estimate refuses a family an
-  // enum's case extends, and so does this.
+  // on. Every other form is a `Left` below (slice S6 for a construction that always throws or
+  // binds a pattern). (`Sums` reads the same families for the method side, with its own refusals.)
   private def family(tree: ClassDef, env: Env): Either[String, Held] = {
     val parent = tree.symbol
     val name = parent.displayFullName
-    val children = parent.sealedChildren
-    def carried(child: ClassSymbol | TermSymbol) =
-      Sums
-        .carried(child, parent, parent.typeParams.map(env.binders))
-        .toRight(s"a subtype that does not pass its own parameters on: ${child.displayFullName}")
+    val children = ownCases(parent)
+    val carried = passed(parent, env, "a subtype")
     def built(template: ClassDef) =
       Either.cond(
         !world.unbuilt(template),
         (),
-        s"a construction that throws or binds a pattern: ${template.symbol.displayFullName}"
+        s"a construction that always throws or binds a pattern: ${template.symbol.displayFullName}"
       )
     def subtype(child: ClassSymbol | TermSymbol): Either[String, Held] = child match {
       case value: TermSymbol if value.isGivenOrUsing =>
         Left(s"a family with a given instance: $name")
       case value: TermSymbol if value.isEnumCase =>
-        val why =
-          s"sealed family not summed: ${parent.name} (an enum case extends it: ${value.name})"
-        Right(Held(EffectiveOmega, List(Unbound.Refusal(why))))
+        Left(s"an enum case under a sealed family: ${value.displayFullName}")
       case _ if !World.inObjects(child) => Left(s"a family with an inner or local subtype: $name")
       case value: TermSymbol            =>
         for {
@@ -182,28 +186,112 @@ final private[compiled] class Stored(world: World)(using Context) {
             if (env.visiting(cls)) Left(s"a definition that reaches itself: ${cls.displayFullName}")
             else if (cls.isEnum) Left(s"an enum under a sealed family: ${cls.displayFullName}")
             else if (Shapes.isFamily(cls)) family(below, inside)
-            else if (cls.isAbstractClass || world.extended(cls))
-              Left(s"a family with a subtype open to extension: ${cls.displayFullName}")
+            else if (cls.isAbstractClass)
+              Left(s"a family with an open abstract subtype: ${cls.displayFullName}")
+            else if (world.extended(cls))
+              Left(s"a family with a subtype something extends: ${cls.displayFullName}")
+            else if (unclosed(below))
+              Left(
+                "a family with a subtype not written final that a subclass could tell apart: " +
+                  cls.displayFullName
+              )
             else constructed(below, inside)
         } yield held
     }
-    // An anonymous instance lists the family itself; none listed for a family something extends
-    // means the classpath lacks the annotation that lists them.
-    if (children.contains(parent)) Left(s"a family with an anonymous instance: $name")
+    // A family a class declares is one per instance of that class. An anonymous instance lists
+    // the family itself; none listed for a family something extends means the classpath lacks the
+    // annotation that lists them.
+    if (!World.inObjects(parent)) Left(s"a family nested in a class or a body: $name")
+    else if (parent.sealedChildren.contains(parent))
+      Left(s"a family with an anonymous instance: $name")
     else if (children.isEmpty && world.extended(parent))
       Left(s"a family whose subtypes are not listed: $name")
     else built(tree).flatMap(_ => Traversals.sequence(children.map(subtype))).map(Stored.sum)
   }
 
-  // The cases a family counts, through its sealed levels: one under two levels would be counted
-  // twice.
-  private def leaves(parent: ClassSymbol): List[Symbol] = parent.sealedChildren.flatMap {
+  // The row of a family that an enum's value case extends directly is the old estimate's: no size
+  // and its refusal, whatever the other cases hold. (A reference to such a family, and a family
+  // that has one under a sealed level, is a `Left` of `family`.)
+  private def strayed(parent: ClassSymbol): Option[Row] =
+    ownCases(parent).collectFirst {
+      case stray: TermSymbol if stray.isEnumCase =>
+        val why =
+          s"sealed family not summed: ${parent.name} (an enum case extends it: ${stray.name})"
+        Row(None, List(Unbound.Refusal(why)))
+    }
+
+  // The old estimate refuses a family for a subtype not written final that a subclass could
+  // tell apart, though nothing extends it: a plain class; one with a parent outside the module
+  // that declares members; one with a member to override, its own or a parent's. Such a
+  // member is concrete, not private and restates none of `Any`'s. Whether the closed world
+  // closes such a subtype is not settled here: the family is left. (`AnyVal` declares nothing,
+  // and a value class is final by the language.)
+  private def unclosed(template: ClassDef): Boolean = {
+    val c = template.symbol
+    def secret(member: TermSymbol) =
+      Set[Visibility](Visibility.Private, Visibility.PrivateThis)(member.visibility)
+    val universal = Set[Symbol](defn.AnyClass, defn.ObjectClass)
+    def overridable(member: TermSymbol) =
+      !member.isSynthetic && !secret(member) && !member.isAbstractMember &&
+        member.allOverriddenSymbols.forall(over => !universal(over.owner))
+    // A template's own fields are a case class's product; a parent's are members.
+    def declares(of: ClassDef, fields: Boolean) = of.rhs.body.exists {
+      case d: DefDef => !World.isConstructor(d.symbol) && overridable(d.symbol)
+      case v: ValDef =>
+        val field = v.symbol
+        overridable(field) && !field.isModuleVal && !field.isGivenOrUsing &&
+        Set(TermSymbolKind.Val, TermSymbolKind.LazyVal)(field.kind) &&
+        (fields || !field.isParamAccessor)
+      case _ => false
+    }
+    val memberless = World.Memberless ++ Set("scala.Any", "scala.Matchable", "scala.AnyVal")
+    val (inside, outside) = c.linearization.drop(1).partition(world.ofModule)
+    !Shapes.isFinal(c) &&
+    (!c.isCaseClass || declares(template, false) ||
+      outside.exists(base => !memberless(base.displayFullName)) ||
+      inside.flatMap(_.tree).exists(declares(_, true)))
+  }
+
+  // A family's subtypes as its own level counts them: a case under one of its sealed levels is
+  // that level's (a sealed trait that extends a sealed class makes its cases the class's too).
+  private def ownCases(parent: ClassSymbol): List[ClassSymbol | TermSymbol] = {
+    val children = parent.sealedChildren
+    val levels = children.collect {
+      case c: ClassSymbol if c != parent && Shapes.isFamily(c) => c
+    }
+    children.filterNot { child =>
+      val cls = child match {
+        case c: ClassSymbol => Some(c)
+        case v: TermSymbol  => v.moduleClass
+      }
+      // One whose clause names this level itself beside the sublevel extends it twice.
+      cls.exists(c =>
+        levels.exists(level => level != c && c.isSubClass(level)) &&
+          !c.tree.exists(_.rhs.parents.exists(clauseNames(_, parent)))
+      )
+    }
+  }
+
+  // Whether a parent of a template is one somebody wrote (the compiler's own have no extent) that
+  // names `parent`.
+  private def clauseNames(clause: Tree, parent: ClassSymbol): Boolean = {
+    val named = clause match {
+      case tree: TypeTree => Some(tree.toType)
+      case term: TermTree => Some(term.tpe).collect { case tpe: Type => tpe }
+      case _              => None
+    }
+    !clause.pos.isZeroExtent && named.flatMap(World.classNamed).contains(parent)
+  }
+
+  // The cases a family counts, through its sealed levels.
+  private def leaves(parent: ClassSymbol): List[Symbol] = ownCases(parent).flatMap {
     case cls: ClassSymbol if cls != parent && Shapes.isFamily(cls) => leaves(cls)
     case leaf                                                      => List(leaf)
   }
 
-  // A family read from its top.
-  private def sum(tree: ClassDef, env: Env): Either[String, Held] = {
+  // A family read from its top, left where a subtype is under two of its levels: it is one case,
+  // and would be counted once per level.
+  private def familyOnce(tree: ClassDef, env: Env): Either[String, Held] = {
     val reached = leaves(tree.symbol)
     reached.diff(reached.distinct).headOption match {
       case Some(twice) => Left(s"a subtype reached twice: ${twice.displayFullName}")
@@ -397,7 +485,7 @@ final private[compiled] class Stored(world: World)(using Context) {
           input = false
         )
         if (c.isEnum) enumeration(tree, inside)
-        else if (Shapes.isFamily(c)) sum(tree, inside)
+        else if (Shapes.isFamily(c)) familyOnce(tree, inside)
         else constructed(tree, inside)
       }
   }

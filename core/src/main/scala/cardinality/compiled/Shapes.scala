@@ -148,7 +148,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
     c.openLevel != OpenLevel.Sealed && !c.isCaseClass && Shapes.bare(tree) &&
     Shapes
       .parameters(tree.rhs.constr)
-      .isEmpty && c.givenSelfType.isEmpty && !(c.openLevel == OpenLevel.Final && c.isAbstractClass) &&
+      .isEmpty && c.givenSelfType.isEmpty && !(Shapes.isFinal(c) && c.isAbstractClass) &&
     tree.rhs.body.forall {
       case member: TypeMember =>
         member.symbol.typeDef match {
@@ -193,6 +193,9 @@ private[compiled] object Shapes {
   /** A constructor's or method's value parameters, clause after clause. */
   def parameters(method: DefDef): List[ValDef] =
     method.paramLists.flatMap(_.left.toOption.toList.flatten)
+
+  /** A class written `final`: the closed world's finality is `World.extended`'s to say. */
+  def isFinal(c: ClassSymbol): Boolean = c.openLevel == OpenLevel.Final
 
   /** A sealed trait or abstract class, which is the sum of its subtypes; an enum is read by its own
     * rule.

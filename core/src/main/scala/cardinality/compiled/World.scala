@@ -58,6 +58,12 @@ private[compiled] object World {
     case other          => other.isPackage
   }
 
+  /** The parents that declare no member a count reads (v1.md §2), the compiler's own for a case
+    * class among them.
+    */
+  val Memberless: Set[String] =
+    Set("java.lang.Object", "scala.Product", "scala.Equals", "java.io.Serializable")
+
   /** Whether a method is a constructor, primary or secondary. */
   def isConstructor(symbol: Symbol): Boolean = symbol.name == nme.Constructor
 

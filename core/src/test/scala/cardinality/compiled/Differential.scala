@@ -152,6 +152,7 @@ object Differential {
     "inherited parent declaration not supplied",
     "member may be overridden through a parent outside the sources",
     "sealed subtype reaches its parent only through a qualified name",
+    "sealed family is extended through an alias",
     "path through a value not followed",
     "inferred result type not resolved",
     "construction not resolved",
@@ -167,9 +168,23 @@ object Differential {
   // refinement is a form the estimate does not read, not a name it could not resolve.
   private def syntactic(cause: String, reason: String): Boolean = {
     val category = cause.stripPrefix("union _: ")
-    (resolution(category) || category.startsWith("builtin name")) &&
+    (resolution(category) || category.startsWith("builtin name") ||
+      (category == Unsummed && unattached.exists(reason.contains))) &&
     !reason.contains("transparent inline") && !reason.contains("a refinement")
   }
+
+  // The old estimate's refusal to sum a sealed family, and the causes of it that are limits of
+  // reading syntax: a subtype it could not attach (written through an alias or a renamed import,
+  // or under a parent it was not given, which may rebind the family's name), a bottom pin whose
+  // name a source may rebind.
+  private val Unsummed = "sealed family not summed"
+
+  private val unattached = List(
+    "a subtype extends it through an alias",
+    "a subtype extends it through a renamed import",
+    "a subtype whose clause may name another",
+    ", which a source binds"
+  )
 
   /** One row compared: its verdict, each side's row, and what paired them. */
   final case class Compared(verdict: Verdict, old: Option[Row], next: Option[Row], by: String) {
@@ -300,22 +315,41 @@ object Differential {
     }
   }
 
-  /** The worse rows `corrected` lists with the values they have: the old one and the new one. */
-  def corrections(compared: List[Compared], corrected: Map[String, String]): List[Compared] =
+  /** The worse rows `corrected` lists with the values they have: the old one and the new one, then
+    * `:` and the derivation (`corrected` holds each line whole). A value that is no number is
+    * listed with its reasons (`? A; B`).
+    */
+  def corrections(compared: List[Compared], corrected: Map[String, String]): List[Compared] = {
+    def value(row: Row) =
+      if (row.numeric) row.shown else s"${row.shown} ${row.reasons.mkString("; ")}"
     compared.filter(c =>
       c.verdict == Verdict.Worse && c.old.zip(c.next).exists { (old, next) =>
-        corrected.get(c.row.key).contains(s"${old.shown} -> ${next.shown}")
+        val values = s"${value(old)} -> ${value(next)}"
+        corrected.get(c.row.key).exists(line => line == values || line.startsWith(s"$values: "))
       }
     )
+  }
 
   /** The corrections listed for a source of this comparison that pass no row: the row is no longer
     * worse, has other values, or is gone. A list of numbers changed on purpose holds no dead line.
+    * `holdsAll` says which keys this run holds every source of: a fixture's key starts with the
+    * hash of its text, so one whose fixture changed names a source that no run holds any more.
     */
-  def unused(compared: List[Compared], corrected: Map[String, String]): List[String] = {
+  def unused(
+      compared: List[Compared],
+      corrected: Map[String, String],
+      holdsAll: String => Boolean = _ => false
+  ): List[String] = {
     val used = corrections(compared, corrected).map(_.row.key).toSet
     val sources = compared.map(c => s"${c.row.table} ${c.row.source}:").toSet
-    corrected.keys.filter(key => !used(key) && sources.exists(key.startsWith)).toList.sorted
+    corrected.keys
+      .filter(key => !used(key) && (holdsAll(key) || sources.exists(key.startsWith)))
+      .toList
+      .sorted
   }
+
+  // The key of a row of a compiled fixture: its source is under the hash of the fixture's text.
+  private def ofFixture(key: String): Boolean = key.matches("\\w+ [0-9a-f]{64}/.*")
 
   /** The rows to explain: one whose two sides differ in name, kind or scope (what paired them). */
   def explained(compared: List[Compared]): List[Compared] =
@@ -397,25 +431,40 @@ object Differential {
   }
 
   /** The compiled test fixtures under `cache` (`cardinality.Compiled`'s): each `<key>/src` with its
-    * `classes`, read against `libraries` as the tests read them, under the paths the tests gave. A
-    * directory `<key>.<thread>` is a compile's staging the cache left behind, not a fixture.
-    * Sources under `src/withheld` and their classes in `support` are what the fixture compiled
-    * against and the analysis is not given.
+    * `classes`, read against the class path its `classpath.txt` records (`libraries` where an older
+    * entry records none), under the paths the tests gave. A directory `<key>.<thread>` is a
+    * compile's staging the cache left behind, not a fixture. Sources under `src/withheld` and their
+    * classes in `support` are what the fixture compiled against and the analysis is not given.
+    * Sources under `src/dependency/<unit>` are a dependency: both front ends are given their
+    * classes (`dependency/<unit>`), neither their sources.
     */
   def fixtures(cache: Path, libraries: List[Path]): List[Input] =
     list(cache).filter(fixture).map { dir =>
       val src = dir.resolve("src")
-      val sources =
-        // A test names a fixture's source as it likes: every file but the withheld support.
-        files(src, !_.startsWith(cardinality.Compiled.Withheld.stripSuffix("/")))
-      val support = List(dir.resolve("support")).filter(Files.isDirectory(_))
+      // A test names a fixture's source as it likes: every file but the withheld support and the
+      // dependency units, which are compiled apart and given as classes.
+      val apart = Set(cardinality.Compiled.Withheld, cardinality.Compiled.Dependency)
+        .map(_.stripSuffix("/"))
+      val sources = files(src, path => !apart(path.getName(0).toString))
+      def directories(name: String) = List(dir.resolve(name)).filter(Files.isDirectory(_))
+      val units = directories("dependency").flatMap(list)
+      // What the fixture was compiled against beside its support and units, where it is recorded.
+      val classpathFile = dir.resolve("classpath.txt")
+      val beside =
+        if (Files.exists(classpathFile))
+          Files.readAllLines(classpathFile).asScala.toList.filter(_.nonEmpty).map(Path.of(_))
+        else libraries
       def read(classpath: List[Path]) = FrontEnd.Module(
         sources,
         Report.Environment(classes =
           Some(CompiledTypes.Classes(List(dir.resolve("classes")), classpath))
         )
       )
-      Input(s"${dir.getFileName}/", read(support ++ libraries), read(libraries))
+      Input(
+        s"${dir.getFileName}/",
+        read(directories("support") ++ units ++ beside),
+        read(units ++ beside)
+      )
     }
 
   private def fixture(dir: Path): Boolean =
@@ -502,19 +551,33 @@ object Differential {
   /** What a file of rows lists, one per line: the row's key, which ends with its kind in brackets,
     * ` | `, and its count up to a `:` (a derivation may follow it).
     */
-  def listed(lines: Iterable[String]): Map[String, String] =
+  def listed(lines: Iterable[String], whole: Boolean = false): Map[String, String] =
     lines
-      .map(_.split("(?<=\\]) \\| ", 2))
+      .map(_.split(Bar, 2))
       .collect {
-        case Array(key, rest) => key -> rest.takeWhile(_ != ':')
+        case Array(key, rest) => key -> (if (whole) rest else rest.takeWhile(_ != ':'))
       }
       .toMap
+
+  // What parts a listed line: the bar after the kind that ends a row's key.
+  private val Bar = "(?<=\\]) \\| "
+
+  /** The lines of a hand-written list (`--derived`, `--corrected`) that `listed` would misread: one
+    * that is no `key | value: derivation`, and a key listed twice (the last would win silently).
+    */
+  def malformed(lines: Iterable[String]): List[String] = {
+    val written = lines.filter(_.trim.nonEmpty).toList
+    val keys = written.map(_.split(Bar, 2).head)
+    written.zip(keys).collect {
+      case (line, key) if !line.matches(".*\\] \\| [^:]+: .+") || keys.count(_ == key) > 1 => line
+    }
+  }
 
   /** A row of the coverage memory as `listed` reads it back. */
   def line(key: String, count: String): String = s"$key | $count"
 
-  private def recorded(file: Path): Map[String, String] =
-    if (Files.exists(file)) listed(Files.readAllLines(file).asScala) else Map.empty
+  private def recorded(file: Path, whole: Boolean = false): Map[String, String] =
+    if (Files.exists(file)) listed(Files.readAllLines(file).asScala, whole) else Map.empty
 
   private val flags = Set("--rows", "--old", "--covered", "--derived", "--corrected", "--out")
 
@@ -597,26 +660,34 @@ object Differential {
     samples(compared).foreach { (causes, count, sample) =>
       println(f"  $count%6d  $causes\n${sample.render}")
     }
-    val previous = option("--covered").fold(Map.empty)(recorded)
+    val previous = option("--covered").fold(Map.empty)(recorded(_))
     val lost = regressed(compared, previous)
     lost.foreach { c =>
       println("MEASURED BEFORE, UNCOVERED OR COUNTED OTHERWISE NOW")
       println(s"    ${c.next.get.render}\n    key: ${c.next.get.key}")
     }
-    val corrected = option("--corrected").fold(Map.empty)(recorded)
-    val failed = failures(compared, option("--derived").fold(Map.empty)(recorded), corrected)
+    val corrected = option("--corrected").fold(Map.empty)(recorded(_, whole = true))
+    val failed = failures(compared, option("--derived").fold(Map.empty)(recorded(_)), corrected)
     // Every number this run changes on purpose is printed: the owner sees each one.
     corrections(compared, corrected).foreach { c =>
       println(s"CORRECTED, listed with both values\n${c.render}\n    key: ${c.row.key}")
     }
-    val dead = unused(compared, corrected)
+    // A run over the fixtures holds every fixture: a fixture's key no row has is of a changed one.
+    val overFixtures = compared.exists(c => ofFixture(c.row.key))
+    val dead = unused(compared, corrected, key => overFixtures && ofFixture(key))
     dead.foreach(key => println(s"CORRECTION THAT PASSES NO ROW\n    key: $key"))
+    val misread = List("--derived", "--corrected")
+      .flatMap(option)
+      .filter(Files.exists(_))
+      .flatMap(list => malformed(Files.readAllLines(list).asScala))
+    misread.foreach(line => println(s"MALFORMED LINE OF A LIST\n    $line"))
     val tightened = compared.filter(_.verdict == Verdict.Tightened)
     val shown = if (rows) compared else (failed ++ explained(compared) ++ tightened).distinct
     shown.sortBy(c => (c.row.source, c.row.line, c.row.name)).foreach { c =>
       println(s"${c.render}\n    key: ${c.row.key}")
     }
-    val failing = failed.nonEmpty || unread.nonEmpty || lost.nonEmpty || dead.nonEmpty
+    val failing =
+      failed.nonEmpty || unread.nonEmpty || lost.nonEmpty || dead.nonEmpty || misread.nonEmpty
     // A passing run rewrites the memory of the rows it saw and keeps what it holds of rows it did
     // not see (a fixture another checkout has, a run over part of the cache).
     if (!failing) option("--covered").foreach { file =>
