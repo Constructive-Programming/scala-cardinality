@@ -40,11 +40,18 @@ import tastyquery.Trees.*
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
 
-  /** The classes around a member, outermost first. Every other owner up to the package is an
-    * object, which holds no state of its own.
+  /** The classes around a member, outermost first. An object holds no state of its own; a
+    * definition a class is written in is skipped (`Readings.enclosing` reads its methods); an
+    * anonymous class is read as the final template it is, a local class or object is not.
     */
   def around(owner: Symbol, inner: Boolean = false): Either[String, List[ClassDef]] = owner match {
-    case _: PackageSymbol                  => Right(Nil)
+    case _: PackageSymbol => Right(Nil)
+    // A definition a class is written in: `Readings` reads what its methods supply.
+    case term: TermSymbol => around(term.owner, inner)
+    // A local class or object holds what the methods around it take by rules of its own (a
+    // subclass in the same body may override it): not read. An anonymous class is final.
+    case c: ClassSymbol if !c.owner.isClass && !c.owner.isPackage && !Receivers.anonymous(c) =>
+      Left(s"a local class or object: ${c.name}")
     case c: ClassSymbol if c.isModuleClass =>
       for {
         tree <- World.tree(c)
@@ -61,9 +68,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
           s"an object whose construction always throws or binds a pattern: ${c.name}"
         )
       } yield outer
-    // A class in a body holds what the methods around it take, by its own rules: not read.
-    case c: ClassSymbol if !c.owner.isClass && !c.owner.isPackage =>
-      Left(s"an enclosing class in a body: ${c.name}")
     case c: ClassSymbol =>
       for {
         tree <- World.tree(c)
@@ -251,6 +255,9 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
 }
 
 private[compiled] object Receivers {
+
+  /** An anonymous class (`new T { … }`), which nothing can extend. */
+  def anonymous(c: ClassSymbol): Boolean = c.name.toString == "$anon"
 
   /** A member a subclass supplies: an abstract one, or a given written `= deferred`
     * (`scala.compiletime.deferred`, as the compiler resolved the name), which each class extending

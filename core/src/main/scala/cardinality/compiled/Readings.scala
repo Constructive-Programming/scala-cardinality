@@ -51,9 +51,10 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       _ <- if (primary) Right(()) else Readings.later(tree.symbol)
       // A constructor row is read where every owner is an object; a member reads its receivers.
       // A local definition reads the methods it is written in, then the classes around them.
-      (methods, top) <- if (primary) Right(Nil -> owner) else enclosing(owner, Nil)
+      (methods, top) <- if (primary) Right(Nil -> owner) else enclosing(owner)
       _ <- local(tree, methods)
       around <- if (primary) static(owner).map(_ => Nil) else receivers.around(top)
+      _ <- inherited(methods, top)
       _ <- plain(top)
       count <-
         // A call of an inline method is its expansion, which builds no object: the old front
@@ -149,15 +150,15 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       tree.symbol
     )
 
-  // The methods a local definition is written in, outermost first, and the first owner that is
-  // none: a class, an object or a package. A value a definition is written in adds nothing: its
-  // right-hand side runs before the value exists.
-  private def enclosing(
-      owner: Symbol,
-      found: List[DefDef]
-  ): Either[String, (List[DefDef], Symbol)] =
-    owner match {
-      case term: TermSymbol =>
+  // The methods a definition is written in, outermost first, at whatever depth (a member of a
+  // class in a body, or of a template inside such a class, is written in them too), and the
+  // innermost owner that is none: a class, an object or a package. A value a definition is
+  // written in adds nothing: its right-hand side runs before the value exists.
+  private def enclosing(owner: Symbol): Either[String, (List[DefDef], Symbol)] = {
+    val owners = World.owners(owner)
+    val innermost = owners.find(!_.isTerm).getOrElse(owner)
+    Traversals
+      .sequence(owners.collect { case term: TermSymbol => term }.map { term =>
         term.tree match {
           // A function literal's parameter may be a generator's binder, which is not read.
           case Some(literal: DefDef) if literal.name.toString.startsWith("$anonfun") =>
@@ -165,7 +166,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           // A constructor's body runs before the instance holds what its members read.
           case Some(constructor: DefDef) if World.isConstructor(constructor.symbol) =>
             Left("a definition in a constructor's body")
-          case Some(method: DefDef) => enclosing(term.owner, method :: found)
+          case Some(method: DefDef) => Right(Some(method))
           // A member value's initializer runs while its template is built: where that always
           // throws, whether the definition was called first is the body reading's to say (S6).
           case Some(_: ValDef) if term.owner.tree.exists {
@@ -173,11 +174,26 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
                 case _                  => false
               } =>
             Left("a definition in the initializer of a template that is never built")
-          case Some(_: ValDef) => enclosing(term.owner, found)
+          case Some(_: ValDef) => Right(None)
           case _               => Left(s"an enclosing definition: ${term.name}")
         }
-      case other => Right(found -> other)
-    }
+      })
+      .map(found => found.flatten.reverse -> innermost)
+  }
+
+  // A class written in a method inherits members whose names come before that method's
+  // parameters: a parameter of such a name cannot be named in the class at all.
+  private def inherited(methods: List[DefDef], top: Symbol): Either[String, Unit] = {
+    val taken = methods.flatMap(Shapes.parameters).map(_.name.toString).toSet
+    // Every class or object around the member that is itself inside a method.
+    val members = World
+      .owners(top)
+      .collect { case c: ClassSymbol if World.owners(c.owner).exists(_.isTerm) => c }
+      .flatMap(_.linearization)
+      .flatMap(_.declarations)
+      .map(_.name.toString)
+    members.find(taken).map(name => s"a capture an inherited member hides: $name").toLeft(())
+  }
 
   // What a local definition reads of the methods around it: each of their parameters, by its
   // name. Left to later steps: a parameter's name that another definition or binder of the
