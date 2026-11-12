@@ -65,6 +65,10 @@ final private[compiled] class World(
   def withoutTasty(c: ClassSymbol): Either[String, DependencyClasses.Declared] =
     dependencies.of(c)
 
+  /** What may override `member` in the instances of `c`'s subclasses (`ClosedProgram`). */
+  def overriders(c: ClassSymbol, member: TermSymbol): List[Option[TermSymbol]] =
+    closed.overriders(c, member)
+
   /** Whether no instance of `c` is of a subclass (the closed world's final). */
   def finalClass(c: ClassSymbol): Boolean = closed.finalClass(c)
 
@@ -75,6 +79,11 @@ final private[compiled] class World(
 }
 
 private[compiled] object World {
+
+  /** Whether a class is one whose members every value has (`Any`, `Matchable`, `AnyVal` and the
+    * compiler's parents of a case class), which call nothing back.
+    */
+  def universal(owner: Symbol): Boolean = Universal(owner.displayFullName)
 
   /** Whether a symbol is declared in the standard library or the JDK's `java` packages, which the
     * standard model reads: the `scala` package and the subpackages the standard library declares (a
@@ -109,12 +118,13 @@ private[compiled] object World {
   val Memberless: Set[String] =
     Set("java.lang.Object", "scala.Product", "scala.Equals", "java.io.Serializable")
 
+  private val Universal = Memberless ++ Set("scala.Any", "scala.Matchable", "scala.AnyVal")
+
   /** The classes a class inherits members from: `Any`, `Object`, `AnyVal` and the compiler's own
     * parents of a case class declare none a count reads.
     */
   def ancestors(c: ClassSymbol)(using Context): List[ClassSymbol] = {
-    val universal = Memberless ++ Set("scala.Any", "scala.Matchable", "scala.AnyVal")
-    c.linearization.drop(1).filterNot(parent => universal(parent.displayFullName))
+    c.linearization.drop(1).filterNot(universal)
   }
 
   /** Whether a symbol is declared under the package `root`, or under a package inside it. */

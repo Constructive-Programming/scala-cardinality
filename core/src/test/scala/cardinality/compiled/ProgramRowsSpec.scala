@@ -23,8 +23,12 @@ class ProgramRowsSpec extends Specification {
       a concrete member wins over an abstract one mixed in after it   $concreteWins
       an abstract redeclaration makes a member abstract again         $reabstracted
       an inherited deferred given is a capability                     $deferredGiven
-      a member a parent mixed in beside the template overrides refuses $mixedIn
+      a member a parent mixed in beside the template overrides varies $mixedIn
       a parent reached through two parents is not read yet            $twoPaths
+    An overridden member whose own body always calls the measured one
+      supplies nothing                                                $definite
+    An overridden member (a capability: ReceiversSpec, `Wide.get`)
+      is not read where a behavior of it may call the measured one    $reentry
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
@@ -97,17 +101,14 @@ class ProgramRowsSpec extends Specification {
       |""".stripMargin)("C.g") must_== Count.Finite(1)
 
   // In a `D`, `X.f` (another member's value) replaces the `A.f` that `C` inherits, though `X`
-  // does not extend `C`: `f` varies across instances of `C`, which is not read yet (it would be
-  // a capability: `g` returns `seed` or `f`, 2, where reading `f` as `seed` gives 1).
+  // does not extend `C`: `f` varies across instances of `C`, so it is a capability, and `g`
+  // returns `seed` or `f`: 2 (reading `f` as `seed` would give 1).
   def mixedIn =
-    uncovered(
-      rows("""trait A[T] { def seed: T; def f: T = seed }
-        |trait X[T] extends A[T] { def other: T; override def f: T = other }
-        |trait C[T] extends A[T] { def g: T = seed }
-        |class D extends X[Int] with C[Int] { def seed: Int = 1; def other: Int = 2 }
-        |""".stripMargin)("C.g"),
-      "an enclosing class with a member something overrides"
-    )
+    rows("""trait A[T] { def seed: T; def f: T = seed }
+      |trait X[T] extends A[T] { def other: T; override def f: T = other }
+      |trait C[T] extends A[T] { def g: T = seed }
+      |class D extends X[Int] with C[Int] { def seed: Int = 1; def other: Int = 2 }
+      |""".stripMargin)("C.g") must_== Count.Finite(2)
 
   // `B` redeclares `A`'s concrete `f` abstract: in `C` it is abstract, a capability beside
   // `seed`, and `g` returns either: 2.
@@ -123,6 +124,53 @@ class ProgramRowsSpec extends Specification {
     rows("""trait A[T] { given t: T = scala.compiletime.deferred }
       |trait C[T] extends A[T] { def g: T = t }
       |""".stripMargin)("C.g") must_== Count.Finite(1)
+
+  // Each open member here has a behavior that may call the measured one, which makes it a
+  // behavior of the measured member's own: `Loop.more` calls `get` in a branch; `Sup.m` through
+  // `super.helper`; `Esc.m` gives `this` to code outside the module; in a `Narrow3`, `Wide.more`
+  // is `aux`, which `Narrow3` makes `get`; in a `D`, `C`'s `f` is `X.f`, mixed in beside `C`,
+  // which calls `g`; `K.m` hands `this` to `sorted`, which calls `compare`. Each row is left.
+  def reentry = {
+    val found = rows("""class Loop(b: Boolean) { def get: Boolean = more; def more: Boolean = if b then get else b }
+      |class Loop2 extends Loop(true) { override def more: Boolean = false }
+      |trait A { def get: Boolean; def helper: Boolean = get }
+      |trait Sup extends A { def get: Boolean = true; def m: Boolean = super.helper }
+      |trait Sup2 extends Sup { override def m: Boolean = false }
+      |trait Esc { def x: Boolean; def get: Boolean = x; def m: Boolean = Option(this).isEmpty }
+      |trait Esc2 extends Esc { override def m: Boolean = true }
+      |class Wide(b: Boolean) { def get: Boolean = b; def more: Boolean = b }
+      |class Narrow extends Wide(true) { override def more: Boolean = aux; def aux: Boolean = false }
+      |class Narrow3 extends Narrow { override def aux: Boolean = get }
+      |trait F[T] { def seed: T; def g: T; def f: T = seed }
+      |trait X[T] extends F[T] { override def f: T = g }
+      |trait C[T] extends F[T] { def g: T = seed }
+      |class D extends X[Int] with C[Int] { def seed: Int = 1 }
+      |class K(n: Int) extends Ordered[K] { def compare(o: K): Int = n; def m: Boolean = List(this, this).sorted.isEmpty }
+      |class K2 extends K(0) { override def m = true }
+      |""".stripMargin)
+    List("Loop.get", "Sup.get", "Esc.get", "Wide.get", "C.g", "K.compare")
+      .map(n => uncovered(found(n), "an overridden member that may call it"))
+      .reduce(_ and _)
+  }
+
+  // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement
+  // and a `val`'s value: each re-enters `get` in a receiver that overrides nothing, so no
+  // implementation uses it. `Loop.get` is a Boolean computed from `b` alone, 2^2, and so is
+  // `Wrap.get`. `Lazy.m` declares a lazy `val` of `get`, which runs only where it is read: no
+  // definite view, so `m` is not left out (which would give 2^2), and since it names `get` it is a
+  // possible one, which leaves the row.
+  def definite = {
+    val found = rows("""class Loop(b: Boolean) { def get: Boolean = more; def more: Boolean = get }
+      |class Loop2 extends Loop(true) { override def more: Boolean = false }
+      |class Wrap(b: Boolean) { def get: Boolean = b; def m: Boolean = { get; val r = get; r } }
+      |class Wrap2 extends Wrap(true) { override def m: Boolean = true }
+      |class Lazy(b: Boolean) { def get: Boolean = b; def m: Boolean = { lazy val r = get; b } }
+      |class Lazy2 extends Lazy(true) { override def m: Boolean = true }
+      |""".stripMargin)
+    (found("Loop.get") must_== Count.Finite(4))
+      .and(found("Wrap.get") must_== Count.Finite(4))
+      .and(uncovered(found("Lazy.get"), Receivers.Reenters))
+  }
 
   // `D` reaches `A` through `B` and through `C`, and `E` extends `D`.
   def twoPaths = {

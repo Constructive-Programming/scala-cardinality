@@ -136,7 +136,10 @@ class ReceiversSpec extends Specification {
   // 2^(2^2) = 16 (`Never` is `abstract final`: it implements nothing and has no instance, and its
   // body is read as written against the abstract `show`). `Twin` inherits two abstract `f`s that
   // do not match, `TA.Base.f(TA.P)` and `TB.Mid.f(TB.P)`: each gives 2 `R`s, one per Boolean in
-  // its `P`, so `g` returns one of 2 + 2 = 4 (one capability for both would give 2).
+  // its `P`, so `g` returns one of 2 + 2 = 4 (one capability for both would give 2). A concrete
+  // member a subclass overrides varies across instances, so it is a capability: `Wide.more`, which
+  // `Narrow` overrides, is a Boolean beside `b`, and `get` is a Boolean computed from both,
+  // 2^(2 × 2) = 16.
   private def inherited =
     (count("recv.Impl.get") must_== Count.Finite(4))
       .and(count("recv.Impl.show") must_== Count.Finite(16))
@@ -146,6 +149,7 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Half.get") must_== Count.Finite(16))
       .and(count("recv.Never.get") must_== Count.Finite(16))
       .and(count("recv.Twin.g") must_== Count.Finite(4))
+      .and(count("recv.Wide.get") must_== Count.Finite(16))
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
@@ -191,15 +195,13 @@ class ReceiversSpec extends Specification {
       )
   }
 
-  // What S4's first step leaves, each row uncovered for its own reason: a class with a member
-  // something overrides (a capability); a parent of the module with constructor parameters or in
+  // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
   // a class (its members may read state the class's own code may not); a sealed class (the receiver splits into its cases); a self
   // type; a deferred `inline val`, and a deferred inline method where a type parameter is in
   // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
   // type member; a capability with type parameters of its own.
   private def later = {
     val expected = List(
-      "Wide.get" -> "an enclosing class with a member something overrides",
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
       "Sub.more" -> "a parent with constructor parameters or in a class",
       "Fam.get" -> "an enclosing sealed class or enum",
