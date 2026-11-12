@@ -1,9 +1,14 @@
-# Type arithmetic for cardinality
+# Counting Data
 
-An implementation-oriented condensation of Alex Knvl's
+The stored-value side of the calculator: how many values a type can hold. This is a
+reference, not a tutorial. The [evidence register](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/code-cardinality-foundations.md)
+carries the derivation behind each rule; the final section maps the rules to code and
+tests.
+
+The rules are an implementation-oriented condensation of Alex Knvl's
 [“Counting type inhabitants” (November 24, 2018)](https://web.archive.org/web/20181221193229/https://alexknvl.com/posts/counting-type-inhabitants.html).
-The rules below describe the mathematical target, not a claim that the current
-calculator implements every rule. The final section maps them to code and tests.
+They describe the mathematical target, not a claim that the current calculator
+implements every rule.
 
 ## 1. What are we counting?
 
@@ -31,7 +36,7 @@ Important boundaries:
   every value a finite program builds, as `String` — wherever they appear,
   behind an alias too; `AnyVal` is not modelled. The method side reads a top by
   its place instead: 1 in an input, ω in an output
-  ([top-types-unions.md](research/top-types-unions.md), v1.md §2).
+  ([top-types-unions.md](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/top-types-unions.md), v1.md §2).
 - Abstract and opaque types are not automatically singletons. Their observable
   cardinality depends on their exposed operations and representation access.
 - Finite function spaces can be enumerated. For infinite types, distinguish all
@@ -483,7 +488,7 @@ The article only sketches this area. One target, for arbitrary type constructors
 This requires type-equality evidence: for fixed equal types there is the identity;
 for distinct types there is no general conversion. The method side reads a plain
 higher-kinded binder exactly so (a rigid constructor over nominal argument keys — see
-[higher-kinded binders](research/higher-kinded-binders.md)); variance-annotated or
+[higher-kinded binders](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/higher-kinded-binders.md)); variance-annotated or
 bounded constructor binders and nested quantifiers still require their own
 binding/variance-aware analysis.
 Neither sampling instantiations nor treating an unknown constructor as infinite
@@ -544,7 +549,7 @@ The current API and representation have important limits:
   outright — strict self argument, tuple, `Set[X]`, function domain — blocks coiteration: totals
   keep the least-fixed-point value, and a row on or reading a blocked cycle that a by-name or
   function field closes is `?` (`lazy cycle not completed`), because a lazy knot builds values that
-  value omits (see [stored-value names](research/stored-value-names.md)).
+  value omits (see [stored-value names](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/stored-value-names.md)).
 - A growing recursive component is widened to its tier, as §8 describes: a name that can reach
   itself and keeps growing is replaced by the tier it has grown into, so the iteration terminates.
   Separately, completion of each lazy/coinductive type combines its μ estimate and infinite
