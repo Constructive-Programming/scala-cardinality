@@ -253,10 +253,11 @@ object Differential {
   }
 
   /** How the captures of a row both front ends count differ, if they do (a refused row lists none,
-    * on either side): `Right` one of the classes the coordinator listed, `Left` the two listings
-    * where neither holds the other, which fails the gate. The classes are told by the names alone:
-    * that the old front end's extra name is an alias of a capture, or that it did not bind a name
-    * the new one lists, is not checked row by row. The report prints captures.
+    * on either side): `Right` one of the classes the coordinator listed, `Left` two listings with
+    * no name in common, or a new one that lost every name, which fails the gate. The classes are
+    * told by the names alone: that the old front end's extra name is an alias of a capture, or that
+    * it did not bind a name the new one lists, is not checked row by row. The report prints
+    * captures.
     */
   def captured(c: Compared): Option[Either[String, String]] =
     c.old.zip(c.next).collect {
@@ -264,9 +265,13 @@ object Differential {
         // A later overload is listed as `name#2` by the old front end, by its name here.
         val before = old.captures.map(_.replaceAll("#\\d+$", "")).toSet
         val after = next.captures.toSet
-        if (before == after) Right("a second overload by its name")
+        // A listing that lost every name is no alias dropped: it fails.
+        if (after.isEmpty) Left(s"${old.captures.mkString(", ")} -> none")
+        else if (before == after) Right("a second overload by its name")
         else if (after.subsetOf(before)) Right("the old lists more: an alias of a capture")
         else if (before.subsetOf(after)) Right("the new lists more: names the old did not bind")
+        else if (before.intersect(after).nonEmpty)
+          Right("the old lists an alias, the new a name the old did not bind")
         else Left(s"${old.captures.mkString(", ")} -> ${next.captures.mkString(", ")}")
     }
 

@@ -16,6 +16,7 @@ class ReceiversSpec extends Specification {
     an abstract member is a capability, a concrete one nothing    $capabilities
     a class around the class or its object supplies the same      $nested
     a template that inherits is read by its own state where fixed $inherited
+    a local definition reads the methods it is written in         $locals
     a receiver this slice does not read is uncovered              $later
     the scalameta front end agrees on every row measured          $agrees
   """
@@ -47,6 +48,12 @@ class ReceiversSpec extends Specification {
       |object Dead { val z: Boolean = ???; class In(b: Boolean) { def get: Boolean = b } }
       |class Host(x: Boolean) { class Part { def px: Boolean = x } }
       |object Guest { val o: Host = new Host(true); final class K extends o.Part { def g: Boolean = true } }
+      |object Loc { def outer(y: Boolean): Boolean = { def inner(x: Boolean): Boolean = x; inner(y) } }
+      |class LocC(z: Boolean) { def outer[A](y: A): A = { def inner(x: A): A = x; inner(y) } }
+      |object Hide { def outer(x: Boolean): Boolean = { def inner(x: Boolean): Boolean = x; inner(x) } }
+      |object Lit { def outer(y: Boolean): Boolean = List(y).map { v => def inner: Boolean = v; inner }.head }
+      |object Pat { def outer(y: Option[Boolean]): Boolean = y match { case Some(v) => def inner: Boolean = v; inner; case None => true } }
+      |class Ctor(val p: Boolean) { locally { def hc(): Boolean = p; hc() } }
       |trait Wished[A] { inline def wish: A; def get: Boolean = true }
       |trait Kept { def kept: Boolean; def get: Boolean = kept }
       |object KeptOne extends Kept { def kept: Boolean = true }
@@ -120,6 +127,39 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Single.other") must_== Count.Finite(4))
       .and(count("recv.Base.get") must_== Count.Finite(4))
       .and(count("recv.shown.show") must_== Count.Finite(4))
+
+  // A local method counts over its own parameters and those of the methods around it: `Loc`'s
+  // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
+  // `y` as the class's Boolean `z` decides, 2^2 = 4. Its captures are `y`, and `y` and `z`. Left for later: a name an
+  // inner definition takes again (`Hide`), a definition in a function literal, whose parameter
+  // may be a generator's binder (`Lit`), one in a case clause (`Pat`) and one in a constructor's body, which runs before the instance
+  // holds what its members read (`Ctor`).
+  private def locals = {
+    val prefix = s"${TastyFrontEnd.Uncovered}: "
+    def left(name: String) = count(name) match {
+      case Count.Unresolved(List(reason)) => reason.stripPrefix(prefix).takeWhile(_ != ':')
+      case other                          => other.toString
+    }
+    (count("recv.Loc.outer.inner") must_== Count.Finite(16))
+      .and(count("recv.LocC.outer.inner") must_== Count.Finite(4))
+      .and(entry("recv.Loc.outer.inner").captures must_== List("y"))
+      .and(entry("recv.LocC.outer.inner").captures must_== List("y", "z"))
+      .and(left("recv.Hide.outer.inner") must_== "a capture another definition may hide")
+      .and(
+        rows.sources
+          .flatMap(_.toOption.toList.flatMap(_.methods))
+          .filter(m => m.name.startsWith("recv.Ctor.") && m.name.endsWith(".hc"))
+          .map(m => left(m.name)) must_== List("a definition in a constructor's body")
+      )
+      .and(
+        rows.sources
+          .flatMap(_.toOption.toList.flatMap(_.methods))
+          .filter(m => m.name.startsWith("recv.Lit.") || m.name.startsWith("recv.Pat."))
+          .filter(_.name.endsWith(".inner"))
+          .map(m => left(m.name)) must_==
+          List("a definition in a function literal", "a definition in a case clause")
+      )
+  }
 
   // What S4's first step leaves, each row uncovered for its own reason: a class with a member
   // something overrides (a capability); a parent of the module with constructor parameters or in

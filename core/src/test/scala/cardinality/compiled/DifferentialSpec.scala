@@ -92,8 +92,8 @@ class DifferentialSpec extends Specification {
 
   // The captures of a row both sides count are compared: the same names pass; a later overload
   // under its name, a name only the old side lists (an alias) and one only the new side lists
-  // (not bound by the old reading) are classed; two listings neither of which holds the other
-  // fail the gate.
+  // (not bound by the old reading) are classed; both at once where the listings share a name; two
+  // listings with no name in common, and one that lost every name, fail the gate.
   private def captures = {
     def held(name: String, line: Int, names: String*) =
       entry(name, Count.Finite(2), line).copy(captures = names.toList)
@@ -103,14 +103,18 @@ class DifferentialSpec extends Specification {
         held("overload", 2, "f", "f#2"),
         held("alias", 3, "a", "b"),
         held("unbound", 4, "a"),
-        held("other", 5, "a")
+        held("other", 5, "a"),
+        held("lost", 6, "a"),
+        held("both", 7, "a", "b")
       ),
       answer(
         held("same", 1, "a"),
         held("overload", 2, "f"),
         held("alias", 3, "a"),
         held("unbound", 4, "a", "b"),
-        held("other", 5, "b")
+        held("other", 5, "b"),
+        held("lost", 6),
+        held("both", 7, "a", "c")
       )
     )
     val classes = compared.flatMap(c => Differential.captured(c).map(c.row.name -> _.isRight))
@@ -118,8 +122,10 @@ class DifferentialSpec extends Specification {
       "overload" -> true,
       "alias" -> true,
       "unbound" -> true,
-      "other" -> false
-    )).and(Differential.failures(compared).map(_.row.name) must_== List("other"))
+      "other" -> false,
+      "lost" -> false,
+      "both" -> true
+    )).and(Differential.failures(compared).map(_.row.name) must_== List("other", "lost"))
   }
 
   // A number changes only where the old one is derivably wrong, and then the row is listed with

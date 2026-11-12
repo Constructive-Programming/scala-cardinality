@@ -61,6 +61,9 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
           s"an object whose construction always throws or binds a pattern: ${c.name}"
         )
       } yield outer
+    // A class in a body holds what the methods around it take, by its own rules: not read.
+    case c: ClassSymbol if !c.owner.isClass && !c.owner.isPackage =>
+      Left(s"an enclosing class in a body: ${c.name}")
     case c: ClassSymbol =>
       for {
         tree <- World.tree(c)

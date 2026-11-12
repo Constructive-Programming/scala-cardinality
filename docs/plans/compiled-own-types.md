@@ -1219,15 +1219,25 @@ time on the rows still uncovered is not in it.
 - Done since ("Stretch 3, second unit"): members of a given instance without parameters; context
   function types; the closed world's final for a sealed family's subtype, each better row
   derived; `sbt coverageAll` (91.50% of statements, floor 80).
-- Not done, and next when resumed, none of which waits for the index: sealed and enum receivers
-  (the receiver as one binding of its sum); locals and anonymous classes (`an enclosing
-  definition`: enclosing parameters as captures, shadowing, case and for binders); contextual
-  parameters without a name (the competition among givens, imports and parents); self types
-  and abstract type members of a receiver; bounded and higher-kinded type parameters. Behind
-  named `Left`s for the index: `an enclosing class with a member something overrides`, `an
-  enclosing class that inherits and is abstract or may be extended`, `a parent with constructor
-  parameters or in a class`, `a class of a dependency`, `a family with a subtype not written
-  final whose parent is outside the module`.
+- Stretch 4 (the coordinator's order, by rows unblocked: 1 enclosing definitions, 2 capability
+  records, 3 sealed and enum receivers, 4 bounded and higher-kinded type parameters then
+  unions, singletons, type members and refinements, 5 self types, abstract type members,
+  objects with parents and constructor rows in a class, 6 anonymous contextual parameters).
+  Decisions recorded: captures may change in the three classed ways, and the old alias listing
+  is not imitated; no capture row is listed by key, but a new listing that lost every name fails
+  the gate; the 7-against-ω family is a correction waiting for an input; a non-final sealed
+  subtype with a parent outside the module waits for the index.
+- Done in stretch 4 ("Stretch 4, first unit"): the capture guard; local definitions over the
+  methods they are written in.
+- Next, when resumed: the rest of item 1, which is where its rows are: members of anonymous and
+  local classes (`an enclosing class in a body`: 2,418 corpus rows, mostly `new T { … }`
+  instances). The old rule (`SourceIndex`, `HeldCaptures`): an anonymous class is a fixed
+  template whose members read the parameters of the methods around it, and a field passed
+  exactly a capture restores it; a local class is an ordinary template. Then items 2 to 6.
+  Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
+  `an enclosing class that inherits and is abstract or may be extended`, `a parent with
+  constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
+  written final whose parent is outside the module`.
 - A scratch probe for reviewers is kept outside the tree at `/tmp/ProbeScratch.scala` (both
   front ends' rows of the sources given as arguments, and the compiled front end's time and
   peak heap over a corpus): copy it into `core/src/test/scala/cardinality/compiled/` to use it,
@@ -1900,6 +1910,35 @@ has a next blocker, so each is an upper bound on what removing it gains):
 | an enclosing class with an abstract type member | 31 | 42 | S4 remainder |
 | every other reason (about twenty, each under 70 rows) | 204 | 304 | |
 | **all** | 13,057 | 3,622 | |
+
+**Stretch 4, first unit** (the capture guard; local definitions). All inputs pass; across the
+corpora 1,660 method rows are identical (1,633 before), 1,086 of the 2,337 old numeric rows.
+
+- The gate fails a row whose old capture listing is non-empty and whose new one is empty. A row
+  where each side lists a name the other lacks passes only where they share a name (one row,
+  cats-eo `Plated.transform.machine.drive`: the old lists an alias, the new a named `using`
+  parameter the old did not bind). Capture differences at this commit: 3 second overloads, 34
+  aliases only the old lists, 114 names only the new lists, 1 of both.
+- A local definition (a `def` or `val` written in a method body) counts over its own parameters
+  and those of every method it is written in, whose type parameters are atoms, then over the
+  classes around the outermost method; its captures are those parameters' names
+  (`ReceiversSpec.locals`: `inner(x: Boolean): Boolean` in `outer(y: Boolean)` is 2^(2 × 2) =
+  16). A value a definition is written in adds nothing. An inline method around it exempts the
+  row from the never-built rule, as for the method itself.
+- Left uncovered, each by its reason: a definition in a function literal (its parameter may be a
+  generator's binder, which the old front end refuses); in a case clause; in a constructor's
+  body, a class-body statement included (it runs before the instance holds what its members
+  read: the old front end counts over the constructor's parameters alone); in the initializer of
+  a template that is never built; a parameter's name that another definition or binder of the
+  outermost method has too (`a capture another definition may hide`: 122 corpus rows); a class
+  in a body.
+- One derived row: `ex.Local.outer.succ`, a local inline method, 2^(2^69).
+- Spec ledger: PASS 612, UNCOVERED 839, FAIL 180, PENDING 19, SCALAMETA 81. Six examples went
+  to PASS and one to FAIL: `SyntaxFeaturesSpec` "a binder behind a reading that stops is
+  refused", which pins a refusal for a local definition the compiled tree resolves.
+- What item 1 really needs: of the 2,483 corpus rows blocked by "an enclosing definition", 2,418
+  are members of a class in a body (anonymous instances), now named `an enclosing class in a
+  body`. Local methods themselves were 27 rows.
 
 ### How each model rule reads over symbols
 
