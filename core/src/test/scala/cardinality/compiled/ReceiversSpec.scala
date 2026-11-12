@@ -54,6 +54,13 @@ class ReceiversSpec extends Specification {
       |object Lit { def outer(y: Boolean): Boolean = List(y).map { v => def inner: Boolean = v; inner }.head }
       |object Pat { def outer(y: Option[Boolean]): Boolean = y match { case Some(v) => def inner: Boolean = v; inner; case None => true } }
       |class Ctor(val p: Boolean) { locally { def hc(): Boolean = p; hc() } }
+      |trait Fn { def run(b: Boolean): Boolean }
+      |object Mk { def mk(y: Boolean): Fn = new Fn { def run(b: Boolean): Boolean = b } }
+      |trait Help { def helper: Boolean = true; def get: Boolean }
+      |object Hid { def mk(helper: Boolean): Help = new Help { def get: Boolean = true } }
+      |object Deep { def mk(y: Boolean): Fn = new Fn { object H { def h: Boolean = y }; def run(b: Boolean): Boolean = b } }
+      |object DeepHid { def mk(helper: Boolean): Fn = new Fn { object H extends Help { def get: Boolean = true }; def run(b: Boolean): Boolean = b } }
+      |object LocalK { def f(y: Boolean): Boolean = { class K { def get: Boolean = y }; new K().get } }
       |trait Wished[A] { inline def wish: A; def get: Boolean = true }
       |trait Kept { def kept: Boolean; def get: Boolean = kept }
       |object KeptOne extends Kept { def kept: Boolean = true }
@@ -130,9 +137,14 @@ class ReceiversSpec extends Specification {
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
-  // `y` as the class's Boolean `z` decides, 2^2 = 4. Its captures are `y`, and `y` and `z`. Left for later: a name an
+  // `y` as the class's Boolean `z` decides, 2^2 = 4. Its captures are `y`, and `y` and `z`. A member of an
+  // anonymous class, which is final, reads the same: `Mk`'s `run` is a Boolean computed from `b`
+  // and the `y` of the method the instance is made in, 16; an object inside such a class reads `y`
+  // too (`Deep`: a Boolean computed from it, 2^2); a parameter named like a member the class
+  // inherits cannot be named inside it, and is left (`Hid`; `DeepHid`, where an object in the class inherits it). Left for later: a name an
   // inner definition takes again (`Hide`), a definition in a function literal, whose parameter
-  // may be a generator's binder (`Lit`), one in a case clause (`Pat`) and one in a constructor's body, which runs before the instance
+  // may be a generator's binder (`Lit`), a member of a local class, which a subclass in the same
+  // body may override (`LocalK`), one in a case clause (`Pat`) and one in a constructor's body, which runs before the instance
   // holds what its members read (`Ctor`).
   private def locals = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
@@ -145,6 +157,12 @@ class ReceiversSpec extends Specification {
       .and(entry("recv.Loc.outer.inner").captures must_== List("y"))
       .and(entry("recv.LocC.outer.inner").captures must_== List("y", "z"))
       .and(left("recv.Hide.outer.inner") must_== "a capture another definition may hide")
+      .and(count("recv.Mk.mk.<new#1>.run") must_== Count.Finite(16))
+      .and(entry("recv.Mk.mk.<new#1>.run").captures must_== List("y"))
+      .and(left("recv.LocalK.f.K.get") must_== "a local class or object")
+      .and(left("recv.Hid.mk.<new#1>.get") must_== "a capture an inherited member hides")
+      .and(count("recv.Deep.mk.<new#1>.H.h") must_== Count.Finite(4))
+      .and(left("recv.DeepHid.mk.<new#1>.H.get") must_== "a capture an inherited member hides")
       .and(
         rows.sources
           .flatMap(_.toOption.toList.flatMap(_.methods))

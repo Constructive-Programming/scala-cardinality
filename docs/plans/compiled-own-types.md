@@ -1229,11 +1229,18 @@ time on the rows still uncovered is not in it.
   subtype with a parent outside the module waits for the index.
 - Done in stretch 4 ("Stretch 4, first unit"): the capture guard; local definitions over the
   methods they are written in.
-- Next, when resumed: the rest of item 1, which is where its rows are: members of anonymous and
-  local classes (`an enclosing class in a body`: 2,418 corpus rows, mostly `new T { … }`
-  instances). The old rule (`SourceIndex`, `HeldCaptures`): an anonymous class is a fixed
-  template whose members read the parameters of the methods around it, and a field passed
-  exactly a capture restores it; a local class is an ordinary template. Then items 2 to 6.
+- Done ("Stretch 4, second unit"): members of anonymous classes. Decisions recorded: the
+  capture class for a shared name stands; the ledger FAILs that pin a refusal the compiled tree
+  resolves are specs to rewrite at the switch (listed under each unit). The gate agent is wiring
+  its index into `World.scala`, `Shapes.named`, `Stored.named`, the finality test of `Receivers`
+  and the callers of `world.extended`/`overridden`/`unjudged`: add beside those, do not
+  restructure them.
+- Next: item 2, capability records (a class or trait with members named by a type:
+  `Shapes.declared`, the old `CapabilityRecords`: an open record is the product of its public
+  constructor fields and its abstract members, a final one of its observable constructor
+  parameters), then item 3, sealed and enum receivers, then items 4 to 6. Left in item 1: local
+  named classes and objects (a subclass in the same body may override them), definitions in a
+  function literal, a case clause or a constructor's body, hidden names.
   Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
   `an enclosing class that inherits and is abstract or may be extended`, `a parent with
   constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
@@ -1939,6 +1946,32 @@ corpora 1,660 method rows are identical (1,633 before), 1,086 of the 2,337 old n
 - What item 1 really needs: of the 2,483 corpus rows blocked by "an enclosing definition", 2,418
   are members of a class in a body (anonymous instances), now named `an enclosing class in a
   body`. Local methods themselves were 27 rows.
+
+**Stretch 4, second unit** (members of anonymous classes). All inputs pass; across the corpora
+1,723 method rows are identical (1,660 before), 1,120 of the 2,337 old numeric rows.
+
+- An anonymous class (`new T { … }`) is final: where its inherited members are implemented and
+  no parent of the module holds state, a member of it counts over its own parameters, those of
+  every method the instance is written in, and the classes around the outermost method
+  (`ReceiversSpec.locals`: `run(b: Boolean)` in `mk(y: Boolean)` is 16). A template inside such
+  a class reads the same methods.
+- Left uncovered: a local named class or object; a parameter of an enclosing method named like
+  a member that a class written in the method inherits (`hashCode`, a parent's `helper`: the
+  compiler rejects the reference, so the parameter cannot be read there).
+- 46 rows of cats-core count where the old front end refuses (members of the anonymous type
+  class instances `catsInstancesForId`, `ArraySeqInstances.stdInstances` and
+  `Align.alignWithIterator`: "inherited parent instantiated twice", or a capture a parent
+  outside the sources may hide), each listed in `derived.txt` under one rule with its count's
+  reason (1: the signature leaves one implementation; ω: a sequence or an iterated function;
+  0: nothing total builds the result; `size` 2^64; `get` 2^(2^64); `isEmpty` 2).
+- Two corrections, both the rule of `cats.data.Ior` (A + B + A × B, which the old reading took
+  for empty): `cats.catsAlignForId.<new#1>.align[A, B](fa: Id[A], fb: Id[B]): Id[Ior[A, B]]`,
+  0 becomes 3 (`Left(fa)`, `Right(fb)`, `Both(fa, fb)`); `ArraySeqInstances.stdInstances.
+  <new#1>.align`, 1 becomes ω (a sequence of any length, where the old saw the empty one).
+- Spec ledger after the unit: see the totals in the report of the stretch; examples that pin a
+  refusal the compiled tree resolves, to rewrite at the switch: `LeafFamiliesSpec` "an
+  extension, a parent's field, an overload, a later clause", `SyntaxFeaturesSpec` "a binder
+  behind a reading that stops is refused".
 
 ### How each model rule reads over symbols
 
