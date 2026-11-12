@@ -139,7 +139,8 @@ class ReceiversSpec extends Specification {
   // its `P`, so `g` returns one of 2 + 2 = 4 (one capability for both would give 2). A concrete
   // member a subclass overrides varies across instances, so it is a capability: `Wide.more`, which
   // `Narrow` overrides, is a Boolean beside `b`, and `get` is a Boolean computed from both,
-  // 2^(2 × 2) = 16.
+  // 2^(2 × 2) = 16. `Sub` passes its `c` to `Base`, so what `Base` holds is `c`: `more` is a
+  // Boolean computed from `c`, 2^2.
   private def inherited =
     (count("recv.Impl.get") must_== Count.Finite(4))
       .and(count("recv.Impl.show") must_== Count.Finite(16))
@@ -150,6 +151,7 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Never.get") must_== Count.Finite(16))
       .and(count("recv.Twin.g") must_== Count.Finite(4))
       .and(count("recv.Wide.get") must_== Count.Finite(16))
+      .and(count("recv.Sub.more") must_== Count.Finite(4))
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
@@ -203,7 +205,6 @@ class ReceiversSpec extends Specification {
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
-      "Sub.more" -> "a parent with constructor parameters or in a class",
       "Fam.get" -> "an enclosing sealed class or enum",
       "Closed.get" -> "an enclosing sealed class or enum",
       "Lifted.get" -> "a capability with type parameters of its own",

@@ -27,6 +27,8 @@ class ProgramRowsSpec extends Specification {
       a parent reached through two parents is not read yet            $twoPaths
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
+    A parent's constructor parameters
+      are what the template passes, or free public fields             $parents
     An overridden member (a capability: ReceiversSpec, `Wide.get`)
       is not read where a behavior of it may call the measured one    $reentry
   """
@@ -170,6 +172,34 @@ class ProgramRowsSpec extends Specification {
     (found("Loop.get") must_== Count.Finite(4))
       .and(found("Wrap.get") must_== Count.Finite(4))
       .and(uncovered(found("Lazy.get"), Receivers.Reenters))
+  }
+
+  // `Abs` passes its `c` to `Base`, so `Base` holds `c`: `x` is a Boolean computed from `c`, 2^2,
+  // and `more`, beside the capability `x`, one computed from both, 2^(2 × 2). `Free` extends `TP`
+  // without passing its argument: its public field `t` is a value each instance chooses, and `f`
+  // is a Boolean computed from it, 2^2. `Hid` leaves `HP`'s private parameter to a subclass: not
+  // read. `RO` overrides the field `p` that `R` inherits from `P`: what `P` was given and what
+  // `p` answers are two values in an `RO`, which is not read. `T` overrides the field `q` of `Q`,
+  // which `T` does not pass: what `Q`'s body read of its parameter is hidden, and not read.
+  def parents = {
+    val found = rows("""class Base(b: Boolean) { def get: Boolean = b }
+      |abstract class Abs(c: Boolean) extends Base(c) { def x: Boolean; def more: Boolean = x }
+      |trait TP(val t: Boolean) { def tt: Boolean = t }
+      |trait Free extends TP { def f: Boolean = t }
+      |class HP(h: Boolean) { def peek: Boolean = h }
+      |trait Hid extends HP { def g: Boolean = peek }
+      |class P(val p: Boolean)
+      |abstract class R extends P(true) { def target(b: Boolean): Boolean }
+      |abstract class RO extends R { override val p: Boolean = false }
+      |class Q(val q: Boolean) { private val z = q; def zz: Boolean = z }
+      |trait T extends Q { override val q: Boolean = true; def m: Boolean = zz }
+      |""".stripMargin)
+    (found("Abs.x") must_== Count.Finite(4))
+      .and(found("Abs.more") must_== Count.Finite(16))
+      .and(found("Free.f") must_== Count.Finite(4))
+      .and(uncovered(found("Hid.g"), "a parent with constructor parameters or in a class"))
+      .and(uncovered(found("R.target"), "a constructor field something overrides"))
+      .and(uncovered(found("T.m"), "a parent with constructor parameters or in a class"))
   }
 
   // `D` reaches `A` through `B` and through `C`, and `E` extends `D`.
