@@ -60,18 +60,72 @@ class DifferentialSpec extends Specification {
     )
   }
 
-  // An upper bound that becomes the exact number of the same value is tighter, not worse; one
-  // that becomes another number, or a number that becomes a bound, is worse.
+  // An upper bound that becomes an exact number within it is tighter, not worse; one that
+  // becomes a number above it, or a number that becomes a bound, is worse.
   private def tightened = {
     val bound = Count.Bounded(cardinality.capacity.FiniteSize(32))
     val exact = Count.Finite(BigInt(2).pow(32))
     val compared = Differential.compare(
-      answer(entry("tight", bound), entry("other", bound, 2), entry("loose", exact, 3)),
-      answer(entry("tight", exact), entry("other", Count.Finite(2), 2), entry("loose", bound, 3))
+      answer(
+        entry("tight", bound),
+        entry("below", bound, 2),
+        entry("loose", exact, 3),
+        entry("above", bound, 4)
+      ),
+      answer(
+        entry("tight", exact),
+        entry("below", Count.Finite(257), 2),
+        entry("loose", bound, 3),
+        entry("above", Count.Finite(BigInt(2).pow(33)), 4)
+      )
     )
     (compared.map(c => c.row.name -> c.verdict) must contain(
-      exactly("tight" -> Verdict.Tightened, "other" -> Verdict.Worse, "loose" -> Verdict.Worse)
-    )).and(Differential.failures(compared).map(_.row.name).toSet must_== Set("other", "loose"))
+      exactly(
+        "tight" -> Verdict.Tightened,
+        "below" -> Verdict.Tightened,
+        "loose" -> Verdict.Worse,
+        "above" -> Verdict.Worse
+      )
+    )).and(Differential.failures(compared).map(_.row.name).toSet must_== Set("above", "loose"))
+      .and(captures)
+  }
+
+  // The captures of a row both sides count are compared: the same names pass; a later overload
+  // under its name, a name only the old side lists (an alias) and one only the new side lists
+  // (not bound by the old reading) are classed; both at once where the listings share a name; two
+  // listings with no name in common, and one that lost every name, fail the gate.
+  private def captures = {
+    def held(name: String, line: Int, names: String*) =
+      entry(name, Count.Finite(2), line).copy(captures = names.toList)
+    val compared = Differential.compare(
+      answer(
+        held("same", 1, "a"),
+        held("overload", 2, "f", "f#2"),
+        held("alias", 3, "a", "b"),
+        held("unbound", 4, "a"),
+        held("other", 5, "a"),
+        held("lost", 6, "a"),
+        held("both", 7, "a", "b")
+      ),
+      answer(
+        held("same", 1, "a"),
+        held("overload", 2, "f"),
+        held("alias", 3, "a"),
+        held("unbound", 4, "a", "b"),
+        held("other", 5, "b"),
+        held("lost", 6),
+        held("both", 7, "a", "c")
+      )
+    )
+    val classes = compared.flatMap(c => Differential.captured(c).map(c.row.name -> _.isRight))
+    (classes.toMap must_== Map(
+      "overload" -> true,
+      "alias" -> true,
+      "unbound" -> true,
+      "other" -> false,
+      "lost" -> false,
+      "both" -> true
+    )).and(Differential.failures(compared).map(_.row.name) must_== List("other", "lost"))
   }
 
   // A number changes only where the old one is derivably wrong, and then the row is listed with

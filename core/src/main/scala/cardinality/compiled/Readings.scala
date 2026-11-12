@@ -5,8 +5,8 @@ import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
 import cardinality.analysis.resolution.TopTypes
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
-import tastyquery.Exceptions.MemberNotFoundException
 import tastyquery.Symbols.*
+import tastyquery.Traversers
 import tastyquery.Trees.*
 
 /** What the compiled front end measures so far, read from symbols and types
@@ -14,7 +14,8 @@ import tastyquery.Trees.*
   * names what a row needs that no slice reads yet, and is never a count. A type the counting model
   * refuses is the row's `?` with the model's reason (`Unread.Refused`).
   *
-  * Method rows: a method or value whose environment is its own parameters and what the classes
+  * Method rows: a method or value whose environment is its own parameters, those of the methods a
+  * local definition is written in (`local` says what of them is not read yet), and what the classes
   * around it hold (`Receivers`; a concrete member around it computes from what the environment
   * already holds, and an object holds nothing), over the types `Shapes` reads and the method's own
   * unbounded type parameters.
@@ -36,8 +37,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
   // ---- method rows --------------------------------------------------------------------------
 
-  /** The count of a method row, and its captures: the names of what the classes around it supply. A
-    * class's row measures its primary constructor.
+  /** The count of a method row, and its captures: the names of what the methods and classes around
+    * it supply. A class's row measures its primary constructor.
     */
   def method(tree: ValOrDefDef): Either[String, (Count, List[String])] = {
     val primary = tree.symbol.owner match {
@@ -49,22 +50,30 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     for {
       _ <- if (primary) Right(()) else Readings.later(tree.symbol)
       // A constructor row is read where every owner is an object; a member reads its receivers.
-      around <- if (primary) static(owner).map(_ => Nil) else receivers.around(owner)
-      _ <- plain(owner)
+      // A local definition reads the methods it is written in, then the classes around them.
+      (methods, top) <- if (primary) Right(Nil -> owner) else enclosing(owner, Nil)
+      _ <- local(tree, methods)
+      around <- if (primary) static(owner).map(_ => Nil) else receivers.around(top)
+      _ <- plain(top)
       count <-
         // A call of an inline method is its expansion, which builds no object: the old front
         // end counts one in an object that is never built like any other.
-        if (inlines.inlineMethod(tree.symbol) || built(owner, tree))
+        if (
+          (tree :: methods).exists(of => inlines.inlineMethod(of.symbol)) ||
+          built(top, methods.headOption.getOrElse(tree))
+        )
           (tree match {
             case constructor: DefDef if primary => constructors.count(constructor).map(_ -> Nil)
-            case _                              => counted(tree, around)
+            case _                              =>
+              counted(tree, around, methods).map(_ -> captures(tree, around, methods))
           }).left.flatMap {
+            // A row the model refuses lists no captures, as the old front end's does not.
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
             case Uncovered(what)        => Left(what)
           }
         else if (primary) Left("a constructor in an object that is never built")
         // No call of a member of an object that is never built returns: one implementation.
-        else Right(Count.Finite(1) -> Nil)
+        else Right(Count.Finite(1) -> captures(tree, around, methods))
     } yield count
   }
 
@@ -74,46 +83,152 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   // else the count is the solver's over the parameters and what the receivers hold.
   private def counted(
       tree: ValOrDefDef,
-      around: List[ClassDef]
-  ): Either[Unread, (Count, List[String])] = {
-    val (binders, parameters, declared) = tree match {
-      case v: ValDef => (Nil, Nil, v.tpt)
-      case d: DefDef =>
-        (d.paramLists.flatMap(_.toOption.toList.flatten), Shapes.parameters(d), d.resultTpt)
-    }
-    val self = tree.symbol.displayFullName
-    // The measured method's type parameters, each an atom of its own, and the method as the site
-    // rule F reads an opaque type from.
-    val env = Shapes.Env(
-      receivers.atoms(around) ++
-        binders.map(binder => (binder.symbol: Symbol) -> Shape.Atom(s"$self[${binder.name}]")),
-      tree.symbol
-    )
+      around: List[ClassDef],
+      methods: List[DefDef]
+  ): Either[Unread, Count] = {
+    val (binders, parameters, declared) = signature(tree)
+    val env = environment(tree, around, methods)
+    // A value of the environment: a parameter of the member or of a method it is written in.
+    def bound(of: ValOrDefDef)(parameter: ValDef, shape: Shape) =
+      Binding(
+        s"${of.symbol.displayFullName}.${parameter.name}",
+        shape,
+        Some(parameter.name.toString)
+      )
     for {
       _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
-      _ <- Traversals.sequence(binders.map(Readings.unbounded))
+      _ <- Traversals.sequence(
+        (binders ++ methods.flatMap(signature(_)._1)).map(Readings.unbounded)
+      )
       result <- shapes.of(declared.toType, env)
-      // Read where the count needs it; a one-valued goal's captures are what can be read.
-      held = () => receivers.bindings(around, tree.symbol, env)
-      names = () =>
-        try held().toOption.toList.flatten.flatMap(_.label).distinct.sorted
-        catch { case _: MemberNotFoundException => Nil }
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
         else
           for {
             _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
             _ <- Readings.plainInputs(parameters)
-            held <- held()
+            held <- receivers.bindings(around, tree.symbol, env)
+            captured <- Traversals.sequence(methods.map { method =>
+              val taken = Shapes.parameters(method)
+              Readings
+                .plainInputs(taken)
+                .flatMap(_ => shapes.inputs(taken, env))
+                .map(taken.lazyZip(_).map(bound(method)))
+            })
             inputs <- shapes.inputs(parameters, env)
           } yield Inhabitation.count(
-            held ++ parameters.lazyZip(inputs).map { (p, read) =>
-              Binding(s"$self.${p.name}", read, Some(p.name.toString))
-            },
+            held ++ captured.flatten ++ parameters.lazyZip(inputs).map(bound(tree)),
             result,
             maxDepth = Readings.Depth
           )
-    } yield count -> names()
+    } yield count
+  }
+
+  // A member's type parameters, value parameters and declared result.
+  private def signature(tree: ValOrDefDef) = tree match {
+    case v: ValDef => (Nil, Nil, v.tpt)
+    case d: DefDef =>
+      (d.paramLists.flatMap(_.toOption.toList.flatten), Shapes.parameters(d), d.resultTpt)
+  }
+
+  // The type parameters of the measured method and of the methods around it, each an atom of its
+  // own, beside its receivers', and the
+  // method as the site rule F reads an opaque type from.
+  private def environment(
+      tree: ValOrDefDef,
+      around: List[ClassDef],
+      methods: List[DefDef]
+  ): Shapes.Env =
+    Shapes.Env(
+      receivers.atoms(around) ++ (methods :+ tree).flatMap { of =>
+        val self = of.symbol.displayFullName
+        signature(of)._1.map { binder =>
+          (binder.symbol: Symbol) -> Shape.Atom(s"$self[${binder.name}]")
+        }
+      },
+      tree.symbol
+    )
+
+  // The methods a local definition is written in, outermost first, and the first owner that is
+  // none: a class, an object or a package. A value a definition is written in adds nothing: its
+  // right-hand side runs before the value exists.
+  private def enclosing(
+      owner: Symbol,
+      found: List[DefDef]
+  ): Either[String, (List[DefDef], Symbol)] =
+    owner match {
+      case term: TermSymbol =>
+        term.tree match {
+          // A function literal's parameter may be a generator's binder, which is not read.
+          case Some(literal: DefDef) if literal.name.toString.startsWith("$anonfun") =>
+            Left("a definition in a function literal")
+          // A constructor's body runs before the instance holds what its members read.
+          case Some(constructor: DefDef) if World.isConstructor(constructor.symbol) =>
+            Left("a definition in a constructor's body")
+          case Some(method: DefDef) => enclosing(term.owner, method :: found)
+          // A member value's initializer runs while its template is built: where that always
+          // throws, whether the definition was called first is the body reading's to say (S6).
+          case Some(_: ValDef) if term.owner.tree.exists {
+                case template: ClassDef => Bodies.alwaysThrows(template)
+                case _                  => false
+              } =>
+            Left("a definition in the initializer of a template that is never built")
+          case Some(_: ValDef) => enclosing(term.owner, found)
+          case _               => Left(s"an enclosing definition: ${term.name}")
+        }
+      case other => Right(found -> other)
+    }
+
+  // What a local definition reads of the methods around it: each of their parameters, by its
+  // name. Left to later steps: a parameter's name that another definition or binder of the
+  // outermost method has too (an inner one hides the outer), and a definition in a case clause,
+  // whose pattern may bind names.
+  private def local(tree: ValOrDefDef, methods: List[DefDef]): Either[String, Unit] =
+    methods.headOption.fold(Right(()): Either[String, Unit]) { outermost =>
+      val names = List.newBuilder[String]
+      var cases = 0
+      var inCase = false
+      new Traversers.TreeTraverser {
+        override def traverse(node: Tree): Unit = node match {
+          case clause: CaseDef =>
+            cases += 1
+            super.traverse(clause)
+            cases -= 1
+          case definition: ValOrDefDef =>
+            names += definition.name.toString
+            if (definition.symbol == tree.symbol) inCase = cases > 0
+            super.traverse(definition)
+          case binder: Bind =>
+            names += binder.name.toString
+            super.traverse(binder)
+          case other => super.traverse(other)
+        }
+      }.traverse(outermost)
+      val taken = (methods :+ tree).collect { case method: DefDef => Shapes.parameters(method) }
+      val all = names.result()
+      val hidden = taken.flatten.map(_.name.toString).find(name => all.count(_ == name) > 1)
+      if (inCase) Left("a definition in a case clause")
+      else hidden.map(name => s"a capture another definition may hide: $name").toLeft(())
+    }
+
+  // A row's captures, as the report lists them: the names its receivers supply, the parameters
+  // of the methods a local definition is written in, and for an
+  // extension method the parameters of its `extension` clause, written before the method.
+  private def captures(
+      tree: ValOrDefDef,
+      around: List[ClassDef],
+      methods: List[DefDef]
+  ): List[String] = {
+    val group = tree match {
+      case method: DefDef if method.symbol.isExtensionMethod && !method.pos.isUnknown =>
+        Shapes
+          .parameters(method)
+          .filter(p => !p.pos.isUnknown && p.pos.startOffset < method.pos.startOffset)
+          .map(_.name.toString)
+      case _ => Nil
+    }
+    val taken = methods.flatMap(Shapes.parameters).map(_.name.toString)
+    (receivers.names(around, tree.symbol) ++ taken ++ group).distinct.sorted
   }
 
   // Every owner up to the package is an object that inherits nothing.
@@ -184,7 +299,15 @@ private[compiled] object Readings {
         }
         World
           .classNamed(declared.toType)
-          .exists(c => c.owner == symbol.owner && c.name.toString == symbol.name.toString)
+          .exists { c =>
+            // Made with the given, at its own place (`Targets.instances`): a class written apart
+            // that the given shares its name with is an alias's type.
+            c.owner == symbol.owner && c.name.toString == symbol.name.toString &&
+            c.tree.forall { made =>
+              made.pos.isUnknown || member.pos.isUnknown ||
+              made.pos.startOffset == member.pos.startOffset
+            }
+          }
       case _ => false
     }
 

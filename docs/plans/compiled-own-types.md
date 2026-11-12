@@ -1424,9 +1424,33 @@ time on the rows still uncovered is not in it.
 - Done since: S4's first step, receivers ("After S4"; `Receivers`, `ReceiversSpec`), and S5's
   first step, contextual scope ("After S5"; `ContextualSpec`). The stretch stops here, by
   instruction: the report goes to the coordinator.
-- Next, when resumed: what "After S4" and "After S5" list as left uncovered (the largest are
-  sealed receivers, open classes that inherit, locals, anonymous contextual parameters), then
-  S6.
+- Stretch 3 (finish S4 and S5 without the cross-module index, which the sibling builds in
+  `compiledworld/`: do not edit that directory). Done: the gate compares captures and accepts a
+  bound tightened to any exact value within it; an abstract given with a `using` clause is read
+  as a function (a correction, in `ContextualSpec`); a class that shares a given's name keeps its
+  constructor row ("Stretch 3, first unit").
+- Done since ("Stretch 3, second unit"): members of a given instance without parameters; context
+  function types; the closed world's final for a sealed family's subtype, each better row
+  derived; `sbt coverageAll` (91.50% of statements, floor 80).
+- Stretch 4 (the coordinator's order, by rows unblocked: 1 enclosing definitions, 2 capability
+  records, 3 sealed and enum receivers, 4 bounded and higher-kinded type parameters then
+  unions, singletons, type members and refinements, 5 self types, abstract type members,
+  objects with parents and constructor rows in a class, 6 anonymous contextual parameters).
+  Decisions recorded: captures may change in the three classed ways, and the old alias listing
+  is not imitated; no capture row is listed by key, but a new listing that lost every name fails
+  the gate; the 7-against-ω family is a correction waiting for an input; a non-final sealed
+  subtype with a parent outside the module waits for the index.
+- Done in stretch 4 ("Stretch 4, first unit"): the capture guard; local definitions over the
+  methods they are written in.
+- Next, when resumed: the rest of item 1, which is where its rows are: members of anonymous and
+  local classes (`an enclosing class in a body`: 2,418 corpus rows, mostly `new T { … }`
+  instances). The old rule (`SourceIndex`, `HeldCaptures`): an anonymous class is a fixed
+  template whose members read the parameters of the methods around it, and a field passed
+  exactly a capture restores it; a local class is an ordinary template. Then items 2 to 6.
+  Behind named `Left`s for the index: `an enclosing class with a member something overrides`,
+  `an enclosing class that inherits and is abstract or may be extended`, `a parent with
+  constructor parameters or in a class`, `a class of a dependency`, `a family with a subtype not
+  written final whose parent is outside the module`.
 - A scratch probe for reviewers is kept outside the tree at `/tmp/ProbeScratch.scala` (both
   front ends' rows of the sources given as arguments, and the compiled front end's time and
   peak heap over a corpus): copy it into `core/src/test/scala/cardinality/compiled/` to use it,
@@ -1993,6 +2017,141 @@ method rows and 328 of cats-core's 7,651 itself, and answers the rest as uncover
 
 The new front end is 3,087 lines in `core/src/main/scala/cardinality/compiled/` (twelve
 files), `Inlines` (about 390) among them.
+
+**Stretch 3, first unit** (the coordinator's decisions on the open points of stretch 2).
+
+- The gate compares the captures of every row both front ends count (a refused row lists none
+  on either side). The compiled front end lists each constructor parameter and each
+  subclass-supplied member of the classes around a row, and an extension group's own
+  parameters. Over all inputs 140 rows differ, all in classes the gate accepts and prints: 3 "a
+  second overload by its name" (the old front end lists `name#2`), 34 "the old lists more: an
+  alias of a capture" (`val again = captured`), 103 "the new lists more: names the old did not
+  bind" (a capture whose type the old reading did not resolve, in a row counted 1 by its
+  result). Two listings neither of which holds the other fail the gate; none does. The classes
+  are told by the names alone, not checked row by row. Matching the old listing exactly costs
+  real code: the alias rule is about 40 lines (a fixed point over a body's values, with the
+  type comparison of `CaptureAliases`), and the 103 rows cannot match at all, since they follow
+  what the old reading failed to resolve. For the owner: may captures change in these three
+  ways?
+- TIGHTENED: an old bound and an exact new value within it (`≤2^9` against 257), not only the
+  bound's own value. A value above the bound is worse. No input holds a new such row: the four
+  tightened rows are those of S3.
+- An abstract given with a `using` clause is a function of it. Correction, in `ContextualSpec`
+  (no gate input holds one): `trait Fed { given feed(using b: Boolean): Boolean; def get:
+  Boolean }`, row `Fed.get`: old 4, new 16. `feed` is one of the 2^2 functions Boolean =>
+  Boolean, and `get` a Boolean computed from it: 2^4. The old front end reads `feed` as a
+  Boolean (2^2), though it reads the same member written `implicit def` as the function.
+- `Targets.instances` and `Readings.instance` take a class for a given instance's only where it
+  starts at the given's own place: `object Shared { class s; given s: s = new s }` keeps its row
+  `Shared.s.<init>`, and such a given counts as the alias it is.
+- A trait with a deferred given beside an alias given that reads it is derived in
+  `ContextualSpec`: `given g: Boolean = deferred; given k: Option[Boolean] = Some(g)`, `k` is
+  3^2 = 9.
+
+**Stretch 3, second unit** (given instances, context functions, the closed world's final).
+
+| Input | Table | Rows | Identical | Better: resolution / model | Tightened | Worse (corrected) | Unpaired | Uncovered | Old numeric identical |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| core | methods | 4,000 | 978 | 1 / 0 | 0 | 0 | 0 | 3,021 | 507 of 768 (66.0%) |
+| core | definitions | 641 | 369 | 3 / 0 | 0 | 0 | 0 | 269 | 347 of 400 (86.8%) |
+| cats-core | methods | 7,651 | 328 | 37 / 3 | 0 | 13 | 0 | 7,270 | 282 of 909 (31.0%) |
+| cats-core | definitions | 1,559 | 1,318 | 21 / 0 | 0 | 1 | 0 | 219 | 1,048 of 1,053 (99.5%) |
+| cats-kernel | methods | 1,785 | 158 | 3 / 0 | 0 | 0 | 0 | 1,624 | 144 of 368 (39.1%) |
+| cats-kernel | definitions | 312 | 307 | 0 / 0 | 0 | 0 | 0 | 5 | 253 of 253 (100.0%) |
+| cats-eo | methods | 697 | 143 | 0 / 1 | 0 | 0 | 0 | 553 | 121 of 271 (44.6%) |
+| cats-eo | definitions | 151 | 128 | 6 / 0 | 0 | 0 | 0 | 17 | 91 of 94 (96.8%) |
+| cats-eo-generics | methods | 80 | 26 | 0 / 0 | 0 | 0 | 0 | 54 | 12 of 16 (75.0%) |
+| cats-eo-generics | definitions | 12 | 7 | 0 / 0 | 0 | 0 | 0 | 5 | 6 of 6 (100.0%) |
+| cats-eo-schemes | methods | 19 | 0 | 0 / 0 | 0 | 0 | 0 | 19 | 0 of 5 (0.0%) |
+| cats-eo-schemes | definitions | 2 | 1 | 0 / 0 | 0 | 0 | 0 | 1 | 1 of 1 (100.0%) |
+| fixtures | methods | 6,746 | 3,572 | 69 / 37 | 4 | 1 | 0 | 3,063 | 3,358 of 5,485 (61.2%) |
+| fixtures | definitions | 5,588 | 4,931 | 65 / 32 | 0 | 1 | 0 | 559 | 4,348 of 4,513 (96.3%) |
+| **all corpora** | methods | 14,232 | 1,633 | 41 / 4 | 0 | 13 | 0 | 12,541 | 1,066 of 2,337 (45.6%) |
+| **all corpora** | definitions | 2,677 | 2,130 | 30 / 0 | 0 | 1 | 0 | 516 | 1,746 of 1,807 (96.6%) |
+
+- A given instance without parameters is an object: its members count over nothing of its own,
+  like an object's with parents (`ContextualSpec`, `ReceiversSpec`).
+- A context function type is read as the function type (`A ?=> B` as `A => B`): a body is
+  counted, not searched.
+- A subtype of a sealed family that no class of the module extends is final in the closed world,
+  written `final` or not, whatever members it declares or inherits from a class of the module
+  (the coordinator's decision 2). `Stored.unclosed` is deleted. 24 definition rows of the
+  fixtures count where the old estimate refuses "a subtype open to extension", each listed in
+  `derived.txt` under that one rule (an object is one value, a class what its constructor
+  stores: `Boolean` + object 3, two objects 2, `Int` + object `≤2^33`), and three more in
+  `TastyFrontEndSpec`. A subtype not written final whose parent is outside the module stays
+  uncovered, for parity with its `final` twin, which the old estimate counts.
+- One more derived row: `p.g.apply(i: Int): Long` in a given instance, 2^(2^38).
+
+Spec ledger: PASS 606, UNCOVERED 846, FAIL 179, PENDING 19, SCALAMETA 81. Ten examples went
+from UNCOVERED to PASS and one to FAIL: `LeafFamiliesSpec` "an extension, a parent's field, an
+overload, a later clause", which pins the refusal of a family the closed world now sums (3
+against "a subtype open to extension").
+
+Found by review, in no gate input: a family of three `final` classes that each pass arguments
+to one stateful module parent (`final class D(val a: Boolean) extends Q2(a, a) with F2`, …) is ω
+to the old estimate and 7 to the compiled front end; 7 is right (2 + 1 + 4), each class alone
+agrees. It would need a correction if an input held one. A concrete `sealed class` with
+subclasses is 2 to both front ends where its values are 5: shared with the old estimate.
+
+What the uncovered rows need at this commit, by first blocker (corpus rows / fixture rows; a row
+has a next blocker, so each is an upper bound on what removing it gains):
+
+| Blocker | Corpus | Fixtures | Whose |
+| --- | --- | --- | --- |
+| an enclosing definition (locals, anonymous classes) | 2,483 | 279 | S4 remainder |
+| a class that is no product, sum or type-only template (capability records) | 1,958 | 487 | S4 remainder (records) |
+| an enclosing class that inherits and is abstract or may be extended | 1,783 | 342 | the index |
+| a class of a dependency | 1,277 | 77 | the sibling's S7 |
+| an enclosing class with a bounded or higher-kinded type parameter | 1,231 | 59 | S1's second step |
+| a bounded or higher-kinded type parameter | 1,060 | 222 | S1's second step |
+| an enclosing sealed class or enum | 1,076 | 33 | S4 remainder |
+| a type (unions, singletons, type members, refinements) | 560 | 514 | S1's second step |
+| an enclosing class with a member something overrides | 84 | 367 | the index |
+| an enclosing object with parents (constructor rows) | 245 | 117 | S4 remainder |
+| an enclosing class with a self type | 304 | 16 | S4 remainder |
+| a parent with constructor parameters or in a class | 197 | 94 | the index |
+| a definition that reaches itself | 119 | 146 | S2 (solver) |
+| an anonymous contextual parameter | 100 | 107 | S5 remainder |
+| a member the classpath does not hold | 0 | 166 | Q10 |
+| a class the algebra does not model | 137 | 20 | S2 |
+| a family with an anonymous instance | 110 | 20 | S6 or a model decision |
+| a constructor position the method side refuses | 33 | 79 | S2 (solver) |
+| an enclosing class (constructor rows in a class) | 57 | 50 | S4 remainder |
+| an enclosing class whose construction always throws or binds a pattern | 38 | 39 | S6 |
+| a restricted constructor (rule B) | 30 | 45 | S6 |
+| an enclosing class with an abstract type member | 31 | 42 | S4 remainder |
+| every other reason (about twenty, each under 70 rows) | 204 | 304 | |
+| **all** | 13,057 | 3,622 | |
+
+**Stretch 4, first unit** (the capture guard; local definitions). All inputs pass; across the
+corpora 1,660 method rows are identical (1,633 before), 1,086 of the 2,337 old numeric rows.
+
+- The gate fails a row whose old capture listing is non-empty and whose new one is empty. A row
+  where each side lists a name the other lacks passes only where they share a name (one row,
+  cats-eo `Plated.transform.machine.drive`: the old lists an alias, the new a named `using`
+  parameter the old did not bind). Capture differences at this commit: 3 second overloads, 34
+  aliases only the old lists, 114 names only the new lists, 1 of both.
+- A local definition (a `def` or `val` written in a method body) counts over its own parameters
+  and those of every method it is written in, whose type parameters are atoms, then over the
+  classes around the outermost method; its captures are those parameters' names
+  (`ReceiversSpec.locals`: `inner(x: Boolean): Boolean` in `outer(y: Boolean)` is 2^(2 × 2) =
+  16). A value a definition is written in adds nothing. An inline method around it exempts the
+  row from the never-built rule, as for the method itself.
+- Left uncovered, each by its reason: a definition in a function literal (its parameter may be a
+  generator's binder, which the old front end refuses); in a case clause; in a constructor's
+  body, a class-body statement included (it runs before the instance holds what its members
+  read: the old front end counts over the constructor's parameters alone); in the initializer of
+  a template that is never built; a parameter's name that another definition or binder of the
+  outermost method has too (`a capture another definition may hide`: 122 corpus rows); a class
+  in a body.
+- One derived row: `ex.Local.outer.succ`, a local inline method, 2^(2^69).
+- Spec ledger: PASS 612, UNCOVERED 839, FAIL 180, PENDING 19, SCALAMETA 81. Six examples went
+  to PASS and one to FAIL: `SyntaxFeaturesSpec` "a binder behind a reading that stops is
+  refused", which pins a refusal for a local definition the compiled tree resolves.
+- What item 1 really needs: of the 2,483 corpus rows blocked by "an enclosing definition", 2,418
+  are members of a class in a body (anonymous instances), now named `an enclosing class in a
+  body`. Local methods themselves were 27 rows.
 
 ### How each model rule reads over symbols
 

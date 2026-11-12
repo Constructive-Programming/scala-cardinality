@@ -16,10 +16,10 @@ import java.nio.file.{Files, Path}
   * one, so an identical row is one the new front end measured itself. A row only one side has fails
   * the gate, and so does a `Worse` row that is not a listed correction: a number may change only
   * where the old one is derivably wrong, and each such row is listed with both values and its
-  * derivation (`--corrected`). An upper bound that became the exact number of the same value is
-  * `Tightened`, and passes. The runner also fails on anything a front end could not read, on an
-  * input it reads no source of, on a row it measured before and leaves uncovered or counts
-  * otherwise now (`--covered`), and on a listed correction that passes no row.
+  * derivation (`--corrected`). An upper bound that became an exact number within it is `Tightened`,
+  * and passes. The runner also fails on anything a front end could not read, on an input it reads
+  * no source of, on a row it measured before and leaves uncovered or counts otherwise now
+  * (`--covered`), and on a listed correction that passes no row.
   *
   * The old front end is no oracle where it says `?`, so a `Better` row is read by why it said so.
   * Where every reason is a limit of reading syntax (`resolution`), a number is expected: the run
@@ -40,8 +40,8 @@ object Differential {
     /** `?` before, a number now. */
     case Better
 
-    /** An upper bound before (`≤2^32`), the exact number of the same value now (`2^32`): the
-      * measurement is tighter and nothing the bound promised is broken.
+    /** An upper bound before (`≤2^32`), an exact number within it now (`2^32`; `257` under `≤2^9`):
+      * the measurement is tighter and nothing the bound promised is broken.
       */
     case Tightened
 
@@ -72,7 +72,8 @@ object Differential {
       value: Any,
       shown: String,
       reasons: List[String],
-      causes: List[String]
+      causes: List[String],
+      captures: List[String] = Nil
   ) {
     def numeric: Boolean = reasons.isEmpty
 
@@ -106,7 +107,8 @@ object Differential {
         value,
         entry.count.render,
         reasons,
-        reasons.map(Blockers.category)
+        reasons.map(Blockers.category),
+        entry.captures
       )
     }
 
@@ -203,6 +205,7 @@ object Differential {
 
     def render: String =
       s"$heading (paired by $by)" +
+        captured(this).collect { case Left(names) => s"\n    CAPTURES DIFFER: $names" }.mkString +
         old.map(row => s"\n    scalameta: ${row.render}").mkString +
         next
           .map(row => s"\n    ${if (row.uncovered) "tasty, uncovered" else "tasty"}: ${row.render}")
@@ -223,11 +226,54 @@ object Differential {
     if (next.uncovered) Verdict.Uncovered
     else if (old.value == next.value) Verdict.Identical
     else if (!old.numeric) Verdict.Better
-    else if (old.shown == Bound + next.shown) Verdict.Tightened
+    else if (old.shown.startsWith(Bound) && within(next.shown, old.shown.stripPrefix(Bound)))
+      Verdict.Tightened
     else Verdict.Worse
 
   // How a count that is an upper bound prints.
   private val Bound = "≤"
+
+  // Whether an exact count is within a bound, each as it prints: the same text, or two numbers
+  // (a literal or a power of two) the first no greater than the second. A value above the bound
+  // is never tightened.
+  private def within(exact: String, bound: String): Boolean = {
+    val Power = """2\^(\d+)""".r
+    // A number as its exponent of two, or itself: enough to order a literal against a power.
+    def number(shown: String): Option[Either[BigInt, BigInt]] = shown match {
+      case Power(exponent)                  => Some(Left(BigInt(exponent)))
+      case digits if digits.matches("\\d+") => Some(Right(BigInt(digits)))
+      case _                                => None
+    }
+    exact == bound || number(exact).zip(number(bound)).exists {
+      case (Left(a), Left(b))   => a <= b
+      case (Right(a), Right(b)) => a <= b
+      case (Right(a), Left(b))  => (a - 1).bitLength <= b
+      case (Left(a), Right(b))  => a < b.bitLength
+    }
+  }
+
+  /** How the captures of a row both front ends count differ, if they do (a refused row lists none,
+    * on either side): `Right` one of the classes the coordinator listed, `Left` two listings with
+    * no name in common, or a new one that lost every name, which fails the gate. The classes are
+    * told by the names alone: that the old front end's extra name is an alias of a capture, or that
+    * it did not bind a name the new one lists, is not checked row by row. The report prints
+    * captures.
+    */
+  def captured(c: Compared): Option[Either[String, String]] =
+    c.old.zip(c.next).collect {
+      case (old, next) if old.numeric && next.numeric && old.captures != next.captures =>
+        // A later overload is listed as `name#2` by the old front end, by its name here.
+        val before = old.captures.map(_.replaceAll("#\\d+$", "")).toSet
+        val after = next.captures.toSet
+        // A listing that lost every name is no alias dropped: it fails.
+        if (after.isEmpty) Left(s"${old.captures.mkString(", ")} -> none")
+        else if (before == after) Right("a second overload by its name")
+        else if (after.subsetOf(before)) Right("the old lists more: an alias of a capture")
+        else if (before.subsetOf(after)) Right("the new lists more: names the old did not bind")
+        else if (before.intersect(after).nonEmpty)
+          Right("the old lists an alias, the new a name the old did not bind")
+        else Left(s"${old.captures.mkString(", ")} -> ${next.captures.mkString(", ")}")
+    }
 
   // The keys rows are paired by, strictest first: the row's whole place; its position, where the
   // scopes of a body are named differently (the name without its `<kind#n>` segments, on the same
@@ -293,7 +339,12 @@ object Differential {
           s"  measured by the new front end: $own of ${nexts.size} rows" +
             (if (olds == 0) "" else f" (${100.0 * own / olds}%.1f%% of the old rows)"),
           s"  paired: ${pairing.mkString(" · ")}; $signatures paired rows spell another signature"
-        )
+        ) ++ rows
+          .flatMap(captured)
+          .groupBy(_.fold(_ => "unlisted", identity))
+          .toList
+          .sortBy(_._1)
+          .map((kind, differing) => s"  captures differ: ${differing.size} $kind")
       }
       .mkString("\n")
 
@@ -310,7 +361,7 @@ object Differential {
     val accepted = corrections(compared, corrected).toSet
     compared.filter { c =>
       Set(Verdict.OnlyOld, Verdict.OnlyNew)(c.verdict) ||
-      (c.verdict == Verdict.Worse && !accepted(c)) ||
+      (c.verdict == Verdict.Worse && !accepted(c)) || captured(c).exists(_.isLeft) ||
       (c.beyondModel && !c.next.exists(row => derived.get(c.row.key).contains(row.shown)))
     }
   }

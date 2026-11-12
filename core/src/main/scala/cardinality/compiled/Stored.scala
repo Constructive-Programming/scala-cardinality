@@ -12,11 +12,9 @@ import cardinality.capacity.{
 }
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
-import tastyquery.Modifiers.{TermSymbolKind, Visibility}
 import tastyquery.Symbols.*
 import tastyquery.Trees.{
   ClassDef,
-  DefDef,
   OpaqueTypeAliasDefinitionTree,
   PolyTypeDefinitionTree,
   TermTree,
@@ -190,10 +188,15 @@ final private[compiled] class Stored(world: World)(using Context) {
               Left(s"a family with an open abstract subtype: ${cls.displayFullName}")
             else if (world.extended(cls))
               Left(s"a family with a subtype something extends: ${cls.displayFullName}")
-            else if (unclosed(below))
+            // A subtype nothing extends is final in the closed world, written so or not. One
+            // not written final whose parent is outside the module is left, for parity alone:
+            // the old estimate refuses it (it did not read that parent) and counts its `final`
+            // twin, and what such a parent declares is the index's to say.
+            else if (
+              !Shapes.isFinal(cls) && World.ancestors(cls).exists(base => !world.ofModule(base))
+            )
               Left(
-                "a family with a subtype not written final that a subclass could tell apart: " +
-                  cls.displayFullName
+                s"a family with a subtype not written final whose parent is outside the module: ${cls.displayFullName}"
               )
             else constructed(below, inside)
         } yield held
@@ -219,37 +222,6 @@ final private[compiled] class Stored(world: World)(using Context) {
           s"sealed family not summed: ${parent.name} (an enum case extends it: ${stray.name})"
         Row(None, List(Unbound.Refusal(why)))
     }
-
-  // The old estimate refuses a family for a subtype not written final that a subclass could
-  // tell apart, though nothing extends it: a plain class; one with a parent outside the module
-  // that declares members; one with a member to override, its own or a parent's. Such a
-  // member is concrete, not private and restates none of `Any`'s. Whether the closed world
-  // closes such a subtype is not settled here: the family is left. (`AnyVal` declares nothing,
-  // and a value class is final by the language.)
-  private def unclosed(template: ClassDef): Boolean = {
-    val c = template.symbol
-    def secret(member: TermSymbol) =
-      Set[Visibility](Visibility.Private, Visibility.PrivateThis)(member.visibility)
-    val universal = Set[Symbol](defn.AnyClass, defn.ObjectClass)
-    def overridable(member: TermSymbol) =
-      !member.isSynthetic && !secret(member) && !member.isAbstractMember &&
-        member.allOverriddenSymbols.forall(over => !universal(over.owner))
-    // A template's own fields are a case class's product; a parent's are members.
-    def declares(of: ClassDef, fields: Boolean) = of.rhs.body.exists {
-      case d: DefDef => !World.isConstructor(d.symbol) && overridable(d.symbol)
-      case v: ValDef =>
-        val field = v.symbol
-        overridable(field) && !field.isModuleVal && !field.isGivenOrUsing &&
-        Set(TermSymbolKind.Val, TermSymbolKind.LazyVal)(field.kind) &&
-        (fields || !field.isParamAccessor)
-      case _ => false
-    }
-    val (inside, outside) = World.ancestors(c).partition(world.ofModule)
-    !Shapes.isFinal(c) &&
-    (!c.isCaseClass || declares(template, false) ||
-      outside.nonEmpty ||
-      inside.flatMap(_.tree).exists(declares(_, true)))
-  }
 
   // A family's subtypes as its own level counts them: a case under one of its sealed levels is
   // that level's (a sealed trait that extends a sealed class makes its cases the class's too).

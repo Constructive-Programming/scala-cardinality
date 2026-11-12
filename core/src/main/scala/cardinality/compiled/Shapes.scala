@@ -65,7 +65,9 @@ final private[compiled] class Shapes(world: World)(using Context) {
       case Some(symbol) if env.nominal && world.ofModule(symbol) =>
         Left(Uncovered(s"a type of the module in an evidence type: ${symbol.displayFullName}"))
       case Some(c: ClassSymbol) =>
-        val library = world.library(c)
+        // A context function is a function: only implicit search tells its argument apart.
+        val library =
+          world.library(c).map(_.replaceFirst("^scala\\.ContextFunction", "scala.Function"))
         val inside = if (library.exists(Shapes.Evidence)) env.copy(nominal = true) else env
         Traversals.sequence(arguments.map(of(_, inside))).flatMap { read =>
           library.flatMap(standard(_, read)) match {

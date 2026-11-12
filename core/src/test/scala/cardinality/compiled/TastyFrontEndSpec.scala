@@ -658,9 +658,9 @@ class TastyFrontEndSpec extends Specification {
   //   - A sealed family is the sum of its cases: `Fam` is its one object, and `HasFam` 1 × 2.
   //     `Ior[A, B]` is A + B + A × B, no one size, the reasons its parameters; at Boolean and
   //     Boolean it is 2 + 2 + 4 = 8 (`Iors`). (Its row shows 3ω: each unbound parameter is ω, and
-  //     ω + ω + ω × ω is 3ω in the size algebra.) A case class not written final is a case where
-  //     nothing extends it and it declares no member a subclass could override: `Plain`
-  //     implements its level's `b` and overrides `toString`, so `Kept` is its 2. A case under a
+  //     ω + ω + ω × ω is 3ω in the size algebra.) A class nothing extends is final in the closed
+  //     world, written so or not, whatever members it declares: `Kept`, `Loose`, `Prot` and
+  //     `Impl` are each their one case class's 2 (the old estimate refuses the last three). A case under a
   //     sealed trait that extends a sealed class is the trait's: `Lvl2` is 1 + 1.
   //     An enum's value case that extends a family makes the row the old estimate's refusal,
   //     whatever its other cases hold: `Mixed` has no size and that reason alone.
@@ -713,6 +713,9 @@ class TastyFrontEndSpec extends Specification {
       "Ior" -> (Some("3ω"), List("param:A", "param:B")),
       "Iors" -> sized("8"),
       "Kept" -> sized("2"),
+      "Loose" -> sized("2"),
+      "Prot" -> sized("2"),
+      "Impl" -> sized("2"),
       "Lvl2" -> sized("2"),
       "Mixed" ->
         (None, List("refusal:sealed family not summed: Mixed (an enum case extends it: M1)")),
@@ -727,9 +730,8 @@ class TastyFrontEndSpec extends Specification {
 
   // What the stored side does not read yet, each row uncovered for its own reason: a sealed
   // family whose object's construction throws (`Thr`), with a subtype something extends
-  // (`Wide2`), with a case class not written final that a subclass could tell apart (`Loose`
-  // declares a member, `Prot` a protected one, `Impl` implements its level's abstract `def`,
-  // `Outer` has a parent outside the module with members), or with a case under two of its levels
+  // (`Wide2`) or that inherits from a class outside the module, whose state it holds too
+  // (`Outer`), or with a case under two of its levels
   // (`Twice2`; `Dbl`, whose clause names the family and its level both), or with an enum's value
   // case under a sealed level (`Deep`) or behind a reference (`HasMixed`); a definition that
   // reaches itself (the solver's fixed point); a class's alias read as its prefix sees it from inside an opaque type's scope, where
@@ -741,14 +743,12 @@ class TastyFrontEndSpec extends Specification {
     val expected = List(
       "Thr" -> "a construction that always throws or binds a pattern",
       "Wide2" -> "a family with a subtype something extends",
-      "Loose" -> "a family with a subtype not written final that a subclass could tell apart",
       "Twice2" -> "a subtype reached twice",
       "Dbl" -> "a subtype reached twice",
       "Deep" -> "an enum case under a sealed family",
       "HasMixed" -> "an enum case under a sealed family",
-      "Outer" -> "a family with a subtype not written final that a subclass could tell apart",
-      "Prot" -> "a family with a subtype not written final that a subclass could tell apart",
-      "Impl" -> "a family with a subtype not written final that a subclass could tell apart",
+      "Outer" ->
+        "a family with a subtype not written final whose parent is outside the module",
       "Rec" -> "a definition that reaches itself",
       "Scope.Held" -> "an alias of a class beside an opaque type's scope",
       "Priv" -> "a restricted constructor",
@@ -906,9 +906,10 @@ class TastyFrontEndSpec extends Specification {
   private lazy val compared =
     Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
 
-  // One row of the fixtures is better past a model limit, and derived: `sizes.Seen` stores a
-  // `Prj[Unit]#Me`, which is `Prj`'s A as the prefix fixes it, Unit, one value. The old reading
-  // does not read a projection through an applied type.
+  // Four rows of the fixtures are better past a model limit, and derived: `sizes.Seen` stores a
+  // `Prj[Unit]#Me`, which is `Prj`'s A as the prefix fixes it, Unit, one value (the old reading
+  // does not read a projection through an applied type); and three families whose one case class
+  // nothing extends, final in the closed world, each 2 (`stored`).
   //
   // Four rows are corrections (the owner's ruling on `Ior`): its cases are `Left(a: A)`,
   // `Right(b: B)` and `Both(a: A, b: B)`, so its value space is A + B + A × B, and at Boolean and
@@ -921,11 +922,12 @@ class TastyFrontEndSpec extends Specification {
     def keys(name: String, value: String) = compared.compared
       .filter(c => c.row.name == name && c.verdict != Verdict.Identical)
       .map(_.row.key -> value)
-    val derived = keys("sizes.Seen", "1").toMap
+    val closed = List("Loose", "Prot", "Impl").flatMap(name => keys(s"sizes.$name", "2"))
+    val derived = (keys("sizes.Seen", "1") ++ closed).toMap
     val corrected = (keys("sizes.Ior", "0 -> ? A; B") ++ keys("sizes.Iors", "0 -> 8") ++
       keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8")).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (1, 4))
+      .and((derived.size, corrected.size) must_== (4, 4))
       .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
       .and(Differential.unused(compared.compared, corrected) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))
