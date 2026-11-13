@@ -13,6 +13,24 @@
     }, {
       "name" : "Complex Method",
       "weight" : 0.0
+    }, {
+      "name" : "Complex Conditional",
+      "weight" : 0.0
+    }, {
+      "name" : "Bumpy Road Ahead",
+      "weight" : 0.0
+    }, {
+      "name" : "Deep, Nested Complexity",
+      "weight" : 0.0
+    }, {
+      "name" : "Large Method",
+      "weight" : 0.0
+    }, {
+      "name" : "Excess Number of Function Arguments",
+      "weight" : 0.0
+    }, {
+      "name" : "Overall Code Complexity",
+      "weight" : 0.0
     } ]
   } ]
 }
