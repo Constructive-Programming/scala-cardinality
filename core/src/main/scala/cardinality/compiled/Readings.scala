@@ -3,13 +3,13 @@ package cardinality.compiled
 import cardinality.analysis.AnalysisWork
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
-import cardinality.analysis.resolution.TopTypes
+import cardinality.analysis.resolution.{StuckProjections, TopTypes}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Symbols.*
 import tastyquery.Traversers
 import tastyquery.Trees.*
-import tastyquery.Types.Type
+import tastyquery.Types.{AppliedType, Type, TypeRef}
 
 /** What the compiled front end measures so far, read from symbols and types
   * (docs/plans/compiled-own-types.md, "Front end: design and status", lists the slices): a `Left`
@@ -77,8 +77,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           built(top, methods.headOption.getOrElse(tree))
         )
           (tree match {
-            case constructor: DefDef if primary => constructors.count(constructor, around)
-            case _                              => counted(tree, around, methods)
+            case constructor: DefDef if primary =>
+              constructorSearch(constructor).flatMap(_ => constructors.count(constructor, around))
+            case _ => counted(tree, around, methods)
           }).map(_ -> captures(tree, around, methods)).left.flatMap {
             // A row the model refuses lists no captures, as the old front end's does not.
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
@@ -116,7 +117,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         else
           for {
             _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
-            _ <- anonymous(declared.toType, parameters)
+            _ <- searched(declared.toType, parameters)
             held <- receivers.bindings(around, tree.symbol, env)
             captured <- Traversals.sequence(methods.map { method =>
               val taken = Shapes.parameters(method)
@@ -137,6 +138,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             values = held ++ captured.flatten ++ parameters.lazyZip(inputs).map(bound(tree))
             // The proofs of the bounds of the parameters the result or a value mentions (`Bounds`).
             proofs <- bounds.proofs(result :: values.map(_.shape), env)
+            // Stuck projections of one parameter that no single instantiation reduces.
+            _ <- StuckProjections
+              .refusal(result :: values.map(_.shape), proofs.map(_.shape))
+              .map(Unread.Refused(_))
+              .toLeft(())
           } yield Readings.count(values ++ proofs, result)
     } yield count
   }
@@ -149,7 +155,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   // final (the old reading knows only those classes' bases) and not `Null`, neither class
   // extending the other. Otherwise, and beside a context-function result, which puts binders
   // around every body, it is not read yet.
-  private def anonymous(result: Type, parameters: List[ValDef]): Either[Unread, Unit] = {
+  private def searched(result: Type, parameters: List[ValDef]): Either[Unread, Unit] = {
     val contextual = parameters.filter(p => Readings.contextual(p.symbol))
     def known(c: ClassSymbol) =
       c != defn.NullClass && (world.readByDeclaration(c) || Shapes.isFinal(c))
@@ -162,7 +168,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           case (Some(a), Some(b))
               if a != b && known(a) && known(b) && !a.isSubClass(b) && !b.isSubClass(a) =>
             Right(())
-          case _ =>
+          case (Some(a), Some(b)) if a == b && Readings.unrelated(mine, theirs) => Right(())
+          case _                                                                =>
             Left(
               Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}")
             )
@@ -178,6 +185,32 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         .collectFirst { case refused @ Left(_: Unread.Refused) => refused }
         .orElse(verdicts.find(_.isLeft))
         .getOrElse(Right(()))
+  }
+
+  // A constructor's anonymous contextual parameter is searched for in its class's body, where the
+  // class's own and inherited contextual definitions and the body's imports compete with it (the
+  // old `ContextualScope` at the template): it is read as the measured method's is (`searched`) only
+  // where the class is written without parents or a self type and its body imports nothing and
+  // declares nothing contextual but its own parameters.
+  private def constructorSearch(constructor: DefDef): Either[Unread, Unit] = {
+    val parameters = Shapes.parameters(constructor)
+    val owner = constructor.symbol.owner.asClass
+    val quiet = owner.tree.exists { cls =>
+      Shapes.parentless(cls) && World.ownSelf(owner) && cls.rhs.body.forall {
+        case _: Import           => false
+        case member: ValOrDefDef =>
+          member.symbol.isParamAccessor || !Readings.contextual(member.symbol)
+        case _ => true
+      }
+    }
+    if (!parameters.exists(Readings.anonymous)) Right(())
+    else if (!quiet)
+      Left(
+        Uncovered(
+          s"an anonymous contextual parameter beside the class's contextual scope: ${owner.name}"
+        )
+      )
+    else searched(owner.appliedRefInsideThis, parameters)
   }
 
   // A member's type parameters, value parameters and declared result.
@@ -364,10 +397,26 @@ private[compiled] object Readings {
     if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
     else Left(Unread.Uncovered(s"a bounded type parameter: ${binder.name}"))
 
+  /** Whether two applications of one class are never subtypes of each other in a body: their
+    * arguments are unbounded type parameters held rigid there (a method's, or the class's own
+    * through `this`), distinct at some place, whatever the variance (`[A: Show, B: Show]`; the old
+    * `ContextualEvidence.unrelated`, distinct atoms).
+    */
+  private def unrelated(left: Type, right: Type)(using Context): Boolean = {
+    def parameters(tpe: Type) = tpe.dealias match {
+      case applied: AppliedType =>
+        val rigid = applied.args.collect { case ref: TypeRef => Shapes.rigidParameter(ref) }.flatten
+        Option.when(rigid.sizeIs == applied.args.size)(rigid)
+      case _ => None
+    }
+    parameters(left).zip(parameters(right)).exists(_.lazyZip(_).exists(_ != _))
+  }
+
   /** Parameters the reading takes as inputs. A contextual one with a name is a value like any other
     * (slice S5): only implicit search tells it apart, and a body is counted, not searched. One
     * without a name (`anonymous`) is found by search alone, among whatever else is in scope: not
-    * read yet here (the measured method's own is read where nothing competes with it).
+    * read yet here (the measured method's or constructor's own is read where nothing competes with
+    * it: `searched`).
     */
   def plainInputs(parameters: List[ValDef]): Either[Unread, Unit] =
     parameters

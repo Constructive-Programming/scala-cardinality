@@ -1979,6 +1979,44 @@ identical, cats-core 1,556 (29 more), cats-eo 231 (3 more), cats-eo-generics 40,
 5,078 (48 more); the 184 cats-core rows still named "an anonymous contextual parameter" are
 receivers', capabilities' and captured ones.
 
+### Relations moved out of Shapes
+
+The union and intersection readings, the record clash test and their helpers moved, unchanged,
+from `Shapes.scala` (928 lines) to `Relations.scala` (`Relations(world, Shapes.of)`); `Shapes`
+is 787 lines. All seven inputs pass with the same rows.
+
+### Stretch 5, eleventh unit: the back end's undercount of a polymorphic member inside a record
+
+Root cause (`GoalSolver`, shared by both front ends): a record's member whose value is another
+record with a polymorphic member (`trait Inj[F[_], G[_]] { def prj: FK[G, [a] =>> Option[F[a]]]
+}`, `FK` holding `def apply[A](fa: F[A]): G[A]`) reached the solver as `Function(Nil,
+Product(List(Poly(…))))`. Its producer path's output was the `Poly`, and only a value whose shape
+is a `Poly` is instantiated (PB2, PB5), so the member was never applied: `def viaPrj[F[_], G[_],
+A](i: Inj[F, G], g: G[A]): Option[F[A]]` read 1 (`None`) where `None` and `i.prj(g)` are 2. Fix:
+`flatten` reads a function or polymorphic value that holds a polymorphic member, at any depth, as
+that member taking the callable's parameters first (`hoisted`: a function into a product is a
+product of functions; a binder commutes with an arrow, a product or another binder that does not
+mention it). A binder is one per declaration, so a member met inside its own result (`trait K[F[_],
+X] { def run[A](fa: F[A]): X }` at `K[F, K[G, C]]`) is not moved where it would be captured; a PB5
+instance is read by `flatten` too, which applies the inner member once the outer binder is
+substituted. A value that holds no polymorphic member is unchanged. Regression:
+`PolymorphicMemberSpec.nestedRecord` (direct, one level, two levels, a member with a parameter, a
+polymorphic outer member: 2 each; `k.run(fa).run(gb)` over `K[F, K[G, C]]`, which read 0 in both
+front ends where 1 is right, is refused now).
+
+Changed rows, all on cats-core, each a number of the compiled front end where the old one says `?`
+(BETTER past a resolution limit, not listed in `derived.txt`), now the solver's own refusal (`sum
+elimination over an argument space not enumerated`), identical to the old `?`: `InjectK.apply` (line
+51, 0) and `InjectK.unapply` (53, 1), `InjectKInstances.catsRightInjectKInstance` (78, 0), its
+`<new#1>.inj` (80, 0) and `<new#1>.prj` (83, 1), and `InjectK.apply` (91, 0). Each was the
+undercount: the `inj` and `prj` of an `InjectK` (each a `FunctionK`) were never applied, so
+`apply(fa: F[A]): G[A]`, which has `inj(fa)`, read 0; `unapply(ga: G[A]): Option[F[A]]`, which may
+answer `None` or `prj(ga)`, read 1; and the object's `apply(implicit I: InjectK[F, G])`, which has
+`I`, read 0. No old row changed: the
+old front end reaches these members through an unresolved `λ` and refuses them first. Their six
+lines (the wrong numbers) are deleted from this branch's private memory, and the shared memory needs
+the same six deleted when this branch is merged; every input passes otherwise.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -2041,7 +2079,29 @@ receivers', capabilities' and captured ones.
   seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"); the merge of
   `tasty-gate` at `a8dc05f`; members named like the measured definition ("Stretch 5, ninth
   unit"); anonymous contextual parameters of the measured method ("Stretch 5, tenth unit"). Left
-  of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Scope
+  of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Done since:
+  the move of the union, intersection and clash readings to `Relations` (no change in rows).
+  Done since: the back end's undercount of a polymorphic member inside a record ("Stretch 5,
+  eleventh unit"); the merge of `tasty-gate` at `f75b9d4` (the coordinator; one conflict, the
+  record clash test, resolved to `Relations.clash` beside the gate's `Shapes.unread`; every input
+  passes on the private memory: method rows identical corpus-core 2,780, cats-core 1,601,
+  cats-kernel 330, cats-eo 231, cats-eo-generics 40, cats-eo-schemes 5, fixtures 5,116); match
+  types, a constructor's anonymous evidence and evidence of one class ("Stretch 5, twelfth unit").
+  Done since (stretch 6, the coordinator's order after `43fa5d8`): the stored side's fixed point,
+  shared with the old front end (`capacity/Fixpoint.scala`), and a constructor position the method
+  side refuses for recursion taking the estimate's size ("Stretch 6, first unit").
+  Done since: a top-level value of a class of the module ("Stretch 6, second unit").
+  Next, by the coordinator's order after `43fa5d8`: (1) what is left of it: a position the method side refuses
+  for another reason than recursion (`sealed subtype hides a parameter`, fixtures 7, `sealed
+  subtype shape unreadable`, 1) stays uncovered, since the estimate counts a hidden parameter the
+  method side's equivalence does not; (2) captures a nearer scope binds again (41 + 2), definitions in function literals
+  (31), case clauses (14) and constructor bodies (7); (3) the rest of `a type` (fixtures 95,
+  cats-eo 11: paths `p.X`, members through `this`, polymorphic function types, refinements, a
+  match type in a constructor position), then anonymous contextual parameters (cats-core 5,
+  fixtures 18: a receiver's, a capability's, a captured method's, a constructor's beside its
+  class's givens). Left for the owner's decision: an enclosing class whose construction always
+  throws or binds a pattern (fixtures 58). The six `InjectK` lines of the shared memory are
+  deleted by the coordinator after the next merge of the branches. Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in
@@ -2970,6 +3030,114 @@ unresolved", `DependencyRowsSpec` "a dependency's template is the one of its qua
 derived) and `StdlibModelSpec` "IterableOnce leaves iterator to the sources". They go on the
 rewrite-at-switch list; the last one (a Boolean counted ω over an inherited `iterator`
 capability) is for the gate agent to confirm, being its reading of inherited members.
+
+
+### Stretch 5, twelfth unit: match types, a constructor's anonymous evidence, evidence of one class
+
+- A match type (`Shapes.matchType`) is what tasty-query's `MatchType.reduced` gives, where the
+  scrutinee is ground (static classes and constants, not `Null`). On anything else tasty-query
+  reduces where scalac stays stuck: `Fst[T]` for a `T <: (Int, String)` is `Int` there, and
+  `def g[T <: (Int, String)](x: Fst[T]): Int = x` does not compile; `IsStr[Null]` likewise (a
+  reviewer's finding). One stuck on an unbounded type parameter held rigid (a method's, or the
+  class's own through `this`: `Shapes.rigidParameter`), under a single case projecting a tuple of
+  distinct binders and without a bound, is the old projection atom (`StuckProjections`, members
+  MT3), and `StuckProjections.refusal` is asked in `Readings` and `Constructors` as in the old
+  `Measurement`. The index of the projected binder is shared (`StuckProjections.component`); the
+  old syntax reading of the case moved to `MethodProjections`, so `StuckProjections` no longer
+  imports scalameta and the compiled front end may use it. Not read yet: a match type in a
+  constructor's position (tasty-query gives the alias's own parameter as its scrutinee there), one
+  on a bounded parameter, any other stuck form.
+- A constructor's anonymous contextual parameter (`Readings#constructorSearch`) is read by the
+  measured method's rule (`searched`, the old `ContextualEvidence.unreachable`) where its class is
+  written without parents or a self type and its body imports nothing and declares nothing
+  contextual but its parameters; otherwise the class body's candidates compete with it, which the
+  old `ContextualScope` reads at the template, and the row stays uncovered (a reviewer's finding:
+  `final class K[A](using Option[A]) { given Some[A] = null }` would have counted a parameter no
+  search reaches).
+- Two contextual parameters of one class whose arguments are rigid unbounded type parameters,
+  distinct at some place (`[A: Show, B: Show]`), are never subtypes of each other whatever the
+  variance (`Readings.unrelated`, the old `ContextualEvidence.unrelated` over distinct atoms).
+
+Derived past a model limit: fixture `boundedMatch` 1 (a match type bounded by `Any` stays stuck,
+`x` its only value) and `O.viaMatch` 2^(2^69) (`M[Int]` is `Int ?=> Int`; with `x: Int`,
+(2^32)^(2^64)). Corrected: cats-core `IorInstances.catsDataShowForIor`, 1 -> ω (the Ior ruling: a
+`Show` of a nonempty `Ior[A, B]` returns a `String`). Regressions: `MatchTypesSpec`, and
+`ContextualSpec` (`both`, `Flat.<init>`, `Crowd`, `Selfish`). Method rows identical: cats-core 1,605
+(4 more), cats-eo 242 (11 more), fixtures 5,150 (34 more), the other inputs as at the merge; every
+input passes.
+
+### Stretch 6, first unit: the stored side's fixed point
+
+- One solver for both front ends. The old `capacity/Solver` keeps what it reads off the syntax
+  (its `Shapes`, the dependency graph, positivity, the classification of a field into a
+  continuation); the Kleene iteration with widening, the ν completion of lazy cycles and
+  `completeCoinduction` moved unchanged to `capacity/Fixpoint.scala`, generic in the key of a
+  definition and the store of its values (`Store`). The old front end's rows are byte-identical on
+  the six corpora before and after (the cached `old/*.bin` of both hashes compared). The one change
+  of code: the ν refinement stops when its values are stable (the old loop compared scopes by
+  reference and always ran its budget, to the same values).
+- `Stored`: a reading that reaches a class it is inside of (the former `a definition that reaches
+  itself`) is read again as a system, one equation per class of the module it names (`Instance`:
+  the class with its arguments' sizes), each a variable of the others, solved by `Fixpoint` with
+  the old classification of continuations (`=> X`, `() => X`, a strict `Option[X]`, `D => X`, `X`
+  named without arguments) and lazy fields. A definition's own row is its solved value; any other
+  reading reads its root over the solved values; the reasons are those of every equation. Refused:
+  a cycle through a function's domain or a partial function's keys, a lazy cycle the completion
+  leaves incomplete, a widened value its equation does not reach again (an intersection's bound
+  or a factor of 0: the old instantiation solver's `recursive instantiation not settled`), a class
+  read with more than eight argument lists (polymorphic recursion that grows), a class read
+  through a type argument that reads a variable.
+- Not changed, found by a reviewer in the moved code: the ν completion's `holedChildren` takes
+  every class whose field continues through a sealed parent, a child of it or not, so the old
+  front end counts `W(t: () => T)` beside `sealed trait T; A(h: Boolean) extends T` as 3 (true: 2,
+  probed). The compiled side reads it without a system, 2, and refuses such a case inside one (the
+  widening check); the old rows stay as they were, for the owner to decide.
+- `Constructors`: a position the method side refuses as recursive takes the estimate's size as the
+  old `ConstructorPositions.readPosition` does, its reasons first as the old `declined`; only where
+  the type is a class reference, applied or by-name type with no top, `Null` or `Nothing`
+  (`estimable`), which is what the old rewrite hands to the estimate, and where the estimate's size
+  says a value exists (not the algebra's 0 of a function from `Nothing`, an intersection's bound).
+  A position refused for another reason stays uncovered: the old reading takes the estimate there
+  too, but for `sealed subtype hides a parameter` the estimate counts a plain class's parameter
+  the method side's equivalence does not (`Node(h: Boolean, next: => Lz)` beside `sealed Lz`: the
+  estimate's ω where Node's values may all be one), so those 8 old numeric fixture rows stay
+  uncovered for the owner; a union or an intersection refused inside a field would take the
+  estimate's sum or bound. Rows the first version of this rule measured as `?` that way (core 7,
+  cats-core 2, cats-eo 1, fixtures 14) were deleted from the private memory only (none is in the
+  shared one).
+
+Derived past a model limit (`derived.txt`): the two `D(q: C)(x: q.X)` fixtures (`X = D`: 0;
+`X = Option[D]`: D = 1 × (1 + D) widened to ω, the position and `C#X` 1 + ω = ω + 1), the two
+`M[A]` fixtures (M = 1 + min(M, 2), least fixed point 3; `Go` 2; `UM` 3; `UM.<init>` is `?`, its
+estimate an intersection's bound), the cross-package
+`A(b: Option[B])`, `B(a: Option[A])` (ω, positions ω + 1), `Chain[A](next: Option[Chain[A]])`
+(ω + 1), and core's `Member.<init>` and `Entry.<init>` (ε₀: a factor `List[String]` in the ε₀ tier,
+the others nonzero). No correction. Regressions: `StoredRecursionSpec`, and `TastyFrontEndSpec`
+(`Rec` ω, its position ω + 1). Old numeric rows still uncovered (methods; both tables): core 8
+(20), cats-core 44 (47), cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes
+0, fixtures 673 (747); every input passes on the private memory.
+
+### Stretch 6, second unit: a value of a class of the module
+
+- A top-level value whose type names a class of the module is read as the old `ValueRows` reads
+  it (register D30): one value where its type has one. While a value row reads a class (each one
+  the reading meets, in a system too: `equation` takes the value flag), what it stores is no
+  evidence that an instance is built (the old `Builds`): a class whose template, a module
+  ancestor's or an enum class case's always throws leaves the row undecided (`Stored.unbuilt`,
+  over `World.templates`). Refused: one whose construction binds a pattern (slice S6), an enum with
+  parameters and a value case (its clause's arguments are not read), a class of a dependency.
+- `Bodies.throws` follows a parent's default (`$default$` getter) into its body, as the old
+  `Builds.omitted` does: `final class Dk extends Dp` with `class Dp(x: Int = ???)` is never built.
+  This feeds the method side's `alwaysThrows` too. A by-name parameter's default is taken as
+  evaluated, as a written by-name argument already is (a reviewer's note: `class A(x: => Int =
+  ???)` is buildable; the old reading makes the same approximation).
+- Regressions: `StoredRecursionSpec` (`values`), `TastyFrontEndSpec` (`made`, 1).
+- A first version followed the default's symbol before its name and crashed on four cats-core
+  sources (a refinement's member has no symbol): the name is read first.
+
+Old numeric rows still uncovered (methods; both tables): core 8 (8: the 12 `Size` values are read),
+cats-core 44 (47), cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0,
+fixtures 673 (744); every input passes on the private memory. No derivation or correction.
 
 ### How each model rule reads over symbols
 

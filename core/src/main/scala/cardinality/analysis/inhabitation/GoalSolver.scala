@@ -4,7 +4,7 @@ import scala.collection.mutable
 
 import dev.constructive.eo.optics.Getter
 
-import Inhabitation.{Binding, Count, Shape}
+import Inhabitation.{Binder, Binding, Count, Head, Shape}
 import Shape.*
 
 /** The proof-counting search behind `Inhabitation.count`: goals are memoised environments and
@@ -163,8 +163,10 @@ final private[inhabitation] class GoalSolver(
     val instances = live(env).flatMap {
       case Value(path, poly: Poly, _) =>
         producerPaths.get(poly.body)(Nil).zipWithIndex.flatMap { (producer, index) =>
-          supplied(poly, producer, shapes).getOrElse(Nil).map { shape =>
-            Value(path :+ s"instance:$index:$shape", shape, Reading.Read)
+          supplied(poly, producer, shapes).getOrElse(Nil).flatMap { shape =>
+            // An instance may hold another polymorphic member, read as `flatten` reads one.
+            flatten(List(Value(path :+ s"instance:$index:$shape", shape)))
+              .map(_.copy(reading = Reading.Read))
           }
         }
       case _ => Nil
@@ -469,8 +471,54 @@ final private[inhabitation] class GoalSolver(
           case (shape, index) =>
             Value(path :+ s"field:$index", shape)
         })
+      case value @ Value(path, _: (Function | Poly), _) =>
+        hoisted(value.shape) match {
+          case value.shape => List(value)
+          case read        => flatten(List(Value(path, read)))
+        }
       case value => List(value)
     }.distinct
+
+  // A polymorphic member held in what a callable returns (a record's `def` whose value is a record
+  // with a polymorphic `apply`, at any depth) is read as a polymorphic member of its own, taking the
+  // callable's parameters first: a function into a product is a product of functions, and a
+  // binder commutes with an arrow, a product or another binder that does not mention it. A binder
+  // is one per declaration (`Binder.id`), so the same member met at two instantiations, one inside
+  // the other, would be captured: such a member is not moved (its record is still split, which
+  // changes no count). Only values that hold a polymorphic member are rewritten.
+  private def hoisted(shape: Shape): Shape = shape match {
+    case Function(parameters, result) =>
+      under(Function(parameters, _), b => parameters.exists(mentions(_, b)), hoisted(result))
+    case Poly(binders, body) => under(Poly(binders, _), binders.contains, hoisted(body))
+    case Product(fields)     => Product(fields.map(hoisted))
+    case other               => other
+  }
+
+  // `wrap` around each polymorphic member of `shape` whose binders `wrap` does not `meet`, or around
+  // `shape` itself.
+  private def under(wrap: Shape => Shape, meets: Binder => Boolean, shape: Shape): Shape =
+    shape match {
+      case Poly(binders, body) if !binders.exists(meets) =>
+        wrap(body) match {
+          case Poly(outer, read) => Poly(outer ++ binders, read)
+          case read              => Poly(binders, read)
+        }
+      case Product(fields) if fields.exists(holdsPoly) => Product(fields.map(under(wrap, meets, _)))
+      case other                                       => wrap(other)
+    }
+
+  private def mentions(shape: Shape, binder: Binder): Boolean =
+    Shape.exists(shape) {
+      case Atom(id)                   => id == binder.id
+      case Applied(Head.Rigid(id), _) => id == binder.id
+      case _                          => false
+    }
+
+  private def holdsPoly(shape: Shape): Boolean = shape match {
+    case _: Poly         => true
+    case Product(fields) => fields.exists(holdsPoly)
+    case _               => false
+  }
 
   private def freshWitness(): Atom = {
     val (name, next) = Shape.freshName("existential:", witnessNumber + 1)(reservedAtoms)

@@ -605,7 +605,7 @@ object Counter {
     case (Modelled("LazyList" | "Stream"), List(t)) =>
       val elem = typeIn(scope)(t)
       if (elem == NothingSize) UnitSize
-      else Solver.completeCoinduction(EffectiveOmega, elem.pow(EffectiveOmega))
+      else Fixpoint.completeCoinduction(EffectiveOmega, elem.pow(EffectiveOmega))
     // A type constructor the calculator does not model is recorded by name, so that a report can
     // say what it could not bound.
     case (select: Type.Select, _) =>

@@ -7,7 +7,7 @@ import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// Polymorphic members of supplied capabilities (design/capabilities.md C8, PB0–PB4). Every fixture
+// Polymorphic members of supplied capabilities (design/capabilities.md C8, PB0–PB5). Every fixture
 // is valid Scala 3.9.0 (compiled with scalac: probes/b4/spec poly1–poly4, probes/b4fix/spec inl and
 // bounds, probes/b4fix2/spec aliases and paths). Each count is derived in the comment above its
 // check.
@@ -39,6 +39,7 @@ class PolymorphicMemberSpec extends Specification {
       a context-bound binder is its evidence parameter               $contextBound
       a bare-binder result that grows every goal exhausts the budget $growingChain
       a bare-binder result's compound instantiations are not searched $compoundInstantiation
+      a polymorphic member inside a record's member counts as one supplied directly $nestedRecord
     Deferred inline members (no term of a body that is not inline)
       one inhabited under every instantiation is dropped            $deferredInline
       one whose type may be empty is refused                        $deferredInlineEmpty
@@ -347,6 +348,39 @@ class PolymorphicMemberSpec extends Specification {
       "polymorphic capability binder: M (instantiations at compound types not searched for " +
         "paths.Church.run)"
     ).and(paths("paths.U.par") must beLike { case Count.Unresolved(_) => ok })
+
+  // A polymorphic member held in what a record's member returns, at any depth, is instantiated at
+  // the M the supplied `g: G[A]` fixes (PB5), as where the `FK` is supplied itself (`direct`). Each
+  // row's `Option[F[A]]` has 2 implementations: `None`, and the `apply` call on g (whose own `None`
+  // or `Some` is all a case on it can give). `b: B` and `hb: H[B]` are the one value of their
+  // types, and `at[B]`'s binder is fixed by `hb`. `K.run` met inside its own result (`K[F, K[G,
+  // C]]`) has one implementation, `k.run(fa).run(gb)`; it read 0 (the inner `run` was never applied)
+  // and is refused now: its two instantiations share one binder, which the rewrite must not merge.
+  def nestedRecord = {
+    val found = counts(
+      """package nested
+        |trait FK[F[_], G[_]] { def apply[A](fa: F[A]): G[A] }
+        |trait Inj[F[_], G[_]] { def prj: FK[G, [a] =>> Option[F[a]]] }
+        |trait Two[F[_], G[_]] { def prj: Inj[F, G] }
+        |trait Mid[F[_], G[_], B] { def at(b: B): FK[G, [a] =>> Option[F[a]]] }
+        |trait Q[F[_], G[_], H[_]] { def at[B](hb: H[B]): FK[G, [a] =>> Option[F[a]]] }
+        |trait K[F[_], X] { def run[A](fa: F[A]): X }
+        |object Use {
+        |  def direct[F[_], G[_], A](k: FK[G, [a] =>> Option[F[a]]], g: G[A]): Option[F[A]] = k(g)
+        |  def viaPrj[F[_], G[_], A](i: Inj[F, G], g: G[A]): Option[F[A]] = i.prj(g)
+        |  def deeper[F[_], G[_], A](i: Two[F, G], g: G[A]): Option[F[A]] = i.prj.prj(g)
+        |  def applied[F[_], G[_], A, B](m: Mid[F, G, B], b: B, g: G[A]): Option[F[A]] = m.at(b)(g)
+        |  def polyOuter[F[_], G[_], H[_], A, B](q: Q[F, G, H], hb: H[B], g: G[A]): Option[F[A]] =
+        |    q.at(hb)(g)
+        |  def same[F[_], G[_], X, Y, C](k: K[F, K[G, C]], fa: F[X], gb: G[Y]): C = k.run(fa).run(gb)
+        |}
+        |""".stripMargin
+    )
+    List("direct", "viaPrj", "deeper", "applied", "polyOuter")
+      .map(name => found(s"nested.Use.$name") === Count.Finite(2))
+      .reduce(_ and _)
+      .and(refused(found("nested.Use.same"), "polymorphic capability binder: A"))
+  }
 
   private lazy val poly4 = counts("""package poly4
     |trait Seeded[F[_]] {

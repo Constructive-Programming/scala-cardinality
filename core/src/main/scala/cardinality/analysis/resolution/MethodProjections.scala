@@ -160,7 +160,7 @@ private[cardinality] object MethodProjections {
         bindings: Map[String, Resolved],
         matched: MatchType
     ): Option[Prepared] =
-      (known, StuckProjections.projection(matched.block.cases)) match {
+      (known, projection(matched.block.cases)) match {
         case (Type.Name(token), Some((arity, index))) =>
           bindings.get(token).collect {
             case Right(Shape.Atom(id))
@@ -178,6 +178,17 @@ private[cardinality] object MethodProjections {
           }
         case _ => None
       }
+
+    // The component a single case projects: one tuple pattern of distinct lower-case binders.
+    private def projection(cases: List[TypeCase]): Option[(Int, Int)] = cases match {
+      case List(TypeCase(Type.Tuple(parts), body)) =>
+        def binder(tpe: Type) = tpe match {
+          case Type.Name(name) if name.headOption.exists(_.isLower) => Some(name)
+          case _                                                    => None
+        }
+        StuckProjections.component(parts.map(binder), binder(body))
+      case _ => None
+    }
 
     // Every case must be eligible, including cases that precede the selected projection. A named
     // tuple is concrete, yet Scala 3.9.0 reduces no case on one (fixtures a5 m1, m4).

@@ -3,7 +3,7 @@ package cardinality.compiled
 import cardinality.analysis.BuiltinTypes
 import cardinality.analysis.inhabitation.Inhabitation.{Binder, Head, Shape}
 import cardinality.analysis.inhabitation.PolymorphicMembers
-import cardinality.analysis.resolution.LiteralTypes
+import cardinality.analysis.resolution.{LiteralTypes, StuckProjections}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.OpenLevel
@@ -39,8 +39,9 @@ private[compiled] enum Unread {
   * read yet.
   *
   * A literal type is its one constant, and a written `p.type` the one value p (`singleton`). A
-  * union is the tagged sum of its alternatives where their values are told apart (`union`), an
-  * intersection its narrowest part (`intersection`).
+  * union is the tagged sum of its alternatives where their values are told apart
+  * (`Relations.union`), an intersection its narrowest part (`Relations.intersection`), a match type
+  * what the compiler reduces it to or a stuck projection's atom (`matchType`).
   *
   * A type that reaches itself and an enum's class case as a type are refused (`recursive type not
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`, each
@@ -51,6 +52,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   import Unread.{Refused, Uncovered}
 
   private val sums = new Sums(world, this)
+  private val relations = new Relations(world, of)
 
   /** The shape of `tpe` read from `env`'s site, its type parameters bound as `env` says. */
   // A value `preceding` is the one a class written as the whole type names (the old front end
@@ -65,75 +67,33 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
       case constant: ConstantType      => literal(constant).map(Shape.Singleton(_, None))
       case path: TermRef               => singleton(path, parts)
-      case or: OrType                  => union(Shapes.alternatives(or), parts)
-      case and: AndType                => intersection(Shapes.conjuncts(and), parts)
+      case or: OrType                  => relations.union(Relations.alternatives(or), parts)
+      case and: AndType                => relations.intersection(Relations.conjuncts(and), parts)
+      case matched: MatchType          => matchType(matched, parts)
       case other                       => uncovered(other)
     }
   }
 
-  // A union read as the tagged sum of its alternatives, where one exists, as the old front end
-  // reads it (`UnionSums`). Type equalities first, by the compiler's subtyping: an alternative
-  // below another is that one (one class spelled twice, `Null` below a reference type), and a
-  // top-like one (`AnyRef`, `Matchable` are `Any`) takes them all. `Nothing` and `Null` are empty
-  // (null-free model). What remains is a sum where its values are told apart: distinct constants,
-  // or alternatives of runtime classes no instance has two of (the closed world,
-  // `ClosedProgram.mixes`; a primitive is its box).
-  private def union(written: List[Type], env: Env): Either[Unread, Shape] = {
-    val kept = Shapes.maximal(written.map(t => if (Shapes.top(t)) defn.AnyType else t))(
-      _.isSubType(_)
-    )
-    Traversals.sequence(kept.map(of(_, env))).flatMap { shapes =>
-      val (types, inhabited) = kept.zip(shapes).filter(_._2 != Shape.Sum(Nil)).unzip
-      val classes = types.map(Shapes.runtimeClass)
-      val apart = inhabited.sizeIs < 2 || inhabited.forall(LiteralTypes.literal) ||
-        classes.forall(_.nonEmpty) &&
-        classes.flatten.combinations(2).forall(pair => !world.mixes(pair.head, pair.last))
-      Either.cond(
-        apart,
-        inhabited match {
-          case List(single) => single
-          case several      => Shape.Sum(several)
-        },
-        Refused(
-          "union alternatives require an overlap and discrimination proof: " +
-            written.map(_.showBasic).mkString(" | ")
-        )
-      )
+  // A match type is what the compiler reduces it to; one stuck on an unbounded type parameter under
+  // a single tuple projection (`A match { case (f, s) => f }`), without a bound, is the projection's
+  // atom (`StuckProjections`, members MT3), and `Readings` refuses arities no instantiation meets.
+  private def matchType(matched: MatchType, env: Env): Either[Unread, Shape] =
+    matched.reduced match {
+      // tasty-query reduces on an abstract scrutinee where scalac does not (`Fst[T]` for a
+      // `T <: (Int, String)` is `Int` there, stuck in scalac): trusted on a ground one only.
+      case Some(reduced) if Shapes.ground(matched.scrutinee) => of(reduced, env)
+      case Some(_)                                           => uncovered(matched)
+      case None                                              =>
+        val stuck = for {
+          (arity, index) <- Shapes.projection(matched.cases)
+          if matched.bound.isSameType(defn.AnyType)
+          case ref: TypeRef <- Some(matched.scrutinee.dealias)
+          parameter <- Shapes.rigidParameter(ref)
+          if Shapes.binds(ref, parameter, env)
+          id <- env.binding(parameter).toOption.collect { case Shape.Atom(id) => id }
+        } yield Shape.Atom(StuckProjections.Projection(arity, index, id))
+        stuck.toRight(Uncovered(s"a type: ${matched.showBasic}"))
     }
-  }
-
-  // An intersection, as the old front end reads it (`SingletonIntersections.intersection`): the
-  // narrowest parts are kept, by the compiler's subtyping (`T & Any` is `T`, `x.type & A` is
-  // `x.type` for an `x: A`); `Singleton` keeps only a singleton or the empty type; distinct
-  // static objects or enum value cases share no value. Any other meet is refused. Each part kept
-  // is read first, so that what a part needs is the row's reason, as there.
-  private def intersection(written: List[Type], env: Env): Either[Unread, Shape] = {
-    val (marked, parts) = written.partition(World.classNamed(_).contains(defn.SingletonClass))
-    val narrowest = Shapes.maximal(parts.filterNot(Shapes.top))((a, b) => b.isSubType(a))
-    val values = narrowest.flatMap(_.dealias match {
-      case path: TermRef => path.optSymbol.filter(s => s.isModuleVal || s.isEnumCase)
-      case _             => None
-    })
-    val apart = values.sizeIs == narrowest.size && values.distinct == values &&
-      values.forall(World.inObjects)
-    (narrowest match {
-      case Nil         => of(defn.AnyType, env)
-      case List(alone) => of(alone, env)
-      case several     =>
-        Traversals.sequence(several.map(of(_, env))).flatMap { _ =>
-          Either.cond(
-            apart,
-            Shape.Sum(Nil),
-            Refused(
-              "unsupported intersection relationship: " + written.map(_.showBasic).mkString(" & ")
-            )
-          )
-        }
-    }).filterOrElse(
-      shape => marked.isEmpty || shape.isInstanceOf[Shape.Singleton] || shape == Shape.Sum(Nil),
-      Refused("intersection with Singleton requires a proven singleton identity")
-    )
-  }
 
   // A literal type's one value, named as the old front end names it (`LiteralTypes`); a floating
   // zero is read too, since the compiled constant keeps its sign.
@@ -398,7 +358,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   }
 
   private def recursive(c: ClassSymbol): Either[Unread, Shape] =
-    Left(Refused(s"recursive type not read: ${c.displayFullName}"))
+    Left(Refused(Shapes.Recursive + c.displayFullName))
 
   // ---- classes of the module ----------------------------------------------------------------
 
@@ -429,8 +389,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // template whose construction always throws, or a class written `final abstract`, has no value
   // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
   // throws is S6's still). A member that may be the measured definition on another receiver is
-  // refused (`clash`). Left for later steps, each named: a construction that binds a pattern, a
-  // sealed class, a self type narrower than the class, a field
+  // refused (`Relations.clash`). Left for later steps, each named: a construction that binds a
+  // pattern, a sealed class, a self type narrower than the class, a field
   // the site does not observe as itself, a restricted constructor of a class something may extend,
   // a class something extends, and what `Receivers.record` and `Factories` leave.
   private def record(template: ClassDef, bound: List[Shape], env: Env): Either[Unread, Shape] = {
@@ -440,29 +400,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case v: ValDef if v.symbol.isParamAccessor && v.symbol.isPublic => v.name
     }.toSet
     val fixed = !c.isTrait && !c.isAbstractClass && (Shapes.isFinal(c) || !world.extended(c))
-    // A member that varies across instances (abstract, or overridden by a class of the program),
-    // own or inherited, of the measured definition's name and arity, where one instance may be of
-    // the record's class and of the class the definition is a member of: on such a value it may
-    // be the definition itself, whose calls re-enter it (the old front end's `selfView`,
-    // capabilities C6), which the model does not split: refused, as there. A value built before
-    // the receiver (`preceding`) is never it. A constructor row and a local definition measure no
-    // member.
-    val clash = (env.site, env.site.owner) match {
-      case (site: TermSymbol, owner: ClassSymbol)
-          if !World
-            .isConstructor(site) && !env.preceding && (owner == c || world.mixes(owner, c)) =>
-        (c :: World.ancestors(c)).flatMap(_.declarations).exists {
-          case declared: TermSymbol =>
-            // An inherited declaration as the record's class sees it: implemented there or not.
-            val member = declared.overridingSymbol(c).getOrElse(declared)
-            !member.isSynthetic && member.name == site.name &&
-            Shapes.arity(member) == Shapes.arity(site) &&
-            (member.isAbstractMember ||
-              world.overriding(c, member) == ClosedProgram.Overriding.Supplied)
-          case _ => false
-        }
-      case _ => false
-    }
+    val clash = relations.clash(c, env)
     val refused = Shapes.unread(name)
     // What a member of the value returns may be built after it, the receiver among them: only
     // the value itself is `preceding`.
@@ -677,6 +615,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
 
 private[compiled] object Shapes {
 
+  /** How the method side refuses a class it is reading again. */
+  val Recursive = "recursive type not read: "
+
   /** What a type is read in: the shapes its type parameters stand for, the definition measured
     * (what it may see decides an opaque type), the classes being read (a cycle is refused), and
     * whether the type is compared with another as a type (`nominal`), where a type of the module is
@@ -874,67 +815,6 @@ private[compiled] object Shapes {
   def parameters(method: DefDef): List[ValDef] =
     method.paramLists.flatMap(_.left.toOption.toList.flatten)
 
-  /** How many value parameters a member takes, clause after clause; none for a value or a type. */
-  def arity(member: Symbol): Int = {
-    def taken(tpe: TypeOrMethodic): Int = tpe match {
-      case method: MethodType => method.paramNames.size + taken(method.resultType)
-      case poly: PolyType     => taken(poly.resultType)
-      case _                  => 0
-    }
-    member match {
-      case term: TermSymbol => taken(term.declaredType)
-      case _                => 0
-    }
-  }
-
-  /** The alternatives of a union, through the aliases they name. */
-  def alternatives(tpe: Type)(using Context): List[Type] = tpe.dealias match {
-    case or: OrType => alternatives(or.first) ++ alternatives(or.second)
-    case other      => List(other)
-  }
-
-  /** The parts of an intersection, through the aliases they name. */
-  def conjuncts(tpe: Type)(using Context): List[Type] = tpe.dealias match {
-    case and: AndType => conjuncts(and.first) ++ conjuncts(and.second)
-    case other        => List(other)
-  }
-
-  /** The types no other one lies above (`below(a, b)`: `a` lies below `b`), in order; of two equal
-    * ones, the first. With `below` turned around, the narrowest.
-    */
-  def maximal(types: List[Type])(below: (Type, Type) => Boolean): List[Type] =
-    types.foldLeft(List.empty[Type]) { (kept, t) =>
-      if (kept.exists(below(t, _))) kept else kept.filterNot(below(_, t)) :+ t
-    }
-
-  /** Whether a type is `Any` or reads as it (`AnyRef`, which is `Object`, and `Matchable`;
-    * AGENTS.md).
-    */
-  def top(tpe: Type)(using Context): Boolean =
-    World.classNamed(tpe).exists(Set(defn.AnyClass, defn.ObjectClass, defn.MatchableClass))
-
-  /** The class a value of a union's alternative carries at runtime: a class's (a primitive's box),
-    * an object's, a literal's; none for any other type.
-    */
-  def runtimeClass(tpe: Type)(using Context): Option[ClassSymbol] = (tpe.dealias match {
-    case path: TermRef =>
-      path.optSymbol.collect { case s: TermSymbol => s }.flatMap(_.moduleClass)
-    case constant: ConstantType => World.classNamed(constant.underlying)
-    case other                  => World.classNamed(other)
-  }).map(c => Boxes.get(c.displayFullName).fold(c)(summon[Context].findStaticClass))
-
-  private val Boxes = Map(
-    "scala.Unit" -> "scala.runtime.BoxedUnit",
-    "scala.Boolean" -> "java.lang.Boolean",
-    "scala.Char" -> "java.lang.Character",
-    "scala.Byte" -> "java.lang.Byte",
-    "scala.Short" -> "java.lang.Short",
-    "scala.Int" -> "java.lang.Integer",
-    "scala.Long" -> "java.lang.Long",
-    "scala.Float" -> "java.lang.Float",
-    "scala.Double" -> "java.lang.Double"
-  )
-
   /** A class written `final`: the closed world's finality is `World.extended`'s to say. */
   def isFinal(c: ClassSymbol): Boolean = c.openLevel == OpenLevel.Final
 
@@ -963,6 +843,65 @@ private[compiled] object Shapes {
   /** A record of `name` left where it has `what` (`left`). */
   private def unread(name: String)(left: Boolean, what: String): Either[Unread, Unit] =
     Either.cond(!left, (), Unread.Uncovered(s"a capability record $what: $name"))
+
+  /** A type built of static classes and constants alone: no type parameter, abstract member, path
+    * or other form a reduction would have to reason about.
+    */
+  private def ground(tpe: TypeOrWildcard)(using Context): Boolean = tpe match {
+    case ref: TypeRef if ref.dealias ne ref => ground(ref.dealias)
+    case ref: TypeRef                       =>
+      ref.optSymbol.exists {
+        // `Null` is below every nullable class: tasty-query reduces on it where scalac does not.
+        case c: ClassSymbol => World.inObjects(c) && c != defn.NullClass
+        case _              => false
+      }
+    case applied: AppliedType if applied.dealias ne applied => ground(applied.dealias)
+    case applied: AppliedType => ground(applied.tycon) && applied.args.forall(ground)
+    case _: ConstantType      => true
+    case _                    => false
+  }
+
+  /** The unbounded type parameter `ref` names where it is held rigid: a method's, or a class's own
+    * through `this` (not one selected on another instance, whose bounds a prefix may change).
+    */
+  def rigidParameter(ref: TypeRef)(using Context): Option[TypeParamSymbol] =
+    ref.optSymbol.collect {
+      case p: TypeParamSymbol if Shapes.unbounded(p.declaredBounds) && (ref.prefix match {
+            case NoPrefix       => true
+            case self: ThisType => self.cls == p.owner
+            case _              => false
+          }) =>
+        p
+    }
+
+  /** The component a match type's single case projects, as (arity, 1-based index): a pattern
+    * `TupleN` over distinct binders of the case, whose result is one of them (the TASTy counterpart
+    * of the old `MethodProjections.projection`; `Tuple1` is no tuple syntax there).
+    */
+  private def projection(cases: List[MatchTypeCase])(using Context): Option[(Int, Int)] =
+    cases match {
+      case List(single) =>
+        def binder(tpe: Type) = tpe match {
+          case ref: TypeParamRef if ref.binder eq single => Some(ref.paramNum)
+          case _                                         => None
+        }
+        single.pattern match {
+          case pattern: AppliedType
+              if pattern.args.sizeIs >= 2 &&
+                World
+                  .classNamed(pattern)
+                  .exists(_.displayFullName == s"scala.Tuple${pattern.args.size}") =>
+            StuckProjections.component(
+              pattern.args.map {
+                case argument: Type => binder(argument)
+                case _              => None
+              },
+              binder(single.result)
+            )
+          case _ => None
+        }
+      case _ => None
+    }
 
   /** A sealed trait or abstract class, which is the sum of its subtypes; an enum is read by its own
     * rule.
