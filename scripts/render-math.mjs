@@ -92,30 +92,37 @@ function closeFence(fence, closer, file) {
   return [mathml ?? fence.body.join("\n")];
 }
 
-function transformMarkdown(source, file) {
-  const out = [];
-  let fence = null; // { marker, info, body, startLine } while inside a fenced block
-  for (const [i, line] of source.split("\n").entries()) {
-    if (fence && line.trimStart().startsWith(fence.marker)) {
-      out.push(...closeFence(fence, line, file));
-      fence = null;
-    } else if (fence) {
-      fence.body.push(line);
+// Advance the fence state machine by one line, appending to state.out.
+function advance(state, line, file) {
+  if (state.fence) {
+    if (line.trimStart().startsWith(state.fence.marker)) {
+      state.out.push(...closeFence(state.fence, line, file));
+      state.fence = null;
     } else {
-      const opened = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
-      if (opened) {
-        fence = {
-          marker: opened[1],
-          info: opened[2].trim().split(/\s+/)[0] ?? "",
-          body: [],
-          startLine: i + 1,
-        };
-      } else {
-        out.push(inlineMath(line, file, i + 1));
-      }
+      state.fence.body.push(line);
     }
+    return;
   }
-  return out.join("\n");
+  const opened = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+  if (opened) {
+    state.fence = {
+      marker: opened[1],
+      info: opened[2].trim().split(/\s+/)[0] ?? "",
+      body: [],
+      startLine: state.lineNo,
+    };
+  } else {
+    state.out.push(inlineMath(line, file, state.lineNo));
+  }
+}
+
+function transformMarkdown(source, file) {
+  const state = { out: [], fence: null, lineNo: 0 };
+  for (const line of source.split("\n")) {
+    state.lineNo += 1;
+    advance(state, line, file);
+  }
+  return state.out.join("\n");
 }
 
 function walk(dir) {
