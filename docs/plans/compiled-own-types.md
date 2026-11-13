@@ -302,6 +302,9 @@ is worse. Not covered by a regression: a Scala 2 parent class with constructor p
 2 compiler in the tests). `Shapes.clash`, `abstractType` and `unread` are shared with the module's
 record now. Next: records' abstract type members (the old reading opens an unbounded one as the
 witness of a package, `Shape.Existential`), then bounded abstract type members on receivers.
+Edits to the shared coverage memory after the third commit (targeted inserts of rows newly
+measured, every earlier line kept, none removed): cats-core 7 (the rows stretch 11 freed, whose
+derivations the first commit adds), corpus-core 1,143 (the scalameta records' `?`), fixtures 3.
 
 ### Commands
 
