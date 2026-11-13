@@ -2214,6 +2214,64 @@ public member reading a later clause beside the extractor. The same gap stands i
 a final class of the module (`Shapes.record`): `observed` follows only the class's own body. Left
 until observation is read over every definition the site may reach.
 
+### Group h5: constructors
+
+- **Recursive positions only (coordinator decision).** The constructor rows that keep the stored
+  estimate through `Observers`' `own` clause (every field of the class observed in its own
+  constructor) were checked by switching the clause off: 19 fixture rows move, 17 identical and 2
+  better (`St(head: Boolean, tail: => St)`, `Dead`, `R`, `Loop`, `Loop2`, `Inf` ×2, `Timeline` ×2,
+  `M3`, `CoNat` ×2, `Stream`, `O.St`, `K9`, `B7`, `H9`, and `D(q: C)(x: q.X)` ×2 with `C.X = D`).
+  Each position's type reaches the class itself, so each is recursive and keeps the estimate; no
+  row changed. The 12 "a constructor position the method side refuses" rows are refused for other
+  reasons (a sealed subtype hiding a parameter, a type argument `Nothing` the estimate is not handed,
+  an intersection, an anonymous instance) and stay `?`.
+- **Secondary constructors** (`Constructors.secondary`, from `Readings.method` through
+  `Constructors.count`): a method from the secondary's parameters to the tuple of the primary's
+  arguments, built on the instances around the class as the primary's row is, the primary's
+  copies of the class's type parameters bound as the class's are (the old
+  `SecondaryConstructors`). A position over the class itself is refused (no estimate for a
+  secondary). Bodies after the self-invocation (`<init#k>`) stay refused (g5's decision: the call
+  fixes the fields).
+- **Valued positions** (`Constructors.read`, the old `readPosition`): a singleton or evidence
+  beside values with no type parameter is a value space; beside a top the method side reads it
+  (`ClosedSpaces.pointed`, a singleton its one value), else the estimate's size, unless the method
+  side's `pointed` reading disagrees with it, or the estimate says 0 with nothing to compare
+  (`(Sing.type, Nothing => Boolean)` is `?`, where the old reading takes the estimate's 0).
+- **Rule B on the stored side** (`Stored.restricted`): a class without type parameters whose
+  constructor is restricted and that nothing supplied extends holds what its public builders build
+  (`Factories.builders`, shared with the method side's `space`): each at most min(its parameters,
+  the observed fields), the class the largest. The site is `defn.RootPackage`, outside every
+  template. Observed fields (`Factories.observed(…, outside = true)`) add, beside the old reading's
+  public members, every field module code outside the class names (a companion's, another class's,
+  a default argument's, through private members of the class in turn) or that a member it
+  implements names, and every field of a case class (a pattern may extract it): an over-reading
+  where such a mention is unreachable, never the undercount g2's review found. A class something
+  extends stays `a restricted constructor` (a subclass's `super` call builds it too); one with type
+  parameters keeps its fields' product (as the old estimate). In a recursive system such a class is
+  read through what it names, as a family is (`constructors`).
+- **Fixed for the method side too** (`Factories`): a factory counts as a closed bound only where
+  every template around it is an object (`World.inObjects`): one in an object nested in a class
+  may build from the instance (was `Some(params)`, an undercount); a restriction on the class
+  built or a template around it is disregarded (rule B). No method row moved.
+- Derived (`derived.txt`): `fx.V.Two` 2 and `fx.V` 3: the public factory `V.of(a: Boolean): V`
+  builds `Two` in one branch, min(2, the publicly shown `a`) = 2, `V = E + Two` = 3, as the old
+  method side reads `out.Use.f` (2^3 = 8); the old estimate searched only `Two`'s companion.
+- Not taken: part 2 of rule B for sealed cases (method side; `/tmp/g2/part2-wip.patch`): its holes
+  are on the method side's per-site observation, which still follows only the class's own body;
+  the sealed-subtype rows whose clause passes a parameter of another variance or bound (`Have[A]
+  extends Opt[+A]`), which `Sums.carried` refuses for soundness (a contravariant use of the
+  parameter would make the subtype's values unobservable), and parents in a class.
+- Regressions: `ConstructionSpec` (`secondary`, `singletons`, `restricted`).
+
+Old numeric rows still uncovered (methods; definitions), integration → h5: fixtures 399 → 371;
+46 → 27, cats-core 28 → 28; 3 → 1, cats-eo 12 → 11; 3 → 1, cats-eo-schemes definitions 1 → 0,
+the rest unchanged. Every freed row is identical but the two derived `fx` rows; cats-core's
+`ZipNonEmptySeq.<init>` and `ZipNonEmptyVector.<init>` go from uncovered to better (old `?` for an
+unresolved name; ω, as `Chain.Wrap`): the estimate now gives a restricted generic class its
+fields' product, so the position's method-side reading stands. Two fixture rows `Base` (`Scopes`,
+restricted constructor, extended by `Below`) stay uncovered: a class something extends is not
+read by its builders.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

@@ -476,7 +476,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         // call to build one, over the fields it observes (rule B).
         shape <-
           if (fixed && !public)
-            factories.space(template, site, read).map(Shape.Ground(name, _))
+            factories.space(template, site, read, this).map(Shape.Ground(name, _))
           else receivers.record(template, site, read)
       } yield shape
   }
@@ -605,9 +605,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         case _            => false
       }
 
-  private lazy val factories = new Factories(world, this)
+  private lazy val factories = new Factories(world)
 
-  private lazy val observers = new Observers(of, factories.observed)
+  private lazy val observers = new Observers(of, factories.observed(_, _))
 
   // A trait or plain class whose only members are types: no observation tells two of its values
   // apart, and it has a value where each abstract member can be given a type (one bound at most).

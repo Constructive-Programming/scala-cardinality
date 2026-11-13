@@ -49,17 +49,18 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     * it supply. A class's row measures its primary constructor.
     */
   def method(tree: ValOrDefDef): Either[String, (Count, List[String])] = {
-    val primary = Readings.primary(tree.symbol)
-    // A constructor runs where its class is declared: the instance it builds does not exist yet.
-    val owner = if (primary) tree.symbol.owner.owner else tree.symbol.owner
+    // A constructor, primary or secondary, runs where its class is declared: the instance it
+    // builds does not exist yet.
+    val constructs = World.isConstructor(tree.symbol)
+    val owner = if (constructs) tree.symbol.owner.owner else tree.symbol.owner
     for {
-      _ <- if (primary) Right(()) else Readings.later(tree.symbol)
+      _ <- if (constructs) Right(()) else Readings.later(tree.symbol)
       // A constructor row reads the classes around its class; a member reads its receivers.
       // A local definition reads the methods it is written in, then the classes around them.
-      (methods, top) <- if (primary) Right(Nil -> owner) else enclosing(owner, tree.symbol)
-      scope <- if (primary) Right(Local.Plain) else local(tree, methods)
+      (methods, top) <- if (constructs) Right(Nil -> owner) else enclosing(owner, tree.symbol)
+      scope <- if (constructs) Right(Local.Plain) else local(tree, methods)
       around <-
-        if (!primary) receivers.around(top)
+        if (!constructs) receivers.around(top)
         // A class in a class is built on an instance of the class around it, whose state its
         // constructor's positions may take; an object holds no such state.
         else
@@ -70,7 +71,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       count <-
         // A constructor builds its instance: its row reads its parameters only.
         if (
-          primary || built(
+          constructs || built(
             top,
             // The member of `top` the definition is: itself or the method it is written in.
             (methods :+ tree).find(_.symbol.owner == top).getOrElse(tree).symbol,
@@ -78,7 +79,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           )
         )
           (tree match {
-            case constructor: DefDef if primary =>
+            case constructor: DefDef if constructs =>
               constructorSearch(constructor).flatMap(_ => constructors.count(constructor, around))
             case _ => bounded(counted(tree, around, methods, scope, _))
           }).map(_ -> captures(tree, around, methods)).left.flatMap {
