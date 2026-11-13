@@ -344,8 +344,31 @@ final private[compiled] class Stored(world: World)(using Context) {
     case and: AndType => both(and.first, and.second, env)(_.min(_)).map(_.copy(undecided = true))
     case refined: RefinedType        => refinement(refined, env)
     case World.Named(ref, arguments) => named(ref, arguments, env)
+    case matched: MatchType          => matchType(matched, env)
     case other                       => Left(s"a type: ${other.showBasic}")
   }
+
+  // A match type is what the compiler reduces it to, where the method side trusts the reduction
+  // (`Shapes.trusted`); one stuck on a type parameter that stands for what the
+  // instance chooses is what the instance chooses, as the parameter is.
+  private def matchType(matched: MatchType, env: Env): Either[String, Held] =
+    (Shapes.trusted(matched), matched.reduced, matched.scrutinee.dealias) match {
+      case (Some(reduced), _, _)   => of(reduced, env)
+      case (_, None, ref: TypeRef) =>
+        ref.optSymbol match {
+          case Some(binder) if env.binders.contains(binder) =>
+            val held = env.binders(binder)
+            Either.cond(
+              held.reasons.nonEmpty && held.reasons.forall(_.isInstanceOf[Unbound.Parameter]),
+              held,
+              s"a type: ${matched.showBasic}"
+            )
+          case Some(free: (ClassTypeParamSymbol | LocalTypeParamSymbol)) =>
+            Right(Stored.parameter(free))
+          case _ => Left(s"a type: ${matched.showBasic}")
+        }
+      case _ => Left(s"a type: ${matched.showBasic}")
+    }
 
   // A refinement is no more than the type it refines. One written without a type refines `Object`
   // in the tree, as one written `Object { … }` does: the two are not told apart, and the first has
@@ -399,6 +422,8 @@ final private[compiled] class Stored(world: World)(using Context) {
         (member.typeDef, ref.optAliasedType, ref.bounds) match {
           case (_: TypeMemberDefinition.OpaqueTypeAlias, _, _) =>
             opaque(member, env)(written(member, arguments, env))
+          // A match type alias is applied to its arguments, where the compiler reduces it.
+          case (_, Some(body), _) if Stored.matches(body) => applied(body)
           // An alias of the module in an object or a package is read where it is written, its
           // arguments where they are.
           case (_, Some(_), _) if world.ofModule(member) && World.inObjects(member) =>
@@ -825,6 +850,13 @@ private[compiled] object Stored {
       case _ => None
     }
 
+  }
+
+  // Whether an alias's body, under its parameters, is a match type.
+  private def matches(body: Type): Boolean = body match {
+    case lambda: TypeLambda => matches(lambda.resultType)
+    case _: MatchType       => true
+    case _                  => false
   }
 
   // A type parameter no instantiation bound: the size is a function of it.

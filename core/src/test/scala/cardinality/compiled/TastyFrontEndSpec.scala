@@ -910,16 +910,16 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(18)(_))
+          List("package cardinality.compiled").flatMap(List.fill(19)(_))
       )
   }
 
   private lazy val compared =
     Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
 
-  // Four rows of the fixtures are better past a model limit, and derived: `sizes.Seen` stores a
-  // `Prj[Unit]#Me`, which is `Prj`'s A as the prefix fixes it, Unit, one value (the old reading
-  // does not read a projection through an applied type); and three families whose one case class
+  // Five rows of the fixtures are better past a model limit, and derived: `sizes.Seen` and its
+  // constructor's one position hold a `Prj[Unit]#Me`, `Prj`'s A as the prefix fixes it, Unit, 1
+  // (the old reading does not read a projection through an applied type); and three families whose one case class
   // nothing extends, final in the closed world, each 2 (`stored`).
   //
   // Four rows are corrections (the owner's ruling on `Ior`): its cases are `Left(a: A)`,
@@ -934,11 +934,11 @@ class TastyFrontEndSpec extends Specification {
       .filter(c => c.row.name == name && c.verdict != Verdict.Identical)
       .map(_.row.key -> value)
     val closed = List("Loose", "Prot", "Impl").flatMap(name => keys(s"sizes.$name", "2"))
-    val derived = (keys("sizes.Seen", "1") ++ closed).toMap
+    val derived = (keys("sizes.Seen", "1") ++ keys("sizes.Seen.<init>", "1") ++ closed).toMap
     val corrected = (keys("sizes.Ior", "0 -> ? A; B") ++ keys("sizes.Iors", "0 -> 8") ++
       keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8")).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (4, 4))
+      .and((derived.size, corrected.size) must_== (5, 4))
       .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
       .and(Differential.unused(compared.compared, corrected) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))

@@ -3,9 +3,10 @@ package cardinality.compiled
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import org.specs2.Specification
 
-/** Match types in the compiled front end: what the compiler reduces one to, or a stuck projection
-  * of an unbounded type parameter (`StuckProjections`, members MT3). Every expected count is
-  * derived in its example's comment.
+/** Match types in the compiled front end: what the compiler reduces one to (at the arguments a
+  * class was named with, for its own parameters), or a stuck projection of an unbounded type
+  * parameter (`StuckProjections`, members MT3). Every expected count is derived in its example's
+  * comment.
   */
 class MatchTypesSpec extends Specification {
 
@@ -14,6 +15,9 @@ class MatchTypesSpec extends Specification {
     a reduced match type is its result                        $reduced
     a stuck projection of a type parameter is an atom         $stuck
     projections no single instantiation reduces are refused   $refused
+    a class's parameter is the argument the class is named    $argument
+    in a constructor's position, at the alias's arguments     $positions
+    a tuple a single case projects reduces whatever it holds  $projected
     any other stuck match type is not read yet                $later
   """
 
@@ -38,6 +42,14 @@ class MatchTypesSpec extends Specification {
       |  def nul(x: IsStr[Null]): IsStr[Null] = x
       |}
       |final class P[A](val x: Fst[A], val y: Fst3[A])
+      |final case class Miss[A](fst: Fst[A])
+      |final class UInt(h: IsInt[Int])
+      |final class UStr(h: IsInt[String])
+      |object C {
+      |  def m2(x: Boolean): Miss[(Boolean, Unit)] = ???
+      |  def m6[A](m: Miss[(A, Unit)]): A = ???
+      |  def proj[A](x: A, y: A): Fst[(A, Unit)] = x
+      |}
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("MatchTypes.scala" -> text)
@@ -70,13 +82,35 @@ class MatchTypesSpec extends Specification {
     )
 
   // `Fst[A]` beside the three-way `Fst3[A]`: no instantiation of A reduces both, so the model has
-  // no reading of the pair (the old reason).
+  // no reading of the pair (the old reason); likewise `P`'s two positions over its parameter.
   private def refused =
-    count("M.mixed").toString must contain("have no common reducing instantiation")
+    List("M.mixed", "P.<init>")
+      .map(count(_).toString)
+      .must(contain(contain("have no common reducing instantiation")).forall)
+
+  // A class's field over its parameter is read at the argument the class is named with:
+  // `Miss[(Boolean, Unit)]` holds a `Fst[(Boolean, Unit)]`, a `Boolean`, so `m2` is
+  // `Boolean => Boolean`, 4; `Miss[(A, Unit)]` holds an A, so `m6` has `m.fst`, 1. In a
+  // constructor's position: `Fst[A]` is the stuck projection of the class's parameter, one slot the
+  // caller fills, 1.
+  private def argument =
+    List("C.m2", "C.m6", "Miss.<init>").map(count) must_== List(
+      Count.Finite(4),
+      Count.Finite(1),
+      Count.Finite(1)
+    )
+
+  // A constructor's position over a match type is read at the alias's arguments by the stored
+  // estimate too, which agrees: `IsInt[Int]` is `Boolean`, 2; `IsInt[String]` is `Unit`, 1.
+  private def positions =
+    List("UInt.<init>", "UStr.<init>").map(count) must_== List(Count.Finite(2), Count.Finite(1))
+
+  // `(A, Unit) match { case (f, s) => f }` is A for every A (scalac reduces a tuple of the
+  // pattern's arity whatever its components): `proj` has x or y, 2.
+  private def projected = count("C.proj") must_== Count.Finite(2)
 
   // `IsInt[A]` on an abstract A needs the compiler's disjointness of A from `Int`: not read yet.
-  // Nor a match type in a constructor's position (`P`), which tasty-query hands over with the
-  // alias's own parameter as its scrutinee. Nor one tasty-query reduces on an abstract scrutinee:
+  // Nor one tasty-query reduces on an abstract scrutinee:
   // it reads `Fst[T]` for a `T <: (Int, String)` as `Int`, where scalac keeps it stuck (an `Int`
   // result for `x` does not compile), so its 2^(2^37) would be a wrong number; likewise `IsStr[Null]`,
   // which tasty-query reads as `Boolean` (`Null` is below `String`) and scalac keeps stuck.
@@ -84,6 +118,5 @@ class MatchTypesSpec extends Specification {
     (count("M.open").toString must contain("a type: (A match"))
       .and(count("M.bounded").toString must contain("a type: (T match"))
       .and(count("M.nul").toString must contain("a type: (scala.Null match"))
-      .and(count("P.<init>").toString must contain("a type: (T match"))
 
 }

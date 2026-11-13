@@ -118,7 +118,13 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           for {
             _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
             _ <- searched(declared.toType, parameters)
-            held <- receivers.bindings(around, tree.symbol, env)
+            // A local definition's methods may declare givens in their bodies, and a
+            // context-function result puts binders around every body: not read yet.
+            found <-
+              if (methods.isEmpty && !functionResult(declared.toType))
+                receiverSearch(around, tree.symbol, parameters)
+              else Right(Set.empty[Symbol])
+            held <- receivers.bindings(around, tree.symbol, env, found)
             captured <- Traversals.sequence(methods.map { method =>
               val taken = Shapes.parameters(method)
               Readings
@@ -150,52 +156,61 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   // An anonymous contextual parameter of the measured method is found by implicit search alone.
   // A body is counted, not searched, and what one declares tells nothing of the others; what
   // encloses the method is shallower and loses (`ContextualScope` of the old front end). So its
-  // competitors are the method's other contextual parameters: one of its very type makes it
-  // ambiguous (refused); each other one must be of a different class, read by its declaration or
-  // final (the old reading knows only those classes' bases) and not `Null`, neither class
-  // extending the other. Otherwise, and beside a context-function result, which puts binders
-  // around every body, it is not read yet.
+  // competitors are the method's other contextual parameters (`apart`). Beside a context-function
+  // result, which puts binders around every body, it is not read yet.
   private def searched(result: Type, parameters: List[ValDef]): Either[Unread, Unit] = {
     val contextual = parameters.filter(p => Readings.contextual(p.symbol))
+    if (!contextual.exists(Readings.anonymous)) Right(())
+    else if (functionResult(result))
+      Left(Uncovered("an anonymous contextual parameter beside a context-function result"))
+    else apart(contextual.filter(Readings.anonymous), contextual)
+  }
+
+  private def functionResult(result: Type) =
+    World.classNamed(result).exists(_.displayFullName.startsWith("scala.ContextFunction"))
+
+  // Whether search tells each anonymous parameter apart from every other contextual one it competes
+  // with: one of its very type at its own definition makes it ambiguous (refused); each other one
+  // must be of a different class, read by its declaration or final (the old reading knows only those
+  // classes' bases) and not `Null`, neither class extending the other, or of its class over
+  // distinct rigid parameters (`unrelated`). Otherwise it is not read yet. A refusal of the model is
+  // reported first, as the old front end reports every one.
+  private def apart(evidence: List[ValDef], competitors: List[ValDef]): Either[Unread, Unit] = {
     def known(c: ClassSymbol) =
       c != defn.NullClass && (world.readByDeclaration(c) || Shapes.isFinal(c))
-    val verdicts = contextual.filter(Readings.anonymous).flatMap { p =>
-      contextual.filter(_ != p).map { q =>
-        val (mine, theirs) = (p.tpt.toType, q.tpt.toType)
-        (World.classNamed(mine), World.classNamed(theirs)) match {
-          case _ if mine.isSameType(theirs) =>
-            Left(Unread.Refused(s"ambiguous anonymous evidence: ${mine.showBasic}"))
+    val verdicts = evidence.flatMap { p =>
+      competitors.filter(_ != p).map { q =>
+        val (mine, theirs) = (Readings.seen(p), Readings.seen(q))
+        (mine.flatMap(World.classNamed), theirs.flatMap(World.classNamed)) match {
+          case _ if mine.isEmpty || theirs.isEmpty =>
+            Left(
+              Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}")
+            )
+          case _ if mine.get.isSameType(theirs.get) && p.symbol.owner == q.symbol.owner =>
+            Left(Unread.Refused(s"ambiguous anonymous evidence: ${mine.get.showBasic}"))
           case (Some(a), Some(b))
               if a != b && known(a) && known(b) && !a.isSubClass(b) && !b.isSubClass(a) =>
             Right(())
-          case (Some(a), Some(b)) if a == b && Readings.unrelated(mine, theirs) => Right(())
-          case _                                                                =>
+          case (Some(a), Some(b)) if a == b && Readings.unrelated(mine.get, theirs.get) =>
+            Right(())
+          case _ =>
             Left(
               Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}")
             )
         }
       }
     }
-    if (!contextual.exists(Readings.anonymous)) Right(())
-    else if (World.classNamed(result).exists(_.displayFullName.startsWith("scala.ContextFunction")))
-      Left(Uncovered("an anonymous contextual parameter beside a context-function result"))
-    else
-      // A refusal of the model first, as the old front end reports every one.
-      verdicts
-        .collectFirst { case refused @ Left(_: Unread.Refused) => refused }
-        .orElse(verdicts.find(_.isLeft))
-        .getOrElse(Right(()))
+    verdicts
+      .collectFirst { case refused @ Left(_: Unread.Refused) => refused }
+      .orElse(verdicts.find(_.isLeft))
+      .getOrElse(Right(()))
   }
 
-  // A constructor's anonymous contextual parameter is searched for in its class's body, where the
-  // class's own and inherited contextual definitions and the body's imports compete with it (the
-  // old `ContextualScope` at the template): it is read as the measured method's is (`searched`) only
-  // where the class is written without parents or a self type and its body imports nothing and
-  // declares nothing contextual but its own parameters.
-  private def constructorSearch(constructor: DefDef): Either[Unread, Unit] = {
-    val parameters = Shapes.parameters(constructor)
-    val owner = constructor.symbol.owner.asClass
-    val quiet = owner.tree.exists { cls =>
+  // Whether a class's body leaves its constructor's contextual parameters alone in a search from
+  // inside it: written without parents or a self type, importing nothing and declaring nothing
+  // contextual but its parameters (the old `ContextualScope` reads the template's candidates).
+  private def quiet(owner: ClassSymbol): Boolean =
+    owner.tree.exists { cls =>
       Shapes.parentless(cls) && World.ownSelf(owner) && cls.rhs.body.forall {
         case _: Import           => false
         case member: ValOrDefDef =>
@@ -203,14 +218,49 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         case _ => true
       }
     }
+
+  // A constructor's anonymous contextual parameter is searched for in its class's body, where the
+  // class's own and inherited contextual definitions and the body's imports compete with it: it is
+  // read as the measured method's is (`searched`) only where its class is `quiet`.
+  private def constructorSearch(constructor: DefDef): Either[Unread, Unit] = {
+    val parameters = Shapes.parameters(constructor)
+    val owner = constructor.symbol.owner.asClass
     if (!parameters.exists(Readings.anonymous)) Right(())
-    else if (!quiet)
+    else if (!quiet(owner))
       Left(
         Uncovered(
           s"an anonymous contextual parameter beside the class's contextual scope: ${owner.name}"
         )
       )
     else searched(owner.appliedRefInsideThis, parameters)
+  }
+
+  // The receivers whose anonymous contextual parameters (a context bound's evidence) search from
+  // the measured definition finds: each such parameter competes with every contextual parameter at
+  // its class or deeper, those of the classes inside it and the definition's own (`deeper`), as the
+  // old `ContextualScope` places them (a shallower one loses), and every template from its class
+  // down to the definition, objects included, is `quiet`. Any other receiver is left to
+  // `Readings.plainInputs`, which leaves the row uncovered.
+  private def receiverSearch(
+      around: List[ClassDef],
+      measured: Symbol,
+      deeper: List[ValDef]
+  ): Either[Unread, Set[Symbol]] = {
+    def inside(c: ClassSymbol) =
+      World.owners(measured).collect { case t: ClassSymbol => t }.takeWhile(_ != c) :+ c
+    val found = around.tails.collect {
+      case c :: below
+          if Shapes.parameters(c.rhs.constr).exists(Readings.anonymous) &&
+            inside(c.symbol).forall(quiet) =>
+        val parameters = Shapes.parameters(c.rhs.constr)
+        val competitors =
+          parameters ++ below.flatMap(k => Shapes.parameters(k.rhs.constr)) ++ deeper
+        apart(
+          parameters.filter(Readings.anonymous),
+          competitors.filter(p => Readings.contextual(p.symbol))
+        ).map(_ => c.symbol)
+    }.toList
+    Traversals.sequence(found).map(_.toSet)
   }
 
   // A member's type parameters, value parameters and declared result.
@@ -423,6 +473,19 @@ private[compiled] object Readings {
       .find(anonymous)
       .map(p => Unread.Uncovered(s"an anonymous contextual parameter: ${p.name}"))
       .toLeft(())
+
+  // A parameter's type as its class's members see it: a constructor's parameter names the
+  // constructor's copies of the class's type parameters, its field the class's own; none without
+  // a field.
+  private def seen(parameter: ValDef)(using Context): Option[Type] = {
+    val owner = parameter.symbol.owner
+    if (!World.isConstructor(owner)) Some(parameter.tpt.toType)
+    else
+      owner.owner.asClass
+        .getDecl(parameter.name)
+        .collect { case field: TermSymbol if field.isParamAccessor => field.declaredType }
+        .collect { case tpe: Type => tpe }
+  }
 
   def contextual(symbol: TermSymbol): Boolean = symbol.isGivenOrUsing || symbol.isImplicit
 

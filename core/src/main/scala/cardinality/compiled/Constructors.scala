@@ -75,7 +75,7 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
         }
         .toLeft(())
       env = Shapes.Env.of(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
-      held <- receivers.bindings(around, constructor.symbol, env)
+      held <- receivers.bindings(around, constructor.symbol, env, Set.empty)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
     } yield Constructors.product(self, placed, held)
   }

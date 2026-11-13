@@ -41,7 +41,9 @@ private[compiled] enum Unread {
   * A literal type is its one constant, and a written `p.type` the one value p (`singleton`). A
   * union is the tagged sum of its alternatives where their values are told apart
   * (`Relations.union`), an intersection its narrowest part (`Relations.intersection`), a match type
-  * what the compiler reduces it to or a stuck projection's atom (`matchType`).
+  * what the compiler reduces it to, on the arguments a class was named with (`Env.written`), or a
+  * stuck projection's atom (`matchType`). Paths, refinements and the polymorphic identity are read
+  * by `PathTypes`.
   *
   * A type that reaches itself and an enum's class case as a type are refused (`recursive type not
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`, each
@@ -53,13 +55,14 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
 
   private val sums = new Sums(world, this)
   private val relations = new Relations(world, of)
+  private val paths = new PathTypes(of)
 
   /** The shape of `tpe` read from `env`'s site, its type parameters bound as `env` says. */
   // A value `preceding` is the one a class written as the whole type names (the old front end
   // anchors it at that type): what it is read through or holds is not.
   def of(tpe: Type, env: Env): Either[Unread, Shape] = {
     val parts = env.copy(preceding = false)
-    tpe.dealias match {
+    PathTypes.follow(tpe) match {
       case by: ByNameType => of(by.resultType, parts)
       // `Nothing` is a type of its own in the tree, with no class to name.
       case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
@@ -70,29 +73,48 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case or: OrType                  => relations.union(Relations.alternatives(or), parts)
       case and: AndType                => relations.intersection(Relations.conjuncts(and), parts)
       case matched: MatchType          => matchType(matched, parts)
-      case other                       => uncovered(other)
+      case refined: TypeRefinement     => paths.refinement(refined, parts)
+      case refined: TermRefinement if PathTypes.polyIdentity(refined) => Right(Shape.Product(Nil))
+      case other                                                      => uncovered(other)
     }
   }
 
   // A match type is what the compiler reduces it to; one stuck on an unbounded type parameter under
   // a single tuple projection (`A match { case (f, s) => f }`), without a bound, is the projection's
-  // atom (`StuckProjections`, members MT3), and `Readings` refuses arities no instantiation meets.
+  // atom (`StuckProjections`, members MT3), and `Readings` refuses arities no instantiation meets. A
+  // scrutinee that is a class's parameter is the argument the class was named with (`Env.written`).
   private def matchType(matched: MatchType, env: Env): Either[Unread, Shape] =
-    matched.reduced match {
-      // tasty-query reduces on an abstract scrutinee where scalac does not (`Fst[T]` for a
-      // `T <: (Int, String)` is `Int` there, stuck in scalac): trusted on a ground one only.
-      case Some(reduced) if Shapes.ground(matched.scrutinee) => of(reduced, env)
-      case Some(_)                                           => uncovered(matched)
-      case None                                              =>
-        val stuck = for {
-          (arity, index) <- Shapes.projection(matched.cases)
-          if matched.bound.isSameType(defn.AnyType)
-          case ref: TypeRef <- Some(matched.scrutinee.dealias)
-          parameter <- Shapes.rigidParameter(ref)
-          if Shapes.binds(ref, parameter, env)
-          id <- env.binding(parameter).toOption.collect { case Shape.Atom(id) => id }
-        } yield Shape.Atom(StuckProjections.Projection(arity, index, id))
-        stuck.toRight(Uncovered(s"a type: ${matched.showBasic}"))
+    (matched.scrutinee.dealias match {
+      case ref: TypeRef => ref.optSymbol.filter(Shapes.binds(ref, _, env)).flatMap(env.written.get)
+      case _            => None
+    }) match {
+      case Some((argument, outer)) =>
+        // Read with the binders of both sites, as a written constructor is (`bound`); the
+        // argument's own parameters are the arguments of the site that wrote it, an earlier one.
+        env.under(outer) match {
+          case None =>
+            Left(Uncovered(s"a match type over a parameter bound again: ${matched.showBasic}"))
+          case Some(both) =>
+            matchType(
+              MatchType(matched.bound, argument, matched.cases),
+              both.copy(written = outer.written)
+            )
+        }
+      case None =>
+        (Shapes.trusted(matched), matched.reduced) match {
+          case (Some(reduced), _) => of(reduced, env)
+          case (_, Some(_))       => uncovered(matched)
+          case _                  =>
+            val stuck = for {
+              (arity, index) <- Shapes.projection(matched.cases)
+              if matched.bound.isSameType(defn.AnyType)
+              case ref: TypeRef <- Some(matched.scrutinee.dealias)
+              parameter <- Shapes.rigidParameter(ref)
+              if Shapes.binds(ref, parameter, env)
+              id <- env.binding(parameter).toOption.collect { case Shape.Atom(id) => id }
+            } yield Shape.Atom(StuckProjections.Projection(arity, index, id))
+            stuck.toRight(Uncovered(s"a type: ${matched.showBasic}"))
+        }
     }
 
   // A literal type's one value, named as the old front end names it (`LiteralTypes`); a floating
@@ -111,8 +133,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     path.optSymbol match {
       case Some(term: TermSymbol) if term.owner.isTerm =>
         (term.owner, term.declaredType) match {
-          case (method: TermSymbol, declared: Type)
-              if method.paramSymss.exists(_.left.exists(_.contains(term))) =>
+          case (method: TermSymbol, declared: Type) if PathTypes.methodParameter(term) =>
             of(declared, env).map(read =>
               Shape.Singleton(s"${method.displayFullName}.${term.name}", Some(read))
             )
@@ -143,7 +164,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // constructor is the type written. A class or an opaque alias is its name over its arguments'
   // keys (an alias is followed first: `Id[A]` is `A`); a literal type, its constant. A binder bound
   // to a value's shape, and any other form, is not read.
-  private def key(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
+  private def key(tpe: Type, env: Env): Either[Unread, Shape] = PathTypes.follow(tpe) match {
     case constant: ConstantType      => literal(constant).map(LiteralTypes.nominal)
     case World.Named(ref, arguments) =>
       applied(arguments).flatMap { proper =>
@@ -221,8 +242,13 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         Traversals.sequence(shapes).flatMap { read =>
           library.flatMap(standard(_, read)) match {
             case Some(known)                        => known
-            case None if world.readByDeclaration(c) => declared(c, read, env)
-            case None if World.standard(c)          =>
+            case None if world.readByDeclaration(c) =>
+              declared(
+                c,
+                read,
+                env.copy(written = env.written ++ c.typeParams.zip(arguments.map(_ -> env)))
+              )
+            case None if World.standard(c) =>
               Left(Uncovered(s"a class of a dependency: ${c.displayFullName}"))
             case None => withoutTasty(c, env)
           }
@@ -230,9 +256,12 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case Some(alias: TypeMemberSymbol) =>
         alias.typeDef match {
           case TypeMemberDefinition.OpaqueTypeAlias(_, body) => opaque(alias, body, arguments, env)
+          case _ if arguments.isEmpty                        => paths.member(ref, env)
           case _                                             => uncovered(ref)
         }
-      case _ => uncovered(ref)
+      // A member a refinement declares (`p: { type X }`) has no symbol.
+      case None if arguments.isEmpty => paths.member(ref, env)
+      case _                         => uncovered(ref)
     }
 
   // The type constructors written as type arguments (`Functor[[X] =>> Either[E, X]]`,
@@ -269,15 +298,11 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       // parameter passed back to the class) would take the applying site's meaning: refused.
       case (Shape.Constructor(id), applied) if closures.contains(id) =>
         val (written, outer) = closures(id)
-        val rebound =
-          outer.binders.exists((symbol, meaning) => env.binders.get(symbol).exists(_ != meaning))
-        if (rebound)
-          Left(Uncovered(s"a written constructor over a parameter bound again: ${ref.showBasic}"))
-        else
-          read(
-            written.appliedTo(applied),
-            env.copy(binders = outer.binders ++ env.binders, unread = outer.unread ++ env.unread)
-          )
+        env.under(outer) match {
+          case None =>
+            Left(Uncovered(s"a written constructor over a parameter bound again: ${ref.showBasic}"))
+          case Some(both) => read(written.appliedTo(applied), both)
+        }
       // A higher-kinded binder applied is an uninterpreted application over its arguments,
       // each read as the type it is (`key`), not as its values.
       case (Shape.Constructor(id), applied) =>
@@ -404,10 +429,11 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     val refused = Shapes.unread(name)
     // What a member of the value returns may be built after it, the receiver among them: only
     // the value itself is `preceding`.
+    val copies = Shapes.typeParameters(template.rhs.constr)
     val read = env.copy(
-      binders = env.binders ++
-        (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap,
-      preceding = false
+      binders = env.binders ++ (copies ++ c.typeParams).zip(bound ++ bound).toMap,
+      preceding = false,
+      written = env.written ++ Shapes.copied(copies, c, env)
     )
     // A template whose construction always throws, or a class written `final abstract`, has no
     // value: the empty sum.
@@ -550,11 +576,11 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     val constructor = tree.rhs.constr
     val copies = Shapes.typeParameters(constructor)
     val bound = (copies.zip(arguments) ++ tree.symbol.typeParams.zip(arguments)).toMap
-    Traversals.sequence(
-      Shapes
-        .parameters(constructor)
-        .map(p => of(p.tpt.toType, env.copy(binders = env.binders ++ bound)))
+    val inside = env.copy(
+      binders = env.binders ++ bound,
+      written = env.written ++ Shapes.copied(copies, tree.symbol, env)
     )
+    Traversals.sequence(Shapes.parameters(constructor).map(p => of(p.tpt.toType, inside)))
   }
 
   private def plainCase(tree: ClassDef): Boolean =
@@ -623,7 +649,9 @@ private[compiled] object Shapes {
     * whether the type is compared with another as a type (`nominal`), where a type of the module is
     * not its shape. A type parameter `unread` is the reason of a type that names it, and of nothing
     * else: an unused parameter's kind tells nothing. A value `preceding` is built before the
-    * measured definition's receiver, which it therefore never is.
+    * measured definition's receiver, which it therefore never is. A class's type parameter
+    * `written` with an argument is that type as the site naming the class wrote it, read there: a
+    * match type over the parameter is the match on the argument.
     */
   final case class Env(
       binders: Map[Symbol, Shape],
@@ -631,12 +659,21 @@ private[compiled] object Shapes {
       visiting: Set[ClassSymbol] = Set.empty,
       nominal: Boolean = false,
       unread: Map[Symbol, Unread] = Map.empty,
-      preceding: Boolean = false
+      preceding: Boolean = false,
+      written: Map[Symbol, (Type, Env)] = Map.empty
   ) {
 
     /** Whether a type parameter is one of the environment's, read or not. */
     def binds(parameter: Symbol): Boolean =
       binders.contains(parameter) || unread.contains(parameter)
+
+    /** The environment with the binders of `outer`, a site that wrote a type read here, beside its
+      * own; none where one symbol is bound differently at the two sites.
+      */
+    def under(outer: Env): Option[Env] =
+      Option.unless(
+        outer.binders.exists((symbol, meaning) => binders.get(symbol).exists(_ != meaning))
+      )(copy(binders = outer.binders ++ binders, unread = outer.unread ++ unread))
 
     /** What a type parameter of the environment stands for, or why it is not read. */
     def binding(parameter: Symbol): Either[Unread, Shape] =
@@ -873,6 +910,33 @@ private[compiled] object Shapes {
           }) =>
         p
     }
+
+  /** The arguments a class was named with (`Env.written`), for the constructor's copies of its type
+    * parameters, which its parameter types name.
+    */
+  def copied(copies: List[Symbol], c: ClassSymbol, env: Env): List[(Symbol, (Type, Env))] =
+    copies.zip(c.typeParams).flatMap((copy, parameter) => env.written.get(parameter).map(copy -> _))
+
+  /** What a match type reduces to where scalac reduces it too: tasty-query reduces on an abstract
+    * scrutinee where scalac does not (`Fst[T]` for a `T <: (Int, String)` is `Int` there, stuck in
+    * scalac), so its reduction is trusted on a ground scrutinee, and on a tuple a single case
+    * projects, which matches whatever its components are.
+    */
+  def trusted(matched: MatchType)(using Context): Option[Type] =
+    matched.reduced.filter(_ => ground(matched.scrutinee) || projects(matched))
+
+  /** Whether a match type's single case projects a component of a tuple of its scrutinee's arity
+    * (`(A, Unit) match { case (f, s) => f }`): scalac reduces it whatever the components are.
+    */
+  private def projects(matched: MatchType)(using Context): Boolean =
+    projection(matched.cases).exists((arity, _) =>
+      matched.scrutinee.dealias match {
+        case applied: AppliedType =>
+          applied.args.sizeIs == arity &&
+          World.classNamed(applied).exists(_.displayFullName == s"scala.Tuple$arity")
+        case _ => false
+      }
+    )
 
   /** The component a match type's single case projects, as (arity, 1-based index): a pattern
     * `TupleN` over distinct binders of the case, whose result is one of them (the TASTy counterpart
