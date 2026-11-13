@@ -1879,7 +1879,7 @@ the same six deleted when this branch is merged; every input passes otherwise.
   contextual but its parameters; otherwise the class body's candidates compete with it, which the
   old `ContextualScope` reads at the template, and the row stays uncovered (a reviewer's finding:
   `final class K[A](using Option[A]) { given Some[A] = null }` would have counted a parameter no
-  search reaches).
+  search reaches). Superseded by group h4: a constructor's evidence competes with its own parameters only.
 - Two contextual parameters of one class whose arguments are rigid unbounded type parameters,
   distinct at some place (`[A: Show, B: Show]`), are never subtypes of each other whatever the
   variance (`Readings.unrelated`, the old `ContextualEvidence.unrelated` over distinct atoms).
@@ -2159,6 +2159,55 @@ in `Readings` and `Receivers`.
   the same type at another site is an unresolved overlap, not ambiguous). A constructor's parameter
   is compared by its field's type, which names the class's own type parameters rather than the
   constructor's copies (`Readings.seen`).
+
+### Group h4: anonymous contextual parameters
+
+The old `ContextualScope` and `ContextualEvidence.unreachable` over symbols, beyond the measured
+method's own evidence (stretch 5, tenth and twelfth units) and receivers' (g6).
+
+- One rule, `Readings#searched(evidence, competitors, wrapping)`: an anonymous parameter competes
+  with the contextual parameters at its method or deeper and with the binders the measured
+  definition's context-function result puts around every body (`binders`): the parameters of the
+  function literals at the head of its body, which the compiler made from the result as it reads
+  it (through projections, paths, match types and inherited aliases alike), or for a declaration
+  without a body the result's clauses. A binder is declared by no site, so it is never ambiguous
+  with a parameter; a literal names it, so it is no evidence.
+- `apart` tells apart, beside the old classes: an unbounded rigid type parameter from a distinct
+  one, and from a class type that is neither a top (`Any`, `Object`, `Matchable`, `Singleton`)
+  nor `Null`/`Nothing` nor a context function (which also answers searches for its result): in a
+  body only those relate to every such parameter (the old `unrelated` over atoms; the old reading
+  keeps `Unit` related as the empty product, the new one does not).
+- A constructor's anonymous parameter competes with its own parameters only. Decision (h4,
+  reverting the twelfth unit's `quiet` rule for constructors): the constructor is a method; its
+  body is the class's, which another implementation need not share ("a body is counted, not
+  searched"), and no instance exists yet whose members, parents or self type could offer a given
+  (the old front end exempts the constructor's own template from its self type for the same
+  reason). The old front end reads it so: `Crowd.<init>` 2, `Selfish.<init>` 2^32 + 1, identical.
+- A captured anonymous parameter of a method around a local definition (a function literal the
+  compiler made around a context-function body included) is a value where `searched` finds it
+  against the parameters of that method and the methods inside it and the definition's own, and
+  no scope between (`Readings#local`, `Scope.offers`) declares a contextual definition, imports,
+  inherits a contextual member through its linearization, or has a foreign self type.
+- A capability's member's anonymous parameter is an argument its caller passes: read like a named
+  one (`Shapes`).
+- Captures name an anonymous parameter as the old front end keys it: `<using#i@path>`, and for a
+  made function literal's binder `<context#i@path>` of the definition whose result it is
+  (`Targets.pathOf`). A function literal's `_` the source writes (`(_: A) ?=> …`) is keyed by a
+  `<lambda#n>` path the report does not spell: not read yet (`Literal.anon.<lambda#1>.<new#1>.get`).
+  The key is of the owners' path only where each is a class, object or member.
+- Correction: `shapes.Context.caller.<block#1>.passed` (`TastyFrontEndSpec`), 4 -> 2^(2^33): the
+  block passed where `run` takes an `Int ?=> Boolean` is the body of a function literal giving an
+  Int, which `passed`'s body may summon; the old reading sees the binders of a definition's own
+  result only. Derived past a model limit (`derived.txt`): `S.fp.l` 1, `S.refined.lr` 2,
+  `O.viaPath.lv` 2^(2^33), `O.viaMatch.lm` 2^(2^65), `O.byName.ln` 2^(2^33), `C2.h2.lka` 1, each a
+  binder of a function literal the compiler made from a result the old reading does not follow.
+
+Regressions: `ContextualSpec` (`captured`, `Crowd`, `Selfish`, `ctx`).
+
+Method rows against `e318915` (identical / better / worse / uncovered; old numeric uncovered):
+cats-core 2,130 / 369 / 72 / 5,080 (284 more identical; 28), fixtures 5,526 / 258 / 3 / 966
+(45 more identical, 6 more better; 358, 41 fewer); the other inputs as at the integration. Of the
+group's 42 fixture rows only `Literal.anon.<lambda#1>.<new#1>.get` stays uncovered.
 
 ### Rule B, first unit (g2): a sealed case's constructor and fields from the site
 

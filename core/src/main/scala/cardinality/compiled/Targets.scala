@@ -352,6 +352,19 @@ private[compiled] object Targets {
     (targets.methods.result(), targets.definitions.result(), targets.unspelled.result().distinct)
   }
 
+  /** The path the report names a definition by, where every owner up to its package is a class, an
+    * object or a member (a block or a function literal around it is named otherwise).
+    */
+  def pathOf(symbol: Symbol): String = {
+    def names(of: Symbol): List[String] = of match {
+      case p: PackageSymbol            => p.fullName.path.map(_.toString)
+      case c: ClassSymbol if holder(c) => names(c.owner)
+      case c: ClassSymbol              => names(c.owner) :+ nameOf(c)
+      case other                       => names(other.owner) :+ other.name.toString
+    }
+    names(symbol).mkString(".")
+  }
+
   // The names of the packages around a top-level class.
   private def packageOf(symbol: Symbol): List[String] = symbol.owner match {
     case p: PackageSymbol => p.fullName.path.map(_.toString)

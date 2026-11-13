@@ -18,6 +18,7 @@ class ContextualSpec extends Specification {
     a given written `= deferred` is what each subclass supplies   $deferred
     an extension method counts over all its clauses               $extensions
     an anonymous parameter no other candidate competes with       $anonymous
+    an anonymous parameter around a definition or told apart      $captured
     what implicit search would choose is not read yet             $later
     the scalameta front end agrees on every row measured          $agrees
   """
@@ -74,6 +75,30 @@ class ContextualSpec extends Specification {
       |object Shared { class s; given s: s = new s }
       |trait Two { given g: Boolean = deferred; given k: Option[Boolean] = Some(g) }
       |trait Exts { extension (b: Boolean) def tag: Boolean; def get: Boolean = true }
+      |trait Get[A] { def get(s: Unit): A }
+      |object Caps {
+      |  def f[A]: A ?=> A = { def g: A = summon[A]; g }
+      |  def mixed[A, B]: A ?=> B ?=> A = { def ga: A = summon[A]; ga }
+      |  def outer[A](using A): Unit = { def inner[B](using B): A = ???; () }
+      |  def held[A]: A ?=> Get[A] = new Get[A] { def get(s: Unit): A = summon[A] }
+      |  def later[A](using A)(a2: A): A = { def inner2(): A = ???; given A = a2; inner2() }
+      |  def shadowed[A](using A): Get[A] =
+      |    new Get[A] { given Option[A] = None; def get(s: Unit): A = ??? }
+      |  def inherits[A](using A): Get[A] = new Base with Get[A] { def get(s: Unit): A = ??? }
+      |  def imports[A](using A): Unit = { import Givens.given; def m: A = ???; () }
+      |  def projected[A](using A): H[A]#T = summon[A]
+      |  def twice[A](using A): Unit = { def inner3(using A): A = ???; () }
+      |}
+      |object Apart {
+      |  def lost[A, B](x: A)(using Option[A], B): A = x
+      |  def both[A, B](using A, B): (A, B) = ???
+      |  def u[A, B](using A): B ?=> A = summon[A]
+      |  def useCb[A](c: CB, a: A): A = a
+      |}
+      |trait Le[M] { def le(x: M, y: M): Boolean }
+      |trait H[A] { type T = A ?=> A }
+      |trait CB { def fold[M: Le](m: M): M }
+      |final class K4[A](a: A)(using A, Boolean)
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Contextual.scala" -> text)
@@ -142,14 +167,18 @@ class ContextualSpec extends Specification {
   // other body, `local` is ω as `Pick[A]` nests, and `near` 2, as `anon`. Two of one type at one
   // level are ambiguous (`same`); an `Option` beside a `List`, classes of the standard library
   // whose bases the old reading does not know, is not read yet (`wide`), nor a `Show` beside a
-  // `Null`, which is below every reference type (`nul`), nor one beside a context-function
-  // result, whose binder may hide it (`ctx`). `both`'s `Pick[A]` and `Pick[B]` are never
-  // subtypes of each other (A and B are distinct and unbounded, rigid in the body), so each is
-  // the one search finds: `pick` nests, ω. A constructor's anonymous parameter is read by the same
-  // rule: `Flat`'s `Option[A]` is a position over A, built from the supplied one or `None`, 2. A
-  // receiver's is found from its members where its class's body declares nothing contextual and
-  // every deeper contextual parameter is told apart from it: `Flat.f` returns `x` or what the
-  // `Option[A]` may hold, 2.
+  // `Null`, which is below every reference type (`nul`). A context-function result's binder is
+  // one more candidate, deeper: `ctx`'s `A` is no `Pick[A]` (a rigid parameter relates to no class
+  // type but the tops and bottoms), so the `Pick[A]` is found, and its `pick` nests: ω.
+  // `both`'s `Pick[A]` and `Pick[B]` are never subtypes of each other (A and B are distinct and
+  // unbounded, rigid in the body), so each is the one search finds: `pick` nests, ω. A
+  // constructor's anonymous parameter is read by the same rule over its own parameters: its body
+  // is the class's, which another implementation need not share, and no instance exists yet whose
+  // members, parents or self type could offer a given. `Flat`'s and `Crowd`'s `Option[A]` is a
+  // position over A, built from the supplied one or `None`, 2; `Selfish`'s `Option[Int]` is
+  // ground, 2^32 + 1. A receiver's is found from its members where its class's body declares
+  // nothing contextual and every deeper contextual parameter is told apart from it: `Flat.f`
+  // returns `x` or what the `Option[A]` may hold, 2.
   private def anonymous =
     (List(
       "Params.anon",
@@ -158,7 +187,10 @@ class ContextualSpec extends Specification {
       "Params.local",
       "Params.near",
       "Params.both",
+      "Params.ctx",
       "Flat.<init>",
+      "Crowd.<init>",
+      "Selfish.<init>",
       "Flat.f"
     ).map(count) must_== List(
       Count.Finite(2),
@@ -167,29 +199,61 @@ class ContextualSpec extends Specification {
       Count.Countable,
       Count.Finite(2),
       Count.Countable,
+      Count.Countable,
       Count.Finite(2),
+      Count.Finite(2),
+      Count.Finite(4294967297L),
       Count.Finite(2)
     ))
       .and(count("Params.same").toString must contain("ambiguous anonymous evidence"))
       .and(
-        List("Params.wide", "Params.nul", "Params.ctx")
+        List("Params.wide", "Params.nul")
+          .map(count(_).toString)
+          .must(contain(contain("an anonymous contextual parameter")).forall)
+      )
+
+  // An anonymous parameter of a method around a local definition, a context-function literal's
+  // among them, is found from it where each contextual parameter at its method or deeper is told
+  // apart from it and no scope between declares, imports or inherits a given: `g`, `ga`, `inner`
+  // and `get` each return the one A the evidence holds, 1 (`inner`'s own `B` is no `A`). Told
+  // apart, too: a rigid parameter from a class type (`lost` returns `x` or what the `Option[A]`
+  // may hold, 2; `K4` holds `a` or the evidence at `a`, the evidence, and a Boolean: 2 × 2 × 2 =
+  // 8) and from another (`both` builds its one pair, 1; `u`'s result binder `B` is no `A`, 1). A
+  // capability's anonymous parameter is an argument its caller passes: `useCb` has no `Le[A]`
+  // for `fold`, so `a` alone, 1. Not read: beside a block's given (`inner2`) or import (`m`), an
+  // anonymous class's own or inherited given (`shadowed`, `inherits`), a deeper parameter of its
+  // type (`inner3`), or the binder of its very type that a result behind a projection puts around
+  // the body (`projected`: the compiler's function literal names it).
+  private def captured =
+    (List("Caps.f.g", "Caps.mixed.ga", "Caps.outer.inner", "<new#1>.get")
+      .map(count) must_== List.fill(4)(Count.Finite(1)))
+      .and(
+        List("Apart.lost", "Apart.both", "Apart.u", "Apart.useCb", "K4.<init>").map(count) must_==
+          List(2, 1, 1, 1, 8).map(Count.Finite(_))
+      )
+      .and(
+        List(
+          "inner2",
+          "imports.m",
+          "shadowed.<new#1>.get",
+          "inherits.<new#1>.get",
+          "inner3",
+          "Caps.projected"
+        )
           .map(count(_).toString)
           .must(contain(contain("an anonymous contextual parameter")).forall)
       )
 
   // Left to implicit search, and so uncovered: a receiver's contextual parameter without a name
   // beside a member's own of its type (`Vied.g`) or a given of a class inside its (`Outer.In.h`,
-  // which search finds first), a constructor's beside a given its class body
-  // declares or its self type holds (`Crowd`, `Selfish`, ambiguous there), a receiver's beside the
-  // code between a local definition and its class, which may declare one (`Blk`), and among a class's
+  // which search finds first), a receiver's beside the code between a local definition and its
+  // class, which may declare one (`Blk`), and among a class's
   // members a deferred given without a name and an abstract extension method.
   private def later = {
     val expected = List(
       "Vied.g" -> "an anonymous contextual parameter search may not tell apart",
       "In.h" -> "an anonymous contextual parameter",
-      "Crowd.<init>" -> "an anonymous contextual parameter beside the class's contextual scope",
       "Blk.<block#1>.pick" -> "an anonymous contextual parameter",
-      "Selfish.<init>" -> "an anonymous contextual parameter beside the class's contextual scope",
       "Anon.get" -> "an anonymous given among the members of an enclosing class",
       "Exts.get" -> "an extension method among the members of an enclosing class"
     )

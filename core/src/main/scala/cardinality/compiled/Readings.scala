@@ -79,7 +79,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         )
           (tree match {
             case constructor: DefDef if primary =>
-              constructorSearch(constructor).flatMap(_ => constructors.count(constructor, around))
+              // Its body is the class's, which another implementation need not share, and no
+              // instance exists yet whose members or parents could offer a given.
+              val parameters = Shapes.parameters(constructor)
+              searched(parameters, parameters, Some(Nil))
+                .flatMap(_ => constructors.count(constructor, around))
             case _ => bounded(counted(tree, around, methods, scope, _))
           }).map(_ -> captures(tree, around, methods)).left.flatMap {
             // A row the model refuses lists no captures, as the old front end's does not.
@@ -121,10 +125,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             // After the one-valued result: such a result needs nothing of the environment.
             _ <- scope.blocked.map(Uncovered(_)).toLeft(())
             _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
-            _ <- searched(declared.toType, parameters)
-            // Code between a local definition and its class (a method, a value's initializer, a
-            // class-body statement) may declare givens or import, and a context-function result
-            // puts binders around every body: not read yet.
+            wrapping = binders(tree, declared.toType)
+            _ <- searched(parameters, parameters, wrapping)
+            // For a receiver's evidence, code between a local definition and its class (a method,
+            // a value's initializer, a class-body statement) may declare givens or import, and a
+            // context-function result's binders are not compared with it: not read yet.
             found <-
               if (
                 !World.owners(tree.symbol.owner).takeWhile(!_.isClass).exists(_.isTerm) &&
@@ -133,21 +138,31 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
                 receiverSearch(around, tree.symbol, parameters)
               else Right(Set.empty[Symbol])
             held <- receivers.bindings(around, tree.symbol, env, found)
-            captured <- Traversals.sequence(methods.map { method =>
-              val taken = Readings.taken(method).filterNot(p => scope.hidden(p.symbol))
-              Readings
-                .plainInputs(taken)
-                // A method around the definition took them before its receiver was built (a
-                // by-name type is read past its arrow, as nothing preceding); an inline one is
-                // evaluated where it is read, and may be the receiver.
-                .flatMap(_ =>
-                  Traversals.sequence(taken.map { parameter =>
-                    val before = env.copy(preceding = !parameter.symbol.isInline)
-                    shapes.of(parameter.tpt.toType, before)
-                  })
-                )
-                .map(taken.lazyZip(_).map(bound(method)))
-            })
+            captured <- Traversals.sequence(methods.tails.collect {
+              case method :: inner =>
+                val taken = Readings.taken(method).filterNot(p => scope.hidden(p.symbol))
+                // Its anonymous parameters compete with the contextual parameters of the methods
+                // inside it and the definition's own; `local` has read the scopes between. A
+                // function literal's `_` the source writes (`(_: A) ?=> …`) is keyed by a literal
+                // the report names otherwise: not read yet.
+                val deeper = (method :: inner).flatMap(Shapes.parameters) ++ parameters
+                val written =
+                  if (!Readings.literal(method.symbol)) Nil
+                  else taken.filter(p => Readings.anonymous(p) && !p.pos.isZeroExtent)
+                Readings
+                  .plainInputs(written)
+                  .flatMap(_ => searched(taken, deeper, wrapping))
+                  // A method around the definition took them before its receiver was built (a
+                  // by-name type is read past its arrow, as nothing preceding); an inline one is
+                  // evaluated where it is read, and may be the receiver.
+                  .flatMap(_ =>
+                    Traversals.sequence(taken.map { parameter =>
+                      val before = env.copy(preceding = !parameter.symbol.isInline)
+                      shapes.of(parameter.tpt.toType, before)
+                    })
+                  )
+                  .map(taken.lazyZip(_).map(bound(method)))
+            }.toList)
             inputs <- shapes.inputs(parameters, env)
             values = held ++ captured.flatten ++ parameters.lazyZip(inputs).map(bound(tree))
             // The proofs of the bounds of the parameters the result or a value mentions (`Bounds`).
@@ -170,52 +185,92 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       case unread => Left(unread)
     }
 
-  // An anonymous contextual parameter of the measured method is found by implicit search alone.
-  // A body is counted, not searched, and what one declares tells nothing of the others; what
-  // encloses the method is shallower and loses (`ContextualScope` of the old front end). So its
-  // competitors are the method's other contextual parameters (`apart`). Beside a context-function
-  // result, which puts binders around every body, it is not read yet.
-  private def searched(result: Type, parameters: List[ValDef]): Either[Unread, Unit] = {
-    val contextual = parameters.filter(p => Readings.contextual(p.symbol))
-    if (!contextual.exists(Readings.anonymous)) Right(())
-    else if (functionResult(result))
-      Left(Uncovered("an anonymous contextual parameter beside a context-function result"))
-    else apart(contextual.filter(Readings.anonymous), contextual)
+  // An anonymous contextual parameter (of `evidence`) is found by implicit search alone. A body is
+  // counted, not searched, and what one declares tells nothing of the others; what encloses its
+  // method is shallower and loses (`ContextualScope` of the old front end). So its competitors are
+  // the contextual parameters at its method or deeper (`competitors`) and the binders the measured
+  // definition's context-function result puts around every body (`wrapping`, None where they are
+  // not read), each of which must be told apart from it (`apart`).
+  private def searched(
+      evidence: List[ValDef],
+      competitors: List[ValDef],
+      wrapping: Option[List[Type]]
+  ): Either[Unread, Unit] = {
+    val anonymous = evidence.filter(Readings.anonymous)
+    if (anonymous.isEmpty) Right(())
+    else
+      wrapping
+        .toRight(Uncovered("an anonymous contextual parameter beside a context-function result"))
+        .flatMap(apart(anonymous, competitors, _))
   }
 
-  private def functionResult(result: Type) =
-    World.classNamed(result).exists(_.displayFullName.startsWith("scala.ContextFunction"))
+  private def functionResult(result: Type) = World.classNamed(result).exists(Readings.function)
 
-  // Whether search tells each anonymous parameter apart from every other contextual one it competes
-  // with: one of its very type at its own definition makes it ambiguous (refused); each other one
-  // must be of a different class, read by its declaration or final (the old reading knows only those
-  // classes' bases) and not `Null`, neither class extending the other, or of its class over
-  // distinct rigid parameters (`unrelated`). Otherwise it is not read yet. A refusal of the model is
-  // reported first, as the old front end reports every one.
-  private def apart(evidence: List[ValDef], competitors: List[ValDef]): Either[Unread, Unit] = {
+  // The binders a context-function result puts around the measured definition's body, clause after
+  // clause: the parameters of the function literals at the head of its body, which the compiler
+  // made from the result as it reads it; for a declaration without a body, the result's own
+  // clauses, None where a context function is named but not read as one.
+  private def binders(tree: ValOrDefDef, result: Type): Option[List[Type]] = {
+    def literals(body: Tree): List[Type] = body match {
+      case Targets.Scope.Lambda(made) if Shapes.parameters(made).forall(_.symbol.isGivenOrUsing) =>
+        Shapes.parameters(made).map(_.tpt.toType) ++ made.rhs.toList.flatMap(literals)
+      case _ => Nil
+    }
+    def clauses(tpe: Type): Option[List[Type]] = tpe.dealias match {
+      case applied: AppliedType if functionResult(applied) =>
+        val types = applied.args.collect { case t: Type => t }
+        Option
+          .when(types.sizeIs == applied.args.size)(types)
+          .flatMap(ts => clauses(ts.last).map(ts.init ++ _))
+      case other => Option.unless(functionResult(other))(Nil)
+    }
+    val body = tree match {
+      case d: DefDef => d.rhs
+      case v: ValDef => v.rhs
+    }
+    body.map(literals).filter(_.nonEmpty).orElse(clauses(result))
+  }
+
+  // Whether search tells each anonymous parameter apart from every other contextual candidate it
+  // competes with: one of its very type at its own site makes it ambiguous (refused); each other
+  // one must be of a different class, read by its declaration or final (the old reading knows only
+  // those classes' bases) and not `Null`, neither class extending the other; or of its class over
+  // distinct rigid parameters (`unrelated`); or one is an unbounded rigid type parameter and the
+  // other a distinct one or a class type neither top nor bottom (only those relate to every such
+  // parameter in a body; the old `ContextualEvidence.unrelated` over atoms). A context function
+  // also answers searches for its result: not told apart. A binder is declared by no site, so it
+  // is never ambiguous. Otherwise it is not read yet. A refusal of the model is reported first, as
+  // the old front end reports every one.
+  private def apart(
+      evidence: List[ValDef],
+      parameters: List[ValDef],
+      binders: List[Type]
+  ): Either[Unread, Unit] = {
     def known(c: ClassSymbol) =
       c != defn.NullClass && (world.readByDeclaration(c) || Shapes.isFinal(c))
-    val verdicts = evidence.flatMap { p =>
-      competitors.filter(_ != p).map { q =>
-        val (mine, theirs) = (Readings.seen(p), Readings.seen(q))
-        (mine.flatMap(World.classNamed), theirs.flatMap(World.classNamed)) match {
-          case _ if mine.isEmpty || theirs.isEmpty =>
-            Left(
-              Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}")
-            )
-          case _ if mine.get.isSameType(theirs.get) && p.symbol.owner == q.symbol.owner =>
-            Left(Unread.Refused(s"ambiguous anonymous evidence: ${mine.get.showBasic}"))
-          case (Some(a), Some(b))
-              if a != b && known(a) && known(b) && !a.isSubClass(b) && !b.isSubClass(a) =>
-            Right(())
-          case (Some(a), Some(b)) if a == b && Readings.unrelated(mine.get, theirs.get) =>
-            Right(())
-          case _ =>
-            Left(
-              Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}")
-            )
-        }
+    def nominal(c: ClassSymbol) = !Readings.Unordered(c.displayFullName) && !Readings.function(c)
+    def told(mine: Type, theirs: Type) =
+      (World.classNamed(mine), World.classNamed(theirs)) match {
+        case (Some(a), Some(b)) if a != b =>
+          known(a) && known(b) && !a.isSubClass(b) && !b.isSubClass(a)
+        case (Some(a), Some(_)) => nominal(a) && Readings.unrelated(mine, theirs)
+        case (Some(c), None)    => nominal(c) && Readings.rigid(theirs).nonEmpty
+        case (None, Some(c))    => nominal(c) && Readings.rigid(mine).nonEmpty
+        case (None, None)       => Readings.rigid(mine).zip(Readings.rigid(theirs)).exists(_ != _)
       }
+    val contextual = parameters.filter(p => Readings.contextual(p.symbol))
+    val verdicts = for {
+      p <- evidence
+      mine = Readings.seen(p)
+      (theirs, site) <-
+        contextual.filter(_ ne p).map(q => Readings.seen(q) -> (q.symbol.owner == p.symbol.owner))
+          ++ binders.map(Some(_) -> false)
+    } yield (mine, theirs) match {
+      case (Some(m), Some(t)) if site && m.isSameType(t) =>
+        Left(Unread.Refused(s"ambiguous anonymous evidence: ${m.showBasic}"))
+      case (Some(m), Some(t)) if told(m, t) => Right(())
+      case _                                =>
+        Left(Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}"))
     }
     verdicts
       .collectFirst { case refused @ Left(_: Unread.Refused) => refused }
@@ -224,8 +279,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   }
 
   // Whether a class's body leaves its constructor's contextual parameters alone in a search from
-  // inside it: written without parents or a self type, importing nothing and declaring nothing
-  // contextual but its parameters (the old `ContextualScope` reads the template's candidates).
+  // inside it, as a member reads its receiver's (a constructor's own row searches no body):
+  // written without parents or a self type, importing nothing and declaring nothing contextual but
+  // its parameters (the old `ContextualScope` reads the template's candidates).
   private def quiet(owner: ClassSymbol): Boolean =
     owner.tree.exists { cls =>
       Shapes.parentless(cls) && World.ownSelf(owner) && cls.rhs.body.forall {
@@ -235,22 +291,6 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         case _ => true
       }
     }
-
-  // A constructor's anonymous contextual parameter is searched for in its class's body, where the
-  // class's own and inherited contextual definitions and the body's imports compete with it: it is
-  // read as the measured method's is (`searched`) only where its class is `quiet`.
-  private def constructorSearch(constructor: DefDef): Either[Unread, Unit] = {
-    val parameters = Shapes.parameters(constructor)
-    val owner = constructor.symbol.owner.asClass
-    if (!parameters.exists(Readings.anonymous)) Right(())
-    else if (!quiet(owner))
-      Left(
-        Uncovered(
-          s"an anonymous contextual parameter beside the class's contextual scope: ${owner.name}"
-        )
-      )
-    else searched(owner.appliedRefInsideThis, parameters)
-  }
 
   // The receivers whose anonymous contextual parameters (a context bound's evidence) search from
   // the measured definition finds: each such parameter competes with every contextual parameter at
@@ -272,10 +312,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         val parameters = Shapes.parameters(c.rhs.constr)
         val competitors =
           parameters ++ below.flatMap(k => Shapes.parameters(k.rhs.constr)) ++ deeper
-        apart(
-          parameters.filter(Readings.anonymous),
-          competitors.filter(p => Readings.contextual(p.symbol))
-        ).map(_ => c.symbol)
+        apart(parameters.filter(Readings.anonymous), competitors, Nil).map(_ => c.symbol)
     }.toList
     Traversals.sequence(found).map(_.toSet)
   }
@@ -390,7 +427,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             holders: List[Tree] = Nil,
             // What else may bind a holder's name there: a member a template inherits, or an
             // import of the scope.
-            shadows: String => Boolean = _ => false
+            shadows: String => Boolean = _ => false,
+            // Whether a search from inside it may meet a given it declares, imports or inherits.
+            offers: Boolean = false
         )
         var scopes = List.empty[Scope]
         var cases = List.empty[CaseDef]
@@ -422,7 +461,12 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
               super.traverse(call)
             case block: Block =>
               val imports = block.stats.exists(_.isInstanceOf[Import])
-              within(Scope(None, named(block.stats), defined(block.stats), shadows = _ => imports))(
+              val givens = block.stats.exists {
+                case d: ValOrDefDef => Readings.contextual(d.symbol)
+                case _              => false
+              }
+              val names = named(block.stats)
+              within(Scope(None, names, defined(block.stats), _ => imports, imports || givens))(
                 super.traverse(block)
               )
             case template: ClassDef =>
@@ -432,9 +476,13 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
               val inherited =
                 template.symbol.linearization.tail.flatMap(_.declarations).map(_.name.toString)
               val shadows = (name: String) => imports || inherited.contains(name)
-              within(
-                Scope(None, named(body) ++ alias, template.rhs.parents ++ defined(body), shadows)
-              )(
+              val givens = template.symbol.linearization.exists(_.declarations.exists {
+                case term: TermSymbol => Readings.contextual(term)
+                case _                => false
+              })
+              val holders = template.rhs.parents ++ defined(body)
+              val offers = imports || givens || !World.ownSelf(template.symbol)
+              within(Scope(None, named(body) ++ alias, holders, shadows, offers))(
                 super.traverse(template)
               )
             case definition: ValOrDefDef =>
@@ -454,8 +502,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           case Some((open, around)) =>
             // A template the definition is in holds it: its members are read one by one.
             val path = World.owners(tree.symbol).toSet
+            def inside(method: DefDef) = open.takeWhile(!_.of.contains(method.symbol))
             val held = methods.flatMap { method =>
-              val nearer = open.takeWhile(!_.of.contains(method.symbol))
+              val nearer = inside(method)
               val names = nearer.flatMap(_.names).toSet
               // Each holder, and whether the definition can name it: no scope nearer than its own
               // binds its name again or may.
@@ -481,10 +530,19 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
                 .filter(p => !Readings.anonymous(p) && names(p.name.toString))
                 .map(p => p -> kept(p, holders, tree.symbol))
             }
+            // A search from the definition meets a given a scope between it and a method around it
+            // offers before that method's anonymous parameter.
+            val offered = methods.collectFirst {
+              case m
+                  if Readings.taken(m).exists(Readings.anonymous) &&
+                    inside(m).exists(_.offers) =>
+                s"an anonymous contextual parameter beside a scope that may offer a given: ${m.name}"
+            }
             val blocked = Option
               .when(methods.exists(m => generators(m.symbol)))(
                 "a binder of an enclosing for-comprehension"
               )
+              .orElse(offered)
               .orElse(around.flatMap(patterned(_, tree.symbol)).headOption)
               .orElse(held.collectFirst {
                 case (p, _) if Readings.contextual(p.symbol) =>
@@ -595,8 +653,28 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           .map(_.name.toString)
       case _ => Nil
     }
-    val taken = methods.flatMap(Readings.taken).map(_.name.toString)
+    val taken = methods.flatMap(method => Readings.taken(method).map(captureName(method, _)))
     (receivers.names(around, tree.symbol) ++ taken ++ group).distinct.sorted
+  }
+
+  // A parameter of a method around a definition by the name the report gives it: an anonymous one
+  // by its owner and position, as the old front end keys it (`ContextualEvidence.key`,
+  // `ContextBinders`); one of a function literal the compiler made around a context-function body
+  // by the definition whose result that is, counted over such literals from it inward.
+  private def captureName(method: DefDef, parameter: ValDef): String = {
+    def made(symbol: Symbol) = Readings.literal(symbol) && symbol.tree.exists {
+      case function: DefDef => Targets.Scope.contextual(function)
+      case _                => false
+    }
+    def index = Shapes.parameters(method).indexOf(parameter)
+    if (!Readings.anonymous(parameter)) parameter.name.toString
+    else if (!made(method.symbol)) s"<using#$index@${Targets.pathOf(method.symbol)}>"
+    else {
+      // `made` holds of the method itself, so `literals` is never empty, nor `owner` (a package).
+      val (literals, owner) = World.owners(method.symbol).span(made)
+      val outer = literals.tail.flatMap(_.tree).collect { case d: DefDef => Shapes.parameters(d) }
+      s"<context#${outer.flatten.size + index}@${Targets.pathOf(owner.head)}>"
+    }
   }
 
   // Whether every owner of a constructor up to the package is a class or an object.
@@ -644,6 +722,29 @@ private[compiled] object Readings {
   object Local {
     val Plain: Local = Local(Set.empty, None)
   }
+
+  /** Whether a class is a context function's, which also answers searches for its result. */
+  def function(c: ClassSymbol): Boolean = c.displayFullName.startsWith("scala.ContextFunction")
+
+  /** Whether a method is one the compiler made of a function literal. */
+  def literal(symbol: Symbol): Boolean = symbol.name.toString.startsWith("$anonfun")
+
+  /** The unbounded type parameter held rigid in a body that a type is, if it is one. */
+  def rigid(tpe: Type)(using Context): Option[TypeParamSymbol] = tpe.dealias match {
+    case ref: TypeRef => Shapes.rigidParameter(ref)
+    case _            => None
+  }
+
+  // The classes every unbounded type parameter may relate to: the tops, and `Null` and `Nothing`
+  // below them.
+  private val Unordered = Set(
+    "scala.Any",
+    "java.lang.Object",
+    "scala.Matchable",
+    "scala.Null",
+    "scala.Nothing",
+    "scala.Singleton"
+  )
 
   /** Whether a symbol is its class's primary constructor. */
   def primary(symbol: Symbol): Boolean = symbol.owner match {
@@ -715,9 +816,9 @@ private[compiled] object Readings {
 
   /** Parameters the reading takes as inputs. A contextual one with a name is a value like any other
     * (slice S5): only implicit search tells it apart, and a body is counted, not searched. One
-    * without a name (`anonymous`) is found by search alone, among whatever else is in scope: not
-    * read yet here (the measured method's or constructor's own is read where nothing competes with
-    * it: `searched`).
+    * without a name (`anonymous`) is found by search alone, among whatever else is in scope: read
+    * where `searched` tells it apart from its competitors; here, a receiver's that search was not
+    * shown to find, and a function literal's `_` the source writes, are not read yet.
     */
   def plainInputs(parameters: List[ValDef]): Either[Unread, Unit] =
     parameters
@@ -742,7 +843,7 @@ private[compiled] object Readings {
 
   /** The parameters of a method, or of a function literal, that a body inside it may name: a
     * function literal's wildcard parameter (`_ => …`, a `{ case … }`'s own) is no value it can, and
-    * an anonymous contextual one is left to implicit search (`plainInputs`).
+    * an anonymous contextual one is a value where implicit search finds it (`searched`).
     */
   def taken(method: DefDef): List[ValDef] =
     Shapes.parameters(method).filter(p => contextual(p.symbol) || !p.name.toString.contains("$"))
