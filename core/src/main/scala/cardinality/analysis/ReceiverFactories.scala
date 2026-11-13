@@ -5,6 +5,7 @@ import scala.meta.*
 import cardinality.analysis.inhabitation.{Card, Inhabitation}
 import cardinality.analysis.model.{ContextBounds, FactorySyntax, MemberSyntax}
 import cardinality.types.Trees.parameters
+import cardinality.types.TypeApplications
 
 import MethodAnalysis.{Frame, Resolved}
 
@@ -33,8 +34,7 @@ private[cardinality] object ReceiverFactories {
     owner.name.toList.flatMap { name =>
       for {
         (stat, scope, readable) <- found(owner, name, resolver)
-        if !measured(stat, from) && resolver.accessible(stat, scope, from) &&
-          reachable(scope, from, resolver)
+        if open(stat, scope, from, resolver)
       } yield
         if (readable.isEmpty) None
         else if (readable.contains(false)) Some(Card.one)
@@ -58,16 +58,51 @@ private[cardinality] object ReceiverFactories {
     }
 
   /** The class's constructor parameters the site observes: a field it may select, or one a member
-    * it may call reads.
+    * it may call reads, or one code beside the class reads where the site may call it
+    * (`FactorySyntax.readBy`): the class's body, a parent's template naming a member of the field's
+    * name it declares, or a definition that may select it and does, followed by name through the
+    * class, its companion and its parents.
     */
   def observed(owner: Frame, d: Defn.Class, from: Frame, resolver: Resolver): List[Term.Param] = {
     val fields = MemberSyntax.fieldParams(d)
+    val idx = index(resolver)
+    val parents = d.templ.inits.map(TypeApplications.parentName).toSet
+    def own(scope: Frame) = scope.id == owner.id
+    def parent(scope: Frame) = !own(scope) && scope.name.exists(parents)
     FactorySyntax.observed(
       d,
       stat => resolver.accessible(stat, owner, from),
-      p => fields.exists(_ eq p) && resolver.reaches(p.mods, owner, from)
+      p => {
+        val name = p.name.value
+        def may(scope: Frame) = resolver.reaches(p.mods, owner, scope) || companion(owner, scope)
+        val field = fields.exists(_ eq p)
+        def declares(scope: Frame) = scope.tree.exists {
+          case t: Defn.Trait => t.templ.body.stats.exists(MemberSyntax.names(_).contains(name))
+          case c: Defn.Class => c.templ.body.stats.exists(MemberSyntax.names(_).contains(name))
+          case _             => false
+        }
+        field && resolver.reaches(p.mods, owner, from) ||
+        FactorySyntax.readBy[(Stat, Frame)](
+          // A parent's template reads the field where it declares a member the field implements.
+          idx.mentioning.getOrElse(name, Nil).filter { (stat, scope) =>
+            own(scope) || parent(scope) && declares(scope) ||
+            field && may(scope) && FactorySyntax.selects(d, name, stat)
+          },
+          idx.mentioning.getOrElse(_, Nil),
+          _._1,
+          (_, scope) => own(scope) || parent(scope) || companion(owner, scope),
+          (stat, scope) => open(stat, scope, from, resolver)
+        )
+      }
     )
   }
+
+  /** Whether `from` is inside the class's companion object. */
+  def companion(owner: Frame, from: Frame): Boolean =
+    from.chain.exists(f =>
+      f.parent.map(_.id) == owner.parent.map(_.id) && f.name == owner.name &&
+        f.isObject
+    )
 
   // Every method and single `val` of a member scope with its scope: by the name it defines, and by
   // each name it mentions; and each class's factories once found. Built once per index.
@@ -203,7 +238,13 @@ private[cardinality] object ReceiverFactories {
   private def qualifies(qualifier: String, owner: Frame): Boolean =
     owner.parent.exists(p => qualifier == p.path.mkString(".") || p.name.contains(qualifier))
 
+  // A definition other than the measured one that the site may call, in a scope it may reach.
+  private def open(stat: Stat, scope: Frame, from: Frame, resolver: Resolver): Boolean =
+    !measured(stat, from) && resolver.accessible(stat, scope, from) &&
+      reachable(scope, from, resolver)
+
   // A scope whose definitions the site may reach: every template around it accessible there.
+
   private def reachable(scope: Frame, from: Frame, resolver: Resolver): Boolean =
     scope.chain.zip(scope.chain.drop(1)).forall { (frame, around) =>
       frame.tree.forall(resolver.accessible(_, around, from))

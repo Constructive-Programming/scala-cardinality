@@ -464,10 +464,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           "of a case class something extends"
         )
         // A subclass that is never built has no instance (D26), so what it overrides does not
-        // vary across the class's instances: not read yet.
+        // vary across the instances of the class, trait or abstract class: not read yet.
         _ <- refused(
-          !c.isTrait && !c.isAbstractClass && !fixed &&
-            world.below(c).exists(_.exists(world.unbuilt(_))),
+          !fixed && world.unbuiltBelow(c),
           "of a class something extends that is never built"
         )
         site <- Shapes.siteMember(env.site, name)

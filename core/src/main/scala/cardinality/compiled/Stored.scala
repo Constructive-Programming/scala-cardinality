@@ -174,12 +174,20 @@ final private[compiled] class Stored(world: World)(using Context) {
   // where its clause passes the enum's parameters on (`Sums.carried`: `case Y extends E[Int]` is a
   // member of one instantiation only). The enum's own constructor arguments are shared state, not
   // extra values.
-  private def enumeration(tree: ClassDef, env: Env): Either[String, Held] =
+  // A case whose construction always throws, the enum's own or that of a template building it, is
+  // never built and adds nothing (register D26), as `Sums` reads it.
+  private def enumeration(tree: ClassDef, env: Env): Either[String, Held] = {
+    lazy val noValue = (tree :: Sums.singletons(tree.symbol)).exists(t => world.unbuilt(t.symbol))
     cases(tree, env)
       .flatMap(found =>
-        Traversals.sequence(found.map(_.fold(Right(Held(UnitSize)))(constructed.tupled)))
+        Traversals.sequence(found.map {
+          case None => Right(Held(if (noValue) NothingSize else UnitSize))
+          case Some((below, _)) if world.unbuilt(below.symbol) => Right(Held(NothingSize))
+          case Some((below, inside))                           => constructed(below, inside)
+        })
       )
       .map(Stored.sum)
+  }
 
   // An enum's cases: none for a value case, a class case's tree with its parameters bound to what
   // its clause passes on.

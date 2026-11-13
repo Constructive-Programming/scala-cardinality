@@ -43,12 +43,15 @@ private[capacity] object Builds {
   /** Whether a body, built, evaluates a term that throws if its names are the root imports'. */
   def throwing(stats: List[Stat]): Boolean = Throws.evaluated(stats, None).exists(throws)
 
+  /** Whether a clause passes an argument that throws if its names are the root imports'. */
+  def throws(inits: List[Init]): Boolean = Throws.arguments(inits).exists(throws)
+
   private def throws(term: Term): Boolean = Throws.only(term, _ => true)
 
   // One level of the construction, then the ancestors its parents name, read where it is written.
   private def level(d: Defn, around: Scope, leaf: String, seen: List[Defn]): Option[String] =
     Walk.templateOf(d).flatMap { t =>
-      if (Throws.arguments(t.inits ++ cases(d)).exists(throws) || throwing(t.body.stats))
+      if (throws(t.inits ++ cases(d)) || throwing(t.body.stats))
         Some(thrown(leaf))
       else t.inits.iterator.flatMap(parent(_, around, leaf, d :: seen)).nextOption()
     }

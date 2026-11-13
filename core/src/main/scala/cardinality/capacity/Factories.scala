@@ -62,7 +62,20 @@ private[capacity] object Factories {
         FactorySyntax.observed(
           d,
           stat => public(modsOf(stat)),
-          p => MemberSyntax.fieldParams(d).exists(_ eq p) && public(p.mods)
+          p => {
+            val field = MemberSyntax.fieldParams(d).exists(_ eq p)
+            def mentioning(n: String) = all.filter(_.collect { case Term.Name(`n`) => () }.nonEmpty)
+            // A companion's public member reads a field it selects (`FactorySyntax.readBy`).
+            field && public(p.mods) || FactorySyntax.readBy[Stat](
+              mentioning(p.name.value).filter(stat =>
+                body.exists(_ eq stat) || field && FactorySyntax.selects(d, p.name.value, stat)
+              ),
+              mentioning,
+              identity,
+              _ => true,
+              stat => public(modsOf(stat))
+            )
+          }
         ),
         size
       )
