@@ -113,8 +113,17 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     def fields(k: ClassSymbol) = k.declarations.collect {
       case field: TermSymbol if field.isParamAccessor => field
     }
+    // A parent nested in objects alone, or written in a method body that also encloses the
+    // template (objects and packages around both otherwise), holds no instance around it: what
+    // that body captures, the template's members see as well (`Readings.enclosing`).
+    val enclosing = World.owners(c).toSet
+    def instanceFree(parent: ClassSymbol) = World.owners(parent.owner).forall {
+      case k: ClassSymbol => k.isModuleClass
+      case k: TermSymbol  => enclosing(k)
+      case k              => k.isPackage
+    }
     def why(parent: ClassSymbol): Option[String] =
-      if (!World.inObjects(parent)) Some("a parent with constructor parameters or in a class")
+      if (!instanceFree(parent)) Some("a parent with constructor parameters or in a class")
       else
         parent.tree match {
           case Some(_) =>

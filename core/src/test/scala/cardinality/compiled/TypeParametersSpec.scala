@@ -21,6 +21,7 @@ class TypeParametersSpec extends Specification {
     a class's parameter bound to a value is not a type          $rebound
     a lambda over a symbol bound again is read where written   $lambdas
     a bounded or variant constructor is refused where it is used $kinds
+    a class whose value ignores an unread argument is counted    $unused
   A bound of a proper type parameter is a proof beside it
     an upper bound views the values, a lower bound builds them  $proofs
     a bound the model does not read is refused, as before       $refused
@@ -114,6 +115,9 @@ class TypeParametersSpec extends Specification {
       |  def variant[F[+_]](x: F[Int]): F[Int] = x
       |  def unused[F[+_]](b: Boolean): Boolean = b
       |}
+      |final class Cache[K, V] { private val m: Map[K, V] = Map.empty; def get(k: K): Option[V] = m.get(k) }
+      |final class Box1[A](val a: A)
+      |class Graph { final class Node(val b: Boolean); val cache: Cache[String, List[Node]] = new Cache; def box: Box1[Node] = ??? }
       |object Hk {
       |  def wrap(w: Wrap[[X] =>> Either[Boolean, X], Boolean]): Boolean = true
       |  def held[G[_]](w: Wrap[G, Int]): G[Int] = w.v
@@ -179,6 +183,13 @@ class TypeParametersSpec extends Specification {
       .and(count("Kind.variant").toString must contain("variant higher-kinded parameter"))
       .and(count("Kind.unused") must_== Count.Finite(4))
       .and(uncovered("Vary.get") must startWith("a type parameter of another kind"))
+
+  // `Node` is a class nested in a class: not read. `Cache`'s one public constructor takes nothing,
+  // so it builds one value whatever its arguments are (rule B): `cache` is 1. `Box1`'s field is
+  // its argument: `box` keeps the argument's reason, as before.
+  private def unused =
+    (count("Graph.cache") must_== Count.Finite(1))
+      .and(uncovered("Graph.box") must startWith("a class nested in a class or a body"))
 
   // A row's reason when it is uncovered, without the prefix that says so.
   private def uncovered(name: String): String = count(name) match {

@@ -1846,6 +1846,31 @@ Then `tasty-m2` (`aafec99`), a plan section only: its conflict with m1's section
 beside each other (both kept). No source changed, so the gate's rows are m1's above; m1's `inert`
 moves none of the 19 rows m2 analysed (m2's table rows outside cats-kernel are unchanged by m1).
 
+Then `tasty-m4` (`448a517`). Conflict only in `derived.txt` (both sides appended; the union, no
+duplicate key in any list file). The review found one wrong number, m4's: a plain case class or a
+types-only class nested in a class was read without asking whether the class around it has any
+instance, so `Dead#Leaf` (`Dead`'s initializer throws), `Dead2#Leaf` (through its parent `Boom`),
+`FA#Leaf` (`final abstract`) and `Priv#Leaf` (no constructor or factory the site may call) gave 4
+(or 2 for a `Mark`) where the input is empty (1) or not determined (`?`); `451e7f1` refused them.
+`Shapes.declared` now refuses such a class where a class around it is never built, `final
+abstract`, or final with nothing the site may call to build it (`ReceiversSpec.inner`, `UseDead`).
+No corpus row moved with the fix. The integration's coverage memory dropped the nine core `Memo`
+vals m4 derives (measured `?` before, 1 now). Left, as the review noted: the stored side reads
+`Dead#Leaf` 2 and `Dead` 1 on both parents, not the empty sum.
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,889 | 29 | 0 | 1,082 | 2 (2) | 2 (2) |
+| cats-core | 2,809 | 393 | 72 | 4,377 | 18 (19) | 16 (16) |
+| cats-kernel | 664 | 23 | 0 | 1,098 | 4 (4) | 2 (2) |
+| cats-eo | 329 | 12 | 0 | 356 | 2 (2) | 2 (2) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,784 | 287 | 6 | 674 | 106 (114) | 39 (41) |
+
+Every worse row is a listed correction (m4's `Outer.Inner.Use.<init>` 1 -> 2 the sixth). Gate
+times: cats-kernel 23.1 s, cats-core 31.5 s (shared machine). `compiled/` is 9,391 lines.
+
 ### What exists
 
 | Piece | Where | What it is |
@@ -3207,6 +3232,68 @@ Old numeric rows still uncovered (methods; definitions), integration → k4: fix
 19 → 14, and past the old-unsound list 136 → 92; the corpora unchanged (core 3, cats-core 25,
 cats-kernel 76, cats-eo 3). Method rows, fixtures: identical 5,738, better 279, tightened 11
 (old upper bounds now exact), worse 5 (listed corrections), uncovered 729.
+
+### Group m4: unread arguments, classes nested in a class, parents in a body, Q10
+
+What it reads, each with a regression:
+
+- **An argument a class's value does not read** (`Shapes.named`). A class of the module (no enum,
+  no sealed family) whose type argument does not read is read with the one-valued placeholder in
+  that argument's place and its reason in `Env.unread`, which `binding` prefers wherever the
+  value reads the parameter (`record` and `fields` copy it to the constructor's copies, as they do
+  `written`); a refusal keeps the argument's reason. `TypeParametersSpec.unused`: `Graph.cache:
+  Cache[String, List[Node]]` 1 (`Node` a class nested in a class), `Graph.box: Box1[Node]` keeps
+  the reason. Frees core `ClosedWorld.extending` (old 1, identical) and ten `Memo[K, V]` vals the
+  old front end refused (derived 1 each: `Memo`'s one public constructor takes nothing, so by rule B
+  it builds one value whatever K and V are). Restricted to classes of the module: a dependency's
+  record over an unread argument (scalameta's `Parsed[Source]`, read as 1) was not checked.
+- **A class nested in a class** (`Shapes.declared`). One whose members are types alone is read
+  anywhere (one value); a plain case class where no field's type names a symbol of a class around
+  it or that class's `this` (`World.mentioned` now walks a `ThisType` and a `SuperType`: a member
+  inherited or from a self type, reached as `Outer.this.T`, means another thing on another
+  instance; no other caller's test accepts a class, so no other reading moves). The correctness
+  review's program `Outer2.pick(o)(i: o.In): A` with `In(t: T)`, `T` inherited, was 4 (right: 1)
+  before the `ThisType` walk; refused now. `ReceiversSpec.inner`. Coverage memory: cats-eo-generics
+  `HearthPlateMacro.fieldOps` went from a measured `?` (quotes) to uncovered (`FieldOps` names
+  `quotes.reflect` through the instance); both print `?`, old not numeric; its line was deleted.
+- **A parent written in a body around the template** (`Receivers.inherits`, `instanceFree`): a
+  local parent whose method owners all enclose the template, objects and packages around both
+  otherwise, holds what that body captures, which the template sees too; it goes through the same
+  field checks as a parent in objects. A parent in a class's method still refuses.
+  `ReceiversSpec.bodyParent`.
+- **Q10**: the 14 fixture rows "a member the classpath does not hold" each name a declaration whose
+  support source is compiled but left off `classpath.txt` (`ext.Mixin`, `lib.Base`,
+  `far.away.Unsupplied`, `missing`, `ext.Schema`): listed in `old-unsound.txt`.
+
+Old numeric rows still uncovered (methods), integration -> m4: core 3 -> 2 (2 past old-unsound);
+fixtures 116 -> 106, past the old-unsound list 57 -> 39 (14 of them Q10, 6 on the definitions
+table: 8 -> 2 past the list); the other corpora unchanged. Method rows, fixtures: identical 5,773
+-> 5,784, better 285 -> 287, worse 5 -> 6 (the listed correction), uncovered 688 -> 674; core:
+identical 2,885 -> 2,889, better 19 -> 29 (the ten derived `Memo` vals), uncovered 1,096 -> 1,082.
+
+Corrections and derivations: `Outer.Inner.Use.<init>` 1 -> 2 (`Item` in `Use` is the nearer
+`Inner.Item`, 2 values; the old reading took Outer's type parameter); derived `C.viaThis` 1 (an
+empty nested class, one value), `mk.D.other` 3 (`c`, `a`, `b`; `Mid.to` returns `a`).
+
+Left, each with its reason:
+
+- cats-eo `Traversal.selfChildren.<new#1>.from` (old 0, right): needs a sealed case no
+  constructor of the site builds read through `Factories`; the holes of "Rule B, third unit" (a
+  parent member matching on the case, a companion's method, a default getter, another class's
+  secondary constructor or parent argument, an extractor the site cannot reach) are not closed, so
+  it stays `?`.
+- `K.Q.Outer.<init>`, `K2.Q.Outer.<init>` (a field over the outer class's type parameter):
+  reading them needs the prefix compared with the site's instance.
+- "a parent with constructor parameters or in a class" for parents in a class (`Outer.Instance`,
+  `T__O.H__O`, `Outer2.B`, `OuterG2.B`, `O.C` ×3, `Outer.InnerM`): the parent holds the outer
+  instance, reached through the template's own prefix; not read.
+- "a capability record with a parameter that is no public field" (`A11`/`B11`, `A`/`B`): a
+  parameter no member reads should drop out of the record (rule B gives 1, 1, 2, 2^32), which
+  needs `Receivers.own` to skip it for a value; not done.
+- "a type", "an abstract type member another declaration of its name bounds or hides", "an
+  enclosing class with a constructor field something overrides", "a capability record whose
+  parents are not read", "an anonymous contextual parameter", "a class of a dependency"
+  (`LazyList`), `out.Use.f` and the two `Base` definitions (restricted constructors): not reached.
 
 ### How each model rule reads over symbols
 

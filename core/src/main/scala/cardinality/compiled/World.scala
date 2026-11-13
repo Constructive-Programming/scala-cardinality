@@ -299,9 +299,9 @@ private[compiled] object World {
     }
 
   /** The first symbol a type as it is written names that passes `test`: through its prefix (a
-    * path's values included), its arguments and a wildcard's bounds, an annotation, a refinement of
-    * a type or a value and its parent, a union or an intersection, a type lambda's body and bounds,
-    * a match type's parts; an alias is not followed.
+    * path's values included, and the class of a `this` or `super`), its arguments and a wildcard's
+    * bounds, an annotation, a refinement of a type or a value and its parent, a union or an
+    * intersection, a type lambda's body and bounds, a match type's parts; an alias is not followed.
     */
   def mentioned(tpe: TypeOrWildcard, test: Symbol => Boolean)(using Context): Option[Symbol] = {
     def first(types: TypeOrWildcard*) = types.iterator.flatMap(mentioned(_, test)).nextOption()
@@ -320,6 +320,8 @@ private[compiled] object World {
             case prefix: Type => mentioned(prefix, test)
             case _            => None
           })
+      case self: ThisType            => Some(self.cls).filter(test)
+      case sup: SuperType            => first(sup.thistpe)
       case applied: AppliedType      => first(applied.tycon :: applied.args*)
       case wildcard: WildcardTypeArg => first(wildcard.bounds.low, wildcard.bounds.high)
       case annotated: AnnotatedType  => first(annotated.typ)
