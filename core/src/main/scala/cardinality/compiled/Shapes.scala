@@ -546,23 +546,25 @@ private[compiled] object Shapes {
   }
 
   /** What an abstract type member of a receiver stands for on its instance, as a type parameter
-    * would (`binder`): one atom, or a rigid constructor for an invariant `F[_]`. A bound is not
-    * read yet.
+    * would (`binder`): one atom, bounded or not (`Bounds` reads a bound's proofs), or a rigid
+    * constructor for an invariant, unbounded `F[_]`.
     */
   def typeMember(owner: ClassSymbol, member: TypeMemberSymbol)(using
       Context
   ): Either[Unread, Shape] = {
     val id = s"${owner.displayFullName}#${member.name}"
     member.typeDef match {
-      case TypeMemberDefinition.AbstractType(bounds) if unbounded(bounds) => Right(Shape.Atom(id))
-      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
+      // Bounds that meet name one type (an exported alias): not an atom.
       case TypeMemberDefinition.AbstractType(bounds)
-          if constructor(bounds) && tastyquery.Variances.invariant(bounds.high) =>
+          if proper(bounds) && !bounds.low.isSameType(bounds.high) =>
+        Right(Shape.Atom(id))
+      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
+      case TypeMemberDefinition.AbstractType(bounds) if free(member) && !unbounded(bounds) =>
         Right(Shape.Constructor(id))
       case _ =>
         Left(
           Unread.Uncovered(
-            s"a bounded abstract type member, or one of another kind than F[_]: ${member.name}"
+            s"an abstract type member that is an alias, variant, or of another kind: ${member.name}"
           )
         )
     }
@@ -617,6 +619,25 @@ private[compiled] object Shapes {
   // The bounds of a proper type parameter: no type lambda above or below.
   private def proper(bounds: TypeBounds): Boolean =
     !bounds.high.isInstanceOf[TypeLambda] && !bounds.low.isInstanceOf[TypeLambda]
+
+  /** The bounds of an abstract type member; none for any other. */
+  def bounds(member: TypeMemberSymbol): Option[TypeBounds] = member.typeDef match {
+    case TypeMemberDefinition.AbstractType(bounds) => Some(bounds)
+    case _                                         => None
+  }
+
+  /** Whether an abstract type member is bounded (its bound is a proof, `Bounds`). */
+  def bounded(member: TypeMemberSymbol)(using Context): Boolean =
+    bounds(member).exists(!unbounded(_))
+
+  /** Whether an abstract type member says nothing of what it stands for: unbounded, or an invariant
+    * `F[_]` of unbounded parameters.
+    */
+  def free(member: TypeMemberSymbol)(using Context): Boolean = bounds(member).exists { b =>
+    // Without a tree a declared variance is not seen: such a member is not free.
+    unbounded(b) || constructor(b) && tastyquery.Variances.invariant(b.high) &&
+    member.tree.nonEmpty && !tastyquery.Variances.variant(member)
+  }
 
   /** Bounds any type meets. */
   def unbounded(bounds: TypeBounds)(using Context): Boolean =

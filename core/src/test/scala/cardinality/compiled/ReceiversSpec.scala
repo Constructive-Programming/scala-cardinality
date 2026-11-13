@@ -241,10 +241,11 @@ class ReceiversSpec extends Specification {
   // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
   // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
   // type narrower than the class; a deferred `inline val`, and a deferred inline method where a type parameter is in
-  // scope; a class whose construction always throws, or in an object whose does (S6); a bounded
-  // abstract type member, one of a class only its own scope may extend, whose types are those
+  // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
+  // type member of a class only its own scope may extend, whose types are those
   // the program picks, one two enclosing instances hold, one another declaration bounds, and
   // `this.T` of a fixed class, which holds no type member of its own, inside one that holds it.
+  // (`Bounded.get` is read now: `T <: AnyRef` says nothing of the values, so it returns `t`, 1.)
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
@@ -255,8 +256,8 @@ class ReceiversSpec extends Specification {
       "Narrowed.get" -> "an enclosing class with a self type",
       "Deferred.m" -> "a deferred inline value of an enclosing class",
       "Thrown.get" -> "an enclosing class whose construction always throws or binds a pattern",
-      "Bounded.get" -> "a bounded abstract type member, or one of another kind than F[_]",
-      "CoKinded.get" -> "a type",
+      "Bounded.get" -> "Finite(1)",
+      "CoKinded.get" -> "an abstract type member that is an alias, variant, or of another kind",
       "Pinned.get" -> "an abstract type member of a class no class written elsewhere extends",
       "Fin.get" -> "an abstract type member of a class no class written elsewhere extends",
       "WishedM.get" -> "a deferred inline method over a type parameter",
@@ -275,10 +276,14 @@ class ReceiversSpec extends Specification {
 
   // No row the compiled front end measures differs from the scalameta front end's, and none it
   // counts past a model limit of the old reading is left without a derivation.
+  // `Bounded.get` is derived above (1); the old front end refuses a bounded abstract type member.
   private def agrees = {
     val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
+    val derived =
+      compared.compared.filter(_.row.name == "recv.Bounded.get").map(_.row.key -> "1").toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(Differential.failures(compared.compared) must_== Nil)
+      .and(derived.size must_== 1)
+      .and(Differential.failures(compared.compared, derived) must_== Nil)
   }
 
 }

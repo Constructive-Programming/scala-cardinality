@@ -7,7 +7,7 @@ import cardinality.capacity.Definition.Unbound
 import cardinality.capacity.Size
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
-import tastyquery.Symbols.Symbol
+import tastyquery.Symbols.{Symbol, TypeMemberSymbol}
 import tastyquery.Trees.{ClassDef, DefDef, ValDef}
 
 /** A class's row: the count of its primary constructor, the product of its positions' value spaces
@@ -61,6 +61,14 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
         }
       })
       outer <- receivers.atoms(around)
+      // A bounded abstract type member of a receiver around it is not read either: the row hands no
+      // proof to the positions.
+      _ <- outer.keys
+        .collectFirst {
+          case member: TypeMemberSymbol if Shapes.bounded(member) =>
+            Unread.Uncovered(s"a bounded abstract type member around a constructor: ${member.name}")
+        }
+        .toLeft(())
       env = Shapes.Env(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
       held <- receivers.bindings(around, constructor.symbol, env)
       _ <- Readings.plainInputs(parameters)

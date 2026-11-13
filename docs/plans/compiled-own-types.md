@@ -317,8 +317,18 @@ receiver around the site holds. No corpus row moves to a number: cats-core's 157
 capability record with an abstract type member` now stop at `… of another kind` (148), a member
 named like the measured definition (+4), a bounded one (+4) or re-entry (+1); fixtures' identical
 method rows rise from 4,818 to 4,829 (uncovered 1,737 → 1,726). Shared coverage memory: fixtures 11
-rows inserted, none removed. Next: bounded abstract type members (receivers' and records'), whose
-bounds `Bounds` reads for type parameters only.
+rows inserted, none removed. 
+The sixth reads a receiver's bounded proper abstract type member as an atom whose bounds `Bounds`
+reads as a bounded type parameter's (a proof each way, the same refusals: a top inside, a
+structural bound needing coercion, a recursive bound). Still uncovered: a record's bounded witness
+(a proof about each value's own member), a bounded member around a constructor row (which hands no
+proof to its positions, as for its class's bounded parameters), an exported alias (an abstract
+member whose bounds meet), and a variant `type F[+X]`, whose variance `Variances.variant` now reads
+from the member's tree (the bound's lambda does not carry it: such a member was read as a rigid
+constructor before; a member without a tree is not free). `alike` refuses another declaration of
+the name unless it is free. cats-core's identical method rows rise from 1,198 to 1,214 (`a bounded
+abstract type member, or one of another kind than F[_]` 286 → 4, the rest stopping at later
+reasons); no other input moves. Shared coverage memory: cats-core 16 rows inserted, none removed.
 
 ### Commands
 

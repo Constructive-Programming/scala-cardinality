@@ -27,6 +27,7 @@ class ProgramRowsSpec extends Specification {
       a member a parent mixed in beside the template overrides varies $mixedIn
       a parent reached through two parents is not read yet            $twoPaths
       a member a case overrides computes from the case a sum holds    $sumOverridden
+      a bounded abstract type member is an atom with its bound's proof $boundedMember
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
     A parent's constructor parameters
@@ -280,6 +281,28 @@ class ProgramRowsSpec extends Specification {
       .and(uncovered(found("Hid.g"), "a parent with constructor parameters or in a class"))
       .and(uncovered(found("R.target"), "a constructor field something overrides"))
       .and(uncovered(found("T.m"), "a parent with constructor parameters or in a class"))
+  }
+
+  // A bounded abstract type member of a receiver is an atom, and its bound a proof, as a bounded
+  // type parameter's is. In `Lo`, `T <: Boolean` makes `t` a Boolean through the proof, which the
+  // solver refuses to combine with the value a member produces, as for a bounded type parameter.
+  // `U <: AnyRef` says nothing of the values: `pick` returns `u`, 1. In
+  // `Var`, `F[+X]` relates its applications by subtyping: not read. A constructor row hands no
+  // proof to its positions: `I`'s `x: T` with `T >: Boolean` is not read (true and false are Ts).
+  def boundedMember = {
+    val found = rows("""trait Lo { type T <: Boolean; def t: T; def get: Boolean = true }
+      |trait Ref { type U <: AnyRef; def u: U; def pick: U = u }
+      |trait Var { type F[+X]; def f: F[Int]; def g: F[Int] = f }
+      |trait O { type T >: Boolean; class I(val x: T) }
+      |""".stripMargin)
+    (found("Lo.get") must_== Count.Unresolved(
+      List(
+        "unsupported subtype evidence interaction: a callable produces a value its bound views as a structural type"
+      )
+    ))
+      .and(found("Ref.pick") must_== Count.Finite(1))
+      .and(uncovered(found("Var.g"), "variant"))
+      .and(uncovered(found("O.I.<init>"), "a bounded abstract type member around a constructor"))
   }
 
   // `D` reaches `A` through `B` and through `C`, and `E` extends `D`.

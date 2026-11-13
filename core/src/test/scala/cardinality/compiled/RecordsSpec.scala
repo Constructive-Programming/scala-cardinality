@@ -173,7 +173,8 @@ class RecordsSpec extends Specification {
 
   // Not read yet, each by its reason: an extension member; a class something extends; a record
   // that inherits a member named like the measured definition, which may be that one on another
-  // value; one with a bounded abstract type member; one whose inherited member the site may not
+  // value; one with a bounded abstract type member (a proof about each value's own witness); one
+  // whose inherited member the site may not
   // call; a final class that nothing the site may call builds; and an overridden member a
   // behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m` gives `OrdI` to
   // `sorted`, which calls its `compare`, which calls `ord`; `FbF.k` applies a function its
@@ -189,7 +190,7 @@ class RecordsSpec extends Specification {
       "an extension method among the members of a capability record",
       "a capability record of a class something extends",
       "a capability record with a member named like the measured definition",
-      "a bounded abstract type member, or one of another kind than F[_]",
+      "a capability record with a bounded abstract type member",
       "a capability record with a member hidden at the use site",
       "a capability record with no constructor or factory the site may call",
       "an overridden member that may call it among the members of a capability record",
@@ -198,10 +199,15 @@ class RecordsSpec extends Specification {
     )
   }
 
+  // `Bounded.t` counts where the old front end refuses a bounded abstract type member: `t: T`
+  // has no input of `T` (the bound `T <: Int` gives an Int from a T, not a T), so no body: 0.
   private def agrees = {
     val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
+    val derived =
+      compared.compared.filter(_.row.name == "rec.Bounded.t").map(_.row.key -> "0").toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(Differential.failures(compared.compared) must_== Nil)
+      .and(derived.size must_== 1)
+      .and(Differential.failures(compared.compared, derived) must_== Nil)
   }
 
 }

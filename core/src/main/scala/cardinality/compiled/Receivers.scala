@@ -330,7 +330,10 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
           Uncovered(s"$where with an abstract type member a receiver holds: ${member.name}")
         )
         .toLeft(())
+      // A witness's bound is a proof about each record value's own type member: not read yet.
       ids <- Traversals.sequence(witnesses.map {
+        case (member, _: Shape.Atom) if Shapes.bounded(member) =>
+          Left(Uncovered(s"$where with a bounded abstract type member: ${member.name}"))
         case (_, Shape.Atom(id)) => Right(id)
         case (member, _)         =>
           Left(Uncovered(s"$where with an abstract type member of another kind: ${member.name}"))
@@ -468,7 +471,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     World.ancestors(c).flatMap(_.declarations).collectFirst {
       case other: TypeMemberSymbol
           if other != member && other.name == member.name &&
-            (other.isPrivate || Shapes.typeMember(c, other).isLeft) =>
+            (other.isPrivate || !Shapes.free(other)) =>
         s"an abstract type member another declaration of its name bounds or hides: ${member.name}"
     }
 

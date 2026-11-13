@@ -1,7 +1,7 @@
 package tastyquery
 
 import tastyquery.Modifiers.Variance
-import tastyquery.Symbols.{Symbol, TypeParamSymbol}
+import tastyquery.Symbols.{Symbol, TypeMemberSymbol, TypeParamSymbol}
 import tastyquery.Trees.PolyTypeDefinitionTree
 import tastyquery.Types.TypeLambda
 
@@ -26,12 +26,8 @@ object Variances {
       case _ => false
     }
     val inTree = parameter.tree.exists {
-      case defined: Trees.TypeParam =>
-        defined.bounds match {
-          case PolyTypeDefinitionTree(params, _) => params.exists(p => declaresVariance(p.symbol))
-          case _                                 => false
-        }
-      case _ => false
+      case defined: Trees.TypeParam => declaredIn(defined.bounds)
+      case _                        => false
     }
     inLambda || inTree
   }
@@ -43,6 +39,16 @@ object Variances {
     case lambda: TypeLambda =>
       lambda.typeLambdaParams.forall(_.declaredVariance == Variance.Invariant)
     case _ => false
+  }
+
+  /** Whether an abstract type member declares a variance on a parameter of its own (`F[+_]`), which
+    * its tree's parameters carry where its bound's lambda does not.
+    */
+  def variant(member: TypeMemberSymbol): Boolean = member.tree.exists(t => declaredIn(t.rhs))
+
+  private def declaredIn(definition: Trees.TypeDefinitionTree): Boolean = definition match {
+    case PolyTypeDefinitionTree(params, _) => params.exists(p => declaresVariance(p.symbol))
+    case _                                 => false
   }
 
 }
