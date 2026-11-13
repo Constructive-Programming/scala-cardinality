@@ -2007,11 +2007,19 @@ the same six deleted when this branch is merged; every input passes otherwise.
   passes on the private memory: method rows identical corpus-core 2,780, cats-core 1,601,
   cats-kernel 330, cats-eo 231, cats-eo-generics 40, cats-eo-schemes 5, fixtures 5,116); match
   types, a constructor's anonymous evidence and evidence of one class ("Stretch 5, twelfth unit").
-  Next (re-ranked by old numeric rows still uncovered): the rest of `a type` (paths `p.X`, type
-  members through `this`, polymorphic function types, refinements), a definition that reaches
-  itself (the stored side's fixed point: a port of the old `capacity/Solver` over TASTy, which the
-  constructor positions the method side refuses also wait for), the rest of item 6 (a receiver's,
-  a capability's and a captured method's anonymous parameters), a value of a class of the module. A constructor position the method side refuses is the gate agent's
+  Next, by the coordinator's order after `43fa5d8`: (1) the stored side's fixed point, a port of
+  the old `capacity/Solver` reading over TASTy that reuses its syntax-free parts (stripping
+  scalameta imports as for `StuckProjections`), for `a definition that reaches itself` (core 41,
+  fixtures 93), the core `Size` values (`a value of a class of the module`), and `a constructor
+  position the method side refuses` (core 50, fixtures 60), which moves to this branch from the
+  gate agent; (2) captures a nearer scope binds again (41 + 2), definitions in function literals
+  (31), case clauses (14) and constructor bodies (7); (3) the rest of `a type` (fixtures 95,
+  cats-eo 11: paths `p.X`, members through `this`, polymorphic function types, refinements, a
+  match type in a constructor position), then anonymous contextual parameters (cats-core 5,
+  fixtures 18: a receiver's, a capability's, a captured method's, a constructor's beside its
+  class's givens). Left for the owner's decision: an enclosing class whose construction always
+  throws or binds a pattern (fixtures 58). The six `InjectK` lines of the shared memory are
+  deleted by the coordinator after the next merge of the branches. A constructor position the method side refuses is the gate agent's
   (its note at `f75b9d4`). Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
