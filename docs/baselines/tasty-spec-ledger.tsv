@@ -270,7 +270,7 @@ CardinalitySpec	conaturals collapse after completion	UNCOVERED	TinySize(0) != ω
 CardinalitySpec	consumers of a lazy type may add finite terms	UNCOVERED	TinySize(0) != 2ω + 1
 CardinalitySpec	consumers see the ν count	UNCOVERED	TinySize(0) != TinySize(2)
 CardinalitySpec	cycle through a sealed parent	UNCOVERED	TinySize(0) != ω
-CardinalitySpec	deep mentions block it too	UNCOVERED	passes on a row not read yet
+CardinalitySpec	a strict set beside a lazy field	UNCOVERED	passes on a row not read yet
 CardinalitySpec	degenerate self-recursion (μX.X, no base)	UNCOVERED	passes on a row not read yet
 CardinalitySpec	derived body vals add nothing	PASS	
 CardinalitySpec	deterministic mutual towers, one each	UNCOVERED	TinySize(0) != TinySize(2)

@@ -164,7 +164,7 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
             // The compiler gives a plain class's parameter without `val` an accessor private to
             // the instance. It is no member: values that differ only there may be one value.
             else if (accessors.exists(_.visibility == Visibility.PrivateThis))
-              Left(Refused(s"sealed subtype hides a parameter: ${cls.name}"))
+              Left(Refused(s"${Sums.Hides}${cls.name}"))
             // A field the site may not select, or may select on `this` alone (`protected[this]`).
             else if (!accessors.forall(World.selectable(_, env.site)))
               Left(Uncovered(s"a restricted field: $name"))
@@ -220,6 +220,9 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
 }
 
 private[compiled] object Sums {
+
+  /** Why a sealed subtype is not read: a plain parameter, which no member shows. */
+  val Hides = "sealed subtype hides a parameter: "
 
   /** The templates an enum's value cases are built by: the companion that holds them, whose
     * initializer builds every value case, and the anonymous class of one with its own `extends`

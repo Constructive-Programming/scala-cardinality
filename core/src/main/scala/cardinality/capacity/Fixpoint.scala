@@ -42,32 +42,24 @@ private[cardinality] object Fixpoint {
   }
 
   /** One constructor of a definition: its continuations, and the rest of its fields with the
-    * definitions they name.
+    * definitions they name where the constructor demands them (`names`) and those they name only
+    * under a by-name type or a function's result (`deferred`: `p: (Boolean, () => X)`).
     */
   final case class Arm[K, S](
       continuations: List[Continuation[K, S]],
       rest: S => Size,
-      names: Set[K]
+      names: Set[K],
+      deferred: Set[K]
   )
 
-  /** What the ν completion reads: each definition's constructors, the sealed parents with their
-    * children, and the definitions each one names lazily (a by-name field or a function's result).
+  /** Each field's names `(demanded, deferred)`, joined: an arm's `names` and `deferred`. */
+  def joined[K](held: List[(Set[K], Set[K])]): (Set[K], Set[K]) =
+    (held.flatMap(_._1).toSet, held.flatMap(_._2).toSet)
+
+  /** What the ν completion reads: each definition's constructors, and the sealed parents with their
+    * children.
     */
-  final case class Lazy[K, S](
-      arms: Map[K, List[Arm[K, S]]],
-      parents: Map[K, List[K]],
-      lazily: Map[K, Set[K]]
-  ) {
-
-    // Each parent's children with a constructor that continues through it.
-    lazy val holedChildren: Map[K, Set[K]] = parents.keySet.map { parent =>
-      parent -> arms.collect {
-        case (name, memberArms) if memberArms.exists(_.continuations.exists(_.target == parent)) =>
-          name
-      }.toSet
-    }.toMap
-
-  }
+  final case class Lazy[K, S](arms: Map[K, List[Arm[K, S]]], parents: Map[K, List[K]])
 
   /** Solves a system of equations whose dependency graph is read (`reaches`) and whose definitions
     * on a cycle through a non-positive position (`fixed`) hold a fixed value in `marked`: the least
@@ -83,9 +75,26 @@ private[cardinality] object Fixpoint {
   )(using Store[K, S]): S = {
     val cyclic = reaches.keySet.filter(name => reaches(name)(name))
     val mu = iterate(eqs, cyclic, marked, frozen = fixed)
-    val groups = cycleGroups(nu).filterNot((members, _) => members.exists(fixed))
-    val completed = groups.flatMap { case (members, attached) => members.union(attached) }.toSet
-    val incomplete = blocked(nu.lazily, reaches, completed) -- fixed
+    // A definition between the cycle's nodes (the source front end's alias `type T = () => X`)
+    // is read again from the values a lap reads the nodes at.
+    val nodes = nu.arms.keySet ++ nu.parents.keySet
+    val between = eqs.map(_._1).filter { k =>
+      !nodes(k) && !fixed(k) && reaches.getOrElse(k, Set.empty).exists(nodes)
+    }
+    val read = iterate(eqs, cyclic, _: S, eqs.map(_._1).toSet -- between)
+    val (cycles, closed, readable) = cycleGroups(nu, mu, read)
+    val groups = cycles.filterNot(_.exists(fixed))
+    val completed = groups.flatten.toSet
+    // What each definition names where its constructor does not demand it (a strict `Option[X]`
+    // demands it).
+    val lazily = nu.arms.map { (owner, arms) =>
+      owner -> arms.flatMap { arm =>
+        arm.continuations.filter(_.kind != Continuation.Kind.OptionBranch).map(_.target) ++
+          arm.deferred
+      }.toSet
+    }
+    val incomplete =
+      blocked(lazily, reaches, closed -- cycles.filter(_.exists(fixed)).flatten) -- fixed
     // Re-derive everything outside the completed cycles from their frozen values. Widening during
     // the iteration is a way of stopping it, not a result: a consumer widened only because a
     // cyclic dependency was still growing lands here on the value its own definition has, so a
@@ -93,7 +102,7 @@ private[cardinality] object Fixpoint {
     // all the way down.
     val settled =
       if (groups.isEmpty) mu
-      else iterate(eqs, cyclic, greatestFixpoint(nu, groups, mu), completed ++ fixed)
+      else iterate(eqs, cyclic, greatestFixpoint(readable, groups, mu, read), completed ++ fixed)
     settled.withBlocked(incomplete.map(_ -> Blocked.Lazy))
   }
 
@@ -181,50 +190,49 @@ private[cardinality] object Fixpoint {
     }.toSet
 
   // The greatest fixed point of lazy recursion (docs/type-arithmetic.md §8): the μ
-  // iterate above counts the finite constructor trees; a parameter the constructor never
-  // demands lets a value unfold forever. A *continuation edge* is an occurrence of a
-  // defined name in a lazy position:
-  //   - `=> X`, `=> Option[X]` or the thunk `() => X`: one continuation per node — the
-  //     cycle is deterministic and the infinite part is its per-lap label space raised to
-  //     ω (the `Size.pow` finite-program reading): `νX.X` counts 1, an endless `Boolean`
-  //     stream ω, an ε₀-tier label space such as `String`-valued streams ε₀;
-  //   - a strict `Option[X]` field (per node a `Some(tower)` beside the hole) or an
-  //     inhabited-domain function field `D => X` (one continuation per input of `D`, as
-  //     `lazy val e = One(Two(_ => e))` shows): the cycle branches, and every branching
-  //     unfolding is generated by a finite program, so the infinite part saturates at ω —
-  //     unless the per-lap label space itself reaches ε₀, which branching may not demote,
-  //     and unless it is empty, in which case branching cannot conjure values at all.
-  // Coiteration is blocked — the cycle skipped, leaving the sound μ under-count — when a
-  // continuing arm demands the cycle the hard way: a strict self argument (`x: X`), a
-  // mention nested inside a tuple, `Set[X]` or a function domain (`X => Y`).
+  // iterate above counts the finite constructor trees; a field the constructor never
+  // demands lets a value unfold forever. A *lazy edge* is an occurrence of a defined name
+  // the constructor does not demand: a continuation field (`=> X`, `() => X`, `D => X`, a
+  // strict `Option[X]`) or a name under a by-name type or a function's result anywhere in
+  // another field (`p: (Boolean, () => X)`, `Option[() => X]`). A name a field holds
+  // otherwise is a *strict edge*, and a sealed parent is a node whose strict edges are its
+  // children. A cycle is a strongly-connected group of the nodes that hold a value with a lazy
+  // edge: a value is built in finitely many strict steps around lazy knots (`Kx(Nil, () =>
+  // k)` for `Kx(kids: List[Kx], f: () => Kx)`), so a strict cycle inside it has a base. A node
+  // that holds none keeps its μ value, 0 (`K9(k: K9, m: => K9)`).
   //
-  // Cycles are the strongly-connected groups of the continuation graph; a sealed parent is
-  // a pass-through node whose holed children are one hop apart, and more than one child
-  // continuing through it is itself the per-node branch. Each completed cycle combines its μ
-  // value with the infinite contribution, then collapses an infinite total to its highest tier.
-  // Finite totals stay unchanged. The label-space environment is re-computed from the immutable
-  // μ base rather than accumulated — adding a contribution per round would count solver rounds
-  // as coefficients. A cycle may consume another cycle's ν, so the environment is refined
-  // until stable, within a budget that only guards the loop.
-  private def greatestFixpoint[K, S](nu: Lazy[K, S], groups: List[(Set[K], Set[K])], mu: S)(using
-      Store[K, S]
-  ): S = {
+  // Each node's per-lap label space is what its continuing arms hold with every cycle node
+  // read as one value (a parent holds nothing of its own). A cycle is deterministic when each
+  // node has one continuing arm with one hole: its infinite part is the label space raised to
+  // ω (the `Size.pow` finite-program reading): `νX.X` counts 1, an endless `Boolean` stream
+  // ω, a `String`-valued one ε₀. Otherwise it branches, and every branching unfolding is
+  // generated by a finite program, so the infinite part saturates at ω, unless the label
+  // space itself reaches the infinite tier (a list's lengths, `List[() => X]`: ε₀), which
+  // branching may not demote, and unless it is empty, in which case branching cannot conjure
+  // values at all. Branching is read with every cycle node as two values: a field is linear in
+  // the cycle where it doubles.
+  //
+  // Each completed cycle combines its μ value with the infinite contribution, then collapses an
+  // infinite total to its highest tier. Finite totals stay unchanged. The label-space
+  // environment is re-computed from the immutable μ base rather than accumulated — adding a
+  // contribution per round would count solver rounds as coefficients. A cycle may consume
+  // another cycle's ν, so the environment is refined until stable, within a budget that only
+  // guards the loop.
+  private def greatestFixpoint[K, S](
+      nu: Lazy[K, S],
+      groups: List[Set[K]],
+      mu: S,
+      read: S => S
+  )(using Store[K, S]): S = {
     // Contributions are single-tier values, so a cycle can only move another cycle once;
     // the budget is a guard against a pathological dependency order, not a semantic.
     val budget = groups.size * 4 + 8
 
     @tailrec
     def refine(env: S, rounds: Int): S = {
-      val contributions = groups.foldLeft(Map.empty[K, Size]) {
-        case (acc, (members, attached)) =>
-          infiniteOf(nu)(members, attached, env).fold(acc) { infinite =>
-            members.union(attached).foldLeft(acc) { (a, name) =>
-              a.updated(name, a.getOrElse(name, NothingSize) + infinite)
-            }
-          }
-      }
-      val next = contributions.map { (name, infinite) =>
-        name -> completeCoinduction(mu.value(name), infinite)
+      val next = groups.flatMap { group =>
+        val infinite = infiniteOf(nu, read)(group, env)
+        group.map(name => name -> completeCoinduction(mu.value(name), infinite))
       }
       if (next.forall((name, size) => env.value(name) == size) || rounds <= 0)
         env.withValues(next)
@@ -242,57 +250,131 @@ private[cardinality] object Fixpoint {
     if (total.hasInfinite) total.widen else total
   }
 
-  // Strongly-connected groups of the continuation graph that actually cycle (a self edge
-  // counts), paired with the sealed parents they pass through. A parent leading to a
-  // child outside the group breaks the cycle's determinism in a way the label space
-  // cannot express: drop the group.
-  private def cycleGroups[K, S](ctx: Lazy[K, S]): List[(Set[K], Set[K])] = {
-    def successors(name: K): Set[K] =
-      ctx
-        .arms(name)
-        .flatMap(_.continuations)
-        .flatMap { edge =>
-          if (ctx.arms.contains(edge.target)) Some(edge.target)
-          else ctx.holedChildren.getOrElse(edge.target, Set.empty[K])
-        }
-        .toSet
+  // A node's strict edges: the names its arms demand, or a sealed parent's children.
+  private def strictEdges[K, S](ctx: Lazy[K, S], name: K): Set[K] =
+    ctx.parents.get(name).fold(named(ctx, name)(_.names))(_.toSet)
 
-    val reach = ctx.arms.keySet
-      .map(name => name -> closure(successors, Set(name), Set(name)))
-      .toMap
-    ctx.arms.keySet.toList
-      .map(name => ctx.arms.keySet.filter(m => reach(name).contains(m) && reach(m).contains(name)))
-      .filter(group => group.exists(name => successors(name).intersect(group).nonEmpty))
+  private def named[K, S](ctx: Lazy[K, S], name: K)(targets: Arm[K, S] => Set[K]): Set[K] =
+    ctx.arms.getOrElse(name, Nil).flatMap(targets).toSet
+
+  private def lazyTargets[K, S](arm: Arm[K, S]): Set[K] =
+    arm.continuations.map(_.target).toSet ++ arm.deferred
+
+  // The completed cycles, the nodes no lazy cycle leaves open (a completed one's, one on no lazy
+  // cycle, one that holds no value), and the system as the cycles read it:
+  // a node that holds a value keeps the arms that hold one, each naming only the nodes its space
+  // depends on (`o: Option[(Nothing, Y)]` holds no `Y`). A cycle is a strongly-connected group of
+  // the graph of every edge between the nodes that hold a value, with a lazy edge. A node read as
+  // empty only because an arm names one of the nodes both strictly and lazily may hold one: a group
+  // through it is not completed.
+  private def cycleGroups[K, S](nu: Lazy[K, S], mu: S, read: S => S)(using
+      Store[K, S]
+  ): (List[Set[K]], Set[K], Lazy[K, S]) = {
+    val nodes = nu.arms.keySet ++ nu.parents.keySet
+    // Without a lazy edge nothing is completed, and no reading of the nodes is needed.
+    val alive =
+      if (nu.arms.values.exists(_.exists(lazyTargets(_).nonEmpty))) inhabited(nu, nodes, mu, read)
+      else nodes
+    val held = read(mu.withValues(nodes.map(k => k -> (if (alive(k)) UnitSize else NothingSize))))
+    def holds(arm: Arm[K, S])(n: K) =
+      alive(n) && arm.rest(read(held.withValues(List(n -> NothingSize)))) != arm.rest(held)
+    val ctx = nu.copy(arms = nu.arms.map { (name, arms) =>
+      name -> (if (!alive(name)) arms
+               else
+                 arms.collect {
+                   case arm
+                       if !arm.rest(held).isZero && arm.continuations
+                         .forall(!_.size(held).isZero) =>
+                     arm.copy(
+                       names = arm.names.filter(holds(arm)),
+                       deferred = arm.deferred.filter(holds(arm))
+                     )
+                 })
+    })
+    val unsure = (nodes -- alive).filter { name =>
+      ctx.arms.getOrElse(name, Nil).exists(arm => arm.names.intersect(arm.deferred).nonEmpty)
+    }
+    val live = alive ++ unsure
+    def lazyEdges(name: K) = named(ctx, name)(lazyTargets)
+    def successors(name: K) = (strictEdges(ctx, name) ++ lazyEdges(name)).intersect(live)
+    val reach = live.map(name => name -> closure(successors, successors(name), Set.empty)).toMap
+    val (groups, open) = live.toList
+      .map(name => live.filter(m => reach(name)(m) && reach(m)(name)))
       .distinct
-      .flatMap { group =>
-        val targets =
-          group.flatMap(name => ctx.arms(name).flatMap(_.continuations).map(_.target))
-        val attached = targets.filter(ctx.parents.contains)
-        if (attached.exists(parent => !group.subsetOf(ctx.holedChildren(parent)))) None
-        else Some((group, attached))
-      }
-      .distinct
+      .filter(group => group.exists(lazyEdges(_).exists(group)))
+      .partition(!_.exists(unsure))
+    (groups, nodes -- open.flatten, ctx)
   }
 
-  // The infinite part a strongly-connected group contributes at the given scope, or None
-  // when it is blocked: some member has no continuing arm, or a continuing arm demands
-  // the cycle outright. A branch is two continuations in one arm, a strict `Option[X]` field, an
-  // inhabited function field, or a sealed parent with several continuing children.
-  private def infiniteOf[K, S](ctx: Lazy[K, S])(
-      members: Set[K],
-      attached: Set[K],
-      scope: S
-  ): Option[Size] = {
-    val cyc = members.union(attached)
-    val perMember =
-      members.toList.flatMap(name => continuingArms(ctx.arms(name), cyc, scope).toList)
-    if (perMember.length != members.size) None
-    else {
-      val branchy =
-        attached.exists(parent => ctx.holedChildren(parent).size >= 2) || perMember.exists(_._2)
-      val lap = perMember.map(_._1).foldLeft(UnitSize: Size)(_ * _) // per-lap label space
-      Some(cycleContribution(branchy = branchy, lap = lap))
+  // The nodes that hold a value: one built in finitely many strict steps, each lazy edge tied to a
+  // node that may hold one (a least fixed point of construction inside a greatest one of the
+  // knots), or one with a finite value (μ).
+  private def inhabited[K, S](ctx: Lazy[K, S], nodes: Set[K], mu: S, read: S => S)(using
+      Store[K, S]
+  ): Set[K] = {
+    def at(holds: K => Boolean) =
+      read(mu.withValues(nodes.map(k => k -> (if (holds(k)) UnitSize else NothingSize))))
+    def lives(alive: Set[K], possible: Set[K])(name: K): Boolean =
+      ctx.parents.get(name) match {
+        case Some(children) => children.exists(alive)
+        case None           =>
+          // A continuation names its target alone; the rest names a node strictly or lazily.
+          val tied = at(possible)
+          ctx.arms(name).exists { arm =>
+            val lazily = arm.deferred -- arm.names
+            !arm.rest(at(k => alive(k) || lazily(k) && possible(k))).isZero &&
+            arm.continuations.forall(!_.size(tied).isZero)
+          }
+      }
+    @tailrec
+    def grow(alive: Set[K], possible: Set[K]): Set[K] = {
+      val next = alive ++ (nodes -- alive).filter(lives(alive, possible))
+      if (next == alive) alive else grow(next, possible)
     }
+    @tailrec
+    def shrink(possible: Set[K]): Set[K] = {
+      val alive = grow(nodes.filterNot(mu.value(_).isZero), possible)
+      if (alive == possible) alive else shrink(alive)
+    }
+    shrink(nodes)
+  }
+
+  // The infinite part a cycle contributes at the given scope. A branch is a node with several
+  // continuing arms or children in the cycle, or an arm with several holes or one that may hold
+  // other than one value per hole: a strict `Option[X]`, an inhabited function field, a field
+  // whose space is not linear in the cycle's (`Option[() => X]`, `(() => X, () => X)`).
+  private def infiniteOf[K, S](ctx: Lazy[K, S], read: S => S)(group: Set[K], scope: S)(using
+      Store[K, S]
+  ): Size = {
+    val one = read(scope.withValues(group.map(_ -> UnitSize)))
+    val two = read(scope.withValues(group.map(_ -> BooleanSize)))
+    // Each node's label space per lap, and whether it branches.
+    val perNode = group.toList.map { name =>
+      ctx.parents.get(name) match {
+        case Some(children) => (UnitSize, children.count(group) >= 2)
+        case None           =>
+          val continuing = ctx.arms(name).filter { arm =>
+            (lazyTargets(arm) ++ arm.names).exists(group) && !armSpace(one, group)(arm).isZero
+          }
+          (
+            continuing.map(armSpace(one, group)).foldLeft(NothingSize: Size)(_ + _),
+            continuing.size >= 2 || continuing.exists(branches(group, one, two))
+          )
+      }
+    }
+    val lap = perNode.map(_._1).foldLeft(UnitSize: Size)(_ * _)
+    cycleContribution(branchy = perNode.exists(_._2), lap = lap)
+  }
+
+  private def branches[K, S](group: Set[K], one: S, two: S)(arm: Arm[K, S]): Boolean = {
+    val edges = arm.continuations.filter(c => group(c.target))
+    val held = (arm.names ++ arm.deferred).exists(group)
+    edges.size + (if (held) 1 else 0) >= 2 ||
+    edges.exists { edge =>
+      edge.kind == Continuation.Kind.OptionBranch ||
+      edge.kind == Continuation.Kind.FunctionField && edge.domain(one).larger(UnitSize)
+    } ||
+    held && arm.rest(two) != arm.rest(one) + arm.rest(one)
   }
 
   // One cycle infinite part: an empty per-lap label space admits no node at all, so branching
@@ -305,39 +387,13 @@ private[cardinality] object Fixpoint {
     else if (branchy) if (lap.hasInfinite) EffectiveEpsilon0 else EffectiveOmega
     else lap.pow(EffectiveOmega)
 
-  // A member's per-lap space and branch flag, or None when blocked: no arm continues the
-  // cycle, or a continuing arm's rest demands it (`x: X` outright, tuples, `Set[X]`,
-  // negative occurrences — anything the continuation forms do not cover).
-  private def continuingArms[K, S](
-      memberArms: List[Arm[K, S]],
-      cyc: Set[K],
-      scope: S
-  ): Option[(Size, Boolean)] = {
-    val continuing = memberArms.filter(_.continuations.exists(c => cyc.contains(c.target)))
-    if (continuing.isEmpty || continuing.exists(_.names.exists(cyc.contains))) None
-    else
-      Some(
-        (
-          continuing.map(armSpace(scope, cyc)).foldLeft(NothingSize: Size)(_ + _),
-          continuing.size >= 2 || continuing.exists { arm =>
-            val cycleEdges = arm.continuations.filter(c => cyc.contains(c.target))
-            cycleEdges.size >= 2 || cycleEdges.exists { edge =>
-              edge.kind == Continuation.Kind.OptionBranch ||
-              edge.kind == Continuation.Kind.FunctionField && edge.domain(scope).larger(UnitSize)
-            }
-          }
-        )
-      )
-  }
-
-  // One arm's per-lap space: the product of its ordinary parameters — external
-  // continuations included, since they evaluate to a settled size — times, for each
-  // cycle-targeting function field, its domain: the space of inputs the unfolding answers
-  // per node.
-  private def armSpace[K, S](scope: S, cyc: Set[K])(arm: Arm[K, S]): Size =
-    arm.continuations.foldLeft(arm.rest(scope)) { (s, edge) =>
-      if (!cyc.contains(edge.target)) s * edge.size(scope)
-      else s * edge.domain(scope)
+  // One arm's per-lap space at a scope that reads every cycle node as one (or two) values: its
+  // other fields, those that hold the cycle included, its continuations outside the cycle, and,
+  // for each one in it, its domain: the inputs the unfolding answers per node.
+  private def armSpace[K, S](at: S, group: Set[K])(arm: Arm[K, S]): Size =
+    arm.continuations.foldLeft(arm.rest(at)) { (s, edge) =>
+      if (!group(edge.target)) s * edge.size(at)
+      else s * edge.domain(at)
     }
 
 }

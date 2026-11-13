@@ -491,7 +491,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
             !parameters.forall(p =>
               fieldNames(p.name) || fixed && observers.exposed(c, template, p.symbol, site, read)
             ),
-          "with a parameter that is no public field"
+          Shapes.NoField
         )
         // A final class no constructor callable from the site builds is one of what the site may
         // call to build one, over the fields it observes (rule B).
@@ -620,6 +620,9 @@ private[compiled] object Shapes {
 
   /** How the method side refuses a class it is reading again. */
   val Recursive = "recursive type not read: "
+
+  /** Why a record is not read: a constructor parameter it does not show. */
+  val NoField = "with a parameter that is no public field"
 
   /** How a type reads in an environment: `Shapes.of`, which its helpers are given. */
   type Reading = (Type, Env) => Either[Unread, Shape]

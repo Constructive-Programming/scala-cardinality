@@ -255,15 +255,39 @@ class CardinalitySpec extends Specification {
     strict self-argument blocks coiteration  ${src(
       "final class K9(k: K9, m: => K9)"
     ) === NothingSize} (no knot without a lazy tie)
-    deep mentions block it too            ${src(
+    a strict set beside a lazy field      ${src(
       "final class H9(m: => H9, s: Set[H9])"
-    ) === NothingSize}
+    ) === EffectiveOmega} (`new H9(h, Set())` ties it; a branch per node: ω)
     lazy cycle through a sealed abstract  ${src(
       "sealed abstract class Nxt(v: Boolean); final class Go(next: => Nxt) extends Nxt(true)"
     ) === UnitSize}
     a tail into another's cycle is no cycle  ${src(
       "final class Wrap(w: => Loop2); final class Loop2(next: => Loop2)"
     ) === TinySize(2)} (Wrap = Loop2 = 1 each)
+    a thunk inside a tuple defers the cycle    ${src(
+      "case class Ltd(p: (Boolean, () => Ltd))"
+    ) === EffectiveOmega} (νX. 2·X: an endless Boolean stream)
+    a unit label beside it is the one knot     ${src(
+      "case class Lu(p: (Unit, () => Lu))"
+    ) === UnitSize} (νX. X)
+    two thunks in one field branch             ${src(
+      "case class Lw(p: (() => Lw, () => Lw))"
+    ) === EffectiveOmega} (νX. X·X: binary trees)
+    a strict field inside the cycle            ${src(
+      "case class Out(p: In); case class In(b: Boolean, f: () => Out)"
+    ) === EffectiveOmega + EffectiveOmega} (each lap 1 × 2: ω each)
+    a sealed parent passes through its children  ${src(
+      "sealed trait T; case class A(t: () => T) extends T; case class B(b: Boolean, a: A) extends T"
+    ) === EffectiveOmega + EffectiveOmega} (A's thunk returns A or B(b, A): ω each)
+    a list of thunks has infinite arities      ${src(
+      "case class Lst(p: List[() => Lst])"
+    ) === EffectiveEpsilon0} (each node chooses its arity in ω: ε₀)
+    a strict list beside a thunk               ${src(
+      "case class Kx(kids: List[Kx], f: () => Kx)"
+    ) === EffectiveEpsilon0} (Kx(Nil, () => k) ties it; ω arities per node: ε₀)
+    a name held strictly and lazily in one field  ${src(
+      "case class Ks(p: (Ks, () => Ks))"
+    ) === NothingSize} (its μ value; the row is `?`)
     strict stream still has no base            ${src(
       "case class S2(head: Boolean, tail: S2)"
     ) === NothingSize}
