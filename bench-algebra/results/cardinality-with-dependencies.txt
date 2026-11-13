@@ -1,0 +1,71 @@
+Generic method / constructor implementation cardinalities
+  42 signatures: 4 finite · 20 countably infinite · 18 unresolved
+  9 unresolved on: inherited parent declaration not supplied
+  8 unresolved on: declaration not supplied
+  1 unresolved on: open class with hidden constructor state
+
+1  cardinality.bench.algebra.CurrentAlgebra.<init>  CurrentAlgebra  CurrentAlgebra.scala:10  [constructor]
+ω  cardinality.bench.algebra.CurrentAlgebra.number  number(n: Int): Size  CurrentAlgebra.scala:12  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.omega  omega: Size  CurrentAlgebra.scala:13  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.add  add(a: Size, b: Size): Size  CurrentAlgebra.scala:14  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.multiply  multiply(a: Size, b: Size): Size  CurrentAlgebra.scala:15  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.power  power(a: Size, exponent: Size): Size  CurrentAlgebra.scala:16  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.compare  compare(a: Size, b: Size): Int  CurrentAlgebra.scala:17  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.project  project(a: Size): String  CurrentAlgebra.scala:18  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.render  render(a: Size): String  CurrentAlgebra.scala:19  [method]
+ω  cardinality.bench.algebra.Model.<init>  Model(epsilon: BigInt, power: BigInt, omega: BigInt, finite: BigInt)  ModelAlgebra.scala:16  [constructor]
+ω  cardinality.bench.algebra.Model.isZero  isZero: Boolean  ModelAlgebra.scala:17  [method]
+    captures: epsilon, finite, omega, power
+ω  cardinality.bench.algebra.Model.isOne  isOne: Boolean  ModelAlgebra.scala:18  [method]
+    captures: epsilon, finite, omega, power
+1  cardinality.bench.algebra.ModelAlgebra.<init>  ModelAlgebra  ModelAlgebra.scala:21  [constructor]
+ω  cardinality.bench.algebra.ModelAlgebra.number  number(n: Int): Value  ModelAlgebra.scala:24  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.omega  omega: Value  ModelAlgebra.scala:25  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.add  add(a: Value, b: Value): Value  ModelAlgebra.scala:27  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.multiply  multiply(a: Value, b: Value): Value  ModelAlgebra.scala:30  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.power  power(base: Value, exponent: Value): Value  ModelAlgebra.scala:45  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.intPower  intPower(base: Value, exponent: BigInt): Value  ModelAlgebra.scala:58  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.compare  compare(a: Value, b: Value): Int  ModelAlgebra.scala:70  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.project  project(a: Value): String  ModelAlgebra.scala:83  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.render  render(a: Value): String  ModelAlgebra.scala:91  [method]
+1  cardinality.bench.algebra.RingsAlgebra.<init>  RingsAlgebra  RingsAlgebra.scala:12  [constructor]
+?  cardinality.bench.algebra.RingsAlgebra.number  number(n: Int): Value  RingsAlgebra.scala:14  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+?  cardinality.bench.algebra.RingsAlgebra.omega  omega: Value  RingsAlgebra.scala:15  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+?  cardinality.bench.algebra.RingsAlgebra.add  add(a: Value, b: Value): Value  RingsAlgebra.scala:16  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+?  cardinality.bench.algebra.RingsAlgebra.multiply  multiply(a: Value, b: Value): Value  RingsAlgebra.scala:17  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+?  cardinality.bench.algebra.RingsAlgebra.power  power(a: Value, exponent: Value): Value  RingsAlgebra.scala:19  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+?  cardinality.bench.algebra.RingsAlgebra.coeff  coeff(p: Value, k: Int): BigInt  RingsAlgebra.scala:28  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+?  cardinality.bench.algebra.RingsAlgebra.compare  compare(a: Value, b: Value): Int  RingsAlgebra.scala:31  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+?  cardinality.bench.algebra.RingsAlgebra.project  project(a: Value): String  RingsAlgebra.scala:41  [method]
+    unresolved: declaration not supplied: _root_.SignatureNotRead (not declared in the sources or stdlib-model/1, may be bound through java.lang.Number, which is not supplied (parents of cc.redberry.rings.bigint.BigInteger))
+1  cardinality.bench.algebra.SymjaAlgebra.<init>  SymjaAlgebra  SymjaAlgebra.scala:12  [constructor]
+?  cardinality.bench.algebra.SymjaAlgebra.evaluator  val evaluator: <inferred>  SymjaAlgebra.scala:14  [method]
+    unresolved: open class with hidden constructor state: org.matheclipse.core.eval.ExprEvaluator.compiledStateNotRead
+?  cardinality.bench.algebra.SymjaAlgebra.omega  val omega: IExpr  SymjaAlgebra.scala:15  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.number  number(n: Int): IExpr  SymjaAlgebra.scala:16  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.add  add(a: IExpr, b: IExpr): IExpr  SymjaAlgebra.scala:17  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.multiply  multiply(a: IExpr, b: IExpr): IExpr  SymjaAlgebra.scala:18  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.power  power(a: IExpr, exponent: IExpr): IExpr  SymjaAlgebra.scala:19  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.integer  integer(e: IExpr): BigInt  SymjaAlgebra.scala:21  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.coeff  coeff(p: IExpr, k: Int): BigInt  SymjaAlgebra.scala:27  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.compare  compare(a: IExpr, b: IExpr): Int  SymjaAlgebra.scala:30  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+?  cardinality.bench.algebra.SymjaAlgebra.project  project(a: IExpr): String  SymjaAlgebra.scala:42  [method]
+    unresolved: inherited parent declaration not supplied: edu.jas.structure.GcdRingElem (not declared in the sources or stdlib-model/1)
+scala-cardinality — 4 sources, 0 definitions
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
+  ?: no single number here — the reason after the row says what would give one

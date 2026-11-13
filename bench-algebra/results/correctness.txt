@@ -1,0 +1,23 @@
+symja intToString: projects to 1 P + 0 w + 0
+symja optionDomain: SILENT WRONG ANSWER -1 P + 1 w + 1, the model says ε₀
+symja eitherDomain: SILENT WRONG ANSWER -1 P + 1 w + 1, the model says ε₀
+symja stringToString: SILENT WRONG ANSWER -1 P + 1 w + 1, the model says ε₀
+symja: 8 polynomial projections and 7 comparison signs match; operands unchanged
+rings intToString: construction refused
+rings optionDomain: construction refused
+rings eitherDomain: construction refused
+rings stringToString: construction refused
+rings: 8 polynomial projections and 7 comparison signs match; operands unchanged
+model intToString: projects to 1 P + 0 w + 0
+model optionDomain: projects to ε₀
+model eitherDomain: projects to ε₀
+model stringToString: projects to ε₀
+model: 8 polynomial projections and 7 comparison signs match; operands unchanged
+silent wrong answers (3):
+symja optionDomain: SILENT WRONG ANSWER -1 P + 1 w + 1, the model says ε₀
+symja eitherDomain: SILENT WRONG ANSWER -1 P + 1 w + 1, the model says ε₀
+symja stringToString: SILENT WRONG ANSWER -1 P + 1 w + 1, the model says ε₀
+model beyond signs: intToString = pairStrings (the tier collapse); every beyond case outranks w^2 or equals it by tier, and stays below itself + 1
+current corpus projections: eitherStrings=2ω, optionString=ω + 1, pairStrings=ω, pairOptions=ω, tripleOptions=ω, booleanOption=ω, eitherStringPair=2ω, optionEither=ω, intToString=ω, optionDomain=ε₀, eitherDomain=ε₀, stringToString=ε₀
+current corpus signs: eitherBelowPair=1, pairBelowSumOfPowers=0, sumBelowCube=0, eitherPairBelowOptionPair=1, optionBelowBooleanOption=1, mixedAboveOptionPair=0, squaredEqualsExpansion=-1; exact wants - - - - - + 0
+Natural 2^65537: 2^65537; nodes=3

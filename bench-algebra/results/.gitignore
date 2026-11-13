@@ -1,0 +1,2 @@
+# Raw JMH console output; jmh.json and summary.md carry the measured data.
+jmh.log

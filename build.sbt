@@ -110,6 +110,23 @@ lazy val bench = project
     coverageEnabled := false
   )
 
+// Isolated algebra evaluation: optional dependencies do not enter the calculator or its reports.
+lazy val algebraBench = (project in file("bench-algebra"))
+  .enablePlugins(JmhPlugin)
+  .dependsOn(core)
+  .settings(
+    name := "scala-cardinality-algebra-bench",
+    scalaVersion := coreScalaVersion,
+    publish / skip := true,
+    coverageEnabled := false,
+    Compile / run / fork := true,
+    Compile / run / javaOptions ++= Seq("-Xmx768m", "-Xss8m"),
+    libraryDependencies ++= Seq(
+      "org.matheclipse" % "matheclipse-core" % "3.2.0",
+      "cc.redberry" % "rings" % "2.5.5"
+    )
+  )
+
 // The three build-tool plugins share one way to reach `core`: none depends on it. Each resolves
 // `scala-cardinality_3` at its own version (`BuildInfo`) and calls `cardinality.Entry` in a
 // classloader apart from the build tool's (`plugin-loader`, one source compiled into each). A

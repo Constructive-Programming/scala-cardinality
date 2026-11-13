@@ -1,0 +1,156 @@
+Generic method / constructor implementation cardinalities
+  62 signatures: 4 finite · 20 countably infinite · 38 unresolved
+  18 unresolved on: declaration not supplied
+  8 unresolved on: inherited type member not resolved
+  8 unresolved on: unresolved type
+  5 unresolved on: inferred result type not resolved
+  3 unresolved on: capability record with abstract type member not read
+  3 unresolved on: sum elimination over an argument space not enumerated
+  1 unresolved on: existential wildcard result construction and repackaging requires witness-choice analysis
+
+ω  cardinality.bench.algebra.Algebra.number  number(n: Int): Value  Algebra.scala:16  [declaration]
+    captures: add, compare, multiply, omega, power, project, render
+ω  cardinality.bench.algebra.Algebra.omega  omega: Value  Algebra.scala:17  [declaration]
+    captures: add, compare, multiply, number, power, project, render
+ω  cardinality.bench.algebra.Algebra.add  add(a: Value, b: Value): Value  Algebra.scala:18  [declaration]
+    captures: compare, multiply, number, omega, power, project, render
+ω  cardinality.bench.algebra.Algebra.multiply  multiply(a: Value, b: Value): Value  Algebra.scala:19  [declaration]
+    captures: add, compare, number, omega, power, project, render
+ω  cardinality.bench.algebra.Algebra.power  power(a: Value, exponent: Value): Value  Algebra.scala:20  [declaration]
+    captures: add, compare, multiply, number, omega, project, render
+?  cardinality.bench.algebra.Algebra.render  render(a: Value): String  Algebra.scala:21  [method]
+    captures: add, compare, multiply, number, omega, power, project
+    unresolved: sum elimination over an argument space not enumerated: compare
+    unresolved: sum elimination over an argument space not enumerated: project
+?  cardinality.bench.algebra.Algebra.compare  compare(a: Value, b: Value): Int  Algebra.scala:27  [declaration]
+    captures: add, multiply, number, omega, power, project, render
+    unresolved: sum elimination over an argument space not enumerated: project
+    unresolved: sum elimination over an argument space not enumerated: render
+?  cardinality.bench.algebra.Algebra.project  project(a: Value): String  Algebra.scala:32  [declaration]
+    captures: add, compare, multiply, number, omega, power, render
+    unresolved: sum elimination over an argument space not enumerated: compare
+    unresolved: sum elimination over an argument space not enumerated: render
+ω  cardinality.bench.algebra.Algebra.binomial  binomial(n: Int): Value  Algebra.scala:34  [method]
+    captures: add, compare, multiply, number, omega, power, project, render
+ω  cardinality.bench.algebra.Algebra.product  product(n: Int): Value  Algebra.scala:36  [method]
+    captures: add, compare, multiply, number, omega, power, project, render
+ω  cardinality.bench.algebra.Algebra.sum  sum(n: Int): Value  Algebra.scala:40  [method]
+    captures: add, compare, multiply, number, omega, power, project, render
+?  cardinality.bench.algebra.Algebra.named  named(name: String): Algebra  Algebra.scala:48  [method]
+    unresolved: existential wildcard result construction and repackaging requires witness-choice analysis
+?  cardinality.bench.algebra.Cases.corpus  val corpus: <inferred>  Algebra.scala:65  [method]
+    unresolved: inferred result type not resolved: call of List, not a method an enclosing scope declares
+?  cardinality.bench.algebra.Cases.polynomial  val polynomial: <inferred>  Algebra.scala:80  [method]
+    unresolved: inferred result type not resolved: application of a selection
+?  cardinality.bench.algebra.Cases.beyond  val beyond: <inferred>  Algebra.scala:82  [method]
+    unresolved: inferred result type not resolved: application of a selection
+?  cardinality.bench.algebra.Cases.corpusExpr  corpusExpr(a: Algebra)(name: String): a.Value  Algebra.scala:84  [method]
+    unresolved: capability record with abstract type member not read: cardinality.bench.algebra.Algebra.Value
+?  cardinality.bench.algebra.Cases.corpusPairs  val corpusPairs: <inferred>  Algebra.scala:101  [method]
+    unresolved: inferred result type not resolved: call of List, not a method an enclosing scope declares
+?  cardinality.bench.algebra.Cases.sides  val sides: <inferred>  Algebra.scala:111  [method]
+    unresolved: inferred result type not resolved: call of Map, not a method an enclosing scope declares
+?  cardinality.bench.algebra.Cases.corpusLeft  corpusLeft(a: Algebra)(pair: String): a.Value  Algebra.scala:120  [method]
+    unresolved: capability record with abstract type member not read: cardinality.bench.algebra.Algebra.Value
+?  cardinality.bench.algebra.Cases.corpusRight  corpusRight(a: Algebra)(pair: String): a.Value  Algebra.scala:125  [method]
+    unresolved: capability record with abstract type member not read: cardinality.bench.algebra.Algebra.Value
+1  cardinality.bench.algebra.CurrentAlgebra.<init>  CurrentAlgebra  CurrentAlgebra.scala:10  [constructor]
+?  cardinality.bench.algebra.CurrentAlgebra.number  number(n: Int): Size  CurrentAlgebra.scala:12  [method]
+    unresolved: inherited type member not resolved: Int (parent Algebra, whose declaration is not resolved)
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.CurrentAlgebra.omega  omega: Size  CurrentAlgebra.scala:13  [method]
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.CurrentAlgebra.add  add(a: Size, b: Size): Size  CurrentAlgebra.scala:14  [method]
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.CurrentAlgebra.multiply  multiply(a: Size, b: Size): Size  CurrentAlgebra.scala:15  [method]
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.CurrentAlgebra.power  power(a: Size, exponent: Size): Size  CurrentAlgebra.scala:16  [method]
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.CurrentAlgebra.compare  compare(a: Size, b: Size): Int  CurrentAlgebra.scala:17  [method]
+    unresolved: inherited type member not resolved: Int (parent Algebra, whose declaration is not resolved)
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.CurrentAlgebra.project  project(a: Size): String  CurrentAlgebra.scala:18  [method]
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: inherited type member not resolved: String (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.CurrentAlgebra.render  render(a: Size): String  CurrentAlgebra.scala:19  [method]
+    unresolved: inherited type member not resolved: Size (parent Algebra, whose declaration is not resolved)
+    unresolved: inherited type member not resolved: String (parent Algebra, whose declaration is not resolved)
+    unresolved: unresolved type: Algebra (may be imported by cardinality.capacity.*)
+ω  cardinality.bench.algebra.Model.<init>  Model(epsilon: BigInt, power: BigInt, omega: BigInt, finite: BigInt)  ModelAlgebra.scala:16  [constructor]
+ω  cardinality.bench.algebra.Model.isZero  isZero: Boolean  ModelAlgebra.scala:17  [method]
+    captures: epsilon, finite, omega, power
+ω  cardinality.bench.algebra.Model.isOne  isOne: Boolean  ModelAlgebra.scala:18  [method]
+    captures: epsilon, finite, omega, power
+1  cardinality.bench.algebra.ModelAlgebra.<init>  ModelAlgebra  ModelAlgebra.scala:21  [constructor]
+ω  cardinality.bench.algebra.ModelAlgebra.number  number(n: Int): Value  ModelAlgebra.scala:24  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.omega  omega: Value  ModelAlgebra.scala:25  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.add  add(a: Value, b: Value): Value  ModelAlgebra.scala:27  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.multiply  multiply(a: Value, b: Value): Value  ModelAlgebra.scala:30  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.power  power(base: Value, exponent: Value): Value  ModelAlgebra.scala:45  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.intPower  intPower(base: Value, exponent: BigInt): Value  ModelAlgebra.scala:58  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.compare  compare(a: Value, b: Value): Int  ModelAlgebra.scala:70  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.project  project(a: Value): String  ModelAlgebra.scala:83  [method]
+ω  cardinality.bench.algebra.ModelAlgebra.render  render(a: Value): String  ModelAlgebra.scala:91  [method]
+1  cardinality.bench.algebra.RingsAlgebra.<init>  RingsAlgebra  RingsAlgebra.scala:12  [constructor]
+?  cardinality.bench.algebra.RingsAlgebra.number  number(n: Int): Value  RingsAlgebra.scala:14  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+?  cardinality.bench.algebra.RingsAlgebra.omega  omega: Value  RingsAlgebra.scala:15  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+?  cardinality.bench.algebra.RingsAlgebra.add  add(a: Value, b: Value): Value  RingsAlgebra.scala:16  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+?  cardinality.bench.algebra.RingsAlgebra.multiply  multiply(a: Value, b: Value): Value  RingsAlgebra.scala:17  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+?  cardinality.bench.algebra.RingsAlgebra.power  power(a: Value, exponent: Value): Value  RingsAlgebra.scala:19  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+?  cardinality.bench.algebra.RingsAlgebra.coeff  coeff(p: Value, k: Int): BigInt  RingsAlgebra.scala:28  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+?  cardinality.bench.algebra.RingsAlgebra.compare  compare(a: Value, b: Value): Int  RingsAlgebra.scala:31  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+?  cardinality.bench.algebra.RingsAlgebra.project  project(a: Value): String  RingsAlgebra.scala:41  [method]
+    unresolved: declaration not supplied: cc.redberry.rings.poly.univar.UnivariatePolynomial (named import UnivariatePolynomial)
+1  cardinality.bench.algebra.SymjaAlgebra.<init>  SymjaAlgebra  SymjaAlgebra.scala:12  [constructor]
+?  cardinality.bench.algebra.SymjaAlgebra.evaluator  val evaluator: <inferred>  SymjaAlgebra.scala:14  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.eval.ExprEvaluator (named import ExprEvaluator)
+?  cardinality.bench.algebra.SymjaAlgebra.omega  val omega: IExpr  SymjaAlgebra.scala:15  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.number  number(n: Int): IExpr  SymjaAlgebra.scala:16  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.add  add(a: IExpr, b: IExpr): IExpr  SymjaAlgebra.scala:17  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.multiply  multiply(a: IExpr, b: IExpr): IExpr  SymjaAlgebra.scala:18  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.power  power(a: IExpr, exponent: IExpr): IExpr  SymjaAlgebra.scala:19  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.integer  integer(e: IExpr): BigInt  SymjaAlgebra.scala:21  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.coeff  coeff(p: IExpr, k: Int): BigInt  SymjaAlgebra.scala:27  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.compare  compare(a: IExpr, b: IExpr): Int  SymjaAlgebra.scala:30  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+?  cardinality.bench.algebra.SymjaAlgebra.project  project(a: IExpr): String  SymjaAlgebra.scala:42  [method]
+    unresolved: declaration not supplied: org.matheclipse.core.interfaces.IExpr (named import IExpr)
+scala-cardinality — 5 sources, 12 definitions
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
+  ?: no single number here — the reason after the row says what would give one
+  3 unresolved · 2 with more than one value · 6 with one value · 1 abstract
+Stored-value estimates (constructor inputs; `?` = unresolved)
+
+?  cardinality.bench.algebra.CurrentAlgebra#Value  alias     CurrentAlgebra.scala:11  unresolved: inherited type member not resolved: Size (parent Algebra, may be imported by cardinality.capacity.*)
+?  cardinality.bench.algebra.RingsAlgebra#Value    alias     RingsAlgebra.scala:13  unresolved: UnivariatePolynomial (imported from cc.redberry.rings.poly.univar.UnivariatePolynomial, not supplied)
+?  cardinality.bench.algebra.SymjaAlgebra#Value    alias     SymjaAlgebra.scala:13  unresolved: IExpr (imported from org.matheclipse.core.interfaces.IExpr, not supplied)
+ω  cardinality.bench.algebra.Model                 class     ModelAlgebra.scala:16
+ω  cardinality.bench.algebra.ModelAlgebra#Value    alias     ModelAlgebra.scala:22
+1  cardinality.bench.algebra.Algebra               object    Algebra.scala:46
+1  cardinality.bench.algebra.Cases                 object    Algebra.scala:63
+1  cardinality.bench.algebra.CurrentAlgebra        class     CurrentAlgebra.scala:10
+1  cardinality.bench.algebra.ModelAlgebra          class     ModelAlgebra.scala:21
+1  cardinality.bench.algebra.RingsAlgebra          class     RingsAlgebra.scala:12
+1  cardinality.bench.algebra.SymjaAlgebra          class     SymjaAlgebra.scala:12
+—  cardinality.bench.algebra.Algebra               abstract  Algebra.scala:14

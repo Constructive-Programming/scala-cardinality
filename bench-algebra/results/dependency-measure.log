@@ -1,0 +1,41 @@
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by scala.runtime.LazyVals$ (file:/var/cache/users/rhansen/coursier/v1/https/repo1.maven.org/maven2/org/scala-sbt/sbt-launch/1.12.9/sbt-launch-1.12.9.jar)
+WARNING: Please consider reporting this to the maintainers of class scala.runtime.LazyVals$
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+[0m[[0m[0minfo[0m] [0m[0mwelcome to sbt 2.1.0-RC1 (Eclipse Adoptium Java 25.0.5)[0m
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::loadLibrary has been called by com.swoval.runtime.NativeLoader in an unnamed module (file:/home/rhansen/.sbt/boot/scala-3.9.0/org.scala-sbt/sbt/2.1.0-RC1/file-tree-views-2.1.12.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+[0m[[0m[0minfo[0m] [0m[0mloading project definition from /home/rhansen/orca/workspaces/cardinality/butterflyray/project[0m
+[0m[[0m[0minfo[0m] [0m[0mresolving key references (14704 settings) ...[0m
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+[0m[[0m[0minfo[0m] [0m[0mset current project to scala-cardinality-root (in build file:/home/rhansen/orca/workspaces/cardinality/butterflyray/)[0m
+[0m[[0m[0minfo[0m] [0m[0mrunning (fork) cardinality.bench.algebra.DependencyMeasure [0m
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by scala.runtime.LazyVals$ (file:/home/rhansen/orca/workspaces/cardinality/butterflyray/target/bg-jobs/sbt_be1a1d87/target/c0a108ca/0325b09b/scala-library-3.10.1.jar)
+WARNING: Please consider reporting this to the maintainers of class scala.runtime.LazyVals$
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+inputs=6, dependency stubs=262, errors=List(), args=List()
+Generic method / constructor implementation cardinalities
+  42 signatures: 4 finite · 20 countably infinite · 18 unresolved
+  9 unresolved on: inherited parent declaration not supplied
+  8 unresolved on: declaration not supplied
+  1 unresolved on: open class with hidden constructor state
+
+1  cardinality.bench.algebra.CurrentAlgebra.<init>  CurrentAlgebra  CurrentAlgebra.scala:10  [constructor]
+ω  cardinality.bench.algebra.CurrentAlgebra.number  number(n: Int): Size  CurrentAlgebra.scala:12  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.omega  omega: Size  CurrentAlgebra.scala:13  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.add  add(a: Size, b: Size): Size  CurrentAlgebra.scala:14  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.multiply  multiply(a: Size, b: Size): Size  CurrentAlgebra.scala:15  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.power  power(a: Size, exponent: Size): Size  CurrentAlgebra.scala:16  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.compare  compare(a: Size, b: Size): Int  CurrentAlgebra.scala:17  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.project  project(a: Size): String  CurrentAlgebra.scala:18  [method]
+ω  cardinality.bench.algebra.CurrentAlgebra.render  render(a: Size): String  CurrentAlgebra.scala:19  [method]
+ω  cardinality.bench.algebra.Model.<init>  Model(epsilon: BigInt, power: BigInt, omega: BigInt, finite: BigInt)  ModelAlgebra.scala:16  [constructor]
+ω  cardinality.bench.algebra.Model.isZero  isZe
+[0m[[0m[32msuccess[0m] [0m[0melapsed time: 14 s, cache 100%, 33 disk cache hits[0m
+[0J
