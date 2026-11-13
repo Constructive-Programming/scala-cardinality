@@ -53,7 +53,7 @@ object SiteRenderer {
   private def theme: ThemeProvider =
     Helium.defaults.all
       .metadata(
-        title = Some("scala-cardinality"),
+        title = Some("cardinality"),
         description = Some("Build development cycles that reduce complexity.")
       )
       .all
@@ -79,7 +79,7 @@ object SiteRenderer {
       )
       .site
       .topNavigationBar(
-        homeLink = TextLink.internal(Root / "index.md", "scala-cardinality"),
+        homeLink = TextLink.internal(Root / "index.md", "cardinality"),
         navLinks = Seq(
           ImageLink.external(
             "https://www.constructive.dev/",

@@ -1,11 +1,14 @@
-# scala-cardinality
+# cardinality
 
 **Build development cycles that reduce complexity.**
 
 A type is a state space. Objects and values fit into types, with simple rules.
 
-`Unit` 1 · `Boolean` 2 · `Option[Boolean]` 3 · `Long` 2^64 · `String` ω ·
-`(String, String)` ω² · `Map[Char, Boolean]` 3^(2^16) · `Char => Boolean` 2^(2^16).¹
+`Unit` 1 · `Boolean` 2 · `Option[Boolean]` 3
+
+`Long` 2^64 · `String` ω · `(String, String)` ω²
+
+`Map[Char, Boolean]` 3^(2^16) · `Char => Boolean` 2^(2^16).¹
 
 Sums add, products multiply, functions are exponentials. Every value a type admits is a
 state the program must handle — or can wrongly produce. The calculator puts a number on
