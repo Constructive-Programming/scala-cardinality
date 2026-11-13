@@ -152,13 +152,14 @@ final private[compiled] class Stored(world: World)(using Context) {
     (Shapes.parameters(tree.rhs.constr).map(_.tpt.toType), atClass(tree, env))
 
   // Where a class's constructor is written: at the class, with the constructor's own copies of the
-  // class's type parameters bound as the class's are.
+  // class's type parameters bound, and written, as the class's are.
   private def atClass(tree: ClassDef, env: Env): Env = {
-    val copies = Shapes
-      .typeParameters(tree.rhs.constr)
-      .zip(tree.symbol.typeParams)
-      .map((copy, parameter) => copy -> env.binders(parameter))
-    env.copy(binders = env.binders ++ copies, site = tree.symbol)
+    val copies = Shapes.typeParameters(tree.rhs.constr).zip(tree.symbol.typeParams)
+    env.copy(
+      binders = env.binders ++ copies.map((copy, parameter) => copy -> env.binders(parameter)),
+      written = env.written ++ copies.flatMap((copy, p) => env.written.get(p).map(copy -> _)),
+      site = tree.symbol
+    )
   }
 
   /** What one position of a class's constructor stores, as the method side's value space of it is
@@ -246,7 +247,12 @@ final private[compiled] class Stored(world: World)(using Context) {
           bound <- carried(cls)
           inside = env.copy(
             binders = cls.typeParams.zip(bound).toMap,
-            visiting = env.visiting + cls
+            visiting = env.visiting + cls,
+            written = Sums
+              .carried(cls, parent, parent.typeParams.map(env.written.get))
+              .toList
+              .flatMap(cls.typeParams.zip(_).collect { case (p, Some(w)) => p -> w })
+              .toMap
           )
           held <-
             if (world.unbuilt(cls)) Right(Held(NothingSize))
@@ -402,13 +408,25 @@ final private[compiled] class Stored(world: World)(using Context) {
   }
 
   // A match type is what the compiler reduces it to, where the method side trusts the reduction
-  // (`Shapes.trusted`); one stuck on a type parameter that stands for what the
+  // (`PathTypes.trusted`); one stuck on a type parameter that stands for what the
   // instance chooses is what the instance chooses, as the parameter is.
   private def matchType(matched: MatchType, env: Env): Either[String, Held] =
-    (Shapes.trusted(matched), matched.reduced, matched.scrutinee.dealias) match {
+    (PathTypes.trusted(matched), matched.reduced, matched.scrutinee.dealias) match {
       case (Some(reduced), _, _)   => of(reduced, env)
       case (_, None, ref: TypeRef) =>
         ref.optSymbol match {
+          // A class's parameter is the argument the class was named with, outside a system (whose
+          // classes are keyed by their arguments' sizes alone), read with both sites' binders and
+          // classes being read; one symbol bound at both, otherwise, is refused.
+          case Some(binder) if env.system.isEmpty && env.written.contains(binder) =>
+            val (argument, outer) = env.written(binder)
+            if (outer.binders.exists((s, held) => env.binders.get(s).exists(_ != held)))
+              Left(s"a match type over a parameter bound again: ${matched.showBasic}")
+            else
+              matchType(
+                MatchType(matched.bound, argument, matched.cases),
+                env.copy(binders = outer.binders ++ env.binders, written = outer.written)
+              )
           case Some(binder) if env.binders.contains(binder) =>
             val held = env.binders(binder)
             Either.cond(
@@ -461,12 +479,14 @@ final private[compiled] class Stored(world: World)(using Context) {
       case Some(c: ClassSymbol) if c.typeParams.sizeIs != arguments.size =>
         Right(Held(EffectiveOmega, List(Unbound.Syntax(s"type constructor: ${c.name}"))))
       case Some(c: ClassSymbol) =>
-        World.proper(arguments).flatMap(each(_, env)).flatMap { sizes =>
-          world.library(c) match {
-            case Some(name)                         => standard(name, sizes, env.input)
-            case None if world.readByDeclaration(c) => declared(c, sizes, env)
-            case None => Left(s"a class of a dependency: ${c.displayFullName}")
-          }
+        World.proper(arguments).flatMap(types => each(types, env).map(types -> _)).flatMap {
+          (types, sizes) =>
+            world.library(c) match {
+              case Some(name)                         => standard(name, sizes, env.input)
+              case None if world.readByDeclaration(c) =>
+                declared(c, sizes, env.copy(written = c.typeParams.zip(types.map(_ -> env)).toMap))
+              case None => Left(s"a class of a dependency: ${c.displayFullName}")
+            }
         }
       // The empty tuple is a base type, though the library spells it as an alias of a singleton.
       case Some(member: TypeMemberSymbol) if Stored.EmptyTuple.matches(member.displayFullName) =>
@@ -561,7 +581,18 @@ final private[compiled] class Stored(world: World)(using Context) {
       Right(Held(EffectiveOmega, List(Unbound.Open(name))))
     else
       for {
-        held <- env.system.fold(expand(c, arguments, env))(variable(c, arguments))
+        // Inside a system a concrete class named over arguments that read its values is read in
+        // place at them (no variable: its key would hold sizes the fixed point changes), where no
+        // field is by-name or a function, nor any type argument holds one (which the ν completion
+        // reads of a variable alone); one reached again so is refused (`variable`).
+        held <- env.system.fold(expand(c, arguments, env))(values =>
+          if (
+            arguments.exists(_.refs.nonEmpty) && !env.visiting(c) && World.strict(c) &&
+            !c.typeParams.flatMap(env.written.get).exists((tpe, _) => World.deferred(tpe))
+          )
+            expand(c, arguments, env)
+          else variable(c, arguments)(values)
+        )
         thrown <- if (env.isValue) undecided(c) else Right(false)
       } yield held.copy(undecided = held.undecided || thrown)
   }
@@ -741,19 +772,19 @@ final private[compiled] class Stored(world: World)(using Context) {
       case _ => None
     }
     def target(t: Type) = t match {
-      case Stored.Applied("scala.Option", List(inner)) => instance(inner)
-      case other                                       => instance(other)
+      case World.Applied("scala.Option", List(inner)) => instance(inner)
+      case other                                      => instance(other)
     }
     def edge(kind: Kind, domain: List[Type])(to: Instance) =
       Fixpoint.Continuation(to, kind, sized(List(tpe), env), sized(domain, env))
     tpe.dealias match {
       case by: ByNameType => target(by.resultType).map(edge(Kind.Deterministic, Nil))
-      case Stored.Applied(name, domain :+ result)
+      case World.Applied(name, domain :+ result)
           if name.matches("scala\\.Function\\d+") && domain.forall(names(_, env).isEmpty) =>
         target(result).map(
           edge(if (domain.isEmpty) Kind.Deterministic else Kind.FunctionField, domain)
         )
-      case Stored.Applied("scala.Option", List(inner)) =>
+      case World.Applied("scala.Option", List(inner)) =>
         instance(inner).map(edge(Kind.OptionBranch, Nil))
       case _ => None
     }
@@ -763,8 +794,8 @@ final private[compiled] class Stored(world: World)(using Context) {
   // by-name type or as a function's result, a context function's included.
   private def lazyNames(env: Env)(tpe: Type): Set[Instance] = tpe.dealias match {
     case by: ByNameType => names(by.resultType, env)
-    case applied @ Stored.Applied(_, _ :+ result) if World.functional(applied) => names(result, env)
-    case _                                                                     => Set.empty
+    case applied @ World.Applied(_, _ :+ result) if World.functional(applied) => names(result, env)
+    case _                                                                    => Set.empty
   }
 
   private def sized(types: List[Type], env: Env)(values: Values): Size =
@@ -853,7 +884,8 @@ private[compiled] object Stored {
       visiting: Set[ClassSymbol] = Set.empty,
       isValue: Boolean = false,
       input: Boolean = false,
-      system: Option[Values] = None
+      system: Option[Values] = None,
+      written: Map[Symbol, (Type, Env)] = Map.empty
   )
 
   // A class of the module with its type parameters bound: a definition of a system.
@@ -894,20 +926,6 @@ private[compiled] object Stored {
   // A system's classes in an order that does not depend on the run.
   private def ordered(keys: Iterable[Instance]): List[Instance] =
     keys.toList.sortBy(k => (k.cls.displayFullName, k.arguments.toString))
-
-  // A class applied to type arguments, by its full name.
-  private object Applied {
-
-    def unapply(tpe: Type)(using Context): Option[(String, List[Type])] = tpe match {
-      case World.Named(ref, arguments) =>
-        for {
-          c <- ref.optSymbol.collect { case c: ClassSymbol => c }
-          types <- World.proper(arguments).toOption
-        } yield c.displayFullName -> types
-      case _ => None
-    }
-
-  }
 
   // Whether an alias's body, under its parameters, is a match type.
   private def matches(body: Type): Boolean = body match {

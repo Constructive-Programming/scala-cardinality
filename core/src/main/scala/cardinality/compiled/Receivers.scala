@@ -28,7 +28,7 @@ import tastyquery.Types.*
   *     abstract member is, its own body one of its behaviors.
   *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`),
   *     and so are its abstract type members, declared or inherited, on its own instance
-  *     (`Shapes.typeMember`). An export's alias, bounded by one type on both sides, is that type
+  *     (`Receivers.typeMember`). An export's alias, bounded by one type on both sides, is that type
   *     (`PathTypes.follow`).
   *   - A class that inherits is read by its own state alone where every member it inherits is
   *     implemented and none can be overridden: a concrete class that is final or that nothing
@@ -50,12 +50,12 @@ import tastyquery.Types.*
   * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
   * settle; a self type narrower than the class (`World.ownSelf`); a type parameter of another kind
   * than `F[_]` that a type read names; an abstract type member of a sum, a bounded one or one of
-  * another kind than `F[_]`, one two enclosing instances hold, one of a class no class written
-  * elsewhere extends, one another declaration of its name bounds or hides; a capability with type
-  * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
-  * parameter; and what implicit search chooses (S5's remainder): a contextual parameter without a
-  * name, an abstract given without a name, an abstract extension method. A given written
-  * `= deferred` is a capability like an abstract member.
+  * another kind than `F[_]`, a bounded one two enclosing instances hold, one of a class no class
+  * written elsewhere extends, one another declaration of its name bounds or hides; a capability
+  * with type parameters of its own; a deferred inline member whose type may be empty, or a deferred
+  * `inline val` an inline body reads; and what implicit search chooses (S5's remainder): a
+  * contextual parameter without a name, an abstract given without a name, an abstract extension
+  * method. A given written `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes, including: Boolean = false)(
     using Context
@@ -323,8 +323,11 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       ids <- Traversals.sequence(witnesses.map {
         case (member, _: Shape.Atom) if Shapes.bounded(member) =>
           Left(Uncovered(s"$where with a bounded abstract type member: ${member.name}"))
-        case (_, Shape.Atom(id)) => Right(id)
-        case (member, _)         =>
+        case (_, Shape.Atom(id)) => Right(Some(id))
+        // A rigid constructor witness is no atom the solver renames per value: read only where
+        // the record holds no value, which nothing tells apart (below).
+        case (_, Shape.Constructor(_)) => Right(None)
+        case (member, _)               =>
           Left(Uncovered(s"$where with an abstract type member of another kind: ${member.name}"))
       })
       _ <- hidden
@@ -342,9 +345,15 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
         where,
         Receivers.observes
       )
+      _ <- witnesses
+        .collectFirst { case (member, _: Shape.Constructor) if held.nonEmpty => member }
+        .map(member =>
+          Uncovered(s"$where with an abstract type member of another kind: ${member.name}")
+        )
+        .toLeft(())
     } yield {
       val product = Shape.Product(held.map(_.shape))
-      if (ids.isEmpty) product else Shape.Existential(ids, product)
+      if (ids.isEmpty || ids.contains(None)) product else Shape.Existential(ids.flatten, product)
     }
   }
 
@@ -393,8 +402,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
 
   /** What the receivers' type parameters stand for (`Shapes.binder`), each read or not, and the
     * copies their constructors hold; and what their abstract type members, declared or inherited,
-    * stand for (`Shapes.typeMember`), on the instance alone (`this.T`; `Shapes` reads no other path
-    * to one).
+    * stand for (`Receivers.typeMember`), on the instance alone (`this.T`; `Shapes` reads no other
+    * path to one).
     */
   def atoms(receivers: List[ClassDef]): Either[Unread, List[(Symbol, Either[Unread, Shape])]] =
     Traversals
@@ -407,17 +416,19 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
           held.map((member, shape) => member -> Right(shape))
       })
       .flatMap { pairs =>
-        // Two instances around the member each hold their own type of one declaration.
+        // Two instances around the member each hold their own type of one declaration, an atom
+        // of each (`Shapes.Env.held`); the proofs of a bound are read for one alone (`Bounds`).
         val members = pairs.flatten.map(_._1).collect { case m: TypeMemberSymbol => m }
-        members.diff(members.distinct).headOption match {
-          case Some(twice) =>
-            Left(Uncovered(s"an abstract type member two enclosing instances hold: ${twice.name}"))
-          case None => Right(pairs.flatten)
-        }
+        val bounded = members.diff(members.distinct).find(Shapes.bounded)
+        bounded
+          .map(t =>
+            Uncovered(s"a bounded abstract type member two enclosing instances hold: ${t.name}")
+          )
+          .toLeft(pairs.flatten)
       }
 
   // What the abstract type members of a template, declared or among those it inherits, stand for
-  // on its instance (`Shapes.typeMember`), unless the program's classes pick them (`pinned`) or
+  // on its instance (`Receivers.typeMember`), unless the program's classes pick them (`pinned`) or
   // another declaration bounds or hides one (`alike`).
   private def typeMembers(
       tree: ClassDef,
@@ -435,7 +446,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       .orElse(members.view.flatMap(alike(c, _)).headOption)
       .map(Uncovered(_))
       .toLeft(())
-      .flatMap(_ => Traversals.sequence(members.map(Shapes.typeMember(c, _))))
+      .flatMap(_ => Traversals.sequence(members.map(Receivers.typeMember(c, _))))
       .map(members.zip(_))
   }
 
@@ -506,8 +517,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
           .collect {
             case member
                 if !member.name.toString.endsWith("_=") &&
-                  // A deferred inline method is supplied to inline code alone.
-                  (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
+                  // A deferred inline member is supplied to inline code alone.
+                  (measured.isInline || !member.symbol.isInline) =>
               member.name.toString
           } ++ inheritedOpen(tree.symbol, measured, value = false)
           .filter(!_.name.toString.endsWith("_="))
@@ -726,6 +737,32 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
 }
 
 private[compiled] object Receivers {
+
+  /** What an abstract type member of a receiver stands for on its instance, as a type parameter
+    * would (`Shapes.binder`): one atom, bounded or not (`Bounds` reads a bound's proofs), or a
+    * rigid constructor for an invariant, unbounded `F[_]`.
+    */
+  def typeMember(owner: ClassSymbol, member: TypeMemberSymbol)(using
+      Context
+  ): Either[Unread, Shape] = {
+    val id = s"${owner.displayFullName}#${member.name}"
+    member.typeDef match {
+      // Bounds that meet name one type (an exported alias): not an atom.
+      case TypeMemberDefinition.AbstractType(bounds)
+          if Shapes.proper(bounds) && !PathTypes.exported(bounds) =>
+        Right(Shape.Atom(id))
+      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
+      case TypeMemberDefinition.AbstractType(bounds)
+          if Shapes.free(member) && !Shapes.unbounded(bounds) =>
+        Right(Shape.Constructor(id))
+      case _ =>
+        Left(
+          Unread.Uncovered(
+            s"an abstract type member that is an alias, variant, or of another kind: ${member.name}"
+          )
+        )
+    }
+  }
 
   /** A receiver read as one value of its sum: a sealed family or an enum. */
   def split(c: ClassSymbol): Boolean = Shapes.isFamily(c) || c.isEnum

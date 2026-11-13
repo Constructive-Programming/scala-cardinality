@@ -18,7 +18,7 @@ class MatchTypesSpec extends Specification {
     a class's parameter is the argument the class is named    $argument
     in a constructor's position, at the alias's arguments     $positions
     a tuple a single case projects reduces whatever it holds  $projected
-    any other stuck match type is not read yet                $later
+    any other stuck match type is not read yet, nor an uninhabited one $later
   """
 
   private val text =
@@ -29,6 +29,7 @@ class MatchTypesSpec extends Specification {
       |type Fst3[T] = T match { case (f, s, t) => f }
       |type IsInt[T] = T match { case Int => Boolean; case Any => Unit }
       |type IsStr[T] = T match { case String => Boolean; case Any => Unit }
+      |type K[T] = T match { case _ => Option[T] }
       |object M {
       |  def pair(x: Fst[(Boolean, Int)]): Boolean = x
       |  def unit(x: IsInt[String]): IsInt[String] = x
@@ -45,15 +46,50 @@ class MatchTypesSpec extends Specification {
       |final case class Miss[A](fst: Fst[A])
       |final class UInt(h: IsInt[Int])
       |final class UStr(h: IsInt[String])
+      |sealed trait Af[A, +B]
+      |object Af {
+      |  final case class Miss[A](fst: Fst[A]) extends Af[A, Nothing]
+      |  final case class Hit[A, +B](snd: Snd[A], b: B) extends Af[A, B]
+      |}
+      |final case class UsesAf(a: Af[(Boolean, Boolean), Nothing])
+      |final case class Pin[X](a: Af[(X, Boolean), Unit])
+      |final case class UsePin(p: Pin[Unit])
+      |val miss: Af.Miss[(Unit, Boolean)] = Af.Miss(())
+      |type G[T] = T match { case Int => R[Int]; case Any => Unit }
+      |final case class R[A](g: Option[G[A]])
+      |final case class UR(r: R[Int])
       |object C {
       |  def m2(x: Boolean): Miss[(Boolean, Unit)] = ???
       |  def m6[A](m: Miss[(A, Unit)]): A = ???
       |  def proj[A](x: A, y: A): Fst[(A, Unit)] = x
+      |  def nested[A, B, C](x: A, y: A): ((A, B), C) match { case ((f, s), t) => f } = x
+      |  def wild[A](x: A, y: A): K[A] = None
+      |  def twice[A, B, C](x: A, y: A): Fst[Fst[((A, B), C)]] = x
+      |  def firstOf[A](x: IsInt[(A, A)]): IsInt[(A, A)] = x
+      |  def bound[A](x: Fst[A] match { case Any => Unit }): Boolean = true
       |}
+      |trait H { type X }
+      |object E {
+      |  def t1(b: Boolean): Snd[(Nothing, Boolean)] = ???
+      |  def t2[A <: Nothing](b: Boolean): Snd[(A, Boolean)] = ???
+      |  def t4(b: Boolean): ((Nothing, Int), Boolean) match { case ((f, s), t) => t } = ???
+      |  def t5(p: H { type X <: Nothing }, b: Boolean): Snd[(p.X, Boolean)] = ???
+      |  def t6(x: Snd[(Nothing, Boolean)], y: Boolean): Boolean = y
+      |}
+      |final case class Sd(x: Snd[(Nothing, Boolean)])
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("MatchTypes.scala" -> text)
   private lazy val rows = Differential.answer(TastyFrontEnd, input.next)
+
+  // A definition row as the report shows it: its size, or its first reason.
+  private def stored(name: String): String = {
+    val found = rows.sources
+      .flatMap(_.toOption.toList.flatMap(_.definitions))
+      .find(_.name == s"mt.$name")
+      .get
+    found.unbound.headOption.fold(found.size.fold("—")(_.render))(_.subject)
+  }
 
   private def count(name: String): Count =
     rows.sources
@@ -102,20 +138,50 @@ class MatchTypesSpec extends Specification {
 
   // A constructor's position over a match type is read at the alias's arguments by the stored
   // estimate too, which agrees: `IsInt[Int]` is `Boolean`, 2; `IsInt[String]` is `Unit`, 1.
+  // A family's case over the family's argument too: `Af[(Boolean, Boolean), Nothing]` is a `Miss`
+  // of a `Fst`, a `Boolean` (a `Hit` holds a `Nothing`), 2; `Pin[Unit]`'s
+  // `Af[(Unit, Boolean), Unit]` is a `Miss` of a `Unit` or a `Hit` of a `Boolean` and a `Unit`,
+  // 1 + 2 = 3; `miss` holds a `Miss[(Unit, Boolean)]`, 1. Both sides read them. `R[Int]` reaches
+  // itself through `G[Int]`: a system, whose classes are keyed by their arguments' sizes, so the
+  // match over `A` is not read there (refused, not a deeper recursion).
   private def positions =
-    List("UInt.<init>", "UStr.<init>").map(count) must_== List(Count.Finite(2), Count.Finite(1))
+    (List("UInt.<init>", "UStr.<init>", "UsesAf.<init>", "UsePin.<init>").map(count) must_== List(
+      Count.Finite(2),
+      Count.Finite(1),
+      Count.Finite(2),
+      Count.Finite(3)
+    )).and(List("UsesAf", "UsePin", "miss").map(stored) must_== List("2", "3", "1"))
+      .and(stored("UR") must contain("a type: (A match"))
 
   // `(A, Unit) match { case (f, s) => f }` is A for every A (scalac reduces a tuple of the
-  // pattern's arity whatever its components): `proj` has x or y, 2.
-  private def projected = count("C.proj") must_== Count.Finite(2)
+  // pattern's arity whatever its components): `proj` has x or y, 2. So for a first case whose
+  // pattern matches whatever the parts are: a nested tuple of binders (`nested`, A: x or y, 2), a
+  // match scalac reduces as the scrutinee (`twice`: `Fst[((A, B), C)]` is `(A, B)`, so A, 2), or
+  // `_` (`K[A]` is `Option[A]`: `None`, `Some(x)`, `Some(y)`, 3; a stuck `Fst[A]` matched by `Any`
+  // is `Unit`, so `bound` is a Boolean, 2). `IsInt[(A, A)]` tests `Int` first: stuck, not read.
+  private def projected =
+    (List("C.proj", "C.nested", "C.twice", "C.wild", "C.bound").map(count) must_== List(
+      Count.Finite(2),
+      Count.Finite(2),
+      Count.Finite(2),
+      Count.Finite(3),
+      Count.Finite(2)
+    )).and(count("C.firstOf").toString must contain("a type: (scala.Tuple2[A, A] match"))
 
   // `IsInt[A]` on an abstract A needs the compiler's disjointness of A from `Int`: not read yet.
   // Nor one tasty-query reduces on an abstract scrutinee:
   // it reads `Fst[T]` for a `T <: (Int, String)` as `Int`, where scalac keeps it stuck (an `Int`
   // result for `x` does not compile), so its 2^(2^37) would be a wrong number; likewise `IsStr[Null]`,
   // which tasty-query reads as `Boolean` (`Null` is below `String`) and scalac keeps stuck.
+  // Nor one whose scrutinee scalac finds uninhabited (a part below `Nothing`), where it leaves the
+  // match stuck: no body returns, and no argument passes, a value of it (`Sd(true)` does not
+  // compile), so tasty-query's `Boolean` would give 4, 16 and 2 that no program has.
   private def later =
-    (count("M.open").toString must contain("a type: (A match"))
+    List("E.t1", "E.t2", "E.t4", "E.t5", "E.t6", "Sd.<init>")
+      .map(row => count(row).toString must contain("a type: ("))
+      .reduce(_ and _)
+      .and(stored("Sd") must contain("a type: ("))
+      .and(count("M.open").toString must contain("a type: (A match"))
       .and(count("M.bounded").toString must contain("a type: (T match"))
       .and(count("M.nul").toString must contain("a type: (scala.Null match"))
 

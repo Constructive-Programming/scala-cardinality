@@ -108,6 +108,7 @@ class ReceiversSpec extends Specification {
       |class Gen[A](a: A) { g => def pick(x: A): A = g.a }
       |trait Narrowed[A] { self: Env[A] => def get: Boolean = true }
       |trait Deferred { inline val flag: Boolean; def m: Boolean = true }
+      |trait Chooses { inline def choose[M](x: M, y: M): M; def m[B](a: B, b: B): B = a }
       |class Thrown(b: Boolean) { val z: Boolean = ???; def get: Boolean = b }
       |trait Member { type T; def seed: T; def get(t: T): T = t }
       |trait Bounded { type T <: AnyRef; def get(t: T): T = t }
@@ -118,7 +119,8 @@ class ReceiversSpec extends Specification {
       |trait CoKinded { type F[+X]; def none: F[Nothing]; def get: F[Int] = none }
       |trait Typed { type T }
       |abstract class Holds extends Typed { def seed: T; final class Fixed extends Typed { def get(t: T): T = t } }
-      |abstract class Twice extends Typed { abstract class Again extends Typed { def get(t: T): T = t } }
+      |abstract class Twice extends Typed { abstract class Again extends Typed { def get(t: T): T = t; def both(t: T, u: Twice.this.T): Twice.this.T = u } }
+      |abstract class TwiceLow extends Low { abstract class Again extends Low { def get(t: T): T = t } }
       |trait Low { type T >: Int }
       |abstract class Mixed extends Low with Typed { def get(t: T): T = t }
       |class Maker[A](a: A) { final class Two(x: A, y: A); final class Flag(b: Boolean) }
@@ -368,10 +370,13 @@ class ReceiversSpec extends Specification {
 
   // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
   // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
-  // type narrower than the class; a deferred `inline val`, and a deferred inline method where a type parameter is in
-  // scope; an abstract
+  // type narrower than the class; a deferred inline member whose type a value of the scope may empty
+  // (`Wished.wish: A`; one built from nothing is dropped: `Deferred.m` and `Chooses.m` count 2, as
+  // if it were absent); an abstract
   // type member of a class only its own scope may extend, whose types are those
-  // the program picks, one two enclosing instances hold, one another declaration bounds, and
+  // the program picks, a bounded one two enclosing instances hold (an unbounded one is an atom of
+  // each instance: `Twice.Again.get` returns `t`, `both` returns `u`, 1 each), one another
+  // declaration bounds, and
   // `this.T` of a fixed class, which holds no type member of its own, inside one that holds it.
   // (`Bounded.get` is read now: `T <: AnyRef` says nothing of the values, so it returns `t`, 1.)
   // A class whose construction always throws is never built, so no call of its `get` returns
@@ -381,19 +386,22 @@ class ReceiversSpec extends Specification {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
       "Closed.get" -> "an enclosing concrete sealed class or enum case",
-      "Wished.get" -> "a deferred inline method over a type parameter",
+      "Wished.get" -> "a deferred inline member whose type may be empty",
       "Dead.In.get" -> "Finite(4)",
       "Self.me" -> "an enclosing class with a self type",
       "Narrowed.get" -> "an enclosing class with a self type",
-      "Deferred.m" -> "a deferred inline value of an enclosing class",
+      "Deferred.m" -> "Finite(2)",
+      "Chooses.m" -> "Finite(2)",
       "Thrown.get" -> "Finite(1)",
       "Bounded.get" -> "Finite(1)",
       "CoKinded.get" -> "an abstract type member that is an alias, variant, or of another kind",
       "Pinned.get" -> "an abstract type member of a class no class written elsewhere extends",
       "Fin.get" -> "an abstract type member of a class no class written elsewhere extends",
-      "WishedM.get" -> "a deferred inline method over a type parameter",
+      "WishedM.get" -> "a deferred inline member whose type may be empty",
       "Holds.Fixed.get" -> "a type",
-      "Twice.Again.get" -> "an abstract type member two enclosing instances hold",
+      "Twice.Again.get" -> "Finite(1)",
+      "Twice.Again.both" -> "Finite(1)",
+      "TwiceLow.Again.get" -> "a bounded abstract type member two enclosing instances hold",
       "Mixed.get" -> "an abstract type member another declaration of its name bounds or hides",
       "Rose.flag" -> "an enclosing sum not read",
       "Thorn.name" -> "an enclosing sum not read",

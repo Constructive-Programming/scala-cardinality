@@ -78,6 +78,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case and: AndType            => relations.intersection(Relations.conjuncts(and), parts)
       case matched: MatchType      => matchType(matched, parts)
       case refined: TypeRefinement => paths.refinement(refined, parts)
+      // A refinement naming its own value (`T { type X = this.Y }`) is read as the refinement
+      // is: what it fixes is read where a path selects it, as that path sees it.
+      case recursive: RecType                                         => of(recursive.parent, parts)
       case refined: TermRefinement if PathTypes.polyIdentity(refined) => Right(Shape.Product(Nil))
       case other                                                      => uncovered(other)
     }
@@ -90,7 +93,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   private def matchType(matched: MatchType, env: Env): Either[Unread, Shape] =
     (matched.scrutinee.dealias match {
       case ref: TypeRef => ref.optSymbol.filter(Shapes.binds(ref, _, env)).flatMap(env.written.get)
-      case _            => None
+      // A scrutinee that is itself a match type scalac reduces is matched reduced.
+      case inner: MatchType => PathTypes.trusted(inner).map(_ -> env)
+      case _                => None
     }) match {
       case Some((argument, outer)) =>
         // Read with the binders of both sites, as a written constructor is (`bound`); the
@@ -105,7 +110,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
             )
         }
       case None =>
-        (Shapes.trusted(matched), matched.reduced) match {
+        (PathTypes.trusted(matched), matched.reduced) match {
           case (Some(reduced), _) => of(reduced, env)
           case (_, Some(_))       => uncovered(matched)
           case _                  =>
@@ -113,9 +118,13 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
               (arity, index) <- Shapes.projection(matched.cases)
               if matched.bound.isSameType(defn.AnyType)
               case ref: TypeRef <- Some(matched.scrutinee.dealias)
-              parameter <- Shapes.rigidParameter(ref)
-              if Shapes.binds(ref, parameter, env)
-              id <- env.binding(parameter).toOption.collect { case Shape.Atom(id) => id }
+              // An unbounded type parameter, or an abstract member of a path (`p.X`).
+              read <- Shapes
+                .rigidParameter(ref)
+                .filter(Shapes.binds(ref, _, env))
+                .fold(paths.member(ref, env))(env.binding)
+                .toOption
+              case Shape.Atom(id) <- Some(read)
             } yield Shape.Atom(StuckProjections.Projection(arity, index, id))
             stuck.toRight(Uncovered(s"a type: ${matched.showBasic}"))
         }
@@ -174,8 +183,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       applied(arguments).flatMap { proper =>
         ref.optSymbol match {
           case Some(binder) if Shapes.binds(ref, binder, env) =>
-            env
-              .binding(binder)
+            Shapes
+              .binding(ref, binder, env)
               .flatMap((_, proper) match {
                 // A written constructor used whole is the type written, in its own scope.
                 case (Shape.Constructor(id), Nil) if closures.contains(id) =>
@@ -230,7 +239,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   private def named(ref: TypeRef, arguments: List[Type], env: Env): Either[Unread, Shape] =
     ref.optSymbol match {
       case Some(parameter) if Shapes.binds(ref, parameter, env) =>
-        env.binding(parameter).flatMap(bound(ref, _, arguments, env, of))
+        Shapes.binding(ref, parameter, env).flatMap(bound(ref, _, arguments, env, of))
       // An evidence type compares its arguments as types, and two types of the program with one
       // shape are two types: their shapes are not read there.
       case Some(symbol) if env.nominal && world.shaped(symbol) =>
@@ -262,8 +271,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case Some(alias: TypeMemberSymbol) =>
         alias.typeDef match {
           case TypeMemberDefinition.OpaqueTypeAlias(_, body) => opaque(alias, body, arguments, env)
-          case _ if arguments.isEmpty                        => paths.member(ref, env)
-          case _                                             => uncovered(ref)
+          case _ => paths.member(ref, env).flatMap(bound(ref, _, arguments, env, of))
         }
       // A member a refinement declares (`p: { type X }`) has no symbol.
       case None if arguments.isEmpty => paths.member(ref, env)
@@ -517,36 +525,17 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       if (Readings.contextual(symbol) && member.name.toString.startsWith("given_"))
         Left("an anonymous given")
       else Readings.later(symbol)
-    (unread, member) match {
-      case (Left(what), _) => Left(Uncovered(s"$what among the members of $where: ${member.name}"))
-      // Each implementation of a deferred `inline val` is a constant of its own.
-      case (_, value: ValDef) if symbol.isInline =>
-        Left(Uncovered(s"a deferred inline value of $where: ${value.name}"))
-      // A deferred inline method is called from inline code alone: the compiler rejects a call of
-      // it from any other body, to which it therefore supplies nothing. One over a type parameter
-      // may have no implementation at some instance, which says something of the instance: not
-      // read. (Its signature may name one through an alias too, so it is not searched.) The
-      // templates around it, and no measured site, have the type parameters its signature may name, and
-      // the environment the abstract type members.
-      case (_, method: DefDef) if symbol.isInline && !inlineSite =>
-        Either.cond(
-          Shapes.typeParameters(method).isEmpty && World.owners(symbol.owner).forall {
-            case owner: ClassSymbol => owner.typeParams.isEmpty
-            case _: PackageSymbol   => true
-            case _                  => false
-          } && !env.binders.keys.exists(_.isInstanceOf[TypeMemberSymbol]),
-          None,
-          Uncovered(s"a deferred inline method over a type parameter: ${method.name}")
-        )
-      case (_, value: ValDef)  => of(value.tpt.toType, env).map(Some(_))
-      case (_, method: DefDef) =>
-        val parameters = Shapes.parameters(method)
+    def read: Either[Unread, Option[Shape]] = member match {
+      case value: ValDef  => of(value.tpt.toType, env).map(Some(_))
+      case method: DefDef =>
         // A capability's parameter is an argument its caller passes, named or not.
         for {
           own <- polymorphic(symbol.displayFullName, method)
           inside = env.copy(binders = env.binders ++ own.map((p, shape, _) => p -> shape))
           result <- of(method.resultTpt.toType, inside)
-          read <- if (result == Shape.Product(Nil)) Right(Nil) else inputs(parameters, inside)
+          read <-
+            if (result == Shape.Product(Nil)) Right(Nil)
+            else inputs(Shapes.parameters(method), inside)
           // A member's own type parameters are read as the scalameta front end reads them
           // (`PolymorphicMembers.close`): exact where a reading is, kept for the solver otherwise.
           closed <- PolymorphicMembers
@@ -554,6 +543,26 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
             .left
             .map(Uncovered(_))
         } yield Option.when(result != Shape.Product(Nil))(closed)
+    }
+    (unread, member) match {
+      case (Left(what), _) => Left(Uncovered(s"$what among the members of $where: ${member.name}"))
+      // Each implementation of a deferred `inline val` is a constant of its own.
+      case (_, value: ValDef) if symbol.isInline && inlineSite =>
+        Left(Uncovered(s"a deferred inline value of $where: ${value.name}"))
+      // A deferred inline member is called from inline code alone: the compiler rejects a call of
+      // it from any other body, to which it supplies nothing. But the instance exists only where
+      // some class implements it: a type built from nothing (its atoms rigid) constrains nothing;
+      // any other may empty the environment (`inline def neg: A => Nothing` beside an `a: A`),
+      // which is not decided (the old `DeferredInline`).
+      case _ if symbol.isInline && !inlineSite =>
+        read.flatMap { shape =>
+          Either.cond(
+            shape.forall(Readings.count(Nil, _).atLeast(1)),
+            None,
+            Uncovered(s"a deferred inline member whose type may be empty: ${member.name}")
+          )
+        }
+      case _ => read
     }
   }
 
@@ -653,7 +662,8 @@ private[compiled] object Shapes {
     * else: an unused parameter's kind tells nothing. A value `preceding` is built before the
     * measured definition's receiver, which it therefore never is. A class's type parameter
     * `written` with an argument is that type as the site naming the class wrote it, read there: a
-    * match type over the parameter is the match on the argument.
+    * match type over the parameter is the match on the argument. `held` keeps every instance's
+    * abstract type members where two instances hold one declaration (`binders` keeps one).
     */
   final case class Env(
       binders: Map[Symbol, Shape],
@@ -662,7 +672,8 @@ private[compiled] object Shapes {
       nominal: Boolean = false,
       unread: Map[Symbol, Unread] = Map.empty,
       preceding: Boolean = false,
-      written: Map[Symbol, (Type, Env)] = Map.empty
+      written: Map[Symbol, (Type, Env)] = Map.empty,
+      held: Set[Shape] = Set.empty
   ) {
 
     /** Whether a type parameter is one of the environment's, read or not. */
@@ -675,7 +686,13 @@ private[compiled] object Shapes {
     def under(outer: Env): Option[Env] =
       Option.unless(
         outer.binders.exists((symbol, meaning) => binders.get(symbol).exists(_ != meaning))
-      )(copy(binders = outer.binders ++ binders, unread = outer.unread ++ unread))
+      )(
+        copy(
+          binders = outer.binders ++ binders,
+          unread = outer.unread ++ unread,
+          held = outer.held ++ held
+        )
+      )
 
     /** What a type parameter of the environment stands for, or why it is not read. */
     def binding(parameter: Symbol): Either[Unread, Shape] =
@@ -690,7 +707,9 @@ private[compiled] object Shapes {
       Env(
         read.collect { case (symbol, Right(shape)) => symbol -> shape }.toMap,
         site,
-        unread = read.collect { case (symbol, Left(why)) => symbol -> why }.toMap
+        unread = read.collect { case (symbol, Left(why)) => symbol -> why }.toMap,
+        // Each instance's type members, where two instances hold one declaration (`holding`).
+        held = read.collect { case (_: TypeMemberSymbol, Right(shape)) => shape }.toSet
       )
 
   }
@@ -742,45 +761,28 @@ private[compiled] object Shapes {
     top(bounds.high) && bottom(bounds.low)
   }
 
-  /** What an abstract type member of a receiver stands for on its instance, as a type parameter
-    * would (`binder`): one atom, bounded or not (`Bounds` reads a bound's proofs), or a rigid
-    * constructor for an invariant, unbounded `F[_]`.
-    */
-  def typeMember(owner: ClassSymbol, member: TypeMemberSymbol)(using
+  // What a reference names that the environment binds: a type parameter, or an abstract type
+  // member on the instance of a receiver that holds it (`this.T`, `Receivers.typeMember`'s id, each
+  // instance its own where two hold one declaration), never one reached through another path.
+  private def holding(ref: TypeRef, binder: Symbol, env: Env)(using
       Context
-  ): Either[Unread, Shape] = {
-    val id = s"${owner.displayFullName}#${member.name}"
-    member.typeDef match {
-      // Bounds that meet name one type (an exported alias): not an atom.
-      case TypeMemberDefinition.AbstractType(bounds)
-          if proper(bounds) && !PathTypes.exported(bounds) =>
-        Right(Shape.Atom(id))
-      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
-      case TypeMemberDefinition.AbstractType(bounds) if free(member) && !unbounded(bounds) =>
-        Right(Shape.Constructor(id))
-      case _ =>
-        Left(
-          Unread.Uncovered(
-            s"an abstract type member that is an alias, variant, or of another kind: ${member.name}"
-          )
-        )
-    }
+  ): Option[Either[Unread, Shape]] = (binder, ref.prefix) match {
+    case (_: TypeMemberSymbol, self: ThisType) =>
+      val id = s"${self.cls.displayFullName}#${binder.name}"
+      (env.binders.get(binder) ++ env.held)
+        .find(shape => shape == Shape.Atom(id) || shape == Shape.Constructor(id))
+        .map(Right(_))
+    case (_: TypeMemberSymbol, _) => None
+    case _                        => Option.when(env.binds(binder))(env.binding(binder))
   }
 
-  // Whether a reference names what the environment binds: a type parameter, or an abstract type
-  // member on the instance of the receiver that holds it (`this.T`, `typeMember`'s identity), never
-  // one reached through another path or another instance.
   private def binds(ref: TypeRef, binder: Symbol, env: Env)(using Context): Boolean =
-    (env.unread.contains(binder) && !binder.isInstanceOf[TypeMemberSymbol]) ||
-      env.binders.get(binder).exists { shape =>
-        (binder, ref.prefix) match {
-          case (_: TypeMemberSymbol, self: ThisType) =>
-            val id = s"${self.cls.displayFullName}#${binder.name}"
-            shape == Shape.Atom(id) || shape == Shape.Constructor(id)
-          case (_: TypeMemberSymbol, _) => false
-          case _                        => true
-        }
-      }
+    holding(ref, binder, env).isDefined
+
+  // What a reference `binds` names (its callers have asked).
+  private def binding(ref: TypeRef, binder: Symbol, env: Env)(using
+      Context
+  ): Either[Unread, Shape] = holding(ref, binder, env).getOrElse(env.binding(binder))
 
   // Whether a parameter whose bounds say nothing and which declares no variance on a parameter of
   // its own is a constructor (`F[_]`, `F[_[_]]`), and not itself declared `+F[_]` or `-F[_]` (a
@@ -796,7 +798,7 @@ private[compiled] object Shapes {
 
   // Bounds any type constructor of proper, unbounded parameters meets: `[X] =>> Any`
   // above, nothing below (written as a lambda too, on a method's own parameter).
-  private def rigidBounds(bounds: TypeBounds)(using Context): Boolean = {
+  def rigidBounds(bounds: TypeBounds)(using Context): Boolean = {
     val bottom = bounds.low match {
       case lambda: TypeLambda => lambda.resultType.isSameType(defn.NothingType)
       case low                => low.isSameType(defn.NothingType)
@@ -815,7 +817,7 @@ private[compiled] object Shapes {
   }
 
   // The bounds of a proper type parameter: no type lambda above or below.
-  private def proper(bounds: TypeBounds): Boolean =
+  def proper(bounds: TypeBounds): Boolean =
     !bounds.high.isInstanceOf[TypeLambda] && !bounds.low.isInstanceOf[TypeLambda]
 
   /** The bounds of an abstract type member; none for any other. */
@@ -879,23 +881,6 @@ private[compiled] object Shapes {
   private def unread(name: String)(left: Boolean, what: String): Either[Unread, Unit] =
     Either.cond(!left, (), Unread.Uncovered(s"a capability record $what: $name"))
 
-  /** A type built of static classes and constants alone: no type parameter, abstract member, path
-    * or other form a reduction would have to reason about.
-    */
-  private def ground(tpe: TypeOrWildcard)(using Context): Boolean = tpe match {
-    case ref: TypeRef if ref.dealias ne ref => ground(ref.dealias)
-    case ref: TypeRef                       =>
-      ref.optSymbol.exists {
-        // `Null` is below every nullable class: tasty-query reduces on it where scalac does not.
-        case c: ClassSymbol => World.inObjects(c) && c != defn.NullClass
-        case _              => false
-      }
-    case applied: AppliedType if applied.dealias ne applied => ground(applied.dealias)
-    case applied: AppliedType => ground(applied.tycon) && applied.args.forall(ground)
-    case _: ConstantType      => true
-    case _                    => false
-  }
-
   /** The unbounded type parameter `ref` names where it is held rigid: a method's, or a class's own
     * through `this` (not one selected on another instance, whose bounds a prefix may change).
     */
@@ -914,27 +899,6 @@ private[compiled] object Shapes {
     */
   def copied(copies: List[Symbol], c: ClassSymbol, env: Env): List[(Symbol, (Type, Env))] =
     copies.zip(c.typeParams).flatMap((copy, parameter) => env.written.get(parameter).map(copy -> _))
-
-  /** What a match type reduces to where scalac reduces it too: tasty-query reduces on an abstract
-    * scrutinee where scalac does not (`Fst[T]` for a `T <: (Int, String)` is `Int` there, stuck in
-    * scalac), so its reduction is trusted on a ground scrutinee, and on a tuple a single case
-    * projects, which matches whatever its components are.
-    */
-  def trusted(matched: MatchType)(using Context): Option[Type] =
-    matched.reduced.filter(_ => ground(matched.scrutinee) || projects(matched))
-
-  /** Whether a match type's single case projects a component of a tuple of its scrutinee's arity
-    * (`(A, Unit) match { case (f, s) => f }`): scalac reduces it whatever the components are.
-    */
-  private def projects(matched: MatchType)(using Context): Boolean =
-    projection(matched.cases).exists((arity, _) =>
-      matched.scrutinee.dealias match {
-        case applied: AppliedType =>
-          applied.args.sizeIs == arity &&
-          World.classNamed(applied).exists(_.displayFullName == s"scala.Tuple$arity")
-        case _ => false
-      }
-    )
 
   /** The component a match type's single case projects, as (arity, 1-based index): a pattern
     * `TupleN` over distinct binders of the case, whose result is one of them (the TASTy counterpart

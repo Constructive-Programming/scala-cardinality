@@ -14,6 +14,8 @@ class PathTypesSpec extends Specification {
   Types on paths and refinements
     an alias is read as its prefix sees it                    $aliases
     an abstract member of a parameter is the path's own atom  $paths
+    a member constructor, a stuck projection of a path        $kinds
+    a refinement naming its own value                         $recursive
     a refinement of type members that can be satisfied        $refinements
     a refinement not shown satisfiable, or of a record        $unsatisfied
     a path of another method's parameter is not read          $otherPaths
@@ -32,6 +34,12 @@ class PathTypesSpec extends Specification {
       |object OG extends BaseG[Boolean]
       |final case class Dep(p: R, x: p.X, y: p.X)
       |final class Concrete { type X = Int }
+      |trait T2 { type X; type Y }
+      |type Rf[A, B] = { type X = Y; type Y = A; type Z = B }
+      |trait H { type F[_] }
+      |trait Hc { type F[+_] }
+      |type Fst[T] = T match { case (f, s) => f }
+      |type Snd[T] = T match { case (f, s) => s }
       |object M {
       |  def g(p: R, x: p.X, y: p.X): p.X = x
       |  def f(p: R, q: R, x: p.X): q.X = ???
@@ -49,6 +57,14 @@ class PathTypesSpec extends Specification {
       |  def two(a: Dep, b: Dep): Dep = a
       |  def onClass(p: Concrete { type X = Int }, b: Boolean): Boolean = b
       |  def both(p: R { type X >: Int <: AnyVal }, b: Boolean): Boolean = b
+      |  def kind(p: H, x: p.F[Int], y: p.F[Boolean]): p.F[Int] = x
+      |  def kinds(p: H, q: H, x: p.F[Int]): q.F[Int] = ???
+      |  def covariant(p: Hc, x: p.F[Int]): p.F[Int] = x
+      |  def fst(p: R, x: Fst[p.X], y: Snd[p.X]): Fst[p.X] = x
+      |  def fsts(p: R, q: R, x: Fst[p.X]): Fst[q.X] = ???
+      |  def self(p: T2 { type X = this.Y }, x: p.X, y: p.X): p.X = x
+      |  def selfY(p: T2 { type X = this.Y }, x: p.X, b: Boolean): Boolean = b
+      |  def sibling[A, B](x: Rf[A, B]#X, y: A, z: Rf[A, B]#Z): A = y
       |}
       |""".stripMargin
 
@@ -77,6 +93,28 @@ class PathTypesSpec extends Specification {
       Count.Finite(2),
       Count.Finite(2)
     )).and(count("M.k").toString must contain("a type: p.X"))
+
+  // In `T2 { type X = this.Y }`, `this` is the refinement's own value: `p.X` is `p.Y`, an atom of
+  // the path. `self` has x or y, 2; `selfY` is `Boolean => Boolean` beside an atom, 4.
+  // `Rf[A, B]#X` is its sibling `Y`, which is A: `sibling` has x or y, 2.
+  private def recursive =
+    List("M.self", "M.selfY", "M.sibling").map(count) must_== List(
+      Count.Finite(2),
+      Count.Finite(4),
+      Count.Finite(2)
+    )
+
+  // A member of kind `F[_]` of a path is the path's rigid constructor: `kind` has x alone (`y` is
+  // `p.F[Boolean]`), 1; `kinds` has no `q.F[Int]`, 0. One declared `F[+_]` relates its
+  // applications by subtyping: not read. A stuck projection of a path's atom is an atom too:
+  // `fst` has x alone (y is the other component), 1; `fsts` has no `Fst[q.X]`, 0.
+  private def kinds =
+    (List("M.kind", "M.kinds", "M.fst", "M.fsts").map(count) must_== List(
+      Count.Finite(1),
+      Count.Finite(0),
+      Count.Finite(1),
+      Count.Finite(0)
+    )).and(count("M.covariant").toString must contain("a type: p.F"))
 
   // `R { type X = A }` is one value, and `p.X` is A: `r` has a or x, 2. `R { type X <: Tuple }`
   // is one value: `upper` is `Boolean => Boolean`, 4.

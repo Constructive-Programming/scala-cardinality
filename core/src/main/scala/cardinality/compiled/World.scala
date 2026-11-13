@@ -244,6 +244,34 @@ private[compiled] object World {
     case _ => false
   }
 
+  // A class applied to type arguments, by its full name.
+  object Applied {
+
+    def unapply(tpe: Type)(using Context): Option[(String, List[Type])] = tpe match {
+      case Named(ref, arguments) =>
+        for {
+          c <- ref.optSymbol.collect { case c: ClassSymbol => c }
+          types <- proper(arguments).toOption
+        } yield c.displayFullName -> types
+      case _ => None
+    }
+
+  }
+
+  /** A concrete class, no enum or family, none of whose constructor's fields holds a by-name or
+    * function type at any depth.
+    */
+  def strict(c: ClassSymbol)(using Context): Boolean =
+    !c.isEnum && !Shapes.isFamily(c) &&
+      c.tree.exists(t => !Shapes.parameters(t.rhs.constr).exists(p => deferred(p.tpt.toType)))
+
+  /** Whether a type is by-name or holds a function type at any depth (a context function's too). */
+  def deferred(tpe: Type)(using Context): Boolean = tpe.dealias match {
+    case _: ByNameType               => true
+    case applied @ Applied(_, parts) => functional(applied) || parts.exists(deferred)
+    case _                           => false
+  }
+
   /** Whether a method is a constructor, primary or secondary. */
   def isConstructor(symbol: Symbol): Boolean = symbol.name == nme.Constructor
 

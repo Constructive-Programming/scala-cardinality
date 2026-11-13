@@ -1579,6 +1579,39 @@ Gate times (as the gate reports them; the machine was shared, so noisy): cats-ke
 (round 2) / 19.1 s (round 2's tree, this session) -> 15.5 s; cats-core 14.3 s / 22.8 s -> 14.7 s.
 `compiled/` is 8,849 lines (8,339 before).
 
+Then `tasty-k3` (`bfc1fa3`), merged without conflicts (k3 changes no list file). Its review found
+three wrong numbers, each refused now with a regression:
+
+- A class read in place over a system's values (`World.strict`) at a type argument holding a
+  function, context function or tuple of one: `LzB(b: Box[() => LzB])`, `Nb(b: Box[Boolean =>
+  Nb])`, `Lc(b: Box[Boolean ?=> Lc])` stored 0 (the ν completion sees a lazy field only at its
+  top: `LzB` is `Lz`, 1, `Nb` is ω). `Stored.declared` now reads in place only where no type
+  argument is deferred (`World.deferred`, at any depth); else `variable` refuses
+  (`StoredRecursionSpec.refusals`). Left, in both front ends and before k3: `Ltd(p: (Boolean, () =>
+  Ltd))` stores 0 (a function inside a tuple field).
+- A match whose scrutinee scalac finds uninhabited and leaves stuck: `Snd[(Nothing, Boolean)]`,
+  `(A, Boolean)` with `A <: Nothing`, `(p.X, Boolean)` with `p.X <: Nothing`, and k3's nested
+  `((Nothing, Int), Boolean)`: rows 4, 16, 2 that no program has. `PathTypes.trusted` refuses a
+  scrutinee below `Nothing` or with a type argument at any depth below it (`empty`;
+  `MatchTypesSpec.later`). The flat cases were wrong on the base too.
+
+Method rows after k3 (identical / better / worse / uncovered), old numeric rows still uncovered,
+methods (both tables), and past the old-unsound list; only fixtures and cats-eo's definition table
+change (cats-eo 3 (4) -> 3 (3)):
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,885 | 19 | 0 | 1,096 | 3 (3) | 3 (3) |
+| cats-core | 2,138 | 373 | 72 | 5,068 | 25 (26) | 25 (26) |
+| cats-kernel | 635 | 19 | 0 | 1,131 | 28 (28) | 26 (26) |
+| cats-eo | 326 | 12 | 0 | 359 | 3 (3) | 3 (3) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,743 | 270 | 5 | 734 | 147 (160) | 112 (125) |
+
+Gate times: cats-kernel 13.0 s, cats-core 10.2 s. `compiled/` is 8,997 lines. Next, in the order
+handed over: `tasty-k2`, `tasty-k1`, `tasty-k4`.
+
 ### What exists
 
 | Piece | Where | What it is |
@@ -2681,6 +2714,72 @@ Corrections (`corrected.txt`): fixtures `be82e558…` `G` 2 -> 0 and `F` 1 -> 0 
 cases are built by a companion that throws, or whose case's parent throws). Old front end rows
 that changed: fixtures `E` 2 -> 0 (`enum E { case E1, E2; val x: Int = ??? }`, now identical);
 no corpus row of either front end changed.
+
+### Group k3: the rest of "a type", deferred inline members, two instances, systems over arguments
+
+Each rule reads symbols and types; regressions in `ReceiversSpec`, `MatchTypesSpec`,
+`PathTypesSpec` and `StoredRecursionSpec`.
+
+- **A deferred inline member** (`Shapes.member`, the old `DeferredInline`). A body that is not
+  inline cannot call it, so it supplies nothing; but the instance exists only where some class
+  implements it. Its type is read as a capability's would be and dropped where it is built from
+  nothing (the solver over no bindings, its atoms rigid, counts at least 1); otherwise it is
+  refused ("a deferred inline member whose type may be empty": `inline def wish: A`). A deferred
+  `inline val` an inline body reads stays refused. `Chooses.m` (`inline def choose[M](x: M, y: M):
+  M` beside `m[B](a: B, b: B): B`) is 2; `Deferred.m` (`inline val flag: Boolean`) 2.
+- **An abstract type member two enclosing instances hold** (`Shapes.holding`, `Env.held`). Each
+  instance's `this.X` is its own atom (`Receivers.typeMember`'s identity, which names the class);
+  the environment keeps every instance's atom beside the one map entry per symbol. A bounded such
+  member stays refused: `Bounds` would read the proofs for one instance alone.
+  `typeMember` moved from `Shapes` to `Receivers`.
+- **Match types scalac reduces** (`PathTypes.trusted`, moved from `Shapes`). Beside a ground
+  scrutinee, a reduction is trusted where the first case's pattern matches whatever the
+  scrutinee's abstract parts are: `Any` (`case _`), a binder of the case met once, or a tuple of
+  such patterns over a tuple of the same arity, nested (`((A, B), C) match { case ((f, s), t) =>
+  f }` is A). A scrutinee that is itself such a match type is matched reduced
+  (`Fst[Fst[((A, B), C)]]`). `IsInt[(A, A)]` (first case `Int`) stays stuck.
+- **Paths** (`PathTypes.member`). An abstract member of kind `F[_]` of a method parameter's path,
+  invariant and rigid as the path sees it, is the path's rigid constructor, applied as a type
+  parameter of that kind (`p.F[Int]`). A capability record that holds no value may carry such a
+  witness (`Receivers.record`: one value; with a value it stays refused, the solver renames atoms
+  alone). A stuck projection of a path's atom is an atom (`Fst[p.X]`, members MT3 over M0).
+- **A refinement naming its own value** (`T { type X = this.Y }`, a `RecType`, and a sibling
+  `R[A, B]#X` for `X = Y; Y = A`): tasty-query leaves the refinement's `this` unsubstituted in the
+  alias it gives a member selected on the refinement; `PathTypes.own` selects that member on what
+  it was selected on (`p.Y`, `R[A, B]#Y`), which tasty-query resolves.
+- **The stored side's match types over a class's parameter** (`Stored.Env.written`). A class's
+  parameters, a family case's (`Sums.carried`) and the constructor's copies carry the argument
+  types they were named with; a match over one is read at its argument with both sites' binders
+  (one symbol bound at both refused), outside a system only (a system's classes are keyed by
+  their arguments' sizes, which would conflate `Fst[(Unit, Boolean)]` with `Fst[(Boolean,
+  Unit)]`; `R[A](g: Option[G[A]])` with `G[Int] = R[Int]` is refused there, not recursed into).
+- **A class a system names over arguments that read the system's values** (`Stored.declared`) is
+  read in place at them (`Ta(b: Option[Box[Ta]])`: T = 1 + T, ω), not keyed (the key would hold
+  sizes the fixed point changes), where it is a concrete class none of whose fields holds a
+  by-name or function type (`World.strict`: the ν completion reads those of a variable's own
+  fields alone, so `Lb(b: Lbox[Lb])` over `Lbox[A](a: => A)`, the `Lz` knot, stays refused); one
+  reached again so is refused (`Wt` over `W[A](a: A, w: Option[W[A]])`). The old reading counts
+  `b.T`, `b.N`, `b.UseT` ω, as here.
+
+Not taken, recorded for the next agent:
+
+- Paths through an instance's `val` (`Open.this.p.X`, `In.this.p.Y`): sound for the instance's
+  own members, but a record of the same class read inside it (`def use(o: Open)`) reads its
+  members' `Open.this.p` too, which would be the instance's path, not `o`'s. Needs record
+  readings to bind their own paths first.
+- An abstract type member another declaration of its name hides (`C.pick`, a private `type X` in a
+  parent): whether tasty-query resolves the name to the private member is not checked.
+- Type lambdas of another body or order as keys (`T.other`, `T.swapped`), `Ctx.this.M.V`, and
+  `x.type & alias.type`.
+
+Rows (against `6156823`): 29 of the group's 38 old numeric uncovered rows are covered, each
+identical to the old count; the 9 left are listed above. Fixtures: method rows identical 5,719 ->
+5,741, uncovered 759 -> 736, old numeric uncovered 171 (190) -> 149 (162), past the old-unsound
+list 136 (155) -> 114 (127); cats-eo's definition `pickFoldMiss` (1) is covered. One better row,
+past a resolution limit: `q.V.andThen[C, F](using rc: RC[F]): rc.Out[S, C]` is 0 (the old front
+end does not resolve `RC`): `rc` holds no value, `rc.Out` is the path's rigid constructor, and no
+value of `rc.Out[S, C]` is in reach. No worse row; the corpora are unchanged otherwise. `compiled/`
+grows by 126 lines (8,339 -> 8,465).
 
 ### How each model rule reads over symbols
 
