@@ -81,25 +81,26 @@ function mathSpans(text, file, lineNo) {
   });
 }
 
+// The lines a closed fence contributes to the output: a math fence becomes one
+// display equation; any other fence passes through verbatim with its closer.
+function closeFence(fence, closer, file) {
+  if (fence.info !== "math") {
+    return [fence.marker + fence.info, ...fence.body, closer];
+  }
+  const latex = fence.body.join("\n").trim();
+  const mathml = render(latex, true, file, `math block at line ${fence.startLine}`);
+  return [mathml ?? fence.body.join("\n")];
+}
+
 function transformMarkdown(source, file) {
-  const lines = source.split("\n");
   const out = [];
   let fence = null; // { marker, info, body, startLine } while inside a fenced block
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (fence) {
-      if (line.trimStart().startsWith(fence.marker)) {
-        if (fence.info === "math") {
-          const latex = fence.body.join("\n").trim();
-          const mathml = render(latex, true, file, `math block at line ${fence.startLine}`);
-          out.push(mathml ?? fence.body.join("\n"));
-        } else {
-          out.push(fence.marker + fence.info, ...fence.body, line);
-        }
-        fence = null;
-      } else {
-        fence.body.push(line);
-      }
+  for (const [i, line] of source.split("\n").entries()) {
+    if (fence && line.trimStart().startsWith(fence.marker)) {
+      out.push(...closeFence(fence, line, file));
+      fence = null;
+    } else if (fence) {
+      fence.body.push(line);
     } else {
       const opened = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
       if (opened) {
