@@ -646,7 +646,8 @@ class TastyFrontEndSpec extends Specification {
   //     smaller side, 2. A list of strings is ω and one of functions over them ε₀; a function
   //     from `Nothing` is the algebra's 0. `Option` adds one, 3; a map is (1 + 1)^2 = 4 and so is
   //     a partial function; a set is 2^3 = 8; `Either` is 2 + 1; an array of nothing is the empty
-  //     one; a literal type is one value.
+  //     one; a literal type is one value. `Rec` is R = 1 + R: from 0, 1, then 2, and a cycle that
+  //     keeps growing widens to its tier, ω (`Fixpoint`).
   //   - An opaque alias's row shows its representation, 2, and a class outside its scope stores
   //     one value of it (rule F). A type is read where it is written: `Scope.Wrap` stores its
   //     Boolean and `Scope.Al` is that Boolean too, 2 × 2 in `SeesWrap`. `Scope.T` named outside
@@ -693,6 +694,7 @@ class TastyFrontEndSpec extends Specification {
       "Meet" -> sized("2"),
       "Strs" -> sized("ω"),
       "Fns" -> sized("ε₀"),
+      "Rec" -> sized("ω"),
       "Never" -> sized("0"),
       "Opt" -> sized("3"),
       "Mp" -> sized("4"),
@@ -733,8 +735,7 @@ class TastyFrontEndSpec extends Specification {
   // (`Wide2`) or that inherits from a class outside the module, whose state it holds too
   // (`Outer`), or with a case under two of its levels
   // (`Twice2`; `Dbl`, whose clause names the family and its level both), or with an enum's value
-  // case under a sealed level (`Deep`) or behind a reference (`HasMixed`); a definition that
-  // reaches itself (the solver's fixed point); a class's alias read as its prefix sees it from inside an opaque type's scope, where
+  // case under a sealed level (`Deep`) or behind a reference (`HasMixed`); a class's alias read as its prefix sees it from inside an opaque type's scope, where
   // what it names was written elsewhere; a private constructor (rule B); an enum case that pins its enum's parameter to a type;
   // a refinement written without a type, which is not told from one of `Object`; a dependent
   // function type, whose result its parent does not hold; a wildcard argument; a class the algebra has no entry for; and a value of a
@@ -749,7 +750,6 @@ class TastyFrontEndSpec extends Specification {
       "HasMixed" -> "an enum case under a sealed family",
       "Outer" ->
         "a family with a subtype not written final whose parent is outside the module",
-      "Rec" -> "a definition that reaches itself",
       "Scope.Held" -> "an alias of a class beside an opaque type's scope",
       "Priv" -> "a restricted constructor",
       "Idx" -> "an enum case that does not pass its own parameters on",
@@ -792,10 +792,9 @@ class TastyFrontEndSpec extends Specification {
   // as ω (`Holder`): refused. A position mixing a type parameter with an `Int` has no agreed
   // reading. A reason of the estimate declines a ground position only: `Rest` names its type
   // parameter, under a repeated type, and keeps the method side's ω. A recursive position takes
-  // the estimate's tier: not read yet. A `using` parameter with a name is a position like any
+  // the estimate's size, as the old reading does: `Option[Rec]` is 1 + ω, `ω + 1`. A `using` parameter with a name is a position like any
   // other: `Using` holds an `Open`, as `Holds` does.
   private def constructors = {
-    val uncovered = s"${TastyFrontEnd.Uncovered}: "
     val expected = List(
       "Pt" -> "4",
       "Walk" -> "2^32",
@@ -814,7 +813,7 @@ class TastyFrontEndSpec extends Specification {
       "Absurd" -> "constructor position readings disagree",
       "Holder" -> "constructor position readings disagree",
       "Mixed" -> "constructor position mixes type parameters with transparent ground values",
-      "Rec" -> s"${uncovered}a constructor position the method side refuses",
+      "Rec" -> "ω + 1",
       "Using" -> "open to implementations"
     )
     expected.map((name, _) => name -> constructed(name)) must_== expected
@@ -856,14 +855,17 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.analysis.resolution.StuckProjections",
     "cardinality.analysis.resolution.TopTypes",
     "cardinality.capacity.BaseTypes",
+    "cardinality.capacity.Blocked",
     "cardinality.capacity.BooleanSize",
     "cardinality.capacity.Definition",
     "cardinality.capacity.Definition.Kind",
     "cardinality.capacity.Definition.Unbound",
     "cardinality.capacity.EffectiveEpsilon0",
     "cardinality.capacity.EffectiveOmega",
+    "cardinality.capacity.Fixpoint",
     "cardinality.capacity.NothingSize",
     "cardinality.capacity.Size",
+    "cardinality.capacity.Store",
     "cardinality.capacity.UnitSize",
     "cardinality.reporting.FrontEnd",
     "cardinality.reporting.Report",

@@ -9,6 +9,7 @@ import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Symbols.{Symbol, TypeMemberSymbol}
 import tastyquery.Trees.{ClassDef, DefDef, ValDef}
+import tastyquery.Types.{AppliedType, ByNameType, Type, TypeRef}
 
 /** A class's row: the count of its primary constructor, the product of its positions' value spaces
   * (slice S3; v1.md §2, "constructor = a method").
@@ -22,6 +23,8 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   *     Where the estimate has a reason not to size a ground position (an open class), no number
   *     stands for it and the row is `?` with that reason; where its only reason is a type
   *     parameter, the method side's reading stands alone.
+  *   - A recursive position, which the method side refuses, takes the estimate's size where its
+  *     type is estimable (`estimable`), as the old reading does (`fromEstimate`).
   *   - A type parameter is an atom, or a rigid constructor for `F[_]` (`Shapes.binder`); its slot
   *     is left to the shape model, which counts the values the caller supplies (`Pair[A](x: A, y:
   *     A)` has four), and for a class in a class those the instance around it holds, on which it is
@@ -30,9 +33,9 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   *
   * Not read yet, where a position names it: a bounded type parameter (the row hands no proof to its
   * positions), or one of another kind than an invariant `F[_]`; a position the method side refuses
-  * (a recursive type), which takes the estimate's tier; one the estimate does not read; one over a
-  * singleton or evidence. An anonymous contextual parameter is a position like any other once
-  * `Readings` has found search selects it (`Readings#searched`).
+  * for another reason than recursion, or whose type is not estimable; one the estimate does not
+  * read; one over a singleton or evidence. An anonymous contextual parameter is a position like any
+  * other once `Readings` has found search selects it (`Readings#searched`).
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored, receivers: Receivers)(
     using Context
@@ -85,18 +88,23 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   ): Either[Unread, Position] = {
     val name = parameter.name.toString
     val tpe = parameter.tpt.toType
-    for {
-      // A position is an input: a top type in it is one value. One the method side refuses takes
-      // the estimate's tier, which is not read yet.
-      shape <- shapes.of(tpe, env).map(TopTypes.polarized(_, false)).left.map {
-        case Unread.Refused(reason) =>
-          Uncovered(s"a constructor position the method side refuses: $reason")
-        case uncovered => uncovered
-      }
-      estimate <- stored.position(tree, tpe).left.map(Uncovered(_))
-      // A ground position is one whose written type names no type parameter of the class.
-      read <- Constructors.read(name, shape, estimate, !World.mentions(tpe, variables))
-    } yield read
+    // A ground position is one whose written type names no type parameter of the class.
+    val ground = !World.mentions(tpe, variables)
+    def estimate = stored.position(tree, tpe).left.map(Uncovered(_))
+    // A position is an input: a top type in it is one value.
+    shapes.of(tpe, env).map(TopTypes.polarized(_, false)) match {
+      case Left(Unread.Refused(reason))
+          if reason.startsWith(Shapes.Recursive) && Constructors.estimable(tpe) =>
+        estimate.map(Constructors.fromEstimate(reason, _, ground))
+      case Left(Unread.Refused(reason)) =>
+        Left(Uncovered(s"a constructor position the method side refuses: $reason"))
+      case shaped =>
+        for {
+          shape <- shaped
+          sized <- estimate
+          read <- Constructors.read(name, shape, sized, ground)
+        } yield read
+    }
   }
 
 }
@@ -146,6 +154,37 @@ private[compiled] object Constructors {
       Left(Unread.Uncovered(s"a constructor position over a singleton or evidence: $name"))
     else Right(Shaped(name, shape))
   }
+
+  // A recursive position, which the method side refuses, is the estimate's, as the old reading
+  // takes it: its reasons other than an unresolved name make the row `?` where one names a
+  // declaration it could not read or the position is ground; with no reason at all, and a size
+  // that says a value exists (not an absurd function's 0, an intersection's bound), its size is
+  // the position's; otherwise the method side's refusal stands.
+  private def fromEstimate(reason: String, estimate: Stored.Row, ground: Boolean): Position = {
+    val declined = estimate.unbound.filterNot(_.isInstanceOf[Unbound.Unknown]).flatMap(rendered)
+    val declaration = estimate.unbound.exists(_.isInstanceOf[Unbound.Refusal])
+    if ((ground || declaration) && declined.nonEmpty) Unresolved(declined)
+    else
+      estimate.size
+        .filter(_ => estimate.unbound.isEmpty && !estimate.undecided)
+        .fold(Unresolved(List(reason)))(Estimated(_))
+  }
+
+  // Whether the old reading hands a position the method side refuses to the estimate: only class
+  // references, applied types and by-name types, none of them a top type, `Null` or `Nothing`,
+  // through aliases (no union, intersection, singleton, refinement or other form).
+  private def estimable(tpe: Type)(using Context): Boolean = tpe.dealias match {
+    case by: ByNameType       => estimable(by.resultType)
+    case applied: AppliedType =>
+      estimable(applied.tycon) && applied.args.forall {
+        case arg: Type => estimable(arg)
+        case _         => false
+      }
+    case ref: TypeRef => ref.optSymbol.forall(symbol => !Unestimable(symbol.displayFullName))
+    case _            => false
+  }
+
+  private val Unestimable = Stored.Tops ++ Set("scala.Null", "scala.Nothing")
 
   // The estimate's reason as a method row words it.
   private def rendered(reason: Unbound): Option[String] = reason match {

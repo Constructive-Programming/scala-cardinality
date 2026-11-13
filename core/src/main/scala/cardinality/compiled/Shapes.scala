@@ -356,7 +356,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   }
 
   private def recursive(c: ClassSymbol): Either[Unread, Shape] =
-    Left(Refused(s"recursive type not read: ${c.displayFullName}"))
+    Left(Refused(Shapes.Recursive + c.displayFullName))
 
   // ---- classes of the module ----------------------------------------------------------------
 
@@ -612,6 +612,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
 }
 
 private[compiled] object Shapes {
+
+  /** How the method side refuses a class it is reading again. */
+  val Recursive = "recursive type not read: "
 
   /** What a type is read in: the shapes its type parameters stand for, the definition measured
     * (what it may see decides an opaque type), the classes being read (a cycle is refused), and

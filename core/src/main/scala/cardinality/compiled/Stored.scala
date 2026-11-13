@@ -3,11 +3,14 @@ package cardinality.compiled
 import cardinality.capacity.Definition.{Kind, Unbound}
 import cardinality.capacity.{
   BaseTypes,
+  Blocked,
   BooleanSize,
   EffectiveEpsilon0,
   EffectiveOmega,
+  Fixpoint,
   NothingSize,
   Size,
+  Store,
   UnitSize
 }
 import cardinality.types.Traversals
@@ -47,18 +50,21 @@ import tastyquery.Types.*
   *     dependency with TASTy outside the standard library and the JDK, is what it stores with its
   *     arguments bound; one to an open class, an unbound type parameter, an abstract type member, a
   *     class named without its arguments, an enum case's class or `AnyVal` is a reason.
+  *   - A definition that reaches itself is a system of equations, one per class of the module it
+  *     names, solved by the old estimate's fixed point (`solved`, `Fixpoint`).
   *
   * What it does not read yet is a `Left`, naming what it met. The main ones: a sealed family with a
-  * subtype it does not read whole (`family`), a definition that reaches itself (the solver's fixed
-  * point), a restricted constructor (rule B), an enum case whose clause does not pass its own
-  * parameters on, a class the algebra does not model or of a dependency without TASTy, an opaque
-  * type of the standard library or of a class named inside it, an alias of a class beside an opaque
-  * type's scope, a wildcard argument, a refinement of no written type, a function type refined by
-  * its `apply`, any other form of type, and what a value of a class of the module needs (its
-  * construction).
+  * subtype it does not read whole (`family`), a recursion through a function's domain, one a lazy
+  * field leaves incomplete, one whose widening is not settled, a class a system reads with ever new
+  * type arguments or through a type argument, a restricted constructor (rule B), an enum case whose
+  * clause does not pass its own parameters on, a class the algebra does not model or of a
+  * dependency without TASTy, an opaque type of the standard library or of a class named inside it,
+  * an alias of a class beside an opaque type's scope, a wildcard argument, a refinement of no
+  * written type, a function type refined by its `apply`, any other form of type, and what a value
+  * of a class of the module needs (its construction).
   */
 final private[compiled] class Stored(world: World)(using Context) {
-  import Stored.{Env, Held, Row}
+  import Stored.{Env, Held, Instance, Row, Values, given}
 
   /** The row of a definition. */
   def row(kind: Kind, tree: Tree): Either[String, Row] = (kind, tree) match {
@@ -66,34 +72,40 @@ final private[compiled] class Stored(world: World)(using Context) {
     // A constructor alias names a function on types, and an open trait or abstract class has no
     // value of its own: a dash, no size and no reason.
     case (Kind.Constructor, _)                         => Right(Row(None, Nil))
-    case (_, c: ClassDef) if c.symbol.isEnum           => enumeration(c, rowEnv(c)).map(_.row)
+    case (_, c: ClassDef) if c.symbol.isEnum           => own(c)(enumeration(c, _))
     case (_, c: ClassDef) if Shapes.isFamily(c.symbol) =>
-      strayed(c.symbol).map(Right(_)).getOrElse(familyOnce(c, rowEnv(c)).map(_.row))
+      strayed(c.symbol).map(Right(_)).getOrElse(own(c)(familyOnce(c, _)))
     case (_, c: ClassDef) if c.symbol.isAbstractClass => Right(Row(None, Nil))
-    case (_, c: ClassDef)                             => constructed(c, rowEnv(c)).map(_.row)
+    case (_, c: ClassDef)                             => own(c)(constructed(c, _))
     case (_, t: TypeMember)                           => alias(t)
     case (_, v: ValDef)                               => topLevel(v)
     case _                                            => Left("a definition")
   }
 
   // A definition read for its own row: each of its type parameters is a reason the row has no one
-  // size, and a reference to itself is not solved yet.
+  // size, and a reference to itself is solved as a system (`solved`), whose value it is.
   private def rowEnv(tree: ClassDef): Env = {
     val c = tree.symbol
     Env(c.typeParams.map(p => (p: Symbol) -> Stored.parameter(p)).toMap, c, Set(c))
   }
 
+  private def own(tree: ClassDef)(reading: Env => Either[String, Held]): Either[String, Row] = {
+    val env = rowEnv(tree)
+    solved(env, Some(Instance(tree.symbol, tree.symbol.typeParams.map(env.binders))))(reading)
+      .map(_.row)
+  }
+
   // What a class's constructor stores: the product of its parameters, the evidence of a context
   // bound among them, each read at the class. The constructor names its own copies of the class's
   // type parameters.
-  private def constructed(tree: ClassDef, env: Env): Either[String, Held] = {
-    val constructor = tree.rhs.constr
-    if (!constructor.symbol.isPublic)
+  private def constructed(tree: ClassDef, env: Env): Either[String, Held] =
+    if (!tree.rhs.constr.symbol.isPublic)
       Left(s"a restricted constructor: ${tree.symbol.displayFullName}")
-    else
-      each(Shapes.parameters(constructor).map(_.tpt.toType), atClass(tree, env))
-        .map(Stored.product)
-  }
+    else each.tupled(fields(tree, env)).map(Stored.product)
+
+  // A class's constructor's parameters, and where they are read.
+  private def fields(tree: ClassDef, env: Env): (List[Type], Env) =
+    (Shapes.parameters(tree.rhs.constr).map(_.tpt.toType), atClass(tree, env))
 
   // Where a class's constructor is written: at the class, with the constructor's own copies of the
   // class's type parameters bound as the class's are.
@@ -112,30 +124,36 @@ final private[compiled] class Stored(world: World)(using Context) {
     * as it stores.
     */
   def position(tree: ClassDef, tpe: Type): Either[String, Row] =
-    of(tpe, atClass(tree, rowEnv(tree)).copy(input = true)).map(_.row)
+    solved(atClass(tree, rowEnv(tree)).copy(input = true))(of(tpe, _)).map(_.row)
 
   // An enum is the sum of its cases: a value case is one value, a class case what it stores, each
   // where its clause passes the enum's parameters on (`Sums.carried`: `case Y extends E[Int]` is a
   // member of one instantiation only). The enum's own constructor arguments are shared state, not
   // extra values.
-  private def enumeration(tree: ClassDef, env: Env): Either[String, Held] = {
+  private def enumeration(tree: ClassDef, env: Env): Either[String, Held] =
+    cases(tree, env)
+      .flatMap(found =>
+        Traversals.sequence(found.map(_.fold(Right(Held(UnitSize)))(constructed.tupled)))
+      )
+      .map(Stored.sum)
+
+  // An enum's cases: none for a value case, a class case's tree with its parameters bound to what
+  // its clause passes on.
+  private def cases(tree: ClassDef, env: Env): Either[String, List[Option[(ClassDef, Env)]]] = {
     val enumClass = tree.symbol
     val carried = passed(enumClass, env, "an enum case")
     enumClass.sealedChildren match {
       // An enum has a case: none means the classpath lacks the annotation that lists them.
       case Nil   => Left(s"an enum whose cases are not listed: ${enumClass.displayFullName}")
       case cases =>
-        Traversals
-          .sequence(cases.map {
-            case single: TermSymbol => carried(single).map(_ => Held(UnitSize))
-            case cls: ClassSymbol   =>
-              for {
-                below <- World.tree(cls)
-                bound <- carried(cls)
-                held <- constructed(below, env.copy(binders = cls.typeParams.zip(bound).toMap))
-              } yield held
-          })
-          .map(Stored.sum)
+        Traversals.sequence(cases.map {
+          case single: TermSymbol => carried(single).map(_ => None)
+          case cls: ClassSymbol   =>
+            for {
+              below <- World.tree(cls)
+              bound <- carried(cls)
+            } yield Some(below -> env.copy(binders = cls.typeParams.zip(bound).toMap))
+        })
     }
   }
 
@@ -183,9 +201,10 @@ final private[compiled] class Stored(world: World)(using Context) {
             visiting = env.visiting + cls
           )
           held <-
-            if (env.visiting(cls)) Left(s"a definition that reaches itself: ${cls.displayFullName}")
+            if (env.system.isEmpty && env.visiting(cls)) Left(Stored.Reaches(cls))
             else if (cls.isEnum) Left(s"an enum under a sealed family: ${cls.displayFullName}")
-            else if (Shapes.isFamily(cls)) family(below, inside)
+            else if (Shapes.isFamily(cls))
+              env.system.fold(family(below, inside))(variable(cls, bound))
             else if (cls.isAbstractClass)
               Left(s"a family with an open abstract subtype: ${cls.displayFullName}")
             else if (world.extended(cls))
@@ -200,7 +219,7 @@ final private[compiled] class Stored(world: World)(using Context) {
               Left(
                 s"a family with a subtype not written final whose parent is outside the module: ${cls.displayFullName}"
               )
-            else constructed(below, inside)
+            else env.system.fold(constructed(below, inside))(variable(cls, bound))
         } yield held
     }
     // A family a class declares is one per instance of that class. An anonymous instance lists
@@ -275,7 +294,9 @@ final private[compiled] class Stored(world: World)(using Context) {
   // An alias row is what its right-hand side stores, read where the alias is written: an opaque
   // one shows its representation. The parameters of `type F[X] = …` are the row's reasons.
   private def alias(tree: TypeMember): Either[String, Row] =
-    body(tree.rhs).flatMap((_, aliased) => of(aliased, Env(Map.empty, tree.symbol))).map(_.row)
+    body(tree.rhs)
+      .flatMap((_, aliased) => solved(Env(Map.empty, tree.symbol))(of(aliased, _)))
+      .map(_.row)
 
   // The type an alias's definition names, and the parameters it is written under.
   private def body(definition: TypeDefinitionTree): Either[String, (List[Symbol], Type)] =
@@ -291,7 +312,7 @@ final private[compiled] class Stored(world: World)(using Context) {
   // 1, and the row is undecided where the type has reasons, is empty, or has a size that does not
   // say a value exists. The initializer is never read.
   private def topLevel(tree: ValDef): Either[String, Row] =
-    of(tree.tpt.toType, Env(Map.empty, tree.symbol, isValue = true)).map { held =>
+    solved(Env(Map.empty, tree.symbol, isValue = true))(of(tree.tpt.toType, _)).map { held =>
       val reasons =
         if (held.reasons.nonEmpty) held.reasons
         else if (held.size.isZero || held.undecided)
@@ -442,7 +463,7 @@ final private[compiled] class Stored(world: World)(using Context) {
   // bound to `arguments`; an open one is a reason.
   private def declared(c: ClassSymbol, arguments: List[Held], env: Env): Either[String, Held] = {
     val name = c.name.toString
-    if (env.visiting(c)) Left(s"a definition that reaches itself: ${c.displayFullName}")
+    if (env.system.isEmpty && env.visiting(c)) Left(Stored.Reaches(c))
     // Whether a value of the class exists is its construction's to say (slice S6).
     else if (env.isValue) Left(s"a value of a class of the module: ${c.displayFullName}")
     else if (c.isEnum && c.isCaseClass)
@@ -450,19 +471,202 @@ final private[compiled] class Stored(world: World)(using Context) {
     // Any subtype anywhere may add values to an open trait or abstract class.
     else if (c.isAbstractClass && !c.isEnum && !Shapes.isFamily(c))
       Right(Held(EffectiveOmega, List(Unbound.Open(name))))
-    else
-      World.tree(c).flatMap { tree =>
-        // A declaration is read as it stores, whatever position named it.
-        val inside = env.copy(
-          binders = c.typeParams.zip(arguments).toMap,
-          visiting = env.visiting + c,
-          input = false
-        )
-        if (c.isEnum) enumeration(tree, inside)
-        else if (Shapes.isFamily(c)) familyOnce(tree, inside)
-        else constructed(tree, inside)
-      }
+    else env.system.fold(expand(c, arguments, env))(variable(c, arguments))
   }
+
+  // What a class of the module stores with its type parameters bound to `arguments`, as it is
+  // declared, whatever position named it.
+  private def expand(c: ClassSymbol, arguments: List[Held], env: Env): Either[String, Held] =
+    World.tree(c).flatMap { tree =>
+      val inside = env.copy(
+        binders = c.typeParams.zip(arguments).toMap,
+        visiting = env.visiting + c,
+        input = false
+      )
+      if (c.isEnum) enumeration(tree, inside)
+      else if (Shapes.isFamily(c)) familyOnce(tree, inside)
+      else constructed(tree, inside)
+    }
+
+  // ---- recursion ----------------------------------------------------------------------------
+
+  // A reading that reaches a class it is inside of is read again as a system of equations, one per
+  // class of the module it names (`variable`), and solved by the old estimate's fixed point
+  // (`Fixpoint`; docs/type-arithmetic.md §8): least, widened to its tier where a cycle keeps
+  // growing, and completed coinductively through the fields a constructor does not demand. A cycle
+  // through a function's domain has no count, nor has one a lazy field leaves incomplete, one whose
+  // widened value its own equation does not reach again (an intersection's bound, a factor of 0,
+  // as the old reading refuses an instantiation it does not settle), or a class read with ever new
+  // type arguments. The row's reasons are those of every class read; a definition's own row
+  // (`self`) is its value in the system.
+  private def solved(env: Env, self: Option[Instance] = None)(
+      reading: Env => Either[String, Held]
+  ): Either[String, Held] =
+    reading(env) match {
+      case Left(Stored.Reaches()) => system(env, self, reading)
+      case read                   => read
+    }
+
+  private def system(
+      env: Env,
+      self: Option[Instance],
+      reading: Env => Either[String, Held]
+  ): Either[String, Held] = {
+    def at(values: Values) = env.copy(system = Some(values))
+    for {
+      root <- reading(at(Values()))
+      found <- Stored.ordered(root.refs).foldLeft(Right(Map.empty): Found) { (acc, k) =>
+        acc.flatMap(discovered(k, _))
+      }
+      keys = Stored.ordered(found.keys)
+      reaches = Fixpoint.reaches(found.view.mapValues(_.refs).toMap)
+      _ <- keys
+        .collectFirst {
+          case k if found(k).domains.exists(to => to == k || reaches(to)(k)) =>
+            s"recursion through a function's domain: ${k.cls.displayFullName}"
+        }
+        .toLeft(())
+      nu <- lazily(found)
+      eqs = keys.map(k =>
+        k -> ((values: Values) => settled(equation(values)(k), NothingSize)(_.size))
+      )
+      values = Fixpoint.solve(eqs, Set.empty, Values(), nu, reaches)
+      _ <- keys
+        .collectFirst {
+          case k if values.blocked.contains(k) => values.blocked(k).about(k.cls.displayFullName)
+        }
+        .toLeft(())
+      // Every equation read again over the solved values: what it reads and its reasons.
+      all <- Traversals.sequence(keys.map(k => equation(values)(k).map(k -> _)))
+      _ <- all
+        .collectFirst {
+          case (k, held) if values.value(k).larger(held.size) =>
+            s"a recursion whose widening is not settled: ${k.cls.displayFullName}"
+        }
+        .toLeft(())
+      read <- reading(at(values))
+    } yield read
+      .copy(size = self.filter(found.contains).fold(read.size)(values.value))
+      .joined(all.map(_._2))
+  }
+
+  private type Found = Either[String, Map[Instance, Held]]
+
+  // A class of the module inside a system: its value in `values`, a variable of the equation.
+  private def variable(c: ClassSymbol, arguments: List[Held])(
+      values: Values
+  ): Either[String, Held] =
+    if (arguments.exists(_.refs.nonEmpty))
+      Left(s"a class a system reads through a type argument: ${c.displayFullName}")
+    else {
+      val key = Instance(c, arguments)
+      Right(Held(values.value(key), refs = Set(key)))
+    }
+
+  private def equation(values: Values)(k: Instance): Either[String, Held] =
+    expand(k.cls, k.arguments, Env(Map.empty, k.cls, system = Some(values)))
+
+  // A reading inside a system after `discovered` has read every equation over empty values: what a
+  // reading may refuse does not depend on the values, and `system` reads every equation again
+  // over the solved ones, so a refusal cannot first appear here.
+  private def settled[A, B](read: Either[String, A], none: B)(f: A => B): B =
+    read.fold(_ => none, f)
+
+  // The classes a system reads from `k` on, each with its equation read over empty values. A class
+  // read with ever new type arguments (`N[A](n: Option[N[(A, A)]])`) would not end: one read with
+  // more argument lists than `Stored.Instantiations` is refused, whatever order meets them.
+  private def discovered(k: Instance, found: Map[Instance, Held]): Found =
+    if (found.contains(k)) Right(found)
+    else if (found.keys.count(_.cls == k.cls) >= Stored.Instantiations)
+      Left(s"a class a system reads with ever new type arguments: ${k.cls.displayFullName}")
+    else
+      equation(Values())(k).flatMap { held =>
+        Stored.ordered(held.refs).foldLeft(Right(found.updated(k, held)): Found) { (acc, next) =>
+          acc.flatMap(discovered(next, _))
+        }
+      }
+
+  // What the ν completion reads of a system (`Fixpoint.Lazy`): each concrete class's and enum's
+  // constructors, a family's subtypes, and the classes a by-name or function field names.
+  private def lazily(found: Map[Instance, Held]): Either[String, Fixpoint.Lazy[Instance, Values]] =
+    Traversals.sequence(found.keys.toList.map(k => constructors(k).map(k -> _))).map { owned =>
+      val arms = owned.collect { case (k, Some(arms)) => k -> arms }.toMap
+      Fixpoint.Lazy(
+        arms = arms.map((k, fields) => k -> fields.map(arm(found.keySet))),
+        parents = found.collect { case (k, held) if !arms.contains(k) => k -> held.refs.toList },
+        lazily = arms.map((k, fields) =>
+          k -> fields.flatMap((types, env) => types.flatMap(lazyNames(env))).toSet
+        )
+      )
+    }
+
+  // A class's constructors as the ν completion reads them: an enum's cases (a value case has no
+  // field) or a concrete class's own; a family has none.
+  private def constructors(k: Instance): Either[String, Option[List[(List[Type], Env)]]] =
+    World.tree(k.cls).flatMap { tree =>
+      val inside = Env(k.cls.typeParams.zip(k.arguments).toMap, k.cls)
+      if (k.cls.isEnum)
+        cases(tree, inside).map(found => Some(found.map(_.fold(Nil -> inside)(fields.tupled))))
+      else if (Shapes.isFamily(k.cls)) Right(None)
+      else Right(Some(List(fields(tree, inside))))
+    }
+
+  private def arm(keys: Set[Instance])(
+      types: List[Type],
+      env: Env
+  ): Fixpoint.Arm[Instance, Values] = {
+    val classified = types.map(tpe => tpe -> continuation(tpe, env, keys))
+    val rest = classified.collect { case (tpe, None) => tpe }
+    Fixpoint.Arm(classified.flatMap(_._2), sized(rest, env), rest.flatMap(names(_, env)).toSet)
+  }
+
+  // A field that continues a cycle where its constructor does not demand it, as the old estimate
+  // classifies one (`Solver.continuation`): `=> X`, `=> Option[X]` and `() => X`
+  // deterministically, a strict `Option[X]`, and `D => X` (not a context function) with a domain
+  // that names no class of the system, where `X` is a class of the system named without arguments.
+  private def continuation(
+      tpe: Type,
+      env: Env,
+      keys: Set[Instance]
+  ): Option[Fixpoint.Continuation[Instance, Values]] = {
+    import Fixpoint.Continuation.Kind
+    def instance(t: Type) = t match {
+      case World.Named(ref, Nil) =>
+        ref.optSymbol.collect { case c: ClassSymbol => Instance(c, Nil) }.filter(keys)
+      case _ => None
+    }
+    def target(t: Type) = t match {
+      case Stored.Applied("scala.Option", List(inner)) => instance(inner)
+      case other                                       => instance(other)
+    }
+    def edge(kind: Kind, domain: List[Type])(to: Instance) =
+      Fixpoint.Continuation(to, kind, sized(List(tpe), env), sized(domain, env))
+    tpe.dealias match {
+      case by: ByNameType => target(by.resultType).map(edge(Kind.Deterministic, Nil))
+      case Stored.Applied(name, domain :+ result)
+          if name.matches("scala\\.Function\\d+") && domain.forall(names(_, env).isEmpty) =>
+        target(result).map(
+          edge(if (domain.isEmpty) Kind.Deterministic else Kind.FunctionField, domain)
+        )
+      case Stored.Applied("scala.Option", List(inner)) =>
+        instance(inner).map(edge(Kind.OptionBranch, Nil))
+      case _ => None
+    }
+  }
+
+  // The classes of a system a field names lazily, as the old estimate's `lazyTargets`: under a
+  // by-name type or as a function's result, a context function's included.
+  private def lazyNames(env: Env)(tpe: Type): Set[Instance] = tpe.dealias match {
+    case by: ByNameType => names(by.resultType, env)
+    case applied @ Stored.Applied(_, _ :+ result) if World.functional(applied) => names(result, env)
+    case _                                                                     => Set.empty
+  }
+
+  private def sized(types: List[Type], env: Env)(values: Values): Size =
+    settled(each(types, env.copy(system = Some(values))), NothingSize)(Stored.product(_).size)
+
+  private def names(tpe: Type, env: Env): Set[Instance] =
+    settled(of(tpe, env.copy(system = Some(Values()))), Set.empty[Instance])(_.refs)
 
   // The standard library's types the algebra models, by the class the compiler bound.
   private def standard(name: String, sizes: List[Held], input: Boolean): Either[String, Held] =
@@ -478,7 +682,7 @@ final private[compiled] class Stored(world: World)(using Context) {
       case ("scala.AnyVal", Nil) => Right(Held(EffectiveOmega, List(Unbound.Unknown("AnyVal"))))
       case _ if name.matches("""scala\.(Tuple\d+|\*:)""") => Right(Stored.product(sizes))
       case (_, parameters :+ result) if name.matches("""scala\.(Context)?Function\d+""") =>
-        Right(Stored.arrow(result, Stored.product(parameters)))
+        Right(Stored.arrow(result, Stored.product(parameters).domain))
       case ("scala.Option", List(element))                   => Right(element.map(UnitSize + _))
       case ("scala.util.Either", List(left, right))          => Right(left.zip(right)(_ + _))
       case ("scala.collection.immutable.Set", List(element)) =>
@@ -486,7 +690,7 @@ final private[compiled] class Stored(world: World)(using Context) {
       case ("scala.collection.immutable.Map", List(key, value)) =>
         Right(key.zip(value)((k, v) => Stored.lifted(input)(k, (v + UnitSize).pow(k))))
       case ("scala.PartialFunction", List(key, value)) =>
-        Right(key.zip(value)((k, v) => (v + UnitSize).pow(k)))
+        Right(key.domain.zip(value)((k, v) => (v + UnitSize).pow(k)))
       case (_, List(element)) if Stored.Sequences(name) =>
         Right(element.map(Stored.linear(input)))
       // The finite lists and the infinite streams together, collapsed to the highest tier.
@@ -502,33 +706,103 @@ final private[compiled] class Stored(world: World)(using Context) {
 private[compiled] object Stored {
 
   /** A definition's row: its size, if it has one, and the reasons it is not a number. */
-  final case class Row(size: Option[Size], unbound: List[Unbound])
+  final case class Row(size: Option[Size], unbound: List[Unbound], undecided: Boolean = false)
 
-  // What a type stores: a size, the reasons it is no number, and whether the size does not say
-  // that a value exists (an empty domain, an intersection, a refinement, a singleton).
+  // What a type stores: a size, the reasons it is no number, whether the size does not say that a
+  // value exists (an empty domain, an intersection, a refinement, a singleton), and inside a system
+  // the classes it reads, and those of them it reads in a function's domain.
   final private case class Held(
       size: Size,
       reasons: List[Unbound] = Nil,
-      undecided: Boolean = false
+      undecided: Boolean = false,
+      refs: Set[Instance] = Set.empty,
+      domains: Set[Instance] = Set.empty
   ) {
     def map(f: Size => Size): Held = copy(size = f(size))
 
     def zip(other: Held)(f: (Size, Size) => Size): Held =
-      Held(f(size, other.size), reasons ++ other.reasons, undecided || other.undecided)
+      Held(
+        f(size, other.size),
+        reasons ++ other.reasons,
+        undecided || other.undecided,
+        refs ++ other.refs,
+        domains ++ other.domains
+      )
 
-    def row: Row = Row(Some(size), reasons.distinct)
+    // The same, read in a function's domain.
+    def domain: Held = copy(domains = refs)
+
+    // Its size, with the reasons and flags of `others` too.
+    def joined(others: List[Held]): Held = others.foldLeft(this)(_.zip(_)((kept, _) => kept))
+
+    def row: Row = Row(Some(size), reasons.distinct, undecided)
   }
 
   // What a type is read in: what the type parameters in scope store, where the type is written
-  // (rule F), the classes being read (a cycle is not solved yet), and whether a top-level value
-  // is being read, or a constructor position as an input.
+  // (rule F), the classes being read (one reached again makes the reading a system), whether a
+  // top-level value is being read, or a constructor position as an input, and inside a system the
+  // values its classes hold so far.
   final private case class Env(
       binders: Map[Symbol, Held],
       site: Symbol,
       visiting: Set[ClassSymbol] = Set.empty,
       isValue: Boolean = false,
-      input: Boolean = false
+      input: Boolean = false,
+      system: Option[Values] = None
   )
+
+  // A class of the module with its type parameters bound: a definition of a system.
+  final private case class Instance(cls: ClassSymbol, arguments: List[Held])
+
+  // A system's values so far, and the classes the fixed point left blocked.
+  final private case class Values(
+      sizes: Map[Instance, Size] = Map.empty,
+      blocked: Map[Instance, Blocked] = Map.empty
+  )
+
+  private given Store[Instance, Values] with {
+
+    extension (values: Values) {
+      def value(name: Instance): Size = values.sizes.getOrElse(name, NothingSize)
+
+      def withValues(more: Iterable[(Instance, Size)]): Values =
+        values.copy(sizes = values.sizes ++ more)
+
+      def withBlocked(more: Iterable[(Instance, Blocked)]): Values =
+        values.copy(blocked = values.blocked ++ more)
+
+    }
+
+  }
+
+  // A reading that reaches a class it is inside of, which `solved` reads again as a system: no
+  // other refusal may start with these words.
+  private object Reaches {
+    private val words = "a definition that reaches itself: "
+    def apply(c: ClassSymbol): String = words + c.displayFullName
+    def unapply(why: String): Boolean = why.startsWith(words)
+  }
+
+  // How many argument lists a system reads one class with: past them it would not end.
+  private val Instantiations = 8
+
+  // A system's classes in an order that does not depend on the run.
+  private def ordered(keys: Iterable[Instance]): List[Instance] =
+    keys.toList.sortBy(k => (k.cls.displayFullName, k.arguments.toString))
+
+  // A class applied to type arguments, by its full name.
+  private object Applied {
+
+    def unapply(tpe: Type)(using Context): Option[(String, List[Type])] = tpe match {
+      case World.Named(ref, arguments) =>
+        for {
+          c <- ref.optSymbol.collect { case c: ClassSymbol => c }
+          types <- World.proper(arguments).toOption
+        } yield c.displayFullName -> types
+      case _ => None
+    }
+
+  }
 
   // A type parameter no instantiation bound: the size is a function of it.
   private def parameter(symbol: ClassTypeParamSymbol | LocalTypeParamSymbol): Held = {
@@ -573,7 +847,8 @@ private[compiled] object Stored {
       "scala.math.BigDecimal" -> "BigDecimal"
     )).flatMap((qualified, name) => BaseTypes.get(name).map(qualified -> _)).toMap
 
-  private val Tops = Set("scala.Any", "scala.AnyVal", "java.lang.Object", "scala.Matchable")
+  private[compiled] val Tops =
+    Set("scala.Any", "scala.AnyVal", "java.lang.Object", "scala.Matchable")
 
   private val EmptyTuple = """scala\.Tuple\$package\$?\.EmptyTuple""".r
 
