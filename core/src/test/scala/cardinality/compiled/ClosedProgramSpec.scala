@@ -84,9 +84,10 @@ class ClosedProgramSpec extends Specification {
   private def program(code: String, classpath: List[Path] = Nil, read: Option[List[Path]] = None) =
     new Program(Programs.loaded(code, classpath, read))
 
-  // `Leaf` is concrete and nothing extends it: final. `Base` is extended by `Leaf`. A trait, an
-  // abstract class and a class written `open` or `sealed` are not closed by having no subclass:
-  // the word says who may extend them, and an abstract one has no instance of its own. An object
+  // `Leaf` is concrete and nothing extends it: final. `Base` is extended by `Leaf`. A concrete
+  // class written `open` or `sealed` that nothing extends is final too (AGENTS.md, the closed
+  // world: the supplied sources are the whole program). A trait and an abstract class are not
+  // closed by having no subclass: an abstract one has no instance of its own. An object
   // is one instance. `Hidden` has a private constructor and nothing extends it: only its scope
   // could, and that scope is here.
   def concrete = {
@@ -100,8 +101,8 @@ class ClosedProgramSpec extends Specification {
       |final class Written
       |class Hidden private (val n: Int)
       |""".stripMargin)
-    (p.isFinal("Leaf", "Single$", "Written", "Hidden") must_== List(true, true, true, true))
-      .and(p.isFinal("Base", "Shape", "Partial", "Wide", "Kept") must_== List.fill(5)(false))
+    (p.isFinal("Leaf", "Single$", "Written", "Hidden", "Wide", "Kept") must_== List.fill(6)(true))
+      .and(p.isFinal("Base", "Shape", "Partial") must_== List.fill(3)(false))
       .and(p.subclasses("Base") must_== (Set("Leaf"), true))
   }
 

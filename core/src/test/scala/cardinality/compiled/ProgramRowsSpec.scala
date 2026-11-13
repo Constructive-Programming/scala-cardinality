@@ -200,7 +200,8 @@ class ProgramRowsSpec extends Specification {
   // no member reads, which a public constructor's reading leaves uncovered (read as observed, `m`
   // was 2^16). `Q.not` is public and reads `a`: `o` observes `a`, so `n` is one of 2^(2·2).
   // `N.get` is private, which the compiler marks private to the instance (read on `this` alone),
-  // yet `m` may write `o.get`: 2^(2·2) too.
+  // yet `m` may write `o.get` (2^(2·2)); TASTy does not tell it from an explicit `private[this]`,
+  // which `m` may not select (2^2), so `N.m` is uncovered.
   def thisOnly = {
     val found = rows("""final class P(a: Boolean, protected[this] val b: Boolean) {
       |  def k: Boolean = ???
@@ -218,7 +219,7 @@ class ProgramRowsSpec extends Specification {
     (found("P.k") must_== Count.Finite(16))
       .and(uncovered(found("P.m"), "a parameter that is no public field"))
       .and(found("Q.n") must_== Count.Finite(16))
-      .and(found("N.m") must_== Count.Finite(16))
+      .and(uncovered(found("N.m"), "a parameter that is no public field"))
   }
 
   // `B` redeclares `A`'s concrete `f` abstract: in `C` it is abstract, a capability beside

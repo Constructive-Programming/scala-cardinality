@@ -156,14 +156,13 @@ final private[compiled] class ClosedProgram(
       )
 
   /** Whether no instance of `c` is of a subclass: it is written `final`, or it is an object, or it
-    * is a concrete class (not written `open`, `sealed` or `abstract`, and no trait) that no class
-    * of the program extends. A constructor's visibility does not open it: only its scope may extend
-    * it, and that scope is supplied.
+    * is a concrete class (no trait, not `abstract`) that no class of the program extends, written
+    * `open` or `sealed` or not (AGENTS.md, the closed world). A constructor's visibility does not
+    * open it: only its scope may extend it, and that scope is supplied.
     */
   def finalClass(c: ClassSymbol): Boolean =
     c.openLevel == OpenLevel.Final || c.isModuleClass ||
-      (!c.isTrait && !c.isAbstractClass && c.openLevel == OpenLevel.Closed &&
-        subclasses(c) == Subclasses.Empty)
+      (!c.isTrait && !c.isAbstractClass && subclasses(c) == Subclasses.Empty)
 
   private val overriders = mutable.Map.empty[(ClassSymbol, TermOrTypeSymbol), Overriding]
 

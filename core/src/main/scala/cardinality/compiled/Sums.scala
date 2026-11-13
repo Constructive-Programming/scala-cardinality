@@ -58,14 +58,7 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
 
     def enumCases: Cases = {
       val cases = symbol.sealedChildren
-      // A value case is built with the companion that holds it, whose initializer builds every
-      // value case, one with its own `extends` clause as an instance of an anonymous class its
-      // definition declares.
-      val values = cases.collect { case value: TermSymbol => value }
-      val companion = values.flatMap(_.owner.tree.toList.collect {
-        case holder: ClassDef => holder
-      })
-      val singletons = (companion ++ values.flatMap(_.tree.toList.flatMap(World.classes))).distinct
+      val singletons = Sums.singletons(symbol)
       for {
         // An enum has a case: none means the classpath lacks the annotation that lists them.
         _ <- Either.cond(cases.nonEmpty, (), unlisted)
@@ -230,6 +223,16 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
 }
 
 private[compiled] object Sums {
+
+  /** The templates an enum's value cases are built by: the companion that holds them, whose
+    * initializer builds every value case, and the anonymous class of one with its own `extends`
+    * clause.
+    */
+  def singletons(enumClass: ClassSymbol)(using Context): List[ClassDef] = {
+    val values = enumClass.sealedChildren.collect { case value: TermSymbol => value }
+    val companion = values.flatMap(_.owner.tree.toList.collect { case holder: ClassDef => holder })
+    (companion ++ values.flatMap(_.tree.toList.flatMap(World.classes))).distinct
+  }
 
   /** How a subtype stands for its parent applied to `arguments`, by its clause: what each of its
     * own type parameters stands for, the argument of the parent's slot that carries it.

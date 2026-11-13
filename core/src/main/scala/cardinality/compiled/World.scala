@@ -52,6 +52,29 @@ final private[compiled] class World(
     below.any || !below.complete
   }
 
+  /** Whether no instance of `c` is ever built: there is at least one concrete class among `c` and
+    * the classes of the program that extend it, and each is never built (D26), so a member `c`
+    * declares never runs. Not where those classes are not all known, nor where there is none (a
+    * trait nothing extends stays one a new body may implement). The measured member's own
+    * initializer, `site`'s, is the choice being counted, and is not read.
+    */
+  def idle(c: ClassSymbol, site: Symbol): Boolean =
+    idleness.getOrElseUpdate(
+      (c, site),
+      below(c).exists { ks =>
+        val concrete = (c :: ks).filter(k => !k.isTrait && !k.isAbstractClass)
+        concrete.nonEmpty && concrete.forall(unbuilt(_, Some(site)))
+      }
+    )
+
+  private val idleness = scala.collection.mutable.Map.empty[(ClassSymbol, Symbol), Boolean]
+
+  /** Whether a class of the program that extends `c` is never built, its own initializers read. */
+  def unbuiltBelow(c: ClassSymbol): Boolean =
+    unbuiltBelowOf.getOrElseUpdate(c, below(c).exists(_.exists(unbuilt(_))))
+
+  private val unbuiltBelowOf = scala.collection.mutable.Map.empty[ClassSymbol, Boolean]
+
   /** The classes of the program that extend `c`, where they are all known and read. */
   def below(c: ClassSymbol): Option[List[ClassSymbol]] = {
     val below = closed.subclasses(c)
@@ -175,21 +198,17 @@ private[compiled] object World {
   }
 
   /** Whether the site may select a member on a value it is given: callable there, and not selected
-    * on `this` alone: a `protected[this]` member, or a field private to the instance (a plain
-    * class's parameter). The compiler marks every `private` member it finds read on `this` alone
-    * private to the instance too, which a new body may still select on another value: such a member
-    * that is no field counts as `private` (an explicit `private[this]` one, deprecated, reads the
-    * same).
+    * on `this` alone: a `protected[this]` member, or a term private to the instance. The compiler
+    * marks a `private` member it finds read on `this` alone private to the instance too, which a
+    * new body may still select on another value, and TASTy does not tell it from an explicit
+    * `private[this]` one: neither is taken as selectable, so a value observed through one is not
+    * read (a capability record refuses it) rather than counted with a field it may not see.
     */
   def selectable(symbol: TermOrTypeSymbol, site: Symbol)(using Context): Boolean =
     callable(symbol, site) && (symbol.visibility match {
       case Visibility.ProtectedThis => false
-      case Visibility.PrivateThis   =>
-        symbol match {
-          case term: TermSymbol => !term.isParamAccessor
-          case _                => true
-        }
-      case _ => true
+      case Visibility.PrivateThis   => !symbol.isTerm
+      case _                        => true
     })
 
   /** Whether a member restates one every value has (`Any`'s `toString`, `hashCode`,

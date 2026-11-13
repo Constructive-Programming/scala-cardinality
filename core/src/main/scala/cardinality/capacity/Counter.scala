@@ -181,12 +181,26 @@ object Counter {
     case _ => NothingSize
   }
 
-  private def enumSize(scope: Scope): Defn.Enum => Size = e =>
-    e.templ.body.stats.foldLeft(NothingSize: Size) {
-      case (acc, c: Defn.EnumCase)         => acc + enumCase(scope, e, c)
-      case (acc, r: Defn.RepeatedEnumCase) => r.cases.foldLeft(acc)((a, _) => a + UnitSize)
-      case (acc, _)                        => acc
+  // A case whose construction always throws is never built and adds nothing (register D26): none
+  // where the enum's body or `extends` clause throws, no value case where one value case's clause
+  // does (its companion builds them together), and a class case whose own clause does.
+  private def enumSize(scope: Scope): Defn.Enum => Size = e => {
+    val stats = e.templ.body.stats
+    def isValue(c: Defn.EnumCase) = c.ctor.paramClauses.isEmpty
+    val noneBuilt = Builds.throwing(stats) || Builds.throws(e.templ.inits)
+    val noValueBuilt = noneBuilt || stats.exists {
+      case c: Defn.EnumCase => isValue(c) && Builds.throws(c.inits)
+      case _                => false
     }
+    def built(c: Defn.EnumCase) =
+      if (isValue(c)) !noValueBuilt else !noneBuilt && !Builds.throws(c.inits)
+    stats.foldLeft(NothingSize: Size) {
+      case (acc, c: Defn.EnumCase) if built(c)              => acc + enumCase(scope, e, c)
+      case (acc, r: Defn.RepeatedEnumCase) if !noValueBuilt =>
+        r.cases.foldLeft(acc)((a, _) => a + UnitSize)
+      case (acc, _) => acc
+    }
+  }
 
   // A case with its own `extends` is a member of the instantiations it admits, as a family's
   // subtype is: `case Y extends E[Int]` (a GADT index), or a source's `Nothing`, is no summand.

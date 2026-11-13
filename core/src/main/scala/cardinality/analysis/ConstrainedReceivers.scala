@@ -41,7 +41,7 @@ private[cardinality] object ConstrainedReceivers {
     // Whether the measured declaration may call a constructor with these modifiers.
     def callable(mods: List[Mod]): Boolean =
       !mods.exists(MemberSyntax.restricted) || resolver.reaches(mods, owner, from) ||
-        !mods.exists(_.is[Mod.Protected]) && companion(owner, from)
+        !mods.exists(_.is[Mod.Protected]) && ReceiverFactories.companion(owner, from)
     owner.tree match {
       case Some(d: Defn.Class) if !callable(d.ctor.mods) =>
         val path = owner.path.mkString(".")
@@ -73,13 +73,6 @@ private[cardinality] object ConstrainedReceivers {
       case _ => Right(None)
     }
   }
-
-  // Whether `from` is inside the class's companion object.
-  private def companion(owner: Frame, from: Frame): Boolean =
-    from.chain.exists(f =>
-      f.parent.map(_.id) == owner.parent.map(_.id) && f.name == owner.name &&
-        f.isObject
-    )
 
   // The largest of min(a constructor's or factory's space, the fields'): the fields' own as soon as
   // one reaches it, else the largest where each is known and comparable.

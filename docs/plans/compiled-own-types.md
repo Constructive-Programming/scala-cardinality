@@ -2214,6 +2214,56 @@ public member reading a later clause beside the extractor. The same gap stands i
 a final class of the module (`Shapes.record`): `observed` follows only the class's own body. Left
 until observation is read over every definition the site may reach.
 
+### Group h7: known wrong numbers and inconsistencies
+
+Five findings earlier units left, each fixed at its root with a regression in `CorrectionsSpec`
+(both front ends asked for every row):
+
+- **Rule B's observed fields read code beside the class.** A final class no constructor of the
+  site builds counted only the fields its own body reads, so a companion's method, a parent's
+  member or other module code reading a hidden field was missed (an undercount). The compiled
+  `Factories.outside` follows the module's definitions upwards from the field (and what the field
+  implements): a reader the site may reach and select makes it observed; a call of a member runs
+  its overrides, so a parent's code calling a member the class implements is followed. The old
+  front end's `FactorySyntax.readBy` does the same by name, climbing through the class's body, its
+  companion and its parents' templates; a parent's template reads the field only where it declares
+  a member of its name, and a reader outside the class only where it may select the field, selects
+  its name and names the class. The stored side reads the companion. `Comp.getB` makes
+  `out.Use.comp` 2^4 (was 2^2 in both). The old reading stays approximate by name: a public
+  companion member mentioning a private helper's name (`m.get`) climbs as if it called it, and a
+  selection of the name on another value that names the class counts (an overcount the compiled
+  reading does not make); the old front end is the oracle being replaced, so this is recorded,
+  not refined. A compiled index (`Factories.readers`) keeps the corpora's run time (core 21 s).
+- **A member private to the instance is not selectable.** TASTy pickles an explicit
+  `private[this]` member and a `private` one read on `this` alone both `PRIVATE LOCAL`, and the
+  source's modifiers are not read here: `World.selectable` takes neither as selectable on another
+  value, so a value observed only through one is refused (a capability record's "parameter that
+  is no public field"). `final class PT(a: Boolean) { private[this] val x = a; def m(o: PT) }` was
+  16, is `?` (should be 4); `PV` with `private val x` was 16 (right) and is `?` too; the old front
+  end refuses both. `ProgramRowsSpec.thisOnly`'s `N.m` (a private `get`) is `?` now for the same
+  reason.
+- **An open or sealed concrete class nothing extends is final** (`ClosedProgram.finalClass`), as
+  `Shapes` already read it: `open class OpJ extends Exception { def m(x: Boolean) }` counts 4 like
+  `ClJ` (was refused for its Java parent). The old front end's `ClosedWorld` still leaves an `open`
+  or `sealed` class open (unchanged: its receivers and records agree with each other).
+- **An enum whose construction throws has no value on the stored side** (decision D5): the
+  compiled `Stored.enumeration` reads `World.unbuilt` as `Sums` does (a value case through the
+  companion and its anonymous class, all value cases together; a class case through its own
+  template). The old `Counter.enumSize` reads the enum's body, its clause and each case's clause
+  (not its companion or parents' bodies, which leaves `F` and `G` below corrections).
+- **An override in classes never built does not vary** (D26). `Receivers.overridden` no longer
+  takes a member as overridden where every override is in a class with no built instance
+  (`World.idle`: some concrete class among it and its subclasses, each never built, the measured
+  member's initializer aside). `trait DR { def m = true; def g(x: Boolean) = x }` with only
+  `DRSub` (never built) overriding `m`: `DR.g` 4 (the old front end, 16, lets `m` vary). A record of
+  a trait or abstract class with a never-built subclass is refused like a concrete one's (`DT`,
+  `DA`: the old front end's 16 is an overcount).
+
+Corrections (`corrected.txt`): fixtures `be82e558…` `G` 2 -> 0 and `F` 1 -> 0 (an enum whose value
+cases are built by a companion that throws, or whose case's parent throws). Old front end rows
+that changed: fixtures `E` 2 -> 0 (`enum E { case E1, E2; val x: Int = ??? }`, now identical);
+no corpus row of either front end changed.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

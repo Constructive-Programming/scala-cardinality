@@ -73,6 +73,38 @@ private[cardinality] object FactorySyntax {
     c.ctor.parameters.filter(p => selectable(p) || names(p.name.value))
   }
 
+  /** Whether a definition `open` holds reads a field of the class: one of `first`, the definitions
+    * naming it that read it, or one naming a definition that does, by name, through the definitions
+    * `near` holds and `open` does not. `mentioning` gives the definitions that name a name.
+    */
+  def readBy[A](
+      first: List[A],
+      mentioning: String => List[A],
+      stat: A => Stat,
+      near: A => Boolean,
+      open: A => Boolean
+  ): Boolean = {
+    @annotation.tailrec
+    def up(readers: List[A], seen: List[Stat]): Boolean =
+      readers.nonEmpty && (readers.exists(open) || {
+        val next = readers
+          .flatMap(r => MemberSyntax.defined(stat(r)))
+          .distinct
+          .flatMap(mentioning)
+          .filter(a => near(a) && !seen.exists(_ eq stat(a)))
+          .distinctBy(stat)
+        up(next, seen ++ next.map(stat))
+      })
+    up(first, first.map(stat))
+  }
+
+  /** Whether a definition outside the class reads its field `name` on a value of it: it selects
+    * that name and names the class (as a value's type, say).
+    */
+  def selects(c: Defn.Class, name: String, stat: Stat): Boolean =
+    stat.collect { case Term.Select(_, Term.Name(`name`)) => () }.nonEmpty &&
+      stat.collect { case Type.Name(n) if n == c.name.value => () }.nonEmpty
+
   // The names the members the site may call read, through the members it may not call.
   private def read(stats: List[Stat], open: Stat => Boolean): Set[String] = {
     val members = stats.flatMap(stat => MemberSyntax.defined(stat).map(_ -> stat))

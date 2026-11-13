@@ -84,7 +84,9 @@ final private[compiled] class Factories(world: World, shapes: Shapes)(using Cont
       case _ => true
     }
 
-  /** The constructor parameters the site observes on a value it is given. */
+  /** The constructor parameters the site observes on a value it is given: a field it may select, or
+    * one a member it may call reads, or one module code the site may reach reads (`outside`).
+    */
   def observed(tree: ClassDef, site: TermSymbol): List[ValDef] = {
     val members = tree.rhs.body.collect { case m: ValOrDefDef => m }
     val bySymbol = members.map(m => (m.symbol: Symbol) -> m).toMap
@@ -109,9 +111,43 @@ final private[compiled] class Factories(world: World, shapes: Shapes)(using Cont
       case f: TermSymbol if f.isParamAccessor => f.name -> f
     }.toMap
     Shapes.parameters(tree.rhs.constr).filter { p =>
-      accessors.get(p.name).exists(f => names(f) || World.selectable(f, site))
+      accessors.get(p.name).exists(f => names(f) || World.selectable(f, site) || outside(f, site))
     }
   }
+
+  // Whether module code the site may reach reads a field, directly or through definitions the site
+  // may not reach.
+  private def outside(field: TermSymbol, site: TermSymbol): Boolean = {
+    val around = World.owners(site).toSet
+    readers(field).exists(d => !around(d) && reached(d, site) && World.selectable(d, site))
+  }
+
+  // The definitions of the module that read a field, directly or through one another. A call of a
+  // member runs its overrides, so a reader of an overridden member is followed too (a parent's
+  // member calling one the class implements), and a field implementing a parent's member is read
+  // where that member is. One restating a member every value has observes nothing.
+  private def readers(field: TermSymbol): Set[TermSymbol] =
+    reading.getOrElseUpdate(
+      field, {
+        @annotation.tailrec
+        def up(frontier: Set[Symbol], found: Set[TermSymbol]): Set[TermSymbol] = {
+          val next = frontier
+            .flatMap(mentioning.getOrElse(_, Nil))
+            .filter(d => !found(d) && !World.restates(d))
+          if (next.isEmpty) found
+          else up(next.flatMap(d => d :: d.allOverriddenSymbols.toList), found ++ next)
+        }
+        up(field.allOverriddenSymbols.toSet + field, Set.empty)
+      }
+    )
+
+  private val reading = scala.collection.mutable.Map.empty[TermSymbol, Set[TermSymbol]]
+
+  // The definitions of the module naming each symbol.
+  private lazy val mentioning: Map[Symbol, List[TermSymbol]] =
+    definitions
+      .flatMap(d => Factories.mentioned(d).map(_ -> d.symbol))
+      .groupMap(_._1)(_._2)
 
   // The definitions of the module that build `c`, each with how its body is read.
   private def built(c: ClassSymbol): List[(ValOrDefDef, Read)] =

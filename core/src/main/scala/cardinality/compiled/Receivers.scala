@@ -367,7 +367,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       env: Shapes.Env
   ): Either[Unread, List[Shape]] = {
     val name = c.displayFullName
-    val open = (abstracts ++ concrete.filter(overridden(c, _))).filter(Receivers.observes)
+    val open = (abstracts ++ concrete.filter(overridden(c, _, site))).filter(Receivers.observes)
     def unread(left: Boolean, why: Unread) = Either.cond(!left, (), why)
     for {
       _ <- unread(
@@ -519,7 +519,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   ): List[TermSymbol] =
     inherited(c).getOrElse(Nil).collect {
       case member: TermSymbol
-          if (abstractLike(member) || overridden(c, member) || free(c, member)) &&
+          if (abstractLike(member) || overridden(c, member, measured) || free(c, member)) &&
             member != measured &&
             !reentry.definite(c, member, measured, value) =>
         member
@@ -534,7 +534,9 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       measured: TermSymbol,
       value: Boolean
   ): Boolean =
-    !including && overridden(c, member) && Try(reentry.may(c, member, measured, instance = !value))
+    !including && overridden(c, member, measured) && Try(
+      reentry.may(c, member, measured, instance = !value)
+    )
       .getOrElse(true)
 
   // The members of a template's own body a subclass supplies, the measured one aside.
@@ -542,7 +544,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     val c = tree.symbol
     tree.rhs.body.collect {
       case member: ValOrDefDef
-          if (Receivers.open(member) || overridden(c, member.symbol)) &&
+          if (Receivers.open(member) || overridden(c, member.symbol, measured)) &&
             member.symbol != measured && !reentry.definite(c, member.symbol, measured, value) =>
         member
     }
@@ -550,10 +552,23 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
 
   // A concrete member a class of the program overrides varies across instances as an abstract
   // one does: it is a capability of the template, its own body one of its behaviors.
-  private def overridden(c: ClassSymbol, member: TermSymbol): Boolean =
+  private def overridden(c: ClassSymbol, member: TermSymbol, measured: TermSymbol): Boolean =
     // A constructor field something overrides refuses the template (`inherits`).
     !abstractLike(member) && !member.isParamAccessor &&
-      world.overriding(c, member) == ClosedProgram.Overriding.Supplied
+      world.overriding(c, member) == ClosedProgram.Overriding.Supplied && !dormant(
+        c,
+        member,
+        measured
+      )
+
+  // Whether every override of a member is in a class no instance of which is ever built: none of
+  // them runs (D26). The measured member's own initializer is the choice being counted. None is
+  // where no class extending `c` is ever built, however its initializers are read, nor where `c`
+  // itself is never built: no call on it returns, and its capabilities stay as they are read.
+  private def dormant(c: ClassSymbol, member: TermSymbol, measured: TermSymbol): Boolean =
+    world.unbuiltBelow(c) && !world.unbuilt(c, Some(measured)) && world
+      .overriders(c, member)
+      .forall(_.exists(o => o.owner.isClass && world.idle(o.owner.asClass, measured)))
 
   // A receiver whose `evidenceFound` has anonymous contextual parameters search finds
   // (`Readings`): values like its other parameters.
