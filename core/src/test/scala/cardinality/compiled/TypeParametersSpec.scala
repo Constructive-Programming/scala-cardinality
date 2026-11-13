@@ -7,9 +7,9 @@ import org.specs2.Specification
 /** Type parameters of the compiled front end beyond atoms and rigid constructors: a type
   * constructor written as a class's argument (`Shapes.argument`), and a bounded proper parameter,
   * whose bound is an ambient proof read from its symbol, as the old front end reads it from syntax
-  * (`Bounds`). Also the types written otherwise than as a class: literal and singleton types. Every
-  * expected count is derived in its example's comment, and the scalameta front end is asked for the
-  * same rows.
+  * (`Bounds`). Also the types written otherwise than as a class: literal, singleton, union and
+  * intersection types. Every expected count is derived in its example's comment, and the scalameta
+  * front end is asked for the same rows.
   */
 class TypeParametersSpec extends Specification {
 
@@ -26,6 +26,9 @@ class TypeParametersSpec extends Specification {
   A literal or singleton type has one value
     a literal is a constant, a key by its class and value       $literals
     a parameter's, an object's or a dependency's path            $singletons
+  A union is a tagged sum, an intersection its narrowest part
+    alternatives told apart by class or constant are summed      $unions
+    a part above another is dropped; distinct objects are empty  $intersections
     the scalameta front end agrees on every row measured        $agrees
   """
 
@@ -79,6 +82,24 @@ class TypeParametersSpec extends Specification {
       |  def green(): Green.type = Green
       |  def full(): Full.type = Full
       |  def either(e: Either.type, b: Boolean): Boolean = b
+      |}
+      |object Mark
+      |object Un {
+      |  def lits(x: 1 | 2): 1 | 2 = x
+      |  def same(b: Boolean | Boolean): Boolean = b
+      |  def tagged(x: Boolean | Token.type): Boolean | Token.type = x
+      |  def top(x: Int | AnyRef): Boolean = true
+      |  def empty(x: Nothing | Null): Boolean = true
+      |  def alone[A](x: A | Nothing): A = x
+      |  def overlap[A](x: A | Boolean): Boolean = true
+      |  def boxed(x: Int | java.lang.Integer): Boolean = true
+      |}
+      |object Meet {
+      |  def keep(x: Boolean & Any): Boolean = x
+      |  def path[A](x: A, y: A & x.type): A = y
+      |  def none(x: Token.type & Mark.type): Boolean = true
+      |  def open(x: Show & Two): Boolean = true
+      |  def single(x: Boolean & Singleton): Boolean = x
       |}
       |object Hk {
       |  def wrap(w: Wrap[[X] =>> Either[Boolean, X], Boolean]): Boolean = true
@@ -179,6 +200,29 @@ class TypeParametersSpec extends Specification {
       count
     ) must_== List(1, 1, 1, 1, 4, 4).map(Count.Finite(_)))
       .and(count("Sing.full").toString must contain("singleton module member environment"))
+
+  // `lits`: two constants in, two out, 2^2. `same`: one Boolean, 2^2. `tagged`: a Boolean or the
+  // object, 3 values in and out, 3^3. `top`: `AnyRef` reads as `Any`, which takes `Int`: one
+  // input value, 2 Booleans. `empty`: no input value, one function. `alone`: `x` is the one A,
+  // 1. `overlap`: an `A` may be a
+  // Boolean, and an Int is an Integer at runtime: neither is told apart, refused as before.
+  private def unions =
+    (List("Un.lits", "Un.same", "Un.tagged", "Un.top", "Un.empty", "Un.alone").map(count) must_==
+      List(4, 4, 27, 2, 1, 1).map(Count.Finite(_)))
+      .and(
+        List("Un.overlap", "Un.boxed")
+          .map(count(_).toString)
+          .must(contain(contain("overlap and discrimination proof")).forall)
+      )
+
+  // `keep`: `Boolean & Any` is Boolean, 2^2. `path`: `y` is `x` itself, the one A in reach, 1.
+  // `none`: two objects share no value, so no input and one function. `open`: two traits a class
+  // may both extend, refused as before; so is a Boolean claimed a singleton.
+  private def intersections =
+    (List("Meet.keep", "Meet.path", "Meet.none").map(count) must_==
+      List(4, 1, 1).map(Count.Finite(_)))
+      .and(count("Meet.open").toString must contain("unsupported intersection relationship"))
+      .and(count("Meet.single").toString must contain("requires a proven singleton identity"))
 
   private def agrees = {
     val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))

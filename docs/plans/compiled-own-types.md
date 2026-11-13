@@ -1615,6 +1615,29 @@ Method rows: cats-core 892 identical (17 more) and 7 better past a resolution li
 `Comparison`'s singletons), cats-eo 195 (2 more), cats-eo-schemes 5 (1 more), fixtures 4,679
 (76 more).
 
+### Stretch 5, seventh unit: unions and intersections
+
+`Shapes.union` reads a union as `UnionSums` does, with the compiler's subtyping in place of the
+syntactic type equalities: an alternative below another is that one (`Null` below a reference
+type, `1` below `Int`, a class spelled twice), a top-like one takes them all (`AnyRef`,
+`Matchable` are `Any`), `Nothing` and `Null` are empty. What remains is the sum of its
+alternatives where their values are told apart: distinct constants, or runtime classes (a
+primitive is its box: `Int | Integer` refused, a reviewer's finding) of which no instance has
+two, by the closed world (`ClosedProgram.mixes`, now asked through `World.mixes`). Anything else
+is the old refusal. `Shapes.intersection` keeps the narrowest parts by subtyping (`T & Any`,
+`x.type & A` for an `x: A`), reads each part kept (what a part needs is the row's reason, as
+there), reads two distinct static objects or enum value cases as empty, `Singleton` as a
+demand for a singleton, and refuses any other meet. Reading the parts first keeps the
+intersections of type classes (`Order[X] & Hash[X]`, 98 rows of cats-core and cats-kernel)
+uncovered until their records read: a first version refused them at once, identical `?` to the
+old rows, and its lines are deleted from this branch's private memory.
+
+Four better rows past a model limit are derived (`U.wide`, `1 | Int` is `Int`, 2^(2^32); `U.v`,
+`Vector[Int] | String`, ω; `u`, `S | Q`, 2 + 1; `v`, `AnyVal | Boolean` is `AnyVal`, ω as a
+result). Method rows: corpus-core 1,395 identical (10 more, refusals of unions of enum case
+types), cats-eo 197 (2 more: `Array[Int] | Null`; `S & B` refused as before), fixtures 4,771
+(92 more).
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1673,7 +1696,8 @@ Method rows: cats-core 892 identical (17 more) and 7 better past a resolution li
   unions, singletons), then the records' remaining reasons, then item 6. Done since: bounded
   proper parameters ("Stretch 5, third unit"); rigid constructors in constructor rows ("Stretch 5,
   fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit");
-  literal and singleton types ("Stretch 5, sixth unit"). Scope
+  literal and singleton types ("Stretch 5, sixth unit"); unions and intersections ("Stretch 5,
+  seventh unit"). Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in

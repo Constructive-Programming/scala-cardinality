@@ -72,6 +72,9 @@ final private[compiled] class World(
   /** Whether no instance of `c` is of a subclass (the closed world's final). */
   def finalClass(c: ClassSymbol): Boolean = closed.finalClass(c)
 
+  /** Whether an instance may be of both classes (`ClosedProgram.mixes`). */
+  def mixes(left: ClassSymbol, right: ClassSymbol): Boolean = closed.mixes(left, right)
+
   /** How a class extending `owner` may override `member`, one `owner` declares or inherits. */
   def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): ClosedProgram.Overriding =
     closed.overriding(owner, member)
