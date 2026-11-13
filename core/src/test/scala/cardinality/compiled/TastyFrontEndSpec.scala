@@ -897,16 +897,16 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(19)(_))
+          List("package cardinality.compiled").flatMap(List.fill(20)(_))
       )
   }
 
   private lazy val compared =
     Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
 
-  // Four rows of the fixtures are better past a model limit, and derived: `sizes.Seen` stores a
-  // `Prj[Unit]#Me`, which is `Prj`'s A as the prefix fixes it, Unit, one value (the old reading
-  // does not read a projection through an applied type); and three families whose one case class
+  // Five rows of the fixtures are better past a model limit, and derived: `sizes.Seen` and its
+  // constructor's one position hold a `Prj[Unit]#Me`, `Prj`'s A as the prefix fixes it, Unit, 1
+  // (the old reading does not read a projection through an applied type); and three families whose one case class
   // nothing extends, final in the closed world, each 2 (`stored`).
   //
   // Four more are derived (D26): a family whose one case always throws when built (`Thrown`,
@@ -928,14 +928,15 @@ class TastyFrontEndSpec extends Specification {
       .map(_.row.key -> value)
     val closed = List("Loose", "Prot", "Impl").flatMap(name => keys(s"sizes.$name", "2"))
     val thrown = List("arg", "thrown", "rep", "cur").flatMap(n => keys(s"types.Use.$n", "0"))
-    val derived = (keys("sizes.Seen", "1") ++ closed ++ thrown).toMap
+    val derived =
+      (keys("sizes.Seen", "1") ++ keys("sizes.Seen.<init>", "1") ++ closed ++ thrown).toMap
     val hidden = List("Nam", "Ord", "Asc").flatMap(n =>
       keys(s"types.$n", "1 -> 0") ++ keys(s"types.Use.${n.toLowerCase}", "1 -> 0")
     )
     val corrected = (keys("sizes.Ior", "0 -> ? A; B") ++ keys("sizes.Iors", "0 -> 8") ++
       keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8") ++ hidden).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (8, 10))
+      .and((derived.size, corrected.size) must_== (9, 10))
       .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
       .and(Differential.unused(compared.compared, corrected) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))

@@ -136,7 +136,7 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
           // subtypes elsewhere.
           if (cls.isEnum) Left(Refused(s"sealed subtype outside the closed fragment: ${cls.name}"))
           else if (Shapes.isFamily(cls))
-            instantiated(cls).flatMap(new Level(below, _, env).familyCases)
+            instantiated(cls).flatMap(new Level(below, _, passed(cls)).familyCases)
           else if (cls.isAbstractClass)
             Left(Refused(s"sealed family has an open abstract subtype: ${cls.name}"))
           else summand(cls, List(below))
@@ -176,9 +176,18 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
               Left(Refused(s"sealed subtype hides a parameter: ${cls.name}"))
             else if (accessors.exists(_ != Visibility.Public))
               Left(Uncovered(s"a restricted field: $name"))
-            else instantiated(cls).flatMap(shapes.fields(below, _, env))
+            else instantiated(cls).flatMap(shapes.fields(below, _, passed(cls)))
           }
       }
+
+    // The arguments this level was named with, carried to a subtype's own type parameters as its
+    // parent clause passes them (`Shapes.Env.written`).
+    private def passed(child: ClassSymbol): Env = {
+      val carried = Sums.carried(child, symbol, symbol.typeParams.map(env.written.get))
+      env.copy(written = env.written ++ child.typeParams.zip(carried.getOrElse(Nil)).collect {
+        case (parameter, Some(argument)) => parameter -> argument
+      })
+    }
 
     // What a subtype's own type parameters stand for, where this level is applied to
     // `arguments`.

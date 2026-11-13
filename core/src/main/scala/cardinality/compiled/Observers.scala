@@ -10,9 +10,7 @@ import tastyquery.Types.*
 /** How the site observes a final class's constructor parameters (rule B, v1.md §2), for the
   * capability record `Shapes` reads: a parameter it observes as itself is a field of the record.
   */
-final private[compiled] class Observers(of: (Type, Shapes.Env) => Either[Unread, Shape])(using
-    Context
-) {
+final private[compiled] class Observers(of: Shapes.Reading)(using Context) {
   import Shapes.Env
 
   /** Whether the site observes a final class's constructor parameter as itself (the scalameta

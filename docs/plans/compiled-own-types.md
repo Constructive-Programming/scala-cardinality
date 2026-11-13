@@ -3342,6 +3342,51 @@ Old numeric method rows still uncovered after: core 8, cats-core 32, cats-kernel
 before), cats-eo-generics 0, cats-eo-schemes 0, fixtures 626; every input passes on the private
 memory.
 
+### Group g6: the rest of "a type", receivers' anonymous evidence
+
+Paths, refinements and the polymorphic identity are read in `PathTypes.scala` (beside `Shapes`,
+which stays under 1,000 lines); match types in `Shapes`, `Sums` and `Stored`; receivers' evidence
+in `Readings` and `Receivers`.
+
+- Aliases are followed as the compiler sees them (`PathTypes.follow`): a member alias through the
+  prefix it is selected on (`TypeRef.optAliasedType`, the bounds as seen from the prefix), which
+  `dealias` does not do: `p.X` for a `p: R { type X = A }` is `A`, a parent's `type Y = (A, A)`
+  seen from `Q[B] extends P[B]` is `(B, B)`, `OG.T` of `object OG extends BaseG[Boolean]` is
+  `Boolean`. An opaque alias stays (rule F is read where it is named).
+- An abstract type member selected on a method's parameter (`p.X`), unbounded as the path sees it,
+  is an atom of the path (members M0, the old `TypeMembers`): two paths never share it, and
+  `q: p.type` is p's path. Read only where the parameter's type tells none of its values apart
+  (only type members, or a top type): a record whose members may supply X (`trait Mk { type X;
+  def mk: X }`) is not read, since its witness would not be tied to the path.
+- A refinement of type members over such a type is that type where it can be satisfied: the
+  member is new or abstract and unbounded in a trait, abstract class or `Object`, and the
+  refinement fixes it or bounds it on one side. `T { type X = String }` beside `T`'s `type X =
+  Int`, a refinement of a concrete class and a two-sided bound stay uncovered (the old reading
+  refuses them as "not shown satisfiable").
+- The polymorphic identity `[A] => A => A` (unbounded, one parameter, not contextual) is one value,
+  the old `MethodTypeLambdas` closed fragment.
+- Match types. A class's type parameter is the argument the class was named with
+  (`Shapes.Env.written`, carried to a sealed case's parameters by `Sums.carried` and to a
+  constructor's copies), so a field `Fst[A]` of `Miss[(Boolean, Unit)]` is the match on
+  `(Boolean, Unit)`, which the compiler reduces; the two sites' binders are merged as for a written
+  constructor, and one bound again refuses. A single case projecting a tuple of the scrutinee's
+  arity reduces whatever the components are (`Shapes.projects`: scalac reduces it too), beside the
+  ground scrutinee. The stored estimate of a constructor position reads a match type alias at its
+  arguments (`Stored.matches`), reduced where the method side trusts it; one stuck on a type
+  parameter that stands for what the instance chooses is that parameter's reason (the method side
+  stands alone). The note "tasty-query gives the alias's own parameter as its scrutinee" was the
+  estimate's `written` reading of the alias body, not tasty-query.
+- A receiver's anonymous contextual parameter (a context bound's evidence, `final class
+  EqOps[A: Eq](lhs: A)`) is read as a value where search from the member finds it
+  (`Readings#receiverSearch`): its class is quiet (no parents, self type, imports or contextual
+  members but its parameters), the definition is no local one (a method around it may declare
+  givens in its body) and has no context-function result, and each competitor at its level or
+  deeper (the class's other contextual parameters, those of the classes inside it, the member's own)
+  is told apart from it by `apart` (the old `ContextualEvidence.unreachable` at those levels; one of
+  the same type at another site is an unresolved overlap, not ambiguous). A constructor's parameter
+  is compared by its field's type, which names the class's own type parameters rather than the
+  constructor's copies (`Readings.seen`).
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

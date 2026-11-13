@@ -474,9 +474,12 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
   def bindings(
       receivers: List[ClassDef],
       measured: TermSymbol,
-      env: Shapes.Env
+      env: Shapes.Env,
+      evidenceFound: Set[Symbol]
   ): Either[Unread, List[Binding]] =
-    Traversals.sequence(receivers.map(supplied(_, measured, env))).map(_.flatten)
+    Traversals
+      .sequence(receivers.map(r => supplied(r, measured, env, evidenceFound(r.symbol))))
+      .map(_.flatten)
 
   /** The names the receivers give a member's captures, as the report lists them: each constructor
     * parameter and each member a subclass supplies, the measured one aside. (The old front end also
@@ -487,7 +490,12 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     receivers.flatMap { tree =>
       if (Receivers.split(tree.symbol)) List(Receivers.whole(tree.symbol))
       else
-        Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ supplies(tree, measured)
+        // An anonymous contextual parameter is named by its class and position, as the old front
+        // end names it (`ContextualEvidence.key`, which this front end may not import).
+        Shapes.parameters(tree.rhs.constr).zipWithIndex.map { (p, index) =>
+          if (Readings.anonymous(p)) s"<using#$index@${tree.symbol.displayFullName}>"
+          else p.name.toString
+        } ++ supplies(tree, measured)
           .collect {
             case member
                 if !member.symbol.isExtensionMethod && !member.name.toString.endsWith("_=") &&
@@ -537,10 +545,13 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     !abstractLike(member) && !member.isParamAccessor &&
       world.overriding(c, member) == ClosedProgram.Overriding.Supplied
 
+  // A receiver whose `evidenceFound` has anonymous contextual parameters search finds
+  // (`Readings`): values like its other parameters.
   private def supplied(
       tree: ClassDef,
       measured: TermSymbol,
-      env: Shapes.Env
+      env: Shapes.Env,
+      evidenceFound: Boolean
   ): Either[Unread, List[Binding]] =
     if (Receivers.split(tree.symbol)) {
       // The receiver is one value of its family's sum: which case, and what that case holds.
@@ -556,7 +567,16 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
             Unread.Uncovered(s"an enclosing sum not read: $reason")
           case uncovered => uncovered
         }
-    } else own(tree, measured, env, "an enclosing class", _ => true, receiving = true)
+    } else
+      own(
+        tree,
+        measured,
+        env,
+        "an enclosing class",
+        _ => true,
+        receiving = true,
+        evidenceFound
+      )
 
   // What a receiver that is no sum supplies: its constructor's parameters and its members a
   // subclass supplies, `measured` aside, the ones `kept` keeps; `where` names the template in a
@@ -567,7 +587,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       env: Shapes.Env,
       where: String,
       kept: TermSymbol => Boolean,
-      receiving: Boolean = false
+      receiving: Boolean = false,
+      evidenceFound: Boolean = false
   ) = {
     val value = !receiving
     val self = template.symbol.displayFullName
@@ -576,7 +597,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     val parameters = Shapes.parameters(template.rhs.constr)
     val capabilities = supplies(template, measured).filter(member => kept(member.symbol))
     for {
-      _ <- Readings.plainInputs(parameters)
+      _ <- if (evidenceFound) Right(()) else Readings.plainInputs(parameters)
       // A receiver's constructor parameter was built before it, and is never the receiver: one
       // whose field no class of the program overrides (with the receiver, say), and not inline
       // (by-name is read past its arrow, as nothing preceding), as the old front end's
