@@ -45,6 +45,10 @@ class StoredRecursionSpec extends Specification {
       |final case class Rose(kid: Option[Rose])
       |final case class Box[A](a: A)
       |final case class Ta(b: Option[Box[Ta]])
+      |final case class W[A](a: A, w: Option[W[A]])
+      |final case class Wt(w: Option[W[Wt]])
+      |final class Lbox[A](a: => A)
+      |final class Lb(b: Lbox[Lb])
       |final case class AbsR(f: Nothing => AbsR)
       |final case class HoldsAbs(r: AbsR)
       |final class Thr(x: Boolean) { val z: Int = ??? }
@@ -89,12 +93,14 @@ class StoredRecursionSpec extends Specification {
 
   // `Loop` needs a `Loop`: L = L from 0 stays 0. `Nat` is N = 1 + N: 1, then 2, a cycle that
   // keeps growing widens to its tier, ω, and so does each subtype that holds one (`S`); `Use` is
-  // ω × 2, ω in the size algebra. `Expr` is E = 2 + E × E: ω. `Str` is S = String × (1 + S), a
+  // ω × 2, ω in the size algebra. `Expr` is E = 2 + E × E: ω. `Ta` reads `Box` at itself, in place
+  // (its argument holds the system's value): T = 1 + T, ω.
+  // `Str` is S = String × (1 + S), a
   // list of strings in effect, the ε₀ tier. `AbsR` is A = A^0, the algebra's 0 for a function
   // from `Nothing` (the stored side's convention), whatever A is.
   private def least =
-    List("Loop", "Nat", "S", "Use", "Expr", "Str", "AbsR").map(definition) must_==
-      List("0", "ω", "ω", "ω", "ω", "ε₀", "0")
+    List("Loop", "Nat", "S", "Use", "Expr", "Ta", "Str", "AbsR").map(definition) must_==
+      List("0", "ω", "ω", "ω", "ω", "ω", "ε₀", "0")
 
   // A by-name field does not demand its value: `Lz` has no finite value (μ is 0) and the one lazy
   // knot `lazy val l: Lz = Lz(l)`, νX.X = 1. `Bits` is an endless Boolean stream: the per-lap label
@@ -116,15 +122,18 @@ class StoredRecursionSpec extends Specification {
   // completion does not follow: its μ value counts the finite values only. `X` is
   // X = 1 + min(X, 2): its rounds grow 1, 2, 3 while `Two` settles, so it is widened to ω, which its
   // equation does not reach again (1 + min(ω, 2) = 3). `N` and `UN` read `N` at Boolean, then at
-  // pairs of them, 4 values, then 16, ...: no end. `Ta` reads `Box` at itself, an argument whose
-  // value the system is still solving.
+  // pairs of them, 4 values, then 16, ...: no end. `Wt` reads `W` at itself, and `W` reads itself
+  // at that argument again; `Lb` reads `Lbox` at itself, whose by-name field the ν completion would
+  // not see read in place (Lb is the `Lz` knot, 1): each a class a system reads through a type
+  // argument, refused.
   private def refusals =
-    List("Neg", "GS", "X", "N", "UN", "Ta").map(definition) must_== List(
+    List("Neg", "GS", "X", "N", "UN", "Wt", "Lb").map(definition) must_== List(
       "recursion through a function's domain",
       "lazy cycle not completed",
       "a recursion whose widening is not settled",
       "a class a system reads with ever new type arguments",
       "a class a system reads with ever new type arguments",
+      "a class a system reads through a type argument",
       "a class a system reads through a type argument"
     )
 
