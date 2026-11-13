@@ -1773,6 +1773,23 @@ member whose value is another record with a polymorphic member reads too few imp
 Option[F[A]] = a.run.toOption.flatMap(i.prj(_)) }` counts 1 where `None` and `i.prj(g)` are 2.
 This unit leaves such a row refused as before.
 
+### Stretch 5, tenth unit: anonymous contextual parameters of the measured method
+
+`Readings.anonymous`, the old `ContextualEvidence.unreachable` over symbols for the measured
+method's own anonymous `using` parameters and context-bound evidence (`Readings.anonymous` of a
+`ValDef`, the compiler's `x$N`/`evidence$N`): what encloses the method is shallower and loses,
+and the body is counted, not searched (the old front end's method frame reads no statements
+either), so its competitors are the method's other contextual parameters. One of its very type is
+ambiguous (refused, reported before any uncovered pair); one of a distinct class, read by its
+declaration or final, not `Null`, neither class extending the other, leaves it a value; any other
+neighbour, and a context-function result (its binders hide it in every body), leave the row
+uncovered. Captured enclosing methods' anonymous parameters, a receiver's and a capability's stay
+uncovered (`plainInputs`). One better row derived: fixture `Neg.summoned`, 1 (`summon` is
+Predef's inline method, resolved where the body is written). Method rows: corpus-core 1,601
+identical, cats-core 1,556 (29 more), cats-eo 231 (3 more), cats-eo-generics 40, fixtures
+5,078 (48 more); the 184 cats-core rows still named "an anonymous contextual parameter" are
+receivers', capabilities' and captured ones.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1834,7 +1851,8 @@ This unit leaves such a row refused as before.
   literal and singleton types ("Stretch 5, sixth unit"); unions and intersections ("Stretch 5,
   seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"); the merge of
   `tasty-gate` at `a8dc05f`; members named like the measured definition ("Stretch 5, ninth
-  unit"). Next: item 6, anonymous contextual parameters. Scope
+  unit"); anonymous contextual parameters of the measured method ("Stretch 5, tenth unit"). Left
+  of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in

@@ -8,6 +8,7 @@ import tastyquery.Contexts.*
 import tastyquery.Symbols.*
 import tastyquery.Traversers
 import tastyquery.Trees.*
+import tastyquery.Types.Type
 
 /** What the compiled front end measures so far, read from symbols and types
   * (docs/plans/compiled-own-types.md, "Front end: design and status", lists the slices): a `Left`
@@ -114,7 +115,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         else
           for {
             _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
-            _ <- Readings.plainInputs(parameters)
+            _ <- anonymous(declared.toType, parameters)
             held <- receivers.bindings(around, tree.symbol, env)
             captured <- Traversals.sequence(methods.map { method =>
               val taken = Shapes.parameters(method)
@@ -141,6 +142,45 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             maxDepth = Readings.Depth
           )
     } yield count
+  }
+
+  // An anonymous contextual parameter of the measured method is found by implicit search alone.
+  // A body is counted, not searched, and what one declares tells nothing of the others; what
+  // encloses the method is shallower and loses (`ContextualScope` of the old front end). So its
+  // competitors are the method's other contextual parameters: one of its very type makes it
+  // ambiguous (refused); each other one must be of a different class, read by its declaration or
+  // final (the old reading knows only those classes' bases) and not `Null`, neither class
+  // extending the other. Otherwise, and beside a context-function result, which puts binders
+  // around every body, it is not read yet.
+  private def anonymous(result: Type, parameters: List[ValDef]): Either[Unread, Unit] = {
+    val contextual = parameters.filter(p => Readings.contextual(p.symbol))
+    def known(c: ClassSymbol) =
+      c != defn.NullClass && (world.readByDeclaration(c) || Shapes.isFinal(c))
+    val verdicts = contextual.filter(Readings.anonymous).flatMap { p =>
+      contextual.filter(_ != p).map { q =>
+        val (mine, theirs) = (p.tpt.toType, q.tpt.toType)
+        (World.classNamed(mine), World.classNamed(theirs)) match {
+          case _ if mine.isSameType(theirs) =>
+            Left(Unread.Refused(s"ambiguous anonymous evidence: ${mine.showBasic}"))
+          case (Some(a), Some(b))
+              if a != b && known(a) && known(b) && !a.isSubClass(b) && !b.isSubClass(a) =>
+            Right(())
+          case _ =>
+            Left(
+              Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}")
+            )
+        }
+      }
+    }
+    if (!contextual.exists(Readings.anonymous)) Right(())
+    else if (World.classNamed(result).exists(_.displayFullName.startsWith("scala.ContextFunction")))
+      Left(Uncovered("an anonymous contextual parameter beside a context-function result"))
+    else
+      // A refusal of the model first, as the old front end reports every one.
+      verdicts
+        .collectFirst { case refused @ Left(_: Unread.Refused) => refused }
+        .orElse(verdicts.find(_.isLeft))
+        .getOrElse(Right(()))
   }
 
   // A member's type parameters, value parameters and declared result.
@@ -329,17 +369,22 @@ private[compiled] object Readings {
 
   /** Parameters the reading takes as inputs. A contextual one with a name is a value like any other
     * (slice S5): only implicit search tells it apart, and a body is counted, not searched. One
-    * without a name (`using T`, a context bound's evidence) is found by search alone, among
-    * whatever else is in scope: not read yet.
+    * without a name (`anonymous`) is found by search alone, among whatever else is in scope: not
+    * read yet here (the measured method's own is read where nothing competes with it).
     */
   def plainInputs(parameters: List[ValDef]): Either[Unread, Unit] =
     parameters
-      // The compiler names it `x$N` or `evidence$N`; a constructor's is not flagged synthetic.
-      .find(p => contextual(p.symbol) && p.name.toString.contains("$"))
+      .find(anonymous)
       .map(p => Unread.Uncovered(s"an anonymous contextual parameter: ${p.name}"))
       .toLeft(())
 
   def contextual(symbol: TermSymbol): Boolean = symbol.isGivenOrUsing || symbol.isImplicit
+
+  /** A contextual parameter without a name (`using T`, a context bound's evidence): the compiler
+    * names it `x$N` or `evidence$N`, and a constructor's is not flagged synthetic.
+    */
+  def anonymous(parameter: ValDef): Boolean =
+    contextual(parameter.symbol) && parameter.name.toString.contains("$")
 
   /** What a member's kind leaves to slices not read yet. A given alias, an implicit definition and
     * an extension method count as the methods they are (S5); a given instance is a class.

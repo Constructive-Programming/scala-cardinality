@@ -17,6 +17,7 @@ class ContextualSpec extends Specification {
     a given alias and an implicit definition are methods          $givens
     a given written `= deferred` is what each subclass supplies   $deferred
     an extension method counts over all its clauses               $extensions
+    an anonymous parameter no other candidate competes with       $anonymous
     what implicit search would choose is not read yet             $later
     the scalameta front end agrees on every row measured          $agrees
   """
@@ -33,6 +34,13 @@ class ContextualSpec extends Specification {
       |  def bound[A: List](x: A): A = x
       |  def ctxRes[A](a: A): A ?=> A = a
       |  def ctxIn[A](f: A ?=> A, a: A): A = a
+      |  def twin[A](x: A)(using Show, Pick[A]): A = x
+      |  def same[A](x: A)(using Option[A], Option[A]): A = x
+      |  def local[A](x: A)(using Pick[A]): A = { given Show = null; x }
+      |  def near[A](x: A)(using Option[A]): A = { given Some[A] = Some(x); x }
+      |  def wide[A](x: A)(using Option[A], List[A]): A = x
+      |  def nul(x: Show)(using Show)(using n: Null): Show = x
+      |  def ctx[A](x: A)(using Pick[A]): A ?=> A = x
       |}
       |final class Held(a: Boolean)(using b: Boolean) { def get: Boolean = a }
       |object Givens {
@@ -49,6 +57,7 @@ class ContextualSpec extends Specification {
       |  extension [A](x: A)(using o: Option[A]) def choose: A = x
       |}
       |trait Show { def show(b: Boolean): Boolean }
+      |trait Pick[A] { def pick(x: A, y: A): A }
       |object Inst { given shown: Show with { def show(b: Boolean): Boolean = b } }
       |trait Anon { given Boolean = deferred; def get: Boolean = true }
       |trait Fed { given feed(using b: Boolean): Boolean; def get: Boolean = true }
@@ -115,13 +124,39 @@ class ContextualSpec extends Specification {
       .and(count(".or") must_== Count.Finite(2))
       .and(count(".choose") must_== Count.Finite(2))
 
-  // Left to implicit search, and so uncovered: a contextual parameter without a name (a `using`
-  // type, a context bound's evidence, a constructor's too), and among a class's members a
-  // deferred given without a name and an abstract extension method.
+  // An anonymous parameter no other candidate competes with is the value search finds: `anon`
+  // returns `x` or what its `Option[A]` may hold, 2, as the named `pick`; `bound`'s `List[A]` holds any
+  // number of As: ω. `twin`: a `Show` and a `Pick[A]`, traits of the module neither of which
+  // extends the other, so no search finds both; `pick` nests without end (`pick(x, pick(x,
+  // x))`, …): ω.
+  // A body is counted, not read: the given `local` and `near` declare in theirs competes with no
+  // other body, `local` is ω as `Pick[A]` nests, and `near` 2, as `anon`. Two of one type at one
+  // level are ambiguous (`same`); an `Option` beside a `List`, classes of the standard library
+  // whose bases the old reading does not know, is not read yet (`wide`), nor a `Show` beside a
+  // `Null`, which is below every reference type (`nul`), nor one beside a context-function
+  // result, whose binder may hide it (`ctx`).
+  private def anonymous =
+    (List("Params.anon", "Params.bound", "Params.twin", "Params.local", "Params.near").map(
+      count
+    ) must_== List(
+      Count.Finite(2),
+      Count.Countable,
+      Count.Countable,
+      Count.Countable,
+      Count.Finite(2)
+    ))
+      .and(count("Params.same").toString must contain("ambiguous anonymous evidence"))
+      .and(
+        List("Params.wide", "Params.nul", "Params.ctx")
+          .map(count(_).toString)
+          .must(contain(contain("an anonymous contextual parameter")).forall)
+      )
+
+  // Left to implicit search, and so uncovered: a constructor's contextual parameter without a
+  // name, and among a class's members a deferred given without a name and an abstract extension
+  // method.
   private def later = {
     val expected = List(
-      "Params.anon" -> "an anonymous contextual parameter",
-      "Params.bound" -> "an anonymous contextual parameter",
       "Flat.f" -> "an anonymous contextual parameter",
       "Anon.get" -> "an anonymous given among the members of an enclosing class",
       "Exts.get" -> "an extension method among the members of an enclosing class"
