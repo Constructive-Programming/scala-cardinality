@@ -17,7 +17,7 @@ class ReceiversSpec extends Specification {
     a class around the class or its object supplies the same      $nested
     a template that inherits, or a sum, reads what it holds       $inherited
     a local definition reads the methods it is written in         $locals
-    a receiver this slice does not read is uncovered              $later
+    a receiver this slice does not read is uncovered, or counted  $later
     the scalameta front end agrees on every row measured          $agrees
   """
 
@@ -281,21 +281,24 @@ class ReceiversSpec extends Specification {
   // What S4's first step leaves, each row uncovered for its own reason: a parent of the module with constructor parameters or in
   // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
   // type narrower than the class; a deferred `inline val`, and a deferred inline method where a type parameter is in
-  // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
+  // scope; an abstract
   // type member of a class only its own scope may extend, whose types are those
   // the program picks, one two enclosing instances hold, one another declaration bounds, and
   // `this.T` of a fixed class, which holds no type member of its own, inside one that holds it.
   // (`Bounded.get` is read now: `T <: AnyRef` says nothing of the values, so it returns `t`, 1.)
+  // A class whose construction always throws is never built, so no call of its `get` returns
+  // (`Thrown.get`, 1), and a class a static object encloses is built without the object
+  // (`Dead.In.get`, one of the 2^2 functions of `b`; register D26).
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
       "Closed.get" -> "an enclosing concrete sealed class or enum case",
       "Wished.get" -> "a deferred inline method over a type parameter",
-      "Dead.In.get" -> "an object whose construction always throws or binds a pattern",
+      "Dead.In.get" -> "Finite(4)",
       "Self.me" -> "an enclosing class with a self type",
       "Narrowed.get" -> "an enclosing class with a self type",
       "Deferred.m" -> "a deferred inline value of an enclosing class",
-      "Thrown.get" -> "an enclosing class whose construction always throws or binds a pattern",
+      "Thrown.get" -> "Finite(1)",
       "Bounded.get" -> "Finite(1)",
       "CoKinded.get" -> "an abstract type member that is an alias, variant, or of another kind",
       "Pinned.get" -> "an abstract type member of a class no class written elsewhere extends",

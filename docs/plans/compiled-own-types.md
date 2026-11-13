@@ -150,6 +150,7 @@ across a version's runs.
 | D2 | D43, the conversions and extensions a body may meet | **The conversions the compiled body applies.** A subset of the old candidates, so refusals only leave. |
 | D3 | A builtin name the compiler binds differently from "builtin names are never shadowed by what is not supplied" | **The compiler's binding wins.** The rule is kept in the contract for uncompiled sources only (a future task). |
 | D4 | A given left to implicit search in an inline body | **Read the given the compiler resolved.** Refuse only when that given is inline with a compile-time operation, as for a written call. |
+| D5 (owner, via the coordinator, 2026-11-13) | A construction, body or default that throws, and a pattern definition | **Not refused: AGENTS.md's "Ignore throwing".** A construction that always throws builds no value, and the count follows from that, as the old front end reads it (register D26). A pattern definition is an ordinary binding; one that may not match is a possible throw, which is ignored. Applies wherever the compiled front end refused only for those reasons (the stored side's value rows, `Sums`, records, receivers). The 8 constructor rows refused for "sealed subtype hides a parameter" / "shape unreadable" stay as they are. |
 
 ## Where the boundary is
 
@@ -2012,9 +2013,12 @@ the same six deleted when this branch is merged; every input passes otherwise.
   side refuses for recursion taking the estimate's size ("Stretch 6, first unit").
   Done since: a top-level value of a class of the module ("Stretch 6, second unit").
   Done since (a new agent took the branch over at `b977b40`): hidden captures ("Stretch 6, third
-  unit"). Next, by old numeric rows: definitions in function literals, case clauses and
-  constructor bodies; the rest of `a type`; anonymous contextual parameters.
-  Next, by the coordinator's order after `43fa5d8`: (1) what is left of it: a position the method side refuses
+  unit"); throwing constructions and pattern definitions, by the owner's decision D5 ("Stretch 6,
+  fourth unit"). Scope change (the coordinator, 2026-11-13): this agent stops here; definitions in
+  function literals, case clauses and constructor bodies, the rest of `a type` and anonymous
+  contextual parameters go to new agents working from an integration branch.
+  Next, by the coordinator's order after `43fa5d8` (items 2 and 3 handed to new agents on
+  2026-11-13, see above): (1) what is left of it: a position the method side refuses
   for another reason than recursion (`sealed subtype hides a parameter`, fixtures 7, `sealed
   subtype shape unreadable`, 1) stays uncovered, since the estimate counts a hidden parameter the
   method side's equivalence does not; (2) captures a nearer scope binds again (41 + 2), definitions in function literals
@@ -2022,8 +2026,8 @@ the same six deleted when this branch is merged; every input passes otherwise.
   cats-eo 11: paths `p.X`, members through `this`, polymorphic function types, refinements, a
   match type in a constructor position), then anonymous contextual parameters (cats-core 5,
   fixtures 18: a receiver's, a capability's, a captured method's, a constructor's beside its
-  class's givens). Left for the owner's decision: an enclosing class whose construction always
-  throws or binds a pattern (fixtures 58). The six `InjectK` lines of the shared memory are
+  class's givens). The owner decided an enclosing class whose construction always throws or binds
+  a pattern (fixtures 58): decision D5, read in "Stretch 6, fourth unit". The six `InjectK` lines of the shared memory are
   deleted by the coordinator after the next merge of the branches. Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
@@ -3092,6 +3096,39 @@ fixtures 673 (744); every input passes on the private memory. No derivation or c
   Old numeric rows still uncovered (methods; both tables): core 8 (8), cats-core 44 (47),
   cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0, fixtures 660
   (731).
+
+### Stretch 6, fourth unit: throwing constructions and pattern definitions (decision D5)
+
+- A pattern definition is an ordinary binding: the refusals for one are gone (`Bodies.destructures`
+  is deleted). A match whose scrutinee always throws throws (`val _ = ???`, `Bodies.throws`).
+- A member runs in its own template and in each one its instances carry (`Readings.built`, the old
+  `ReceiverCapabilities.construction`): an inner class's outer instance, an anonymous class's
+  receiver, a member object's owning instance; a template a static object encloses is built
+  without the object. Where one of them, or a module ancestor of one, always throws (the measured
+  member's own initializer aside), no call returns: 1. An inline member is not stopped by a static
+  owner it is expanded out of. A constructor builds its instance: its row is counted whatever the
+  object around it does (was `a constructor in an object that is never built`). `Receivers` no
+  longer refuses a class or object whose construction throws.
+- A case of a sum whose construction always throws (its own template or a module ancestor's, the
+  measured member's initializer aside: `World.unbuilt`) is never built and adds no summand, on
+  both sides (`Sums`, `Stored.family`); a record of such a class is the empty sum (`Shapes.record`,
+  its ancestors too). A value row of a class with a pattern definition is read (was refused).
+- Derived past a model limit (`derived.txt`): 14 fixture rows, the `U.*` functions of
+  `be82e558…/Example.scala` over families with a never-built case (an enum's singleton cases are built together, by its companion), `R.z` 2^32 and `E.x` 2^64 (their
+  own initializer aside), the three `Destr` members, `PInner.f` 2^(2^32). In `TastyFrontEndSpec`:
+  `Use.arg`, `thrown`, `rep`, `cur` 0 (derived), and six corrections, `Nam`, `Ord`, `Asc` 1 -> 0
+  and `nam`, `ord`, `asc` 1 -> 0 (a throw behind a named argument or an ascription, which the old
+  reading does not see: each construction always throws, so each family is empty).
+- Regressions: `ConstructionSpec` (a pattern definition, `val _ = ???`, a pattern definition that
+  throws with its own name measured, anonymous classes never built or never made),
+  `ReceiversSpec.later` (`Thrown.get` 1, `Dead.In.get` 4), `StoredRecursionSpec.values` (`pat` 1),
+  `TastyFrontEndSpec` (`Thr` 0, the families above). Reviewers' findings fixed in the unit: the
+  measured member under an anonymous class, a static object a template is made in a method of,
+  the statement of a pattern or multi-name definition (only in its own template), an enum's
+  singleton cases built together.
+- Every old numeric row of the group is read: 81 fixture rows become identical. Old numeric rows
+  still uncovered (methods; both tables): core 8 (8), cats-core 44 (47), cats-kernel 111 (111),
+  cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0, fixtures 583 (650).
 
 ### How each model rule reads over symbols
 

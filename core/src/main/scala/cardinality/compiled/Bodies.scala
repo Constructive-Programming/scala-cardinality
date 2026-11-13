@@ -5,20 +5,38 @@ import tastyquery.Modifiers.TermSymbolKind
 import tastyquery.Trees.*
 
 /** What the counting model reads of a template's construction, over typed trees (register D26):
-  * whether its constructor always throws, and whether it holds a pattern definition, whose values
-  * are not read yet.
+  * whether its constructor always throws. A pattern definition is an ordinary binding, and one that
+  * may not match is a possible throw, which the model ignores.
   */
 private[compiled] object Bodies {
 
   /** Whether building an instance of a template always throws, by what the template itself
     * evaluates: the arguments it passes to its parents' constructors, each strict value's
-    * initializer and each statement of its body, but `excluded` (the measured member, whose
-    * initializer is the choice being counted).
+    * initializer and each statement of its body, but the statement of `excluded` (the measured
+    * member, whose initializer is the choice being counted).
     */
-  def alwaysThrows(template: ClassDef, excluded: Option[Tree] = None)(using Context): Boolean =
-    (arguments(template) ++ evaluated(template, excluded)).exists(throws)
+  def alwaysThrows(template: ClassDef, excluded: Option[Tree] = None)(using Context): Boolean = {
+    val statement = excluded.toList.flatMap(statementOf(_, template))
+    (arguments(template) ++ evaluated(template, statement)).exists(throws)
+  }
 
-  private def evaluated(template: ClassDef, excluded: Option[Tree]): List[TermTree] =
+  // The values of the source statement a member is written in: itself, the other names of a
+  // multi-name definition (`val a, b = …`, all starting where it does) and the holder the compiler
+  // makes for a pattern definition, which its value selects from (`val (a, b) = …`); only in the
+  // template the member is written in (an ancestor's statement at the same offset is another one).
+  private def statementOf(member: Tree, template: ClassDef)(using Context): List[Tree] =
+    member match {
+      case v: ValDef if !v.pos.isUnknown && v.symbol.owner == template.symbol =>
+        val body = template.rhs.body
+        val holder = v.rhs.toList.collect { case Select(id: Ident, _) => World.named(id) }.flatten
+        member :: body.collect {
+          case w: ValDef if !w.pos.isUnknown && w.pos.startOffset == v.pos.startOffset => w
+          case w: ValDef if holder.contains(w.symbol) && w.symbol.isSynthetic          => w
+        }
+      case _ => List(member)
+    }
+
+  private def evaluated(template: ClassDef, excluded: List[Tree]): List[TermTree] =
     template.rhs.body.filterNot(stat => excluded.exists(_ eq stat)).flatMap {
       case v: ValDef if v.symbol.kind != TermSymbolKind.LazyVal => v.rhs.toList
       case term: TermTree                                       => List(term)
@@ -52,19 +70,21 @@ private[compiled] object Bodies {
 
   // Whether evaluating a term always throws: `throw`, the library's `???` and `sys.error`, one of
   // them ascribed, a block whose result throws, a conditional or match every branch of which
-  // throws, and a parameter's default whose body throws (`defaulted`; a by-name parameter's too,
-  // as a by-name argument is taken as evaluated).
+  // throws or whose scrutinee does (`val _ = ???`, a pattern definition's), and a parameter's
+  // default whose body throws (`defaulted`; a by-name parameter's too, as a by-name argument is
+  // taken as evaluated).
   private def throws(term: TermTree)(using Context): Boolean = term match {
     case _ if defaulted(term)             => true
     case _: Throw                         => true
     case ref: TermReferenceTree           => ref.symbol.displayFullName == "scala.Predef$.???"
     case Apply(fun: TermReferenceTree, _) =>
       fun.symbol.displayFullName == "scala.sys.package$.error"
-    case Typed(inner, _)  => throws(inner)
-    case Block(_, result) => throws(result)
-    case If(_, yes, no)   => throws(yes) && throws(no)
-    case Match(_, cases)  => cases.nonEmpty && cases.forall(c => throws(c.body))
-    case _                => false
+    case Typed(inner, _)        => throws(inner)
+    case Block(_, result)       => throws(result)
+    case If(_, yes, no)         => throws(yes) && throws(no)
+    case Match(selector, cases) =>
+      throws(selector) || cases.nonEmpty && cases.forall(c => throws(c.body))
+    case _ => false
   }
 
   // Whether a term reads a parameter's default (as the argument a parent's clause leaves out) whose
@@ -84,32 +104,6 @@ private[compiled] object Bodies {
   private def written(ref: TermReferenceTree): String = ref match {
     case id: Ident      => id.name.toString
     case select: Select => select.name.toString
-  }
-
-  /** Whether a template holds a pattern or multi-name value definition: one statement of the source
-    * and several values of the tree. `val a, b = …` is a value per name, all starting where the
-    * definition does; `val (a, b) = …` a value per name, each positioned at its name alone, with a
-    * holder the compiler made or none; `val Some(x) = e` and `val _ = e` a match on `e` ascribed
-    * (so is a match written on an ascribed term). A parameter, an enum's value case, its `$values`
-    * and an object are no such definition.
-    */
-  def destructures(template: ClassDef): Boolean = {
-    val body = template.rhs.body
-    val values = body.collect {
-      case v: ValDef
-          if !(v.symbol.isModuleVal || v.symbol.isParamAccessor || v.symbol.isEnumCase) =>
-        v
-    }
-    val (made, written) = values.partition(_.symbol.isSynthetic)
-    // A value the compiler places without extent is its own (a `derives` clause's instance).
-    val placed = written.filterNot(v => v.pos.isUnknown || v.pos.isZeroExtent)
-    val terms = values.flatMap(_.rhs) ++ body.collect { case term: TermTree => term }
-    made.exists(_.name.toString != "$values") ||
-    terms.exists {
-      case Match(_: Typed, _) => true
-      case _                  => false
-    } || placed.exists(v => v.pos.startOffset == v.pos.pointOffset) ||
-    placed.groupBy(_.pos.startOffset).exists(_._2.sizeIs > 1)
   }
 
 }

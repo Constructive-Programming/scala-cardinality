@@ -36,12 +36,12 @@ final private[compiled] class World(
   def library(c: ClassSymbol): Option[String] =
     Option.when(c.owner.isPackage && !own(c) && World.standard(c))(c.displayFullName)
 
-  /** Whether building an instance of a template is not read yet (register D26 for classes, slice
-    * S6): it, or a template of the module it extends, evaluates something that always throws or
-    * holds a pattern definition.
+  /** Whether a template is never built (register D26): it, or a template of the module it extends,
+    * evaluates something that always throws. The measured member's own initializer, `site`'s, is
+    * the choice being counted, and is not read.
     */
-  def unbuilt(tree: ClassDef): Boolean =
-    templates(tree.symbol).exists(t => Bodies.destructures(t) || Bodies.alwaysThrows(t))
+  def unbuilt(c: ClassSymbol, site: Option[Symbol] = None): Boolean =
+    templates(c).exists(Bodies.alwaysThrows(_, site.flatMap(_.tree)))
 
   /** The templates of the module a class's construction runs: its own and its ancestors'. */
   def templates(c: ClassSymbol): List[ClassDef] = c.linearization.filter(ofModule).flatMap(_.tree)

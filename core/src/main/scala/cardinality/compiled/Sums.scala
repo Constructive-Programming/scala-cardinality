@@ -18,13 +18,16 @@ import tastyquery.Types.*
   * enum class under a sealed family, a class something extends, a class with several parameter
   * clauses, a parameter that is no member.
   *
-  * What the reading does not cover yet stays `Uncovered`: a construction that always throws, binds
-  * a pattern or inherits an abstract member of the empty type (slice S6); an enum's value case
-  * under a sealed family; a restricted field or constructor (rule B); a case class something
-  * extends; a plain class with no parameter (`class L` and `class L()` are one tree); an enum case
-  * with several parameter clauses; a subtype reached twice; an abstract member of the empty type
-  * that takes parameters; a sum whose cases the classpath does not list; a subtype without a tree;
-  * and a subtype that instantiates its parent otherwise than `Sums.carried` reads.
+  * A case whose construction always throws is never built and adds no summand (register D26), and
+  * so is every case of a level whose own construction does.
+  *
+  * What the reading does not cover yet stays `Uncovered`: a construction that inherits an abstract
+  * member of the empty type; an enum's value case under a sealed family; a restricted field or
+  * constructor (rule B); a case class something extends; a plain class with no parameter (`class L`
+  * and `class L()` are one tree); an enum case with several parameter clauses; a subtype reached
+  * twice; an abstract member of the empty type that takes parameters; a sum whose cases the
+  * classpath does not list; a subtype without a tree; and a subtype that instantiates its parent
+  * otherwise than `Sums.carried` reads.
   */
 final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) {
   import Shapes.Env
@@ -55,34 +58,59 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
 
     def enumCases: Cases = {
       val cases = symbol.sealedChildren
-      // A value case is built with the companion that holds it, and one with its own `extends`
-      // clause is an instance of an anonymous class its definition declares.
-      val constructed = tree :: cases.flatMap {
-        case cls: ClassSymbol  => cls.tree.toList
-        case value: TermSymbol =>
-          value.owner.tree.toList.collect { case holder: ClassDef => holder } ++
-            value.tree.toList.flatMap(World.classes)
-      }
+      // A value case is built with the companion that holds it, whose initializer builds every
+      // value case, one with its own `extends` clause as an instance of an anonymous class its
+      // definition declares.
+      val values = cases.collect { case value: TermSymbol => value }
+      val companion = values.flatMap(_.owner.tree.toList.collect {
+        case holder: ClassDef => holder
+      })
+      val singletons = (companion ++ values.flatMap(_.tree.toList.flatMap(World.classes))).distinct
       for {
         // An enum has a case: none means the classpath lacks the annotation that lists them.
         _ <- Either.cond(cases.nonEmpty, (), unlisted)
-        _ <- Traversals.sequence(constructed.distinct.map(construction))
-        read <- Traversals.sequence(cases.map(c => caseFields(c).map(c -> _)))
-      } yield read
+        read <- Traversals.sequence(cases.map {
+          case cls: ClassSymbol  => summand(cls, tree :: cls.tree.toList)
+          case value: TermSymbol => summand(value, tree :: singletons)
+        })
+      } yield read.flatten
+    }
+
+    // A case's summand where every template that builds it is built (register D26), else none.
+    private def summand(c: ClassSymbol | TermSymbol, templates: List[ClassDef]): Cases =
+      Traversals.sequence(templates.map(construction)).flatMap { built =>
+        if (built.forall(identity)) caseFields(c).map(fields => List(c -> fields)) else Right(Nil)
+      }
+
+    // Whether a template is ever built (register D26): not where building an instance evaluates
+    // something that always throws, in itself or in a template of the module it extends, the
+    // measured member's own initializer aside. One that inherits an abstract member of the empty
+    // type is not read yet (its own is its level's).
+    private def construction(template: ClassDef): Either[Unread, Boolean] = {
+      val above = template.symbol.linearization.drop(1).filter(world.ofModule).flatMap(_.tree)
+      Either.cond(
+        above.forall(absurdMembers(_).isEmpty),
+        !world.unbuilt(template.symbol, Some(env.site)),
+        Uncovered(
+          s"a construction that inherits a member of the empty type: ${template.symbol.displayFullName}"
+        )
+      )
     }
 
     // A sealed family's cases: those its file declares, each read whole or the family refused.
     def familyCases: Cases =
-      construction(tree).flatMap(_ => uninhabited(tree)).flatMap { isUninhabited =>
-        val children = symbol.sealedChildren
-        if (isUninhabited) Right(Nil)
-        // An anonymous instance registers the family as its own child.
-        else if (children.contains(symbol))
-          Left(Refused(s"sealed family has anonymous instances in its file: ${symbol.name}"))
-        // A family without subtypes has no value; one something extends has them listed.
-        else if (children.isEmpty && world.extended(symbol)) Left(unlisted)
-        else Traversals.sequence(children.map(subtype)).map(_.flatten)
-      }
+      construction(tree)
+        .flatMap(built => if (built) uninhabited(tree) else Right(true))
+        .flatMap { isUninhabited =>
+          val children = symbol.sealedChildren
+          if (isUninhabited) Right(Nil)
+          // An anonymous instance registers the family as its own child.
+          else if (children.contains(symbol))
+            Left(Refused(s"sealed family has anonymous instances in its file: ${symbol.name}"))
+          // A family without subtypes has no value; one something extends has them listed.
+          else if (children.isEmpty && world.extended(symbol)) Left(unlisted)
+          else Traversals.sequence(children.map(subtype)).map(_.flatten)
+        }
 
     private def unlisted: Unread =
       Uncovered(s"a sum whose cases are not listed: ${symbol.displayFullName}")
@@ -100,9 +128,8 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
         Left(Refused(s"sealed subtype is an inner or local class: ${child.name}"))
       case value: TermSymbol =>
         value.moduleClass
-          .fold(Right(()))(Shapes.tree(_).flatMap(construction))
-          .flatMap(_ => caseFields(value))
-          .map(read => List(value -> read))
+          .fold(Right(Nil))(Shapes.tree(_).map(List(_)))
+          .flatMap(summand(value, _))
       case cls: ClassSymbol =>
         Shapes.tree(cls).flatMap { below =>
           // An enum has no reading under a sealed family, and an open trait or abstract class has
@@ -112,7 +139,7 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
             instantiated(cls).flatMap(new Level(below, _, env).familyCases)
           else if (cls.isAbstractClass)
             Left(Refused(s"sealed family has an open abstract subtype: ${cls.name}"))
-          else construction(below).flatMap(_ => caseFields(cls)).map(read => List(cls -> read))
+          else summand(cls, List(below))
         }
     }
 
@@ -185,23 +212,6 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
       members.nonEmpty,
       Uncovered(
         s"an abstract member of the empty type with parameters: ${level.symbol.displayFullName}"
-      )
-    )
-  }
-
-  // Construction (register D26) is restated for classes with slice S6 (decision Q5). Until then a
-  // template is read only where building an instance evaluates nothing that always throws and no
-  // pattern definition, in itself and in every template of the module it extends, and where none
-  // of those it extends declares an abstract member of the empty type (its own is its level's to
-  // read).
-  private def construction(tree: ClassDef): Either[Unread, Unit] = {
-    val above = tree.symbol.linearization.drop(1).filter(world.ofModule).flatMap(_.tree)
-    Either.cond(
-      !world.unbuilt(tree) && above.forall(absurdMembers(_).isEmpty),
-      (),
-      Uncovered(
-        "a construction that throws, binds a pattern or inherits a member of the empty type: " +
-          tree.symbol.displayFullName
       )
     )
   }

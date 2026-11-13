@@ -67,13 +67,15 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             if (World.inObjects(tree.symbol.owner)) Right(Nil) else receivers.around(owner)
           )
       _ <- inherited(methods, hidden, top)
-      _ <- plain(top)
       count <-
-        // A call of an inline method is its expansion, which builds no object: the old front
-        // end counts one in an object that is never built like any other.
+        // A constructor builds its instance: its row reads its parameters only.
         if (
-          (tree :: methods).exists(of => inlines.inlineMethod(of.symbol)) ||
-          built(top, methods.headOption.getOrElse(tree))
+          primary || built(
+            top,
+            // The member of `top` the definition is: itself or the method it is written in.
+            (methods :+ tree).find(_.symbol.owner == top).getOrElse(tree).symbol,
+            inlined = (tree :: methods).exists(of => inlines.inlineMethod(of.symbol))
+          )
         )
           (tree match {
             case constructor: DefDef if primary =>
@@ -84,8 +86,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
             case Uncovered(what)        => Left(what)
           }
-        else if (primary) Left("a constructor in an object that is never built")
-        // No call of a member of an object that is never built returns: one implementation.
+        // No call of a member of a template that is never built returns: one implementation.
         else Right(Count.Finite(1) -> captures(tree, around, methods))
     } yield count
   }
@@ -257,7 +258,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             Left("a definition in a constructor's body")
           case Some(method: DefDef) => Right(Some(method))
           // A member value's initializer runs while its template is built: where that always
-          // throws, whether the definition was called first is the body reading's to say (S6).
+          // throws, whether the definition was called first is the body reading's to say.
           case Some(_: ValDef) if term.owner.tree.exists {
                 case template: ClassDef => Bodies.alwaysThrows(template)
                 case _                  => false
@@ -461,21 +462,30 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     case other            => Left(s"an enclosing definition: ${other.name}")
   }
 
-  // Which values of a pattern or multi-name definition the constructor evaluates, and which is the
-  // measured choice, is the body reading's to say (slice S6).
-  private def plain(owner: Symbol): Either[String, Unit] = owner.tree match {
-    case Some(c: ClassDef) if Bodies.destructures(c) =>
-      Left("an enclosing object with a pattern or multi-name value definition")
-    case _ => Right(())
-  }
-
-  // Whether the object a member runs in is ever built (register D26): a constructor that always
-  // throws leaves no instance.
-  private def built(owner: Symbol, measured: Tree): Boolean =
-    owner.tree.forall {
-      case c: ClassDef => !Bodies.alwaysThrows(c, Some(measured))
-      case _           => true
+  // Whether every template a member runs in is ever built (register D26, the old
+  // `ReceiverCapabilities.construction`): its own and each one its instances carry, an inner
+  // class its outer instance, an anonymous class the receiver of the code it is made in, a member
+  // object the instance it belongs to; a template a static object encloses is built without the
+  // object. A template whose construction, or an ancestor's of the module, always throws, the
+  // measured member's own initializer aside, leaves no instance. An inline member is expanded
+  // where it is called, which builds no static object: such an owner does not stop the call.
+  private def built(owner: Symbol, measured: Symbol, inlined: Boolean): Boolean = {
+    def static(c: ClassSymbol) = c.isModuleClass && World.inObjects(c)
+    // A static object holds a template written as its member without building it; a method of
+    // it that the template is made in runs only once the object is built.
+    def carried(c: ClassSymbol): List[ClassSymbol] =
+      c :: World
+        .owners(c.owner)
+        .collectFirst { case o: ClassSymbol => o }
+        .filterNot(o => static(o) && (inlined || c.owner == o))
+        .toList
+        .flatMap(carried)
+    owner match {
+      case c: ClassSymbol if !(inlined && static(c)) =>
+        !carried(c).exists(world.unbuilt(_, Some(measured)))
+      case _ => true
     }
+  }
 
 }
 

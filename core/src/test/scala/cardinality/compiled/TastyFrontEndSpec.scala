@@ -19,14 +19,13 @@ class TastyFrontEndSpec extends Specification {
     an object's method counts over its own parameters            $methods
     a definition over base types multiplies and adds them         $definitions
     a member of an object that is never built has one body        $unbuilt
-    a row no slice reads yet is uncovered, never a count          $uncovered
     what the counting model refuses is a row of its own           $refused
     classes compiled from another text refuse the source          $stale
     it imports and names nothing of the scalameta reading         $imports
     a source without definitions is empty, a bound name is a row  $sources
     a class of the module is the product or sum it declares       $products
     a type the model does not read is refused, as before          $refusals
-    a type no slice reads yet is uncovered                        $later
+    a type no slice reads yet is uncovered, or counted where noted $later
     a definition row is what it stores, its reasons, or a dash    $stored
     a definition the stored side does not read yet is uncovered   $unstored
     a class's row is the product of its constructor's positions   $constructors
@@ -54,8 +53,6 @@ class TastyFrontEndSpec extends Specification {
       |enum Suit { case Hearts, Spades, Clubs }
       |class C(x: Int) { def m(b: Boolean): Boolean = b }
       |object Refused { def arr[A](xs: Array[A]): Int = 0 }
-      |object Pattern { val (a, b) = (true, false); def g(x: Boolean): Boolean = x }
-      |object Nameless { val _ = ???; def g(x: Boolean): Boolean = x }
       |object In {
       |  import scala.compiletime.erasedValue
       |  inline def pick[A](x: A, y: A): A = x
@@ -476,15 +473,6 @@ class TastyFrontEndSpec extends Specification {
       .and(count("demo.K.z") must_== Count.Finite(2))
       .and(count("demo.KL.g") must_== Count.Finite(4))
 
-  // A member beside a pattern definition, named or not (which values its object's constructor
-  // evaluates is not read yet). (A member of a class is `ReceiversSpec`'s.)
-  private def uncovered = {
-    val rows = List("demo.Pattern.g", "demo.Nameless.g")
-    rows.map(count) must contain(beLike[Count] {
-      case Count.Unresolved(List(reason)) => reason must startWith(TastyFrontEnd.Uncovered)
-    }).forall
-  }
-
   // `Pair` is 2 × 2, so `pair` is one of 2^4 functions. A `Box[A]` holds one A: `box` returns it.
   // `Color` has 3 values. `Opt[A]` is A + 1: `opt` sends `Nn` to `Nn` (it has no A) and `Sm(a)` to
   // `Sm(a)` or `Nn`, 2. `Figure` is 1 + 2 + 2 × 2 = 7 (an object, a case class, a class nothing
@@ -499,7 +487,7 @@ class TastyFrontEndSpec extends Specification {
   // one object, pinned with `Any` in a contravariant slot: `sink` picks one of 2 Booleans. `Twin`
   // is its one Boolean, the secondary constructor adding no value: 2. `Top` is a Boolean for the
   // definitions of its file's top level (`top` is one of 2^2) and one value in `Use` (`outside`).
-  // `Der` has 2 values, the instance its `derives` clause adds to the companion being no pattern.
+  // `Der` has 2 values.
   // `Line`, a final case class with a parent, is its one Boolean: `line` is one of 2^2.
   private def products = {
     val expected = List(
@@ -569,7 +557,7 @@ class TastyFrontEndSpec extends Specification {
       })
   }
 
-  // What no slice reads yet, each for its own reason.
+  // What no slice reads yet, each for its own reason, and what decision D5 now counts.
   //   - A capability record with a private field no member exposes is not read yet, nor one with a
   //     private constructor and no factory (rule B; `record` and `curried`, whose fields are
   //     public, are read: `RecordsSpec`); and a member of an enum nested in a class may read the
@@ -582,17 +570,16 @@ class TastyFrontEndSpec extends Specification {
   //     is the enum's to read first (the enum itself reads it: `mixed` is one of 2). A case with a private constructor
   //     or field is rule B's to read, and `class BareC` is one tree with `class BareC()`.
   //   - A case whose construction throws (an object's body, there ascribed too, an enum case's
-  //     argument, a repeated or a named argument of a parent, in order or not, in any clause) has
-  //     no value, and which values a pattern definition's constructor evaluates is not read
-  //     (slice S6), a lazy one included, which is a holder and a method per name; nor is a
-  //     `Nothing` member inherited from an open trait, which leaves `Heir` no value.
+  //     argument, a repeated or a named argument of a parent, in order or not, in any clause) is
+  //     never built and adds no summand (register D26): each of those families is empty, and a
+  //     method returning one has no implementation, 0. A pattern definition is an ordinary
+  //     binding, a lazy one too: `Split` and `Lazy` have their one object, 1. A `Nothing` member
+  //     inherited from an open trait, which leaves `Heir` no value, is not read yet.
   //   - `no(n: Nothing)` has a total body.
   //   - `P1` and `P2` have one shape and are two types: no evidence equates them.
   private def later = {
 
     val slots = "a sealed subtype that does not pass its own parameters to its parent"
-    val construction =
-      "a construction that throws, binds a pattern or inherits a member of the empty type"
     val expected = List(
       "veiled" -> "a capability record with a parameter that is no public field",
       "shut" -> "a capability record with no constructor or factory the site may call",
@@ -607,16 +594,16 @@ class TastyFrontEndSpec extends Specification {
       "rst" -> "a restricted constructor",
       "fld" -> "a restricted field",
       "bare" -> "a sealed subtype without parameters",
-      "thrown" -> construction,
-      "arg" -> construction,
-      "rep" -> construction,
-      "nam" -> construction,
-      "ord" -> construction,
-      "cur" -> construction,
-      "asc" -> construction,
-      "split" -> construction,
-      "lz" -> construction,
-      "heir" -> construction,
+      "thrown" -> "Finite(0)",
+      "arg" -> "Finite(0)",
+      "rep" -> "Finite(0)",
+      "nam" -> "Finite(0)",
+      "ord" -> "Finite(0)",
+      "cur" -> "Finite(0)",
+      "asc" -> "Finite(0)",
+      "split" -> "Finite(1)",
+      "lz" -> "Finite(1)",
+      "heir" -> "a construction that inherits a member of the empty type",
       "absurd" -> "an abstract member of the empty type with parameters",
       "same" -> "a type of the module in an evidence type"
     )
@@ -696,6 +683,7 @@ class TastyFrontEndSpec extends Specification {
       "Fns" -> sized("ε₀"),
       "Rec" -> sized("ω"),
       "Never" -> sized("0"),
+      "Thr" -> sized("0"),
       "Opt" -> sized("3"),
       "Mp" -> sized("4"),
       "Pf" -> sized("4"),
@@ -732,7 +720,7 @@ class TastyFrontEndSpec extends Specification {
   }
 
   // What the stored side does not read yet, each row uncovered for its own reason: a sealed
-  // family whose object's construction throws (`Thr`), with a subtype something extends
+  // family with a subtype something extends
   // (`Wide2`) or that inherits from a class outside the module, whose state it holds too
   // (`Outer`), or with a case under two of its levels
   // (`Twice2`; `Dbl`, whose clause names the family and its level both), or with an enum's value
@@ -743,7 +731,6 @@ class TastyFrontEndSpec extends Specification {
   // algebra has no entry for.
   private def unstored = {
     val expected = List(
-      "Thr" -> "a construction that always throws or binds a pattern",
       "Wide2" -> "a family with a subtype something extends",
       "Twice2" -> "a subtype reached twice",
       "Dbl" -> "a subtype reached twice",
@@ -922,6 +909,12 @@ class TastyFrontEndSpec extends Specification {
   // does not read a projection through an applied type); and three families whose one case class
   // nothing extends, final in the closed world, each 2 (`stored`).
   //
+  // Four more are derived (D26): a family whose one case always throws when built (`Thrown`,
+  // `Arg`, `Rep`, `Cur`) has no value, so a method returning one has none, 0 (the old reading
+  // refuses those constructions). Six are corrections of that rule: `NamA` passes `x = ???` by
+  // name, `OrdA` out of order, `AscA`'s `z` is `(??? : Int)`, so `Nam`, `Ord` and `Asc` hold no
+  // value and `nam`, `ord`, `asc` have none (1 -> 0; the old reading misses those throws).
+  //
   // Four rows are corrections (the owner's ruling on `Ior`): its cases are `Left(a: A)`,
   // `Right(b: B)` and `Both(a: A, b: B)`, so its value space is A + B + A × B, and at Boolean and
   // Boolean 2 + 2 + 4 = 8. The old reading does not see cases written infix (`extends (A Ior
@@ -934,11 +927,15 @@ class TastyFrontEndSpec extends Specification {
       .filter(c => c.row.name == name && c.verdict != Verdict.Identical)
       .map(_.row.key -> value)
     val closed = List("Loose", "Prot", "Impl").flatMap(name => keys(s"sizes.$name", "2"))
-    val derived = (keys("sizes.Seen", "1") ++ closed).toMap
+    val thrown = List("arg", "thrown", "rep", "cur").flatMap(n => keys(s"types.Use.$n", "0"))
+    val derived = (keys("sizes.Seen", "1") ++ closed ++ thrown).toMap
+    val hidden = List("Nam", "Ord", "Asc").flatMap(n =>
+      keys(s"types.$n", "1 -> 0") ++ keys(s"types.Use.${n.toLowerCase}", "1 -> 0")
+    )
     val corrected = (keys("sizes.Ior", "0 -> ? A; B") ++ keys("sizes.Iors", "0 -> 8") ++
-      keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8")).toMap
+      keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8") ++ hidden).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (4, 4))
+      .and((derived.size, corrected.size) must_== (8, 10))
       .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
       .and(Differential.unused(compared.compared, corrected) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))
