@@ -22,7 +22,8 @@ import tastyquery.Types.{
   TypeOrMethodic,
   TypeOrWildcard,
   TypeParamRef,
-  TypeRef
+  TypeRef,
+  WildcardTypeArg
 }
 
 /** Whether a concrete member a class of the program overrides may call the member being measured
@@ -248,10 +249,11 @@ final private[compiled] class Reentry(world: World)(using Context) {
     val onSelf = mutable.Set.empty[Symbol]
 
     // Whether a call hands a value `carries` says holds to where it may re-enter: the measured member,
-    // code outside the module (as an argument or the receiver) where that code may reach it or the
-    // call gives it what may (`callsBack`), a constructor of the module whose class's members (its
-    // nested classes' included: they read its fields) or construction may, a method of the module
-    // that hands it on in turn (`passes`), or a name that does not resolve.
+    // code outside the module (as an argument or the receiver) where that code may reach it and is
+    // given something it may call (a term that is not `inert`), or the call gives it what may
+    // (`callsBack`), a constructor of the module whose class's members (its nested classes'
+    // included: they read its fields) or construction may, a method of the module that hands it on
+    // in turn (`passes`), or a name that does not resolve.
     def flows(call: Apply, carries: Tree => Boolean): Boolean = {
       val (head, clauses) = Reentry.unapplied(call)
       val taint = for {
@@ -262,7 +264,10 @@ final private[compiled] class Reentry(world: World)(using Context) {
       lazy val received = Reentry.receiver(head).exists(carries)
       (taint.nonEmpty || received) && called(head).forall { m =>
         taint.nonEmpty && runs(m, measured) || Try(
-          if (!own(m)) outward && !World.universal(m.owner) || callsBack(head, clauses)
+          if (!own(m))
+            outward && !World.universal(m.owner) &&
+            (clauses.flatten ++ Reentry.receiver(head)).exists(!inert(_)) ||
+            callsBack(head, clauses)
           else if (taint.isEmpty) false
           else if (World.isConstructor(m)) m.owner match {
             case k: ClassSymbol =>
@@ -279,9 +284,10 @@ final private[compiled] class Reentry(world: World)(using Context) {
     }
 
     // Whether a call gives code outside the module what may run the measured member: it applies a
-    // function, or is given a function literal whose body reaches the member or another function
-    // (built where the search does not look): a term of a function type, or of a class other than
-    // the record's that a function literal of the module may implement (`Ordering`).
+    // function, or is given a function literal it may call (not `inert`) whose body reaches the
+    // member, or another function (built where the search does
+    // not look): a term of a function type, or of a class other than the record's that a function
+    // literal of the module may implement (`Ordering`).
     def callsBack(head: Tree, clauses: List[List[TermTree]]): Boolean = {
       def function(term: Tree) = term match {
         case value: TermTree =>
@@ -294,8 +300,9 @@ final private[compiled] class Reentry(world: World)(using Context) {
         case _ => false
       }
       Reentry.receiver(head).exists(function) || clauses.flatten.exists {
-        case Block(List(literal: DefDef), _: Lambda) => literal.rhs.exists(reached)
-        case argument                                => function(argument)
+        case block @ Block(List(literal: DefDef), _: Lambda) =>
+          !inert(block) && literal.rhs.exists(reached)
+        case argument => function(argument)
       }
     }
 
@@ -308,7 +315,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
       case tree @ Select(qualifier, _) if !Reentry.onInstance(tree) && carries(qualifier) =>
         Option.when(called(tree).forall { m =>
           if (own(m)) Try(selfReenters(m)).getOrElse(true)
-          else outward && !World.universal(m.owner)
+          else outward && !World.universal(m.owner) && !inert(qualifier)
         })(true)
       case _ => None
     }
@@ -405,6 +412,55 @@ final private[compiled] class Reentry(world: World)(using Context) {
   // For a record value, the members a finished search found to reach nothing, by the measured
   // member: what `reached` reads depends on it alone (and on the program).
   private val unreaching = mutable.Map.empty[TermSymbol, mutable.Set[Symbol]]
+
+  // Whether code outside the module given a term can run no code of the module through it (no
+  // side effects: that code holds nothing from before, and calls only what its own types declare).
+  // Such a term is a plain value; one of a class of the module whose parents outside it declare no
+  // member (`silent`); one of an object outside the module (built without the module's code); one
+  // of a type parameter bounded by such a type; or one of a strict container outside the module
+  // (`Strict`) whose type arguments are such. Any other value outside the module may wrap a
+  // function of the module (`Ordering.by(f)`, a view, a lazy list); `Product` and `Equals` declare
+  // members a class of the module may implement; a value of a top type (an unbounded parameter's
+  // included) may be anything, which that code may test (`ScalaRunTime.stringOf`); and an opaque
+  // type's representation may be anything.
+  private def inert(term: Tree): Boolean = term match {
+    case value: TermTree =>
+      Try(value.tpe.widenTermRef match {
+        case tpe: Type => inertType(tpe)
+        case _         => false
+      }).getOrElse(false)
+    case _ => false
+  }
+
+  private def inertType(tpe: Type): Boolean = Reentry.plainType(tpe) || (tpe.dealias match {
+    case applied: AppliedType =>
+      Reentry.classOf(applied.tycon).exists { k =>
+        if (world.ofModule(k)) inertClass(k)
+        else
+          Reentry.Strict(k.displayFullName) && applied.args.forall {
+            case arg: Type                 => inertType(arg)
+            case wildcard: WildcardTypeArg => inertType(wildcard.bounds.high)
+          }
+      }
+    case ref: TypeRef =>
+      ref.optSymbol match {
+        case Some(k: ClassSymbol) =>
+          if (world.ofModule(k)) inertClass(k) else k.isModuleClass
+        case Some(p: (ClassTypeParamSymbol | LocalTypeParamSymbol)) =>
+          inertType(p.declaredBounds.high)
+        case _ => false
+      }
+    case ref: TypeParamRef => inertType(ref.bounds.high)
+    case _                 => false
+  })
+
+  // Whether no parent outside the module of a class of the module, or of a class below it (the value
+  // may be one, which that code may test for), declares a member.
+  private def inertClass(k: ClassSymbol): Boolean = world
+    .below(k)
+    .exists(below =>
+      (k :: below).forall(_.linearization.forall(a => world.ofModule(a) || Reentry.silent(a)))
+    )
 
   // Whether an instance may be of both classes (`ClosedProgram.mixes`); one that cannot be told may.
   private def mixes(a: ClassSymbol, b: ClassSymbol): Boolean =
@@ -900,6 +956,27 @@ private[compiled] object Reentry {
     case ref: TypeRef => ref.optSymbol.flatMap(args.get).getOrElse(ref)
     case other        => other
   }
+
+  /** The containers outside the module that hold only the values of their type arguments, built
+    * eagerly: no function of the module hides in one.
+    */
+  private val Strict: Set[String] = Set(
+    "scala.Option",
+    "scala.Some",
+    "scala.collection.immutable.List",
+    "scala.collection.immutable.Vector"
+  )
+
+  /** Whether a class declares no member but those every value has (`Product` and `Equals` aside,
+    * whose members a class of the module may implement and code outside it call).
+    */
+  private def silent(k: ClassSymbol): Boolean = Set(
+    "scala.Any",
+    "scala.Matchable",
+    "scala.AnyVal",
+    "java.lang.Object",
+    "java.io.Serializable"
+  )(k.displayFullName)
 
   /** How many members the search reads before it gives up. */
   val Reach = 200

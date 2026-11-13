@@ -1390,6 +1390,72 @@ nested in objects alone an input (`Eq.allEqualBoundedSemilattice.<new#1>.empty` 
 other inputs unchanged. Every better row was derived (the patch's four cats-kernel lines); its five
 cats-core derivations stay in `derived.txt` for rows still left.
 
+#### Record re-entry on cats-kernel (group m1)
+
+The 26 cats-kernel rows g1b left on "an overridden member that may call it" (25 on a capability
+record, `Hash.hash` on an enclosing class), each decided by hand first. All 25 record rows but one
+refused through `handsMade` at one handing: `Eq.allEqualBoundedSemilattice`'s `combineAllOption`
+builds `Some((x, y) => materialized.forall(_.eqv(x, y)))`, a literal implementing `Eq` handed to
+`Some.apply`. `Some` cannot call a member of an `Eq`, so no same-instance path exists through it
+(class (b), an over-approximation): `flows` refused every call to code outside the module where
+that code may reach the measured member, whatever it was given, and `callsBack` counted every
+literal given to it as callable.
+
+The narrowing (`Reentry.inert`): code outside the module, given only terms it cannot call, runs no
+code of the module (no side effects: it holds nothing from before, and calls only what its own
+types declare). Inert, by the term's type: a plain value; a class of the module whose parents
+outside it are `Any`, `Matchable`, `AnyVal`, `Object` or `java.io.Serializable` (`Product` and
+`Equals` declare members a class may implement, and `ScalaRunTime._toString` calls them); an
+object outside the module; a type parameter bounded by an inert type; `Option`, `Some`, `List` or
+`Vector` of inert types (strict containers; any other outside value may wrap a function of the
+module: `Ordering.by(f)`, a view, a lazy list). Not inert: a top type or an unbounded parameter
+(outside code may test the value: `ScalaRunTime.stringOf` calls an `Iterable`'s `iterator`),
+`this` (its `ThisType` is not read), varargs, refined, union, intersection and opaque types. Read in `flows` (a call to
+code outside the module refuses only where a handed term is not inert), `callsBack` (a literal
+counts only where it is not inert) and `handsOn`'s selection of an outside member. The instance
+path's `handsOver` is unchanged.
+
+Rows, by hand:
+
+- (b), now counted: `ListEq`, `SeqEq`, `VectorEq`, `OptionEq`, `EitherEq` `eqv` and `<init>`
+  (`loop` too), `ArraySeqEq`, `LazyListEq`, `StreamEq`, `MapEq`, `QueueEq`, `SortedMapEq` `<init>`,
+  `Eq.apply`, `allEqualBoundedSemilattice.empty` and `combineAllOption`,
+  `anyEqualSemilattice.combineAllOption`, `StaticMethods.iteratorEq`: 24 rows, each identical to
+  the old front end. No behavior of `Eq.neqv` hands the record value itself back: the instances
+  `Eq`'s behaviors reach are other instances (a `ListEq`'s `ev`), and the only module-built `Eq`
+  handed on is the literal above. Better (old `?`, budget), derived in `derived.txt`: `Eq.and`,
+  `Eq.or`, both semilattices' `combine`, 2^(2^17) each (two records of eqv and neqv observed on
+  the four ordered pairs: 16 Booleans; two members of 2^(2^16)).
+- (b), left: `StaticMethods.iteratorPartialCompare` (old ω). `SortedMapPartialOrder.partialCompare`
+  hands it a tuple `PartialOrder` built afresh at that call (and an `Order` built in a local of the
+  same call), which reaches it again only through `V.partialCompare` on another instance: an
+  instance built during a behavior is never the record value. Counting it needs a freshness rule in
+  `madeOf` (a `new` or literal evaluated in the handing, through methods and the call's own locals,
+  holds no earlier instance); not done.
+- (b), left: `Hash.hash` (old 2^128), the instance path: `Eq.neqv` -> `eqv` -> `Order.eqv` ->
+  `compare` -> ... -> `DeadlineOrder.compare`'s `x > y` and `BigIntOrder`'s `x compare y`, which
+  `handsOver` reads as handing module values to outside code. The values are of final outside
+  classes (`Deadline`, `BigInt`) that hold no module code; inertness of such classes (final, with
+  inert fields) would count it, a longer rule for one row; not done.
+- No (a) or (c) row: none rests on an unsound old rule, none re-enters on the same instance.
+
+Implicit `this` (agent m2's question): a call of an inherited member outside the module written
+without `this` is read by `selfReenters`' `onInstance` case as the `this.` form is; both refuse,
+pinned (`lt` and `this.lt` calling back into `compare`, which hands on `Reg.c`).
+
+`ProgramRowsSpec`: `anotherInstance` gains `wrapped` (the cats-kernel shape, 2^256);
+`sameInstanceHidden` gains seven refusals: `Cap` beside an `Ordering.by` literal, a literal
+`Ordering`, `Cap` as an `Ordering`, the two `lt` forms, a `Product` whose `productElement` hands on
+`this`, and an `Iterable` typed `Any` given to `stringOf` (the last two found by the correctness
+review, each counted by a first version). Left open, older than this unit: a member of `Product` or
+`Equals` a class of the module implements, selected on the instance (`me.canEqual(1)` with `me:
+Equals`), is skipped as universal by `selfReenters` and `handsOn` (2^256 before and after).
+
+Gate (all seven inputs pass): only cats-kernel's method rows move, 639 / 19 / 0 / 1,127 (identical
+/ better / worse / uncovered) -> 664 / 23 / 0 / 1,098; old numeric uncovered 28 -> 4, past the
+old-unsound list 26 -> 2. Gate times: cats-kernel 15.8 s -> 18.1 s, cats-core 19.4 s -> 19.6 s
+(shared machine).
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its
@@ -1701,6 +1767,29 @@ type or a wildcard bound, as the variable path's ν completion does not either.
 
 Every worse row is a listed correction. Gate times: cats-kernel 14.7 s, cats-core 17.5 s.
 `compiled/` is 9,270 lines. Round 3 is merged.
+
+Round 4, one merge commit each, each certified by the same gate. First `tasty-m1` (`f2098e7`),
+without conflicts (m1 started from `a9ffbc2`). The review found one wrong number, m1's: `inert`
+read only the static class's own parents, so a value typed by a member-less record trait `E` was
+inert though a supplied subclass mixing in an outside parent with members may be what it holds,
+and outside code given it may test for that parent (`I extends E with Iterable[Boolean]` whose
+`neqv` gives `(this: E)`, a `val me: E`, an `A <: E` or `Some[E](me)` to `ScalaRunTime.stringOf`,
+which runs `I.iterator` on the same instance: `Use.same` 2^256 where a9ffbc2 refused). `inertClass`
+now asks it of the class and every supplied class below it (`World.below`; unknown subclasses are
+not inert), pinned in `sameInstanceHidden`. No corpus row moved with the fix. `Reentry.scala` is 998
+lines.
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,885 | 19 | 0 | 1,096 | 3 (3) | 3 (3) |
+| cats-core | 2,809 | 393 | 72 | 4,377 | 18 (19) | 16 (16) |
+| cats-kernel | 664 | 23 | 0 | 1,098 | 4 (4) | 2 (2) |
+| cats-eo | 329 | 12 | 0 | 356 | 2 (2) | 2 (2) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,773 | 285 | 5 | 688 | 116 (124) | 57 (65) |
+
+Gate times: cats-kernel 18.0 s, cats-core 19.6 s. `compiled/` is 9,347 lines.
 
 ### What exists
 

@@ -446,9 +446,10 @@ class ProgramRowsSpec extends Specification {
   // the 2^4 functions of two Booleans: `same` observes the 8 Booleans they give and is one of
   // 2^(2^8) = 2^256 functions of them.
   def anotherInstance = {
-    val found = rows(record + s"""final class Fwd(o: E) extends E { ${neqv("Use.same(o)")} }
+    val fwd = record + s"""final class Fwd(o: E) extends E { ${neqv("Use.same(o)")} }
       |object Use { def same(e: E): Boolean = true }
-      |""".stripMargin)
+      |""".stripMargin
+    val found = rows(fwd)
     // `Use.all` has no input that may hold the `Cap` the module hands to `W`, whose `go` calls it:
     // the record it returns is another instance, so `all` is one value of `E`, 2^4 * 2^4 = 2^8.
     val noInput = rows(
@@ -457,8 +458,16 @@ class ProgramRowsSpec extends Specification {
       |object Use { def all: E = new E { def eqv(a: Boolean, b: Boolean) = a } }
       |""".stripMargin
     )
+    // `Mk.mk` hands a literal implementing `E`, whose body reaches `same`, to `Some`, which cannot
+    // call it: `E`'s parents outside the module declare nothing `Any` does not. The value it returns
+    // may reach `same` only through code of the module, and nothing in the program calls `Mk.mk` or
+    // reads what it returns: `same` is 2^256 as above.
+    val wrapped = rows(
+      fwd + "object Mk { def mk(o: E): Option[E] = Some[E]((a, b) => Use.same(o)) }\n"
+    )
     (found("Use.same") must_== Count.Finite(BigInt(2).pow(256)))
       .and(noInput("Use.all") must_== Count.Finite(BigInt(2).pow(8)))
+      .and(wrapped("Use.same") must_== Count.Finite(BigInt(2).pow(256)))
   }
 
   // Each behavior hands the value itself on to the site: `BackV.neqv` through a local alias of
@@ -497,7 +506,13 @@ class ProgramRowsSpec extends Specification {
   // module to a function literal or a partial function that wraps it in a `Wrap` whose `go`
   // reaches the site; a site
   // without value parameters whose result is a function or a context function of an `E`, given
-  // `Cap`, `this` through a member of `Cap`, or a module-built instance.
+  // `Cap`, `this` through a member of `Cap`, or a module-built instance; `Cap` given to code
+  // outside the module beside an `Ordering` wrapping a function literal, or a literal implementing
+  // one, or as an `Ordering` itself, any of which that code may call with `Cap`; an inherited member
+  // outside the module (`lt`, with or without `this`) calling back into `compare`, which hands on
+  // the module-built `Reg.c`; an alias of `this` given to `ScalaRunTime._toString`, which calls
+  // the class's own `productElement`; an alias of `this` typed `Any` given to
+  // `ScalaRunTime.stringOf`, which tests it for an `Iterable` and calls its `iterator`.
   def sameInstanceHidden = {
     val use = "object Use { def same(e: E): Boolean = true }\n"
     val wrap = "final class Wrap(e: E) { def go: Boolean = Use.same(e) }"
@@ -508,7 +523,7 @@ class ProgramRowsSpec extends Specification {
     def grows(body: String) =
       s"final class G extends E with scala.collection.mutable.Growable[Int] { def addOne(x: Int): this.type = this; def clear(): Unit = (); $body }"
     val sam = "trait K { def run(e: E): Boolean }\nobject Ks { val k: K = e => Use.same(e) }"
-    List(
+    (List(
       use -> s"final class W(e: E) { def go: Boolean = Use.same(e) }\nobject Cap extends E { ${neqv("new W(Cap).go")} }",
       use -> s"final class M extends E { def me(x: Boolean): E = this; ${neqv("Use.same(me(a))")} }",
       use -> s"final class P extends E { ${neqv("(this, a) match { case (x, _) => Use.same(x) }")} }",
@@ -542,15 +557,32 @@ class ProgramRowsSpec extends Specification {
       all -> s"object Cap extends E { ${neqv("Use.all(Cap)")} }",
       "object Use { def all: E ?=> Boolean = true }\n" -> s"object Cap extends E { ${neqv("Use.all(using Cap)")} }",
       all -> s"final class X extends E { ${neqv("Use.all(Reg.x)")} }\nobject Reg { val x: E = new X }",
-      all -> s"object Cap extends E { def helper: Boolean = Use.all(this); ${neqv("helper")} }"
-    ).map { (site, program) =>
-      val row =
-        if (site == use) "Use.same"
-        else if (site == home) "Home.target"
-        else if (site.startsWith("object Use")) "Use.all"
-        else "Outer.Inner.target"
-      uncovered(rows(record + site + program)(row), Receivers.Reenters)
-    }.reduce(_ and _)
+      all -> s"object Cap extends E { def helper: Boolean = Use.all(this); ${neqv("helper")} }",
+      use -> s"object Cap extends E { ${neqv("{ val o: Ordering[E] = Ordering.by[E, Boolean](e => Use.same(e)); Some[E](Cap).toList.sorted(o).isEmpty }")} }",
+      use -> s"object Cap extends E { ${neqv("Some[E](Cap).toList.sorted((p: E, q: E) => if (Use.same(p)) 0 else 1).isEmpty")} }",
+      use -> s"object Cap extends E with Ordering[E] { def compare(p: E, q: E) = if (Use.same(p)) 0 else 1; ${neqv("Some[E](Cap).toList.sorted(Cap).isEmpty")} }",
+      use -> s"final class P extends E with Product { ${neqv("{ val me: P = this; scala.runtime.ScalaRunTime._toString(me).isEmpty }")}; def productArity = 1; def productElement(n: Int): Any = Use.same(this); def canEqual(x: Any) = true }",
+      use -> s"final class I extends E with Iterable[Boolean] { ${neqv("{ val me: Any = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }")}; def iterator: Iterator[Boolean] = Iterator(Use.same(this)) }"
+    ) ++ List(
+      "{ val me: E = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }",
+      "scala.runtime.ScalaRunTime.stringOf(this: E).isEmpty",
+      "{ def h[A <: E](x: A): Boolean = scala.runtime.ScalaRunTime.stringOf(x).isEmpty; h[E](this) }",
+      "{ val me: E = this; scala.runtime.ScalaRunTime.stringOf(Some[E](me)).isEmpty }"
+    ).map(body =>
+      use -> s"final class I extends E with Iterable[Boolean] { ${neqv(body)}; def iterator: Iterator[Boolean] = Iterator(Use.same(this)) }"
+    ) ++ List("lt", "this.lt")
+      .map(call =>
+        use -> s"object Reg { val c: Cap = new Cap }\nfinal class Cap extends E with Ordering[Int] { def compare(p: Int, q: Int) = if (Use.same(Reg.c)) 0 else 1; ${neqv(s"$call(1, 2)")} }"
+      ))
+      .map { (site, program) =>
+        val row =
+          if (site == use) "Use.same"
+          else if (site == home) "Home.target"
+          else if (site.startsWith("object Use")) "Use.all"
+          else "Outer.Inner.target"
+        uncovered(rows(record + site + program)(row), Receivers.Reenters)
+      }
+      .reduce(_ and _)
   }
 
   // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement
