@@ -126,6 +126,13 @@ class ReceiversSpec extends Specification {
       |object TA { final case class P(b: Boolean); trait Base[R] { def f(p: P): R } }
       |object TB { final case class P(b: Boolean); trait Mid[R] extends TA.Base[R] { def f(p: P): R } }
       |trait Twin[R] extends TB.Mid[R] { def g(): R = ??? }
+      |enum Rose { case Leaf; case Node(kids: List[Rose]); def name: String = "r"; def flag: Boolean = true }
+      |enum Thorn { case Node(kids: List[Thorn]); def name: String = "t" }
+      |enum Gadt[A] { case I extends Gadt[Int]; case R(e: Gadt[A]); def name(g: A => Nothing): String = "g" }
+      |sealed trait Bush { def name: String = "b" }
+      |final case class Twig(kids: List[Bush]) extends Bush
+      |object ExA { type T = Boolean }
+      |class Exp { export ExA.T; def g(t: T): Boolean = t; final case class P(t: T) }
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Receivers.scala" -> text)
@@ -210,6 +217,15 @@ class ReceiversSpec extends Specification {
   // A sealed family or an enum is one value of its sum as a receiver: which case, and what the
   // case holds. `Fam` has the one case `One`, so `get` is one of 2 Booleans; `Color` has two
   // cases, so `f` is one of the 2^2 functions of them. The row captures the receiver as a whole.
+  // A sum receiver that is not read (`Rose` is recursive) cannot change a `String` goal once the
+  // context is not absurd: the solver's ω without it stands, `Leaf` being built from nothing, so
+  // `Rose.name` is ω. Left uncovered, as the old front end's `SealedReceivers` leaves them: a
+  // finite goal (`Rose.flag`), an enum whose only case has a recursive field (`Thorn`; the reading
+  // does not show `Node(Nil)` built from nothing), a generic enum, whose case may be of one
+  // instantiation alone (`Gadt`: no `Gadt[A]` but at `A = Int`, where `g` is absurd, so the count
+  // is 1, not ω) and a sealed trait (`Bush`).
+  // An export's alias is the type it exports, no abstract type member: `Exp.T` is `Boolean`, so
+  // `g` is one of the 2^2 functions and `P` holds one of 2 Booleans.
   private def inherited =
     (count("recv.Impl.get") must_== Count.Finite(4))
       .and(count("recv.Impl.show") must_== Count.Finite(16))
@@ -224,6 +240,9 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Twin.g") must_== Count.Finite(4))
       .and(count("recv.Wide.get") must_== Count.Finite(16))
       .and(count("recv.Sub.more") must_== Count.Finite(4))
+      .and(count("recv.Rose.name") must_== Count.Countable)
+      .and(count("recv.Exp.g") must_== Count.Finite(4))
+      .and(count("recv.Exp.P.<init>") must_== Count.Finite(2))
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
@@ -374,7 +393,11 @@ class ReceiversSpec extends Specification {
       "WishedM.get" -> "a deferred inline method over a type parameter",
       "Holds.Fixed.get" -> "a type",
       "Twice.Again.get" -> "an abstract type member two enclosing instances hold",
-      "Mixed.get" -> "an abstract type member another declaration of its name bounds or hides"
+      "Mixed.get" -> "an abstract type member another declaration of its name bounds or hides",
+      "Rose.flag" -> "an enclosing sum not read",
+      "Thorn.name" -> "an enclosing sum not read",
+      "Gadt.name" -> "a sealed subtype that does not pass its own parameters to its parent",
+      "Bush.name" -> "an enclosing sum not read"
     )
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     expected.map { (name, _) =>

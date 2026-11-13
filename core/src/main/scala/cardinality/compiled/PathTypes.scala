@@ -108,16 +108,27 @@ private[compiled] object PathTypes {
 
   /** A type with its aliases followed as the compiler sees them: a member alias through the prefix
     * it is selected on (`p.X` for a `p: R { type X = A }` is `A`; `Y` of a parent seen from a
-    * subclass, its arguments substituted), which `dealias` does not do. An opaque alias stays.
+    * subclass, its arguments substituted), which `dealias` does not do; an export's alias, a member
+    * bounded by one type on both sides, is that type. An opaque alias stays.
     */
   def follow(tpe: Type)(using Context): Type = tpe match {
     case ref: TypeRef if ref.optSymbol.forall {
           case member: TypeMemberSymbol => !member.isOpaqueTypeAlias
           case _                        => true
         } =>
-      ref.optAliasedType.fold(tpe.dealias)(follow)
+      ref.optAliasedType
+        .orElse(ref.optSymbol.collect {
+          case member: TypeMemberSymbol if Shapes.bounds(member).exists(exported) =>
+            ref.bounds.high
+        })
+        .fold(tpe.dealias)(follow)
     case _ => tpe.dealias
   }
+
+  /** The bounds of an export's alias: one type on both sides (or bounds written so, which only that
+    * type meets).
+    */
+  def exported(bounds: TypeBounds)(using Context): Boolean = bounds.low.isSameType(bounds.high)
 
   /** Whether a shape tells none of a type's values apart: a type of type members alone, or a top.
     */

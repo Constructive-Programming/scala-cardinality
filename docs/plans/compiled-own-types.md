@@ -2214,6 +2214,63 @@ public member reading a later clause beside the extractor. The same gap stands i
 a final class of the module (`Shapes.record`): `observed` follows only the class's own body. Left
 until observation is read over every definition the site may reach.
 
+### Group h6: capability records and abstract type members
+
+Four rules, each read from symbols and types:
+
+- **An unread sum receiver beside an ω goal** (`Readings.counted`). This ports the old
+  `SealedReceivers.stands`. A sum receiver that is not read cannot change a goal of infinitely many
+  literals once the context is not absurd. So the row is solved again without the receivers
+  `Receivers.supplied` words "an enclosing sum not read", and only an ω result is kept. Each
+  dropped receiver must be an enum without type parameters, with a case the reading shows built
+  from nothing: a value case, or a class case whose parameters, and the enum's own, are each of a
+  closed nonempty space. A generic enum is not taken, because a case of a GADT may belong to one
+  instantiation alone. That makes this check stricter than the old one, which did not look at
+  that. A sealed trait is not taken either, as before.
+- **An open constructor position over a type parameter is the shape model's alone**
+  (`Constructors.position`). The stored estimate is asked only for a ground or closed position, the
+  only ones whose size it is compared at. So its failure on a class it does not model
+  (`IterableOnce`, `<:<`) no longer leaves `Wrap[A](io: IterableOnce[A])` uncovered.
+- **A capability with a one-valued result supplies nothing, whatever its parameters**
+  (`Shapes.member`, `Receivers.inheritedCapability`). Its parameter types and own type parameters
+  are no longer read. For example `collectTo(…, lenBuf: IntArrBuilder, …): Unit` of cats-eo no
+  longer stops its record.
+- **An export's alias is the type it exports** (`PathTypes.follow`, `PathTypes.exported`,
+  `Stored.body`). A type member bounded by one type on both sides is followed to that type, and it
+  is not an abstract type member of a receiver.
+
+Not taken, recorded for the next agent:
+
+- Inherited capabilities with type parameters of their own (`PolymorphicMembers.close` over an
+  inherited `PolyType`, instantiated at the member's own parameter symbols). This covered
+  `Category.id` 0. But in cats-core it fed the solver large records, Comonad and CoflatMap among
+  them, and two things went wrong. First, PB5's instantiation closure (`GoalSolver.instantiated`,
+  which names each instance by its shape's `toString`) ran unbounded: one row ran for over 40
+  minutes with no budget tick. Second, it counted ω for `Comonad[Tuple1]` and its siblings
+  (15 rows past a model limit). I found no derivation for those. Reverted. To take it, give
+  `instantiated` a budget first, then derive the ω rows.
+- `cats.kernel.Order` "overriders not read" (`Size.order`, `FinitePart.order`,
+  `catsDataOrderForIor`, the Const bounds) and `As.coerce` (a family with an anonymous instance):
+  not investigated.
+
+Regressions:
+
+- `ReceiversSpec`: `Rose.name` ω; `Rose.flag`, `Thorn`, `Gadt`, `Bush` uncovered; `Exp.g` 4;
+  `Exp.P.<init>` 2.
+- `ConstructionSpec`: `Wrap.<init>` ω; `Ev.<init>` 1.
+
+Old numeric method rows covered:
+
+- core: `Meaning.phrase`, `Meaning.refusal`, `Card.literalSize`, `Count.render`, `Kind.render`
+  (ω).
+- cats-core: `Eval.Ident.<init>` (1).
+- cats-kernel: `iterableOnceExtension.<init>`, `WrappedIndexedSeq.<init>` (ω).
+- cats-eo: `reconstructSingleton` (0), `maybeHitTo` (ω), and two `MultiFocus` rows (0).
+- fixtures: 22, the export rows and the evidence constructors (`Hidden`, `Carrier`) among them.
+
+Every covered row is identical to the old count. One fixture row is tightened, from ≤2^33 to
+2^33: `lib4.W2.<init>`, whose `Flag` is an exported `Int`.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

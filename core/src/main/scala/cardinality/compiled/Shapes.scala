@@ -540,14 +540,18 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           own <- polymorphic(symbol.displayFullName, method)
           inside = env.copy(binders = env.binders ++ own.map((p, shape, _) => p -> shape))
           result <- of(method.resultTpt.toType, inside)
-          read <- inputs(parameters, inside)
-          // A member's own type parameters are read as the scalameta front end reads them
-          // (`PolymorphicMembers.close`): exact where a reading is, kept for the solver otherwise.
-          closed <- PolymorphicMembers
-            .close(symbol.displayFullName, own.map(_._3), Shape.Function(read, result))
-            .left
-            .map(Uncovered(_))
-        } yield Option.when(result != Shape.Product(Nil))(closed)
+          // A one-valued result supplies nothing, whatever the parameters are.
+          closed <- Option
+            .when(result != Shape.Product(Nil))(for {
+              read <- inputs(parameters, inside)
+              // Own type parameters, as the old front end reads them (`PolymorphicMembers.close`).
+              closed <- PolymorphicMembers
+                .close(symbol.displayFullName, own.map(_._3), Shape.Function(read, result))
+                .left
+                .map(Uncovered(_))
+            } yield Some(closed))
+            .getOrElse(Right(None))
+        } yield closed
     }
   }
 

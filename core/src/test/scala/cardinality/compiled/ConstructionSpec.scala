@@ -12,6 +12,7 @@ class ConstructionSpec extends Specification {
   def is = s2"""
   A construction is read, never refused for throwing
     a pattern definition binds, and one that throws builds nothing $patterns
+    an open position over a type parameter is the shape model's   $open
   """
 
   private val text =
@@ -23,6 +24,8 @@ class ConstructionSpec extends Specification {
       |trait AT { def m(b: Boolean): Boolean }
       |class AD { def f: AT = new AT { val v: Boolean = ???; def m(b: Boolean): Boolean = b } }
       |object AO { val boom: Int = ???; def f: AT = new AT { def m(b: Boolean): Boolean = b } }
+      |final class Wrap[A](val io: IterableOnce[A])
+      |final class Ev[A, B](val ev: A <:< B)
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Construction.scala" -> text)
@@ -45,5 +48,13 @@ class ConstructionSpec extends Specification {
       .and(count("ctor.AD.f.<new#1>.m") must_== Count.Finite(1))
       .and(count("ctor.AD.f.<new#1>.v") must_== Count.Finite(2))
       .and(count("ctor.AO.f.<new#1>.m") must_== Count.Finite(1))
+
+  // A position over a type parameter whose shape is open is the shape model's alone, whatever the
+  // stored estimate says of its class: `Wrap` stores the sequence of `A`s it is given, any of
+  // infinitely many built from the input's, ω; `Ev` stores the evidence it is given, of which there
+  // is one at most, 1 (the old front end's counts).
+  private def open =
+    (count("ctor.Wrap.<init>") must_== Count.Countable)
+      .and(count("ctor.Ev.<init>") must_== Count.Finite(1))
 
 }
