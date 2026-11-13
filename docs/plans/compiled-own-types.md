@@ -242,6 +242,10 @@ and `fixtures` added two more once their derivations were in `derived.txt`. The 
 cats-core 102, cats-eo 9, cats-eo-generics 6, cats-kernel 91, corpus-core 158, fixtures 479. No row
 was removed.
 
+Stretch 10 takes the capability records' remaining reasons. A record with parents, or with a member
+something overrides, is read as what its template supplies as a receiver (`Receivers.record`, which
+`Shapes.record` asks); rule B for records and a record's abstract type members are next.
+
 ### Commands
 
 | Command | What it does |

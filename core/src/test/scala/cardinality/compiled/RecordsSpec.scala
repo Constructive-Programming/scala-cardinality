@@ -14,6 +14,7 @@ class RecordsSpec extends Specification {
   A capability record is what a body can observe of it
     an abstract member is what any implementation supplies       $open
     a final class is the tuple of its public fields               $fixed
+    what a record inherits, and a member something overrides      $inherited
     a record this step does not read is uncovered                 $later
     the scalameta front end agrees on every row measured          $agrees
   """
@@ -32,6 +33,21 @@ class RecordsSpec extends Specification {
       |final class Hid(secret: Boolean) { def reveal: Boolean = secret }
       |class Base(val b: Boolean)
       |class Sub extends Base(true)
+      |trait Seeded { def seed: Boolean }
+      |trait Grown extends Seeded { def more: Boolean }
+      |trait Derived extends Seeded { def other: Boolean = seed }
+      |abstract class Field(val p: Boolean) { def q: Boolean }
+      |abstract class Passed extends Field(true) { def r: Boolean }
+      |trait Ov { def f: Boolean = true; def g: Boolean }
+      |class OvSub extends Ov { override def f: Boolean = false; def g: Boolean = true }
+      |trait Prod extends Product { def x: Boolean; def canEqual(that: Any): Boolean }
+      |trait Shown { def show: Boolean }
+      |trait Shows extends Shown
+      |trait Free extends Field
+      |trait Typed { type T; def t: T }
+      |trait Typing extends Typed { def b: Boolean }
+      |trait Guarded { protected def h: Boolean }
+      |trait Guards extends Guarded { def k: Boolean = h }
       |object Use {
       |  def read[S, A](s: S, g: CanGet[S, A]): A = g.get(s)
       |  def noSource[S, A](g: CanGet[S, A]): A = ???
@@ -46,6 +62,15 @@ class RecordsSpec extends Specification {
       |  def never(n: Never): Boolean = true
       |  def make(): Never = ???
       |  def base(b: Base): Boolean = true
+      |  def grown(g: Grown): Boolean = true
+      |  def derived(d: Derived): Boolean = true
+      |  def passed(p: Passed): Boolean = true
+      |  def ov(o: Ov): Boolean = true
+      |  def prod(p: Prod): Boolean = true
+      |  def show(s: Shows): Boolean = true
+      |  def free(f: Free): Boolean = true
+      |  def typing(t: Typing): Boolean = true
+      |  def guards(g: Guards): Boolean = true
       |}
       |""".stripMargin
 
@@ -82,18 +107,37 @@ class RecordsSpec extends Specification {
       .and(count("never") must_== Count.Finite(1))
       .and(count("make") must_== Count.Finite(0))
 
+  // A record holds what it inherits as a receiver does. `Grown` is its own `more` and the `seed` it
+  // inherits: 2 × 2 values, so `grown` is one of 2^4. `Derived`'s `other` computes from `seed`:
+  // `derived` is one of 2^2. `Passed` passes `true` to `Field`'s `p`, a constant, and holds `q` and
+  // `r`: 2^4. `Free` passes nothing, so `p` is a value each instance chooses beside `q`: 2^4.
+  // `OvSub` overrides `Ov.f`, so `f` varies beside `g`: 2^4. A member restating one of
+  // `Product`'s (`canEqual`) is outside the model: `Prod` is its `x`, 2^2.
+  private def inherited =
+    (count("grown") must_== Count.Finite(16))
+      .and(count("derived") must_== Count.Finite(4))
+      .and(count("passed") must_== Count.Finite(16))
+      .and(count("ov") must_== Count.Finite(16))
+      .and(count("prod") must_== Count.Finite(4))
+      .and(count("free") must_== Count.Finite(16))
+
   // Not read yet, each by its reason: an extension member, a parameter that is no public field
-  // (rule B reads what a member observes of it), a class something extends.
+  // (rule B reads what a member observes of it), a class something extends, and a record that
+  // inherits a member named like the measured definition, which may be that one on another value,
+  // one that inherits an abstract type member, and one whose inherited member the site may not call.
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def reason(name: String) = count(name) match {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "hid", "base").map(reason) must_== List(
+    List("tagged", "hid", "base", "show", "typing", "guards").map(reason) must_== List(
       "an extension method among the members of a capability record",
       "a capability record with a parameter that is no public field",
-      "a capability record of a class something extends"
+      "a capability record of a class something extends",
+      "a capability record with a member named like the measured definition",
+      "a capability record with an abstract type member",
+      "a capability record with a member hidden at the use site"
     )
   }
 

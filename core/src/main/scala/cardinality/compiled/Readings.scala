@@ -32,9 +32,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 ) {
   import Unread.Uncovered
 
-  private val shapes = new Shapes(world)
+  // A capability record is read as what its template supplies as a receiver: `Shapes` asks
+  // `Receivers`, which reads types with `Shapes`.
+  private val shapes: Shapes = new Shapes(world, receivers)
   private val bounds = new Bounds(shapes)
-  private val receivers = new Receivers(world, shapes)
+  private lazy val receivers: Receivers = new Receivers(world, shapes)
   private val constructors = new Constructors(shapes, stored, receivers)
 
   // ---- method rows --------------------------------------------------------------------------
