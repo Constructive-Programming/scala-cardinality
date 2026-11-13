@@ -60,8 +60,9 @@ import tastyquery.Types.*
   * clause does not pass its own parameters on, a class the algebra does not model or of a
   * dependency without TASTy, an opaque type of the standard library or of a class named inside it,
   * an alias of a class beside an opaque type's scope, a wildcard argument, a refinement of no
-  * written type, a function type refined by its `apply`, any other form of type, and what a value
-  * of a class of the module needs (its construction).
+  * written type, a function type refined by its `apply`, any other form of type, and a value of a
+  * class of a dependency, of one whose construction binds a pattern, or of an enum with parameters
+  * and a value case.
   */
 final private[compiled] class Stored(world: World)(using Context) {
   import Stored.{Env, Held, Instance, Row, Values, given}
@@ -309,8 +310,9 @@ final private[compiled] class Stored(world: World)(using Context) {
     }
 
   // A top-level value holds one value where its declared type has one (register D30): the size is
-  // 1, and the row is undecided where the type has reasons, is empty, or has a size that does not
-  // say a value exists. The initializer is never read.
+  // 1, and the row is undecided where the type has reasons, is empty, has a size that does not say
+  // a value exists, or names a class of the module whose construction always throws (`unbuilt`, at
+  // every class the reading meets). The initializer is never read.
   private def topLevel(tree: ValDef): Either[String, Row] =
     solved(Env(Map.empty, tree.symbol, isValue = true))(of(tree.tpt.toType, _)).map { held =>
       val reasons =
@@ -464,14 +466,34 @@ final private[compiled] class Stored(world: World)(using Context) {
   private def declared(c: ClassSymbol, arguments: List[Held], env: Env): Either[String, Held] = {
     val name = c.name.toString
     if (env.system.isEmpty && env.visiting(c)) Left(Stored.Reaches(c))
-    // Whether a value of the class exists is its construction's to say (slice S6).
-    else if (env.isValue) Left(s"a value of a class of the module: ${c.displayFullName}")
+    else if (env.isValue && !world.ofModule(c))
+      Left(s"a value of a class of a dependency: ${c.displayFullName}")
     else if (c.isEnum && c.isCaseClass)
       Right(Held(EffectiveOmega, List(Unbound.Refusal(s"enum case type not read: $name"))))
     // Any subtype anywhere may add values to an open trait or abstract class.
     else if (c.isAbstractClass && !c.isEnum && !Shapes.isFamily(c))
       Right(Held(EffectiveOmega, List(Unbound.Open(name))))
-    else env.system.fold(expand(c, arguments, env))(variable(c, arguments))
+    else
+      for {
+        held <- env.system.fold(expand(c, arguments, env))(variable(c, arguments))
+        thrown <- if (env.isValue) unbuilt(c) else Right(false)
+      } yield held.copy(undecided = held.undecided || thrown)
+  }
+
+  // While a value row reads a class of the module, what it stores is no evidence that an instance
+  // is ever built (register D30, the old `Builds`): one whose construction, an ancestor's of the
+  // module or, for an enum, a class case's always throws leaves the row undecided. One that binds a
+  // pattern is not read (slice S6, as `family` refuses it), nor an enum with parameters and a value
+  // case, whose clause's arguments are not read here.
+  private def unbuilt(c: ClassSymbol): Either[String, Boolean] = {
+    val cases = if (c.isEnum) c.sealedChildren else Nil
+    val templates =
+      world.templates(c) ++ cases.collect { case cls: ClassSymbol => cls }.flatMap(world.templates)
+    if (templates.exists(Bodies.destructures))
+      Left(s"a value of a class whose construction binds a pattern: ${c.displayFullName}")
+    else if (cases.exists(_.isTerm) && c.tree.exists(t => Shapes.parameters(t.rhs.constr).nonEmpty))
+      Left(s"a value of an enum with parameters and a value case: ${c.displayFullName}")
+    else Right(templates.exists(Bodies.alwaysThrows(_)))
   }
 
   // What a class of the module stores with its type parameters bound to `arguments`, as it is
@@ -516,7 +538,7 @@ final private[compiled] class Stored(world: World)(using Context) {
     for {
       root <- reading(at(Values()))
       found <- Stored.ordered(root.refs).foldLeft(Right(Map.empty): Found) { (acc, k) =>
-        acc.flatMap(discovered(k, _))
+        acc.flatMap(discovered(env.isValue)(k, _))
       }
       keys = Stored.ordered(found.keys)
       reaches = Fixpoint.reaches(found.view.mapValues(_.refs).toMap)
@@ -528,7 +550,7 @@ final private[compiled] class Stored(world: World)(using Context) {
         .toLeft(())
       nu <- lazily(found)
       eqs = keys.map(k =>
-        k -> ((values: Values) => settled(equation(values)(k), NothingSize)(_.size))
+        k -> ((values: Values) => settled(equation(env.isValue)(values)(k), NothingSize)(_.size))
       )
       values = Fixpoint.solve(eqs, Set.empty, Values(), nu, reaches)
       _ <- keys
@@ -537,7 +559,7 @@ final private[compiled] class Stored(world: World)(using Context) {
         }
         .toLeft(())
       // Every equation read again over the solved values: what it reads and its reasons.
-      all <- Traversals.sequence(keys.map(k => equation(values)(k).map(k -> _)))
+      all <- Traversals.sequence(keys.map(k => equation(env.isValue)(values)(k).map(k -> _)))
       _ <- all
         .collectFirst {
           case (k, held) if values.value(k).larger(held.size) =>
@@ -563,8 +585,9 @@ final private[compiled] class Stored(world: World)(using Context) {
       Right(Held(values.value(key), refs = Set(key)))
     }
 
-  private def equation(values: Values)(k: Instance): Either[String, Held] =
-    expand(k.cls, k.arguments, Env(Map.empty, k.cls, system = Some(values)))
+  // A class's equation, read for a value row (`isValue`) or a definition's.
+  private def equation(isValue: Boolean)(values: Values)(k: Instance): Either[String, Held] =
+    expand(k.cls, k.arguments, Env(Map.empty, k.cls, isValue = isValue, system = Some(values)))
 
   // A reading inside a system after `discovered` has read every equation over empty values: what a
   // reading may refuse does not depend on the values, and `system` reads every equation again
@@ -575,14 +598,14 @@ final private[compiled] class Stored(world: World)(using Context) {
   // The classes a system reads from `k` on, each with its equation read over empty values. A class
   // read with ever new type arguments (`N[A](n: Option[N[(A, A)]])`) would not end: one read with
   // more argument lists than `Stored.Instantiations` is refused, whatever order meets them.
-  private def discovered(k: Instance, found: Map[Instance, Held]): Found =
+  private def discovered(isValue: Boolean)(k: Instance, found: Map[Instance, Held]): Found =
     if (found.contains(k)) Right(found)
     else if (found.keys.count(_.cls == k.cls) >= Stored.Instantiations)
       Left(s"a class a system reads with ever new type arguments: ${k.cls.displayFullName}")
     else
-      equation(Values())(k).flatMap { held =>
+      equation(isValue)(Values())(k).flatMap { held =>
         Stored.ordered(held.refs).foldLeft(Right(found.updated(k, held)): Found) { (acc, next) =>
-          acc.flatMap(discovered(next, _))
+          acc.flatMap(discovered(isValue)(next, _))
         }
       }
 

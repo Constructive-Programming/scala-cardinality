@@ -665,8 +665,8 @@ class TastyFrontEndSpec extends Specification {
   //     sealed trait that extends a sealed class is the trait's: `Lvl2` is 1 + 1.
   //     An enum's value case that extends a family makes the row the old estimate's refusal,
   //     whatever its other cases hold: `Mixed` has no size and that reason alone.
-  //   - A top-level value is one value, the empty tuple too. One of a type the algebra reads as
-  //     0, or of an intersection, whose size does not say that a value exists, is undecided.
+  //   - A top-level value is one value, the empty tuple and a built `Pt` (`made`) too. One of a type
+  //     read as 0, or of an intersection, whose size does not say a value exists, is undecided.
   private def stored = {
     def sized(size: String) = (Some(size), Nil)
     def unbound(reason: String, size: String = "ω") = (Some(size), List(reason))
@@ -722,6 +722,7 @@ class TastyFrontEndSpec extends Specification {
       "Mixed" ->
         (None, List("refusal:sealed family not summed: Mixed (an enum case extends it: M1)")),
       "top" -> sized("1"),
+      "made" -> sized("1"),
       "empty" -> sized("1"),
       "none" ->
         unbound("refusal:value not decided: scala.Function1[scala.Nothing, scala.Boolean]", "1"),
@@ -738,8 +739,8 @@ class TastyFrontEndSpec extends Specification {
   // case under a sealed level (`Deep`) or behind a reference (`HasMixed`); a class's alias read as its prefix sees it from inside an opaque type's scope, where
   // what it names was written elsewhere; a private constructor (rule B); an enum case that pins its enum's parameter to a type;
   // a refinement written without a type, which is not told from one of `Object`; a dependent
-  // function type, whose result its parent does not hold; a wildcard argument; a class the algebra has no entry for; and a value of a
-  // class of the module, whose construction says whether it exists.
+  // function type, whose result its parent does not hold; a wildcard argument; and a class the
+  // algebra has no entry for.
   private def unstored = {
     val expected = List(
       "Thr" -> "a construction that always throws or binds a pattern",
@@ -756,8 +757,7 @@ class TastyFrontEndSpec extends Specification {
       "Shape" -> "a refinement of no written type",
       "Dep" -> "a function type refined by its apply",
       "Wild" -> "a wildcard type argument",
-      "Path" -> "a class the algebra does not model",
-      "made" -> "a value of a class of the module"
+      "Path" -> "a class the algebra does not model"
     )
     val prefix = s"refusal:${TastyFrontEnd.Uncovered}: "
     expected.map((name, _) =>

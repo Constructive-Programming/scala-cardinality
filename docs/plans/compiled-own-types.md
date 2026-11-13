@@ -2010,8 +2010,8 @@ the same six deleted when this branch is merged; every input passes otherwise.
   Done since (stretch 6, the coordinator's order after `43fa5d8`): the stored side's fixed point,
   shared with the old front end (`capacity/Fixpoint.scala`), and a constructor position the method
   side refuses for recursion taking the estimate's size ("Stretch 6, first unit").
-  Next, by the coordinator's order after `43fa5d8`: (1) what is left of it: the core `Size` values
-  (`a value of a class of the module`, core 12 definitions); a position the method side refuses
+  Done since: a top-level value of a class of the module ("Stretch 6, second unit").
+  Next, by the coordinator's order after `43fa5d8`: (1) what is left of it: a position the method side refuses
   for another reason than recursion (`sealed subtype hides a parameter`, fixtures 7, `sealed
   subtype shape unreadable`, 1) stays uncovered, since the estimate counts a hidden parameter the
   method side's equivalence does not; (2) captures a nearer scope binds again (41 + 2), definitions in function literals
@@ -3036,6 +3036,28 @@ the others nonzero). No correction. Regressions: `StoredRecursionSpec`, and `Tas
 (`Rec` ω, its position ω + 1). Old numeric rows still uncovered (methods; both tables): core 8
 (20), cats-core 44 (47), cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes
 0, fixtures 673 (747); every input passes on the private memory.
+
+### Stretch 6, second unit: a value of a class of the module
+
+- A top-level value whose type names a class of the module is read as the old `ValueRows` reads
+  it (register D30): one value where its type has one. While a value row reads a class (each one
+  the reading meets, in a system too: `equation` takes the value flag), what it stores is no
+  evidence that an instance is built (the old `Builds`): a class whose template, a module
+  ancestor's or an enum class case's always throws leaves the row undecided (`Stored.unbuilt`,
+  over `World.templates`). Refused: one whose construction binds a pattern (slice S6), an enum with
+  parameters and a value case (its clause's arguments are not read), a class of a dependency.
+- `Bodies.throws` follows a parent's default (`$default$` getter) into its body, as the old
+  `Builds.omitted` does: `final class Dk extends Dp` with `class Dp(x: Int = ???)` is never built.
+  This feeds the method side's `alwaysThrows` too. A by-name parameter's default is taken as
+  evaluated, as a written by-name argument already is (a reviewer's note: `class A(x: => Int =
+  ???)` is buildable; the old reading makes the same approximation).
+- Regressions: `StoredRecursionSpec` (`values`), `TastyFrontEndSpec` (`made`, 1).
+- A first version followed the default's symbol before its name and crashed on four cats-core
+  sources (a refinement's member has no symbol): the name is read first.
+
+Old numeric rows still uncovered (methods; both tables): core 8 (8: the 12 `Size` values are read),
+cats-core 44 (47), cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0,
+fixtures 673 (744); every input passes on the private memory. No derivation or correction.
 
 ### How each model rule reads over symbols
 

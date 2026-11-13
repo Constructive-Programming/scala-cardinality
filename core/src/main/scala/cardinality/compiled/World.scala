@@ -41,10 +41,10 @@ final private[compiled] class World(
     * holds a pattern definition.
     */
   def unbuilt(tree: ClassDef): Boolean =
-    tree.symbol.linearization
-      .filter(ofModule)
-      .flatMap(_.tree)
-      .exists(template => Bodies.destructures(template) || Bodies.alwaysThrows(template))
+    templates(tree.symbol).exists(t => Bodies.destructures(t) || Bodies.alwaysThrows(t))
+
+  /** The templates of the module a class's construction runs: its own and its ancestors'. */
+  def templates(c: ClassSymbol): List[ClassDef] = c.linearization.filter(ofModule).flatMap(_.tree)
 
   /** Whether a class of the program extends `c`, or the classes that do are not all known. */
   def extended(c: ClassSymbol): Boolean = {

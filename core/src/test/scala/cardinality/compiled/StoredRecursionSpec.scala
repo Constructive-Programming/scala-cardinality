@@ -15,6 +15,7 @@ class StoredRecursionSpec extends Specification {
     a constructor position takes the estimate's size          $positions
     a recursion with no count is refused                      $refusals
     a class read at other arguments is another class          $instantiations
+    a value of a class holds one where one is built           $values
   """
 
   private val text =
@@ -46,23 +47,36 @@ class StoredRecursionSpec extends Specification {
       |final case class Ta(b: Option[Box[Ta]])
       |final case class AbsR(f: Nothing => AbsR)
       |final case class HoldsAbs(r: AbsR)
+      |final class Thr(x: Boolean) { val z: Int = ??? }
+      |final class Pat(x: Boolean) { val (a, b) = (x, x) }
+      |val nat: Nat = Z
+      |val thr: Thr = ???
+      |val pat: Pat = ???
+      |val lz: Lz = ???
+      |abstract class Base { val z: Int = ??? }
+      |final class Kid(val x: Boolean) extends Base
+      |class Dp(x: Int = ???)
+      |final class Dk extends Dp
+      |final case class Rt(n: Option[Rt]) { val z: Int = ??? }
+      |enum Ep(x: Int) { case A extends Ep(1) }
+      |val kid: Kid = ???
+      |val dflt: Dk = ???
+      |val rt: Rt = ???
+      |val ep: Ep = ???
       |""".stripMargin
 
   private lazy val rows =
     Differential.answer(TastyFrontEnd, TastyFrontEndSpec.compiled("Rec.scala" -> text).next)
 
-  // A row as the report shows it: its size, or its first reason up to what it names.
-  private def shown(size: Option[String], reasons: List[String]): String =
-    reasons.headOption.fold(size.getOrElse("—")) { reason =>
-      reason.stripPrefix(s"refusal:${TastyFrontEnd.Uncovered}: ").takeWhile(_ != ':')
-    }
-
+  // A definition row as the report shows it: its size, or its first reason up to what it names.
   private def definition(name: String): String = {
     val found = rows.sources
       .flatMap(_.toOption.toList.flatMap(_.definitions))
       .find(_.name == s"rec.$name")
       .get
-    shown(found.size.map(_.render), found.unbound.map(r => s"${r.tag}:${r.subject}"))
+    found.unbound.headOption.fold(found.size.fold("—")(_.render)) { reason =>
+      reason.subject.stripPrefix(s"${TastyFrontEnd.Uncovered}: ").takeWhile(_ != ':')
+    }
   }
 
   private def constructor(name: String): String =
@@ -117,8 +131,25 @@ class StoredRecursionSpec extends Specification {
   // A class read with two argument lists, one below the other, is two classes of the system:
   // `C[Int]` is 2^32 × (1 + C[Int]), widened to ω; `C[Boolean]` is 2 × (1 + ω); `R1` and `R2` hold
   // one of each, whichever comes first: countably many, ω. `C[A]` holds an A beside an
-  // `Option[C[Int]]`: no one size, the reason its parameter.
+  // `Option[C[Int]]`: no one size, the reason its parameter `A`.
   private def instantiations =
-    List("R1", "R2", "C").map(definition) must_== List("ω", "ω", "param")
+    List("R1", "R2", "C").map(definition) must_== List("ω", "ω", "A")
+
+  // A top-level value holds one value where its type has one and an instance is built: `nat` (Nat
+  // is ω), `lz` (1, the lazy knot). `Thr` stores 2 but its construction always throws, so whether
+  // `thr` holds a value is undecided (the old `Builds`); so for `kid`, whose parent `Base` throws,
+  // `dflt`, whose parent's default throws, and `rt`, a recursive class that throws. `Pat` binds a
+  // pattern, a construction slice S6 leaves; `Ep`'s value case passes an argument not read here.
+  private def values =
+    List("nat", "lz", "thr", "kid", "dflt", "rt", "pat", "ep").map(definition) must_== List(
+      "1",
+      "1",
+      "value not decided",
+      "value not decided",
+      "value not decided",
+      "value not decided",
+      "a value of a class whose construction binds a pattern",
+      "a value of an enum with parameters and a value case"
+    )
 
 }
