@@ -244,7 +244,11 @@ was removed.
 
 Stretch 10 takes the capability records' remaining reasons. A record with parents, or with a member
 something overrides, is read as what its template supplies as a receiver (`Receivers.record`, which
-`Shapes.record` asks); rule B for records and a record's abstract type members are next.
+`Shapes.record` asks, `3adf7ed`). Rule B reads a final record: where the site may call its
+primary constructor, a field it observes as itself (a field it may select, or a public alias);
+where it may not, the largest of what its secondary constructors and factories build over the
+fields it observes (`Factories`, the port of the scalameta reading's receiver factories). A record's
+abstract type members are next.
 
 ### Commands
 

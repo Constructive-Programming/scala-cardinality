@@ -169,11 +169,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
   }
 
   // The member a reference names; none where it does not resolve, which may be anything.
-  private def called(tree: Tree): Option[TermSymbol] = tree match {
-    case reference: TermReferenceTree =>
-      Try(reference.symbol).toOption.collect { case m: TermSymbol => m }
-    case _ => None
-  }
+  private def called(tree: Tree): Option[TermSymbol] = World.named(tree)
 
 }
 

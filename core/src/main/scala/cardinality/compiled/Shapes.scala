@@ -268,24 +268,27 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       else record(tree, arguments, inside)
     }
 
-  // A capability record: a class or trait with members, named by a type (v1.md §2). Every
-  // constructor parameter must be a public field, which a body may read. A trait or abstract
-  // class is any implementation of the members a subclass supplies: its value is the tuple of its
-  // fields and of what those members supply, own or inherited, read as a receiver reads them
-  // (`Receivers.record`). A concrete class nothing extends is final: its value is the tuple of its
-  // fields, from which every member computes. A template whose construction always throws, or a
-  // class written `final abstract`, has no value at all: the empty sum, as the old front end reads
-  // a record (a sealed case's construction that throws is S6's still). Left for later steps, each
-  // named: a construction that binds a pattern, a sealed class, a self type narrower than the
-  // class, an abstract type member, a member named like the measured definition, own or inherited
-  // (it may be that one on another receiver), a restricted constructor and a parameter that is no public field
-  // (rule B), a class something extends, and what `Receivers.record` leaves.
+  // A capability record: a class or trait with members, named by a type (v1.md §2). A trait or
+  // abstract class is any implementation of the members a subclass supplies: its value is the
+  // tuple of its fields, each a public one, and of what those members supply, own or inherited,
+  // read as a receiver reads them (`Receivers.record`). A concrete class nothing extends is final,
+  // and rule B reads it: where the site may call its primary constructor, its value is the tuple
+  // of its fields, each one the site observes as itself (`exposed`), from which every member
+  // computes; where it may not, it is one of what the site may call to build one (`Factories`). A
+  // template whose construction always throws, or a class written `final abstract`, has no value
+  // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
+  // throws is S6's still). Left for later steps, each named: a construction that binds a pattern, a
+  // sealed class, a self type narrower than the class, an abstract type member, a member named like
+  // the measured definition, own or inherited (it may be that one on another receiver), a field
+  // the site does not observe as itself, a restricted constructor of a class something may extend,
+  // a class something extends, and what `Receivers.record` and `Factories` leave.
   private def record(template: ClassDef, bound: List[Shape], env: Env): Either[Unread, Shape] = {
     val (c, name) = (template.symbol, template.symbol.displayFullName)
     val parameters = Shapes.parameters(template.rhs.constr)
     val fieldNames = template.rhs.body.collect {
       case v: ValDef if v.symbol.isParamAccessor && v.symbol.isPublic => v.name
     }.toSet
+    val fixed = !c.isTrait && !c.isAbstractClass && (Shapes.isFinal(c) || !world.extended(c))
     val members = template.rhs.body.collect { case member: ValOrDefDef => member }
     // A member named like the measured definition, own or inherited, which may be that one on
     // another receiver; a constructor row measures no member.
@@ -311,21 +314,25 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         _ <- refused(!World.ownSelf(c), "with a self type")
         _ <- refused(Shapes.abstractTypeMember(template), "with an abstract type member")
         _ <- refused(clash, "with a member named like the measured definition")
-        _ <- refused(!template.rhs.constr.symbol.isPublic, "with a restricted constructor")
-        _ <- refused(
-          !parameters.forall(p => fieldNames(p.name)),
-          "with a parameter that is no public field"
-        )
-        _ <- refused(
-          !c.isTrait && !c.isAbstractClass && !Shapes.isFinal(c) && world.extended(c),
-          "of a class something extends"
-        )
+        _ <- refused(!c.isTrait && !c.isAbstractClass && !fixed, "of a class something extends")
         site <- env.site match {
           case site: TermSymbol => Right(site)
           case _ => Left(Uncovered(s"a capability record read outside a member: $name"))
         }
-        held <- receivers.record(template, site, read)
-      } yield Shape.Product(held)
+        public = World.callable(template.rhs.constr.symbol, site)
+        _ <- refused(!fixed && !public, "with a restricted constructor")
+        _ <- refused(
+          public &&
+            !parameters.forall(p => fieldNames(p.name) || fixed && exposed(template, p, site)),
+          "with a parameter that is no public field"
+        )
+        // A final class no constructor callable from the site builds is one of what the site may
+        // call to build one, over the fields it observes (rule B).
+        shape <-
+          if (fixed && !public)
+            factories.space(template, site, read).map(Shape.Ground(name, _))
+          else receivers.record(template, site, read).map(Shape.Product(_))
+      } yield shape
   }
 
   /** A class of the module as the receiver of a member written in it: its type parameters are the
@@ -418,6 +425,29 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         case _: TypeParam => true
         case _            => false
       }
+
+  // Whether the site observes a final class's constructor parameter as itself: a field it may
+  // select, or a member it may call without arguments whose body is that field (an alias).
+  private def exposed(template: ClassDef, parameter: ValDef, site: TermSymbol): Boolean =
+    template.symbol.declarations
+      .collectFirst {
+        case field: TermSymbol if field.isParamAccessor && field.name == parameter.name => field
+      }
+      .exists { field =>
+        World.callable(field, site) || template.rhs.body.exists {
+          case alias: ValOrDefDef
+              if alias.symbol != field && !alias.symbol.isParamAccessor &&
+                !alias.symbol.isSynthetic && World.callable(alias.symbol, site) &&
+                World.declared(alias).isSameType(parameter.tpt.toType) && (alias match {
+                  case d: DefDef => d.paramLists.isEmpty
+                  case _: ValDef => true
+                }) =>
+            World.rhs(alias).exists(Shapes.names(_, field))
+          case _ => false
+        }
+      }
+
+  private lazy val factories = new Factories(world, this)
 
   // A trait or plain class whose only members are types: no observation tells two of its values
   // apart, and it has a value where each abstract member can be given a type (one bound at most).
@@ -563,6 +593,16 @@ private[compiled] object Shapes {
     */
   def isFamily(c: ClassSymbol): Boolean =
     c.openLevel == OpenLevel.Sealed && c.isAbstractClass && !c.isEnum
+
+  /** Whether a term is a reference to `field` on the instance, through ascriptions. */
+  private def names(term: TermTree, field: TermSymbol)(using Context): Boolean = term match {
+    case Typed(inner, _)             => names(inner, field)
+    case Inlined(inner, _, _)        => names(inner, field)
+    case Block(Nil, inner)           => names(inner, field)
+    case ident: Ident                => World.named(ident).contains(field)
+    case select @ Select(_: This, _) => World.named(select).contains(field)
+    case _                           => false
+  }
 
   /** Whether a template declares an abstract type member. */
   def abstractTypeMember(tree: ClassDef): Boolean = tree.rhs.body.exists {

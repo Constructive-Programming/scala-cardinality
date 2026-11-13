@@ -570,9 +570,10 @@ class TastyFrontEndSpec extends Specification {
   }
 
   // What no slice reads yet, each for its own reason.
-  //   - A capability record with a private field or a private constructor is not read yet
-  //     (`record` and `curried`, whose fields are public, are: `RecordsSpec`); and a member of an
-  //     enum nested in a class may read the instance around it (`key` reads `k`).
+  //   - A capability record with a private field no member exposes is not read yet, nor one with a
+  //     private constructor and no factory (rule B; `record` and `curried`, whose fields are
+  //     public, are read: `RecordsSpec`); and a member of an enum nested in a class may read the
+  //     instance around it (`key` reads `k`).
   //   - A case that pins its parent's parameter to a type holds values of `Index[Int]` only; one
   //     that passes a parameter to two slots equates them; an invariant parameter in a covariant
   //     slot holds more than its own type's values; `Any` in a covariant slot is no bottom pin;
@@ -594,7 +595,7 @@ class TastyFrontEndSpec extends Specification {
       "a construction that throws, binds a pattern or inherits a member of the empty type"
     val expected = List(
       "veiled" -> "a capability record with a parameter that is no public field",
-      "shut" -> "a capability record with a restricted constructor",
+      "shut" -> "a capability record with no constructor or factory the site may call",
       "nested" -> "a class nested in a class or a body",
       "index" -> slots,
       "twice" -> slots,
@@ -848,6 +849,7 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.analysis.inhabitation.Inhabitation.Head",
     "cardinality.analysis.inhabitation.Inhabitation.Count",
     "cardinality.analysis.inhabitation.Inhabitation.Shape",
+    "cardinality.analysis.inhabitation.Natural",
     "cardinality.analysis.resolution.TopTypes",
     "cardinality.capacity.BaseTypes",
     "cardinality.capacity.BooleanSize",
@@ -902,7 +904,7 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(16)(_))
+          List("package cardinality.compiled").flatMap(List.fill(17)(_))
       )
   }
 

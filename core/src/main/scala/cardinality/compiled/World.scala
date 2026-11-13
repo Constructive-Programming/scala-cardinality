@@ -2,6 +2,7 @@ package cardinality.compiled
 
 import cardinality.types.ListedNamespaces
 import tastyquery.Contexts.*
+import tastyquery.Modifiers.Visibility
 import tastyquery.Names.nme
 import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
@@ -18,6 +19,9 @@ final private[compiled] class World(
     closed: ClosedProgram,
     dependencies: DependencyClasses
 )(using Context) {
+
+  /** The module's top-level classes. */
+  def module: Set[ClassSymbol] = own
 
   /** Whether a symbol is the module's: one of its top-level classes, or inside one. */
   def ofModule(symbol: Symbol): Boolean = World.owners(symbol).exists {
@@ -140,6 +144,51 @@ private[compiled] object World {
   def under(symbol: Symbol, root: String): Boolean = owners(symbol).exists { around =>
     around.isPackage &&
     (around.displayFullName == root || around.displayFullName.startsWith(root + "."))
+  }
+
+  /** Whether the site may call a definition, as rule B reads a constructor's or a factory's
+    * modifiers: an unrestricted one; a `private[p]` one inside `p`; a `private` or `protected` one
+    * inside its class, and a `private` one in its companion.
+    */
+  def callable(symbol: TermOrTypeSymbol, site: Symbol)(using Context): Boolean = {
+    val around = owners(site).toSet
+    def companion = symbol.owner match {
+      case k: ClassSymbol => k.companionClass.exists(around)
+      case _              => false
+    }
+    symbol.visibility match {
+      case Visibility.Public                 => true
+      case Visibility.Private                => around(symbol.owner) || companion
+      case Visibility.ScopedPrivate(scope)   => around(scope)
+      case Visibility.ScopedProtected(scope) => around(scope) || around(symbol.owner)
+      case _                                 => around(symbol.owner)
+    }
+  }
+
+  /** Whether a member restates one every value has (`Any`'s `toString`, `hashCode`,
+    * `equals(that: Any)`, and those of the compiler's parents of a case class: `canEqual`,
+    * `productArity`, …), which the model excludes. An overload of such a name counts.
+    */
+  def restates(member: TermSymbol)(using Context): Boolean =
+    member.allOverriddenSymbols.exists(overridden => universal(overridden.owner))
+
+  /** A method's or a `val`'s body, where the tree holds one. */
+  def rhs(definition: ValOrDefDef): Option[TermTree] = definition match {
+    case d: DefDef => d.rhs
+    case v: ValDef => v.rhs
+  }
+
+  /** A method's or a `val`'s declared result. */
+  def declared(definition: ValOrDefDef): Type = definition match {
+    case d: DefDef => d.resultTpt.toType
+    case v: ValDef => v.tpt.toType
+  }
+
+  /** The term a reference names; none where it does not resolve. */
+  def named(tree: Tree)(using Context): Option[TermSymbol] = tree match {
+    case reference: TermReferenceTree =>
+      scala.util.Try(reference.symbol).toOption.collect { case t: TermSymbol => t }
+    case _ => None
   }
 
   /** Whether a method is a constructor, primary or secondary. */

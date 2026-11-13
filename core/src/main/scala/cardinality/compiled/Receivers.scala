@@ -304,7 +304,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     val c = template.symbol
     val where = "a capability record"
     def kept(member: TermSymbol) =
-      !member.isSynthetic && !member.name.toString.endsWith("_=") && !Receivers.universal(member)
+      !member.isSynthetic && !member.name.toString.endsWith("_=") && !World.restates(member)
     val hidden = (supplies(template, site).map(_.symbol) ++ inheritedOpen(c, site))
       .find(member => kept(member) && !member.isPublic)
     for {
@@ -587,13 +587,6 @@ private[compiled] object Receivers {
 
   /** The name a sum receiver is bound and listed under, as the old front end names it. */
   def whole(c: ClassSymbol): String = s"<receiver ${c.displayFullName.replace("$.", ".")}>"
-
-  /** Whether a member restates a member every value has (`Any`'s `toString`, `hashCode`,
-    * `equals(that: Any)`, and those of the compiler's parents of a case class: `canEqual`,
-    * `productArity`, …), which the model excludes. An overload of such a name counts.
-    */
-  private def universal(member: TermSymbol)(using Context): Boolean =
-    member.allOverriddenSymbols.exists(overridden => World.universal(overridden.owner))
 
   /** An anonymous class (`new T { … }`), which nothing can extend. */
   def anonymous(c: ClassSymbol): Boolean = c.name.toString == "$anon"

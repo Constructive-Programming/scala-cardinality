@@ -44,6 +44,9 @@ class RecordsSpec extends Specification {
       |trait Shown { def show: Boolean }
       |trait Shows extends Shown
       |trait Free extends Field
+      |final class Pin private (val a: Boolean, val b: Boolean)
+      |object Pin { def one(x: Boolean): Pin = new Pin(x, x) }
+      |final class Shut private (val a: Boolean)
       |trait Typed { type T; def t: T }
       |trait Typing extends Typed { def b: Boolean }
       |trait Guarded { protected def h: Boolean }
@@ -69,6 +72,9 @@ class RecordsSpec extends Specification {
       |  def prod(p: Prod): Boolean = true
       |  def show(s: Shows): Boolean = true
       |  def free(f: Free): Boolean = true
+      |  def pin(p: Pin): Boolean = true
+      |  def mkPin(x: Boolean, y: Boolean): Pin = ???
+      |  def shut(s: Shut): Boolean = true
       |  def typing(t: Typing): Boolean = true
       |  def guards(g: Guards): Boolean = true
       |}
@@ -99,13 +105,20 @@ class RecordsSpec extends Specification {
       .and(count("over") must_== Count.Finite(BigInt(2).pow(32)))
 
   // A final class holds its public fields: `fromBox` returns `a` or `b`, 2, and `makeBox` builds
-  // one of the 2 × 2 pairs of `x` and `y`. A class written `final abstract` has no value: `never`
+  // one of the 2 × 2 pairs of `x` and `y`. A parameter a public member returns as it is observed:
+  // `Hid` is its `secret`, through `reveal`, so `hid` is one of 2^2. A final class whose
+  // constructor the site may not call is one of what its factories build (rule B): `Pin.one`
+  // builds 2 of its 2 × 2 values, so `pin` is one of 2^2 and `mkPin` one of the 2^(2 × 2)
+  // functions from two Booleans to those 2. A class written `final abstract` has no value: `never`
   // is the one function from it, and `make` has no total body.
   private def fixed =
     (count("fromBox") must_== Count.Finite(2))
       .and(count("makeBox") must_== Count.Finite(4))
       .and(count("never") must_== Count.Finite(1))
       .and(count("make") must_== Count.Finite(0))
+      .and(count("hid") must_== Count.Finite(4))
+      .and(count("pin") must_== Count.Finite(4))
+      .and(count("mkPin") must_== Count.Finite(16))
 
   // A record holds what it inherits as a receiver does. `Grown` is its own `more` and the `seed` it
   // inherits: 2 × 2 values, so `grown` is one of 2^4. `Derived`'s `other` computes from `seed`:
@@ -121,23 +134,23 @@ class RecordsSpec extends Specification {
       .and(count("prod") must_== Count.Finite(4))
       .and(count("free") must_== Count.Finite(16))
 
-  // Not read yet, each by its reason: an extension member, a parameter that is no public field
-  // (rule B reads what a member observes of it), a class something extends, and a record that
-  // inherits a member named like the measured definition, which may be that one on another value,
-  // one that inherits an abstract type member, and one whose inherited member the site may not call.
+  // Not read yet, each by its reason: an extension member; a class something extends; a record
+  // that inherits a member named like the measured definition, which may be that one on another
+  // value; one that inherits an abstract type member; one whose inherited member the site may not
+  // call; and a final class that nothing the site may call builds.
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def reason(name: String) = count(name) match {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "hid", "base", "show", "typing", "guards").map(reason) must_== List(
+    List("tagged", "base", "show", "typing", "guards", "shut").map(reason) must_== List(
       "an extension method among the members of a capability record",
-      "a capability record with a parameter that is no public field",
       "a capability record of a class something extends",
       "a capability record with a member named like the measured definition",
       "a capability record with an abstract type member",
-      "a capability record with a member hidden at the use site"
+      "a capability record with a member hidden at the use site",
+      "a capability record with no constructor or factory the site may call"
     )
   }
 
