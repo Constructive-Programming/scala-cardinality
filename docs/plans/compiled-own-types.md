@@ -3387,6 +3387,60 @@ in `Readings` and `Receivers`.
   is compared by its field's type, which names the class's own type parameters rather than the
   constructor's copies (`Readings.seen`).
 
+### Rule B, first unit (g2): a sealed case's constructor and fields from the site
+
+`Sums.caseFields` asks `World.callable` whether the measured site may call a case's primary
+constructor and select each of its fields, instead of asking whether they are public: a
+`private[p]` constructor or field counts inside `p`, a `private` one inside its class or companion
+(rule B). A `protected[this]` field stays a restricted field: it is selected on `this` alone, never
+on the value a site is given. Regression: `ProgramRowsSpec.scopedCase` (`V = E + Two`, `Two` two
+`private[fx]` Booleans: inside `fx` `g: V => Boolean` is 2^(1+4) = 32; from `out` the constructor,
+a `private[fx]` field behind a public one, and inside `Own` its `protected[this]` field stay
+uncovered). Old numeric method rows uncovered: cats-eo 73 → 42, fixtures 670 → 658, all freed
+rows identical; nothing else moved. Left out: a case the site may not build read through its
+factories (`/tmp/g2/restricted-cases.patch`, part 2), whose review found it unsound (a case
+pinning its parent's argument skips `Sums.carried`; `Factories.observed` misses a case class's
+`unapply` and a protected override a parent member reads).
+
+### Rule B, second unit (g2): a field selected on `this` alone
+
+A plain class's parameter without `val` (`private[this]`) and a `protected[this]` field are
+selected on `this` alone. `Shapes.exposed` took them as observed wherever the site was inside the
+class, so a method of the class reading an argument of its own class counted a field the body
+cannot read (`final class P(a: Boolean, protected[this] val b: Boolean) { def m(o: P) }` was
+2^16). `World.selectable` (beside `callable`) refuses them on a value the site is given. TASTy
+cannot tell a written `private[this]` from a `private` member the compiler found read on `this`
+alone (both pickle `PRIVATE LOCAL`, checked with scalac 3.9), and a new body may select the second
+on another value: a member private to the instance that is no field counts as `private` (an
+explicit `private[this]` `val`, `def` or `object` in the body, deprecated, reads the same: a known
+ceiling, `final class P(a: Boolean) { private[this] val x = a; def m(o: P) }` counts 16 where it
+should be `?`). A `private val` parameter pickles `PRIVATE` without `LOCAL` and stays a field. Such a field still
+counts where a member the site may select reads it (rule B's observed fields,
+`Factories.observed`, which now asks `selectable` of members, nested templates and accessors), so
+eo's `Getter.andThen` keeps its count. A constructor's position of its own class keeps the old
+reading: the row reads it with the stored side's estimate (`Constructors.position`), whose value
+holds every parameter. The correctness review flagged that estimate as a possible overcount of
+the stored side's own (it counts fields no observer reads); the 18 fixture rows it gives
+(`St(head: Boolean, tail: => St)` ω, …) are kept identical, and fixing `Stored` is left open.
+Regression: `ProgramRowsSpec.thisOnly`. Rows: no number changed; one fixture constructor row
+(`class Outer(a: Boolean) { case class Inner(o: Outer) }`, `Inner.<init>`, 2) is uncovered now,
+its argument `o` observing no field of `Outer` (removed from the private coverage memory).
+
+### Rule B, third unit (g2): cases the site may not construct, through factories (left out)
+
+Tried and left uncommitted (`/tmp/g2/part2-wip.patch`, on `a7a2566`). A sealed case no constructor
+of the site builds was read through `Factories`, gated on `Sums.carried` (a case pinning its
+parent's argument, or with type parameters of its own, left), with a case class's synthetic
+`unapply` observing its first clause and an override the site may not select leaving the class.
+Every gate passed, but it frees one old numeric row (fixtures 659 → 658), and each correctness
+review found another way for code outside the class to hand a hidden field to the site, an
+undercount each time: a parent's member matching on the case, a companion's method, a parameter's
+default getter (synthetic, skipped by `Factories.definitions`), another class's secondary
+constructor or parent argument, a pattern through an extractor the site cannot reach, and a
+public member reading a later clause beside the extractor. The same gap stands in `Factories` for
+a final class of the module (`Shapes.record`): `observed` follows only the class's own body. Left
+until observation is read over every definition the site may reach.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

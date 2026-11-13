@@ -154,7 +154,7 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
             val constructor = below.rhs.constr
             val name = cls.displayFullName
             val accessors = below.rhs.body.collect {
-              case v: ValDef if v.symbol.isParamAccessor => v.symbol.visibility
+              case v: ValDef if v.symbol.isParamAccessor => v.symbol
             }
             val extended = world.extended(cls)
             if (extended && !cls.isCaseClass)
@@ -168,13 +168,15 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
             // `class L` and `class L()` are one tree, and only the second is an empty product.
             else if (!cls.isCaseClass && Shapes.parameters(constructor).isEmpty)
               Left(Uncovered(s"a sealed subtype without parameters: $name"))
-            else if (!constructor.symbol.isPublic)
+            // Rule B: a constructor the site may call (`private[p]` inside `p`) builds every value.
+            else if (!World.callable(constructor.symbol, env.site))
               Left(Uncovered(s"a restricted constructor: $name"))
             // The compiler gives a plain class's parameter without `val` an accessor private to
             // the instance. It is no member: values that differ only there may be one value.
-            else if (accessors.contains(Visibility.PrivateThis))
+            else if (accessors.exists(_.visibility == Visibility.PrivateThis))
               Left(Refused(s"sealed subtype hides a parameter: ${cls.name}"))
-            else if (accessors.exists(_ != Visibility.Public))
+            // A field the site may not select, or may select on `this` alone (`protected[this]`).
+            else if (!accessors.forall(World.selectable(_, env.site)))
               Left(Uncovered(s"a restricted field: $name"))
             else instantiated(cls).flatMap(shapes.fields(below, _, passed(cls)))
           }

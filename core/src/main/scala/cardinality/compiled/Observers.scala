@@ -2,7 +2,6 @@ package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import tastyquery.Contexts.*
-import tastyquery.Modifiers.Visibility
 import tastyquery.Symbols.*
 import tastyquery.Trees.*
 import tastyquery.Types.*
@@ -10,7 +9,11 @@ import tastyquery.Types.*
 /** How the site observes a final class's constructor parameters (rule B, v1.md §2), for the
   * capability record `Shapes` reads: a parameter it observes as itself is a field of the record.
   */
-final private[compiled] class Observers(of: Shapes.Reading)(using Context) {
+final private[compiled] class Observers(
+    of: Shapes.Reading,
+    // The constructor parameters the site observes on a value it is given (`Factories`).
+    read: (ClassDef, TermSymbol) => List[ValDef]
+)(using Context) {
   import Shapes.Env
 
   /** Whether the site observes a final class's constructor parameter as itself (the scalameta
@@ -31,8 +34,7 @@ final private[compiled] class Observers(of: Shapes.Reading)(using Context) {
   // (one of the template, or one of `shape` as `c` sees it), a member of `level` it may call of
   // `shape` whose body is the field (an alias) or applies it to the member's own parameters (an
   // η-alias), or the argument a parent's primary constructor takes verbatim and observes in turn.
-  // `shape` is the template's parameter's, so a wider observer is none. A `protected[this]` field
-  // is selected on `this` alone, never on a record's value. An observer a class between `c` and
+  // `shape` is the template's parameter's, so a wider observer is none. An observer a class between `c` and
   // `level` declares again is overridden there.
   private def observed(
       c: ClassSymbol,
@@ -47,8 +49,13 @@ final private[compiled] class Observers(of: Shapes.Reading)(using Context) {
     def typed(member: TermSymbol) = shape.exists(seen(member, c, env).contains)
     def reached(member: TermSymbol) = World.callable(member, site) && unoverridden(member)
     field(level, parameter).exists { field =>
-      def selected = reached(field) && field.visibility != Visibility.ProtectedThis &&
-        (level.symbol == c || typed(field))
+      // Of `c`'s own field, one selected on `this` alone (a plain parameter, `protected[this]`)
+      // only where a member the site may select reads it, or in `c`'s own constructor, whose
+      // position keeps the stored side's estimate (`Constructors`).
+      def own = World.isConstructor(site) && site.owner == c
+      def selected = unoverridden(field) && (level.symbol == c || typed(field)) &&
+        (World.selectable(field, site) || level.symbol == c && World.callable(field, site) &&
+          (own || read(level, site).exists(_.symbol == parameter)))
       def aliased = level.rhs.body.exists {
         case alias: ValOrDefDef
             if alias.symbol != field && !alias.symbol.isParamAccessor &&
@@ -56,7 +63,7 @@ final private[compiled] class Observers(of: Shapes.Reading)(using Context) {
           World
             .rhs(alias)
             .exists(body => Shapes.named(body).contains(field) || eta(alias, body, field)) &&
-          reached(alias.symbol) && typed(alias.symbol)
+          reached(alias.symbol) && World.selectable(alias.symbol, site) && typed(alias.symbol)
         case _ => false
       }
       def inherited =

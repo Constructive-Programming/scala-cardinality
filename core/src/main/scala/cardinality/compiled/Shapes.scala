@@ -607,7 +607,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
 
   private lazy val factories = new Factories(world, this)
 
-  private lazy val observers = new Observers(of)
+  private lazy val observers = new Observers(of, factories.observed)
 
   // A trait or plain class whose only members are types: no observation tells two of its values
   // apart, and it has a value where each abstract member can be given a type (one bound at most).
