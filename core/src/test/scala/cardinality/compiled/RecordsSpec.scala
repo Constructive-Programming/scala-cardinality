@@ -44,6 +44,14 @@ class RecordsSpec extends Specification {
       |trait Shown { def show: Boolean }
       |trait Shows extends Shown
       |trait Free extends Field
+      |trait Same { def eqv(a: Boolean): Boolean; def neqv(a: Boolean): Boolean = !eqv(a) }
+      |object SameI extends Same { def eqv(a: Boolean): Boolean = a; override def neqv(a: Boolean): Boolean = !a }
+      |trait Back { def k: Boolean = true; def j: Boolean = k }
+      |object BackI extends Back { override def k: Boolean = Use.target(this) }
+      |trait Ord { def m: Boolean = true; def n: Boolean = m }
+      |object OrdI extends Ord with Ordering[Int] { def compare(a: Int, b: Int): Int = if (Use.ord(this)) 0 else 1; override def m: Boolean = List(2, 1).sorted(this).isEmpty }
+      |trait Fb { def k: Boolean = true; def j: Boolean = k }
+      |final class FbF(f: () => Boolean) extends Fb { override def k: Boolean = f() }
       |final class Pin private (val a: Boolean, val b: Boolean)
       |object Pin { def one(x: Boolean): Pin = new Pin(x, x) }
       |final class Shut private (val a: Boolean)
@@ -72,6 +80,10 @@ class RecordsSpec extends Specification {
       |  def prod(p: Prod): Boolean = true
       |  def show(s: Shows): Boolean = true
       |  def free(f: Free): Boolean = true
+      |  def same(s: Same): Boolean = true
+      |  def target(b: Back): Boolean = true
+      |  def ord(o: Ord): Boolean = true
+      |  def fb(b: Fb): Boolean = true
       |  def pin(p: Pin): Boolean = true
       |  def mkPin(x: Boolean, y: Boolean): Pin = ???
       |  def shut(s: Shut): Boolean = true
@@ -125,7 +137,10 @@ class RecordsSpec extends Specification {
   // `derived` is one of 2^2. `Passed` passes `true` to `Field`'s `p`, a constant, and holds `q` and
   // `r`: 2^4. `Free` passes nothing, so `p` is a value each instance chooses beside `q`: 2^4.
   // `OvSub` overrides `Ov.f`, so `f` varies beside `g`: 2^4. A member restating one of
-  // `Product`'s (`canEqual`) is outside the model: `Prod` is its `x`, 2^2.
+  // `Product`'s (`canEqual`) is outside the model: `Prod` is its `x`, 2^2. A record value is another
+  // instance than the site's: `SameI.neqv` never reaches `same`, so `neqv` is a capability beside
+  // `eqv`, each one of the 2^2 functions of a Boolean: `Same` is one of 4 × 4 values, and `same`
+  // one of 2^16.
   private def inherited =
     (count("grown") must_== Count.Finite(16))
       .and(count("derived") must_== Count.Finite(4))
@@ -133,24 +148,32 @@ class RecordsSpec extends Specification {
       .and(count("ov") must_== Count.Finite(16))
       .and(count("prod") must_== Count.Finite(4))
       .and(count("free") must_== Count.Finite(16))
+      .and(count("same") must_== Count.Finite(65536))
 
   // Not read yet, each by its reason: an extension member; a class something extends; a record
   // that inherits a member named like the measured definition, which may be that one on another
   // value; one that inherits an abstract type member; one whose inherited member the site may not
-  // call; and a final class that nothing the site may call builds.
+  // call; a final class that nothing the site may call builds; and an overridden member a
+  // behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m` gives `OrdI` to
+  // `sorted`, which calls its `compare`, which calls `ord`; `FbF.k` applies a function its
+  // constructor was given, built where the search does not look.
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def reason(name: String) = count(name) match {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "base", "show", "typing", "guards", "shut").map(reason) must_== List(
+    List("tagged", "base", "show", "typing", "guards", "shut", "target", "ord", "fb")
+      .map(reason) must_== List(
       "an extension method among the members of a capability record",
       "a capability record of a class something extends",
       "a capability record with a member named like the measured definition",
       "a capability record with an abstract type member",
       "a capability record with a member hidden at the use site",
-      "a capability record with no constructor or factory the site may call"
+      "a capability record with no constructor or factory the site may call",
+      "an overridden member that may call it among the members of a capability record",
+      "an overridden member that may call it among the members of a capability record",
+      "an overridden member that may call it among the members of a capability record"
     )
   }
 

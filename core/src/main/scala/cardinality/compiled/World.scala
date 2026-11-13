@@ -191,6 +191,13 @@ private[compiled] object World {
     case _ => None
   }
 
+  /** Whether a type is a function's (`FunctionN`, `ContextFunctionN`). */
+  def functional(tpe: TypeOrMethodic)(using Context): Boolean = tpe match {
+    case t: Type =>
+      classNamed(t).exists(_.displayFullName.matches("scala\\.(Context)?Function\\d+"))
+    case _ => false
+  }
+
   /** Whether a method is a constructor, primary or secondary. */
   def isConstructor(symbol: Symbol): Boolean = symbol.name == nme.Constructor
 

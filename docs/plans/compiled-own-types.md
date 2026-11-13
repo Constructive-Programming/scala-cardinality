@@ -262,6 +262,17 @@ record`, 1,146 rows: cats' `eqv`, `neqv`, `imap`, …) takes `Reentry`'s receive
 behavior that passes `this` on or calls through it may re-enter; for a record value, another
 instance, only a behavior that reaches the site itself can, which a narrower search would read.
 
+Stretch 11 narrows that guard for a record value (`Reentry.may` with `instance = false`): a
+behavior re-enters the site only by naming a member of its name, calling a member of the module
+that does (through its overriders), a name or selection that does not resolve, applying a
+function a field holds, building an instance of the site's class, or handing an instance (`this`,
+or one it builds) to code outside the module whose members the module overrides and which reach
+the site. The receiver rule is unchanged. A finished search that found nothing caches the members
+it visited per measured name and class. Record refusals for re-entry fall from 1,146 to 905 corpus
+rows; cats-core's identical method rows rise from 1,195 to 1,198, and corpus time rises (cats-core
+4.8 s to 7.0 s, the search reading the module's call graph). Next: dependency records from pickled
+signatures (scalameta's Scala 2 traits), then records' abstract type members.
+
 ### Commands
 
 | Command | What it does |

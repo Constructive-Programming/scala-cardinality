@@ -302,11 +302,9 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     */
   def record(template: ClassDef, site: TermSymbol, env: Shapes.Env): Either[Unread, List[Shape]] = {
     val c = template.symbol
-    val where = "a capability record"
-    def kept(member: TermSymbol) =
-      !member.isSynthetic && !member.name.toString.endsWith("_=") && !World.restates(member)
+    val where = Receivers.Record
     val hidden = (supplies(template, site).map(_.symbol) ++ inheritedOpen(c, site))
-      .find(member => kept(member) && !member.isPublic)
+      .find(member => Receivers.observes(member) && !member.isPublic)
     for {
       inheriting <- inherits(template)
         .flatMap(_ => inherited(c))
@@ -332,7 +330,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         (),
         Uncovered(s"$where whose overriders are not read: ${c.displayFullName}")
       )
-      held <- own(template, site, env, where, kept)
+      held <- own(template, site, env, value = true)
     } yield held.map(_.shape)
   }
 
@@ -448,8 +446,13 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     }
 
   // Whether an overridden member may be a behavior of the measured one's own (`Reentry`).
-  private def reenters(c: ClassSymbol, member: TermSymbol, measured: TermSymbol): Boolean =
-    overridden(c, member) && reentry.may(c, member, measured)
+  private def reenters(
+      c: ClassSymbol,
+      member: TermSymbol,
+      measured: TermSymbol,
+      value: Boolean
+  ): Boolean =
+    overridden(c, member) && reentry.may(c, member, measured, instance = !value)
 
   // The members of a template's own body a subclass supplies, the measured one aside.
   private def supplies(tree: ClassDef, measured: TermSymbol): List[ValOrDefDef] =
@@ -486,18 +489,15 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
             Unread.Uncovered(s"an enclosing sum not read: $reason")
           case uncovered => uncovered
         }
-    } else own(tree, measured, env, "an enclosing class", _ => true)
+    } else own(tree, measured, env, value = false)
 
   // What a receiver that is no sum supplies: its constructor's parameters and its members a
-  // subclass supplies, `measured` aside, the ones `kept` keeps; `where` names the template in a
-  // reason.
-  private def own(
-      template: ClassDef,
-      measured: TermSymbol,
-      env: Shapes.Env,
-      where: String,
-      kept: TermSymbol => Boolean
-  ) = {
+  // subclass supplies, `measured` aside. A value of a capability record (`value`), another
+  // instance than the site's, holds the members that observe it (`observes`), and only a behavior
+  // that reaches the site re-enters it (`Reentry.may`).
+  private def own(template: ClassDef, measured: TermSymbol, env: Shapes.Env, value: Boolean) = {
+    val where = if (value) Receivers.Record else "an enclosing class"
+    def kept(member: TermSymbol) = !value || Receivers.observes(member)
     val self = template.symbol.displayFullName
     def held(of: ValOrDefDef, shape: Shape) =
       Binding(s"$self.${of.name}", shape, Some(of.name.toString))
@@ -507,7 +507,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       _ <- Readings.plainInputs(parameters)
       fields <- shapes.inputs(parameters, env)
       members <- Traversals.sequence(capabilities.map { member =>
-        if (reenters(template.symbol, member.symbol, measured))
+        if (reenters(template.symbol, member.symbol, measured, value))
           Left(
             Uncovered(
               s"${Receivers.Reenters} among the members of $where: ${member.name}"
@@ -518,7 +518,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       more <- Traversals.sequence(
         inheritedOpen(template.symbol, measured)
           .filter(kept)
-          .map(inheritedCapability(template.symbol, _, measured, env, where))
+          .map(inheritedCapability(template.symbol, _, measured, env, value))
       )
     } yield parameters.lazyZip(fields).map(held) ++ members.flatten ++ more.flatten
   }
@@ -531,14 +531,15 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       member: TermSymbol,
       measured: TermSymbol,
       env: Shapes.Env,
-      where: String
+      value: Boolean
   ): Either[Unread, Option[Binding]] = {
     val name = member.name.toString
+    val where = if (value) Receivers.Record else "an enclosing class"
     // Overloads an ancestor declares are capabilities of their own: each is named with its
     // signature.
     val identity = s"${c.displayFullName}.${member.signedName}"
     val unread =
-      if (reenters(c, member, measured)) Left(Receivers.Reenters)
+      if (reenters(c, member, measured, value)) Left(Receivers.Reenters)
       else if (member.isExtensionMethod) Left("an extension method")
       else if (Readings.contextual(member) && name.startsWith("given_")) Left("an anonymous given")
       else if (member.isInline) Left("a deferred inline member")
@@ -587,6 +588,14 @@ private[compiled] object Receivers {
 
   /** The name a sum receiver is bound and listed under, as the old front end names it. */
   def whole(c: ClassSymbol): String = s"<receiver ${c.displayFullName.replace("$.", ".")}>"
+
+  private val Record = "a capability record"
+
+  /** Whether a member observes a value of a capability record: synthetic members, setters and
+    * members restating one every value has (`World.restates`) do not.
+    */
+  private def observes(member: TermSymbol)(using Context): Boolean =
+    !member.isSynthetic && !member.name.toString.endsWith("_=") && !World.restates(member)
 
   /** An anonymous class (`new T { … }`), which nothing can extend. */
   def anonymous(c: ClassSymbol): Boolean = c.name.toString == "$anon"
