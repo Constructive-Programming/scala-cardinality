@@ -4,11 +4,11 @@ The second number a report gives is the count of canonical **pure, total, parame
 implementations** a method or constructor admits with everything in scope — what it can
 access, capture or call. `def choose[A](x: A, y: A): A` has 2 (`x` or `y`). A constructor
 is counted as the product of its parameters' value spaces: `Pair[A](x: A, y: A)` has 4
-ways to build its product, `IntArrBuilder(initialCapacity: Int)` is `2^32`, and
-`Slice(arr: Array[Any], offset: Int, length: Int)` is `ω`.
+ways to build its product, `IntArrBuilder(initialCapacity: Int)` is $2^{32}$, and
+`Slice(arr: Array[Any], offset: Int, length: Int)` is $\omega$.
 
 This is a different question from the stored-value estimate on the data type: `Pair[Int]`
-still holds `2^64` values. A parameter whose space the estimate cannot read whole — a type
+still holds $2^{64}$ values. A parameter whose space the estimate cannot read whole — a type
 parameter nobody supplied, a name outside the sources — stays with the shape model, which
 names it.
 
@@ -21,27 +21,29 @@ The rules below follow Alex Knvl's
 - Inhabitants are counted up to **observational equivalence**: renaming, beta/eta
   expansion and a redundant `case` analysis do not make two expressions different
   inhabitants.
-- `Void ~ 0`, `() ~ 1`, `Bool ~ 2`, `Int ~ 2^32`. On the method side a ground type is a
-  supplied one case-split into `|G|` identical branches (one goal raised to `|G|`), so
-  `Int -> Int ~ 2^(2^37)` exactly. `String` is ω and its split saturates at 0, 1 or ω
+- $\mathit{Void} \sim 0$, $() \sim 1$, $\mathit{Bool} \sim 2$, $\mathit{Int} \sim 2^{32}$. On the method side a ground type is a
+  supplied one case-split into $\lvert G\rvert$ identical branches (one goal raised to $\lvert G\rvert$), so
+  $\mathit{Int} \to \mathit{Int} \sim 2^{(2^{37})}$ exactly. `String` is $\omega$ and its split saturates at $0$, $1$ or $\omega$
   ([ground scalar types](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/ground-scalar-types.md)).
-- A coproduct adds: `Either a b ~ |a| + |b|`, and `Option a ~ 1 + |a|`.
-- A product multiplies: `(a, b) ~ |a| * |b|`; the empty product is `1` and an empty
-  alternative is `0`.
-- A function is an exponential: `a -> b ~ |b| ^ |a|`, with `1 -> a ~ a`, `0 -> a ~ 1` and
-  `a -> 0 ~ 0` for inhabited `a`.
+- A coproduct adds: $\mathit{Either}\ a\ b \sim \lvert a\rvert + \lvert b\rvert$, and $\mathit{Option}\ a \sim 1 + \lvert a\rvert$.
+- A product multiplies: $(a, b) \sim \lvert a\rvert \cdot \lvert b\rvert$; the empty product is $1$ and an empty
+  alternative is $0$.
+- A function is an exponential: $a \to b \sim \lvert b\rvert^{\lvert a\rvert}$, with $1 \to a \sim a$, $0 \to a \sim 1$ and
+  $a \to 0 \sim 0$ for inhabited `a`.
 - Universal quantification counts a **free** type parameter as one atom, never as a type of
-  unknown finite size. `∀a. a -> a ~ 1`, `∀a. (a, a) -> a ~ 2`, `∀a. (a, a) -> (a, a) ~ 4`,
-  `∀a. (a, b) -> a ~ 1`.
-- A polymorphic value's arguments are consumed as a product: `(a, b) -> c ~ a -> b -> c`
-  and `a -> (b, c) ~ (a -> b) * (a -> c)`.
-- A recursive type is a least fixed point: `∀a. (a -> a) -> a -> a ~ μx. 1 + x ~ ℵ₀`, and
-  only when a starting inhabitant exists: `∀a. (a -> a) -> a ~ 0`, `∀a. (a, a) -> a ~ 2`.
-- Negation: `x -> 0` has at most one inhabitant, and `Set a` is a predicate `a -> Bool`, so
-  `|Set a| = 2^|a|`.
+  unknown finite size. $\forall a.\, a \to a \sim 1$, $\forall a.\, (a, a) \to a \sim 2$,
+  $\forall a.\, (a, a) \to (a, a) \sim 4$, $\forall a.\, (a, b) \to a \sim 1$.
+- A polymorphic value's arguments are consumed as a product: $(a, b) \to c \sim a \to b \to c$
+  and $a \to (b, c) \sim (a \to b)\cdot(a \to c)$.
+- A recursive type is a least fixed point:
+  $\forall a.\, (a \to a) \to a \to a \sim \mu x.\, 1 + x \sim \aleph_0$, and
+  only when a starting inhabitant exists: $\forall a.\, (a \to a) \to a \sim 0$,
+  $\forall a.\, (a, a) \to a \sim 2$.
+- Negation: $x \to 0$ has at most one inhabitant, and $\mathit{Set}\ a$ is a predicate $a \to \mathit{Bool}$, so
+  $\lvert\mathit{Set}\ a\rvert = 2^{\lvert a\rvert}$.
 
-`ω` is a productive cycle: `def use[A](x: A, step: A => A): A` can return `x`, `step(x)`,
-`step(step(x))`, … — countably many. A cycle with no starting inhabitant is `0`, not `ω`.
+$\omega$ is a productive cycle: `def use[A](x: A, step: A => A): A` can return `x`, `step(x)`,
+`step(step(x))`, … — countably many. A cycle with no starting inhabitant is $0$, not $\omega$.
 An enclosing value, a callable producer and a product projection all count as captures,
 and a type parameter's identity is per binder, so a shadowed `A` is not an outer `A`.
 
@@ -62,7 +64,7 @@ Generic method / constructor implementation cardinalities
 ## Repeated arguments
 
 `Type.Repeated(T)` in a method or constructor parameter is a finite, possibly empty
-sequence of `T`, not one supplied `T`: `Σ_{n≥0} Xⁿ`. Parameter clauses keep their ordering
+sequence of `T`, not one supplied `T`: $\sum_{n=0}^{\infty} X^{n}$. Parameter clauses keep their ordering
 and binder identities. This is a pure, total implementation count, not a stored-value
 estimate for Scala's `Seq` representation.
 
@@ -82,7 +84,7 @@ estimate for Scala's `Seq` representation.
 | `def pick[A](x: A)(xs: Nothing*): A` | `1` | `xs` is necessarily empty |
 | `case class Empty(xs: Nothing*)` constructor | `1` | The only field sequence is empty |
 | Sequence-of-`A` shape goal with no `A` producer | `1` | Only `Nil` |
-| Sequence-of-`A` shape goal with `x: A` | `ω` | Productive `Cons` cycle, distinct lengths |
+| Sequence-of-`A` shape goal with `x: A` | $\omega$ | Productive `Cons` cycle, distinct lengths |
 | `def use[A](x: A)(fs: (A => A)*): A` | `?` | Arbitrary sequence elimination is outside the fragment |
 | `case class Many[A](xs: A*)` constructor | `?` | Arbitrary input-sequence transformations are not enumerated |
 
@@ -100,22 +102,22 @@ names, aliases and collection methods are not resolved by this feature.
 - Rank-N quantification and Yoneda-style reasoning: a plain higher-kinded binder is read as
   a rigid, uninterpreted constructor (`F[A]` and `F[B]` are distinct base types; see
   [higher-kinded binders](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/higher-kinded-binders.md)),
-  so `∀f. f A -> f B` counts 0 without evidence and 1 with `A =:= B`, but no functor law is
+  so $\forall f.\, f\ A \to f\ B$ counts 0 without evidence and 1 with `A =:= B`, but no functor law is
   assumed and variant or bounded constructor binders are refused rather than guessed.
 - Laws: a functor or optic law is an extra condition on inhabitant counts and is never
   assumed here.
-- Non-regular types such as `Set` beyond the `2^|a|` identity, and types whose inhabitants
+- Non-regular types such as `Set` beyond the $2^{\lvert a\rvert}$ identity, and types whose inhabitants
   depend on instance methods the model cannot see.
 
 ## Where the solver is deliberately narrower
 
 - It counts **canonical pure, total parametric constructions**: no divergence, effects,
   casts or unsafe equality.
-- `Any`, `AnyRef`, `Matchable` and `AnyVal` are read by their place in their own arrow: `1`
-  in an input, ω in an output. A union is a sum only where a class test is its eliminator
+- `Any`, `AnyRef`, `Matchable` and `AnyVal` are read by their place in their own arrow: $1$
+  in an input, $\omega$ in an output. A union is a sum only where a class test is its eliminator
   ([top types and unions](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/top-types-unions.md)).
 - An opaque callable is unconstrained, so applying it repeatedly is countable
-  (`∀a. (a -> a) -> a -> a ~ ℵ₀`); a callable the source set defines is a specific
+  ($\forall a.\, (a \to a) \to a \to a \sim \aleph_0$); a callable the source set defines is a specific
   inhabitant of its type, whose values a total parametric body can only draw from the
   environment.
 - What the fragment cannot decide is `?` with a reason, never a finite guess and never an

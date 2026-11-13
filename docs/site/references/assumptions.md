@@ -32,13 +32,13 @@ Further idealizations:
   declaration or import still shadows it. A JDK or standard-library wildcard binds by
   rooted name (`import java.util.*` makes `List` mean `java.util.List`).
 - **A top type is read by its place in its own arrow.** `Any`, `AnyRef`, `Object`,
-  `Matchable` and `AnyVal` in an input are one value; in an output they are ω. Each
+  `Matchable` and `AnyVal` in an input are one value; in an output they are $\omega$. Each
   function type and method is read on its own, innermost first.
 - **A constructor is a method; a type is a value whose accessible state is observed.** A
   constructor's parameters are inputs, so a top in one is `1`. The type as a value holds
-  what its fields may store, where a top is ω.
-- **`X*` is a possibly empty list.** `Σ_{n≥0} Xⁿ`. `def first[A](xs: A*): A` is `0`;
-  `Any*` is ω.
+  what its fields may store, where a top is $\omega$.
+- **`X*` is a possibly empty list.** $\sum_{n=0}^{\infty} X^n$. `def first[A](xs: A*): A`
+  is `0`; `Any*` is $\omega$.
 
 ## The sources are the whole program
 
@@ -93,17 +93,19 @@ calls. With no factory either, it stays `?` with `receiver has no public constru
 - **Finite capacity.** Counts up to 127 are exact. Above that the calculator keeps a
   binary width, so `2^32` is printed as a bound (`≤2^32`), and `Float`/`Double` are lossy
   stand-ins marked `(lossy)`.
-- **Products and powers above the finite tier** are coarse: `2 * ω = ω`, `ω * ω = ω`.
+- **Products and powers above the finite tier** are coarse: $2 \cdot \omega = \omega$ and
+  $\omega \cdot \omega = \omega$.
 - **Recursive widening.** A recursive component that keeps growing is widened to the tier
   it has grown into. Only a component that can reach itself is widened, so a chain of
-  forward references settles exactly and an `ε₀` payload is never demoted.
+  forward references settles exactly and an $\varepsilon_0$ payload is never demoted.
 - **Lazy-type completion.** A lazy/coinductive type's finite estimate and infinite
-  contribution are combined, then normalized to one `ε₀` if present, otherwise one `ω`.
-  `LazyList[String]` is `ε₀`; `LazyList[Boolean]` is `ω`. General addition is unchanged:
-  `Either[LazyList[String], LazyList[String]]` is `2ε₀`.
+  contribution are combined, then normalized to one $\varepsilon_0$ if present, otherwise
+  one $\omega$. `LazyList[String]` is $\varepsilon_0$; `LazyList[Boolean]` is $\omega$.
+  General addition is unchanged: `Either[LazyList[String], LazyList[String]]` is
+  $2\varepsilon_0$.
 - **`?` is a first-class answer.** A name outside the sources, an overridable member, or an
   inferred type that cannot be typed soundly gives `?` with a reason. The calculator never
-  uses a finite guess, ω or ε₀ as an unknown-value fallback.
+  uses a finite guess, $\omega$ or $\varepsilon_0$ as an unknown-value fallback.
 
 The full contract is [v1.md §2](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/plans/v1.md)
 and [AGENTS.md](https://github.com/Constructive-Programming/scala-cardinality/blob/main/AGENTS.md).
