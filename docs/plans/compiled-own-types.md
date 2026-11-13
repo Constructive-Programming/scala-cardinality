@@ -1448,7 +1448,8 @@ own note). Pending: `tasty-g1` (re-entry on the record-value path), to come last
 
 Round 2 merged, one merge commit each, each certified by the same gate: `tasty-h5` (`4d375f9`),
 `tasty-h2` (`e414333`), `tasty-h4` (`5994049`), `tasty-h3` (`20fd65b`), `tasty-h1` (`cb0e41c`),
-`tasty-h6` (`497b671`). What the merges decided or fixed, each fix with a regression:
+`tasty-h6` (`497b671`), `tasty-h7` (`0b9ccae`). What the merges decided or fixed, each fix with a
+regression:
 
 - Rule B's observed fields (`Factories.observed`) follow a member's override in the class, members
   of classes and objects declared in it, and public members a module parent declares that the
@@ -1462,6 +1463,10 @@ Round 2 merged, one merge commit each, each certified by the same gate: `tasty-h
 - Captures: `Readings.captured` is shared by method and constructor rows and keeps h4's evidence
   search; wildcard imports are read (the selector filter dropped every wildcard), a selector binds
   a term only where its qualifier has one, a wildcard inside its own object binds private members.
+- h7's reachable readers outside the class join the observed fields beside the above; a reader is
+  reached through a public member it implements too (`Ko`: 2^4, both front ends said 2^2); h6's
+  enum built from nothing needs its case's templates built (`Rose`, a throwing companion: was ω,
+  now `?`; the empty sum's 1 is not read). `fix.Comp` stores 4 in both front ends now.
 - One reading of a member bounded by one type on both sides (`PathTypes.pinned` through
   `PathTypes.exported`); one one-valued capability rule (h2's). The anonymous-evidence search moved
   from `Readings` to `Evidence.scala`.

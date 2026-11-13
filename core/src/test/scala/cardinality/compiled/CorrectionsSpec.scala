@@ -69,6 +69,10 @@ class CorrectionsSpec extends Specification {
       |  class DTSub extends DT { override def m: Boolean = false; def k = true; val z: Int = ??? }
       |  abstract class DA { def m: Boolean = true; def k: Boolean }
       |  class DASub extends DA { override def m: Boolean = false; def k = true; val z: Int = ??? }
+      |  final class Ko private (val a: Boolean, private[fix] val b: Boolean)
+      |  object Ko { def make(a: Boolean, b: Boolean): Ko = new Ko(a, b) }
+      |  trait Obs { def f(k: Ko): Boolean }
+      |  object PO { private class Impl extends Obs { def f(k: Ko): Boolean = k.b }; def obs: Obs = new Impl }
       |  object Here {
       |    def boom: Boom = ???
       |    def boomC: BoomC = ???
@@ -88,6 +92,7 @@ class CorrectionsSpec extends Specification {
       |    def coll(c: Coll): Boolean = true
       |    def pq(p: Pq): Boolean = true
       |    def xb(x: Xb): Boolean = true
+      |    def ko(k: Ko): Boolean = true
       |  }
       |}
       |""".stripMargin
@@ -119,7 +124,8 @@ class CorrectionsSpec extends Specification {
   // may not reach observes nothing: `Shut` is its `a`, `shut` one of 2^2; so does a name that is
   // another member's (`Util.x`'s `get`, `Peek2.f`'s `b`, `PB`'s own `b`): `coll`, `pq` and `xb` are
   // each one of 2^2.
-  // The stored side reads the companion: `Comp` holds 2 × 2.
+  // The stored side reads the companion: `Comp` holds 2 × 2, in both front ends (rule B on the
+  // stored side, tasty-h5).
   private def outside =
     counts("out.Use.comp", Count.Finite(16))
       .and(counts("out.Use.par", Count.Finite(4)))
@@ -129,7 +135,10 @@ class CorrectionsSpec extends Specification {
       .and(counts("out.Use.coll", Count.Finite(4)))
       .and(counts("out.Use.pq", Count.Finite(4)))
       .and(counts("out.Use.xb", Count.Finite(4)))
-      .and(size("fix.Comp") must_== List(None, Some(TinySize(4))))
+      .and(size("fix.Comp") must_== List(Some(TinySize(4)), Some(TinySize(4))))
+      // `PO.obs.f(k)` runs the private `Impl.f`, which reads `b`: through the public `Obs.f` the
+      // site reaches it, so `Ko` is 2 × 2 and `ko` one of 2^4 (the old front end misses it, 2^2).
+      .and(next("out.Use.ko") must_== Count.Finite(16))
 
   // TASTy pickles an explicit `private[this]` member and a `private` one the compiler found read on
   // `this` alone the same. `PT.m` may not select `o.x` (its receiver's `a`, 2^2), `PV.m` may

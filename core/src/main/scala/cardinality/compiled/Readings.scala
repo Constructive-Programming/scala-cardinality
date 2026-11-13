@@ -218,7 +218,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
   // An enum without type parameters (a case of a generic one may be of one instantiation alone)
   // one of whose cases the reading shows built from nothing: a value case, or a class case, each
-  // parameter of it and of the enum of a closed nonempty space. A sealed trait is not taken, as
+  // parameter of it and of the enum of a closed nonempty space, its templates ever built. A sealed trait is not taken, as
   // the old front end does not take it; a recursive field is not shown nonempty.
   private def builtFromNothing(c: ClassSymbol, site: Symbol): Boolean = {
     def ground(k: ClassSymbol) = k.tree.exists(t =>
@@ -230,9 +230,12 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           .exists(!_.isZero)
       }
     )
-    c.isEnum && c.typeParams.isEmpty && ground(c) && c.sealedChildren.exists {
-      case _: TermSymbol  => true
-      case k: ClassSymbol => ground(k)
+    // Every template that builds the case is built (register D26): a value case's companion and
+    // anonymous class, a class case's own.
+    def built(k: ClassSymbol) = !world.unbuilt(k, Some(site))
+    c.isEnum && c.typeParams.isEmpty && ground(c) && built(c) && c.sealedChildren.exists {
+      case _: TermSymbol  => Sums.singletons(c).forall(t => built(t.symbol))
+      case k: ClassSymbol => ground(k) && built(k)
     }
   }
 

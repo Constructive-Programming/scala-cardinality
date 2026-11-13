@@ -200,7 +200,10 @@ final private[compiled] class Factories(world: World)(using Context) {
   // may not reach.
   private def reader(field: TermSymbol, site: Symbol): Boolean = {
     val around = World.owners(site).toSet
-    readers(field).exists(d => !around(d) && reached(d, site) && World.selectable(d, site))
+    // A call of a member the reader implements runs the reader.
+    readers(field).flatMap(d => d :: d.allOverriddenSymbols.toList).exists { d =>
+      !around(d) && reached(d, site) && World.selectable(d, site)
+    }
   }
 
   // The definitions of the module that read a field, directly or through one another. A call of a

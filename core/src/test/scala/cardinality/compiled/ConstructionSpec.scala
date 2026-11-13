@@ -75,6 +75,8 @@ class ConstructionSpec extends Specification {
       |object UseInh2 { def f(c: Inh2): Boolean = c.show }
       |final class Wrap[A](val io: IterableOnce[A])
       |final class Ev[A, B](val ev: A <:< B)
+      |enum Rose { case Leaf; case Node(kid: Rose); def name: String = "r" }
+      |object Rose { val boom: Int = ??? }
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Construction.scala" -> text)
@@ -171,8 +173,12 @@ class ConstructionSpec extends Specification {
   // stored estimate says of its class: `Wrap` stores the sequence of `A`s it is given, any of
   // infinitely many built from the input's, ω; `Ev` stores the evidence it is given, of which there
   // is one at most, 1 (the old front end's counts).
+  // `Rose`'s companion always throws, so its value case `Leaf` is never built, and `Node` has no
+  // base case: no `Rose` exists, and `name` is the one function from none, 1, never the ω an
+  // inhabited receiver would leave; the empty sum is not read: `?`.
   private def open =
     (count("ctor.Wrap.<init>") must_== Count.Countable)
+      .and(count("ctor.Rose.name").toString must contain("an enclosing sum not read"))
       .and(count("ctor.Ev.<init>") must_== Count.Finite(1))
 
 }
