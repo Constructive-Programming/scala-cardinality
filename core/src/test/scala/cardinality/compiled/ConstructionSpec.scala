@@ -35,6 +35,8 @@ class ConstructionSpec extends Specification {
       |final class Rec(val r: Option[Rec]) { def this(u: Unit) = this(None) }
       |trait OA[A] { def a: A; class In(x: A) { def this() = this(a) } }
       |trait OB { def b: Boolean; class In() { def this(x: Boolean) = this() } }
+      |final class Low[A >: Boolean](a: A) { def this(u: Unit, b: Boolean) = this(b) }
+      |trait OL[A >: Boolean] { def a: A; class In(x: A) { def this() = this(a) } }
       |object Sing
       |final class Pos(p: (Sing.type, Boolean), q: (Any, Sing.type))
       |final class Mute private (private val a: Boolean)
@@ -104,7 +106,9 @@ class ConstructionSpec extends Specification {
   // `Outer`, whose `o` it may pass: a Boolean from `u` and `o`, 2^2 = 4. `Rec`'s argument is its
   // own class, which the method side refuses: no estimate stands for a secondary constructor.
   // `OA.In()` may pass only the instance's `a`: 1. `OB.In(x)` calls a primary without
-  // parameters: 1.
+  // parameters: 1. A lower bound is a proof (`Boolean <:< A`): `Low(u, b)` passes an A built from `b`,
+  // one of the 2^2 functions of it, 4; `OL.In(x)` passes `x`, `a`, `true` or `false`, 4, and
+  // `OL.In()` all of them but `x`, 3.
   private def secondary =
     (counts("ctor.Two.<init>") must_== List(2, 2, 16).map(Count.Finite(_)))
       .and(counts("ctor.Gen.<init>").last must_== Count.Finite(2))
@@ -114,6 +118,8 @@ class ConstructionSpec extends Specification {
         List("ctor.OA.In.<init>", "ctor.OB.In.<init>")
           .map(counts(_).last) must_== List(Count.Finite(1), Count.Finite(1))
       )
+      .and(counts("ctor.Low.<init>").last must_== Count.Finite(4))
+      .and(counts("ctor.OL.In.<init>") must_== List(4, 3).map(Count.Finite(_)))
       .and(counts("ctor.Rec.<init>").last must beLike { case Count.Unresolved(_) => ok })
 
   // A tuple holding a singleton beside values, no type parameter: `(Sing.type, Boolean)` is the

@@ -3,7 +3,7 @@ package cardinality.compiled
 import cardinality.analysis.AnalysisWork
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
-import cardinality.analysis.resolution.{StuckProjections, TopTypes}
+import cardinality.analysis.resolution.TopTypes
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Symbols.*
@@ -165,15 +165,13 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
                   .map(taken.lazyZip(_).map(bound(method)))
             }.toList)
             inputs <- shapes.inputs(parameters, env)
-            values = held ++ captured.flatten ++ parameters.lazyZip(inputs).map(bound(tree))
-            // The proofs of the bounds of the parameters the result or a value mentions (`Bounds`).
-            proofs <- bounds.proofs(result :: values.map(_.shape), env)
-            // Stuck projections of one parameter that no single instantiation reduces.
-            _ <- StuckProjections
-              .refusal(result :: values.map(_.shape), proofs.map(_.shape))
-              .map(Unread.Refused(_))
-              .toLeft(())
-          } yield Readings.count(values ++ proofs, result)
+            // Under the proofs of the bounds of the parameters the result or a value mentions.
+            count <- bounds.count(
+              held ++ captured.flatten ++ parameters.lazyZip(inputs).map(bound(tree)),
+              result,
+              env
+            )
+          } yield count
     } yield count
   }
 

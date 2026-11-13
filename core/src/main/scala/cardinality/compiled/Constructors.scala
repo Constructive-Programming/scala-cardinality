@@ -85,14 +85,9 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
       own = held ++ Shapes.parameters(constructor).lazyZip(inputs).map { (p, shape) =>
         Binding(s"$self.${p.name}", shape, Some(p.name.toString))
       }
-      result = Shape.Product(chosen)
-      // The proofs of the bounds of the parameters the row mentions.
-      proofs <- bounds.proofs(result :: own.map(_.shape), env)
-      _ <- StuckProjections
-        .refusal(result :: own.map(_.shape), proofs.map(_.shape))
-        .map(Unread.Refused(_))
-        .toLeft(())
-    } yield Readings.count(own ++ proofs, result)
+      // Under the proofs of the bounds of the parameters the row mentions.
+      count <- bounds.count(own, Shape.Product(chosen), env)
+    } yield count
   }
 
   // The class's tree, the environment a constructor's positions are read in, and what the

@@ -1,8 +1,8 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.EvidenceAnalysis
-import cardinality.analysis.inhabitation.Inhabitation.{Binding, Shape}
-import cardinality.analysis.resolution.TopTypes
+import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
+import cardinality.analysis.resolution.{StuckProjections, TopTypes}
 import cardinality.types.{Graphs, Traversals}
 import tastyquery.Contexts.*
 import tastyquery.Symbols.*
@@ -26,6 +26,18 @@ import tastyquery.Types.*
   */
 final private[compiled] class Bounds(shapes: Shapes)(using Context) {
   import Unread.{Refused, Uncovered}
+
+  /** The count of a method from `values` to `result` under the proofs of the bounds they mention,
+    * refused where stuck projections of one parameter no single instantiation reduces.
+    */
+  def count(values: List[Binding], result: Shape, env: Shapes.Env): Either[Unread, Count] =
+    for {
+      proofs <- proofs(result :: values.map(_.shape), env)
+      _ <- StuckProjections
+        .refusal(result :: values.map(_.shape), proofs.map(_.shape))
+        .map(Refused(_))
+        .toLeft(())
+    } yield Readings.count(values ++ proofs, result)
 
   /** The proofs of the bounds of the bounded proper parameters and abstract type members the shapes
     * mention, as values.
