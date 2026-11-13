@@ -111,3 +111,42 @@ main.content > hr + p {
   font-size: .875rem;
   opacity: .8;
 }
+
+/* ---- Math (MathML Core) --------------------------------------------
+ * Formulas are pre-rendered to MathML Core by temml at build time
+ * (scripts/render-math.mjs); the browser does the typesetting. The font
+ * is self-hosted: Libertinus Math (OFL), under static/fonts/.
+ * Adapted from temml's Temml-Libertinus.css.
+ */
+@font-face {
+  font-family: "Libertinus Math";
+  src: url("fonts/LibertinusMath-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+math {
+  font-family: "Libertinus Math", math;
+  font-size-adjust: none;
+  text-indent: 0;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: normal;
+  direction: ltr;
+  /* Keep Firefox from dropping the dot on i and j. */
+  font-feature-settings: "dtls" off;
+}
+
+/* temml writes display: block math inline for Chromium; the class carries
+ * Firefox and Safari. */
+math.tml-display {
+  display: block;
+  width: 100%;
+  margin: 0.75rem 0;
+}
+
+/* Inline math inside a table cell or a footnote should not stretch the line. */
+p math, li math, td math {
+  font-size: 1.05em;
+}

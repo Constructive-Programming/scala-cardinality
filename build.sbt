@@ -289,10 +289,14 @@ addCommandAlias("mutationAll", "core/stryker")
 // Documentation site
 // ----------------------------------------------------------------
 // `docs/` is the source of truth for the repository; `docs/site/` is the published
-// subset. There is no copy to keep in sync: `siteRender` runs Laika (the same engine and
-// Helium theme the sister project `eo` uses) over `docs/site/` and writes `target/site`.
-// Internal notes under `docs/plans`, `docs/research` and `docs/baselines` stay out of the
-// input tree, so they are neither rendered nor reachable from the site.
+// subset. There is no copy to keep in sync: `siteRender` first runs the math pre-pass
+// (`scripts/render-math.mjs`, backed by the vendored temml in `scripts/vendor/`), which
+// stages the tree under `target/site-src` with `$…$` and ```math fences replaced by
+// MathML Core, and Laika (the same engine and Helium theme the sister project `eo` uses)
+// then renders that tree into `target/site`. The pre-pass needs Node ≥ 18 on the PATH;
+// a formula temml cannot parse fails the build. Internal notes under `docs/plans`,
+// `docs/research` and `docs/baselines` stay out of the input tree, so they are neither
+// rendered nor reachable from the site.
 //
 // Two deviations from `eo`'s setup, both forced by sbt 2: its `sbt-typelevel-site`
 // plugin has no sbt 2 build, so the render step lives in `project/SiteRenderer.scala`
@@ -308,10 +312,30 @@ lazy val siteRender = taskKey[Unit]("Render docs/site/ into the static site unde
 // Uncached on purpose: writing the site is a side effect, so it must re-read `docs/` on
 // every run rather than trust a cache entry that only tracks a directory path.
 root / siteRender := Def.uncached {
+  val base = (ThisBuild / baseDirectory).value
+  // The math pre-pass stages docs/site/ under site-staged/ with every formula as MathML
+  // Core; Laika then renders the staged tree (with raw content enabled, so the MathML
+  // passes through unescaped). A formula temml cannot parse fails here.
+  // The staging directory deliberately sits OUTSIDE target/: under target/ the sbt 2
+  // JVM's cached view of the target tree makes Laika's input walk see an empty
+  // directory, and the render produces theme assets only.
+  val staged = base / "site-staged"
   // Not `target.value`: sbt 2 nests that under `target/out/jvm/...`, and the deploy
   // workflow wants one path it can point at.
-  val output = (ThisBuild / baseDirectory).value / "target" / "site"
+  val output = base / "target" / "site"
+  IO.delete(staged)
+  val mathPass = scala.sys.process.Process(
+    Seq(
+      "node",
+      "scripts/render-math.mjs",
+      (base / "docs" / "site").getAbsolutePath,
+      staged.getAbsolutePath
+    ),
+    base
+  )
+  val exit = mathPass.!
+  if (exit != 0) sys.error(s"render-math.mjs exited with $exit: a formula could not be parsed")
   IO.delete(output)
-  SiteRenderer.render((ThisBuild / baseDirectory).value / "docs" / "site", output)
+  SiteRenderer.render(staged, output)
   streams.value.log.info(s"Site written to ${output.getAbsolutePath}")
 }

@@ -13,25 +13,24 @@ import laika.theme.config.Color
 
 import java.io.File
 
-/** Renders the markdown under `docs/site/` into the static site, with the same engine and brand
-  * overlay the sister project `eo` uses (Laika + Helium). Laika runs inside the build JVM, so this
-  * is invoked from the `siteRender` task rather than from a shell command.
+/** Renders the staged site tree into the static site, with the same engine and brand overlay the
+  * sister project `eo` uses (Laika + Helium). Laika runs inside the build JVM, so this is invoked
+  * from the `siteRender` task rather than from a shell command.
   *
-  * Internal notes (`docs/plans`, `docs/research`, `docs/baselines`) sit outside the input directory
-  * and are therefore neither rendered nor reachable from the site.
+  * The input is the tree the math pre-pass (`scripts/render-math.mjs`) staged from `docs/site/`:
+  * dollar-math and math fences have already become MathML Core, so raw content is enabled to let
+  * the MathML through unescaped. Internal notes (`docs/plans`, `docs/research`, `docs/baselines`)
+  * sit outside `docs/site/` and are therefore neither rendered nor reachable from the site.
   */
 object SiteRenderer {
 
   private val repository = "https://github.com/constructive-programming/scala-cardinality"
 
-  /** Reads `input` (the published pages under `docs/site/`) and writes HTML to `output`. */
+  /** Reads `input` (the staged tree under `site-staged/`) and writes HTML to `output`. */
   def render(input: File, output: File): Unit =
     transformer
-      .use(
-        _.fromDirectory(input.getAbsolutePath)
-          .toDirectory(output.getAbsolutePath)
-          .transform
-          .void
+      .use(x =>
+        x.fromDirectory(input.getAbsolutePath).toDirectory(output.getAbsolutePath).transform
       )
       .unsafeRunSync()
 
@@ -42,6 +41,9 @@ object SiteRenderer {
       .from(Markdown)
       .to(HTML)
       .using(Markdown.GitHubFlavor)
+      // Raw content: the math pre-pass has already written MathML Core into the staged
+      // tree, and it must reach the output unescaped.
+      .withRawContent
       .parallel[IO]
       .withTheme(theme)
       .build

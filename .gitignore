@@ -23,3 +23,6 @@ metals.sbt
 **/stryker4s-tmpDir/
 /cpd/
 mill-plugin/out/
+
+# The math pre-pass stages the site here before Laika renders it.
+/site-staged/

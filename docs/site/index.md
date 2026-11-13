@@ -6,9 +6,9 @@ A type is a state space. Objects and values fit into types, with simple rules.
 
 `Unit` 1 · `Boolean` 2 · `Option[Boolean]` 3
 
-`Long` 2^64 · `String` ω · `(String, String)` ω²
+`Long` $2^{64}$ · `String` $\omega$ · `(String, String)` $\omega^2$
 
-`Map[Char, Boolean]` 3^(2^16) · `Char => Boolean` 2^(2^16).¹
+`Map[Char, Boolean]` $3^{2^{16}}$ · `Char => Boolean` $2^{2^{16}}$.¹
 
 Sums add, products multiply, functions are exponentials. Every value a type admits is a
 state the program must handle — or can wrongly produce. The calculator puts a number on
@@ -107,6 +107,6 @@ Current version: 0.0.6.
 
 ---
 
-¹ The report prints finite capacities as bounds (`≤2^65536`) and keeps products above the
-finite tier coarse (`(String, String)` prints `ω`). The arithmetic above is the target; a
-bound is not a licence to stop looking.
+¹ The report prints finite capacities as bounds ($\le 2^{65536}$) and keeps products above
+the finite tier coarse (`(String, String)` prints `ω`). The arithmetic above is the target;
+a bound is not a licence to stop looking.

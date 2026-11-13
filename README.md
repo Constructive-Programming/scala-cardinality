@@ -228,6 +228,13 @@ sbt siteRender                      # renders docs/site/ into target/site
 python3 -m http.server -d target/site 8000
 ```
 
+Formulas are typeset by the browser: `siteRender` first runs the math pre-pass
+(`scripts/render-math.mjs`, backed by the vendored [temml](https://temml.org/) in
+`scripts/vendor/`), which turns dollar-math and `math` fenced blocks into MathML Core,
+and Laika then renders the staged tree with raw content enabled. This needs Node ≥ 18
+on the PATH (the runner images and CI provide it; nothing is installed with npm).
+A self-hosted copy of Libertinus Math serves as the math font.
+
 The renderer is [Laika](https://typelevel.org/Laika/) with its Helium theme — the same
 engine the sister project [`eo`](https://github.com/Constructive-Programming/eo) uses.
 Two pieces of eo's pipeline are missing here, both because this build runs on sbt 2:
