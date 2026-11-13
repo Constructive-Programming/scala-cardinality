@@ -167,11 +167,14 @@ class TastyStubsSpec extends Specification {
           "Box.scala",
           "Choice.scala",
           "Coin.scala",
+          "Dial.scala",
+          "Gen.scala",
           "Lone.scala",
           "Op.scala",
           "Shape.scala",
           "Sig.scala",
           "Solo.scala",
+          "Stray.scala",
           "Toggle.scala"
         )
     )

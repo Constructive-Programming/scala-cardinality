@@ -154,11 +154,12 @@ final private[compiled] class Stored(world: World)(using Context) {
   // Where a class's constructor is written: at the class, with the constructor's own copies of the
   // class's type parameters bound as the class's are.
   private def atClass(tree: ClassDef, env: Env): Env = {
-    val copies = Shapes
-      .typeParameters(tree.rhs.constr)
-      .zip(tree.symbol.typeParams)
-      .map((copy, parameter) => copy -> env.binders(parameter))
-    env.copy(binders = env.binders ++ copies, site = tree.symbol)
+    val copies = Shapes.typeParameters(tree.rhs.constr)
+    env.copy(
+      binders = env.binders ++ Shapes.copied(copies, tree.symbol, env.binders),
+      written = env.written ++ Shapes.copied(copies, tree.symbol, env.written),
+      site = tree.symbol
+    )
   }
 
   /** What one position of a class's constructor stores, as the method side's value space of it is
@@ -402,13 +403,20 @@ final private[compiled] class Stored(world: World)(using Context) {
   }
 
   // A match type is what the compiler reduces it to, where the method side trusts the reduction
-  // (`Shapes.trusted`); one stuck on a type parameter that stands for what the
-  // instance chooses is what the instance chooses, as the parameter is.
+  // (`Shapes.trusted`); one over a class's parameter is the match on the type its position wrote,
+  // read with the parameters of both sites where none is bound at both; one stuck on a type parameter
+  // that stands for what the instance chooses is what the instance chooses, as the parameter is.
   private def matchType(matched: MatchType, env: Env): Either[String, Held] =
     (Shapes.trusted(matched), matched.reduced, matched.scrutinee.dealias) match {
       case (Some(reduced), _, _)   => of(reduced, env)
       case (_, None, ref: TypeRef) =>
         ref.optSymbol match {
+          case Some(binder) if apart(binder, env) =>
+            val (argument, outer) = env.written(binder)
+            matchType(
+              MatchType(matched.bound, argument, matched.cases),
+              env.copy(binders = outer.binders ++ env.binders, written = outer.written)
+            )
           case Some(binder) if env.binders.contains(binder) =>
             val held = env.binders(binder)
             Either.cond(
@@ -422,6 +430,11 @@ final private[compiled] class Stored(world: World)(using Context) {
         }
       case _ => Left(s"a type: ${matched.showBasic}")
     }
+
+  // Whether a class's parameter has the type its position wrote, from a site that binds none of
+  // the class's parameters.
+  private def apart(binder: Symbol, env: Env): Boolean =
+    env.written.get(binder).exists(_._2.binders.keySet.forall(!env.binders.contains(_)))
 
   // A refinement is no more than the type it refines. One written without a type refines `Object`
   // in the tree, as one written `Object { … }` does: the two are not told apart, and the first has
@@ -461,11 +474,15 @@ final private[compiled] class Stored(world: World)(using Context) {
       case Some(c: ClassSymbol) if c.typeParams.sizeIs != arguments.size =>
         Right(Held(EffectiveOmega, List(Unbound.Syntax(s"type constructor: ${c.name}"))))
       case Some(c: ClassSymbol) =>
-        World.proper(arguments).flatMap(each(_, env)).flatMap { sizes =>
-          world.library(c) match {
-            case Some(name)                         => standard(name, sizes, env.input)
-            case None if world.readByDeclaration(c) => declared(c, sizes, env)
-            case None => Left(s"a class of a dependency: ${c.displayFullName}")
+        World.proper(arguments).flatMap { types =>
+          each(types, env).flatMap { sizes =>
+            world.library(c) match {
+              case Some(name) => standard(name, sizes, env.input)
+              // Each parameter is the type the position wrote, read there (a match type over it).
+              case None if world.readByDeclaration(c) =>
+                declared(c, sizes, env.copy(written = c.typeParams.zip(types.map(_ -> env)).toMap))
+              case None => Left(s"a class of a dependency: ${c.displayFullName}")
+            }
           }
         }
       // The empty tuple is a base type, though the library spells it as an alias of a singleton.
@@ -853,7 +870,8 @@ private[compiled] object Stored {
       visiting: Set[ClassSymbol] = Set.empty,
       isValue: Boolean = false,
       input: Boolean = false,
-      system: Option[Values] = None
+      system: Option[Values] = None,
+      written: Map[Symbol, (Type, Env)] = Map.empty
   )
 
   // A class of the module with its type parameters bound: a definition of a system.

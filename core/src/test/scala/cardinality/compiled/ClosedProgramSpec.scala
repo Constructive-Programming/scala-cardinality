@@ -261,7 +261,12 @@ class ClosedProgramSpec extends Specification {
   // named or not: it is final and its `on` closed, as a Scala class's would be. `Box.Point` is
   // written final, `Shape` extends `Box`, `Choice.Yes` and `Choice.No` implement `Choice`, and
   // nothing overrides the default method `Toggle.same` (no class file of the fixtures extends
-  // `Toggle`: `Lone` and `Solo` are the checks a lost class file would fail).
+  // `Toggle`: `Lone` and `Solo` are the checks a lost class file would fail). `Stray$1` and
+  // `Stray$1Local` extend `javamissing.Gone`, which the package is not read with: a class outside
+  // the program, which extends none of its classes, so every other answer stays sure (`Lone`'s
+  // subclasses are all known). `Stray$1Local` implements `Dial`, and `Gone`, not read, may
+  // override `Dial.same` there: not known. `Gen$1` extends `Gen$mcI$sp`, named as a Scala 2 specialization, which no symbol stands
+  // for: it extends `Gen` and may override all `Gen` has, `off` too, which it does not declare.
   def java = {
     val p = program("class Mine", List(Programs.packaged("javafixtures")))
     val names = List("Lone", "Solo", "Box.Point", "Box", "Choice").map("javafixtures." + _)
@@ -274,6 +279,12 @@ class ClosedProgramSpec extends Specification {
       .and(p.overriding("javafixtures.Toggle", "javafixtures.Toggle", "same") must_== Overriding.No)
       .and(p.subclasses("javafixtures.Box") must_== (Set("Shape"), true))
       .and(p.subclasses("javafixtures.Choice") must_== (Set("Yes", "No"), true))
+      .and(unnamed("javafixtures.Gen") must_== List("javafixtures/Gen$1"))
+      .and(p.overriding("javafixtures.Gen", "javafixtures.Gen", "off") must_== Overriding.Supplied)
+      .and(unnamed("javafixtures.Dial") must_== List("javafixtures/Stray$1Local"))
+      .and(
+        p.overriding("javafixtures.Dial", "javafixtures.Dial", "same") must_== Overriding.Unknown
+      )
   }
 
   // `Mid` extends `gone.Gone`, which the classes read do not hold. `Leaf` and `Leaf2` are still

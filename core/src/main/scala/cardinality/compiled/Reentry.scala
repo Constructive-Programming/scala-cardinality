@@ -5,7 +5,7 @@ import scala.util.Try
 
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.TermSymbolKind
-import tastyquery.Names.{SignedName, TermName}
+import tastyquery.Names.SignedName
 import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
 import tastyquery.Trees.*
@@ -405,10 +405,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
           }
         case reference: TermReferenceTree =>
           note(
-            Reentry.unsigned(reference match {
-              case Ident(name)     => name
-              case Select(_, name) => name
-            }),
+            Reentry.written(reference),
             World.named(reference)
           )
           super.traverse(reference)
@@ -585,8 +582,11 @@ final private[compiled] class Reentry(world: World)(using Context) {
 
 private[compiled] object Reentry {
 
-  /** A name without the signature a selection may carry. */
-  private def unsigned(name: TermName): String = name match {
+  /** A reference's written name, without the signature a selection may carry. */
+  def written(reference: TermReferenceTree): String = (reference match {
+    case Ident(name)     => name
+    case Select(_, name) => name
+  }) match {
     case signed: SignedName => signed.underlying.toString
     case other              => other.toString
   }

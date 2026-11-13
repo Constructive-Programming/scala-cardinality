@@ -71,7 +71,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         paths
           .existential(ref, arguments, env)
           .getOrElse(applied(arguments).flatMap(named(ref, _, env)))
-      case witness: TypeParamRef   => paths.witness(witness)
+      case witness: TypeParamRef =>
+        env.argument(witness).fold(paths.witness(witness))((argument, at) => of(argument, at))
       case constant: ConstantType  => literal(constant).map(Shape.Singleton(_, None))
       case path: TermRef           => singleton(path, parts)
       case or: OrType              => relations.union(Relations.alternatives(or), parts)
@@ -214,6 +215,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           case _ => uncovered(tpe)
         }
       }
+    case ref: TypeParamRef =>
+      env.argument(ref).fold(uncovered(ref))((argument, at) => key(argument, at))
     case PathTypes.Eta(constructor)                   => key(constructor, env)
     case or: OrType if or.first.isSameType(or.second) => key(or.first, env)
     case other                                        => uncovered(other)
@@ -300,14 +303,18 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case (_, Nil) => Right(shape)
       // A binder that stands for a written constructor (`[X] =>> Either[E, X]`, `List`) is that
       // constructor applied to the arguments, read with the binders of both the site that wrote
-      // it and the site that applies it. One symbol bound differently at the two sites (a class's
-      // parameter passed back to the class) would take the applying site's meaning: refused.
+      // it and the site that applies it. Where one symbol is bound differently at the two sites (a
+      // class's parameter passed back to the class), a written lambda's body is read at the site
+      // that wrote it alone, each of its parameters the argument read where it is applied
+      // (`Env.applied`); any other constructor is refused.
       case (Shape.Constructor(id), applied) if closures.contains(id) =>
         val (written, outer) = closures(id)
-        env.under(outer) match {
-          case None =>
+        (env.under(outer), PathTypes.follow(written)) match {
+          case (Some(both), _) => read(written.appliedTo(applied), both)
+          case (None, lambda: TypeLambda) if lambda.paramRefs.sizeIs == applied.size =>
+            read(lambda.resultType, env.within(outer, lambda, applied))
+          case _ =>
             Left(Uncovered(s"a written constructor over a parameter bound again: ${ref.showBasic}"))
-          case Some(both) => read(written.appliedTo(applied), both)
         }
       // A higher-kinded binder applied is an uninterpreted application over its arguments,
       // each read as the type it is (`key`), not as its values.
@@ -441,7 +448,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     val read = env.copy(
       binders = env.binders ++ (copies ++ c.typeParams).zip(bound ++ bound).toMap,
       preceding = false,
-      written = env.written ++ Shapes.copied(copies, c, env)
+      written = env.written ++ Shapes.copied(copies, c, env.written)
     )
     // A template whose construction always throws, its own or an ancestor's of the module, or a
     // class written `final abstract`, has no value: the empty sum.
@@ -596,7 +603,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     val bound = (copies.zip(arguments) ++ tree.symbol.typeParams.zip(arguments)).toMap
     val inside = env.copy(
       binders = env.binders ++ bound,
-      written = env.written ++ Shapes.copied(copies, tree.symbol, env)
+      written = env.written ++ Shapes.copied(copies, tree.symbol, env.written)
     )
     Traversals.sequence(Shapes.parameters(constructor).map(p => of(p.tpt.toType, inside)))
   }
@@ -646,54 +653,9 @@ private[compiled] object Shapes {
   /** How a type reads in an environment: `Shapes.of`, which its helpers are given. */
   type Reading = (Type, Env) => Either[Unread, Shape]
 
-  /** What a type is read in: the shapes its type parameters stand for, the definition measured
-    * (what it may see decides an opaque type), the classes being read (a cycle is refused), and
-    * whether the type is compared with another as a type (`nominal`), where a type of the module is
-    * not its shape. A type parameter `unread` is the reason of a type that names it, and of nothing
-    * else: an unused parameter's kind tells nothing. A value `preceding` is built before the
-    * measured definition's receiver, which it therefore never is. A class's type parameter
-    * `written` with an argument is that type as the site naming the class wrote it, read there: a
-    * match type over the parameter is the match on the argument.
-    */
-  final case class Env(
-      binders: Map[Symbol, Shape],
-      site: Symbol,
-      visiting: Set[ClassSymbol] = Set.empty,
-      nominal: Boolean = false,
-      unread: Map[Symbol, Unread] = Map.empty,
-      preceding: Boolean = false,
-      written: Map[Symbol, (Type, Env)] = Map.empty
-  ) {
-
-    /** Whether a type parameter is one of the environment's, read or not. */
-    def binds(parameter: Symbol): Boolean =
-      binders.contains(parameter) || unread.contains(parameter)
-
-    /** The environment with the binders of `outer`, a site that wrote a type read here, beside its
-      * own; none where one symbol is bound differently at the two sites.
-      */
-    def under(outer: Env): Option[Env] =
-      Option.unless(
-        outer.binders.exists((symbol, meaning) => binders.get(symbol).exists(_ != meaning))
-      )(copy(binders = outer.binders ++ binders, unread = outer.unread ++ unread))
-
-    /** What a type parameter of the environment stands for, or why it is not read. */
-    def binding(parameter: Symbol): Either[Unread, Shape] =
-      unread.get(parameter).toLeft(binders(parameter))
-
-  }
-
-  object Env {
-
-    /** An environment of type parameters each read or not (`Shapes.binder`). */
-    def of(read: Iterable[(Symbol, Either[Unread, Shape])], site: Symbol): Env =
-      Env(
-        read.collect { case (symbol, Right(shape)) => symbol -> shape }.toMap,
-        site,
-        unread = read.collect { case (symbol, Left(why)) => symbol -> why }.toMap
-      )
-
-  }
+  /** What a type is read in (`ShapeEnv`). */
+  type Env = ShapeEnv
+  val Env: ShapeEnv.type = ShapeEnv
 
   // The types whose arguments are compared as types.
   private val Evidence = Set("scala.<:<", "scala.=:=")
@@ -909,11 +871,11 @@ private[compiled] object Shapes {
         p
     }
 
-  /** The arguments a class was named with (`Env.written`), for the constructor's copies of its type
-    * parameters, which its parameter types name.
+  /** What a class's type parameters hold (the arguments it was named with, `Env.written`, or what
+    * they are bound to), for the constructor's copies of them, which its parameter types name.
     */
-  def copied(copies: List[Symbol], c: ClassSymbol, env: Env): List[(Symbol, (Type, Env))] =
-    copies.zip(c.typeParams).flatMap((copy, parameter) => env.written.get(parameter).map(copy -> _))
+  def copied[A](copies: List[Symbol], c: ClassSymbol, held: Map[Symbol, A]): List[(Symbol, A)] =
+    copies.zip(c.typeParams).flatMap((copy, parameter) => held.get(parameter).map(copy -> _))
 
   /** What a match type reduces to where scalac reduces it too: tasty-query reduces on an abstract
     * scrutinee where scalac does not (`Fst[T]` for a `T <: (Int, String)` is `Int` there, stuck in

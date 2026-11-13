@@ -2593,6 +2593,90 @@ cases are built by a companion that throws, or whose case's parent throws). Old 
 that changed: fixtures `E` 2 -> 0 (`enum E { case E1, E2; val x: Int = ??? }`, now identical);
 no corpus row of either front end changed.
 
+### Group k1: corpus rows that are not record re-entry
+
+The old numeric corpus rows `6156823` left uncovered for reasons other than re-entry through a
+capability record (g1b) and a capability's own type parameters (k2). Each row was traced to what
+the old front end does; five rules were ported, the rest are listed as resting on an old misreading
+or left with their reason.
+
+- **A written lambda over a symbol bound again** (`Shapes.bound`, `Env.applied`). A class's
+  parameter passed back to the class (`FunctionK.or`'s `FunctionK[EitherK[F, H, *], G]` read inside
+  `FunctionK`, `Kleisli.toReader`'s `Kleisli[Id, A, F[B]]`) binds one symbol at both sites. Where
+  `Env.under` refuses, a written type lambda (an alias followed to one, `Id` among them) is read at
+  the site that wrote it alone, each of its parameters standing for the argument read where it is
+  applied (`of` and `key` look a `TypeParamRef` up in `Env.applied`): plain substitution, no
+  symbol read at the wrong site. Any other written constructor is refused as before.
+  `TypeParametersSpec.lambdas`: `Fk.or` 1, `Kl.plain` 1, `Wrap.Ops.back` 1 (was uncovered; the old
+  front end agrees on all three). `Shapes.Env` moved to its own file (`ShapeEnv.scala`, aliased
+  as `Shapes.Env`) to keep `Shapes.scala` under the 1,000-line limit.
+- **A parent no classpath entry holds** (`ClosedProgram.indexed`, `absent`). A class without TASTy
+  whose parent is on no classpath entry (corpus-core: 48 macro classes of scalameta extend
+  `scala.reflect.api.TypeCreator`, scala-reflect not supplied) made every class outside the module
+  "not all known", so every concrete member of a dependency was `Overriding.Unknown`. By the closed
+  world the parent is outside the program and extends none of its classes: the class leads to no
+  class through it, and the part stays "all known". What that parent declares is not read, so where
+  the class does reach a class of the program beside it, it may override anything that class has
+  (`Unnamed.whole`: `Overriding.Unknown`, an `overriders` entry not read, `mixes` true), as a named
+  class's unread parent beside its owner already is (`unreadBeside`). Decision recorded here
+  (values: the AGENTS.md closed world). A name is absent only where neither a class nor an object of
+  its top-level name is found (`MemberNotFoundException`); any other failed lookup, and a parent on
+  the classpath that does not resolve, leaves the whole part unknown as before. A correctness
+  review noted the asymmetry this leaves: an absent parent that would itself extend a class of
+  the program (`Gone extends D` in a jar not supplied) is taken to extend none, so `D`'s
+  subclasses read as all known; a named class with an unread parent still makes the part unknown.
+  That is the decision above (a class outside the supplied program does not exist); the
+  coordinator may overrule it, which brings every corpus-core and cats-core dependency member back
+  to `Unknown`.
+- **A member class of an object without a companion class** (`ClosedProgram.named`): a binary
+  parent `scala/sys/process/BasicIO$Uncloseable` starts at the object's module class when no class
+  of the top-level name exists (two anonymous classes of the library extend it).
+- **A Scala 2 specialization** (`ClosedProgram.Specialized`). `AbstractFunction1$mcZI$sp` is a
+  class file no symbol stands for (tasty-query does not list specialized classes): cats-core's
+  classpath had two anonymous classes of `scala.sys.process` extending it. It is read as extending
+  its general class alone and as overriding, by name, every member that class has (an overcount
+  of what may vary, never an undercount). `named` also tries a binary name as a top-level class.
+  `ClosedProgramSpec.java` (`Stray$1` extends `javamissing.Gone`, left off the classpath; `Gen$1`
+  extends `Gen$mcI$sp`, `Stray$1Local` implements `Dial` beside the absent parent, so `Dial.same`
+  is unknown) fails on the old code.
+- **A reference resolved only where its written name matches** (`Bodies.throws`, `written`): once
+  the closed world above was complete, `World.unbuiltBelow` read the bodies of more classes, and
+  resolving every reference reached a signature tasty-query does not read (`Definitions.PureClass`
+  of the 3.3.4 library, `None.get`), which failed whole sources. `???` and `sys.error` are matched
+  by name before their symbol is resolved (`Reentry.written`, which `Reentry` already had for the
+  same reading, now shared).
+- **A parent reached twice with the same type arguments** (`Receivers.reachesTwice`): one parent,
+  as the old `InheritedScopes.walk` takes it (it refuses only a parent "instantiated twice"). The
+  base type through each parent (`Type.baseType`) is compared; one that differs (`CoTop[Boolean]`
+  beside `CoTop[Any]`), and a parent that does not read, is refused as before, the reason now
+  saying "with other type arguments". `RecordsSpec`: `dia` 16, `coDia` refused;
+  `ProgramRowsSpec.twoPaths`: `D.g` and `E.h` 4 (were uncovered), `CS.s` refused.
+- **A match type over a class's parameter on the stored side** (`Stored.Env.written`,
+  `matchType`, `atClass`, `Shapes.copied` now generic): the type a position wrote for the
+  parameter, carried to the constructor's copies, is the scrutinee; the match is read with the
+  parameters of both sites, as `Shapes` reads it (`Env.under`), and not where one symbol is bound
+  at both. `MatchTypesSpec.stored`: `val missed: Miss[(Unit, Boolean)]` and `flagged` 1 (D30),
+  `HoldsUnit` 1, `HoldsFlag` 2, `HoldsPick` 2 (its field reduces to the class's other parameter,
+  bound to `Boolean`). cats-eo `pickFoldMiss` (old 1) is identical.
+
+Rows listed in `old-unsound.txt` (each old number rests on a misreading a correction already
+records): `cats.evidence.As` (definition, old 0) and `As.coerce` (old 1), which read As as a
+sealed family without a value (the correction of `As.reflAny`); `IorInstances.catsDataOrderForIor`
+(old 1), which reads Ior as empty (the correction of `cats.data.Ior`, as `catsDataShowForIor`).
+
+Left, each with its reason:
+
+- `Traversal.selfChildren.<new#1>.from` (cats-eo, old 0, which is right: `MultiFocusK` is opaque
+  outside `data`, one value by rule F, and no `S` is reachable): reading `PSVec` needs a sealed
+  case no constructor of the site builds read through `Factories`, which g2 left out ("Rule B,
+  third unit"). Ported and reverted here for the same reason.
+- `ClosedWorld.extending` (core, old 1): `Memo[String, (Set[String], List[Node])]` holds no field
+  the site observes, but `Shapes.named` reads every type argument first, and `Node` is a class
+  nested in a class. Reading arguments only where the class's value uses them would change
+  `declared`'s signature through `Sums` and `record`; not done.
+- `Hash.hash` (cats-kernel, old 2^128): re-entry among the members of an enclosing class
+  (`Receivers.reenters`), shared with g1b's record rows.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

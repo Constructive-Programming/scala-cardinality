@@ -106,6 +106,14 @@ class RecordsSpec extends Specification {
       |trait Bounded { type T <: Int; def t: T }
       |trait Guarded { protected def h: Boolean }
       |trait Guards extends Guarded { def k: Boolean = h }
+      |trait Top[A] { def top: A }
+      |trait LeftT[A] extends Top[A] { def l: Boolean }
+      |trait RightT[A] extends Top[A]
+      |trait Dia[A] extends LeftT[A] with RightT[A]
+      |trait CoTop[+A] { def top: A }
+      |trait CoL extends CoTop[Boolean]
+      |trait CoR extends CoTop[Any]
+      |trait CoDia extends CoL with CoR
       |object Use {
       |  def read[S, A](s: S, g: CanGet[S, A]): A = g.get(s)
       |  def noSource[S, A](g: CanGet[S, A]): A = ???
@@ -137,6 +145,8 @@ class RecordsSpec extends Specification {
       |  def show(s: Shows): Boolean = true
       |  def free(f: Free): Boolean = true
       |  def same(s: Same): Boolean = true
+      |  def dia(d: Dia[Boolean]): Boolean = true
+      |  def coDia(d: CoDia): Boolean = true
       |  def target(b: Back): Boolean = true
       |  def ord(o: Ord): Boolean = true
       |  def fb(b: Fb): Boolean = true
@@ -234,6 +244,11 @@ class RecordsSpec extends Specification {
       .and(count("prod") must_== Count.Finite(4))
       .and(count("free") must_== Count.Finite(16))
       .and(count("same") must_== Count.Finite(65536))
+      // `Dia` reaches `Top` through `LeftT` and through `RightT`, each with its `A`: one parent,
+      // so a `Dia[Boolean]` is its `top` and its `l`, 4 values, and `dia` one of 2^4. `CoDia`
+      // reaches `CoTop` as a `CoTop[Boolean]` and as a `CoTop[Any]`: not read.
+      .and(count("dia") must_== Count.Finite(16))
+      .and(count("coDia").toString must contain("reaches a parent through two parents"))
       .and(count("typing") must_== Count.Finite(4))
       .and(count("pack") must_== Count.Finite(4))
       .and(count("two") must_== Count.Finite(16))
