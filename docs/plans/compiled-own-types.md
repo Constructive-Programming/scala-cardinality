@@ -3224,6 +3224,21 @@ Regression: `ProgramRowsSpec.thisOnly`. Rows: no number changed; one fixture con
 (`class Outer(a: Boolean) { case class Inner(o: Outer) }`, `Inner.<init>`, 2) is uncovered now,
 its argument `o` observing no field of `Outer` (removed from the private coverage memory).
 
+### Rule B, third unit (g2): cases the site may not construct, through factories (left out)
+
+Tried and left uncommitted (`/tmp/g2/part2-wip.patch`, on `a7a2566`). A sealed case no constructor
+of the site builds was read through `Factories`, gated on `Sums.carried` (a case pinning its
+parent's argument, or with type parameters of its own, left), with a case class's synthetic
+`unapply` observing its first clause and an override the site may not select leaving the class.
+Every gate passed, but it frees one old numeric row (fixtures 659 → 658), and each correctness
+review found another way for code outside the class to hand a hidden field to the site, an
+undercount each time: a parent's member matching on the case, a companion's method, a parameter's
+default getter (synthetic, skipped by `Factories.definitions`), another class's secondary
+constructor or parent argument, a pattern through an extractor the site cannot reach, and a
+public member reading a later clause beside the extractor. The same gap stands in `Factories` for
+a final class of the module (`Shapes.record`): `observed` follows only the class's own body. Left
+until observation is read over every definition the site may reach.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.
