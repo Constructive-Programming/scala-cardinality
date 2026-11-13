@@ -1790,6 +1790,12 @@ identical, cats-core 1,556 (29 more), cats-eo 231 (3 more), cats-eo-generics 40,
 5,078 (48 more); the 184 cats-core rows still named "an anonymous contextual parameter" are
 receivers', capabilities' and captured ones.
 
+### Relations moved out of Shapes
+
+The union and intersection readings, the record clash test and their helpers moved, unchanged,
+from `Shapes.scala` (928 lines) to `Relations.scala` (`Relations(world, Shapes.of)`); `Shapes`
+is 787 lines. All seven inputs pass with the same rows.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1852,7 +1858,10 @@ receivers', capabilities' and captured ones.
   seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"); the merge of
   `tasty-gate` at `a8dc05f`; members named like the measured definition ("Stretch 5, ninth
   unit"); anonymous contextual parameters of the measured method ("Stretch 5, tenth unit"). Left
-  of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Scope
+  of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Done since:
+  the move of the union, intersection and clash readings to `Relations` (no change in rows).
+  Next, by the coordinator's order: the rest of item 6, match types, the back end's undercount of
+  a record member that is a record with a polymorphic member, refinements. Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in
