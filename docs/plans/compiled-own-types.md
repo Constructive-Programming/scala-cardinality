@@ -371,6 +371,18 @@ agent's: `a type` (fixtures 149, cats-eo 21), a definition that reaches itself (
 93), anonymous contextual parameters (cats-core 9, fixtures 31), a value of a class of the module
 (core 12), definitions in function literals, case clauses and constructor bodies, captures.
 
+A correctness review of the merge found one slip, fixed after it: a dependency record without TASTy
+kept the `preceding` flag of the position it was read in, so a module record one of its members
+returns could skip the front's `clash` refusal; `Shapes.withoutTasty` now reads fields and members
+with `preceding` false, as a module record does. No row moves on any input (gate run after the
+fix). Noted, not changed: a constructor row refuses a bounded member of an outer receiver even where
+no position names it (more `?` only), and an outer receiver's bounded type parameter reaches a
+constructor row without its proof, a gap older than the merge. Next, by old numeric rows: re-entry
+among a record's members through a function a captured parameter holds (search the call sites of
+the method owning the parameter, recursively; refuse anything unresolved or outside the module),
+then constructor positions, restricted constructors, re-entry among an enclosing class's members, a
+record of a class something extends, a parameter that is no public field.
+
 ### Commands
 
 | Command | What it does |

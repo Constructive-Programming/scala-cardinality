@@ -349,7 +349,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // say are not read yet.
   private def withoutTasty(c: ClassSymbol, env: Env): Either[Unread, Shape] = {
     import DependencyClasses.Declared
-    val inside = env.copy(visiting = env.visiting + c)
+    // What a field or member of the value holds may be built after it: only the value itself is
+    // `preceding`, as in a record of the module.
+    val inside = env.copy(visiting = env.visiting + c, preceding = false)
     def field(symbol: TermSymbol) = symbol.declaredType match {
       case tpe: Type => of(tpe, inside)
       case _         => Left(Uncovered(s"a parameter of a method type: ${symbol.name}"))
