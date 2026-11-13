@@ -150,6 +150,11 @@ across a version's runs.
 | D2 | D43, the conversions and extensions a body may meet | **The conversions the compiled body applies.** A subset of the old candidates, so refusals only leave. |
 | D3 | A builtin name the compiler binds differently from "builtin names are never shadowed by what is not supplied" | **The compiler's binding wins.** The rule is kept in the contract for uncompiled sources only (a future task). |
 | D4 | A given left to implicit search in an inline body | **Read the given the compiler resolved.** Refuse only when that given is inline with a compile-time operation, as for a written call. |
+| D5 | Selected reports under the TASTy front end (coordinator, 2026-11-13, as Q11) | **Port:** `Report.query` is the module's report filtered by qualified name; the budgets that only bound the old search go away. The scripted `selected` test stays, its expectation rewritten where counts differ by listed corrections. |
+| D6 | `cardinalityReportOf` without uncompiled support (owner, 2026-11-13) | **Read the library's binary jar**, which carries TASTy; its sources name and place the rows. Both plugins and the scripted `library` test change accordingly. |
+| D7 | The scripted `dependencies` test (coordinator, 2026-11-13) | **A new expectation under the TASTy front end**, derived from the compiled reading. |
+| D8 | The ledger and gate harnesses (coordinator, 2026-11-13) | **Keep the old front end until parity is certified**; rewrite `Compiled`'s `filled` mode and `Differential` at the switch itself, not before. |
+| D9 | The 54 spec examples on fixtures scalac rejects (coordinator, 2026-11-13) | **They go with uncompiled support** (a future task). At the switch they move to the pending list ("Switch-over: pending examples"), not silently deleted. |
 
 ## Where the boundary is
 
@@ -1463,8 +1468,10 @@ front end stays the report's until none is left.
 ## Switch-over: wiring (2026-11-13)
 
 - One switch: `Report.Environment.frontEnd: Report.Front` (`Scalameta`, the default, or `Tasty`).
-  `Report.of` reads its rows from the front end it names; `Report.query` refuses under `Tasty`
-  (`selected reports are not read from compiled classes yet`).
+  `Report.of` reads its rows from the front end it names. Under `Tasty`, `Report.query` is the
+  module's report filtered by qualified name (D5), and a jar of compiled classes among the paths
+  of `Report.of` joins the classes' output, its sources jar naming and placing the rows (D6;
+  `39009dd`).
 - sbt: setting `cardinalityFrontEnd` (autoImport alias `CardinalityFrontEnd`), default
   `Report.Environment().frontEnd`, passed by `cardinalityReport`, `cardinalityReportOf` and
   `cardinalityReportSelected`. A project that does not compile hands no classes: under `Tasty`
@@ -1473,14 +1480,19 @@ front end stays the report's until none is left.
 - Mill: `def cardinalityFrontEnd: Report.Front`, same default, passed by the three commands. A
   module that does not compile fails the command at `compile()`, under either front end.
 - Both plugins already hand the TASTy front end what it reads: `CompiledTypes.Classes(module
-  output, dependency classpath)`.
+  output, dependency classpath)`. `cardinalityReportOf` hands `Classes(Nil, dependency classpath)`
+  for a binary jar to be read against; sbt resolves that classpath under `Tasty` only (`Def.taskIf`),
+  Mill under either front end (a command evaluates all its tasks).
 - Flipping the default is the one line `frontEnd: Front = Front.Scalameta` in `Report.scala`.
 - Tests: the scripted `report` project now compiles (`Timeline` is a plain class: a case class
   cannot take a by-name parameter; before, it was reported from syntax alone) and runs again
-  under `Tasty` with the same expected report, then checks that `cardinalityReportOf` and a
-  project that does not compile are refused. The Mill spec reports the fixture under both front
-  ends and checks that only `Tasty` refuses `cardinalityReportOf`. `ReportQuerySpec` pins the
-  query refusal.
+  under `Tasty` with the same expected report, then checks that a source named to
+  `cardinalityReportOf` without classes and a project that does not compile are refused. The Mill
+  spec reports the fixture under both front ends and checks that only `Tasty` refuses
+  `cardinalityReportOf` on a source. Scripted `selected` runs again under `Tasty` (the support
+  compiled into the module, no request key or work lines); scripted `library` compiles the
+  vendored library into a binary jar and reads it beside the sources jar (the row of the sealed
+  `Optic`, not read yet, is not checked). `ReportQuerySpec` and `ReportSpec` pin both readings.
 
 ## Switch-over: deletion inventory (2026-11-13)
 
@@ -1531,8 +1543,10 @@ Parts of files (lines deleted, net):
   `analysis/inhabitation/ClosedSpaces.scala` 16; `analysis/model/MemberPath.scala` 13;
   `analysis/resolution/StuckProjections.scala` 5; `analysis/model/GivenNames.scala` 3.
 - `plugin/.../CardinalityPlugin.scala` 129 net and `mill-plugin/.../CardinalityModule.scala` 93
-  net: the stub tasks and format, `cardinalityReportSelected` with its four query settings,
-  `cardinalityReportOf` (it can only refuse without classes), the front-end setting.
+  net in the first dry run: the stub tasks and format, `cardinalityReportSelected` with its four
+  query settings, `cardinalityReportOf`, the front-end setting. Since D5 and D6, the two report
+  tasks stay (each a few lines); the query limits and budget settings, `AnalysisQuery` and
+  `SourceSnapshot` still go.
 
 Largest whole files: `SourceLookup` 802, `BodyWalk` 769, `ShadowedBuiltins` 761, `BodyTerms` 753,
 `TypeMembers` 741, `Measurement` 718, `ReceiverMembers` 696, `Walk` 665, `Counter` 665,
@@ -1563,6 +1577,16 @@ class `MemberPath`, `Frame` and everything under `Frame#values`. `StdlibModel` r
 `SourceIndex.Root`. Moving those two out is a hand edit, not part of the mechanical deletion. It
 should free most of those lines and then the `scalameta` dependency (to check: `BaseTypes`,
 `TypeSubstitution`).
+
+Done in `403046a` (2026-11-13), without changing any reading: atom naming is `Atoms` (was
+`MemberPath.Atom`, `SourceBindings.label`/`name`), the root package's name is
+`StdlibModel.RootPackage` (`SourceIndex.Root` aliases it), and the generic `plated` and `hylo`
+moved from `TypeSubstitution` to `Traversals`. Measured by a second dry run, `tasty-switch-dry2`
+(`7a2938c`, from `161283b` with the move): 31,103 lines net (31,204 deleted, 101 added) in 160
+files. Core's main sources go to 12,736 lines, 6,312 outside `compiled/`. `core`, `plugin` and
+`millPlugin` compile with `-Werror` without the `scalameta` dependency, and without `kyo-core`,
+which only `Measuring` used. That needed one more hand cut: `BaseTypes.unapply` on a scalameta
+`Type`, which the tool keeps because it keeps every `unapply` of a reached object.
 
 ## Switch-over: spec inventory (2026-11-13)
 
@@ -1636,7 +1660,8 @@ rounds):
 - sbt plugin: the cached `cardinalityDependencyClasspath` still needs
   `sbt.util.CacheImplicits.given`, which the stub task had seemed to be the only user of.
 
-Blockers other than parity:
+Blockers other than parity (decided 2026-11-13 as D5 to D9; D5 and D6 are done behind the
+switch, `39009dd`):
 
 1. Selected reports (`cardinalityReportSelected`, `Report.query`, `AnalysisQuery`, `SourceSnapshot`,
    the budgets; scripted `selected`) have no TASTy path. The owner decides: port them (filter
@@ -1649,6 +1674,67 @@ Blockers other than parity:
 4. 54 spec examples sit on fixtures scalac rejects. The plan sends them with uncompiled support.
 5. The ledger and gate harnesses (`Compiled` `filled` mode, `Differential`) read the old front
    end. Rewrite them at the switch, or keep the old front end until parity is certified.
+
+## Switch-over: pending examples (D9)
+
+The 54 examples that fail under the TASTy front end because scalac rejects their fixture (spec
+ledger at `b977b40`, `no compiled classes: scalac rejects this fixture`). At the switch they move
+here, marked pending, and come back with uncompiled support:
+
+- `AliasOverrideIdentitySpec`: guards incorrect alias arity
+- `AliasOverrideIdentitySpec`: guards mutually recursive aliases
+- `AliasOverrideIdentitySpec`: guards nearer imports shadowing an outer binder
+- `AliasOverrideIdentitySpec`: guards opaque aliases
+- `AliasOverrideIdentitySpec`: guards recursive alias expansion
+- `BinderBoundsSpec`: an invalid clause refuses a one-valued result too
+- `BinderBoundsSpec`: bounds referring back through bounds alone are invalid
+- `ContextBindersSpec`: a chain past the reading's budget or arity is refused
+- `ContextualOverrideIdentitySpec`: does not guess identity across ordinary and contextual clauses
+- `ContextualOverrideIdentitySpec`: preserves additional unsupported contextual modifiers
+- `DefinitionInventorySpec`: a `summon` between two anonymous binders is refused
+- `EnvironmentCompletenessSpec`: an export in a parent or beside a declaration is refused
+- `EnvironmentCompletenessSpec`: cyclic, ambiguous and non-path exports are refused
+- `ExistentialInputSpec`: capture one wildcard before substituting an alias
+- `GeneralInfixApplicationSpec`: enforces the same source constructor arity
+- `GroundEnvironmentSpec`: a name no builtin spells keeps lookup's own reason
+- `GroundTypesSpec`: a function type's repeated parameter is a sequence (no Scala)
+- `HigherKindedRefusalSpec`: a builtin applied at a wrong arity says so in both readings
+- `HigherKindedRefusalSpec`: a constructor argument of another kind is not counted
+- `HigherKindedRefusalSpec`: a higher-kinded name or a lambda where a type is expected
+- `HigherKindedRefusalSpec`: a higher-kinded name read as a type
+- `HigherKindedRefusalSpec`: a kind mismatch is not counted
+- `HigherKindedRefusalSpec`: a view bound is not Scala 3
+- `HigherKindedRefusalSpec`: a wildcard under a rigid binder is not counted
+- `HigherKindedRefusalSpec`: a wrong arity is not counted
+- `InferredResultsSpec`: a parent not supplied refuses the source's untyped members
+- `InferredResultsSpec`: a source that does not compile refuses its untyped members
+- `InlineScopesSpec`: a local class has no companion to select from
+- `MethodAnalysisSpec`: stop type-resolution cycles with an unresolved diagnostic
+- `MethodFeatureIntegrationSpec`: reject private singleton leaks through refined members
+- `MethodFeatureIntegrationSpec`: validate private singleton aliases inside repeated types
+- `MethodRefinementSpec`: do not resolve shadowed type binders through source aliases
+- `MethodRefinementSpec`: reject hidden member equalities
+- `MethodRefinementSpec`: reject recursive member equations
+- `MethodTypePlaceholderSpec`: rejects placeholder application with the wrong arity
+- `NamespaceSpec`: a path from a package no clause opens names nothing
+- `NamespaceSpec`: a qualified miss is the reference as written
+- `NamespaceSpec`: a single package clause opens only its own package
+- `NamespaceSpec`: a type is not a namespace
+- `NamespaceSpec`: two wildcard imports that bind a name leave it ambiguous
+- `OverrideIdentityImplementationSpec`: does not drop declarations at matching offsets in other files
+- `OwnersAndRecordsSpec`: a `deferred` nothing imports is no compiletime one
+- `PolyLambdaCardinalitySpec`: refuses unapplied lambdas and wrong arity
+- `PureCodeSpec`: a ??? an unsupplied import may rebind is not typed
+- `PureCodeSpec`: a var is no stable path, by Scala's typing rule
+- `ReportSpec`: a name two packages define stays unresolved
+- `SingletonIntersectionMethodSpec`: refuse a `Singleton` bound by an unsupplied import
+- `SingletonIntersectionMethodSpec`: reject a var's singleton
+- `SingletonIntersectionMethodSpec`: reject inaccessible paths and alias leaks
+- `StdlibModelSpec`: a gap inside the supplied sources stays unresolved
+- `StdlibModelSpec`: a root-anchored simple name is a top-level declaration
+- `StdlibModelSpec`: an inaccessible source module's singleton stays refused
+- `StdlibModelSpec`: an unapplied entry where a proper type is expected is refused
+- `ThrowableSlotsSpec`: a throwable the scala package does not alias is not one there
 
 ## Order, and what is not known yet
 
