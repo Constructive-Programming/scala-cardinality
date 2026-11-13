@@ -907,7 +907,6 @@ private[compiled] object Shapes {
   def isFamily(c: ClassSymbol): Boolean =
     c.openLevel == OpenLevel.Sealed && c.isAbstractClass && !c.isEnum
 
-  /** Whether a term is a reference to `field` on the instance, through ascriptions. */
   /** The term a term is and nothing else: a name, or a member of `this`, ascribed or not. */
   def named(term: TermTree)(using Context): Option[TermSymbol] = term match {
     case Typed(inner, _)             => named(inner)

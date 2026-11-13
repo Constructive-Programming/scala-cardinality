@@ -3256,6 +3256,60 @@ fixtures 673 (744); every input passes on the private memory. No derivation or c
   still uncovered (methods; both tables): core 8 (8), cats-core 44 (47), cats-kernel 111 (111),
   cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0, fixtures 583 (650).
 
+### Group g5: captures a nearer scope binds again; definitions in function literals, case clauses and class bodies
+
+Readings.local, read over the typed tree from the outermost code the definition sits in: the
+outermost method or value, or the whole class for a class-body statement.
+
+- A parameter that a nearer scope binds again is dropped from the inputs. The nearer scope is a
+  block's definition, an inner method's or literal's parameter, a class's member or self alias,
+  or the definition's own parameter. The drop happens unless other code holds the parameter
+  (`holding`, the old `HeldCaptures`):
+  - A definition beside the measured one that is exactly the parameter (`def seed: Boolean = b`,
+    a `lazy val`, a given) keeps the parameter as an input when it has the parameter's own type.
+    At a top type it shows nothing.
+  - Any other holder refuses: a strict value computed from it, a class beside it, or the parents
+    of a class around the definition.
+  - A throw supplies nothing.
+  - A contextual parameter is still found by implicit search, so it refuses.
+  - An anonymous one has no name to hide.
+- A function literal is a method around the definition. A wildcard parameter is no input. A
+  generator's literal is refused: its parameter is written before the receiver of the call
+  (`Readings.generators`).
+- A case clause around the definition is read when its pattern binds nothing and, with a type
+  parameter in scope, adds no type equation (the old `BodyScopes` refusals). These scope
+  refusals come after the one-valued result check, as the old ones do.
+- A class-body statement reads the instance as a member does. A parent's argument does not: it
+  is evaluated outside the instance.
+- Decision: a secondary constructor's body stays refused. The call it makes first fixes the
+  fields, so a field there is no free receiver value. The old front end counts it as free:
+  `S.<init#1>.helper` after `this(true)` is 4 there, and observationally 2. Its rows (7
+  fixtures) are left for that reason.
+- Decision: a case binder stays refused, as the old reading does. It aliases the scrutinee, so
+  counting it as a parameter overcounts: `o match { case Some(b) => def g = b }` would be 2^6 in
+  place of 4.
+- Found: the old front end undercounts a hidden parameter that a strict value holds.
+  `{ val h = !x; def inner(x: Boolean): Boolean = h }` is 4 there, and is 16. The new reading
+  refuses it.
+- Correction (in `ReceiversSpec`, no corpus row): `recv.Self.mk.<new#1>.run` goes from 16 to 4.
+  The self alias `y` hides the parameter `y`.
+- Derived: `catsStdInstancesForList.<new#1>.void.build` is ω. Its `fa` hides void's, which no
+  definition beside it holds, and the result returns `acc: List[Unit]`.
+
+Method rows identical before → after: core 2,832 → 2,841, cats-core 1,826 → 1,837, cats-eo
+244 → 250, fixtures 5,204 → 5,236, others unchanged. Old numeric rows still uncovered: cats-eo
+73 → 67, fixtures 670 → 640, the rest unchanged. No group reason is left on an old numeric
+corpus row. Left in fixtures, 9 rows: 7 secondary constructor bodies, and 2 parent arguments that
+hold a hidden parameter (`O.byParam`, `O.viaField`).
+
+Merged into `tasty-int` with stretch 6's third unit, which ported the same old `HeldCaptures` rule
+(`Readings.local` and `Readings.kept` hold the one implementation). The scopes walked are this
+group's (function literals, case clauses, class-body statements); what holds a hidden parameter is
+the third unit's: the holders of the scopes between the parameter's method and the definition,
+each read only where the definition can name it (no nearer scope binds its name, inherits it or
+imports), a method the definition is in among them, and a `throw` a `try` may catch. A self alias
+hides a parameter, as here (`Self.mk.<new#1>.run` 4, a correction); the third unit refused it.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.
