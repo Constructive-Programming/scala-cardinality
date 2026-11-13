@@ -19,6 +19,7 @@ class ProgramRowsSpec extends Specification {
       an opaque type of a dependency is one value                     $opaque
       a library's namespace under `scala` is a dependency like another $underScala
       a Java enum is its constants; a Java class's state is not read  $java
+      a record without TASTy is what its members supply              $records
     What a template inherits
       a concrete member wins over an abstract one mixed in after it   $concreteWins
       an abstract redeclaration makes a member abstract again         $reabstracted
@@ -91,6 +92,34 @@ class ProgramRowsSpec extends Specification {
       "final case class Holds(f: scala.mylib.Flag)"
     (rows(code, List(library))("M.h") must_== Count.Finite(4))
       .and(definitions(code, List(library))("Holds") must beSome("2"))
+  }
+
+  // A Java interface is a capability record: `Toggle` is its abstract `flip`, one of the 2^2
+  // functions of a Boolean (its default `same`, which nothing overrides, is code that is not
+  // supplied and computes from it), so `t` is one of 2^4 predicates on it. `Dial.Fast` overrides
+  // `Dial`'s default `twice`, which then varies beside `turn`: `Dial` is one of 4 × 4 values and `d`
+  // one of 2^16 predicates on it. scalameta's `Tree`, a Scala 2 trait, has abstract members the
+  // site may not call (`private[meta]`), which code that is not supplied may read: what a `Tree`
+  // is, the sources do not say.
+  def records = {
+    val t = rows(
+      "object M { def t(x: javafixtures.Toggle): Boolean = ??? }",
+      List(Programs.packaged("javafixtures"))
+    )("M.t")
+    val d = rows(
+      "object M { def d(x: javarecords.Dial): Boolean = ??? }",
+      List(Programs.packaged("javarecords"))
+    )("M.d")
+    val meta = List(classOf[scala.meta.Tree], classOf[scala.meta.internal.trees.Metadata.Ast])
+      .map(Programs.jarOf)
+    val m = rows("object M { def m(x: scala.meta.Tree): Boolean = ??? }", meta)("M.m")
+    (t must_== Count.Finite(16))
+      .and(d must_== Count.Finite(65536))
+      .and(
+        m must_== Count.Unresolved(
+          List("capability record with members hidden at the use site: scala.meta.Tree")
+        )
+      )
   }
 
   // `Coin` has the constants HEADS and TAILS, so `c` is one of 2^2 predicates. A `Box.Point`

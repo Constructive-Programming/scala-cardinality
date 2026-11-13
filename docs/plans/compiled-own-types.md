@@ -279,8 +279,29 @@ cats-core gate: `HashInstances.catsContravariantForHash.<new#1>.contramap` and
 `Hash[X]` is `hash`, `eqv` and the overridden `neqv`). The next makes a `new` whose type does not
 resolve count as possibly re-entering the site in both of `Reentry`'s searches (it read as building
 nothing); no corpus row moves, since the `<init>` such a `new` selects fails to resolve first and
-refused already, and `ProgramRowsSpec.unresolvedNew` pins the cases. Next: dependency records from
-pickled signatures (scalameta's Scala 2 traits), then records' abstract type members.
+refused already, and `ProgramRowsSpec.unresolvedNew` pins the cases.
+
+The third reads a dependency's record without TASTy (`Declared.Record`: a Java interface, a Scala 2
+trait or stateless abstract class) in `Shapes.withoutTasty` and `Receivers.dependency`: its
+abstract members and the concrete ones a class of the program overrides are capabilities read from
+their signatures (`inheritedCapability`); a concrete one nothing overrides computes from them. A
+member the site may not call refuses (`capability record with members hidden at the use site`, the
+scalameta reading's words): code that is not supplied, the record's or other code in the member's
+scope, may read it. Left uncovered as a record of the module is: a self type, an abstract type
+member, a member named like the measured definition, a restricted constructor; and a parent reached
+through two parents, a parent class with constructor parameters or Java state (what each instance
+chooses), overriders the classes read do not settle. scalameta's `Tree`, `Type`, `Stat`, `Source`
+and the rest all have `private[meta]` abstract members, so their rows are now the old reading's
+`?`: corpus-core's identical method rows rise from 1,533 to 2,676 and its uncovered ones fall from
+2,454 to 1,311 (`a class that is no product, sum or type-only template` 1,268 → 0; the rows freed
+stop at the refusal, or, for 111 constructor rows, at `a constructor position the method side
+refuses`, whose estimate tier is not read; 2 rows of a sum receiver whose case holds a
+`scala.meta.Type`, ω in the old reading, stay uncovered). Fixtures: identical 4,817 → 4,818,
+better 177 → 179 (past a resolution limit), uncovered 1,740 → 1,737. No other input moves; no row
+is worse. Not covered by a regression: a Scala 2 parent class with constructor parameters (no Scala
+2 compiler in the tests). `Shapes.clash`, `abstractType` and `unread` are shared with the module's
+record now. Next: records' abstract type members (the old reading opens an unbounded one as the
+witness of a package, `Shape.Existential`), then bounded abstract type members on receivers.
 
 ### Commands
 

@@ -32,8 +32,9 @@ private[compiled] enum Unread {
   *     which every dependency's is, the standard library's aside.
   *
   * A dependency's class without TASTy (Java, Scala 2) is read from its symbols
-  * (`DependencyClasses`): the sum of its constants or children, or the product of its primary
-  * constructor's parameters; a generic one and a record of abstract members are not read yet.
+  * (`DependencyClasses`): the sum of its constants or children, the product of its primary
+  * constructor's parameters, or a capability record (`Receivers.dependency`); a generic one is not
+  * read yet.
   *
   * A type that reaches itself and an enum's class case as a type are refused (`recursive type not
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`, each
@@ -215,12 +216,14 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     else of(body.appliedTo(arguments), env)
 
   // A dependency's class without TASTy (Java, Scala 2), read from its symbols: a sum of its
-  // constants or its children, the product of its primary constructor's parameters. A generic
-  // one, a record of abstract members and what the symbols do not say are not read yet.
+  // constants or its children, the product of its primary constructor's parameters, or a record
+  // of what its members supply (`Receivers.dependency`). A generic one and what the symbols do not
+  // say are not read yet.
   private def withoutTasty(c: ClassSymbol, env: Env): Either[Unread, Shape] = {
     import DependencyClasses.Declared
+    val inside = env.copy(visiting = env.visiting + c)
     def field(symbol: TermSymbol) = symbol.declaredType match {
-      case tpe: Type => of(tpe, env.copy(visiting = env.visiting + c))
+      case tpe: Type => of(tpe, inside)
       case _         => Left(Uncovered(s"a parameter of a method type: ${symbol.name}"))
     }
     if (env.visiting(c)) recursive(c)
@@ -232,18 +235,35 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           Traversals
             .sequence(cases.map {
               case child: ClassSymbol if !child.isModuleClass =>
-                withoutTasty(child, env.copy(visiting = env.visiting + c))
+                withoutTasty(child, inside)
               case _ => Right(Shape.Product(Nil))
             })
             .map(Shape.Sum(_))
         case Declared.Fields(_, fields) =>
           Traversals.sequence(fields.map(field)).map(Shape.Product(_))
-        case Declared.Record(_, _) =>
-          Left(
-            Uncovered(
-              s"a class that is no product, sum or type-only template: ${c.displayFullName}"
+        case Declared.Record(abstracts, concrete) =>
+          val refused = Shapes.unread(c.displayFullName)
+          for {
+            _ <- refused(!World.ownSelf(c), "with a self type")
+            _ <- refused(
+              Shapes.abstractType((c :: World.ancestors(c)).flatMap(_.declarations)),
+              "with an abstract type member"
             )
-          )
+            _ <- refused(
+              Shapes.clash(c, env.site),
+              "with a member named like the measured definition"
+            )
+            site <- Shapes.siteMember(env.site, c.displayFullName)
+            // A class whose constructor the site may not call holds what its scope builds.
+            _ <- refused(
+              c.declarations.exists {
+                case k: TermSymbol => World.isConstructor(k) && !World.callable(k, site)
+                case _             => false
+              },
+              "with a restricted constructor"
+            )
+            held <- receivers.dependency(c, abstracts, concrete, site, inside)
+          } yield Shape.Product(held)
       }
   }
 
@@ -290,16 +310,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case v: ValDef if v.symbol.isParamAccessor && v.symbol.isPublic => v.name
     }.toSet
     val fixed = !c.isTrait && !c.isAbstractClass && (Shapes.isFinal(c) || !world.extended(c))
-    val members = template.rhs.body.collect { case member: ValOrDefDef => member }
-    // A member named like the measured definition, own or inherited, which may be that one on
-    // another receiver; a constructor row measures no member.
-    val measured = env.site.name.toString
-    val clash = !World.isConstructor(env.site) &&
-      (members.map(_.symbol) ++ World.ancestors(c).flatMap(_.declarations)).exists { member =>
-        !member.isSynthetic && member.name.toString == measured
-      }
-    def refused(left: Boolean, what: String) =
-      Either.cond(!left, (), Uncovered(s"a capability record $what: $name"))
+    val refused = Shapes.unread(name)
     val read = env.copy(binders =
       env.binders ++
         (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap
@@ -314,12 +325,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
         _ <- refused(!World.ownSelf(c), "with a self type")
         _ <- refused(Shapes.abstractTypeMember(template), "with an abstract type member")
-        _ <- refused(clash, "with a member named like the measured definition")
+        _ <- refused(Shapes.clash(c, env.site), "with a member named like the measured definition")
         _ <- refused(!c.isTrait && !c.isAbstractClass && !fixed, "of a class something extends")
-        site <- env.site match {
-          case site: TermSymbol => Right(site)
-          case _ => Left(Uncovered(s"a capability record read outside a member: $name"))
-        }
+        site <- Shapes.siteMember(env.site, name)
         public = World.callable(template.rhs.constr.symbol, site)
         _ <- refused(!fixed && !public, "with a restricted constructor")
         _ <- refused(
@@ -626,6 +634,32 @@ private[compiled] object Shapes {
   /** A class written `final`: the closed world's finality is `World.extended`'s to say. */
   def isFinal(c: ClassSymbol): Boolean = c.openLevel == OpenLevel.Final
 
+  /** Whether a record has a member named like the measured definition, own or inherited, which may
+    * be that one on another receiver; a constructor row measures no member.
+    */
+  private def clash(c: ClassSymbol, site: Symbol)(using Context): Boolean =
+    !World.isConstructor(site) &&
+      (c.declarations.collect { case term: TermSymbol => term } ++
+        World.ancestors(c).flatMap(_.declarations)).exists { member =>
+        !member.isSynthetic && member.name.toString == site.name.toString
+      }
+
+  /** The measured member a record of `name` is read for, or why a site that is none leaves it. */
+  private def siteMember(site: Symbol, name: String): Either[Unread, TermSymbol] = site match {
+    case site: TermSymbol => Right(site)
+    case _ => Left(Unread.Uncovered(s"a capability record read outside a member: $name"))
+  }
+
+  /** Whether one of `members` is an abstract type member. */
+  def abstractType(members: List[Symbol]): Boolean = members.exists {
+    case member: TypeMemberSymbol => member.isAbstractMember
+    case _                        => false
+  }
+
+  /** A record of `name` left where it has `what` (`left`). */
+  private def unread(name: String)(left: Boolean, what: String): Either[Unread, Unit] =
+    Either.cond(!left, (), Unread.Uncovered(s"a capability record $what: $name"))
+
   /** A sealed trait or abstract class, which is the sum of its subtypes; an enum is read by its own
     * rule.
     */
@@ -643,10 +677,8 @@ private[compiled] object Shapes {
   }
 
   /** Whether a template declares an abstract type member. */
-  def abstractTypeMember(tree: ClassDef): Boolean = tree.rhs.body.exists {
-    case member: TypeMember => member.symbol.isAbstractMember
-    case _                  => false
-  }
+  def abstractTypeMember(tree: ClassDef): Boolean =
+    abstractType(tree.rhs.body.collect { case member: TypeMember => member.symbol })
 
   /** A class's tree, or what it needs that is not read. */
   def tree(c: ClassSymbol): Either[Unread, ClassDef] = World.tree(c).left.map(Unread.Uncovered(_))

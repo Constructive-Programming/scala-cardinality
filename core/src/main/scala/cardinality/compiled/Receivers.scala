@@ -4,13 +4,15 @@ import cardinality.analysis.inhabitation.Inhabitation.{Binding, Shape}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.{OpenLevel, Visibility}
+import tastyquery.SourceLanguage
 import tastyquery.Symbols.*
 import tastyquery.Trees.*
 import tastyquery.Types.*
 
 /** What the classes around a member supply to its body (slice S4, v1.md §2): a member of a class
   * runs on an instance, so it reads what the instance holds. A value of a capability record is read
-  * the same way, as what its template supplies as a receiver (`record`).
+  * the same way, as what its template supplies as a receiver (`record`), and one of a dependency's
+  * record without TASTy as what its members supply (`dependency`).
   *
   *   - Every parameter of the class's primary constructor is a value of the environment, `val` or
   *     not, whatever its visibility: the member is inside the class. (Its primary constructor is
@@ -270,10 +272,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       _ <- refused(!World.ownSelf(c), "an enclosing class with a self type")
       // A class's abstract type members are atoms (`atoms`); a sum's are not read yet.
       _ <- refused(
-        sum && (Shapes.abstractTypeMember(tree) || inheriting.getOrElse(Nil).exists {
-          case member: TypeMemberSymbol => member.isAbstractMember
-          case _                        => false
-        }),
+        sum && (Shapes.abstractTypeMember(tree) || Shapes.abstractType(inheriting.getOrElse(Nil))),
         "an enclosing class with an abstract type member"
       )
       _ <- refused(
@@ -286,11 +285,17 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
   // Whether a class that is not read may override a concrete member of the template, own or
   // inherited, which is then not known to be a capability or to compute from the instance.
   private def unsettled(tree: ClassDef): Boolean =
-    (tree.rhs.body.collect {
-      case member: ValOrDefDef if !Receivers.open(member) => member.symbol
-    } ++ inherited(tree.symbol).getOrElse(Nil).collect {
-      case member: TermSymbol if !abstractLike(member) => member
-    }).exists(world.overriding(tree.symbol, _) == ClosedProgram.Overriding.Unknown)
+    unsettled(
+      tree.symbol,
+      tree.rhs.body.collect {
+        case member: ValOrDefDef if !Receivers.open(member) => member.symbol
+      } ++ inherited(tree.symbol).getOrElse(Nil).collect {
+        case member: TermSymbol if !abstractLike(member) => member
+      }
+    )
+
+  private def unsettled(c: ClassSymbol, concrete: List[TermSymbol]): Boolean =
+    concrete.exists(world.overriding(c, _) == ClosedProgram.Overriding.Unknown)
 
   /** What a value of a capability record holds as the site observes it (v1.md §2), read as the
     * template's receiver reading reads it (`own`): its constructor's fields and the members a
@@ -315,10 +320,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
           )
         )
       _ <- Either.cond(
-        !inheriting.exists {
-          case member: TypeMemberSymbol => member.isAbstractMember
-          case _                        => false
-        },
+        !Shapes.abstractType(inheriting),
         (),
         Uncovered(s"$where with an abstract type member: ${c.displayFullName}")
       )
@@ -332,6 +334,49 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       )
       held <- own(template, site, env, value = true)
     } yield held.map(_.shape)
+  }
+
+  /** What a value of a dependency's record without TASTy holds as the site observes it
+    * (`DependencyClasses.Declared.Record`), read as `record` reads what a template inherits: each
+    * abstract member, and each concrete one a class of the program overrides, is a capability read
+    * from its signature; a concrete one nothing overrides is code that is not supplied, which
+    * computes from the others. Code that is not supplied (the record's, or other code in the
+    * member's scope) may read such a member the site may not call: then the sources do not say what
+    * a value is, which the scalameta reading refuses in the same words. Not read yet: a parent
+    * reached through two parents or holding state, and overriders the classes read do not settle.
+    */
+  def dependency(
+      c: ClassSymbol,
+      abstracts: List[TermSymbol],
+      concrete: List[TermSymbol],
+      site: TermSymbol,
+      env: Shapes.Env
+  ): Either[Unread, List[Shape]] = {
+    val name = c.displayFullName
+    val open = (abstracts ++ concrete.filter(overridden(c, _))).filter(Receivers.observes)
+    def unread(left: Boolean, why: Unread) = Either.cond(!left, (), why)
+    for {
+      _ <- unread(
+        !open.forall(World.callable(_, site)),
+        Unread.Refused(s"capability record with members hidden at the use site: $name")
+      )
+      // A parent class given arguments, or keeping Java state, holds what each instance chooses.
+      _ <- unread(
+        reachesTwice(c) || World.ancestors(c).exists { k =>
+          !k.isTrait && (k.sourceLanguage == SourceLanguage.Java || k.declarations.exists {
+            case t: TermSymbol =>
+              World.isConstructor(t) && t.paramSymss.exists(_.left.exists(_.nonEmpty))
+            case _ => false
+          })
+        },
+        Uncovered(s"${Receivers.Record} whose parents are not read: $name")
+      )
+      _ <- unread(
+        unsettled(c, concrete),
+        Uncovered(s"${Receivers.Record} whose overriders are not read: $name")
+      )
+      held <- Traversals.sequence(open.map(inheritedCapability(c, _, site, env, value = true)))
+    } yield held.flatten.map(_.shape)
   }
 
   /** What the receivers' type parameters stand for (`Shapes.binder`), and the copies their
