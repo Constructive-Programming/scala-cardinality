@@ -38,7 +38,8 @@ private[compiled] object Bodies {
       }
       .flatMap(each)
 
-  private def passed(call: Apply): List[TermTree] = call.fun match {
+  /** The arguments of a constructor call, its clauses in order. */
+  def passed(call: Apply): List[TermTree] = call.fun match {
     case inner: Apply => passed(inner) ++ call.args
     case _            => call.args
   }
