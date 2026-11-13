@@ -1700,7 +1700,7 @@ type or a wildcard bound, as the variable path's ν completion does not either.
 | fixtures | 5,773 | 285 | 5 | 688 | 116 (124) | 57 (65) |
 
 Every worse row is a listed correction. Gate times: cats-kernel 14.7 s, cats-core 17.5 s.
-`compiled/` is 9270 lines. Round 3 is merged.
+`compiled/` is 9,270 lines. Round 3 is merged.
 
 ### What exists
 
