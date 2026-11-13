@@ -1460,6 +1460,196 @@ front end stays the report's until none is left.
 - Sources without compiled classes are not analyzed at all until uncompiled support returns.
 - Measure again on the frozen corpus: rows, moved rows, wall, CPU, memory.
 
+## Switch-over: wiring (2026-11-13)
+
+- One switch: `Report.Environment.frontEnd: Report.Front` (`Scalameta`, the default, or `Tasty`).
+  `Report.of` reads its rows from the front end it names; `Report.query` refuses under `Tasty`
+  (`selected reports are not read from compiled classes yet`).
+- sbt: setting `cardinalityFrontEnd` (autoImport alias `CardinalityFrontEnd`), default
+  `Report.Environment().frontEnd`, passed by `cardinalityReport`, `cardinalityReportOf` and
+  `cardinalityReportSelected`. A project that does not compile hands no classes: under `Tasty`
+  every source is `could not read <file>: no compiled classes supplied`, the task fails and the log
+  says `sources do not compile: the TASTy front end reads none of them`.
+- Mill: `def cardinalityFrontEnd: Report.Front`, same default, passed by the three commands. A
+  module that does not compile fails the command at `compile()`, under either front end.
+- Both plugins already hand the TASTy front end what it reads: `CompiledTypes.Classes(module
+  output, dependency classpath)`.
+- Flipping the default is the one line `frontEnd: Front = Front.Scalameta` in `Report.scala`.
+- Tests: the scripted `report` project now compiles (`Timeline` is a plain class: a case class
+  cannot take a by-name parameter; before, it was reported from syntax alone) and runs again
+  under `Tasty` with the same expected report, then checks that `cardinalityReportOf` and a
+  project that does not compile are refused. The Mill spec reports the fixture under both front
+  ends and checks that only `Tasty` refuses `cardinalityReportOf`. `ReportQuerySpec` pins the
+  query refusal.
+
+## Switch-over: deletion inventory (2026-11-13)
+
+Measured by deleting on the throwaway branch `tasty-switch-dry` (`703f43f`, from `a1be95c`), not
+estimated. The list was computed by a symbol-level reachability pass over SemanticDB (each
+reference attributed to the innermost definition whose extent, read with scalameta, holds it;
+tool: `/var/cache/users/rhansen/cardinality-tasty/tools/Reach.scala`, with its cut list
+`reach-cuts.txt`). The roots are every symbol of `compiled/` and what the plugins reference. The
+cuts are `ScalametaFrontEnd`, the stub rendering (`StubFile.render`, `StubFile.key`),
+`CompiledTypes.ascribe`, `Report.query` and everything else of selected reports, and
+`Environment.stubs`, `classpath` and `frontEnd`. Then the deletion was applied and repaired until
+`core/compile`, `plugin/compile` and `millPlugin/compile` passed with `-Werror` (see "Dry run").
+
+**Total: 30,487 lines net (30,558 deleted, 71 added) in 154 files.** That is 124 whole files
+(25,713 lines) and parts of 30 (4,774). Core's main sources go from 43,614 lines to 13,349: 6,424
+of them `compiled/`, 6,925 the shared rest.
+
+Whole files (lines), under `core/src/main/scala/cardinality/`:
+
+- `analysis/` (3,457 lines): AnalysisWork 78, BodyScopes 205, CaptureAliases 80, ClosedWorld 380, ConstrainedReceivers 111, ConstructorPositions 272, ContextBinders 125, ContextualScope 201, DeepStack 32, ForeignParents 81, HeldCaptures 233, ImportBinding 105, ImportShadowing 28, InheritedClosedSlots 133, Measurement 718, Measuring 96, ParameterScope 18, ReceiverFactories 223, Resolver 153, SealedReceivers 108, SecondaryConstructors 52, ViewSandwich 25
+- `analysis/capability/` (2,517 lines): CapabilityRecords 502, Construction 129, DeferredInline 50, Insertions 101, PassedState 59, ReceiverCalls 210, ReceiverCapabilities 159, ReceiverMembers 696, TargetViews 611
+- `analysis/expansion/` (3,747 lines): BodyTerms 753, BodyTypes 131, BodyWalk 769, Calls 104, Conversions 525, ImplicitScope 21, InlineBodies 288, LibraryInlines 357, Reachable 504, RestatedExtensions 186, Unconverted 91, Valued 18
+- `analysis/model/` (731 lines): Arguments 28, ContextBounds 44, ContextualEvidence 182, DeclarationIdentity 8, DeclaredMembers 70, FactorySyntax 103, MemberSlot 24, Throws 74, TypeOperators 163, UniversalMembers 35
+- `analysis/resolution/` (8,444 lines): BinderBounds 224, BoundChecks 98, Callees 112, ConstructorApplications 275, ContextFunctions 343, Denotation 51, FinalImplementations 184, Found 62, InferredResults 76, InheritedObjects 37, InheritedScopes 186, InheritedTerms 139, InheritedTypeMembers 480, Linearization 55, LookupBindings 216, MethodProjections 344, MethodTypeLambdas 91, NominalKeys 309, OpaqueTypes 46, OverrideIdentity 307, RefinedMembers 296, Representations 470, RuntimeClasses 435, ShadowedBuiltins 761, SingletonIntersections 288, SourceLookup 802, SuppliedNamespaces 81, TemplateClosures 81, TermBindings 79, TermMembers 167, TransparentResults 36, TypeIdentities 362, TypeMembers 741, UnionSums 190, WrittenType 20
+- `capacity/` (4,777 lines): Builds 96, Counter 665, EnumCompanions 76, Exposure 84, Factories 118, FileParents 43, Imports 202, Inheritance 289, Instantiations 194, Library 286, Namespaces 605, OpaqueScopes 28, PackageMembers 151, ParentExports 58, ParentNames 169, Positivity 136, Qualified 17, Reading 148, SealedFamilies 422, Solver 288, ValueRows 37, Walk 665
+- `reporting/` (84 lines): ScalametaFrontEnd 84
+- `request/` (374 lines): AnalysisQuery 123, SourceSnapshot 251
+- `tasty/` (481 lines): StubDeclarations 481
+- `types/` (1,101 lines): MatchTypes 160, Memo 12, NamedTuples 32, Overrides 183, SealedSlots 312, StandardConstructors 32, TokenLayout 219, TypeName 24, TypePlaceholders 74, Variance 53
+
+Parts of files (lines deleted, net):
+
+- `capacity/Scope.scala` 751 of 800 (the read state; `Scope`, `World`, `Named`, `Members`,
+  `Child` shells stay, typed for `Fixpoint`)
+- `analysis/SourceIndex.scala` 707 of 737 (`SourceIndex.Root` and a few names stay)
+- `analysis/MethodAnalysis.scala` 603 of 668 (`Entry`, `Frame`, `Resolved` stay)
+- `types/ListedNamespaces.scala` 290; `analysis/model/MemberSyntax.scala` 244;
+  `tasty/StubTypes.scala` 248; `tasty/CompiledTypes.scala` 204 (the syntax ascription;
+  loading, `dependencies`, `javaFacts` and `unnamed` stay); `analysis/resolution/TopTypes.scala`
+  185 (the syntax half; `polarized` and `terminalGoal` stay); `tasty/TastyStubs.scala` 163 (the
+  rendering; the class loading `CompiledTypes.loaded` calls stays); `reporting/Report.scala` 155
+  (query, `Front`, `stubs`, `classpath`); `analysis/StdlibModel.scala` 136;
+  `types/TypeSubstitution.scala` 139; `types/Kinds.scala` 110; `types/Trees.scala` 109;
+  `analysis/model/ResolutionContext.scala` 84; `analysis/model/ScopeTerms.scala` 68;
+  `tasty/StubFile.scala` 64; `types/TypeApplications.scala` 59; `analysis/inhabitation/ExistentialInputs.scala`
+  45; `analysis/BuiltinTypes.scala` 40; `types/Spelling.scala` 39; `analysis/resolution/LiteralTypes.scala`
+  29; `capacity/Definition.scala` 23; `analysis/model/SourceBindings.scala` 20;
+  `analysis/inhabitation/ClosedSpaces.scala` 16; `analysis/model/MemberPath.scala` 13;
+  `analysis/resolution/StuckProjections.scala` 5; `analysis/model/GivenNames.scala` 3.
+- `plugin/.../CardinalityPlugin.scala` 129 net and `mill-plugin/.../CardinalityModule.scala` 93
+  net: the stub tasks and format, `cardinalityReportSelected` with its four query settings,
+  `cardinalityReportOf` (it can only refuse without classes), the front-end setting.
+
+Largest whole files: `SourceLookup` 802, `BodyWalk` 769, `ShadowedBuiltins` 761, `BodyTerms` 753,
+`TypeMembers` 741, `Measurement` 718, `ReceiverMembers` 696, `Walk` 665, `Counter` 665,
+`TargetViews` 611, `Namespaces` 605.
+
+What stays because the TASTy front end shares it (6,925 lines outside `compiled/`):
+
+- The solver and its model: `analysis/inhabitation/` (`Inhabitation`, `GoalSolver`,
+  `EvidenceAnalysis`, `PolymorphicMembers`, `Natural`, `RuleGraph`, `NeutralSaturation`,
+  `RepeatedArguments`, `OpaqueSumForwarding`, `SequenceElimination`, `TerminalHigherOrder`,
+  `Card`, `ClosedSpaces`, `ExistentialInputs` in part).
+- The stored side: `capacity/Fixpoint`, `Size`, `BaseTypes`, `Definition`, and the `Scope` shell.
+- The model the plan keeps out of TASTy: `StuckProjections`, `LiteralTypes`, the shape half of
+  `TopTypes`, `BuiltinTypes`, `StdlibModel` (in part), `types/TypeSubstitution` (`platedShape`),
+  `Universe`, `Graphs`, `Traversals`.
+- Class loading: `tasty/CompiledTypes` (loading part), `TastyStubs` (loading part),
+  `JavaClassfile`, `TastyNames`, `tastyquery/Variances`.
+- Reporting: `Report`, `FrontEnd`, `Blockers`, `Locations`, `Skill`. With one front end,
+  `FrontEnd` (24 lines) can be inlined.
+
+Second-order residue, not deleted by the dry run because something still reaches it: about 700
+lines in 10 files still import scalameta (`MemberSyntax`, `GivenNames`, `ScopeTerms`,
+`ResolutionContext`, `MemberPath`, `Trees`, `TypeApplications`, `TypeSubstitution`, `BaseTypes`,
+`MethodAnalysis`); remnants of syntax helpers also stay in `ListedNamespaces` 65, `Spelling` 47,
+`Kinds` 17, `StubTypes` 29 and `StubFile` 21. Most are held by two small references: `StuckProjections.refusal`
+calls `SourceBindings.label`, which calls the extractor `MemberPath.Atom`, and that keeps the case
+class `MemberPath`, `Frame` and everything under `Frame#values`. `StdlibModel` reads
+`SourceIndex.Root`. Moving those two out is a hand edit, not part of the mechanical deletion. It
+should free most of those lines and then the `scalameta` dependency (to check: `BaseTypes`,
+`TypeSubstitution`).
+
+## Switch-over: spec inventory (2026-11-13)
+
+`scripts/spec-ledger.sh` at `b977b40` (`a1be95c` adds one `ReportQuerySpec` example, not in the run): PASS 975, UNCOVERED 426,
+FAIL 231, PENDING 19, SCALAMETA 81 (1,732 examples read rows or the scalameta front end). The
+FAILs are sorted into classes by the pattern of their failure under `filled`. That is a
+classification of messages; no row was derived again.
+
+| Class | Examples | What it is | At the switch |
+| --- | --- | --- | --- |
+| (a) pins old behavior or spelling | 40 | row identity (10: `key not found`, `_root_` signatures), signature printing, reason atoms named differently (`Scopes$package$.ev[T]` against `T`, `en.E.A` against `A`), 4 TIGHTENED (`≤2^32` → `2^32` three times, `≤2^8` → `2^8`), `instantiation`/`open` member names; by pattern, so a few rows belong to (b) or (c) (`TypeMemberScopeSpec`, `GroundEnvironmentSpec`) | rewrite to the new text |
+| (b) pins a refusal the compiled tree resolves | 88 | the example expects `?` (a `beLike` on `Unresolved`, `unresolved[…]`) and the new front end gives a number (`Finite`, `Countable`, `2^k`) | rewrite to the new count, each derived (`derived.txt` / `corrected.txt` rule) |
+| (c) not at parity | 474 | 426 UNCOVERED, and 48 FAIL where the new front end refuses and the old counted: `inline method` 22, `transparent inline result` 7, `union alternatives require an overlap…` 7, `ambiguous anonymous evidence` 4, `sealed family has anonymous instances` 3, 5 others | wait for parity, or an owner decision on the new refusal |
+| (d) tests of deleted code | 81 SCALAMETA examples, and the files below | the scalameta tree, stubs given as sources | delete with the code |
+| fixture scalac rejects | 54 | `no compiled classes: scalac rejects this fixture` | go with uncompiled support (`rejected-fixtures.txt`) |
+| count differs | 1 | `Finite(4) != Finite(2)` | derive: a correction or a bug |
+| PENDING | 19 | `ArticleCardinalitySpec` targets | unchanged |
+
+UNCOVERED by specification, the larger ones: `TargetViewsSpec` 23, `StdlibModelSpec` 19,
+`CapabilitySpec` 19, `EnvironmentSoundnessSpec` 18, `PureCodeSpec` 17, `TopTypesUnionSpec` 16,
+`StoredValueSoundnessSpec` 16, `ExistentialInputSpec` 16, `TypeMemberSpec` 15, `NamespaceSpec` 15,
+`EnvironmentCompletenessSpec` 15, `ContextBindersSpec` 13, `TypeMemberBoundarySpec` 12,
+`ReentrySpec` 12; 44 more with 1 to 10.
+
+SCALAMETA by specification: `SignatureSpec` 27, `GivenSignatureSpec` 18, `ExtensionSignatureSpec`
+15, `TastyStubsSpec` 9, `MeasuringSpec` 3, `ReportSpec` 2, `ClosedWorldSpec` 2, one each in
+`TopTypesUnionSpec`, `StdlibModelSpec`, `NamespaceSpec`, `DefinitionInventorySpec`,
+`DeepStackSpec`.
+
+Test files that stop compiling on the dry branch (`core/Test/compile`, 331 errors in 64 files):
+
+- Delete whole, class (d), 1,669 lines: `ReportQuerySpec` 129, `request/AnalysisQuerySpec` 266,
+  `request/SourceSnapshotSpec` 195, `tasty/TastyStubsSpec` 370, `tasty/CompiledTypesSpec` 145,
+  `analysis/MeasuringSpec` 91, `reporting/ScalametaInputs` 16, `tasty/TastyDump` 30,
+  `reporting/ReportDependenciesSpec` 114, `analysis/DeepStackSpec` 45, `capacity/SignatureSpec`
+  122, `capacity/GivenSignatureSpec` 76, `capacity/ExtensionSignatureSpec` 70. The gate itself
+  (`compiled/Differential` 752, `DifferentialSpec` 275) goes once there is no old side. The eo
+  baselines (`EoCheckout` 361, `EoBaseline` 192, `EoDelta` 230, `EoArtifactsSpec` 449) read
+  sources without classes: delete, or port to compiled classes.
+- Edit, a helper each (1 to 29 errors): the harness `Compiled` (its `filled` mode and
+  `scalametaOnly` read the scalameta front end), `Overriders`, `InventoryFixtures`, the compiled
+  specs' helpers (`ClosedVerdicts`, `InlineVerdicts`, `TastyFrontEndSpec`, `TypeParametersSpec`,
+  `RecordsSpec`, `ReceiversSpec`, `NamesSpec`, `ContextualSpec`, `StoredRecursionSpec`,
+  `ProgramRowsSpec`), and 30 analysis or capacity specs, mostly one reference each
+  (`MethodAnalysis.Limits`, `AnalysisWork`, `Report.Environment(stubs = …)`), and
+  `ReportHygieneSpec` (14), `ReportSpec` (2), `RecursionProbeSpec` (1).
+
+## Switch-over: dry run (2026-11-13)
+
+Branch `tasty-switch-dry` at `703f43f` (worktree outside the repository, never merged): default
+flipped by deleting the switch, the inventory deleted, plugins reduced to `cardinalityReport`
+and `cardinalitySeedSkill`. `core/compile`, `plugin/compile` and `millPlugin/compile` pass with
+`-Werror`; the tests do not compile (see the spec inventory).
+
+What broke after the computed deletion, and what it took (two passes of the tool, about ten compile
+rounds):
+
+- The first cut list was too wide: `TastyStubs` whole, though `CompiledTypes.loaded` uses its class
+  loading (`firstLoaded`, `jdk`, `readable`, `javaClassfiles`, `symbolsOf`). Fixed by cutting only
+  the rendering. Two reachability rules were also too generous: a companion object reached
+  kept its non-case class (`SourceIndex.Root` kept all of `SourceIndex`), and a package reached
+  kept its enums. And one was missing: an override reached keeps the member it overrides
+  (`Kind.holes`).
+- Syntax left by deleting members: an emptied `object Entry:` header, empty `extension` blocks
+  (`Trees`, `TypeName`).
+- Imports naming deleted symbols (about 40), removed by a script from the compiler's errors, then
+  `scalafix RemoveUnused`.
+- `-Wunused` then found what the deletion left unread: givens of a scalameta `Dialect` (4), a
+  private case class and enum of the ascription (`Untyped`, `Site`), and the `AnalysisWork`,
+  `Library` and `Scope` fields. These went with the second, corrected pass.
+- sbt plugin: the cached `cardinalityDependencyClasspath` still needs
+  `sbt.util.CacheImplicits.given`, which the stub task had seemed to be the only user of.
+
+Blockers other than parity:
+
+1. Selected reports (`cardinalityReportSelected`, `Report.query`, `AnalysisQuery`, `SourceSnapshot`,
+   the budgets; scripted `selected`) have no TASTy path. The owner decides: port them (filter
+   `Report.of` rows by name; the budgets have no counterpart) or drop them.
+2. `cardinalityReportOf` and the scripted `library` test measure a sources jar without classes.
+   TASTy-only, they can only refuse. Drop them, or read the library's binary jar, which holds its
+   TASTy.
+3. The scripted `dependencies` test checks stub-specific behavior (`checkUnsupplied` with
+   `cardinalityDependencyClasspath := Nil`) and needs a new expectation.
+4. 54 spec examples sit on fixtures scalac rejects. The plan sends them with uncompiled support.
+5. The ledger and gate harnesses (`Compiled` `filled` mode, `Differential`) read the old front
+   end. Rewrite them at the switch, or keep the old front end until parity is certified.
+
 ## Order, and what is not known yet
 
 4a → 4b → 4c → 5a → 5b → 5c → 5d → 5e → 6. Every step: the differential report, core's suite, the
