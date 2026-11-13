@@ -251,14 +251,24 @@ final private[compiled] class ClosedProgram(
   }
 
   /** Whether an instance may be of both classes: one extends the other, or a class of the program
-    * extends both, or the classes that extend one of them are not all known.
+    * extends both, or the classes that extend each of them are not all known (or not all read).
     */
   def mixes(left: ClassSymbol, right: ClassSymbol): Boolean = {
     val ((leftLine, leftWhole), (rightLine, rightWhole)) = (linearized(left), linearized(right))
+    // A class of the program that extends both is among the subclasses of either: those of one
+    // that are all known settle it.
+    def reaches(c: ClassSymbol, other: ClassSymbol) = {
+      val (line, whole) = linearized(c)
+      !whole || line.contains(other)
+    }
+    def within(below: Subclasses, other: ClassSymbol) =
+      below.found.exists(reaches(_, other)) ||
+        below.unnamed.exists(_.parents.exists(reaches(_, other)))
     !leftWhole || !rightWhole || leftLine.contains(right) || rightLine.contains(left) || {
       val (lefts, rights) = (subclasses(left), subclasses(right))
-      !lefts.complete || !rights.complete || lefts.found.exists(rights.found.toSet) ||
-      lefts.unnamed.exists(rights.unnamed.toSet)
+      if (lefts.complete) within(lefts, right)
+      else if (rights.complete) within(rights, left)
+      else true
     }
   }
 

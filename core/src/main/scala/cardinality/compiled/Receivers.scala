@@ -486,7 +486,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
             Unread.Uncovered(s"an enclosing sum not read: $reason")
           case uncovered => uncovered
         }
-    } else own(tree, measured, env, "an enclosing class", _ => true)
+    } else own(tree, measured, env, "an enclosing class", _ => true, receiving = true)
 
   // What a receiver that is no sum supplies: its constructor's parameters and its members a
   // subclass supplies, `measured` aside, the ones `kept` keeps; `where` names the template in a
@@ -496,7 +496,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       measured: TermSymbol,
       env: Shapes.Env,
       where: String,
-      kept: TermSymbol => Boolean
+      kept: TermSymbol => Boolean,
+      receiving: Boolean = false
   ) = {
     val self = template.symbol.displayFullName
     def held(of: ValOrDefDef, shape: Shape) =
@@ -505,7 +506,20 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     val capabilities = supplies(template, measured).filter(member => kept(member.symbol))
     for {
       _ <- Readings.plainInputs(parameters)
-      fields <- shapes.inputs(parameters, env)
+      // A receiver's constructor parameter was built before it, and is never the receiver: one
+      // whose field no class of the program overrides (with the receiver, say), and not inline
+      // (by-name is read past its arrow, as nothing preceding), as the old front end's
+      // `builtBefore`.
+      fields <- Traversals.sequence(parameters.map { parameter =>
+        val fixed = template.rhs.body.exists {
+          case field: ValDef =>
+            field.name == parameter.name && field.symbol.isParamAccessor &&
+            world.overriding(template.symbol, field.symbol) == ClosedProgram.Overriding.No
+          case _ => false
+        }
+        val before = receiving && fixed && !parameter.symbol.isInline
+        shapes.of(parameter.tpt.toType, env.copy(preceding = before))
+      })
       members <- Traversals.sequence(capabilities.map { member =>
         if (reenters(template.symbol, member.symbol, measured))
           Left(

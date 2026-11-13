@@ -120,7 +120,15 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
               val taken = Shapes.parameters(method)
               Readings
                 .plainInputs(taken)
-                .flatMap(_ => shapes.inputs(taken, env))
+                // A method around the definition took them before its receiver was built (a
+                // by-name type is read past its arrow, as nothing preceding); an inline one is
+                // evaluated where it is read, and may be the receiver.
+                .flatMap(_ =>
+                  Traversals.sequence(taken.map { parameter =>
+                    val before = env.copy(preceding = !parameter.symbol.isInline)
+                    shapes.of(parameter.tpt.toType, before)
+                  })
+                )
                 .map(taken.lazyZip(_).map(bound(method)))
             })
             inputs <- shapes.inputs(parameters, env)

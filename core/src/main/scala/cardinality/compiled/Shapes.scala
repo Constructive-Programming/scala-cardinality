@@ -51,17 +51,22 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   private val sums = new Sums(world, this)
 
   /** The shape of `tpe` read from `env`'s site, its type parameters bound as `env` says. */
-  def of(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
-    case by: ByNameType => of(by.resultType, env)
-    // `Nothing` is a type of its own in the tree, with no class to name.
-    case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
-    case repeated: RepeatedType      => of(repeated.elemType, env).map(Shape.Repeated(_))
-    case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
-    case constant: ConstantType      => literal(constant).map(Shape.Singleton(_, None))
-    case path: TermRef               => singleton(path, env)
-    case or: OrType                  => union(Shapes.alternatives(or), env)
-    case and: AndType                => intersection(Shapes.conjuncts(and), env)
-    case other                       => uncovered(other)
+  // A value `preceding` is the one a class written as the whole type names (the old front end
+  // anchors it at that type): what it is read through or holds is not.
+  def of(tpe: Type, env: Env): Either[Unread, Shape] = {
+    val parts = env.copy(preceding = false)
+    tpe.dealias match {
+      case by: ByNameType => of(by.resultType, parts)
+      // `Nothing` is a type of its own in the tree, with no class to name.
+      case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
+      case repeated: RepeatedType      => of(repeated.elemType, parts).map(Shape.Repeated(_))
+      case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
+      case constant: ConstantType      => literal(constant).map(Shape.Singleton(_, None))
+      case path: TermRef               => singleton(path, parts)
+      case or: OrType                  => union(Shapes.alternatives(or), parts)
+      case and: AndType                => intersection(Shapes.conjuncts(and), parts)
+      case other                       => uncovered(other)
+    }
   }
 
   // A union read as the tagged sum of its alternatives, where one exists, as the old front end
@@ -248,7 +253,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         val inside = if (library.exists(Shapes.Evidence)) env.copy(nominal = true) else env
         val higher = c.typeParams.map(_.declaredBounds.high.isInstanceOf[TypeLambda])
         val shapes =
-          arguments.zipWithIndex.map((a, i) => argument(a, higher.lift(i).contains(true), inside))
+          arguments.zipWithIndex.map((a, i) =>
+            argument(a, higher.lift(i).contains(true), inside.copy(preceding = false))
+          )
         Traversals.sequence(shapes).flatMap { read =>
           library.flatMap(standard(_, read)) match {
             case Some(known)                        => known
@@ -398,9 +405,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // computes; where it may not, it is one of what the site may call to build one (`Factories`). A
   // template whose construction always throws, or a class written `final abstract`, has no value
   // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
-  // throws is S6's still). Left for later steps, each named: a construction that binds a pattern, a
-  // sealed class, a self type narrower than the class, an abstract type member, a member named like
-  // the measured definition, own or inherited (it may be that one on another receiver), a field
+  // throws is S6's still). A member that may be the measured definition on another receiver is
+  // refused (`clash`). Left for later steps, each named: a construction that binds a pattern, a
+  // sealed class, a self type narrower than the class, an abstract type member, a field
   // the site does not observe as itself, a restricted constructor of a class something may extend,
   // a class something extends, and what `Receivers.record` and `Factories` leave.
   private def record(template: ClassDef, bound: List[Shape], env: Env): Either[Unread, Shape] = {
@@ -410,19 +417,37 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case v: ValDef if v.symbol.isParamAccessor && v.symbol.isPublic => v.name
     }.toSet
     val fixed = !c.isTrait && !c.isAbstractClass && (Shapes.isFinal(c) || !world.extended(c))
-    val members = template.rhs.body.collect { case member: ValOrDefDef => member }
-    // A member named like the measured definition, own or inherited, which may be that one on
-    // another receiver; a constructor row measures no member.
-    val measured = env.site.name.toString
-    val clash = !World.isConstructor(env.site) &&
-      (members.map(_.symbol) ++ World.ancestors(c).flatMap(_.declarations)).exists { member =>
-        !member.isSynthetic && member.name.toString == measured
-      }
+    // A member that varies across instances (abstract, or overridden by a class of the program),
+    // own or inherited, of the measured definition's name and arity, where one instance may be of
+    // the record's class and of the class the definition is a member of: on such a value it may
+    // be the definition itself, whose calls re-enter it (the old front end's `selfView`,
+    // capabilities C6), which the model does not split: refused, as there. A value built before
+    // the receiver (`preceding`) is never it. A constructor row and a local definition measure no
+    // member.
+    val clash = (env.site, env.site.owner) match {
+      case (site: TermSymbol, owner: ClassSymbol)
+          if !World
+            .isConstructor(site) && !env.preceding && (owner == c || world.mixes(owner, c)) =>
+        (c :: World.ancestors(c)).flatMap(_.declarations).exists {
+          case declared: TermSymbol =>
+            // An inherited declaration as the record's class sees it: implemented there or not.
+            val member = declared.overridingSymbol(c).getOrElse(declared)
+            !member.isSynthetic && member.name == site.name &&
+            Shapes.arity(member) == Shapes.arity(site) &&
+            (member.isAbstractMember ||
+              world.overriding(c, member) == ClosedProgram.Overriding.Supplied)
+          case _ => false
+        }
+      case _ => false
+    }
     def refused(left: Boolean, what: String) =
       Either.cond(!left, (), Uncovered(s"a capability record $what: $name"))
-    val read = env.copy(binders =
-      env.binders ++
-        (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap
+    // What a member of the value returns may be built after it, the receiver among them: only
+    // the value itself is `preceding`.
+    val read = env.copy(
+      binders = env.binders ++
+        (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap,
+      preceding = false
     )
     // A template whose construction always throws, or a class written `final abstract`, has no
     // value: the empty sum.
@@ -434,7 +459,13 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
         _ <- refused(!World.ownSelf(c), "with a self type")
         _ <- refused(Shapes.abstractTypeMember(template), "with an abstract type member")
-        _ <- refused(clash, "with a member named like the measured definition")
+        _ <- Either.cond(
+          !clash,
+          (),
+          Refused(
+            s"capability record member may be the measured declaration on its receiver: $name.${env.site.name}"
+          )
+        )
         _ <- refused(!c.isTrait && !c.isAbstractClass && !fixed, "of a class something extends")
         site <- env.site match {
           case site: TermSymbol => Right(site)
@@ -632,14 +663,16 @@ private[compiled] object Shapes {
     * (what it may see decides an opaque type), the classes being read (a cycle is refused), and
     * whether the type is compared with another as a type (`nominal`), where a type of the module is
     * not its shape. A type parameter `unread` is the reason of a type that names it, and of nothing
-    * else: an unused parameter's kind tells nothing.
+    * else: an unused parameter's kind tells nothing. A value `preceding` is built before the
+    * measured definition's receiver, which it therefore never is.
     */
   final case class Env(
       binders: Map[Symbol, Shape],
       site: Symbol,
       visiting: Set[ClassSymbol] = Set.empty,
       nominal: Boolean = false,
-      unread: Map[Symbol, Unread] = Map.empty
+      unread: Map[Symbol, Unread] = Map.empty,
+      preceding: Boolean = false
   ) {
 
     /** Whether a type parameter is one of the environment's, read or not. */
@@ -801,6 +834,19 @@ private[compiled] object Shapes {
   /** A constructor's or method's value parameters, clause after clause. */
   def parameters(method: DefDef): List[ValDef] =
     method.paramLists.flatMap(_.left.toOption.toList.flatten)
+
+  /** How many value parameters a member takes, clause after clause; none for a value or a type. */
+  def arity(member: Symbol): Int = {
+    def taken(tpe: TypeOrMethodic): Int = tpe match {
+      case method: MethodType => method.paramNames.size + taken(method.resultType)
+      case poly: PolyType     => taken(poly.resultType)
+      case _                  => 0
+    }
+    member match {
+      case term: TermSymbol => taken(term.declaredType)
+      case _                => 0
+    }
+  }
 
   /** The alternatives of a union, through the aliases they name. */
   def alternatives(tpe: Type)(using Context): List[Type] = tpe.dealias match {

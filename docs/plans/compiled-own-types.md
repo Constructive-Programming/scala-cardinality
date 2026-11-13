@@ -1739,6 +1739,40 @@ parameters nothing extends). Bounded or other-kind abstract type members are the
 now (the coordinator). Method rows: corpus-core 1,543 identical, cats-core 1,280, cats-kernel
 316, cats-eo 214, cats-eo-generics 37, cats-eo-schemes 5, fixtures 4,987; all inputs pass.
 
+### Stretch 5, ninth unit: members named like the measured definition
+
+The old front end's `selfView` (`CapabilityRecords`), over symbols in `Shapes.record`'s `clash`:
+a record's member that varies across instances (abstract, or overridden by a class of the
+program; an inherited declaration as the record's class sees it, `overridingSymbol`), of the
+measured definition's name and arity (`Shapes.arity`, value parameters clause after clause),
+refuses the row with the old reason, and only where one instance may be of the record's class
+and of the class the definition is a member of (`World.mixes`). A value built before the
+receiver is never it (`Env.preceding`, the old `builtBefore` and its anchor): a capture of a
+method around the definition and a receiver's constructor parameter whose field nothing
+overrides, not inline, and only the class the whole type names (not past a function arrow, a
+by-name arrow, a type argument or a member). `ClosedProgram.mixes` now decides by the
+subclasses of either class where those are all known and read (it gave up where one side's were
+not). Every row of the reason is read or refused: corpus-core 1,599 identical, cats-core 1,527,
+cats-kernel 330, cats-eo 228, fixtures 5,030.
+
+Derived (better past a model limit): `cats.Show.show` ω (the object `Show` is no `Show`, which
+the old reading confused by name); cats-eo `Getter.andThen`, `MendTearPrism.fuseToMendTear` and
+`.andThen`, 1 each; fixture `Swapped.twice` ω, `PolyGetter.again`, `Named.call`,
+`Hidden.call` 2 each (inline methods whose expansion calls a member that applies); the
+`<new#1>.apply` of `applyK`, `localK`, `liftK`, both `liftFunctionK`, 1 each; eleven
+`NonEmptyList` instance members, ω (a list of any length); fixtures `U.u` ω and `S.un` 3 (unions
+the new `mixes` tells apart). Corrected: fixture `U.helper`, 2^32 -> 2^16 (`u.m` is `helper`
+itself on `u`, no input). The gate's `RecordsSpec.show` is read now, 4. Private memory: the
+lines of `U.u`, `S.un` (`?` under the earlier `mixes`) and of `Deferred.show` (counted by a
+version that took a captured function's result for preceding) are deleted.
+
+Found, not changed (both front ends agree, so the gate cannot see it): a capability record's
+member whose value is another record with a polymorphic member reads too few implementations.
+`trait FK[F[_], G[_]] { def apply[A](fa: F[A]): G[A] }; trait Inj[F[_], G[_]] { def prj: FK[G,
+[a] =>> Option[F[a]]] }`: a method returning `new FK[...] { def apply[A](a: EK[H, G, A]):
+Option[F[A]] = a.run.toOption.flatMap(i.prj(_)) }` counts 1 where `None` and `i.prj(g)` are 2.
+This unit leaves such a row refused as before.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1799,7 +1833,8 @@ now (the coordinator). Method rows: corpus-core 1,543 identical, cats-core 1,280
   fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit");
   literal and singleton types ("Stretch 5, sixth unit"); unions and intersections ("Stretch 5,
   seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"); the merge of
-  `tasty-gate` at `a8dc05f`. Next: members named like the measured definition, then item 6. Scope
+  `tasty-gate` at `a8dc05f`; members named like the measured definition ("Stretch 5, ninth
+  unit"). Next: item 6, anonymous contextual parameters. Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in

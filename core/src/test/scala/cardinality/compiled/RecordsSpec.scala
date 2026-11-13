@@ -133,10 +133,12 @@ class RecordsSpec extends Specification {
       .and(count("ov") must_== Count.Finite(16))
       .and(count("prod") must_== Count.Finite(4))
       .and(count("free") must_== Count.Finite(16))
+      // `show` inherits a member of its own name and arity, but the object `Use` is no `Shows`:
+      // that member is never the definition (`NamesSpec`). One Boolean member, 2^2.
+      .and(count("show") must_== Count.Finite(4))
 
-  // Not read yet, each by its reason: an extension member; a class something extends; a record
-  // that inherits a member named like the measured definition, which may be that one on another
-  // value; one that inherits an abstract type member; one whose inherited member the site may not
+  // Not read yet, each by its reason: an extension member; a class something extends; one that
+  // inherits an abstract type member; one whose inherited member the site may not
   // call; and a final class that nothing the site may call builds.
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
@@ -144,10 +146,9 @@ class RecordsSpec extends Specification {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "base", "show", "typing", "guards", "shut").map(reason) must_== List(
+    List("tagged", "base", "typing", "guards", "shut").map(reason) must_== List(
       "an extension method among the members of a capability record",
       "a capability record of a class something extends",
-      "a capability record with a member named like the measured definition",
       "a capability record with an abstract type member",
       "a capability record with a member hidden at the use site",
       "a capability record with no constructor or factory the site may call"
