@@ -3,7 +3,7 @@ package cardinality.compiled
 import cardinality.analysis.BuiltinTypes
 import cardinality.analysis.inhabitation.Inhabitation.{Binder, Head, Shape}
 import cardinality.analysis.inhabitation.PolymorphicMembers
-import cardinality.analysis.resolution.LiteralTypes
+import cardinality.analysis.resolution.{LiteralTypes, StuckProjections}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.OpenLevel
@@ -40,7 +40,8 @@ private[compiled] enum Unread {
   *
   * A literal type is its one constant, and a written `p.type` the one value p (`singleton`). A
   * union is the tagged sum of its alternatives where their values are told apart
-  * (`Relations.union`), an intersection its narrowest part (`Relations.intersection`).
+  * (`Relations.union`), an intersection its narrowest part (`Relations.intersection`), a match type
+  * what the compiler reduces it to or a stuck projection's atom (`matchType`).
   *
   * A type that reaches itself and an enum's class case as a type are refused (`recursive type not
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`, each
@@ -68,9 +69,31 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case path: TermRef               => singleton(path, parts)
       case or: OrType                  => relations.union(Relations.alternatives(or), parts)
       case and: AndType                => relations.intersection(Relations.conjuncts(and), parts)
+      case matched: MatchType          => matchType(matched, parts)
       case other                       => uncovered(other)
     }
   }
+
+  // A match type is what the compiler reduces it to; one stuck on an unbounded type parameter under
+  // a single tuple projection (`A match { case (f, s) => f }`), without a bound, is the projection's
+  // atom (`StuckProjections`, members MT3), and `Readings` refuses arities no instantiation meets.
+  private def matchType(matched: MatchType, env: Env): Either[Unread, Shape] =
+    matched.reduced match {
+      // tasty-query reduces on an abstract scrutinee where scalac does not (`Fst[T]` for a
+      // `T <: (Int, String)` is `Int` there, stuck in scalac): trusted on a ground one only.
+      case Some(reduced) if Shapes.ground(matched.scrutinee) => of(reduced, env)
+      case Some(_)                                           => uncovered(matched)
+      case None                                              =>
+        val stuck = for {
+          (arity, index) <- Shapes.projection(matched.cases)
+          if matched.bound.isSameType(defn.AnyType)
+          case ref: TypeRef <- Some(matched.scrutinee.dealias)
+          parameter <- Shapes.rigidParameter(ref)
+          if Shapes.binds(ref, parameter, env)
+          id <- env.binding(parameter).toOption.collect { case Shape.Atom(id) => id }
+        } yield Shape.Atom(StuckProjections.Projection(arity, index, id))
+        stuck.toRight(Uncovered(s"a type: ${matched.showBasic}"))
+    }
 
   // A literal type's one value, named as the old front end names it (`LiteralTypes`); a floating
   // zero is read too, since the compiled constant keeps its sign.
@@ -815,6 +838,65 @@ private[compiled] object Shapes {
   /** A record of `name` left where it has `what` (`left`). */
   private def unread(name: String)(left: Boolean, what: String): Either[Unread, Unit] =
     Either.cond(!left, (), Unread.Uncovered(s"a capability record $what: $name"))
+
+  /** A type built of static classes and constants alone: no type parameter, abstract member, path
+    * or other form a reduction would have to reason about.
+    */
+  private def ground(tpe: TypeOrWildcard)(using Context): Boolean = tpe match {
+    case ref: TypeRef if ref.dealias ne ref => ground(ref.dealias)
+    case ref: TypeRef                       =>
+      ref.optSymbol.exists {
+        // `Null` is below every nullable class: tasty-query reduces on it where scalac does not.
+        case c: ClassSymbol => World.inObjects(c) && c != defn.NullClass
+        case _              => false
+      }
+    case applied: AppliedType if applied.dealias ne applied => ground(applied.dealias)
+    case applied: AppliedType => ground(applied.tycon) && applied.args.forall(ground)
+    case _: ConstantType      => true
+    case _                    => false
+  }
+
+  /** The unbounded type parameter `ref` names where it is held rigid: a method's, or a class's own
+    * through `this` (not one selected on another instance, whose bounds a prefix may change).
+    */
+  def rigidParameter(ref: TypeRef)(using Context): Option[TypeParamSymbol] =
+    ref.optSymbol.collect {
+      case p: TypeParamSymbol if Shapes.unbounded(p.declaredBounds) && (ref.prefix match {
+            case NoPrefix       => true
+            case self: ThisType => self.cls == p.owner
+            case _              => false
+          }) =>
+        p
+    }
+
+  /** The component a match type's single case projects, as (arity, 1-based index): a pattern
+    * `TupleN` over distinct binders of the case, whose result is one of them (the TASTy counterpart
+    * of the old `MethodProjections.projection`; `Tuple1` is no tuple syntax there).
+    */
+  private def projection(cases: List[MatchTypeCase])(using Context): Option[(Int, Int)] =
+    cases match {
+      case List(single) =>
+        def binder(tpe: Type) = tpe match {
+          case ref: TypeParamRef if ref.binder eq single => Some(ref.paramNum)
+          case _                                         => None
+        }
+        single.pattern match {
+          case pattern: AppliedType
+              if pattern.args.sizeIs >= 2 &&
+                World
+                  .classNamed(pattern)
+                  .exists(_.displayFullName == s"scala.Tuple${pattern.args.size}") =>
+            StuckProjections.component(
+              pattern.args.map {
+                case argument: Type => binder(argument)
+                case _              => None
+              },
+              binder(single.result)
+            )
+          case _ => None
+        }
+      case _ => None
+    }
 
   /** A sealed trait or abstract class, which is the sum of its subtypes; an enum is read by its own
     * rule.

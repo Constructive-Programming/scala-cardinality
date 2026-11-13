@@ -2,7 +2,7 @@ package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces as Spaces, Inhabitation}
-import cardinality.analysis.resolution.TopTypes
+import cardinality.analysis.resolution.{StuckProjections, TopTypes}
 import cardinality.capacity.Definition.Unbound
 import cardinality.capacity.Size
 import cardinality.types.Traversals
@@ -31,7 +31,8 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   * Not read yet, where a position names it: a bounded type parameter (the row hands no proof to its
   * positions), or one of another kind than an invariant `F[_]`; a position the method side refuses
   * (a recursive type), which takes the estimate's tier; one the estimate does not read; one over a
-  * singleton or evidence; a contextual one without a name.
+  * singleton or evidence. An anonymous contextual parameter is a position like any other once
+  * `Readings` has found search selects it (`Readings#searched`).
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored, receivers: Receivers)(
     using Context
@@ -72,7 +73,6 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
         .toLeft(())
       env = Shapes.Env.of(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
       held <- receivers.bindings(around, constructor.symbol, env)
-      _ <- Readings.plainInputs(parameters)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
     } yield Constructors.product(self, placed, held)
   }
@@ -165,11 +165,14 @@ private[compiled] object Constructors {
   }
 
   // The product of the positions' value spaces with the shape model's count of the slots left to
-  // it; any position without a number leaves the row `?`.
-  private def product(self: String, positions: List[Position], held: List[Binding]): Count =
-    positions.collect { case Unresolved(reasons) => reasons }.flatten match {
+  // it; any position without a number, or stuck projections no single instantiation reduces
+  // (`StuckProjections`; no proofs, since a bounded type parameter is not read here), leave the row
+  // `?`.
+  private def product(self: String, positions: List[Position], held: List[Binding]): Count = {
+    val shaped = positions.collect { case Shaped(name, shape) => name -> shape }
+    val stuck = StuckProjections.refusal(held.map(_.shape) ++ shaped.map(_._2), Nil)
+    positions.collect { case Unresolved(reasons) => reasons }.flatten ++ stuck match {
       case Nil =>
-        val shaped = positions.collect { case Shaped(name, shape) => name -> shape }
         Count.product(
           positions.collect { case Exact(space) => space },
           positions.collect { case Estimated(size) => size },
@@ -181,5 +184,6 @@ private[compiled] object Constructors {
         )
       case reasons => Count.Unresolved(reasons.distinct)
     }
+  }
 
 }

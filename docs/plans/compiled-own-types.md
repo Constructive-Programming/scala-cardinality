@@ -2005,10 +2005,13 @@ the same six deleted when this branch is merged; every input passes otherwise.
   eleventh unit"); the merge of `tasty-gate` at `f75b9d4` (the coordinator; one conflict, the
   record clash test, resolved to `Relations.clash` beside the gate's `Shapes.unread`; every input
   passes on the private memory: method rows identical corpus-core 2,780, cats-core 1,601,
-  cats-kernel 330, cats-eo 231, cats-eo-generics 40, cats-eo-schemes 5, fixtures 5,116). Next
-  (re-ranked by old numeric rows still uncovered): match types and the rest of `a type` (`MatchType.reduced`,
-  stuck projections), a definition that reaches itself, the rest of item 6, a value of a class of
-  the module, refinements. A constructor position the method side refuses is the gate agent's
+  cats-kernel 330, cats-eo 231, cats-eo-generics 40, cats-eo-schemes 5, fixtures 5,116); match
+  types, a constructor's anonymous evidence and evidence of one class ("Stretch 5, twelfth unit").
+  Next (re-ranked by old numeric rows still uncovered): the rest of `a type` (paths `p.X`, type
+  members through `this`, polymorphic function types, refinements), a definition that reaches
+  itself (the stored side's fixed point: a port of the old `capacity/Solver` over TASTy, which the
+  constructor positions the method side refuses also wait for), the rest of item 6 (a receiver's,
+  a capability's and a captured method's anonymous parameters), a value of a class of the module. A constructor position the method side refuses is the gate agent's
   (its note at `f75b9d4`). Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
@@ -2939,6 +2942,40 @@ derived) and `StdlibModelSpec` "IterableOnce leaves iterator to the sources". Th
 rewrite-at-switch list; the last one (a Boolean counted ω over an inherited `iterator`
 capability) is for the gate agent to confirm, being its reading of inherited members.
 
+
+### Stretch 5, twelfth unit: match types, a constructor's anonymous evidence, evidence of one class
+
+- A match type (`Shapes.matchType`) is what tasty-query's `MatchType.reduced` gives, where the
+  scrutinee is ground (static classes and constants, not `Null`). On anything else tasty-query
+  reduces where scalac stays stuck: `Fst[T]` for a `T <: (Int, String)` is `Int` there, and
+  `def g[T <: (Int, String)](x: Fst[T]): Int = x` does not compile; `IsStr[Null]` likewise (a
+  reviewer's finding). One stuck on an unbounded type parameter held rigid (a method's, or the
+  class's own through `this`: `Shapes.rigidParameter`), under a single case projecting a tuple of
+  distinct binders and without a bound, is the old projection atom (`StuckProjections`, members
+  MT3), and `StuckProjections.refusal` is asked in `Readings` and `Constructors` as in the old
+  `Measurement`. The index of the projected binder is shared (`StuckProjections.component`); the
+  old syntax reading of the case moved to `MethodProjections`, so `StuckProjections` no longer
+  imports scalameta and the compiled front end may use it. Not read yet: a match type in a
+  constructor's position (tasty-query gives the alias's own parameter as its scrutinee there), one
+  on a bounded parameter, any other stuck form.
+- A constructor's anonymous contextual parameter (`Readings#constructorSearch`) is read by the
+  measured method's rule (`searched`, the old `ContextualEvidence.unreachable`) where its class is
+  written without parents or a self type and its body imports nothing and declares nothing
+  contextual but its parameters; otherwise the class body's candidates compete with it, which the
+  old `ContextualScope` reads at the template, and the row stays uncovered (a reviewer's finding:
+  `final class K[A](using Option[A]) { given Some[A] = null }` would have counted a parameter no
+  search reaches).
+- Two contextual parameters of one class whose arguments are rigid unbounded type parameters,
+  distinct at some place (`[A: Show, B: Show]`), are never subtypes of each other whatever the
+  variance (`Readings.unrelated`, the old `ContextualEvidence.unrelated` over distinct atoms).
+
+Derived past a model limit: fixture `boundedMatch` 1 (a match type bounded by `Any` stays stuck,
+`x` its only value) and `O.viaMatch` 2^(2^69) (`M[Int]` is `Int ?=> Int`; with `x: Int`,
+(2^32)^(2^64)). Corrected: cats-core `IorInstances.catsDataShowForIor`, 1 -> ω (the Ior ruling: a
+`Show` of a nonempty `Ior[A, B]` returns a `String`). Regressions: `MatchTypesSpec`, and
+`ContextualSpec` (`both`, `Flat.<init>`, `Crowd`, `Selfish`). Method rows identical: cats-core 1,605
+(4 more), cats-eo 242 (11 more), fixtures 5,150 (34 more), the other inputs as at the merge; every
+input passes.
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

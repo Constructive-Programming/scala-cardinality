@@ -1,7 +1,5 @@
 package cardinality.analysis.resolution
 
-import scala.meta.{Type, TypeCase}
-
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.model.SourceBindings
 import cardinality.types.Universe
@@ -35,25 +33,17 @@ private[cardinality] object StuckProjections {
 
   }
 
-  /** The component a single-case projection takes, as (arity, 1-based index): one tuple pattern of
-    * distinct binders whose body is one of them.
+  /** The component a single-case projection takes, as (arity, 1-based index): a tuple pattern whose
+    * parts are distinct binders of the case (`Some` binder, `None` for any other part) and whose
+    * body is one of them. Each front end reads the case's parts from its own trees.
     */
-  def projection(cases: List[TypeCase]): Option[(Int, Int)] = cases match {
-    case List(single) =>
-      (single.pat, single.body) match {
-        case (Type.Tuple(parts), Type.Name(body)) =>
-          val binders = parts.collect {
-            case Type.Name(name) if name.headOption.exists(_.isLower) => name
-          }
-          Option
-            .when(binders.size == parts.size && binders.distinct.size == binders.size)(
-              binders.indexOf(body)
-            )
-            .filter(_ >= 0)
-            .map(index => parts.size -> (index + 1))
-        case _ => None
-      }
-    case _ => None
+  def component[B](parts: List[Option[B]], body: Option[B]): Option[(Int, Int)] = {
+    val binders = parts.flatten
+    body
+      .filter(_ => binders.size == parts.size && binders.distinct == binders)
+      .map(binders.indexOf)
+      .filter(_ >= 0)
+      .map(index => parts.size -> (index + 1))
   }
 
   /** Whether an atom may stand for any type a caller picks: a projection atom does not (nested

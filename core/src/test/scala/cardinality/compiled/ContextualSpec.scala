@@ -41,6 +41,7 @@ class ContextualSpec extends Specification {
       |  def wide[A](x: A)(using Option[A], List[A]): A = x
       |  def nul(x: Show)(using Show)(using n: Null): Show = x
       |  def ctx[A](x: A)(using Pick[A]): A ?=> A = x
+      |  def both[A, B](x: A)(using Pick[A], Pick[B]): A = x
       |}
       |final class Held(a: Boolean)(using b: Boolean) { def get: Boolean = a }
       |object Givens {
@@ -62,6 +63,9 @@ class ContextualSpec extends Specification {
       |trait Anon { given Boolean = deferred; def get: Boolean = true }
       |trait Fed { given feed(using b: Boolean): Boolean; def get: Boolean = true }
       |final class Flat[A](using Option[A]) { def f(x: A): A = x }
+      |final class Crowd[A](using Option[A]) { given Option[A] = None }
+      |trait Base { given Option[Int] = None }
+      |final class Selfish(using Option[Int]) { self: Base => }
       |object Shared { class s; given s: s = new s }
       |trait Two { given g: Boolean = deferred; given k: Option[Boolean] = Some(g) }
       |trait Exts { extension (b: Boolean) def tag: Boolean; def get: Boolean = true }
@@ -134,14 +138,25 @@ class ContextualSpec extends Specification {
   // level are ambiguous (`same`); an `Option` beside a `List`, classes of the standard library
   // whose bases the old reading does not know, is not read yet (`wide`), nor a `Show` beside a
   // `Null`, which is below every reference type (`nul`), nor one beside a context-function
-  // result, whose binder may hide it (`ctx`).
+  // result, whose binder may hide it (`ctx`). `both`'s `Pick[A]` and `Pick[B]` are never
+  // subtypes of each other (A and B are distinct and unbounded, rigid in the body), so each is
+  // the one search finds: `pick` nests, ω. A constructor's anonymous parameter is read by the same
+  // rule: `Flat`'s `Option[A]` is a position over A, built from the supplied one or `None`, 2.
   private def anonymous =
-    (List("Params.anon", "Params.bound", "Params.twin", "Params.local", "Params.near").map(
-      count
-    ) must_== List(
+    (List(
+      "Params.anon",
+      "Params.bound",
+      "Params.twin",
+      "Params.local",
+      "Params.near",
+      "Params.both",
+      "Flat.<init>"
+    ).map(count) must_== List(
       Count.Finite(2),
       Count.Countable,
       Count.Countable,
+      Count.Countable,
+      Count.Finite(2),
       Count.Countable,
       Count.Finite(2)
     ))
@@ -152,12 +167,15 @@ class ContextualSpec extends Specification {
           .must(contain(contain("an anonymous contextual parameter")).forall)
       )
 
-  // Left to implicit search, and so uncovered: a constructor's contextual parameter without a
-  // name, and among a class's members a deferred given without a name and an abstract extension
-  // method.
+  // Left to implicit search, and so uncovered: a receiver's contextual parameter without a name
+  // (`Flat.f`), a constructor's beside a given its class body declares or its self type holds
+  // (`Crowd`, `Selfish`, ambiguous there), and among a class's members a deferred given without a name and an abstract
+  // extension method.
   private def later = {
     val expected = List(
       "Flat.f" -> "an anonymous contextual parameter",
+      "Crowd.<init>" -> "an anonymous contextual parameter beside the class's contextual scope",
+      "Selfish.<init>" -> "an anonymous contextual parameter beside the class's contextual scope",
       "Anon.get" -> "an anonymous given among the members of an enclosing class",
       "Exts.get" -> "an extension method among the members of an enclosing class"
     )
