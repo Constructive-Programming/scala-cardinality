@@ -22,6 +22,7 @@ class DifferentialSpec extends Specification {
     fails a row measured before, uncovered or counted otherwise   $memory
     passes a bound that became the exact number of its value      $tightened
     passes a changed number only as a listed correction           $corrected
+    sets apart the old numeric uncovered rows listed unsound       $unsound
   """
 
   private def entry(name: String, count: Count, line: Int = 1): Entry =
@@ -57,6 +58,19 @@ class DifferentialSpec extends Specification {
       "moved" -> Verdict.Worse,
       "declined" -> Verdict.Uncovered,
       "unknown" -> Verdict.Identical
+    )
+  }
+
+  // Of two old numeric rows the new front end leaves uncovered, the one the old-unsound list names
+  // is not counted as still uncovered.
+  private def unsound = {
+    val compared = Differential.compare(
+      answer(entry("a", Count.Finite(2)), entry("b", Count.Finite(2), 2)),
+      answer(entry("a", declined), entry("b", declined, 2))
+    )
+    val listed = compared.filter(_.row.name == "a").map(_.row.key).toSet
+    Differential.summary(compared, listed) must contain(
+      "old numeric rows still uncovered past the old-unsound list: 1"
     )
   }
 

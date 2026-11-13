@@ -1446,6 +1446,45 @@ still uncovered, methods (both tables); every worse row is a listed correction:
 The integration's private coverage memory dropped the rows above and `Outer.Inner.<init>` (g2's
 own note). Pending: `tasty-g1` (re-entry on the record-value path), to come last.
 
+Round 2 merged, one merge commit each, each certified by the same gate: `tasty-h5` (`4d375f9`),
+`tasty-h2` (`e414333`), `tasty-h4` (`5994049`), `tasty-h3` (`20fd65b`), `tasty-h1` (`cb0e41c`),
+`tasty-h6` (`497b671`). What the merges decided or fixed, each fix with a regression:
+
+- Rule B's observed fields (`Factories.observed`) follow a member's override in the class, members
+  of classes and objects declared in it, and public members a module parent declares that the
+  class inherits as they are; a class passing a constructor parameter to a parent's constructor
+  is refused on both sides (`Inh2`, `Nest`, `ToPar`, `UseInh2.f`: wrong numbers before).
+- Constructors: h2's skip of the instances around applies where the primary constructor has no
+  parameters (`OB.In`), never to a secondary that may pass the instance's fields (`OA.In()` 1);
+  a secondary constructor's row takes the bounds' proofs (`Bounds.count`, shared with method rows;
+  `Low`, `OL.In`); its anonymous evidence is compared by its own parameters' types (`Sec`: was 256,
+  ambiguous); a secondary constructor of a class written in a body is not read yet.
+- Captures: `Readings.captured` is shared by method and constructor rows and keeps h4's evidence
+  search; wildcard imports are read (the selector filter dropped every wildcard), a selector binds
+  a term only where its qualifier has one, a wildcard inside its own object binds private members.
+- One reading of a member bounded by one type on both sides (`PathTypes.pinned` through
+  `PathTypes.exported`); one one-valued capability rule (h2's). The anonymous-evidence search moved
+  from `Readings` to `Evidence.scala`.
+- `old-unsound.txt`: the old numeric rows whose number rests on the rule that a member calling the
+  measured one with other arguments, or a local definition in a method with parameters, always
+  re-enters (found by switching the two `Reentry.again` checks and the `new w.C` check off: 35
+  fixture rows and cats-kernel `Eq.eqv`, `PartialOrder.partialCompare`; the `new w.C` check alone
+  frees none). `Differential --unsound` prints, per table, the old numeric rows still uncovered
+  that it does not list.
+
+Method rows after round 2 (identical / better / worse / uncovered), old numeric rows still
+uncovered, methods (both tables), and past the old-unsound list:
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,885 | 19 | 0 | 1,096 | 3 (3) | 3 (3) |
+| cats-core | 2,138 | 373 | 72 | 5,068 | 25 (26) | 25 (26) |
+| cats-kernel | 523 | 15 | 0 | 1,247 | 76 (76) | 74 (74) |
+| cats-eo | 327 | 12 | 0 | 358 | 3 (4) | 3 (4) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,719 | 269 | 5 | 759 | 171 (190) | 136 (155) |
+
 ### What exists
 
 | Piece | Where | What it is |

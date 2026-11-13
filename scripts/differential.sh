@@ -25,7 +25,8 @@
 #
 # and reads `core/src/test/resources/compiled/derived.txt`: the better rows past a model limit that
 # were derived by hand; and `corrected.txt` beside it: the rows whose number changes because the old
-# one is wrong, each with both values and the derivation. Each run's output is `<output>/<input>.txt` and its build log
+# one is wrong, each with both values and the derivation; and `old-unsound.txt`, the old numeric
+# rows whose number rests on a rule shown unsound, which the summary sets apart. Each run's output is `<output>/<input>.txt` and its build log
 # `<output>/<input>.log`. Prints each input's totals and whether it passed; exits with 1 when any
 # input fails. Paths may not hold spaces (sbt splits its arguments on them).
 set -euo pipefail
@@ -51,6 +52,7 @@ hash=$({ find core/src/main/scala -name '*.scala' -not -path '*/compiled/*' -pri
   sha1sum | cut -c1-12)
 derived=core/src/test/resources/compiled/derived.txt
 corrected=core/src/test/resources/compiled/corrected.txt
+unsound=core/src/test/resources/compiled/old-unsound.txt
 inputs=("$@")
 if [ ${#inputs[@]} -eq 0 ]; then
   for corpus in "$assets"/corpus-*; do inputs+=("$(basename "$corpus")"); done
@@ -67,7 +69,7 @@ for input in "${inputs[@]}"; do
   rm -f "$output/$input.txt"
   passed=FAILED
   if sbt "bench/runMain cardinality.compiled.Differential $what \
---covered $assets/covered/$input.txt --derived $PWD/$derived --corrected $PWD/$corrected --out $output/$input.txt" \
+--covered $assets/covered/$input.txt --derived $PWD/$derived --corrected $PWD/$corrected --unsound $PWD/$unsound --out $output/$input.txt" \
     < /dev/null > "$output/$input.log" 2>&1; then
     passed=passed
   else

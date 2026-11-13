@@ -310,9 +310,10 @@ object Differential {
   }
 
   /** The totals of a comparison: per table the verdicts, how many old numeric rows kept their
-    * number, how the rows were paired and how many the new front end measured itself.
+    * number (and, with an `unsound` list, how many uncovered ones it does not list), how the rows
+    * were paired and how many the new front end measured itself.
     */
-  def summary(compared: List[Compared]): String =
+  def summary(compared: List[Compared], unsound: Set[String] = Set.empty): String =
     compared
       .groupBy(_.row.table)
       .toList
@@ -336,6 +337,10 @@ object Differential {
             Verdict.values
               .map(v => s"${numeric.count(_.verdict == v)} ${v.toString.toLowerCase}")
               .mkString(" · "),
+        ) ++ Option.when(unsound.nonEmpty)(
+          "  old numeric rows still uncovered past the old-unsound list: " +
+            numeric.count(c => c.verdict == Verdict.Uncovered && !unsound(c.row.key))
+        ) ++ List(
           s"  measured by the new front end: $own of ${nexts.size} rows" +
             (if (olds == 0) "" else f" (${100.0 * own / olds}%.1f%% of the old rows)"),
           s"  paired: ${pairing.mkString(" · ")}; $signatures paired rows spell another signature"
@@ -630,7 +635,8 @@ object Differential {
   private def recorded(file: Path, whole: Boolean = false): Map[String, String] =
     if (Files.exists(file)) listed(Files.readAllLines(file).asScala, whole) else Map.empty
 
-  private val flags = Set("--rows", "--old", "--covered", "--derived", "--corrected", "--out")
+  private val flags =
+    Set("--rows", "--old", "--covered", "--derived", "--corrected", "--unsound", "--out")
 
   /** `corpus <root>` or `fixtures <cache>`, then:
     *   - `--rows` lists every row with the front end that produced it;
@@ -645,6 +651,9 @@ object Differential {
     *   - `--corrected <file>` names the rows whose number changes because the old one is wrong, one
     *     per line: the row's key, ` | `, `old -> new` as the run prints the two values, `:`, and
     *     the derivation;
+    *   - `--unsound <file>` names the old numeric rows whose number rests on a rule shown unsound,
+    *     one per line: the row's key, ` | `, its old count, `:`, and why; the summary counts the
+    *     old numeric rows still uncovered that it does not list;
     *   - `--out <file>` writes what the run prints to a file instead.
     *
     * Prints the totals, what the uncovered rows need, what was not read, a sample of the better
@@ -665,7 +674,7 @@ object Differential {
         name.startsWith("scala-library") || name.startsWith("scala3-library")
       }
     val usage = "usage: Differential (corpus <root> | fixtures <cache>) [--rows] [--old <file>] " +
-      "[--covered <file>] [--derived <file>] [--corrected <file>] [--out <file>]"
+      "[--covered <file>] [--derived <file>] [--corrected <file>] [--unsound <file>] [--out <file>]"
     val inputs = args.toList match {
       case "corpus" :: root :: _    => List(corpus(Path.of(root)))
       case "fixtures" :: cache :: _ => fixtures(Path.of(cache), libraries)
@@ -701,7 +710,7 @@ object Differential {
         .asScala
         .toList
     val compared = outcomes.flatMap(_.compared)
-    println(summary(compared))
+    println(summary(compared, option("--unsound").fold(Map.empty)(recorded(_)).keySet))
     println(f"  ${inputs.size} inputs in ${(System.nanoTime - started) / 1e9}%.1f s")
     println("uncovered rows need:")
     needs(compared).foreach((reason, count) => println(f"  $count%6d  $reason"))
@@ -727,7 +736,7 @@ object Differential {
     val overFixtures = compared.exists(c => ofFixture(c.row.key))
     val dead = unused(compared, corrected, key => overFixtures && ofFixture(key))
     dead.foreach(key => println(s"CORRECTION THAT PASSES NO ROW\n    key: $key"))
-    val misread = List("--derived", "--corrected")
+    val misread = List("--derived", "--corrected", "--unsound")
       .flatMap(option)
       .filter(Files.exists(_))
       .flatMap(list => malformed(Files.readAllLines(list).asScala))
