@@ -1796,6 +1796,38 @@ The union and intersection readings, the record clash test and their helpers mov
 from `Shapes.scala` (928 lines) to `Relations.scala` (`Relations(world, Shapes.of)`); `Shapes`
 is 787 lines. All seven inputs pass with the same rows.
 
+### Stretch 5, eleventh unit: the back end's undercount of a polymorphic member inside a record
+
+Root cause (`GoalSolver`, shared by both front ends): a record's member whose value is another
+record with a polymorphic member (`trait Inj[F[_], G[_]] { def prj: FK[G, [a] =>> Option[F[a]]]
+}`, `FK` holding `def apply[A](fa: F[A]): G[A]`) reached the solver as `Function(Nil,
+Product(List(Poly(…))))`. Its producer path's output was the `Poly`, and only a value whose shape
+is a `Poly` is instantiated (PB2, PB5), so the member was never applied: `def viaPrj[F[_], G[_],
+A](i: Inj[F, G], g: G[A]): Option[F[A]]` read 1 (`None`) where `None` and `i.prj(g)` are 2. Fix:
+`flatten` reads a function or polymorphic value that holds a polymorphic member, at any depth, as
+that member taking the callable's parameters first (`hoisted`: a function into a product is a
+product of functions; a binder commutes with an arrow, a product or another binder that does not
+mention it). A binder is one per declaration, so a member met inside its own result (`trait K[F[_],
+X] { def run[A](fa: F[A]): X }` at `K[F, K[G, C]]`) is not moved where it would be captured; a PB5
+instance is read by `flatten` too, which applies the inner member once the outer binder is
+substituted. A value that holds no polymorphic member is unchanged. Regression:
+`PolymorphicMemberSpec.nestedRecord` (direct, one level, two levels, a member with a parameter, a
+polymorphic outer member: 2 each; `k.run(fa).run(gb)` over `K[F, K[G, C]]`, which read 0 in both
+front ends where 1 is right, is refused now).
+
+Changed rows, all on cats-core, each a number of the compiled front end where the old one says `?`
+(BETTER past a resolution limit, not listed in `derived.txt`), now the solver's own refusal (`sum
+elimination over an argument space not enumerated`), identical to the old `?`: `InjectK.apply` (line
+51, 0) and `InjectK.unapply` (53, 1), `InjectKInstances.catsRightInjectKInstance` (78, 0), its
+`<new#1>.inj` (80, 0) and `<new#1>.prj` (83, 1), and `InjectK.apply` (91, 0). Each was the
+undercount: the `inj` and `prj` of an `InjectK` (each a `FunctionK`) were never applied, so
+`apply(fa: F[A]): G[A]`, which has `inj(fa)`, read 0; `unapply(ga: G[A]): Option[F[A]]`, which may
+answer `None` or `prj(ga)`, read 1; and the object's `apply(implicit I: InjectK[F, G])`, which has
+`I`, read 0. No old row changed: the
+old front end reaches these members through an unresolved `λ` and refuses them first. Their six
+lines (the wrong numbers) are deleted from this branch's private memory, and the shared memory needs
+the same six deleted when this branch is merged; every input passes otherwise.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1860,8 +1892,12 @@ is 787 lines. All seven inputs pass with the same rows.
   unit"); anonymous contextual parameters of the measured method ("Stretch 5, tenth unit"). Left
   of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Done since:
   the move of the union, intersection and clash readings to `Relations` (no change in rows).
-  Next, by the coordinator's order: the rest of item 6, match types, the back end's undercount of
-  a record member that is a record with a polymorphic member, refinements. Scope
+  Done since: the back end's undercount of a polymorphic member inside a record ("Stretch 5,
+  eleventh unit"). Next (re-ranked by old numeric rows still uncovered): the merge of `tasty-gate`
+  at `f75b9d4` (the coordinator), match types and the rest of `a type` (`MatchType.reduced`,
+  stuck projections), a definition that reaches itself, the rest of item 6, a value of a class of
+  the module, refinements. A constructor position the method side refuses is the gate agent's
+  (its note at `f75b9d4`). Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in
