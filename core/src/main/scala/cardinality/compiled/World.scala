@@ -300,7 +300,8 @@ private[compiled] object World {
 
   /** The first symbol a type as it is written names that passes `test`: through its prefix (a
     * path's values included), its arguments and a wildcard's bounds, an annotation, a refinement of
-    * a type or a value and its parent, a union or an intersection; an alias is not followed.
+    * a type or a value and its parent, a union or an intersection, a type lambda's body and bounds,
+    * a match type's parts; an alias is not followed.
     */
   def mentioned(tpe: TypeOrWildcard, test: Symbol => Boolean)(using Context): Option[Symbol] = {
     def first(types: TypeOrWildcard*) = types.iterator.flatMap(mentioned(_, test)).nextOption()
@@ -331,7 +332,15 @@ private[compiled] object World {
       case repeated: RepeatedType => first(repeated.elemType)
       case and: AndType           => first(and.first, and.second)
       case or: OrType             => first(or.first, or.second)
-      case _                      => None
+      case lambda: TypeLambda     =>
+        first(lambda.resultType :: lambda.paramTypeBounds.flatMap(b => List(b.low, b.high))*)
+      case matched: MatchType =>
+        first(
+          matched.bound :: matched.scrutinee :: matched.cases.flatMap(c =>
+            c.pattern :: c.result :: c.paramTypeBounds.flatMap(b => List(b.low, b.high))
+          )*
+        )
+      case _ => None
     }
   }
 

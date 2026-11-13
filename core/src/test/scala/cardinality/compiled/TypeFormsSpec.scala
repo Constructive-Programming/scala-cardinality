@@ -21,6 +21,7 @@ class TypeFormsSpec extends Specification {
     a constructor's bounded type parameter gives its proofs $boundedConstructors
     a constructor of constructors is a rigid head          $nestedKinds
     an export's alias, a fixed projection, a lambda applied $aliases
+    a sealed case's invariant parameter in a variant slot   $variance
   """
 
   private val text =
@@ -115,6 +116,48 @@ class TypeFormsSpec extends Specification {
       |final case class Pair[A](x: R1[A]#X, y: A)
       |final case class Lam[A](x: ([x] =>> x)[A], y: A)
       |final case class Holder[A](f: ([X] =>> Function1[A, X])[A])
+      |sealed trait VCo[+A]
+      |final case class VCoK[A](a: A, b: () => A) extends VCo[A]
+      |case object VCoN extends VCo[Nothing]
+      |sealed trait VTwice[+A]
+      |final case class VTwiceK[A](g: (A => Boolean) => Boolean) extends VTwice[A]
+      |sealed trait VCon[-A]
+      |final case class VConK[A](f: A => Boolean) extends VCon[A]
+      |sealed trait VFn[+A]
+      |final case class VFnK[A](f: A => Boolean) extends VFn[A]
+      |type VFlip[X, Y] = Y => X
+      |sealed trait VAl[+A]
+      |final case class VAlK[A](f: VFlip[Boolean, A]) extends VAl[A]
+      |sealed trait VTop[+A]
+      |sealed trait VMid[A] extends VTop[A]
+      |final case class VMidK[A](f: A => Boolean) extends VMid[A]
+      |final case class VRef[A](a: A)
+      |sealed trait VIn[+A]
+      |final case class VInK[A](r: VRef[A]) extends VIn[A]
+      |sealed trait VConA[-A]
+      |final case class VConAK[A](a: A) extends VConA[A]
+      |final class VHK[+F[_]](val f: F[Int])
+      |sealed trait VLam[+A]
+      |final case class VLamK[A](h: VHK[[X] =>> A => X]) extends VLam[A]
+      |sealed trait VW[A <: AnyVal]
+      |final case class VWK[A <: AnyVal](a: A) extends VW[A]
+      |sealed trait VQ[A <: B, B]
+      |final case class VQK[A <: B, B](a: A, b: B) extends VQ[A, B]
+      |sealed trait VBare
+      |final class VBareK extends VBare
+      |case object VBareO extends VBare
+      |final case class VUCo(x: VCo[Boolean])
+      |final case class VUTwice(x: VTwice[Boolean])
+      |final case class VUCon(x: VCon[Boolean])
+      |final case class VUFn(x: VFn[Boolean])
+      |final case class VUAl(x: VAl[Boolean])
+      |final case class VUTop(x: VTop[Boolean])
+      |final case class VUIn(x: VIn[Boolean])
+      |final case class VUConA(x: VConA[Boolean])
+      |final case class VUW(x: VW[Boolean])
+      |final case class VUQ(x: VQ[Boolean, Boolean])
+      |final case class VUBare(x: VBare)
+      |final case class VULam(x: VLam[Boolean])
       |trait FT[F[_, _], C[_[_]]] {
       |  def traverse[X, A, B, G[_]: C](fa: F[X, A], f: A => G[B]): G[F[X, B]]
       |}
@@ -229,5 +272,23 @@ class TypeFormsSpec extends Specification {
         )
       )
       .and(count("Holder.<init>") must_== Count.Countable)
+
+  // A case's invariant parameter in a variant slot (`Sums.carried`): `P[T]` holds `C[S]` for each
+  // `S` the slot admits, which adds nothing to `C[T]` where every field takes the parameter at the
+  // slot's polarity. Each `VU*` constructor takes one family, its count the family's values.
+  // Read: `VCo` = `VCoN` + `VCoK(a, b)` = 1 + 2 × 2 = 5; `VTwice` (A twice left of an arrow,
+  // positive) 2^(2^2) = 16; `VCon` (A left of an arrow beside a contravariant slot) 2^2 = 4; `VW`
+  // and `VQ`, bounded as their slots are, 2 and 2 × 2 = 4; `VBare` 2 (`VBareK` has no field).
+  // Refused: `VFn` (A left of an arrow beside a covariant slot: functions on an `S <: Boolean` a
+  // holder cannot apply), `VAl` (the same through the alias `VFlip[Boolean, A] = A => Boolean`,
+  // whose arguments are not `Function1`'s in order), `VTop` (an invariant sealed level below,
+  // whose case takes A left of an arrow), `VIn` (A in an invariant slot of `VRef`), `VConA` (a
+  // field `A` beside a contravariant slot holds values of supertypes of Boolean), `VLam` (A left
+  // of an arrow inside a type lambda argument).
+  private def variance = {
+    val read = List("Co" -> 5, "Twice" -> 16, "Con" -> 4, "W" -> 2, "Q" -> 4, "Bare" -> 2)
+    (read.map((n, _) => count(s"VU$n.<init>")) must_== read.map((_, c) => Count.Finite(c)))
+      .and(unresolved(List("Fn", "Al", "Top", "In", "ConA", "Lam").map(n => s"VU$n.<init>")*))
+  }
 
 }

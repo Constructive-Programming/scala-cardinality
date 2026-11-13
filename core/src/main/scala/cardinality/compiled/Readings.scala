@@ -50,7 +50,43 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   /** The count of a method row, and its captures: the names of what the methods and classes around
     * it supply. A class's row measures its primary constructor.
     */
-  def method(tree: ValOrDefDef): Either[String, (Count, List[String])] = {
+  def method(tree: ValOrDefDef): Either[String, (Count, List[String])] =
+    measured(tree).left.flatMap { why =>
+      // Its captures: what the classes and methods around it supply, as for any member row.
+      lazy val around = World
+        .owners(tree.symbol.owner)
+        .collect { case c: ClassSymbol if !c.isModuleClass => c.tree }
+        .flatten
+        .reverse
+      lazy val methods = enclosing(tree.symbol.owner, tree.symbol).fold(_ => Nil, _._1)
+      Either.cond(singleGoal(tree), Count.Finite(1) -> captures(tree, around, methods), why)
+    }
+
+  // The fallback where `measured` leaves a row for any reason: a member whose goal has one value
+  // has one implementation whatever its receivers, scopes or the methods around it hold, as
+  // `counted` reads it first. Read only for a result that names no type parameter of the member
+  // or of a definition around it, and no type member of a class around it (or of what that class
+  // extends), whose meaning only the reading left gives. A constructor, a row `Readings.later`
+  // leaves and a `transparent` result (rule X, `inlines.narrowed`) keep their reason.
+  private def singleGoal(tree: ValOrDefDef): Boolean =
+    !World.isConstructor(tree.symbol) && Readings.later(tree.symbol).isRight &&
+      inlines.narrowed(tree.symbol).isEmpty && {
+        val scoped = World.owners(tree.symbol).flatMap {
+          case c: ClassSymbol =>
+            (c :: World.ancestors(c)).flatMap { k =>
+              k.typeParams ++ k.declarations.collect { case t: TypeMemberSymbol => t }
+            }
+          case term: TermSymbol =>
+            term.tree.toList.collect { case d: DefDef => Shapes.typeParameters(d) }.flatten
+          case _ => Nil
+        }
+        val result = signature(tree)._3.toType
+        !World.mentions(result, scoped.toSet) && shapes
+          .of(result, Shapes.Env.of(Nil, tree.symbol))
+          .exists(goal => TopTypes.terminalGoal(TopTypes.polarized(goal, true)))
+      }
+
+  private def measured(tree: ValOrDefDef): Either[String, (Count, List[String])] = {
     // A constructor, primary or secondary, runs where its class is declared: the instance it
     // builds does not exist yet.
     val constructs = World.isConstructor(tree.symbol)
@@ -570,14 +606,13 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     }
 
   // Whether a parent's constructor call reads a parameter only as the argument of a public field
-  // of the parameter's type that nothing overrides, which then holds it for the template's members.
-  private def passes(parent: Apply, parameter: ValDef): Boolean = {
+  // that nothing overrides, whose type as the call sees it `holds`: the parameter's type, where the
+  // field then holds it for the template's members, or a top type, where it shows nothing of it.
+  private def passes(parent: Apply, parameter: ValDef)(holds: Type => Boolean): Boolean = {
     def field(p: TermSymbol) = p.owner.owner.asClass.getDecl(p.name).exists { f =>
       f.isParamAccessor && f.isPublic &&
-      world.overriding(f.owner.asClass, f) == ClosedProgram.Overriding.No && (f.declaredType match {
-        case tpe: Type => tpe.isSameType(parameter.tpt.toType)
-        case _         => false
-      })
+      world.overriding(f.owner.asClass, f) == ClosedProgram.Overriding.No &&
+      seen(f.asTerm, parent).exists(holds)
     }
     val (head, args) = Reentry.unapplied(parent)
     // A secondary constructor's parameter is not the field of its name.
@@ -590,6 +625,17 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       if (held.exists(_ eq node)) Some(false)
       else Option.when(World.named(node).contains(parameter.symbol))(true)
     }
+  }
+
+  // A parent's field type as the parent call sees it: a type parameter of the parent is the
+  // argument the call gives it (`new F[A](a)`'s `f: X` is an `A`), through an alias too.
+  private def seen(field: TermSymbol, parent: Apply): Option[Type] = parent.tpe match {
+    case call: Type =>
+      field.typeAsSeenFrom(call) match {
+        case tpe: Type => Some(tpe)
+        case _         => None
+      }
+    case _ => None
   }
 
   // A case clause's pattern changes the context in two ways not read (the old `BodyScopes`): a
@@ -638,11 +684,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   // Whether a hidden parameter is still a value where the definition `site` is (the old
   // `HeldCaptures`), `None` where that is not read: concrete code adds no choice only where it
   // computes from what the environment holds, and a hidden parameter is not among that. A holder
-  // that reads it and is the parameter itself at its type (`def seed: Boolean = b`, a `lazy val`,
-  // a given), and that the definition can name, keeps it; at a type with one value it shows
-  // nothing; any other reading is not read, a method the definition is in included (the
-  // definition may call it). A `throw`'s operand reads nothing a result is built from, unless a
-  // `try` around it may catch what it throws.
+  // that reads it and is the parameter itself at its type (`def seed: Boolean = b`, a `lazy val`, a
+  // given), and that the definition can name, keeps it; at a type with one value it shows nothing;
+  // a parent call passing it to a field is read the same way (`passes`); any other reading is not
+  // read, a method the definition is in included (the definition may call it). A `throw`'s operand
+  // reads nothing a result is built from, unless a `try` around it may catch what it throws.
   private def kept(
       parameter: ValDef,
       holders: List[(Tree, Boolean)],
@@ -666,8 +712,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             if of == parameter.symbol && at.isSameType(parameter.tpt.toType) =>
           Right(true)
         case (Readings.Alias(at, of), _) if of == parameter.symbol && oneValued(at) => Right(false)
-        case (parent: Apply, true) if passes(parent, parameter)                     => Right(true)
-        case _                                                                      => Left(())
+        case (parent: Apply, true)
+            if passes(parent, parameter)(_.isSameType(parameter.tpt.toType)) =>
+          Right(true)
+        case (parent: Apply, _) if passes(parent, parameter)(oneValued) => Right(false)
+        case _                                                          => Left(())
       })
       .toOption
       .map(_.contains(true))

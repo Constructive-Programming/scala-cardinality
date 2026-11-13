@@ -835,23 +835,32 @@ class ProgramRowsSpec extends Specification {
   }
 
   // `D` reaches `A` through `B` and through `C`, each with no type argument: one parent, so `D.g`
-  // has `a`, one of 2^2, and so has `E.h` (`E` extends `D`, whose `g` nothing overrides). `CS`
-  // reaches `CP` as a `CP[Boolean]` and as a `CP[Any]`: not read.
+  // has `a`, one of 2^2, and so has `E.h` (`E` extends `D`, whose `g` nothing overrides). `GD`
+  // reaches the generic `GA` through `GB[X]` and `GC[X]`, the same `GA[X]` on both paths: one
+  // parent, and `g: X` can only return `a`, 1. `CS` reaches `CP` as a `CP[Boolean]` and as a
+  // `CP[Any]`: not read.
   def twoPaths = {
     val found = rows("""trait A { def a: Boolean }
       |trait B extends A
       |trait C extends A
       |trait D extends B with C { def g: Boolean = a }
       |trait E extends D { def h: Boolean = a }
+      |trait GA[X] { def a: X }
+      |trait GB[X] extends GA[X]
+      |trait GC[X] extends GA[X]
+      |trait GD[X] extends GB[X] with GC[X] { def g: X = a }
       |trait CP[+X] { def p: X }
       |trait CQ extends CP[Boolean]
       |trait CR extends CP[Any]
       |trait CS extends CQ with CR { def s: Boolean = true }
       |""".stripMargin)
-    (List(found("D.g"), found("E.h")) must_== List(Count.Finite(4), Count.Finite(4)))
-      .and(
-        uncovered(found("CS.s"), "reaches a parent through two parents with other type arguments")
-      )
+    (List("D.g", "E.h", "GD.g").map(found) must_== List(
+      Count.Finite(4),
+      Count.Finite(4),
+      Count.Finite(1)
+    )).and(
+      uncovered(found("CS.s"), "reaches a parent through two parents with other type arguments")
+    )
   }
 
 }
