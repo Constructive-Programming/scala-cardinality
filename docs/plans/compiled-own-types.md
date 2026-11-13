@@ -3310,6 +3310,38 @@ each read only where the definition can name it (no nearer scope binds its name,
 imports), a method the definition is in among them, and a `throw` a `try` may catch. A self alias
 hides a parameter, as here (`Self.mk.<new#1>.run` 4, a correction); the third unit refused it.
 
+### Group g4: records of a class something extends, and parameters observed through a member or a parent
+
+- A concrete class something extends is read as a trait or abstract class is (`Receivers.record`):
+  its public fields and what a subclass supplies, a concrete member something overrides among them,
+  as the old `openRecord` reads it. A non-field parameter refuses as before. A concrete case class
+  something extends stays refused (`of a case class something extends`), as the old reading
+  refuses it ("case class open to extension"). Decision: not read, though a goal of one such as
+  `def i(x: Boolean): NC` with `NCX` overriding `NC.hit` would count 16 under the free-capability
+  reading the old front end and `O.mk` (64) already use.
+- A final class's parameter is observed as itself (`Observers`, the old `observes`): a field the
+  site may select (not `protected[this]`, selected on `this` alone), an alias or an η-alias (a
+  method of one clause whose body applies the field to its own parameters in order) of the field's
+  type as the class sees it (shapes compared, so a member over a narrower domain is no observer),
+  or the argument a parent's primary constructor takes verbatim, observed in turn in the parent at
+  the template's parameter's shape (a wider parent field, `val w: Any`, observes nothing; a call of
+  a parent's secondary constructor is not followed). An observer a class between declares again is
+  overridden there. `Shapes.names` moved to `Observers`; `Bodies.passed` is shared.
+- Derived (`derived.txt`): `Base.make` in the two `Scopes.scala` fixtures, 1: `Base` is extended by
+  `Below`, has no field and no member besides the universal ones, so all its values are one value.
+- Not taken: handing a constructor position the method side refuses for an unobserved parameter to
+  the stored estimate, as the old `ConstructorPositions` does for any refusal. The estimate counts
+  state no member observes: `A(h: Boolean, b: => B)` with memberless `B` is ω in the old reading
+  but 2 by rule B, and likewise `UsesSt` (ω) and `UsesSorted` (8, the `Ord` evidence observed by no
+  member). Those 15 fixture constructor rows stay uncovered; the old numbers there look like
+  overcounts and are left for a decision.
+- Regressions: `RecordsSpec` (`base` 4, `opened` 16, `fromHidA` 1, `getter` 1, `useGet` 256, `feed`
+  4; `narrow`, `widen`, `viaSec` refused).
+
+Old numeric method rows still uncovered after: core 8, cats-core 32, cats-kernel 78, cats-eo 60 (73
+before), cats-eo-generics 0, cats-eo-schemes 0, fixtures 626; every input passes on the private
+memory.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

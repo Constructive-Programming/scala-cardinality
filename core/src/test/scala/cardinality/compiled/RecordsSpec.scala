@@ -31,8 +31,21 @@ class RecordsSpec extends Specification {
       |trait Over { def equals(x: Boolean, y: Boolean): Boolean }
       |final abstract class Never
       |final class Hid(secret: Boolean) { def reveal: Boolean = secret }
+      |final class HidA[A](secret: A) { def reveal: A = secret }
+      |final class Get2[S, A](read: S => A) { def get(s: S): A = read(s) }
+      |final class Narrow(f: Int => Boolean) { def at(b: Byte): Boolean = f(b) }
+      |abstract class Held(val held: Boolean)
+      |final class Feed(n: Boolean) extends Held(n)
+      |abstract class Wide(val w: Any)
+      |final class Widen(n: Boolean) extends Wide(n)
+      |abstract class Sec(val s: Boolean) { def this(x: Int) = this(x > 0) }
+      |final class ViaSec(n: Int) extends Sec(n)
       |class Base(val b: Boolean)
       |class Sub extends Base(true)
+      |class Open(val b: Boolean) { def m: Boolean = b; def n: Boolean = !m }
+      |class OpenSub extends Open(true) { override def m: Boolean = false }
+      |class Dorm(val b: Boolean) { def m: Boolean = b }
+      |class DormSub extends Dorm(true) { override def m: Boolean = false; val z: Boolean = ??? }
       |trait Seeded { def seed: Boolean }
       |trait Grown extends Seeded { def more: Boolean }
       |trait Derived extends Seeded { def other: Boolean = seed }
@@ -103,10 +116,19 @@ class RecordsSpec extends Specification {
       |  def makeBox[A](x: A, y: A): Box2[A] = Box2(x, y)
       |  def tagged(e: Ext): Boolean = true
       |  def hid(h: Hid): Boolean = true
+      |  def fromHidA[A](h: HidA[A]): A = h.reveal
+      |  def getter[S, A](f: S => A): Get2[S, A] = new Get2(f)
+      |  def useGet(g: Get2[Boolean, Boolean], b: Boolean): Boolean = g.get(b)
+      |  def narrow(n: Narrow): Boolean = true
+      |  def widen(x: Widen): Boolean = true
+      |  def viaSec(x: ViaSec): Boolean = true
+      |  def feed(f: Feed): Boolean = f.held
       |  def over(o: Over, b: Boolean): Boolean = b
       |  def never(n: Never): Boolean = true
       |  def make(): Never = ???
       |  def base(b: Base): Boolean = true
+      |  def opened(o: Open): Boolean = true
+      |  def dorm(o: Dorm): Boolean = true
       |  def grown(g: Grown): Boolean = true
       |  def derived(d: Derived): Boolean = true
       |  def passed(p: Passed): Boolean = true
@@ -171,13 +193,21 @@ class RecordsSpec extends Specification {
   // constructor the site may not call is one of what its factories build (rule B): `Pin.one`
   // builds 2 of its 2 × 2 values, so `pin` is one of 2^2 and `mkPin` one of the 2^(2 × 2)
   // functions from two Booleans to those 2. A class written `final abstract` has no value: `never`
-  // is the one function from it, and `make` has no total body.
+  // is the one function from it, and `make` has no total body. `HidA[A]` is its `secret`, an A, so
+  // `fromHidA` has the one A it holds. `Get2.get` applies `read` to its own parameter (an η-alias),
+  // so `Get2[S, A]` is an S => A: `getter` has the one, `f`, and `useGet` is one of the 2^(4 × 2)
+  // functions of a Boolean => Boolean and a Boolean. `Feed` passes `n` to `Held`'s public `held`:
+  // it is that Boolean, and `feed` one of 2^2.
   private def fixed =
     (count("fromBox") must_== Count.Finite(2))
       .and(count("makeBox") must_== Count.Finite(4))
       .and(count("never") must_== Count.Finite(1))
       .and(count("make") must_== Count.Finite(0))
       .and(count("hid") must_== Count.Finite(4))
+      .and(count("fromHidA") must_== Count.Finite(1))
+      .and(count("getter") must_== Count.Finite(1))
+      .and(count("useGet") must_== Count.Finite(256))
+      .and(count("feed") must_== Count.Finite(4))
       .and(count("pin") must_== Count.Finite(4))
       .and(count("mkPin") must_== Count.Finite(16))
 
@@ -219,8 +249,18 @@ class RecordsSpec extends Specification {
       // behavior calls it (closed world): `k` is a Boolean capability and `j` computes from it,
       // so `Fb` is 2 values and `fb` one of 2^2.
       .and(count("fb") must_== Count.Finite(4))
+      // `Sub` extends `Base` and overrides nothing: a `Base` is its public field `b`, every member
+      // computing from it, so 2 values and `base` one of 2^2.
+      .and(count("base") must_== Count.Finite(4))
+      // `OpenSub` overrides `m`, which so varies across instances of `Open`: a capability beside
+      // the field `b`, and `n` computes from it. 2^2 values, `opened` one of 2^4.
+      .and(count("opened") must_== Count.Finite(16))
 
-  // Not read yet, each by its reason: an extension member; a class something extends; one with a
+  // Not read yet, each by its reason: an extension member; a class whose only overriding subclass
+  // is never built (`DormSub`, D26: `m` is `b` on every `Dorm` there is); a parameter a member
+  // observes on part of its domain alone (`Narrow.at` widens a Byte), one a parent's field holds
+  // as a wider type (`Wide.w: Any`, one value in an input) or one a parent's secondary constructor
+  // takes (`Sec`'s `this(x: Int)`, whose field is `x > 0`); one with a
   // bounded abstract type member (a proof about each value's own witness); one whose inherited
   // member the site may not call; a final class that nothing the site may call builds; and an
   // overridden member a behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m`
@@ -244,10 +284,24 @@ class RecordsSpec extends Specification {
     (sorts.map(n => n -> reason(n)) must_== sorts.map(
       _ -> s"${Receivers.Reenters} among the members of a capability record"
     )).and(
-      List("tagged", "base", "bounded", "guards", "shut", "target", "ord")
+      List(
+        "tagged",
+        "narrow",
+        "widen",
+        "viaSec",
+        "dorm",
+        "bounded",
+        "guards",
+        "shut",
+        "target",
+        "ord"
+      )
         .map(reason) must_== List(
         "an extension method among the members of a capability record",
-        "a capability record of a class something extends",
+        "a capability record with a parameter that is no public field",
+        "a capability record with a parameter that is no public field",
+        "a capability record with a parameter that is no public field",
+        "a capability record of a class something extends that is never built",
         "a capability record with a bounded abstract type member",
         "a capability record with a member hidden at the use site",
         "a capability record with no constructor or factory the site may call",
