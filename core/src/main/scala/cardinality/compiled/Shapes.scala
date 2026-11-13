@@ -387,10 +387,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // of its fields, each one the site observes as itself (`exposed`), from which every member
   // computes; where it may not, it is one of what the site may call to build one (`Factories`). A
   // template whose construction always throws, or a class written `final abstract`, has no value
-  // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
-  // throws is S6's still). A member that may be the measured definition on another receiver is
-  // refused (`Relations.clash`). Left for later steps, each named: a construction that binds a
-  // pattern, a sealed class, a self type narrower than the class, a field
+  // at all: the empty sum, as the old front end reads a record. A member that may be the measured
+  // definition on another receiver is refused (`Relations.clash`). Left for later steps, each
+  // named: a sealed class, a self type narrower than the class, a field
   // the site does not observe as itself, a restricted constructor of a class something may extend,
   // a class something extends, and what `Receivers.record` and `Factories` leave.
   private def record(template: ClassDef, bound: List[Shape], env: Env): Either[Unread, Shape] = {
@@ -409,13 +408,12 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap,
       preceding = false
     )
-    // A template whose construction always throws, or a class written `final abstract`, has no
-    // value: the empty sum.
-    if ((Shapes.isFinal(c) && c.isAbstractClass) || Bodies.alwaysThrows(template))
+    // A template whose construction always throws, its own or an ancestor's of the module, or a
+    // class written `final abstract`, has no value: the empty sum.
+    if ((Shapes.isFinal(c) && c.isAbstractClass) || world.unbuilt(c, Some(env.site)))
       Right(Shape.Sum(Nil))
     else
       for {
-        _ <- refused(world.unbuilt(template), "whose construction binds a pattern")
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
         _ <- refused(!World.ownSelf(c), "with a self type")
         _ <- Either.cond(
@@ -583,7 +581,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
                   case d: DefDef => d.paramLists.isEmpty
                   case _: ValDef => true
                 }) =>
-            World.rhs(alias).exists(Shapes.names(_, field))
+            World.rhs(alias).flatMap(Shapes.named).contains(field)
           case _ => false
         }
       }
@@ -910,13 +908,14 @@ private[compiled] object Shapes {
     c.openLevel == OpenLevel.Sealed && c.isAbstractClass && !c.isEnum
 
   /** Whether a term is a reference to `field` on the instance, through ascriptions. */
-  private def names(term: TermTree, field: TermSymbol)(using Context): Boolean = term match {
-    case Typed(inner, _)             => names(inner, field)
-    case Inlined(inner, _, _)        => names(inner, field)
-    case Block(Nil, inner)           => names(inner, field)
-    case ident: Ident                => World.named(ident).contains(field)
-    case select @ Select(_: This, _) => World.named(select).contains(field)
-    case _                           => false
+  /** The term a term is and nothing else: a name, or a member of `this`, ascribed or not. */
+  def named(term: TermTree)(using Context): Option[TermSymbol] = term match {
+    case Typed(inner, _)             => named(inner)
+    case Inlined(inner, _, _)        => named(inner)
+    case Block(Nil, inner)           => named(inner)
+    case ident: Ident                => World.named(ident)
+    case select @ Select(_: This, _) => World.named(select)
+    case _                           => None
   }
 
   /** Whether a template declares an abstract type member. */

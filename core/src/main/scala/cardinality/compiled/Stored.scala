@@ -61,8 +61,7 @@ import tastyquery.Types.*
   * dependency without TASTy, an opaque type of the standard library or of a class named inside it,
   * an alias of a class beside an opaque type's scope, a wildcard argument, a refinement of no
   * written type, a function type refined by its `apply`, any other form of type, and a value of a
-  * class of a dependency, of one whose construction binds a pattern, or of an enum with parameters
-  * and a value case.
+  * class of a dependency or of an enum with parameters and a value case.
   */
 final private[compiled] class Stored(world: World)(using Context) {
   import Stored.{Env, Held, Instance, Row, Values, given}
@@ -168,19 +167,14 @@ final private[compiled] class Stored(world: World)(using Context) {
 
   // A sealed family is the sum of its subtypes: an object is one value, a concrete class what it
   // stores, a sealed level below its own sum, each where its clause passes the family's parameters
-  // on. Every other form is a `Left` below (slice S6 for a construction that always throws or
-  // binds a pattern). (`Sums` reads the same families for the method side, with its own refusals.)
+  // on. A subtype whose construction always throws is never built and adds nothing (register
+  // D26), and so is every subtype of a family whose own does. Every other form is a `Left` below.
+  // (`Sums` reads the same families for the method side, with its own refusals.)
   private def family(tree: ClassDef, env: Env): Either[String, Held] = {
     val parent = tree.symbol
     val name = parent.displayFullName
     val children = ownCases(parent)
     val carried = passed(parent, env, "a subtype")
-    def built(template: ClassDef) =
-      Either.cond(
-        !world.unbuilt(template),
-        (),
-        s"a construction that always throws or binds a pattern: ${template.symbol.displayFullName}"
-      )
     def subtype(child: ClassSymbol | TermSymbol): Either[String, Held] = child match {
       case value: TermSymbol if value.isGivenOrUsing =>
         Left(s"a family with a given instance: $name")
@@ -189,20 +183,22 @@ final private[compiled] class Stored(world: World)(using Context) {
       case _ if !World.inObjects(child) => Left(s"a family with an inner or local subtype: $name")
       case value: TermSymbol            =>
         for {
-          _ <- value.moduleClass.fold(Right(()))(World.tree(_).flatMap(built))
+          unbuilt <- value.moduleClass.fold(Right(false))(c =>
+            World.tree(c).map(_ => world.unbuilt(c))
+          )
           _ <- carried(value)
-        } yield Held(UnitSize)
+        } yield Held(if (unbuilt) NothingSize else UnitSize)
       case cls: ClassSymbol =>
         for {
           below <- World.tree(cls)
-          _ <- built(below)
           bound <- carried(cls)
           inside = env.copy(
             binders = cls.typeParams.zip(bound).toMap,
             visiting = env.visiting + cls
           )
           held <-
-            if (env.system.isEmpty && env.visiting(cls)) Left(Stored.Reaches(cls))
+            if (world.unbuilt(cls)) Right(Held(NothingSize))
+            else if (env.system.isEmpty && env.visiting(cls)) Left(Stored.Reaches(cls))
             else if (cls.isEnum) Left(s"an enum under a sealed family: ${cls.displayFullName}")
             else if (Shapes.isFamily(cls))
               env.system.fold(family(below, inside))(variable(cls, bound))
@@ -231,7 +227,8 @@ final private[compiled] class Stored(world: World)(using Context) {
       Left(s"a family with an anonymous instance: $name")
     else if (children.isEmpty && world.extended(parent))
       Left(s"a family whose subtypes are not listed: $name")
-    else built(tree).flatMap(_ => Traversals.sequence(children.map(subtype))).map(Stored.sum)
+    else if (world.unbuilt(parent)) Right(Held(NothingSize))
+    else Traversals.sequence(children.map(subtype)).map(Stored.sum)
   }
 
   // The row of a family that an enum's value case extends directly is the old estimate's: no size
@@ -311,7 +308,7 @@ final private[compiled] class Stored(world: World)(using Context) {
 
   // A top-level value holds one value where its declared type has one (register D30): the size is
   // 1, and the row is undecided where the type has reasons, is empty, has a size that does not say
-  // a value exists, or names a class of the module whose construction always throws (`unbuilt`, at
+  // a value exists, or names a class of the module whose construction always throws (`undecided`, at
   // every class the reading meets). The initializer is never read.
   private def topLevel(tree: ValDef): Either[String, Row] =
     solved(Env(Map.empty, tree.symbol, isValue = true))(of(tree.tpt.toType, _)).map { held =>
@@ -476,24 +473,19 @@ final private[compiled] class Stored(world: World)(using Context) {
     else
       for {
         held <- env.system.fold(expand(c, arguments, env))(variable(c, arguments))
-        thrown <- if (env.isValue) unbuilt(c) else Right(false)
+        thrown <- if (env.isValue) undecided(c) else Right(false)
       } yield held.copy(undecided = held.undecided || thrown)
   }
 
   // While a value row reads a class of the module, what it stores is no evidence that an instance
   // is ever built (register D30, the old `Builds`): one whose construction, an ancestor's of the
-  // module or, for an enum, a class case's always throws leaves the row undecided. One that binds a
-  // pattern is not read (slice S6, as `family` refuses it), nor an enum with parameters and a value
-  // case, whose clause's arguments are not read here.
-  private def unbuilt(c: ClassSymbol): Either[String, Boolean] = {
+  // module or, for an enum, a class case's always throws leaves the row undecided. An enum with
+  // parameters and a value case is not read: its clause's arguments are not read here.
+  private def undecided(c: ClassSymbol): Either[String, Boolean] = {
     val cases = if (c.isEnum) c.sealedChildren else Nil
-    val templates =
-      world.templates(c) ++ cases.collect { case cls: ClassSymbol => cls }.flatMap(world.templates)
-    if (templates.exists(Bodies.destructures))
-      Left(s"a value of a class whose construction binds a pattern: ${c.displayFullName}")
-    else if (cases.exists(_.isTerm) && c.tree.exists(t => Shapes.parameters(t.rhs.constr).nonEmpty))
+    if (cases.exists(_.isTerm) && c.tree.exists(t => Shapes.parameters(t.rhs.constr).nonEmpty))
       Left(s"a value of an enum with parameters and a value case: ${c.displayFullName}")
-    else Right(templates.exists(Bodies.alwaysThrows(_)))
+    else Right((c :: cases.collect { case cls: ClassSymbol => cls }).exists(world.unbuilt(_)))
   }
 
   // What a class of the module stores with its type parameters bound to `arguments`, as it is

@@ -139,7 +139,7 @@ class StoredRecursionSpec extends Specification {
   // is ω), `lz` (1, the lazy knot). `Thr` stores 2 but its construction always throws, so whether
   // `thr` holds a value is undecided (the old `Builds`); so for `kid`, whose parent `Base` throws,
   // `dflt`, whose parent's default throws, and `rt`, a recursive class that throws. `Pat` binds a
-  // pattern, a construction slice S6 leaves; `Ep`'s value case passes an argument not read here.
+  // pattern, an ordinary binding: it is built, 1. `Ep`'s value case passes an argument not read here.
   private def values =
     List("nat", "lz", "thr", "kid", "dflt", "rt", "pat", "ep").map(definition) must_== List(
       "1",
@@ -148,7 +148,7 @@ class StoredRecursionSpec extends Specification {
       "value not decided",
       "value not decided",
       "value not decided",
-      "a value of a class whose construction binds a pattern",
+      "1",
       "a value of an enum with parameters and a value case"
     )
 

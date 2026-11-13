@@ -51,10 +51,9 @@ import tastyquery.Types.*
   * another kind than `F[_]`, one two enclosing instances hold, one of a class no class written
   * elsewhere extends, one another declaration of its name bounds or hides; a capability with type
   * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
-  * parameter; a construction that always throws or binds a pattern (S6); and what implicit search
-  * chooses (S5's remainder): a contextual parameter without a name, an abstract given without a
-  * name, an abstract extension method. A given written `= deferred` is a capability like an
-  * abstract member.
+  * parameter; and what implicit search chooses (S5's remainder): a contextual parameter without a
+  * name, an abstract given without a name, an abstract extension method. A given written
+  * `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -65,10 +64,10 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     * definition a class is written in is skipped (`Readings.enclosing` reads its methods); an
     * anonymous class is read as the final template it is, a local class or object is not.
     */
-  def around(owner: Symbol, inner: Boolean = false): Either[String, List[ClassDef]] = owner match {
+  def around(owner: Symbol): Either[String, List[ClassDef]] = owner match {
     case _: PackageSymbol => Right(Nil)
     // A definition a class is written in: `Readings` reads what its methods supply.
-    case term: TermSymbol => around(term.owner, inner)
+    case term: TermSymbol => around(term.owner)
     // A local class or object holds what the methods around it take by rules of its own (a
     // subclass in the same body may override it): not read. An anonymous class is final.
     case c: ClassSymbol if !c.owner.isClass && !c.owner.isPackage && !Receivers.anonymous(c) =>
@@ -77,23 +76,13 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       for {
         tree <- World.tree(c)
         _ <- inherits(tree)
-        outer <- around(c.owner, inner)
-        // An object in a class is built with an instance of that class, one around a class before
-        // any instance of it, and one with parents runs their constructors: where its
-        // construction always throws, no member in it is ever called (S6). (An object without
-        // parents, in no class and around none, is `Readings.built`'s.)
-        unbuilt = (inner || outer.nonEmpty || World.ancestors(c).nonEmpty) && world.unbuilt(tree)
-        _ <- Either.cond(
-          !unbuilt,
-          (),
-          s"an object whose construction always throws or binds a pattern: ${c.name}"
-        )
+        outer <- around(c.owner)
       } yield outer
     case c: ClassSymbol =>
       for {
         tree <- World.tree(c)
         _ <- covered(tree)
-        outer <- around(c.owner, inner = true)
+        outer <- around(c.owner)
       } yield outer :+ tree
     case other => Left(s"an enclosing definition: ${other.name}")
   }
@@ -277,10 +266,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       _ <- refused(
         sum && (Shapes.abstractTypeMember(tree) || Shapes.abstractType(inheriting.getOrElse(Nil))),
         "an enclosing class with an abstract type member"
-      )
-      _ <- refused(
-        world.unbuilt(tree),
-        "an enclosing class whose construction always throws or binds a pattern"
       )
     } yield ()
   }
