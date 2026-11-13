@@ -270,8 +270,17 @@ or one it builds) to code outside the module whose members the module overrides 
 the site. The receiver rule is unchanged. A finished search that found nothing caches the members
 it visited per measured name and class. Record refusals for re-entry fall from 1,146 to 905 corpus
 rows; cats-core's identical method rows rise from 1,195 to 1,198, and corpus time rises (cats-core
-4.8 s to 7.0 s, the search reading the module's call graph). Next: dependency records from pickled
-signatures (scalameta's Scala 2 traits), then records' abstract type members.
+4.8 s to 7.0 s, the search reading the module's call graph).
+
+Stretch 12 (a new gate agent, private gate copy `/tmp/tg/s11/assets`). Its first commit derives
+the two rows stretch 11 freed past a model limit and left without a derivation, which failed the
+cats-core gate: `HashInstances.catsContravariantForHash.<new#1>.contramap` and
+`HashInstances.catsDeferForHash`, both 2^(2^39 + 2^73) (`derived.txt` has the arithmetic: a
+`Hash[X]` is `hash`, `eqv` and the overridden `neqv`). The next makes a `new` whose type does not
+resolve count as possibly re-entering the site in both of `Reentry`'s searches (it read as building
+nothing); no corpus row moves, since the `<init>` such a `new` selects fails to resolve first and
+refused already, and `ProgramRowsSpec.unresolvedNew` pins the cases. Next: dependency records from
+pickled signatures (scalameta's Scala 2 traits), then records' abstract type members.
 
 ### Commands
 
