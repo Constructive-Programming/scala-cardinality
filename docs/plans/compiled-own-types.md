@@ -1390,6 +1390,57 @@ nested in objects alone an input (`Eq.allEqualBoundedSemilattice.<new#1>.empty` 
 other inputs unchanged. Every better row was derived (the patch's four cats-kernel lines); its five
 cats-core derivations stay in `derived.txt` for rows still left.
 
+#### Record re-entry outside cats-kernel (group m2)
+
+The 19 old numeric rows left as "an overridden member that may call it among the members of a
+capability record" on cats-core (16), core (2) and cats-eo (1), checked by hand against D6 on
+`a9ffbc2`. No row has a same-instance re-entry in its program, so none is (a) or (c); each is (b),
+an over-approximation, and none is freed by a local narrowing. No code changed.
+
+- The `===` family (`Const`, `EitherT`, `IorT`, `OptionT`, `OneAnd`, `EqOps`), `Op.eqv` and
+  `Const.hash`: the record is the `Eq` (`Hash`) evidence. The module's instances that call these
+  methods (`catsDataEqForConst`'s `_ === _`, and so on) pass their own evidence, a strict parameter
+  given before the instance is built, never the instance. The module's only constructions that
+  tie a knot, `Defer.fix` and `Defer.recursiveFn`, have no caller in the module.
+- `catsDeferForEqCache` (its `Deferred.<init>` and `defer`) and `catsDeferForHashCache.defer`: a
+  `Deferred`'s behaviors run the thunk it was given, and only a knot (`fix`, no caller) feeds an
+  instance back to `defer`.
+- `catsDataUpperBoundedForConst.maxBound`, `catsDataLowerBoundedForConst.minBound`: the record is
+  the evidence's `partialOrder`. The instance's own `partialOrder` is a new instance built around
+  it, so an instance would have to hold itself, again a knot.
+- `catsDataCommutativeArrowForKleisliId`, `…CokleisliId`, core's `Size.order` and
+  `FinitePart.order`, cats-eo's `mfAssocPSVec.singletonTo`: no behavior of the value the row
+  reads (`Order.from` of core's functions; the arrow instances; `singletonTo`'s `ah`, which the
+  site receives as the inner optic, while `andThen` hands `this` on as the outer one) reaches the
+  site with that value.
+
+What refuses them on this tree, from tracing `Reentry.may`:
+
+- `selfReenters` first, through four over-approximations, each sound to remove and freeing no row
+  on its own (all seven inputs identical):
+  - a call selected on `this` of a member declared outside the module counts as handing `this` to
+    that code (`this.eqv(x, y)` in kernel's `Eq.neqv`), though `selfReenters` already reads members
+    selected on the instance, and the same call written without `this` (an `Ident`) is not counted;
+  - a constructor field outside the module selected on `this` may return `this` (`SortedSetHash`'s
+    `hashA`), though no constructor argument can name the instance being built (Scala rejects
+    `this` there) and the module's own fields are not read so;
+  - a function literal's parameter holds the receiver and arguments of a call of the module's own
+    method (`this.dimap(fab)(f)(identity)` in `Profunctor.lmap`), whose body `passes` and
+    `selfReenters` read anyway;
+  - a member of a class that may be the record's, selected on another value (`o.to(s)` in eo's
+    `Composer`), is read as if selected on `this`.
+- Then `handsMade`, which is what keeps every row: a module-built instance of the record's class
+  is handed to code outside the module (`Eq.by(_.value)` in `NonEmptyVector`) while `outward` holds
+  (`callersOf` is open because function literals call the site), and the plain search reaches the
+  site through a held function (`Deferred`'s `fa`, `Arrow.lift`'s `f`) or the receiver's state (a
+  home class not inside objects). Narrowing this soundly needs a flow from the entries code
+  outside the module may call (function literals, members it overrides) to the record's position
+  at the site, with positions kept apart (`passes` takes any argument of the site for the
+  record's). That is an interprocedural analysis, not a local change, so it was left. The four
+  narrowings above are kept as a patch outside the tree for whoever takes it on.
+
+Gate time for cats-core on this tree: 19.8 s (baseline run, shared machine).
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its
