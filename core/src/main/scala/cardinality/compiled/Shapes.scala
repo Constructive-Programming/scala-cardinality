@@ -3,6 +3,7 @@ package cardinality.compiled
 import cardinality.analysis.BuiltinTypes
 import cardinality.analysis.inhabitation.Inhabitation.{Binder, Head, Shape}
 import cardinality.analysis.inhabitation.PolymorphicMembers
+import cardinality.analysis.resolution.LiteralTypes
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.OpenLevel
@@ -35,6 +36,8 @@ private[compiled] enum Unread {
   * (`DependencyClasses`): the sum of its constants or children, or the product of its primary
   * constructor's parameters; a generic one and a record of abstract members are not read yet.
   *
+  * A literal type is its one constant, and a written `p.type` the one value p (`singleton`).
+  *
   * A type that reaches itself and an enum's class case as a type are refused (`recursive type not
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`, each
   * by its reason.
@@ -52,8 +55,50 @@ final private[compiled] class Shapes(world: World)(using Context) {
     case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
     case repeated: RepeatedType      => of(repeated.elemType, env).map(Shape.Repeated(_))
     case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
+    case constant: ConstantType      => literal(constant).map(Shape.Singleton(_, None))
+    case path: TermRef               => singleton(path, env)
     case other                       => uncovered(other)
   }
+
+  // A literal type's one value, named as the old front end names it (`LiteralTypes`); a floating
+  // zero is read too, since the compiled constant keeps its sign.
+  private def literal(constant: ConstantType): Either[Unread, String] =
+    LiteralTypes.identity(constant.value.value).toRight(Uncovered(s"a type: ${constant.showBasic}"))
+
+  // A written `p.type` has the one value p (v1.md §2): its goal is terminal. A method's parameter
+  // is that value of its declared type, under the identity its binding has (`Readings`). A static
+  // object read by its declaration is one value only where it is written without a parent and
+  // declares types alone, as the old front end reads it (the compiler's own members and parents
+  // aside). Any other static path (an object or value of the standard library, an enum's value
+  // case) is a value of its own name. A constructor's `val`, a local value and a path through an
+  // instance are not read yet.
+  private def singleton(path: TermRef, env: Env): Either[Unread, Shape] =
+    path.optSymbol match {
+      case Some(term: TermSymbol) if term.owner.isTerm =>
+        (term.owner, term.declaredType) match {
+          case (method: TermSymbol, declared: Type)
+              if method.paramSymss.exists(_.left.exists(_.contains(term))) =>
+            of(declared, env).map(read =>
+              Shape.Singleton(s"${method.displayFullName}.${term.name}", Some(read))
+            )
+          case _ => uncovered(path)
+        }
+      case Some(term: TermSymbol) if World.inObjects(term) =>
+        val typesAlone =
+          term.moduleClass.filter(world.readByDeclaration).flatMap(_.tree).forall { template =>
+            Shapes.parentless(template) && template.rhs.body.forall {
+              case _: TypeMember       => true
+              case member: ValOrDefDef => member.symbol.isSynthetic
+              case _                   => false
+            }
+          }
+        Either.cond(
+          typesAlone,
+          Shape.Singleton(s"path:${term.displayFullName}", None),
+          Refused(s"singleton module member environment not resolved: ${term.name}")
+        )
+      case _ => uncovered(path)
+    }
 
   private def applied(arguments: List[TypeOrWildcard]): Either[Unread, List[Type]] =
     World.proper(arguments).left.map(Uncovered(_))
@@ -61,9 +106,10 @@ final private[compiled] class Shapes(world: World)(using Context) {
   // A type as an argument of an uninterpreted application: its identity, not its values. A
   // binder is its atom, its constructor or an application of one; one standing for a written
   // constructor is the type written. A class or an opaque alias is its name over its arguments'
-  // keys (an alias is followed first: `Id[A]` is `A`). A binder bound to a value's shape, and any
-  // other form, is not read.
+  // keys (an alias is followed first: `Id[A]` is `A`); a literal type, its constant. A binder bound
+  // to a value's shape, and any other form, is not read.
   private def key(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
+    case constant: ConstantType      => literal(constant).map(LiteralTypes.nominal)
     case World.Named(ref, arguments) =>
       applied(arguments).flatMap { proper =>
         ref.optSymbol match {
@@ -600,9 +646,10 @@ private[compiled] object Shapes {
   /** A class's tree, or what it needs that is not read. */
   def tree(c: ClassSymbol): Either[Unread, ClassDef] = World.tree(c).left.map(Unread.Uncovered(_))
 
-  // A class written without a parent (the compiler's own parents have no extent) whose
-  // constructor is public.
-  private def bare(tree: ClassDef): Boolean =
-    tree.rhs.parents.forall(_.pos.isZeroExtent) && tree.rhs.constr.symbol.isPublic
+  // A class written without a parent whose constructor is public.
+  private def bare(tree: ClassDef): Boolean = parentless(tree) && tree.rhs.constr.symbol.isPublic
+
+  // A template written without a parent: the compiler's own parents have no extent.
+  def parentless(tree: ClassDef): Boolean = tree.rhs.parents.forall(_.pos.isZeroExtent)
 
 }

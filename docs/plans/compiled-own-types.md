@@ -1592,6 +1592,29 @@ Method rows: cats-core 875 identical (33 more) and two better past a model limit
 (`Semigroupal[A => *]` and `Defer[A => *]`, each 1); cats-eo 193 (2 more); fixtures 4,604 (63
 more).
 
+### Stretch 5, sixth unit: literal and singleton types
+
+A literal type is the one value of its constant, under the identity the old front end gives it
+(`LiteralTypes.identity`, shared by both front ends now); as an argument of a rigid constructor
+it is that identity's key. A floating zero is read too: the compiled constant keeps its sign,
+which the parser did not (fixture `Z.zero`, 1, derived). A written `p.type` (`Shapes.singleton`)
+has the one value p, a terminal goal: a method's parameter is that value of its declared type,
+under the identity of the parameter's binding, so that an input `y: x.type` adds nothing beside
+`x` (a reviewer's finding: a method of a class named it otherwise, and `final class Dep { def
+f(x: Boolean, y: x.type): Boolean }` read 16 where 4 is right); a static object read by its
+declaration is one value where it is written without a parent and declares types alone (the
+compiler's members and parents of a case object aside), and refused otherwise with the old
+reason; any other static path (an object or value of the standard library, an enum's value case)
+is a value of its own name. Not read yet: a constructor's `val`, a local value, and a path through
+an instance.
+
+Method rows: cats-core 892 identical (17 more) and 7 better past a resolution limit, all of
+`EitherObjectOps` over its `Either.type` field (`left`, `right`, `unit` 1; `fromOption` 2;
+`raiseWhen`, `raiseUnless` 4: one of `Left(ifTrue)` or `Right(())` per Boolean;
+`catchNonFatal` ω, a `Throwable` result), each derived by hand; cats-kernel 194 (3 more,
+`Comparison`'s singletons), cats-eo 195 (2 more), cats-eo-schemes 5 (1 more), fixtures 4,679
+(76 more).
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1649,7 +1672,8 @@ more).
   (bounded proper parameters, intersections, refinements, opaque members through paths,
   unions, singletons), then the records' remaining reasons, then item 6. Done since: bounded
   proper parameters ("Stretch 5, third unit"); rigid constructors in constructor rows ("Stretch 5,
-  fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit"). Scope
+  fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit");
+  literal and singleton types ("Stretch 5, sixth unit"). Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in
