@@ -3,6 +3,7 @@ package cardinality.compiled
 import cardinality.analysis.BuiltinTypes
 import cardinality.analysis.inhabitation.Inhabitation.{Binder, Head, Shape}
 import cardinality.analysis.inhabitation.PolymorphicMembers
+import cardinality.analysis.resolution.LiteralTypes
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.OpenLevel
@@ -37,6 +38,10 @@ private[compiled] enum Unread {
   * constructor's parameters, or a capability record (`Receivers.dependency`); a generic one is not
   * read yet.
   *
+  * A literal type is its one constant, and a written `p.type` the one value p (`singleton`). A
+  * union is the tagged sum of its alternatives where their values are told apart (`union`), an
+  * intersection its narrowest part (`intersection`).
+  *
   * A type that reaches itself and an enum's class case as a type are refused (`recursive type not
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`, each
   * by its reason.
@@ -48,14 +53,127 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   private val sums = new Sums(world, this)
 
   /** The shape of `tpe` read from `env`'s site, its type parameters bound as `env` says. */
-  def of(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
-    case by: ByNameType => of(by.resultType, env)
-    // `Nothing` is a type of its own in the tree, with no class to name.
-    case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
-    case repeated: RepeatedType      => of(repeated.elemType, env).map(Shape.Repeated(_))
-    case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
-    case other                       => uncovered(other)
+  // A value `preceding` is the one a class written as the whole type names (the old front end
+  // anchors it at that type): what it is read through or holds is not.
+  def of(tpe: Type, env: Env): Either[Unread, Shape] = {
+    val parts = env.copy(preceding = false)
+    tpe.dealias match {
+      case by: ByNameType => of(by.resultType, parts)
+      // `Nothing` is a type of its own in the tree, with no class to name.
+      case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
+      case repeated: RepeatedType      => of(repeated.elemType, parts).map(Shape.Repeated(_))
+      case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
+      case constant: ConstantType      => literal(constant).map(Shape.Singleton(_, None))
+      case path: TermRef               => singleton(path, parts)
+      case or: OrType                  => union(Shapes.alternatives(or), parts)
+      case and: AndType                => intersection(Shapes.conjuncts(and), parts)
+      case other                       => uncovered(other)
+    }
   }
+
+  // A union read as the tagged sum of its alternatives, where one exists, as the old front end
+  // reads it (`UnionSums`). Type equalities first, by the compiler's subtyping: an alternative
+  // below another is that one (one class spelled twice, `Null` below a reference type), and a
+  // top-like one (`AnyRef`, `Matchable` are `Any`) takes them all. `Nothing` and `Null` are empty
+  // (null-free model). What remains is a sum where its values are told apart: distinct constants,
+  // or alternatives of runtime classes no instance has two of (the closed world,
+  // `ClosedProgram.mixes`; a primitive is its box).
+  private def union(written: List[Type], env: Env): Either[Unread, Shape] = {
+    val kept = Shapes.maximal(written.map(t => if (Shapes.top(t)) defn.AnyType else t))(
+      _.isSubType(_)
+    )
+    Traversals.sequence(kept.map(of(_, env))).flatMap { shapes =>
+      val (types, inhabited) = kept.zip(shapes).filter(_._2 != Shape.Sum(Nil)).unzip
+      val classes = types.map(Shapes.runtimeClass)
+      val apart = inhabited.sizeIs < 2 || inhabited.forall(LiteralTypes.literal) ||
+        classes.forall(_.nonEmpty) &&
+        classes.flatten.combinations(2).forall(pair => !world.mixes(pair.head, pair.last))
+      Either.cond(
+        apart,
+        inhabited match {
+          case List(single) => single
+          case several      => Shape.Sum(several)
+        },
+        Refused(
+          "union alternatives require an overlap and discrimination proof: " +
+            written.map(_.showBasic).mkString(" | ")
+        )
+      )
+    }
+  }
+
+  // An intersection, as the old front end reads it (`SingletonIntersections.intersection`): the
+  // narrowest parts are kept, by the compiler's subtyping (`T & Any` is `T`, `x.type & A` is
+  // `x.type` for an `x: A`); `Singleton` keeps only a singleton or the empty type; distinct
+  // static objects or enum value cases share no value. Any other meet is refused. Each part kept
+  // is read first, so that what a part needs is the row's reason, as there.
+  private def intersection(written: List[Type], env: Env): Either[Unread, Shape] = {
+    val (marked, parts) = written.partition(World.classNamed(_).contains(defn.SingletonClass))
+    val narrowest = Shapes.maximal(parts.filterNot(Shapes.top))((a, b) => b.isSubType(a))
+    val values = narrowest.flatMap(_.dealias match {
+      case path: TermRef => path.optSymbol.filter(s => s.isModuleVal || s.isEnumCase)
+      case _             => None
+    })
+    val apart = values.sizeIs == narrowest.size && values.distinct == values &&
+      values.forall(World.inObjects)
+    (narrowest match {
+      case Nil         => of(defn.AnyType, env)
+      case List(alone) => of(alone, env)
+      case several     =>
+        Traversals.sequence(several.map(of(_, env))).flatMap { _ =>
+          Either.cond(
+            apart,
+            Shape.Sum(Nil),
+            Refused(
+              "unsupported intersection relationship: " + written.map(_.showBasic).mkString(" & ")
+            )
+          )
+        }
+    }).filterOrElse(
+      shape => marked.isEmpty || shape.isInstanceOf[Shape.Singleton] || shape == Shape.Sum(Nil),
+      Refused("intersection with Singleton requires a proven singleton identity")
+    )
+  }
+
+  // A literal type's one value, named as the old front end names it (`LiteralTypes`); a floating
+  // zero is read too, since the compiled constant keeps its sign.
+  private def literal(constant: ConstantType): Either[Unread, String] =
+    LiteralTypes.identity(constant.value.value).toRight(Uncovered(s"a type: ${constant.showBasic}"))
+
+  // A written `p.type` has the one value p (v1.md §2): its goal is terminal. A method's parameter
+  // is that value of its declared type, under the identity its binding has (`Readings`). A static
+  // object read by its declaration is one value only where it is written without a parent and
+  // declares types alone, as the old front end reads it (the compiler's own members and parents
+  // aside). Any other static path (an object or value of the standard library, an enum's value
+  // case) is a value of its own name. A constructor's `val`, a local value and a path through an
+  // instance are not read yet.
+  private def singleton(path: TermRef, env: Env): Either[Unread, Shape] =
+    path.optSymbol match {
+      case Some(term: TermSymbol) if term.owner.isTerm =>
+        (term.owner, term.declaredType) match {
+          case (method: TermSymbol, declared: Type)
+              if method.paramSymss.exists(_.left.exists(_.contains(term))) =>
+            of(declared, env).map(read =>
+              Shape.Singleton(s"${method.displayFullName}.${term.name}", Some(read))
+            )
+          case _ => uncovered(path)
+        }
+      case Some(term: TermSymbol) if World.inObjects(term) =>
+        val typesAlone =
+          term.moduleClass.filter(world.readByDeclaration).flatMap(_.tree).forall { template =>
+            Shapes.parentless(template) && template.rhs.body.forall {
+              case _: TypeMember       => true
+              case member: ValOrDefDef => member.symbol.isSynthetic
+              case _                   => false
+            }
+          }
+        Either.cond(
+          typesAlone,
+          Shape.Singleton(s"path:${term.displayFullName}", None),
+          Refused(s"singleton module member environment not resolved: ${term.name}")
+        )
+      case _ => uncovered(path)
+    }
 
   private def applied(arguments: List[TypeOrWildcard]): Either[Unread, List[Type]] =
     World.proper(arguments).left.map(Uncovered(_))
@@ -63,32 +181,35 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // A type as an argument of an uninterpreted application: its identity, not its values. A
   // binder is its atom, its constructor or an application of one; one standing for a written
   // constructor is the type written. A class or an opaque alias is its name over its arguments'
-  // keys (an alias is followed first: `Id[A]` is `A`). A binder bound to a value's shape, and any
-  // other form, is not read.
+  // keys (an alias is followed first: `Id[A]` is `A`); a literal type, its constant. A binder bound
+  // to a value's shape, and any other form, is not read.
   private def key(tpe: Type, env: Env): Either[Unread, Shape] = tpe.dealias match {
+    case constant: ConstantType      => literal(constant).map(LiteralTypes.nominal)
     case World.Named(ref, arguments) =>
       applied(arguments).flatMap { proper =>
         ref.optSymbol match {
           case Some(binder) if Shapes.binds(ref, binder, env) =>
-            (env.binders(binder), proper) match {
-              // A written constructor used whole is the type written, in its own scope.
-              case (Shape.Constructor(id), Nil) if closures.contains(id) =>
-                val (written, outer) = closures(id)
-                key(written, outer)
-              // A binder's own atom or constructor, or an application of one, is its identity. A
-              // class's parameter bound to another shape holds the values of its argument, and
-              // two types with one shape are two types: not read as a key.
-              case (
-                    shape @ (Shape.Atom(_) | Shape.Constructor(_) |
-                    Shape.Applied(Head.Rigid(_), _)),
-                    _
-                  ) =>
-                bound(ref, shape, proper, env, key)
-              case _ =>
-                Left(
-                  Uncovered(s"a class's parameter bound to a value, as a type: ${ref.showBasic}")
-                )
-            }
+            env
+              .binding(binder)
+              .flatMap((_, proper) match {
+                // A written constructor used whole is the type written, in its own scope.
+                case (Shape.Constructor(id), Nil) if closures.contains(id) =>
+                  val (written, outer) = closures(id)
+                  key(written, outer)
+                // A binder's own atom or constructor, or an application of one, is its identity. A
+                // class's parameter bound to another shape holds the values of its argument, and
+                // two types with one shape are two types: not read as a key.
+                case (
+                      shape @ (Shape.Atom(_) | Shape.Constructor(_) |
+                      Shape.Applied(Head.Rigid(_), _)),
+                      _
+                    ) =>
+                  bound(ref, shape, proper, env, key)
+                case _ =>
+                  Left(
+                    Uncovered(s"a class's parameter bound to a value, as a type: ${ref.showBasic}")
+                  )
+              })
           // An opaque alias seen inside its scope is its representation (rule F).
           case Some(alias: TypeMemberSymbol) if World.owners(env.site).contains(alias.owner) =>
             alias.typeDef match {
@@ -121,8 +242,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
 
   private def named(ref: TypeRef, arguments: List[Type], env: Env): Either[Unread, Shape] =
     ref.optSymbol match {
-      case Some(binder) if Shapes.binds(ref, binder, env) =>
-        bound(ref, env.binders(binder), arguments, env, of)
+      case Some(parameter) if Shapes.binds(ref, parameter, env) =>
+        env.binding(parameter).flatMap(bound(ref, _, arguments, env, of))
       // An evidence type compares its arguments as types, and two types of the program with one
       // shape are two types: their shapes are not read there.
       case Some(symbol) if env.nominal && world.shaped(symbol) =>
@@ -134,7 +255,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         val inside = if (library.exists(Shapes.Evidence)) env.copy(nominal = true) else env
         val higher = c.typeParams.map(_.declaredBounds.high.isInstanceOf[TypeLambda])
         val shapes =
-          arguments.zipWithIndex.map((a, i) => argument(a, higher.lift(i).contains(true), inside))
+          arguments.zipWithIndex.map((a, i) =>
+            argument(a, higher.lift(i).contains(true), inside.copy(preceding = false))
+          )
         Traversals.sequence(shapes).flatMap { read =>
           library.flatMap(standard(_, read)) match {
             case Some(known)                        => known
@@ -190,7 +313,11 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           outer.binders.exists((symbol, meaning) => env.binders.get(symbol).exists(_ != meaning))
         if (rebound)
           Left(Uncovered(s"a written constructor over a parameter bound again: ${ref.showBasic}"))
-        else read(written.appliedTo(applied), env.copy(binders = outer.binders ++ env.binders))
+        else
+          read(
+            written.appliedTo(applied),
+            env.copy(binders = outer.binders ++ env.binders, unread = outer.unread ++ env.unread)
+          )
       // A higher-kinded binder applied is an uninterpreted application over its arguments,
       // each read as the type it is (`key`), not as its values.
       case (Shape.Constructor(id), applied) =>
@@ -299,9 +426,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // computes; where it may not, it is one of what the site may call to build one (`Factories`). A
   // template whose construction always throws, or a class written `final abstract`, has no value
   // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
-  // throws is S6's still). Left for later steps, each named: a construction that binds a pattern, a
-  // sealed class, a self type narrower than the class, a member named like
-  // the measured definition, own or inherited (it may be that one on another receiver), a field
+  // throws is S6's still). A member that may be the measured definition on another receiver is
+  // refused (`clash`). Left for later steps, each named: a construction that binds a pattern, a
+  // sealed class, a self type narrower than the class, a field
   // the site does not observe as itself, a restricted constructor of a class something may extend,
   // a class something extends, and what `Receivers.record` and `Factories` leave.
   private def record(template: ClassDef, bound: List[Shape], env: Env): Either[Unread, Shape] = {
@@ -311,10 +438,36 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case v: ValDef if v.symbol.isParamAccessor && v.symbol.isPublic => v.name
     }.toSet
     val fixed = !c.isTrait && !c.isAbstractClass && (Shapes.isFinal(c) || !world.extended(c))
+    // A member that varies across instances (abstract, or overridden by a class of the program),
+    // own or inherited, of the measured definition's name and arity, where one instance may be of
+    // the record's class and of the class the definition is a member of: on such a value it may
+    // be the definition itself, whose calls re-enter it (the old front end's `selfView`,
+    // capabilities C6), which the model does not split: refused, as there. A value built before
+    // the receiver (`preceding`) is never it. A constructor row and a local definition measure no
+    // member.
+    val clash = (env.site, env.site.owner) match {
+      case (site: TermSymbol, owner: ClassSymbol)
+          if !World
+            .isConstructor(site) && !env.preceding && (owner == c || world.mixes(owner, c)) =>
+        (c :: World.ancestors(c)).flatMap(_.declarations).exists {
+          case declared: TermSymbol =>
+            // An inherited declaration as the record's class sees it: implemented there or not.
+            val member = declared.overridingSymbol(c).getOrElse(declared)
+            !member.isSynthetic && member.name == site.name &&
+            Shapes.arity(member) == Shapes.arity(site) &&
+            (member.isAbstractMember ||
+              world.overriding(c, member) == ClosedProgram.Overriding.Supplied)
+          case _ => false
+        }
+      case _ => false
+    }
     val refused = Shapes.unread(name)
-    val read = env.copy(binders =
-      env.binders ++
-        (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap
+    // What a member of the value returns may be built after it, the receiver among them: only
+    // the value itself is `preceding`.
+    val read = env.copy(
+      binders = env.binders ++
+        (Shapes.typeParameters(template.rhs.constr) ++ c.typeParams).zip(bound ++ bound).toMap,
+      preceding = false
     )
     // A template whose construction always throws, or a class written `final abstract`, has no
     // value: the empty sum.
@@ -325,7 +478,13 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         _ <- refused(world.unbuilt(template), "whose construction binds a pattern")
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
         _ <- refused(!World.ownSelf(c), "with a self type")
-        _ <- refused(Shapes.clash(c, env.site), "with a member named like the measured definition")
+        _ <- Either.cond(
+          !clash,
+          (),
+          Refused(
+            s"capability record member may be the measured declaration on its receiver: $name.${env.site.name}"
+          )
+        )
         _ <- refused(!c.isTrait && !c.isAbstractClass && !fixed, "of a class something extends")
         site <- Shapes.siteMember(env.site, name)
         public = World.callable(template.rhs.constr.symbol, site)
@@ -350,7 +509,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   def receiver(c: ClassSymbol, env: Env): Either[Unread, Shape] =
     Traversals
       .sequence(c.typeParams.map { binder =>
-        env.binders.get(binder).toRight(Uncovered(s"a type parameter not bound: ${binder.name}"))
+        if (env.binds(binder)) env.binding(binder)
+        else Left(Uncovered(s"a type parameter not bound: ${binder.name}"))
       })
       .flatMap(declared(c, _, env))
 
@@ -419,7 +579,14 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     Traversals.sequence(Shapes.typeParameters(method).map { symbol =>
       val parameter = symbol.asInstanceOf[TypeParamSymbol]
       val (name, bounds) = (parameter.name.toString, parameter.declaredBounds)
-      Shapes.binder(method.symbol, parameter).map { read =>
+      // The old front end reads any constructor here as rigid (`MemberSyntax`): a bound or a
+      // variance it does not refuse is not read yet.
+      val read = Shapes.binder(method.symbol, parameter).left.map {
+        case Unread.Refused(_) =>
+          Uncovered(s"a type parameter of another kind than an invariant F[_]: $name")
+        case uncovered => uncovered
+      }
+      read.map { read =>
         // A rigid constructor's bounds are a type lambda's, which `Shapes.binder` checked.
         val proper = !read.isInstanceOf[Shape.Constructor]
         val declared = PolymorphicMembers.Declared(
@@ -511,14 +678,40 @@ private[compiled] object Shapes {
   /** What a type is read in: the shapes its type parameters stand for, the definition measured
     * (what it may see decides an opaque type), the classes being read (a cycle is refused), and
     * whether the type is compared with another as a type (`nominal`), where a type of the module is
-    * not its shape.
+    * not its shape. A type parameter `unread` is the reason of a type that names it, and of nothing
+    * else: an unused parameter's kind tells nothing. A value `preceding` is built before the
+    * measured definition's receiver, which it therefore never is.
     */
   final case class Env(
       binders: Map[Symbol, Shape],
       site: Symbol,
       visiting: Set[ClassSymbol] = Set.empty,
-      nominal: Boolean = false
-  )
+      nominal: Boolean = false,
+      unread: Map[Symbol, Unread] = Map.empty,
+      preceding: Boolean = false
+  ) {
+
+    /** Whether a type parameter is one of the environment's, read or not. */
+    def binds(parameter: Symbol): Boolean =
+      binders.contains(parameter) || unread.contains(parameter)
+
+    /** What a type parameter of the environment stands for, or why it is not read. */
+    def binding(parameter: Symbol): Either[Unread, Shape] =
+      unread.get(parameter).toLeft(binders(parameter))
+
+  }
+
+  object Env {
+
+    /** An environment of type parameters each read or not (`Shapes.binder`). */
+    def of(read: Iterable[(Symbol, Either[Unread, Shape])], site: Symbol): Env =
+      Env(
+        read.collect { case (symbol, Right(shape)) => symbol -> shape }.toMap,
+        site,
+        unread = read.collect { case (symbol, Left(why)) => symbol -> why }.toMap
+      )
+
+  }
 
   // The types whose arguments are compared as types.
   private val Evidence = Set("scala.<:<", "scala.=:=")
@@ -527,22 +720,45 @@ private[compiled] object Shapes {
     * its owner's name and its own: one atom where any type instantiates it; a rigid constructor
     * where any invariant type constructor of proper parameters does (`F[_]`), applied as an
     * uninterpreted head (`key`). A proper parameter with bounds is an atom too, its bounds being
-    * proofs beside it (`Bounds`). A variance, or a constructor of constructors, is not read yet.
+    * proofs beside it (`Bounds`). A constructor with a bound, or with a variance on a parameter of
+    * its own, is refused, as the old front end refuses it (`Kinds.refusal` of `types`; its view
+    * bound is no Scala 3); one declared variant itself, or a constructor of constructors, is not
+    * read yet.
     */
   def binder(owner: Symbol, parameter: TypeParamSymbol, copies: List[Symbol] = Nil)(using
       Context
   ): Either[Unread, Shape] = {
     val bounds = parameter.declaredBounds
     val id = s"${owner.displayFullName}[${parameter.name}]"
+    def refused(why: String) = Left(Unread.Refused(s"$why: ${parameter.name}"))
     if (proper(bounds)) Right(Shape.Atom(id))
+    else if (!plain(bounds))
+      refused("bounded higher-kinded parameter requires its bound's capabilities")
     // A class's parameter keeps its variance on the constructor's copy of it.
-    else if (constructor(parameter) && !copies.exists(Shapes.variant)) Right(Shape.Constructor(id))
+    else if ((parameter :: copies).exists(Shapes.variant))
+      refused("variant higher-kinded parameter requires subtyping between applications")
+    else if (constructor(parameter)) Right(Shape.Constructor(id))
     else
       Left(
         Unread.Uncovered(
           s"a type parameter of another kind than an invariant F[_]: ${parameter.name}"
         )
       )
+  }
+
+  // Bounds that say nothing: `Nothing` below and `Any` above, or for a constructor a type lambda
+  // over parameters whose bounds say nothing in turn. Read from the bounds, not from what is
+  // written: `F[_] <: Any`, which the old front end refused, says nothing.
+  private def plain(bounds: TypeBounds)(using Context): Boolean = {
+    def top(tpe: Type): Boolean = tpe match {
+      case lambda: TypeLambda => lambda.paramTypeBounds.forall(plain) && top(lambda.resultType)
+      case other              => other.isSameType(defn.AnyType)
+    }
+    def bottom(tpe: Type): Boolean = tpe match {
+      case lambda: TypeLambda => bottom(lambda.resultType)
+      case other              => other.isSameType(defn.NothingType)
+    }
+    top(bounds.high) && bottom(bounds.low)
   }
 
   /** What an abstract type member of a receiver stands for on its instance, as a type parameter
@@ -574,31 +790,35 @@ private[compiled] object Shapes {
   // member on the instance of the receiver that holds it (`this.T`, `typeMember`'s identity), never
   // one reached through another path or another instance.
   private def binds(ref: TypeRef, binder: Symbol, env: Env)(using Context): Boolean =
-    env.binders.get(binder).exists { shape =>
-      (binder, ref.prefix) match {
-        case (_: TypeMemberSymbol, self: ThisType) =>
-          val id = s"${self.cls.displayFullName}#${binder.name}"
-          shape == Shape.Atom(id) || shape == Shape.Constructor(id)
-        case (_: TypeMemberSymbol, _) => false
-        case _                        => true
+    (env.unread.contains(binder) && !binder.isInstanceOf[TypeMemberSymbol]) ||
+      env.binders.get(binder).exists { shape =>
+        (binder, ref.prefix) match {
+          case (_: TypeMemberSymbol, self: ThisType) =>
+            val id = s"${self.cls.displayFullName}#${binder.name}"
+            shape == Shape.Atom(id) || shape == Shape.Constructor(id)
+          case (_: TypeMemberSymbol, _) => false
+          case _                        => true
+        }
       }
-    }
 
-  // Whether a parameter is an invariant type constructor of proper, unbounded parameters (bounds
-  // `constructor` takes), with no variance on it or on its parameters: a class's parameter
-  // declared `+F[_]` or `-F[_]` relates its applications by subtyping.
-  private def constructor(parameter: TypeParamSymbol)(using Context): Boolean = {
+  // Whether a parameter whose bounds say nothing and which declares no variance on a parameter of
+  // its own is a constructor of proper parameters, and not itself declared `+F[_]` or `-F[_]` (a
+  // class's: its applications are related by subtyping).
+  private def constructor(parameter: TypeParamSymbol): Boolean = {
     val invariant = parameter match {
       case declared: ClassTypeParamSymbol =>
         declared.declaredVariance == tastyquery.Modifiers.Variance.Invariant
       case _ => true
     }
-    constructor(parameter.declaredBounds) && invariant && !Shapes.variant(parameter)
+    invariant && (parameter.declaredBounds.high match {
+      case lambda: TypeLambda => lambda.paramTypeBounds.forall(!_.high.isInstanceOf[TypeLambda])
+      case _                  => false
+    })
   }
 
   // Bounds any type constructor of proper, unbounded parameters meets: `[X] =>> Any`
   // above, nothing below (written as a lambda too, on a method's own parameter).
-  private def constructor(bounds: TypeBounds)(using Context): Boolean = {
+  private def rigidBounds(bounds: TypeBounds)(using Context): Boolean = {
     val bottom = bounds.low match {
       case lambda: TypeLambda => lambda.resultType.isSameType(defn.NothingType)
       case low                => low.isSameType(defn.NothingType)
@@ -635,7 +855,7 @@ private[compiled] object Shapes {
     */
   def free(member: TypeMemberSymbol)(using Context): Boolean = bounds(member).exists { b =>
     // Without a tree a declared variance is not seen: such a member is not free.
-    unbounded(b) || constructor(b) && tastyquery.Variances.invariant(b.high) &&
+    unbounded(b) || rigidBounds(b) && tastyquery.Variances.invariant(b.high) &&
     member.tree.nonEmpty && !tastyquery.Variances.variant(member)
   }
 
@@ -651,6 +871,67 @@ private[compiled] object Shapes {
   /** A constructor's or method's value parameters, clause after clause. */
   def parameters(method: DefDef): List[ValDef] =
     method.paramLists.flatMap(_.left.toOption.toList.flatten)
+
+  /** How many value parameters a member takes, clause after clause; none for a value or a type. */
+  def arity(member: Symbol): Int = {
+    def taken(tpe: TypeOrMethodic): Int = tpe match {
+      case method: MethodType => method.paramNames.size + taken(method.resultType)
+      case poly: PolyType     => taken(poly.resultType)
+      case _                  => 0
+    }
+    member match {
+      case term: TermSymbol => taken(term.declaredType)
+      case _                => 0
+    }
+  }
+
+  /** The alternatives of a union, through the aliases they name. */
+  def alternatives(tpe: Type)(using Context): List[Type] = tpe.dealias match {
+    case or: OrType => alternatives(or.first) ++ alternatives(or.second)
+    case other      => List(other)
+  }
+
+  /** The parts of an intersection, through the aliases they name. */
+  def conjuncts(tpe: Type)(using Context): List[Type] = tpe.dealias match {
+    case and: AndType => conjuncts(and.first) ++ conjuncts(and.second)
+    case other        => List(other)
+  }
+
+  /** The types no other one lies above (`below(a, b)`: `a` lies below `b`), in order; of two equal
+    * ones, the first. With `below` turned around, the narrowest.
+    */
+  def maximal(types: List[Type])(below: (Type, Type) => Boolean): List[Type] =
+    types.foldLeft(List.empty[Type]) { (kept, t) =>
+      if (kept.exists(below(t, _))) kept else kept.filterNot(below(_, t)) :+ t
+    }
+
+  /** Whether a type is `Any` or reads as it (`AnyRef`, which is `Object`, and `Matchable`;
+    * AGENTS.md).
+    */
+  def top(tpe: Type)(using Context): Boolean =
+    World.classNamed(tpe).exists(Set(defn.AnyClass, defn.ObjectClass, defn.MatchableClass))
+
+  /** The class a value of a union's alternative carries at runtime: a class's (a primitive's box),
+    * an object's, a literal's; none for any other type.
+    */
+  def runtimeClass(tpe: Type)(using Context): Option[ClassSymbol] = (tpe.dealias match {
+    case path: TermRef =>
+      path.optSymbol.collect { case s: TermSymbol => s }.flatMap(_.moduleClass)
+    case constant: ConstantType => World.classNamed(constant.underlying)
+    case other                  => World.classNamed(other)
+  }).map(c => Boxes.get(c.displayFullName).fold(c)(summon[Context].findStaticClass))
+
+  private val Boxes = Map(
+    "scala.Unit" -> "scala.runtime.BoxedUnit",
+    "scala.Boolean" -> "java.lang.Boolean",
+    "scala.Char" -> "java.lang.Character",
+    "scala.Byte" -> "java.lang.Byte",
+    "scala.Short" -> "java.lang.Short",
+    "scala.Int" -> "java.lang.Integer",
+    "scala.Long" -> "java.lang.Long",
+    "scala.Float" -> "java.lang.Float",
+    "scala.Double" -> "java.lang.Double"
+  )
 
   /** A class written `final`: the closed world's finality is `World.extended`'s to say. */
   def isFinal(c: ClassSymbol): Boolean = c.openLevel == OpenLevel.Final
@@ -704,9 +985,10 @@ private[compiled] object Shapes {
   /** A class's tree, or what it needs that is not read. */
   def tree(c: ClassSymbol): Either[Unread, ClassDef] = World.tree(c).left.map(Unread.Uncovered(_))
 
-  // A class written without a parent (the compiler's own parents have no extent) whose
-  // constructor is public.
-  private def bare(tree: ClassDef): Boolean =
-    tree.rhs.parents.forall(_.pos.isZeroExtent) && tree.rhs.constr.symbol.isPublic
+  // A class written without a parent whose constructor is public.
+  private def bare(tree: ClassDef): Boolean = parentless(tree) && tree.rhs.constr.symbol.isPublic
+
+  // A template written without a parent: the compiler's own parents have no extent.
+  def parentless(tree: ClassDef): Boolean = tree.rhs.parents.forall(_.pos.isZeroExtent)
 
 }

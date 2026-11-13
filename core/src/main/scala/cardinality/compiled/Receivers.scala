@@ -44,14 +44,15 @@ import tastyquery.Types.*
   * whose private constructor parameters a subclass passes, a constructor field something overrides,
   * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
   * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
-  * settle; a self type narrower than the class (`World.ownSelf`); a bounded type parameter, or one
-  * of another kind than `F[_]`; an abstract type member of a sum, a bounded one or one of another
-  * kind than `F[_]`, one two enclosing instances hold, one of a class no class written elsewhere
-  * extends, one another declaration of its name bounds or hides; a capability with type parameters
-  * of its own; a deferred `inline val`, or a deferred inline method over a type parameter; a
-  * construction that always throws or binds a pattern (S6); and what implicit search chooses (S5's
-  * remainder): a contextual parameter without a name, an abstract given without a name, an abstract
-  * extension method. A given written `= deferred` is a capability like an abstract member.
+  * settle; a self type narrower than the class (`World.ownSelf`); a type parameter of another kind
+  * than `F[_]` that a type read names; an abstract type member of a sum, a bounded one or one of
+  * another kind than `F[_]`, one two enclosing instances hold, one of a class no class written
+  * elsewhere extends, one another declaration of its name bounds or hides; a capability with type
+  * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
+  * parameter; a construction that always throws or binds a pattern (S6); and what implicit search
+  * chooses (S5's remainder): a contextual parameter without a name, an abstract given without a
+  * name, an abstract extension method. A given written `= deferred` is a capability like an
+  * abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -346,7 +347,13 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         (),
         Uncovered(s"$where whose overriders are not read: ${c.displayFullName}")
       )
-      held <- own(template, site, env.copy(binders = env.binders ++ witnesses), value = true)
+      held <- own(
+        template,
+        site,
+        env.copy(binders = env.binders ++ witnesses),
+        where,
+        Receivers.observes
+      )
     } yield {
       val product = Shape.Product(held.map(_.shape))
       if (ids.isEmpty) product else Shape.Existential(ids, product)
@@ -396,21 +403,20 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield held.flatten.map(_.shape)
   }
 
-  /** What the receivers' type parameters stand for (`Shapes.binder`), and the copies their
-    * constructors hold; and what their abstract type members, declared or inherited, stand for
-    * (`Shapes.typeMember`), on the instance alone (`this.T`; `Shapes` reads no other path to one).
+  /** What the receivers' type parameters stand for (`Shapes.binder`), each read or not, and the
+    * copies their constructors hold; and what their abstract type members, declared or inherited,
+    * stand for (`Shapes.typeMember`), on the instance alone (`this.T`; `Shapes` reads no other path
+    * to one).
     */
-  def atoms(receivers: List[ClassDef]): Either[Unread, Map[Symbol, Shape]] =
+  def atoms(receivers: List[ClassDef]): Either[Unread, List[(Symbol, Either[Unread, Shape])]] =
     Traversals
       .sequence(receivers.map { tree =>
         val c = tree.symbol
         for {
-          named <- Traversals.sequence(
-            c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr)))
-          )
+          named = c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr)))
           held <- typeMembers(tree, inherited(c).getOrElse(Nil))
         } yield c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named) ++
-          held
+          held.map((member, shape) => member -> Right(shape))
       })
       .flatMap { pairs =>
         // Two instances around the member each hold their own type of one declaration.
@@ -418,7 +424,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         members.diff(members.distinct).headOption match {
           case Some(twice) =>
             Left(Uncovered(s"an abstract type member two enclosing instances hold: ${twice.name}"))
-          case None => Right(pairs.flatten.toMap)
+          case None => Right(pairs.flatten)
         }
       }
 
@@ -561,15 +567,20 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
             Unread.Uncovered(s"an enclosing sum not read: $reason")
           case uncovered => uncovered
         }
-    } else own(tree, measured, env, value = false)
+    } else own(tree, measured, env, "an enclosing class", _ => true, receiving = true)
 
   // What a receiver that is no sum supplies: its constructor's parameters and its members a
-  // subclass supplies, `measured` aside. A value of a capability record (`value`), another
-  // instance than the site's, holds the members that observe it (`observes`), and only a behavior
-  // that reaches the site re-enters it (`Reentry.may`).
-  private def own(template: ClassDef, measured: TermSymbol, env: Shapes.Env, value: Boolean) = {
-    val where = if (value) Receivers.Record else "an enclosing class"
-    def kept(member: TermSymbol) = !value || Receivers.observes(member)
+  // subclass supplies, `measured` aside, the ones `kept` keeps; `where` names the template in a
+  // reason.
+  private def own(
+      template: ClassDef,
+      measured: TermSymbol,
+      env: Shapes.Env,
+      where: String,
+      kept: TermSymbol => Boolean,
+      receiving: Boolean = false
+  ) = {
+    val value = !receiving
     val self = template.symbol.displayFullName
     def held(of: ValOrDefDef, shape: Shape) =
       Binding(s"$self.${of.name}", shape, Some(of.name.toString))
@@ -577,7 +588,20 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     val capabilities = supplies(template, measured).filter(member => kept(member.symbol))
     for {
       _ <- Readings.plainInputs(parameters)
-      fields <- shapes.inputs(parameters, env)
+      // A receiver's constructor parameter was built before it, and is never the receiver: one
+      // whose field no class of the program overrides (with the receiver, say), and not inline
+      // (by-name is read past its arrow, as nothing preceding), as the old front end's
+      // `builtBefore`.
+      fields <- Traversals.sequence(parameters.map { parameter =>
+        val fixed = template.rhs.body.exists {
+          case field: ValDef =>
+            field.name == parameter.name && field.symbol.isParamAccessor &&
+            world.overriding(template.symbol, field.symbol) == ClosedProgram.Overriding.No
+          case _ => false
+        }
+        val before = receiving && fixed && !parameter.symbol.isInline
+        shapes.of(parameter.tpt.toType, env.copy(preceding = before))
+      })
       members <- Traversals.sequence(capabilities.map { member =>
         if (reenters(template.symbol, member.symbol, measured, value))
           Left(

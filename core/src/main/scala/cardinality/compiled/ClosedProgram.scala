@@ -24,7 +24,7 @@ import tastyquery.Symbols.*
   * question about a class of the module reads the module alone.
   *
   * What is not listed is not known to be absent, and an answer says so (`complete` is false,
-  * `Overriding.Unknown`, `finalClass` is false):
+  * `Overriding.Unknown`, `finalClass` is false, `mixes` is true):
   *
   *   - a class that does not load (`unloaded` for the module, the second half of `dependencies` for
   *     the classpath) may extend anything its part of the program may;
@@ -247,6 +247,28 @@ final private[compiled] class ClosedProgram(
               _.declarations.exists(_.name.toString == name)
             } =>
         None
+    }
+  }
+
+  /** Whether an instance may be of both classes: one extends the other, or a class of the program
+    * extends both, or the classes that extend each of them are not all known (or not all read).
+    */
+  def mixes(left: ClassSymbol, right: ClassSymbol): Boolean = {
+    val ((leftLine, leftWhole), (rightLine, rightWhole)) = (linearized(left), linearized(right))
+    // A class of the program that extends both is among the subclasses of either: those of one
+    // that are all known settle it.
+    def reaches(c: ClassSymbol, other: ClassSymbol) = {
+      val (line, whole) = linearized(c)
+      !whole || line.contains(other)
+    }
+    def within(below: Subclasses, other: ClassSymbol) =
+      below.found.exists(reaches(_, other)) ||
+        below.unnamed.exists(_.parents.exists(reaches(_, other)))
+    !leftWhole || !rightWhole || leftLine.contains(right) || rightLine.contains(left) || {
+      val (lefts, rights) = (subclasses(left), subclasses(right))
+      if (lefts.complete) within(lefts, right)
+      else if (rights.complete) within(rights, left)
+      else true
     }
   }
 

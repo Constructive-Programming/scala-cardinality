@@ -170,26 +170,26 @@ class RecordsSpec extends Specification {
         case Count.Unresolved(List(why)) =>
           why must startWith("existential wildcard result construction")
       })
+      // `show` inherits a member of its own name and arity, but the object `Use` is no `Shows`:
+      // that member is never the definition (`NamesSpec`). One Boolean member, 2^2.
+      .and(count("show") must_== Count.Finite(4))
 
-  // Not read yet, each by its reason: an extension member; a class something extends; a record
-  // that inherits a member named like the measured definition, which may be that one on another
-  // value; one with a bounded abstract type member (a proof about each value's own witness); one
-  // whose inherited member the site may not
-  // call; a final class that nothing the site may call builds; and an overridden member a
-  // behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m` gives `OrdI` to
-  // `sorted`, which calls its `compare`, which calls `ord`; `FbF.k` applies a function its
-  // constructor was given, built where the search does not look.
+  // Not read yet, each by its reason: an extension member; a class something extends; one with a
+  // bounded abstract type member (a proof about each value's own witness); one whose inherited
+  // member the site may not call; a final class that nothing the site may call builds; and an
+  // overridden member a behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m`
+  // gives `OrdI` to `sorted`, which calls its `compare`, which calls `ord`; `FbF.k` applies a
+  // function its constructor was given, built where the search does not look.
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def reason(name: String) = count(name) match {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "base", "show", "bounded", "guards", "shut", "target", "ord", "fb")
+    List("tagged", "base", "bounded", "guards", "shut", "target", "ord", "fb")
       .map(reason) must_== List(
       "an extension method among the members of a capability record",
       "a capability record of a class something extends",
-      "a capability record with a member named like the measured definition",
       "a capability record with a bounded abstract type member",
       "a capability record with a member hidden at the use site",
       "a capability record with no constructor or factory the site may call",

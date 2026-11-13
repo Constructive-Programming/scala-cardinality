@@ -16,8 +16,14 @@ private[cardinality] object LiteralTypes {
   private val Prefix = "literal:"
 
   // The identity of a literal type: its class and its constant. `null` and `()` spell no type.
-  private def spelledConstant(lit: Lit): Option[String] =
-    constant(lit).map((cls, value) => s"$Prefix$cls:$value")
+  private def spelledConstant(lit: Lit): Option[String] = constant(lit).map(named)
+
+  private def named(constant: (String, String)): String = s"$Prefix${constant._1}:${constant._2}"
+
+  /** The identity of the literal type of a constant, read from its value (a compiled tree keeps a
+    * floating zero's sign, which the parser does not).
+    */
+  def identity(value: Any): Option[String] = valued(value).map(named)
 
   /** The class of a literal type's value, by its simple name. */
   def className(lit: Lit): Option[String] = constant(lit).map(_._1)
@@ -27,19 +33,23 @@ private[cardinality] object LiteralTypes {
   // (`-0.0` reads as `0.0`), and the two zeros are two types: a zero is not read.
   private def constant(lit: Lit): Option[(String, String)] =
     lit match {
-      case l: Lit.Int   => Some("Int" -> l.value.toString)
-      case l: Lit.Long  => Some("Long" -> l.value.toString)
-      case l: Lit.Float =>
-        val value = l.format.toFloat
-        Option.when(value != 0f)("Float" -> java.lang.Float.floatToIntBits(value).toString)
-      case l: Lit.Double =>
-        val value = l.format.toDouble
-        Option.when(value != 0d)("Double" -> java.lang.Double.doubleToLongBits(value).toString)
-      case l: Lit.Char    => Some("Char" -> l.value.toInt.toString)
-      case l: Lit.Boolean => Some("Boolean" -> l.value.toString)
-      case l: Lit.String  => Some("String" -> l.value)
-      case _              => None
+      case l: Lit.Float  => Option(l.format.toFloat).filter(_ != 0f).flatMap(valued)
+      case l: Lit.Double => Option(l.format.toDouble).filter(_ != 0d).flatMap(valued)
+      case l @ (_: Lit.Int | _: Lit.Long | _: Lit.Char | _: Lit.Boolean | _: Lit.String) =>
+        valued(l.value)
+      case _ => None
     }
+
+  private def valued(value: Any): Option[(String, String)] = value match {
+    case v: Int     => Some("Int" -> v.toString)
+    case v: Long    => Some("Long" -> v.toString)
+    case v: Float   => Some("Float" -> java.lang.Float.floatToIntBits(v).toString)
+    case v: Double  => Some("Double" -> java.lang.Double.doubleToLongBits(v).toString)
+    case v: Char    => Some("Char" -> v.toInt.toString)
+    case v: Boolean => Some("Boolean" -> v.toString)
+    case v: String  => Some("String" -> v)
+    case _          => None
+  }
 
   /** The one value a literal type has, as a shape. */
   def shape(lit: Lit): Either[String, Shape] = known(lit).map(Shape.Singleton(_, None))
@@ -73,6 +83,7 @@ private[cardinality] object LiteralTypes {
   /** Whether a shape is a literal type's one value. */
   def literal(shape: Shape): Boolean = Keyed.unapply(shape).nonEmpty
 
-  private def nominal(id: String): Shape = Shape.Applied(Head.Nominal(id), Nil)
+  /** A literal type's identity as the key of a rigid constructor's argument. */
+  def nominal(id: String): Shape = Shape.Applied(Head.Nominal(id), Nil)
 
 }

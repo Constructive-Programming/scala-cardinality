@@ -7,8 +7,9 @@ import org.specs2.Specification
 /** Type parameters of the compiled front end beyond atoms and rigid constructors: a type
   * constructor written as a class's argument (`Shapes.argument`), and a bounded proper parameter,
   * whose bound is an ambient proof read from its symbol, as the old front end reads it from syntax
-  * (`Bounds`). Every expected count is derived in its example's comment, and the scalameta front
-  * end is asked for the same rows.
+  * (`Bounds`). Also the types written otherwise than as a class: literal, singleton, union and
+  * intersection types. Every expected count is derived in its example's comment, and the scalameta
+  * front end is asked for the same rows.
   */
 class TypeParametersSpec extends Specification {
 
@@ -18,10 +19,17 @@ class TypeParametersSpec extends Specification {
     a constructor row reads a rigid constructor's positions    $constructors
     a capability's own type parameters are read as before      $polymorphic
     a symbol two sites bind differently is not read yet        $rebound
+    a bounded or variant constructor is refused where it is used $kinds
   A bound of a proper type parameter is a proof beside it
     an upper bound views the values, a lower bound builds them  $proofs
     a bound the model does not read is refused, as before       $refused
     a top inside a bound, or a lower one by a class, is later   $later
+  A literal or singleton type has one value
+    a literal is a constant, a key by its class and value       $literals
+    a parameter's, an object's or a dependency's path            $singletons
+  A union is a tagged sum, an intersection its narrowest part
+    alternatives told apart by class or constant are summed      $unions
+    a part above another is dropped; distinct objects are empty  $intersections
     the scalameta front end agrees on every row measured        $agrees
   """
 
@@ -58,6 +66,48 @@ class TypeParametersSpec extends Specification {
       |object Poly { def tag(p: Pick, a: Boolean): Boolean = a }
       |trait Narrow { def narrow[M <: String](m: M): M; def get: Boolean = true }
       |trait Apply { def lift[G[_]](g: G[Int]): G[Int]; def get: Boolean = true }
+      |object Token
+      |object Full { def m: Int = 1 }
+      |case object Green
+      |final class Tok(val t: Token.type)
+      |final class Dep { def f(x: Boolean, y: x.type): Boolean = x }
+      |object Lit {
+      |  val depth: 128 = 128
+      |  def flag(x: true): Boolean = x
+      |  def same[F[_]](x: F[1]): F[1] = x
+      |  def other[F[_]](x: F[1]): F[2] = ???
+      |}
+      |object Sing {
+      |  def pick(x: Boolean, y: x.type): x.type = y
+      |  def tok(): Token.type = Token
+      |  def green(): Green.type = Green
+      |  def full(): Full.type = Full
+      |  def either(e: Either.type, b: Boolean): Boolean = b
+      |}
+      |object Mark
+      |object Un {
+      |  def lits(x: 1 | 2): 1 | 2 = x
+      |  def same(b: Boolean | Boolean): Boolean = b
+      |  def tagged(x: Boolean | Token.type): Boolean | Token.type = x
+      |  def top(x: Int | AnyRef): Boolean = true
+      |  def empty(x: Nothing | Null): Boolean = true
+      |  def alone[A](x: A | Nothing): A = x
+      |  def overlap[A](x: A | Boolean): Boolean = true
+      |  def boxed(x: Int | java.lang.Integer): Boolean = true
+      |}
+      |object Meet {
+      |  def keep(x: Boolean & Any): Boolean = x
+      |  def path[A](x: A, y: A & x.type): A = y
+      |  def none(x: Token.type & Mark.type): Boolean = true
+      |  def open(x: Show & Two): Boolean = true
+      |  def single(x: Boolean & Singleton): Boolean = x
+      |}
+      |trait Vary { def g[G[+_]](x: G[Int]): G[Int]; def get: Boolean = true }
+      |object Kind {
+      |  def bounded[S[T] <: Show](s: S[Int]): S[Int] = s
+      |  def variant[F[+_]](x: F[Int]): F[Int] = x
+      |  def unused[F[+_]](b: Boolean): Boolean = b
+      |}
       |object Hk {
       |  def wrap(w: Wrap[[X] =>> Either[Boolean, X], Boolean]): Boolean = true
       |  def held[G[_]](w: Wrap[G, Int]): G[Int] = w.v
@@ -107,6 +157,16 @@ class TypeParametersSpec extends Specification {
     (uncovered("Wrap.Ops.back") must startWith("a written constructor over a parameter bound"))
       .and(uncovered("Hk.held") must startWith("a class's parameter bound to a value"))
 
+  // A constructor with a bound has its bound's members, and one with a variant parameter relates
+  // its applications by subtyping: neither is read, as before, where a type names it. `unused`
+  // names no such parameter: one of the 2^2 functions of `b`. A capability's own constructor the
+  // old front end reads as rigid whatever it declares (`MemberSyntax`): `Vary.get` is not read yet.
+  private def kinds =
+    (count("Kind.bounded").toString must contain("bounded higher-kinded parameter"))
+      .and(count("Kind.variant").toString must contain("variant higher-kinded parameter"))
+      .and(count("Kind.unused") must_== Count.Finite(4))
+      .and(uncovered("Vary.get") must startWith("a type parameter of another kind"))
+
   // A row's reason when it is uncovered, without the prefix that says so.
   private def uncovered(name: String): String = count(name) match {
     case Count.Unresolved(List(reason)) if reason.startsWith(s"${TastyFrontEnd.Uncovered}: ") =>
@@ -139,6 +199,47 @@ class TypeParametersSpec extends Specification {
       "a bound that holds a top type: A",
       "a structural lower bound beside a class bound"
     )
+
+  // `depth` has the one value 128. `flag`'s input has one value, so its count is the Booleans,
+  // 2. `F[1]` and `F[2]` are uninterpreted applications to two types: `same` returns `x`, 1;
+  // nothing builds an `F[2]`, 0.
+  private def literals =
+    List("Lit.depth", "Lit.flag", "Lit.same", "Lit.other").map(count) must_==
+      List(1, 2, 1, 0).map(Count.Finite(_))
+
+  // A singleton goal is terminal: `pick`, `tok` and `green`, 1 each (a case object's parents
+  // and members are the compiler's: no member a body reads). `Tok` holds the one value of
+  // `Token.type`: one Tok. `Either.type` is one value, so `either` is one of 2^2 functions of
+  // `b`. `Dep.f`'s `y` is `x` itself, nothing more: the 2^2 functions of `x`. An object with
+  // members is not read as one value, as before.
+  private def singletons =
+    (List("Sing.pick", "Sing.tok", "Sing.green", "Tok.<init>", "Sing.either", "Dep.f").map(
+      count
+    ) must_== List(1, 1, 1, 1, 4, 4).map(Count.Finite(_)))
+      .and(count("Sing.full").toString must contain("singleton module member environment"))
+
+  // `lits`: two constants in, two out, 2^2. `same`: one Boolean, 2^2. `tagged`: a Boolean or the
+  // object, 3 values in and out, 3^3. `top`: `AnyRef` reads as `Any`, which takes `Int`: one
+  // input value, 2 Booleans. `empty`: no input value, one function. `alone`: `x` is the one A,
+  // 1. `overlap`: an `A` may be a
+  // Boolean, and an Int is an Integer at runtime: neither is told apart, refused as before.
+  private def unions =
+    (List("Un.lits", "Un.same", "Un.tagged", "Un.top", "Un.empty", "Un.alone").map(count) must_==
+      List(4, 4, 27, 2, 1, 1).map(Count.Finite(_)))
+      .and(
+        List("Un.overlap", "Un.boxed")
+          .map(count(_).toString)
+          .must(contain(contain("overlap and discrimination proof")).forall)
+      )
+
+  // `keep`: `Boolean & Any` is Boolean, 2^2. `path`: `y` is `x` itself, the one A in reach, 1.
+  // `none`: two objects share no value, so no input and one function. `open`: two traits a class
+  // may both extend, refused as before; so is a Boolean claimed a singleton.
+  private def intersections =
+    (List("Meet.keep", "Meet.path", "Meet.none").map(count) must_==
+      List(4, 1, 1).map(Count.Finite(_)))
+      .and(count("Meet.open").toString must contain("unsupported intersection relationship"))
+      .and(count("Meet.single").toString must contain("requires a proven singleton identity"))
 
   private def agrees = {
     val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))

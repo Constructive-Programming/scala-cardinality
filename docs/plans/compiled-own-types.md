@@ -330,6 +330,23 @@ the name unless it is free. cats-core's identical method rows rise from 1,198 to
 abstract type member, or one of another kind than F[_]` 286 → 4, the rest stopping at later
 reasons); no other input moves. Shared coverage memory: cats-core 16 rows inserted, none removed.
 
+Merged `tasty-front` at `398df9e` (literal and singleton types, unions and intersections, other-kind
+constructors, members named like the measured definition, anonymous contextual parameters of the
+measured method; `ClosedProgram.mixes` restored for unions and kept). Resolved: the module record's
+`clash` is the front's (a varying member of the measured name and arity where one instance may be
+of both classes, refused as the old reading's `selfView`); a dependency record keeps the name-only
+`Shapes.clash`, left uncovered; `Receivers.own` takes the front's `where`/`kept`/`receiving` and a
+record value is `!receiving` for `Reentry.may`; `atoms` keeps the front's unsequenced binders over
+`typeMembers`; `typeMember` keeps the bounded atom and the free constructor over the front's
+`rigidBounds`. Gate on the merged tree (method rows identical / better / worse / uncovered, then
+old numeric rows still uncovered): cats-core 1,595 / 358 / 70 / 5,628, 48 of 909; cats-eo 231 / 10
+/ 0 / 456, 83 of 271; cats-eo-generics 40 / 0 / 0 / 40, 0 of 16; cats-eo-schemes 5 / 0 / 0 / 14, 0
+of 5; cats-kernel 330 / 5 / 0 / 1,450, 111 of 368; core 2,780 / 13 / 0 / 1,207, 58 of 768;
+fixtures 5,090 / 193 / 4 / 1,450, 756 of 5,485. Shared coverage memory, rows newly measured on the
+merged tree inserted, none removed: cats-core 409, cats-eo 25, cats-eo-generics 3, cats-eo-schemes
+1, cats-kernel 55, core 104, fixtures 276. From here the work is ranked by old numeric rows still
+uncovered (the switch-over criterion).
+
 ### Commands
 
 | Command | What it does |
@@ -1728,6 +1745,136 @@ Method rows: cats-core 875 identical (33 more) and two better past a model limit
 (`Semigroupal[A => *]` and `Defer[A => *]`, each 1); cats-eo 193 (2 more); fixtures 4,604 (63
 more).
 
+### Stretch 5, sixth unit: literal and singleton types
+
+A literal type is the one value of its constant, under the identity the old front end gives it
+(`LiteralTypes.identity`, shared by both front ends now); as an argument of a rigid constructor
+it is that identity's key. A floating zero is read too: the compiled constant keeps its sign,
+which the parser did not (fixture `Z.zero`, 1, derived). A written `p.type` (`Shapes.singleton`)
+has the one value p, a terminal goal: a method's parameter is that value of its declared type,
+under the identity of the parameter's binding, so that an input `y: x.type` adds nothing beside
+`x` (a reviewer's finding: a method of a class named it otherwise, and `final class Dep { def
+f(x: Boolean, y: x.type): Boolean }` read 16 where 4 is right); a static object read by its
+declaration is one value where it is written without a parent and declares types alone (the
+compiler's members and parents of a case object aside), and refused otherwise with the old
+reason; any other static path (an object or value of the standard library, an enum's value case)
+is a value of its own name. Not read yet: a constructor's `val`, a local value, and a path through
+an instance.
+
+Method rows: cats-core 892 identical (17 more) and 7 better past a resolution limit, all of
+`EitherObjectOps` over its `Either.type` field (`left`, `right`, `unit` 1; `fromOption` 2;
+`raiseWhen`, `raiseUnless` 4: one of `Left(ifTrue)` or `Right(())` per Boolean;
+`catchNonFatal` ω, a `Throwable` result), each derived by hand; cats-kernel 194 (3 more,
+`Comparison`'s singletons), cats-eo 195 (2 more), cats-eo-schemes 5 (1 more), fixtures 4,679
+(76 more).
+
+### Stretch 5, seventh unit: unions and intersections
+
+`Shapes.union` reads a union as `UnionSums` does, with the compiler's subtyping in place of the
+syntactic type equalities: an alternative below another is that one (`Null` below a reference
+type, `1` below `Int`, a class spelled twice), a top-like one takes them all (`AnyRef`,
+`Matchable` are `Any`), `Nothing` and `Null` are empty. What remains is the sum of its
+alternatives where their values are told apart: distinct constants, or runtime classes (a
+primitive is its box: `Int | Integer` refused, a reviewer's finding) of which no instance has
+two, by the closed world (`ClosedProgram.mixes`, now asked through `World.mixes`). Anything else
+is the old refusal. `Shapes.intersection` keeps the narrowest parts by subtyping (`T & Any`,
+`x.type & A` for an `x: A`), reads each part kept (what a part needs is the row's reason, as
+there), reads two distinct static objects or enum value cases as empty, `Singleton` as a
+demand for a singleton, and refuses any other meet. Reading the parts first keeps the
+intersections of type classes (`Order[X] & Hash[X]`, 98 rows of cats-core and cats-kernel)
+uncovered until their records read: a first version refused them at once, identical `?` to the
+old rows, and its lines are deleted from this branch's private memory.
+
+Four better rows past a model limit are derived (`U.wide`, `1 | Int` is `Int`, 2^(2^32); `U.v`,
+`Vector[Int] | String`, ω; `u`, `S | Q`, 2 + 1; `v`, `AnyVal | Boolean` is `AnyVal`, ω as a
+result). Method rows: corpus-core 1,395 identical (10 more, refusals of unions of enum case
+types), cats-eo 197 (2 more: `Array[Int] | Null`; `S & B` refused as before), fixtures 4,771
+(92 more).
+
+### Stretch 5, eighth unit: type parameters of other kinds, read where named
+
+`Shapes.binder` refuses a higher-kinded parameter with a bound, or with a variance on a parameter
+of its own, with the old reasons (`types/Kinds.refusal`); the bounds are read, not the spelling,
+so a written `F[_] <: Any` says nothing (the old front end refused it; no row of the inputs has
+one). A parameter declared `+F[_]` itself, and a constructor of constructors, stay uncovered. A
+capability's own constructor keeps the uncovered reason: the old front end reads it as rigid
+whatever it declares (`MemberSyntax`). A type parameter that is not read is now kept in
+`Shapes.Env.unread`, its reason that of a type that names it only (`Env.binds`, `Env.binding`),
+as the old front end binds its parameters lazily: an unused parameter's kind tells nothing.
+`Readings.environment`, `Receivers.atoms` and `Constructors.count` build their environment
+with `Shapes.Env.of`.
+
+Method rows: cats-core 936 identical (44 more: `NonEmptyCollection`'s members and the bounded
+`S[T] <: Semigroup[T]` rows, refused as before), cats-kernel 231 (37 more, among them the eight
+`*Functions.<init>` rows, 1 each: no parameter, whatever `E[T] <: Eq[T]` is), cats-eo 198 (1
+more), fixtures 4,774 (3 more).
+
+### Merge of `tasty-gate` at `a8dc05f` (the coordinator's instruction)
+
+Records with parents, records with overridden members, rule B (`Factories`) and abstract type
+members of receivers. Conflicts: `Receivers.atoms` keeps the gate's abstract type members, read
+eagerly, beside this branch's type parameters read lazily (a list of each symbol's reading, for
+`Shapes.Env.of`); `Shapes.binds` keeps the gate's path check for a type member and lets an unread
+type parameter through to its reason; `Constructors.count` reads the receivers around it and
+builds `Env.of`; the gate's `constructor(bounds)` is `rigidBounds` (an abstract type member's);
+`ClosedProgram.mixes`, which the gate deleted as unused, is restored for `Shapes.union`. One row
+the two branches free together is derived: cats-kernel's `catsKernelStdOrderForChar`, 1
+(`CharOrder & Hash[Char] & BoundedEnumerable[Char]` is `CharOrder`, a concrete class without
+parameters nothing extends). Bounded or other-kind abstract type members are the gate agent's
+now (the coordinator). Method rows: corpus-core 1,543 identical, cats-core 1,280, cats-kernel
+316, cats-eo 214, cats-eo-generics 37, cats-eo-schemes 5, fixtures 4,987; all inputs pass.
+
+### Stretch 5, ninth unit: members named like the measured definition
+
+The old front end's `selfView` (`CapabilityRecords`), over symbols in `Shapes.record`'s `clash`:
+a record's member that varies across instances (abstract, or overridden by a class of the
+program; an inherited declaration as the record's class sees it, `overridingSymbol`), of the
+measured definition's name and arity (`Shapes.arity`, value parameters clause after clause),
+refuses the row with the old reason, and only where one instance may be of the record's class
+and of the class the definition is a member of (`World.mixes`). A value built before the
+receiver is never it (`Env.preceding`, the old `builtBefore` and its anchor): a capture of a
+method around the definition and a receiver's constructor parameter whose field nothing
+overrides, not inline, and only the class the whole type names (not past a function arrow, a
+by-name arrow, a type argument or a member). `ClosedProgram.mixes` now decides by the
+subclasses of either class where those are all known and read (it gave up where one side's were
+not). Every row of the reason is read or refused: corpus-core 1,599 identical, cats-core 1,527,
+cats-kernel 330, cats-eo 228, fixtures 5,030.
+
+Derived (better past a model limit): `cats.Show.show` ω (the object `Show` is no `Show`, which
+the old reading confused by name); cats-eo `Getter.andThen`, `MendTearPrism.fuseToMendTear` and
+`.andThen`, 1 each; fixture `Swapped.twice` ω, `PolyGetter.again`, `Named.call`,
+`Hidden.call` 2 each (inline methods whose expansion calls a member that applies); the
+`<new#1>.apply` of `applyK`, `localK`, `liftK`, both `liftFunctionK`, 1 each; eleven
+`NonEmptyList` instance members, ω (a list of any length); fixtures `U.u` ω and `S.un` 3 (unions
+the new `mixes` tells apart). Corrected: fixture `U.helper`, 2^32 -> 2^16 (`u.m` is `helper`
+itself on `u`, no input). The gate's `RecordsSpec.show` is read now, 4. Private memory: the
+lines of `U.u`, `S.un` (`?` under the earlier `mixes`) and of `Deferred.show` (counted by a
+version that took a captured function's result for preceding) are deleted.
+
+Found, not changed (both front ends agree, so the gate cannot see it): a capability record's
+member whose value is another record with a polymorphic member reads too few implementations.
+`trait FK[F[_], G[_]] { def apply[A](fa: F[A]): G[A] }; trait Inj[F[_], G[_]] { def prj: FK[G,
+[a] =>> Option[F[a]]] }`: a method returning `new FK[...] { def apply[A](a: EK[H, G, A]):
+Option[F[A]] = a.run.toOption.flatMap(i.prj(_)) }` counts 1 where `None` and `i.prj(g)` are 2.
+This unit leaves such a row refused as before.
+
+### Stretch 5, tenth unit: anonymous contextual parameters of the measured method
+
+`Readings.anonymous`, the old `ContextualEvidence.unreachable` over symbols for the measured
+method's own anonymous `using` parameters and context-bound evidence (`Readings.anonymous` of a
+`ValDef`, the compiler's `x$N`/`evidence$N`): what encloses the method is shallower and loses,
+and the body is counted, not searched (the old front end's method frame reads no statements
+either), so its competitors are the method's other contextual parameters. One of its very type is
+ambiguous (refused, reported before any uncovered pair); one of a distinct class, read by its
+declaration or final, not `Null`, neither class extending the other, leaves it a value; any other
+neighbour, and a context-function result (its binders hide it in every body), leave the row
+uncovered. Captured enclosing methods' anonymous parameters, a receiver's and a capability's stay
+uncovered (`plainInputs`). One better row derived: fixture `Neg.summoned`, 1 (`summon` is
+Predef's inline method, resolved where the body is written). Method rows: corpus-core 1,601
+identical, cats-core 1,556 (29 more), cats-eo 231 (3 more), cats-eo-generics 40, fixtures
+5,078 (48 more); the 184 cats-core rows still named "an anonymous contextual parameter" are
+receivers', capabilities' and captured ones.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1785,7 +1932,12 @@ more).
   (bounded proper parameters, intersections, refinements, opaque members through paths,
   unions, singletons), then the records' remaining reasons, then item 6. Done since: bounded
   proper parameters ("Stretch 5, third unit"); rigid constructors in constructor rows ("Stretch 5,
-  fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit"). Scope
+  fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit");
+  literal and singleton types ("Stretch 5, sixth unit"); unions and intersections ("Stretch 5,
+  seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"); the merge of
+  `tasty-gate` at `a8dc05f`; members named like the measured definition ("Stretch 5, ninth
+  unit"); anonymous contextual parameters of the measured method ("Stretch 5, tenth unit"). Left
+  of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in

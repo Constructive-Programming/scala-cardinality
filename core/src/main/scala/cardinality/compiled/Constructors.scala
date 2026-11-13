@@ -28,10 +28,10 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   *     built (`Receivers`). A position mixing type parameters with ground values has no agreed
   *     reading and is refused.
   *
-  * Not read yet: a bounded type parameter (the row hands no proof to its positions), or one of
-  * another kind than an invariant `F[_]`; a position the method side refuses (a recursive type),
-  * which takes the estimate's tier; one the estimate does not read; one over a singleton or
-  * evidence; a contextual one without a name.
+  * Not read yet, where a position names it: a bounded type parameter (the row hands no proof to its
+  * positions), or one of another kind than an invariant `F[_]`; a position the method side refuses
+  * (a recursive type), which takes the estimate's tier; one the estimate does not read; one over a
+  * singleton or evidence; a contextual one without a name.
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored, receivers: Receivers)(
     using Context
@@ -52,24 +52,25 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
     for {
       tree <- Shapes.tree(owner)
       // The class's type parameters and the constructor's copies of them: each an atom, or a
-      // rigid constructor for `F[_]` (`Shapes.binder`). A bounded one is not read: the row hands
-      // no proof to the positions.
-      atoms <- Traversals.sequence(binders.zip(owner.typeParams).map { (binder, parameter) =>
+      // rigid constructor for `F[_]` (`Shapes.binder`). A bounded one is not read where a
+      // position names it: the row hands no proof to the positions.
+      atoms = binders.zip(owner.typeParams).map { (binder, parameter) =>
         Shapes.binder(owner, parameter, copies).flatMap {
           case atom: Shape.Atom => Readings.unbounded(binder).map(_ => atom)
           case rigid            => Right(rigid)
         }
-      })
+      }
       outer <- receivers.atoms(around)
       // A bounded abstract type member of a receiver around it is not read either: the row hands no
       // proof to the positions.
-      _ <- outer.keys
+      _ <- outer
+        .map(_._1)
         .collectFirst {
           case member: TypeMemberSymbol if Shapes.bounded(member) =>
             Unread.Uncovered(s"a bounded abstract type member around a constructor: ${member.name}")
         }
         .toLeft(())
-      env = Shapes.Env(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
+      env = Shapes.Env.of(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
       held <- receivers.bindings(around, constructor.symbol, env)
       _ <- Readings.plainInputs(parameters)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))

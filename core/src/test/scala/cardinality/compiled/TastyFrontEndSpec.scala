@@ -852,6 +852,7 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.analysis.inhabitation.Inhabitation.Shape",
     "cardinality.analysis.inhabitation.Natural",
     "cardinality.analysis.inhabitation.PolymorphicMembers",
+    "cardinality.analysis.resolution.LiteralTypes",
     "cardinality.analysis.resolution.TopTypes",
     "cardinality.capacity.BaseTypes",
     "cardinality.capacity.BooleanSize",
