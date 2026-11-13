@@ -256,19 +256,29 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           arguments.zipWithIndex.map((a, i) =>
             argument(a, higher.lift(i).contains(true), inside.copy(preceding = false))
           )
-        Traversals.sequence(shapes).flatMap { read =>
-          library.flatMap(standard(_, read)) match {
-            case Some(known)                        => known
-            case None if world.readByDeclaration(c) =>
-              declared(
-                c,
-                read,
-                env.copy(written = env.written ++ c.typeParams.zip(arguments.map(_ -> env)))
-              )
-            case None if World.standard(c) =>
-              Left(Uncovered(s"a class of a dependency: ${c.displayFullName}"))
-            case None => withoutTasty(c, env)
-          }
+        val writing = env.copy(written = env.written ++ c.typeParams.zip(arguments.map(_ -> env)))
+        Traversals.sequence(shapes) match {
+          case Right(read) =>
+            library.flatMap(standard(_, read)) match {
+              case Some(known)                        => known
+              case None if world.readByDeclaration(c) => declared(c, read, writing)
+              case None if World.standard(c)          =>
+                Left(Uncovered(s"a class of a dependency: ${c.displayFullName}"))
+              case None => withoutTasty(c, env)
+            }
+          // A record or plain class of the module whose argument does not read is read with the
+          // one-valued `Shape.Product(Nil)` in that argument's place and its reason in
+          // `Env.unread`, which `binding` prefers wherever the class's value reads the parameter:
+          // a class whose value ignores it is counted. Any refusal keeps the argument's reason.
+          // An enum or a sealed family is not read so: its cases read its arguments.
+          case Left(why) if world.ofModule(c) && !c.isEnum && !Shapes.isFamily(c) =>
+            val unread = c.typeParams.zip(shapes).collect { case (p, Left(reason)) => p -> reason }
+            declared(
+              c,
+              shapes.map(_.getOrElse(Shape.Product(Nil))),
+              writing.copy(unread = writing.unread ++ unread)
+            ).left.map(_ => why)
+          case Left(why) => Left(why)
         }
       case Some(alias: TypeMemberSymbol) =>
         alias.typeDef match {
@@ -409,10 +419,21 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   private def declared(c: ClassSymbol, arguments: List[Shape], env: Env): Either[Unread, Shape] =
     Shapes.tree(c).flatMap { tree =>
       val inside = env.copy(visiting = env.visiting + c)
-      // A member of a class nested in a class or a body may read what is around it; one in a body
-      // alone whose members are its public fields, or none, reads nothing of it.
-      val plain = World.owners(c.owner).forall(k => !k.isClass || k.asClass.isModuleClass) &&
-        (plainCase(tree) || typesOnly(tree))
+      // A member of a class nested in a class or a body may read what is around it. A class whose
+      // members are types alone reads nothing of it, nor does a plain case class (its members are
+      // its public fields) where no field's type names a symbol of a class around it or that
+      // class's `this` (a type parameter, a type member, inherited or not, a path through the
+      // instance): such a type means another thing on each instance around, which the class's
+      // prefix names.
+      val classes = World.owners(c.owner).collect { case k: ClassSymbol if !k.isModuleClass => k }
+      def around(symbol: Symbol) = {
+        val chain = World.owners(symbol)
+        !chain.contains(c) && chain.exists(classes.contains)
+      }
+      def namesNothingAround = Shapes
+        .parameters(tree.rhs.constr)
+        .forall(p => World.mentioned(p.tpt.toType, around).isEmpty)
+      val plain = typesOnly(tree) || (plainCase(tree) && namesNothingAround)
       if (!World.inObjects(c) && !plain)
         Left(Uncovered(s"a class nested in a class or a body: ${c.displayFullName}"))
       else if (env.visiting(c)) recursive(c)
@@ -455,7 +476,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     val read = env.copy(
       binders = env.binders ++ (copies ++ c.typeParams).zip(bound ++ bound).toMap,
       preceding = false,
-      written = env.written ++ Shapes.copied(copies, c, env.written)
+      written = env.written ++ Shapes.copied(copies, c, env.written),
+      unread = env.unread ++ Shapes.copied(copies, c, env.unread)
     )
     // A template whose construction always throws, its own or an ancestor's of the module, or a
     // class written `final abstract`, has no value: the empty sum.
@@ -574,7 +596,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     val bound = (copies.zip(arguments) ++ tree.symbol.typeParams.zip(arguments)).toMap
     val inside = env.copy(
       binders = env.binders ++ bound,
-      written = env.written ++ Shapes.copied(copies, tree.symbol, env.written)
+      written = env.written ++ Shapes.copied(copies, tree.symbol, env.written),
+      unread = env.unread ++ Shapes.copied(copies, tree.symbol, env.unread)
     )
     Traversals.sequence(Shapes.parameters(constructor).map(p => of(p.tpt.toType, inside)))
   }

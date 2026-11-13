@@ -15,6 +15,8 @@ class ReceiversSpec extends Specification {
     every constructor parameter is a value of the environment     $fields
     an abstract member is a capability, a concrete one nothing    $capabilities
     a class around the class or its object supplies the same      $nested
+    a class in a class whose fields name nothing around it is read $inner
+    a parent written in the body around the template is read      $bodyParent
     a template that inherits, or a sum, reads what it holds       $inherited
     a local definition reads the methods it is written in         $locals
     a receiver this slice does not read is uncovered, or counted  $later
@@ -150,6 +152,29 @@ class ReceiversSpec extends Specification {
       |final case class Twig(kids: List[Bush]) extends Bush
       |object ExA { type T = Boolean }
       |class Exp { export ExA.T; def g(t: T): Boolean = t; final case class P(t: T) }
+      |class Shell[A](a: A) {
+      |  final case class Leaf(b: Boolean); final class Mark; final case class Hold(x: A)
+      |  def leaf(l: Leaf): Boolean = ???; def mark(m: Mark, n: Mark): Mark = ???; def hold(h: Hold): A = ???
+      |}
+      |object InBody {
+      |  def f(a: Boolean): Boolean = {
+      |    abstract class Base { def y: Boolean = true; def t(b: Boolean): Boolean }
+      |    final class Sub extends Base { def t(b: Boolean): Boolean = b }
+      |    a
+      |  }
+      |}
+      |class InClass {
+      |  def f(a: Boolean): Boolean = {
+      |    abstract class Base { def y: Boolean = true; def t(b: Boolean): Boolean }
+      |    final class Sub extends Base { def t(b: Boolean): Boolean = b }
+      |    a
+      |  }
+      |}
+      |trait HasT[X] { type T = X }
+      |class Outer2[A](val a: A) extends HasT[A] {
+      |  final case class In(t: T)
+      |  def pick(o: Outer2[Boolean])(i: o.In): A = ???
+      |}
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Receivers.scala" -> text)
@@ -214,6 +239,27 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Built.Q.<init>") must_== Count.Finite(4))
       .and(count("recv.Member.get") must_== Count.Finite(2))
       .and(count("recv.Kinded.get") must_== Count.Finite(1))
+
+  // A class in a class whose members are its public fields, none of a type that names a symbol of
+  // the class around it, or types alone, holds nothing of the instance around it: `Shell.leaf` is
+  // a Boolean computed from `l`'s one Boolean (`a` is an atom), 2^2; `Mark` has one value, so
+  // `mark` is 1. A field typed by the instance's `A` (`Hold`), or by a type member it inherits
+  // (`Outer2.In`'s `T`, which on `o` is `o.T`, a Boolean, so `pick` returns `this.a` alone, 1),
+  // means another thing on another instance: not read.
+  private def inner =
+    (List("recv.Shell.leaf", "recv.Shell.mark").map(count) must_== List(4, 1).map(Count.Finite(_)))
+      .and(
+        List("recv.Shell.hold", "recv.Outer2.pick")
+          .map(count(_).toString)
+          .must(contain(contain("a class nested in a class or a body")).forall)
+      )
+
+  // A parent written in the body around the template holds what that body's captures hold:
+  // `InBody.f.Sub.t` is a Boolean computed from `b` and the captured `a`, 2^(2 × 2) (`y` is a
+  // constant nothing overrides). In a class's method the parent holds the instance too: not read.
+  private def bodyParent =
+    (count("recv.InBody.f.Sub.t") must_== Count.Finite(16))
+      .and(count("recv.InClass.f.Sub.t").toString must contain("a parent with constructor"))
 
   // A template whose inherited members are all implemented and can none be overridden holds its
   // own state alone: each inherited member computes from it. `Impl` is concrete and nothing
