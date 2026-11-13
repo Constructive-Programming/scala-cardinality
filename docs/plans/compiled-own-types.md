@@ -417,6 +417,40 @@ name (`hash`, `eqv`, `<init>`, `===`, …) a function literal names, so the clos
 and the search refuses. Next: restricted constructors, re-entry among an enclosing class's members, a
 record of a class something extends, a parameter that is no public field, the small groups.
 
+Stretch 14 (a fourth gate agent, same private gate copy `/tmp/tg2/assets`). First unit, a wrong
+number: a value of the module handed to code outside it that calls back into one of the module's
+overrides was missed whenever the closure by name concluded nothing (`RecordsSpec` `sort…` rows,
+`ProgramRowsSpec.outsideCaller`; each counted 2^2 or 2^128 before). `Reentry` now reads, where code
+outside the module may reach the measured member (`outward`: the member may be called by it,
+`calledOutside`, or `callersOf` is open): a call or selection of code outside the module given a
+value of the module (`handsOver`; a member declared outside the module selected on such a value
+runs its body, any where it is not read, or what overrides it), building a class whose body reaches
+the member (`constructs`), and a function literal implementing a class of the module (single
+abstract method). Unconditionally: first access to an object whose body reaches it (`initializes`),
+and naming a by-name parameter. `calledOutside` also counts a trait's method that implements an
+outside member in a class mixing both, for the measured member and for the closure's holders. The
+old `escapes` rule is gone, subsumed. Rows changed (none to another number): cats-core
+`Const.hash` (2^(2^39)) and `catsDeferForHashCache.<new#1>.defer` (2^9444732966289046241280),
+identical before, and the derived better rows `catsContravariantForHash.<new#1>.contramap`,
+`Deferred.resolve`, `Deferred.resolve.loop`, are now uncovered: kernel's `Order.neqv`/`eqv` call
+`this.compare`, which dispatches to the module's `compare` overriders, some of which hand module
+values to unread standard library code (`Chain.iterator`'s `seq.iterator`); no number was shown
+wrong, the search cannot settle it. cats-kernel's `catsKernelPartialOrderingForPartialOrder.<new#1>.lteq`
+(`?` already) is uncovered now (it overrides `PartialOrdering.lteq`). Gate: cats-core 1,756 / 375 /
+70 / 5,450, 39 of 909 old numeric rows uncovered (was 37); cats-kernel 515 / 13 / 0 / 1,257, 81 of
+368; every other input unchanged. Time per input as before (cats-core 8.3 s, kernel 7.5 s). Shared
+coverage memory not edited: the six rows' lines (five cats-core numbers, one kernel `?`) are
+deleted in the private copy only, since they are unsettled rather than proven unsound; the
+coordinator decides whether the shared memory drops them.
+
+Found, not fixed (shared solver, both front ends): a record with a polymorphic member reached
+through a producer (a receiver's `def F: Fun[F]`, a parameter `() => Fun[G]`) loses that member,
+so `trait KS[G[_]] { def fu: Fun[G]; def g(x: G[Boolean]): G[Boolean] = x }` counts 1 in both,
+where PB5 refuses (`instantiations not closed`), as it does for a `val` or a parameter `Fun[G]`.
+Narrowing re-entry by the symbol each reference may run (`runs`: same member, or same name in a
+class one instance may share, `ClosedProgram.mixes`) frees cats-core +54 / kernel +5 / fixtures +3
+identical rows, but also `KleisliStrong.lmap` at that wrong 1; held back until the solver is fixed.
+
 ### Commands
 
 | Command | What it does |

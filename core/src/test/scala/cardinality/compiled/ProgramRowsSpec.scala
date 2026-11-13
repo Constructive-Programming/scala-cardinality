@@ -36,6 +36,7 @@ class ProgramRowsSpec extends Specification {
       is not read where a behavior of it may call the measured one    $reentry
       a `new` whose class the classes read do not hold may            $unresolvedNew
       is read where no reference by name leads from it to the site  $unnamedCaller
+      not where code outside the module may call the site            $outsideCaller
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
@@ -281,6 +282,31 @@ class ProgramRowsSpec extends Specification {
           Receivers.Reenters
         )
       )
+  }
+
+  // `Ord.compare` overrides `Ordering.compare`, so `sorted`, code outside the module, calls it
+  // where nothing of the module names it: `Srt.m` hands `Ord` to `sorted`, so it may call the site
+  // on a value of `S`. `Base.compare` overrides nothing, but implements `Ordering.compare` in `X`,
+  // which `Srt2.m` hands `sorted` likewise. On the site's own instance (`Kc2` overrides `m`, a
+  // capability of `Kc`), `Kc.m` hands `sorted` the `Cmp` that `c` returns, whose `compare` calls
+  // `get`; `Vector` is imported so that no path of a package, which the receiver reading takes for
+  // anything, leaves the row first. Each row is left.
+  def outsideCaller = {
+    val found = rows("""import scala.collection.immutable.Vector
+      |trait S { def m: Boolean = true; def n: Boolean = m }
+      |object Srt extends S { override def m: Boolean = List[S](Srt).sorted(Ord).isEmpty }
+      |object Ord extends Ordering[S] { def compare(a: S, b: S): Int = 0 }
+      |trait S2 { def m: Boolean = true; def n: Boolean = m }
+      |object Srt2 extends S2 { override def m: Boolean = List[S2](Srt2).sorted(X).isEmpty }
+      |trait Base { def compare(a: S2, b: S2): Int = 0 }
+      |object X extends Base with Ordering[S2]
+      |class Kc { def get: Boolean = true; def c: Ordering[Int] = Cmp; def m: Boolean = Vector(2, 1).sorted(c).isEmpty }
+      |class Kc2 extends Kc { override def m: Boolean = true }
+      |object Cmp extends Ordering[Int] { def compare(a: Int, b: Int): Int = if (new Kc().get) 0 else 1 }
+      |""".stripMargin)
+    List("Ord.compare", "Base.compare", "Kc.get")
+      .map(row => uncovered(found(row), Receivers.Reenters))
+      .reduce(_ and _)
   }
 
   // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement

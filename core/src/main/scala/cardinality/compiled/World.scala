@@ -52,6 +52,12 @@ final private[compiled] class World(
     below.any || !below.complete
   }
 
+  /** The classes of the program that extend `c`, where they are all known and read. */
+  def below(c: ClassSymbol): Option[List[ClassSymbol]] = {
+    val below = closed.subclasses(c)
+    Option.when(below.complete && below.unnamed.isEmpty)(below.found)
+  }
+
   /** Whether a class is read by its declaration: one of the module, or of a dependency with TASTy,
     * whose declarations are the program's and whose bodies are not read. The standard library and
     * the JDK are read by the standard model or not at all.

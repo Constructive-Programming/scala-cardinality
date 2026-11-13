@@ -50,6 +50,38 @@ class RecordsSpec extends Specification {
       |object BackI extends Back { override def k: Boolean = Use.target(this) }
       |trait Ord { def m: Boolean = true; def n: Boolean = m }
       |object OrdI extends Ord with Ordering[Int] { def compare(a: Int, b: Int): Int = if (Use.ord(this)) 0 else 1; override def m: Boolean = List(2, 1).sorted(this).isEmpty }
+      |trait S1 { def m: Boolean = true; def n: Boolean = m }
+      |object SrtB extends S1 { override def m: Boolean = List(2, 1).sorted(new CmpB).isEmpty }
+      |final class CmpB extends Ordering[Int] { def compare(a: Int, b: Int): Int = if (Use.sortBuilt(SrtB)) 0 else 1 }
+      |trait S2 { def m: Boolean = true; def n: Boolean = m }
+      |object SrtF extends S2 { val c: Ordering[Int] = CmpF; override def m: Boolean = List(2, 1).sorted(c).isEmpty }
+      |object CmpF extends Ordering[Int] { def compare(a: Int, b: Int): Int = if (Use.sortField(SrtF)) 0 else 1 }
+      |trait S3 { def m: Boolean = true; def n: Boolean = m }
+      |final class SrtA(c: Ordering[Int]) extends S3 { override def m: Boolean = List(2, 1).sorted(c).isEmpty }
+      |object CmpA extends Ordering[Int] { def compare(a: Int, b: Int): Int = if (Use.sortArg(new SrtA(CmpA))) 0 else 1 }
+      |trait S4 { def m: Boolean = true; def n: Boolean = m }
+      |final class SrtD(c: Ordering[Int]) extends S4 { override def m: Boolean = c.compare(1, 2) == 0 }
+      |object CmpD extends Ordering[Int] { def compare(a: Int, b: Int): Int = if (Use.sortDirect(new SrtD(CmpD))) 0 else 1 }
+      |trait S5 { def m: Boolean = true; def n: Boolean = m }
+      |final class SrtE(c: Ordering[S5]) extends S5 { override def m: Boolean = List[S5](this).sorted(c).isEmpty }
+      |object CmpE extends Ordering[S5] { def compare(a: S5, b: S5): Int = if (Use.sortSelf(a)) 0 else 1 }
+      |trait S6 { def m: Boolean = true; def n: Boolean = m }
+      |final class Z7 { val v: Boolean = Use.sortNew(SrtN) }
+      |object SrtN extends S6 { override def m: Boolean = { new Z7; true } }
+      |trait S7 { def m: Boolean = true; def n: Boolean = m }
+      |final class SrtL(f: Int => Boolean) extends S7 { override def m: Boolean = List(1).exists(f) }
+      |object MkL { def l: SrtL = new SrtL(i => Use.sortLambda(l)) }
+      |trait S8 { def m: Boolean = true; def n: Boolean = m }
+      |object SrtX extends S8 { override def m: Boolean = List(2, 1).sorted(CmpX).isEmpty }
+      |trait Half { def compare(a: Int, b: Int): Int = if (Use.sortMixed(SrtX)) 0 else 1 }
+      |object CmpX extends Half with Ordering[Int]
+      |trait S9 { def m: Boolean = true; def n: Boolean = m }
+      |trait Sam { def run(): Boolean }
+      |final class SrtS(f: Sam) extends S9 { override def m: Boolean = f.run() }
+      |object MkS { def s: SrtS = new SrtS(() => Use.sortSam(s)) }
+      |trait S10 { def m: Boolean = true; def n: Boolean = m }
+      |object Z10 { val v: Boolean = Use.sortInit(SrtO); def ok: Boolean = true }
+      |object SrtO extends S10 { override def m: Boolean = Z10.ok }
       |trait Fb { def k: Boolean = true; def j: Boolean = k }
       |final class FbF(f: () => Boolean) extends Fb { override def k: Boolean = f() }
       |final class Pin private (val a: Boolean, val b: Boolean)
@@ -86,6 +118,16 @@ class RecordsSpec extends Specification {
       |  def target(b: Back): Boolean = true
       |  def ord(o: Ord): Boolean = true
       |  def fb(b: Fb): Boolean = true
+      |  def sortBuilt(s: S1): Boolean = true
+      |  def sortField(s: S2): Boolean = true
+      |  def sortArg(s: S3): Boolean = true
+      |  def sortDirect(s: S4): Boolean = true
+      |  def sortSelf(s: S5): Boolean = true
+      |  def sortNew(s: S6): Boolean = true
+      |  def sortLambda(s: S7): Boolean = true
+      |  def sortMixed(s: S8): Boolean = true
+      |  def sortSam(s: S9): Boolean = true
+      |  def sortInit(s: S10): Boolean = true
       |  def pin(p: Pin): Boolean = true
       |  def mkPin(x: Boolean, y: Boolean): Pin = ???
       |  def shut(s: Shut): Boolean = true
@@ -182,22 +224,36 @@ class RecordsSpec extends Specification {
   // bounded abstract type member (a proof about each value's own witness); one whose inherited
   // member the site may not call; a final class that nothing the site may call builds; and an
   // overridden member a behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m`
-  // gives `OrdI` to `sorted`, which calls its `compare`, which calls `ord`.
+  // gives `OrdI` to `sorted`, which calls its `compare`, which calls `ord`. Each `sort…` row's
+  // record has an `m` that hands code outside the module an `Ordering` of the module whose
+  // `compare` calls the site (each `m` is otherwise a Boolean beside `n = m`, which would count
+  // 2^2): one it builds, a field's, a constructor parameter's (`SrtD.m` selects its `compare`
+  // itself), one beside `this`, one whose `compare` is a trait's method that implements
+  // `Ordering.compare` only in `CmpX`. `SrtN.m` builds a class whose body calls the site; `SrtL.m`
+  // hands `exists` a function literal that does; `SrtS.m` calls a `Sam` that a function literal
+  // calling the site implements; `SrtO.m` first accesses `Z10`, whose body calls the site.
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def reason(name: String) = count(name) match {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "base", "bounded", "guards", "shut", "target", "ord")
-      .map(reason) must_== List(
-      "an extension method among the members of a capability record",
-      "a capability record of a class something extends",
-      "a capability record with a bounded abstract type member",
-      "a capability record with a member hidden at the use site",
-      "a capability record with no constructor or factory the site may call",
-      "an overridden member that may call it among the members of a capability record",
-      "an overridden member that may call it among the members of a capability record"
+    val sorts =
+      List("sortBuilt", "sortField", "sortArg", "sortDirect", "sortSelf", "sortNew", "sortLambda")
+        ++ List("sortMixed", "sortSam", "sortInit")
+    (sorts.map(n => n -> reason(n)) must_== sorts.map(
+      _ -> s"${Receivers.Reenters} among the members of a capability record"
+    )).and(
+      List("tagged", "base", "bounded", "guards", "shut", "target", "ord")
+        .map(reason) must_== List(
+        "an extension method among the members of a capability record",
+        "a capability record of a class something extends",
+        "a capability record with a bounded abstract type member",
+        "a capability record with a member hidden at the use site",
+        "a capability record with no constructor or factory the site may call",
+        s"${Receivers.Reenters} among the members of a capability record",
+        s"${Receivers.Reenters} among the members of a capability record"
+      )
     )
   }
 
