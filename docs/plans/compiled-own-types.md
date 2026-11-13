@@ -484,8 +484,18 @@ the solver's refusal now, identical to the old `?`. Regressions: `ProgramRowsSpe
 fix). Method rows identical: cats-core 1,769 → 1,826 (old numeric uncovered 33 → 32), cats-kernel
 515 → 521 (81 → 78), fixtures 5,207 → 5,214 with one better row past a model limit derived
 (`Outer.Inner.target`, 2^16). Shared coverage memory: inserted cats-core 57, cats-kernel 6,
-fixtures 11. Next: restricted constructors, re-entry among an enclosing class's members, a record of
-a class something extends, a parameter that is no public field, the small groups.
+fixtures 11. Stopped here on the coordinator's order: step 4's groups go to new agents from an
+integration branch. Old numeric method rows still uncovered at `8e810f4`: cats-core 32 of 909,
+cats-eo 73 of 271, generics 0 of 16, schemes 0 of 5, cats-kernel 78 of 368, core 8 of 768, fixtures
+670 of 5,502. Not committed, left for whoever takes restricted constructors:
+`/tmp/tg5/restricted-cases.patch` reads a sealed case's constructor and fields by `World.callable`
+from the site (`private[p]` inside `p`; frees cats-eo 31 and fixtures 12 old numeric rows,
+identical) and a case the site may not build through `Factories`. Its correctness review found the
+factory branch unsound as written: it skips `Sums.carried`, so a case pinning its parent's argument
+(`Two extends V[Int]`) is summed into `V[String]`; `Factories.observed` misses a case class's
+synthetic accessors (`unapply`, `_1`) and a protected override a family member reads. The callable
+check alone was not flagged. The private gate copy's `covered/` holds rows that patch measured; the
+shared memory does not.
 
 ### Commands
 
