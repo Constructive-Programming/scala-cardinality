@@ -75,11 +75,13 @@ private[compiled] object Bodies {
   // default whose body throws (`defaulted`; a by-name parameter's too, as a by-name argument is
   // taken as evaluated).
   private def throws(term: TermTree)(using Context): Boolean = term match {
-    case _ if defaulted(term)             => true
-    case _: Throw                         => true
-    case ref: TermReferenceTree           => ref.symbol.displayFullName == "scala.Predef$.???"
+    case _ if defaulted(term) => true
+    case _: Throw             => true
+    // The written name first: resolving every reference reaches signatures that do not read.
+    case ref: TermReferenceTree =>
+      Reentry.written(ref) == "???" && ref.symbol.displayFullName == "scala.Predef$.???"
     case Apply(fun: TermReferenceTree, _) =>
-      fun.symbol.displayFullName == "scala.sys.package$.error"
+      Reentry.written(fun) == "error" && fun.symbol.displayFullName == "scala.sys.package$.error"
     case Typed(inner, _)        => throws(inner)
     case Block(_, result)       => throws(result)
     case If(_, yes, no)         => throws(yes) && throws(no)
@@ -94,17 +96,12 @@ private[compiled] object Bodies {
     case Apply(fun, _)     => defaulted(fun)
     case TypeApply(fun, _) => defaulted(fun)
     // The written name first: not every reference's symbol resolves (a refinement's member).
-    case ref: TermReferenceTree if written(ref).contains("$default$") =>
+    case ref: TermReferenceTree if Reentry.written(ref).contains("$default$") =>
       ref.symbol.tree.exists {
         case getter: DefDef => getter.rhs.exists(throws)
         case _              => false
       }
     case _ => false
-  }
-
-  private def written(ref: TermReferenceTree): String = ref match {
-    case id: Ident      => id.name.toString
-    case select: Select => select.name.toString
   }
 
 }

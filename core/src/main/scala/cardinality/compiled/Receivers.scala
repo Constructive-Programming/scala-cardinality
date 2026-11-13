@@ -167,13 +167,17 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   private def free(c: ClassSymbol, member: TermSymbol): Boolean =
     member.isParamAccessor && member.owner != c && !passed(c, member.owner.asClass)
 
-  // Whether the template, or a class it extends, reaches one parent through two of its parents.
+  // Whether the template, or a class it extends, reaches one parent through two of its parents
+  // with other type arguments, or through parents that do not read. Reached again with the same
+  // ones, it is one parent, as the old reading takes it (`InheritedScopes.walk`).
   private def reachesTwice(c: ClassSymbol): Boolean = {
     val ancestors = World.ancestors(c)
-    (c :: ancestors).exists { k =>
-      val parents = k.parentClasses.filter(ancestors.contains)
-      ancestors.exists(ancestor => parents.count(_.isSubClass(ancestor)) > 1)
-    }
+    Try((c :: ancestors).exists { k =>
+      ancestors.exists { ancestor =>
+        val bases = k.parents.flatMap(_.baseType(ancestor))
+        bases.exists(!_.isSameType(bases.head))
+      }
+    }).getOrElse(true)
   }
 
   // The member `c` has where `member` is declared: the first one along its linearization that
@@ -221,7 +225,9 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     // A parent two of its parents extend is read once by the linearization, each with its own
     // type arguments: not read yet.
     else if (reachesTwice(c))
-      Left(s"an enclosing class that reaches a parent through two parents: ${c.name}")
+      Left(
+        s"an enclosing class that reaches a parent through two parents with other type arguments: ${c.name}"
+      )
     else
       try {
         val line = c.linearization

@@ -17,6 +17,7 @@ class MatchTypesSpec extends Specification {
     projections no single instantiation reduces are refused   $refused
     a class's parameter is the argument the class is named    $argument
     in a constructor's position, at the alias's arguments     $positions
+    a stored value of the class, at the arguments it is named $storedValues
     a tuple a single case projects reduces whatever it holds  $projected
     any other stuck match type is not read yet, nor an uninhabited one $later
   """
@@ -77,6 +78,12 @@ class MatchTypesSpec extends Specification {
       |  def t6(x: Snd[(Nothing, Boolean)], y: Boolean): Boolean = y
       |}
       |final case class Sd(x: Snd[(Nothing, Boolean)])
+      |val missed: Miss[(Unit, Boolean)] = Miss(())
+      |val flagged: Miss[(Boolean, Unit)] = Miss(true)
+      |final case class HoldsFlag(m: Miss[(Boolean, Unit)])
+      |final case class HoldsUnit(m: Miss[(Unit, Boolean)])
+      |final class Pick[T, U](val x: T match { case Int => U; case Any => Unit })
+      |final case class HoldsPick(p: Pick[Int, Boolean])
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("MatchTypes.scala" -> text)
@@ -152,6 +159,16 @@ class MatchTypesSpec extends Specification {
       Count.Finite(3)
     )).and(List("UsesAf", "UsePin", "miss").map(stored) must_== List("2", "3", "1"))
       .and(stored("UR") must contain("a type: (A match"))
+
+  // The stored estimate reads a class's field over its parameter at the argument the type names
+  // too: `Miss[(Unit, Boolean)]` holds a `Unit`, one value, and `Miss[(Boolean, Unit)]` a
+  // `Boolean`. A top-level value row is min(1, |T|) (register D30): both types have a value, so
+  // both are 1 (read, where they were refused). A class stores the size itself: `HoldsUnit` 1,
+  // `HoldsFlag` 2. `Pick[Int, Boolean]`'s field reduces to the class's other parameter `U`, read
+  // as the position bound it: `Boolean`, so `HoldsPick` is 2.
+  private def storedValues =
+    List("missed", "flagged", "HoldsUnit", "HoldsFlag", "HoldsPick").map(stored) must_==
+      List("1", "1", "1", "2", "2")
 
   // `(A, Unit) match { case (f, s) => f }` is A for every A (scalac reduces a tuple of the
   // pattern's arity whatever its components): `proj` has x or y, 2. So for a first case whose

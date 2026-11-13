@@ -25,7 +25,7 @@ class ProgramRowsSpec extends Specification {
       an abstract redeclaration makes a member abstract again         $reabstracted
       an inherited deferred given is a capability                     $deferredGiven
       a member a parent mixed in beside the template overrides varies $mixedIn
-      a parent reached through two parents is not read yet            $twoPaths
+      a parent reached twice is read once, unless its arguments differ $twoPaths
       a member a case overrides computes from the case a sum holds    $sumOverridden
       a case's `private[p]` constructor builds every value inside `p`  $scopedCase
       a field selected on `this` alone is not observed on an argument  $thisOnly
@@ -834,16 +834,24 @@ class ProgramRowsSpec extends Specification {
       .and(uncovered(found("O.I.<init>"), "a bounded abstract type member around a constructor"))
   }
 
-  // `D` reaches `A` through `B` and through `C`, and `E` extends `D`.
+  // `D` reaches `A` through `B` and through `C`, each with no type argument: one parent, so `D.g`
+  // has `a`, one of 2^2, and so has `E.h` (`E` extends `D`, whose `g` nothing overrides). `CS`
+  // reaches `CP` as a `CP[Boolean]` and as a `CP[Any]`: not read.
   def twoPaths = {
     val found = rows("""trait A { def a: Boolean }
       |trait B extends A
       |trait C extends A
       |trait D extends B with C { def g: Boolean = a }
       |trait E extends D { def h: Boolean = a }
+      |trait CP[+X] { def p: X }
+      |trait CQ extends CP[Boolean]
+      |trait CR extends CP[Any]
+      |trait CS extends CQ with CR { def s: Boolean = true }
       |""".stripMargin)
-    uncovered(found("D.g"), "reaches a parent through two parents")
-      .and(uncovered(found("E.h"), "reaches a parent through two parents"))
+    (List(found("D.g"), found("E.h")) must_== List(Count.Finite(4), Count.Finite(4)))
+      .and(
+        uncovered(found("CS.s"), "reaches a parent through two parents with other type arguments")
+      )
   }
 
 }

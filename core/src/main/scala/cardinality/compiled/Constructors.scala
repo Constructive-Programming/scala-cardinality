@@ -264,7 +264,7 @@ private[compiled] object Constructors {
     case _            => false
   }
 
-  private val Unestimable = Stored.Tops ++ Set("scala.Null", "scala.Nothing")
+  private val Unestimable = Algebra.Tops ++ Set("scala.Null", "scala.Nothing")
 
   // The estimate's reason as a method row words it.
   private def rendered(reason: Unbound): Option[String] = reason match {

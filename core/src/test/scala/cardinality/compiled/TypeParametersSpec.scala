@@ -18,7 +18,8 @@ class TypeParametersSpec extends Specification {
     a closure is read with the binders of both sites           $closures
     a constructor row reads a rigid constructor's positions    $constructors
     a capability's own type parameters are read as before      $polymorphic
-    a symbol two sites bind differently is not read yet        $rebound
+    a class's parameter bound to a value is not a type          $rebound
+    a lambda over a symbol bound again is read where written   $lambdas
     a bounded or variant constructor is refused where it is used $kinds
   A bound of a proper type parameter is a proof beside it
     an upper bound views the values, a lower bound builds them  $proofs
@@ -57,6 +58,12 @@ class TypeParametersSpec extends Specification {
       |final case class Wrap[F[_], A](v: F[A]) {
       |  object Ops { def back(w: Wrap[[X] =>> (A, X), Boolean]): A = w.v._1 }
       |}
+      |trait Fk[F[_], G[_]] {
+      |  def apply[A](fa: F[A]): G[A]
+      |  def or[H[_]](h: Fk[H, G]): Fk[[X] =>> Either[F[X], H[X]], G] = ???
+      |}
+      |type Same[X] = X
+      |final case class Kl[F[_], A, B](run: A => F[B]) { def plain: Kl[Same, A, F[B]] = Kl[Same, A, F[B]](run) }
       |final class Hold[F[_]](val b: Boolean)
       |final class Held[F[_], A](val fa: F[A])
       |final class Co[+F[_]](val a: F[Option[Int]], val b: F[Some[Int]])
@@ -147,14 +154,21 @@ class TypeParametersSpec extends Specification {
       .and(uncovered("Narrow.get") must contain("polymorphic capability binder: M (bounded)"))
       .and(uncovered("Apply.get") must contain("the result instantiates the binder"))
 
-  // In `Wrap.Ops.back`, the written `(A, X)` means the `A` of the enclosing `Wrap`, while reading
-  // the argument `Wrap[..., Boolean]` binds that same `A` to `Boolean`: one symbol with two
-  // meanings. In `held`, the field `v: F[A]` is `G` applied to `A`, an uninterpreted application
-  // whose argument is read as a type, but `A` is bound to the values of `Int`: a class's parameter
-  // bound to a value is not read as a type. Both are uncovered.
+  // In `held`, the field `v: F[A]` is `G` applied to `A`, an uninterpreted application whose
+  // argument is read as a type, but `A` is bound to the values of `Int`: a class's parameter bound
+  // to a value is not read as a type. It is uncovered.
   private def rebound =
-    (uncovered("Wrap.Ops.back") must startWith("a written constructor over a parameter bound"))
-      .and(uncovered("Hk.held") must startWith("a class's parameter bound to a value"))
+    uncovered("Hk.held") must startWith("a class's parameter bound to a value")
+
+  // A class's parameter passed back to the class: in `Fk.or` the written `Either[F[X], H[X]]` means
+  // the `F` of the enclosing `Fk`, which reading the result `Fk[..., G]` binds to the lambda. The
+  // lambda's body is read where it was written, `X` being the argument `apply` gives it: the goal
+  // is `∀A. Either[F[A], H[A]] => G[A]`, and each side has one way to a `G[A]`, `this` or `h`: 1.
+  // `Kl.plain` is `A => Same[F[B]]`, `A => F[B]`, which only `run` gives: 1. `Wrap.Ops.back`'s `w`
+  // holds an `(A, Boolean)` whose first part is the one `A` the body has (the enclosing `Wrap`'s
+  // `v` is a rigid `F[A]`): 1.
+  private def lambdas =
+    List("Fk.or", "Kl.plain", "Wrap.Ops.back").map(count) must_== List.fill(3)(Count.Finite(1))
 
   // A constructor with a bound has its bound's members, and one with a variant parameter relates
   // its applications by subtyping: neither is read, as before, where a type names it. `unused`

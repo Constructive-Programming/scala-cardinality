@@ -1,10 +1,12 @@
 package cardinality.compiled
 
 import scala.collection.mutable
+import scala.reflect.NameTransformer
 import scala.util.control.NonFatal
 
 import cardinality.tasty.CompiledTypes
 import tastyquery.Contexts.*
+import tastyquery.Exceptions.MemberNotFoundException
 import tastyquery.Modifiers.OpenLevel
 import tastyquery.SourceLanguage
 import tastyquery.Symbols.*
@@ -84,13 +86,34 @@ final private[compiled] class ClosedProgram(
         case Some(file) if !seen(binary)        =>
           file.parents.flatMap(resolved(_, seen + binary)).map((k, m) => (k, m ++ file.methods))
         case Some(_) => List((None, Nil))
-        case None    => List((named(binary), Nil))
+        // A parent no classpath entry holds is outside the program: it is no class of it, though
+        // it may override what the class has (`Unnamed.whole`).
+        case None if absent(binary) => Nil
+        // A Scala 2 specialization (`F$mcZI$sp`), which no symbol stands for, extends `F` alone
+        // and may override any member `F` has.
+        case None =>
+          binary match {
+            case Specialized(general) =>
+              val k = named(general)
+              val members = k.toList.flatMap(linearized(_)._1).flatMap(_.declarations)
+              List((k, members.map(member => NameTransformer.encode(member.name.toString))))
+            case _ => List((named(binary), Nil))
+          }
       }
+    def outside(binary: String, seen: Set[String]): Boolean = byName.get(binary) match {
+      case Some(file) => !seen(binary) && file.parents.exists(outside(_, seen + binary))
+      case None       => absent(binary)
+    }
     val read = files.map { file =>
       val parents = resolved(file.binary, Set.empty)
       val methods = file.methods ++ parents.flatMap(_._2)
       (
-        Unnamed(file.binary, parents.flatMap(_._1).distinct, methods.toSet),
+        Unnamed(
+          file.binary,
+          parents.flatMap(_._1).distinct,
+          methods.toSet,
+          !outside(file.binary, Set.empty)
+        ),
         parents.forall(_._1.nonEmpty)
       )
     }
@@ -208,16 +231,17 @@ final private[compiled] class ClosedProgram(
           else Overriding.Unknown
         }
         // A class no symbol stands for overrides what it declares, by name, and so does what it
-        // mixes in beside `owner`.
+        // mixes in beside `owner`; a parent of it outside the program may override anything.
         val nameless = below.unnamed.map { subclass =>
           val between = subclass.parents.flatMap(linearized(_)._1).filterNot(ownerLine)
           val name = member.name.toString
           // A class file spells a method by its encoded name (`$plus` for `+`).
           if (
-            subclass.methods(scala.reflect.NameTransformer.encode(name)) ||
+            subclass.methods(NameTransformer.encode(name)) ||
             between.exists(_.declarations.exists(d => d.name.toString == name && !d.isPrivate))
           ) Overriding.Supplied
-          else Overriding.No
+          else if (subclass.whole) Overriding.No
+          else Overriding.Unknown
         }
         val rest = if (below.complete) Overriding.No else Overriding.Unknown
         (rest :: each ::: nameless).maxBy(_.ordinal)
@@ -247,7 +271,7 @@ final private[compiled] class ClosedProgram(
         case d: TermSymbol if d.name.toString == name => Some(d)
       }) ++ below.unnamed.collect {
       case u
-          if u.methods(scala.reflect.NameTransformer.encode(name)) ||
+          if !u.whole || u.methods(NameTransformer.encode(name)) ||
             u.parents.flatMap(linearized(_)._1).filterNot(ownerLine).exists {
               _.declarations.exists(_.name.toString == name)
             } =>
@@ -268,7 +292,7 @@ final private[compiled] class ClosedProgram(
     }
     def within(below: Subclasses, other: ClassSymbol) =
       below.found.exists(reaches(_, other)) ||
-        below.unnamed.exists(_.parents.exists(reaches(_, other)))
+        below.unnamed.exists(u => !u.whole || u.parents.exists(reaches(_, other)))
     !leftWhole || !rightWhole || leftLine.contains(right) || rightLine.contains(left) || {
       val (lefts, rights) = (subclasses(left), subclasses(right))
       if (lefts.complete) within(lefts, right)
@@ -303,33 +327,72 @@ private[compiled] object ClosedProgram {
   }
 
   /** A local or anonymous class of a class without TASTy: its binary name, the classes it extends
-    * that resolve, and the names of the methods an instance of it declares.
+    * that resolve, the names of the methods an instance of it declares, and whether every class it
+    * extends is on the classpath. One outside the program extends none of its classes (the closed
+    * world), but what it declares is not read: it may override anything the class has.
     */
-  final case class Unnamed(name: String, parents: List[ClassSymbol], methods: Set[String])
+  final case class Unnamed(
+      name: String,
+      parents: List[ClassSymbol],
+      methods: Set[String],
+      whole: Boolean = true
+  )
 
-  // The class a binary name stands for (`a/b/Outer$Inner`): a top-level class, then its member
-  // classes, an object's among them.
-  private def named(binary: String)(using Context): Option[ClassSymbol] = {
+  private val Specialized = "(.+)\\$mc[A-Za-z]+\\$sp".r
+
+  // A binary name (`a/b/Outer$Inner`) as its top-level class's full name and its member classes.
+  private def parts(binary: String): Option[(String, List[String])] = {
     val at = binary.lastIndexOf('/')
-    val parts = binary.substring(at + 1).split('$').toList.filter(_.nonEmpty)
     val pkg = binary.take(at.max(0)).replace('/', '.')
-    try
-      parts match {
-        case Nil         => None
-        case top :: rest =>
-          rest.foldLeft(Option(ctx.findStaticClass(if (pkg.isEmpty) top else s"$pkg.$top"))) {
-            (outer, name) =>
-              outer.flatMap { k =>
-                (k :: k.companionClass.toList)
-                  .flatMap(_.declarations)
-                  .collectFirst {
-                    case member: ClassSymbol if member.name.toString == name => member
-                  }
-              }
+    binary.substring(at + 1).split('$').toList.filter(_.nonEmpty) match {
+      case Nil         => None
+      case top :: rest => Some((if (pkg.isEmpty) top else s"$pkg.$top", rest))
+    }
+  }
+
+  // Whether no classpath entry holds a binary name's top-level class or object. A lookup that
+  // fails otherwise says nothing. A `$` may be part of a top-level name (`Op$Impl`, a symbolic
+  // `$plus$plus`), so the whole name, encoded and decoded, must be missing too.
+  private def absent(binary: String)(using Context): Boolean =
+    parts(binary).exists { (top, _) =>
+      def missing(name: String) =
+        def gone(find: => Symbol) =
+          try { find; false }
+          catch {
+            case _: MemberNotFoundException => true
+            case NonFatal(_)                => false
           }
+        gone(ctx.findStaticClass(name)) && gone(ctx.findStaticModuleClass(name))
+      val whole = binary.replace('/', '.')
+      List(top, whole, NameTransformer.decode(whole)).distinct.forall(missing)
+    }
+
+  // The class a binary name stands for: a top-level class or object, then its member classes, an
+  // object's among them; else a top-level class whose name holds the `$` (`Op$Impl`, `$plus$plus`).
+  private def named(binary: String)(using Context): Option[ClassSymbol] =
+    nested(binary).orElse {
+      val whole = binary.replace('/', '.')
+      List(whole, NameTransformer.decode(whole)).distinct.iterator
+        .flatMap(name => scala.util.Try(ctx.findStaticClass(name)).toOption)
+        .nextOption()
+    }
+
+  private def nested(binary: String)(using Context): Option[ClassSymbol] =
+    try
+      parts(binary).flatMap { (top, rest) =>
+        // A member of an object without a companion class is under the object's class.
+        val start = scala.util
+          .Try(ctx.findStaticClass(top))
+          .orElse(scala.util.Try(ctx.findStaticModuleClass(top)))
+        rest.foldLeft(start.toOption) { (outer, name) =>
+          outer.flatMap { k =>
+            (k :: k.companionClass.toList)
+              .flatMap(_.declarations)
+              .collectFirst { case member: ClassSymbol if member.name.toString == name => member }
+          }
+        }
       }
     catch { case NonFatal(_) => None }
-  }
 
   /** How a member may be overridden: not at all, or only by a class that is not read, or by a class
     * of the program.

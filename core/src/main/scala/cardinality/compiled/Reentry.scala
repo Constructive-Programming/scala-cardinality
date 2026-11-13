@@ -5,7 +5,7 @@ import scala.util.Try
 
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.TermSymbolKind
-import tastyquery.Names.{SignedName, TermName}
+import tastyquery.Names.SignedName
 import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
 import tastyquery.Trees.*
@@ -579,7 +579,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
         Some(Set.empty)
       case reference: TermReferenceTree =>
         val candidates =
-          called(reference).fold(ownNamed.getOrElse(Reentry.nameOf(reference), Nil))(List(_))
+          called(reference).fold(ownNamed.getOrElse(Reentry.written(reference), Nil))(List(_))
         inside(union(candidates.flatMap(m => List(Some(m.moduleClass.toSet), factory(m)))))
       case _ => inside(Some(Set.empty))
     })
@@ -731,7 +731,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
             }
           }
         case reference: TermReferenceTree =>
-          note(Reentry.nameOf(reference), World.named(reference))
+          note(Reentry.written(reference), World.named(reference))
           super.traverse(reference)
         case _ => super.traverse(tree)
       }
@@ -755,8 +755,11 @@ final private[compiled] class Reentry(world: World)(using Context) {
 
 private[compiled] object Reentry {
 
-  /** A name without the signature a selection may carry. */
-  private def unsigned(name: TermName): String = name match {
+  /** A reference's written name, without the signature a selection may carry. */
+  def written(reference: TermReferenceTree): String = (reference match {
+    case Ident(name)     => name
+    case Select(_, name) => name
+  }) match {
     case signed: SignedName => signed.underlying.toString
     case other              => other.toString
   }
@@ -770,12 +773,6 @@ private[compiled] object Reentry {
     case tpe: ThisType => Some(tpe.cls)
     case _             => None
   }).toOption.flatten
-
-  /** The name a reference spells. */
-  private def nameOf(reference: TermReferenceTree): String = unsigned(reference match {
-    case Ident(name)     => name
-    case Select(_, name) => name
-  })
 
   /** Whether a member is an object's, which a name alone reaches through an import or `Predef`. */
   def objectMember(m: TermSymbol): Boolean = m.owner match {
