@@ -1612,6 +1612,29 @@ change (cats-eo 3 (4) -> 3 (3)):
 Gate times: cats-kernel 13.0 s, cats-core 10.2 s. `compiled/` is 8,997 lines. Next, in the order
 handed over: `tasty-k2`, `tasty-k1`, `tasty-k4`.
 
+Then `tasty-k2` (`4c7a503`). Conflicts: `Shapes.member` (k3's deferred-inline structure kept, its
+`read` calling k2's `Capabilities.method`), the file-count pin (24), `derived.txt` and this plan
+(the union). The review confirmed the 15 derivations (`Functor.imap` is overridden in
+`package.scala`, `WriterT`, `OptionT`, `Nested`; every other member of each comonad has a body, so
+ω; `Comonad.extract` has no capability returning a bare A, 0) and found one wrong number, older
+than k2 but widened by it to inherited members: a member's own constructor binder applied only in
+a parameter (`m[G[_]](g: G[Unit]): H[Int]`) was read as an unfillable parameter, so the member was
+dead and `r.m[Option](None)` unseen: 0 where a body exists (1). `PolymorphicMembers.close` (shared
+by both front ends) now refuses it, "a parameter instantiates the binder" (`RecordsSpec`
+`polymorphic`: `hkInh`, `hkDecl`, `ngInh`). No corpus row moved with the fix.
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,885 | 19 | 0 | 1,096 | 3 (3) | 3 (3) |
+| cats-core | 2,179 | 388 | 72 | 5,012 | 22 (23) | 22 (23) |
+| cats-kernel | 635 | 19 | 0 | 1,131 | 28 (28) | 26 (26) |
+| cats-eo | 327 | 12 | 0 | 358 | 2 (2) | 2 (2) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,750 | 270 | 5 | 727 | 140 (153) | 105 (118) |
+
+Gate times: cats-kernel 14.7 s, cats-core 10.3 s. `compiled/` is 9,023 lines.
+
 ### What exists
 
 | Piece | Where | What it is |
@@ -2780,6 +2803,50 @@ past a resolution limit: `q.V.andThen[C, F](using rc: RC[F]): rc.Out[S, C]` is 0
 end does not resolve `RC`): `rc` holds no value, `rc.Out` is the path's rigid constructor, and no
 value of `rc.Out[S, C]` is in reach. No worse row; the corpora are unchanged otherwise. `compiled/`
 grows by 126 lines (8,339 -> 8,465).
+
+### Group k2: a capability with type parameters of its own
+
+What h6 left. Three changes, the first two in the shared back end:
+
+- **The instantiation closure has a budget** (`GoalSolver.instantiated`). Each polymorphic path read
+  and each instance it gives is a step of the caller's budget (`Readings.Work`, 3,000,000 per row;
+  past it the row reads "target budget exhausted"). An instance is labelled by a number its shape
+  gets once per solver run, not by the shape's `toString`.
+- **Only a path that can be called supplies an applied value** (`PolymorphicMembers.Supply`). PB5
+  took the result of every monomorphic path as a candidate, even of one whose applied parameters no
+  value of the context can fill. In `Cokleisli.andThen` (a `CoflatMap[F]`, no F value) `void`'s
+  `F[Unit]` fixed `coflatten` at `Unit`, whose instance built `F[F[Unit]]`, and so on without end:
+  that is the 40-minute row. Now the heads available are computed once per context (the least fixed
+  point `opens` already used), and both the candidates and `opens` read the paths callable there.
+  A path that an instance added later opens is refused rather than kept beside the instances it gave
+  before. A context's supply is read once (`GoalSolver.supply`). The old front end gives the same
+  rows, values and reasons, on all six corpora (compared row by row, old rows recomputed).
+- **An inherited capability with type parameters of its own** (`Receivers.inheritedCapability`)
+  is read as a declared one is: its `PolyType` is instantiated at its own type-parameter symbols, and
+  `Capabilities.method` (moved out of `Shapes`, shared by both) binds them and closes the function
+  (`PolymorphicMembers.close`). Bounds are read as declared, so a bound a subclass makes trivial still
+  refuses; a member with several type-parameter clauses is uncovered.
+
+Derivations (`derived.txt`, 15 rows of cats-core):
+
+- `Comonad.extract` 0: F is not fixed, every capability of the instance returns an F or a function
+  into one, and nothing takes an F apart.
+- `Comonad[Tuple1]` … `Comonad[(A0, …, A9, *)]` (`catsStdInstancesForTuple1`–`11`),
+  `Invariant.catsComonadForTuple2`, `catsInstancesForIdCompat2_6_1` (`Comonad[Id]`),
+  `catsDataCoflatMapForWriterTId` ω: the goal record holds `Functor.imap`, concrete but overridden
+  (`catsInstancesForId`, `WriterT`, `OptionT`), so it varies. Its result holds a B, and
+  `f((g andThen f)^n(a))`, n ≥ 0, are pairwise distinct (f = _ + 1, g = identity at Int); every other
+  member (extract, coflatMap, coflatten, void, map, lift) has at least one implementation and
+  countably many. The rule of the derived row `catsInstancesForId.<new#1>.imap`.
+
+Old numeric rows covered, each identical: cats-core `Category.id` (0),
+`Profunctor.catsStrongForFunction1` (1), `KleisliInstances3.catsDataChoiceForKleisliId` (1); cats-eo
+`ForgetfulApplicative.pure` (0); fixtures `UsesIds.pick`, `UsesAbsurd.pick`, `FL2O.other`,
+`Instance.get` (two), `binders.ForgetfulApplicative.pure`, `Child.pick`. cats-core's new front end
+runs in 15 s (24 s before).
+
+Regression: `RecordsSpec` "an inherited member with type parameters of its own" (`get` 1, `noA` 0,
+`run` 0, the last the endless closure).
 
 ### How each model rule reads over symbols
 

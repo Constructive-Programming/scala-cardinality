@@ -48,7 +48,9 @@ private[cardinality] object PolymorphicMembers {
   def close(member: String, parameters: List[Declared], shape: Shape): Either[String, Shape] = {
     val binders = parameters.map(p => p -> Binder(member, p.name))
     val occurring = binders.filter((_, binder) => occurs(shape, binder))
-    val applied = binders.find((_, binder) => appliesResult(shape, binder))
+    val applied = binders
+      .collectFirst { case (p, b) if appliesResult(shape, b) => (p, "the result") }
+      .orElse(binders.collectFirst { case (p, b) if constructs(shape, b.id) => (p, "a parameter") })
     val evidence = parameters.find(_.view)
     val twoSided = parameters.find(p => p.lower && p.upper)
     val bounded = occurring.collectFirst { case (p, _) if p.lower || p.upper => p }
@@ -56,10 +58,8 @@ private[cardinality] object PolymorphicMembers {
       case Some(p) => Left(s"polymorphic capability binder: ${p.name} (bounded)")
       case None    =>
         applied match {
-          case Some((p, _)) =>
-            Left(
-              s"polymorphic capability binder: ${p.name} (the result instantiates the binder)"
-            )
+          case Some((p, where)) =>
+            Left(s"polymorphic capability binder: ${p.name} ($where instantiates the binder)")
           case None =>
             val kept = occurring.map(_._2)
             Right(if (kept.isEmpty) shape else yoneda(kept, shape).getOrElse(Poly(kept, shape)))
@@ -69,10 +69,10 @@ private[cardinality] object PolymorphicMembers {
 
   /** Whether the callable's result applies the binder's rigid constructor: a caller instantiates
     * the binder there, and the solver's terms from such a member never search the instantiation
-    * (`polymorphic capability binder: G (the result instantiates the binder)`). A binder the result
-    * never applies leaves the member's terms exact: its occurrences stand in parameters a counted
-    * implementation can only fill from its own environment, which holds no value of a rigid
-    * binder's application.
+    * (`polymorphic capability binder: G (the result instantiates the binder)`). A parameter that
+    * names the binder's constructor (`m[G[_]](g: G[Unit]): H[Int]`) is refused alike
+    * (`constructs`): the caller chooses G (`r.m[Option](None)`), so the parameter is not
+    * unfillable.
     */
   private def appliesResult(shape: Shape, binder: Binder): Boolean = {
     val (_, result) = Shape.uncurried.get(shape)
@@ -82,6 +82,11 @@ private[cardinality] object PolymorphicMembers {
   private def applies(shape: Shape, id: String): Boolean = shape match {
     case Applied(Head.Rigid(`id`), _) => true
     case other                        => Shape.children(other).exists(applies(_, id))
+  }
+
+  private def constructs(shape: Shape, id: String): Boolean = Shape.exists(shape) {
+    case Applied(Head.Rigid(`id`), _) | Constructor(`id`) => true
+    case _                                                => false
   }
 
   def occurs(shape: Shape, binder: Binder): Boolean = mentions(shape, binder.id)
@@ -188,12 +193,12 @@ private[cardinality] object PolymorphicMembers {
     * may be instantiated at a compound type and eliminated afterwards, which matching at goals
     * never searches (PB2's boundary).
     */
-  def uncovered(poly: Poly, env: List[Shape]): Option[String] =
+  def uncovered(poly: Poly, supply: Supply): Option[String] =
     GoalSolver.producerPaths
       .get(poly.body)(Nil)
       .flatMap { producer =>
         poly.binders.find(b => producer.output == Atom(b.id)).flatMap { binder =>
-          supplied(poly.binders, producer, env) match {
+          supplied(poly.binders, producer, supply) match {
             case Some(Right(_))  => None
             case Some(Left(why)) => Some(why)
             case None => Some(reason(binder, "instantiations at compound types not searched for"))
@@ -205,15 +210,15 @@ private[cardinality] object PolymorphicMembers {
   /** PB5: a path each of whose binders occurs in an applied parameter (`get[X, A](fa: F[X, A])`) is
     * called only at the types of the applied values its environment supplies. An applied type is
     * built by nothing but a value or a producer, so those values — the context's own, its fields,
-    * and the results of its monomorphic producers (`outer.to(s): F[outer.X, A]`) — fix every
-    * instantiation, each a monomorphic instance of the path. `None` where the path is not of that
-    * form. The set is open, and the path refused, when a polymorphic producer that can be applied
-    * builds such a value at a type its own binders choose (`make[X, A](a: A): F[X, A]`).
+    * and the results of its monomorphic producers that can be called (`outer.to(s): F[outer.X, A]`)
+    * — fix every instantiation, each a monomorphic instance of the path. `None` where the path is
+    * not of that form. The set is open, and the path refused, when a polymorphic producer that can
+    * be applied builds such a value at a type its own binders choose (`make[X, A](a: A): F[X, A]`).
     */
   def supplied(
       binders: List[Binder],
       producer: Producer,
-      env: List[Shape]
+      supply: Supply
   ): Option[Either[String, List[Shape]]] = {
     val bound = mentioned(binders, producer)
     val ids = bound.map(_.id).toSet
@@ -221,8 +226,7 @@ private[cardinality] object PolymorphicMembers {
     val (fixed, rest) = bound.partition(b => patterns.exists(occurs(_, b)))
     Option.when(fixed.nonEmpty) {
       val heads = patterns.map(_.head).toSet
-      val paths = env.flatMap(pathsOf)
-      if (opens(env, paths, heads))
+      if (supply.opens(heads))
         Left(
           reason(
             fixed.head,
@@ -230,10 +234,7 @@ private[cardinality] object PolymorphicMembers {
           )
         )
       else {
-        val candidates =
-          (env ++ paths.collect { case (own, p) if free(p.output, own) => p.output }).collect {
-            case a: Applied if heads(a.head) => a
-          }.distinct
+        val candidates = supply.applied.filter(a => heads(a.head))
         val fixes = patterns.foldLeft(List(Map.empty[String, Shape])) { (found, pattern) =>
           for {
             sofar <- found
@@ -251,30 +252,43 @@ private[cardinality] object PolymorphicMembers {
     }
   }
 
+  /** A context's values as `supplied` reads them for each of its paths, read once. The heads
+    * available grow from the context's values to a least fixed point (a parameter of any other form
+    * is taken as available); the applied values are the context's and the results of its
+    * monomorphic paths that can be called; and a set of heads is open where a polymorphic path that
+    * can be called builds a value of one of them at a type its binders choose.
+    */
+  final class Supply(env: List[Shape]) {
+
+    private val callable = {
+      val paths = env.flatMap(pathsOf)
+      def applicable(p: Producer, found: Set[Head]) =
+        p.parameters.collect { case a: Applied => a.head }.forall(found)
+      val available = Graphs.fixpoint(env.collect { case Applied(head, _) => head }.toSet) {
+        found =>
+          found ++ paths.collect {
+            case (_, p @ Producer(_, Applied(head, _))) if applicable(p, found) => head
+          }
+      }
+      paths.filter((_, p) => applicable(p, available))
+    }
+
+    val applied: List[Applied] =
+      (env ++ callable.collect { case (own, p) if free(p.output, own) => p.output }).collect {
+        case a: Applied => a
+      }.distinct
+
+    def opens(heads: Set[Head]): Boolean =
+      callable.exists((own, p) => chooses(p.output, own, heads))
+
+  }
+
   // Every producer path of a context value, with the binders it is polymorphic in.
   private def pathsOf(shape: Shape): List[(Set[String], Producer)] = shape match {
     case f: Function         => GoalSolver.producerPaths.get(f)(Nil).map(Set.empty -> _)
     case Poly(binders, body) =>
       GoalSolver.producerPaths.get(body)(Nil).map(binders.map(_.id).toSet -> _)
     case _ => Nil
-  }
-
-  // Whether a polymorphic path builds a value of one of `heads` at a type its binders choose, once
-  // its own applied arguments can be had: the heads available grow from the context's values to a
-  // least fixed point (a parameter of any other form is taken as available).
-  private def opens(
-      env: List[Shape],
-      paths: List[(Set[String], Producer)],
-      heads: Set[Head]
-  ): Boolean = {
-    def applicable(p: Producer, found: Set[Head]) =
-      p.parameters.collect { case a: Applied => a.head }.forall(found)
-    val available = Graphs.fixpoint(env.collect { case Applied(head, _) => head }.toSet) { found =>
-      found ++ paths.collect {
-        case (_, p @ Producer(_, Applied(head, _))) if applicable(p, found) => head
-      }
-    }
-    paths.exists((own, p) => chooses(p.output, own, heads) && applicable(p, available))
   }
 
   // Whether a result holds a value of one of `heads` at a type its call chooses: one of its own

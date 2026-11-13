@@ -15,6 +15,7 @@ class RecordsSpec extends Specification {
     an abstract member is what any implementation supplies       $open
     a final class is the tuple of its public fields               $fixed
     what a record inherits, and a member something overrides      $inherited
+    an inherited member with type parameters of its own           $polymorphic
     a record this step does not read is uncovered                 $later
     the scalameta front end agrees on every row measured          $agrees
   """
@@ -106,6 +107,14 @@ class RecordsSpec extends Specification {
       |trait Bounded { type T <: Int; def t: T }
       |trait Guarded { protected def h: Boolean }
       |trait Guards extends Guarded { def k: Boolean = h }
+      |trait Ex[F[_]] { def extract[A](fa: F[A]): A }
+      |trait Ex2[F[_]] extends Ex[F]
+      |trait Cof[F[_]] { def coflatten[A](fa: F[A]): F[F[A]]; def void[A](fa: F[A]): F[Unit] }
+      |trait Cof2[F[_]] extends Cof[F]
+      |trait Hk0[H[_]] { def m[G[_]](g: G[Unit]): H[Int] }
+      |trait Hk1[H[_]] extends Hk0[H]
+      |trait Ng0 { def neg[G[_]](g: G[Unit]): Nothing }
+      |trait Ng1 extends Ng0
       |object Use {
       |  def read[S, A](s: S, g: CanGet[S, A]): A = g.get(s)
       |  def noSource[S, A](g: CanGet[S, A]): A = ???
@@ -160,6 +169,12 @@ class RecordsSpec extends Specification {
       |  def path(p: Pack): p.T = p.x
       |  def bounded(b: Bounded): Boolean = true
       |  def guards(g: Guards): Boolean = true
+      |  def get[F[_], A](e: Ex2[F], fa: F[A]): A = e.extract(fa)
+      |  def noA[F[_], A](c: Cof2[F], fa: F[A]): A = ???
+      |  def run[F[_], A, B](c: Cof2[F], k: F[A] => B): B = ???
+      |  def hkInh[H[_]](r: Hk1[H]): H[Int] = r.m[Option](None)
+      |  def hkDecl[H[_]](r: Hk0[H]): H[Int] = r.m[Option](None)
+      |  def ngInh[X](n: Ng1): X = n.neg[Option](None)
       |}
       |""".stripMargin
 
@@ -272,6 +287,27 @@ class RecordsSpec extends Specification {
   // `Ordering.compare` only in `CmpX`. `SrtN.m` builds a class whose body calls the site; `SrtL.m`
   // hands `exists` a function literal that does; `SrtS.m` calls a `Sam` that a function literal
   // calling the site implements; `SrtO.m` first accesses `Z10`, whose body calls the site.
+  // An inherited member with type parameters of its own is read as a declared one is. `get` applies
+  // `extract` to `fa`, its one F value: 1. Nothing of `Cof2` returns a bare A or takes an F apart, so
+  // `noA` has no body: 0. `run` holds no F value at all: a B comes only from `k`, which needs an
+  // F[A], and every member of `c` needs an F value to start from: 0. (`void`'s F[Unit] is the result
+  // of a call no argument makes possible, so it fixes no instance of `coflatten`; reading it as
+  // supplied let `coflatten` build F[F[Unit]], F[F[F[Unit]]], … without end.)
+  // A binder only a parameter applies is the caller's choice: `r.m[Option](None)` is a body, so
+  // `hkInh` and `hkDecl` are 1 by parametricity and `ngInh` 1 (no total `∀G. G[Unit] => Nothing`,
+  // so `n` is vacuous); reading `G[Unit]` as unfillable said 0. Refused, declared or inherited.
+  private def polymorphic =
+    (count("get") must_== Count.Finite(1))
+      .and(count("noA") must_== Count.Finite(0))
+      .and(count("run") must_== Count.Finite(0))
+      .and(
+        List("hkInh", "hkDecl", "ngInh")
+          .map(count(_).toString)
+          .forall(
+            _.contains("G (a parameter instantiates the binder)")
+          ) must beTrue
+      )
+
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def reason(name: String) = count(name) match {

@@ -26,6 +26,10 @@ final private[inhabitation] class GoalSolver(
   private val neutrals = mutable.Map.empty[NeutralSaturation.Neutral, Int]
   // The source name of each binding the measurement named, by id.
   private val labels = mutable.Map.empty[String, String]
+  // An instance's place in a path: its shape, numbered once per solver run.
+  private val instanceNumbers = mutable.Map.empty[Shape, Int]
+  // What a context supplies its polymorphic paths (PB5), read once per context.
+  private val supplies = mutable.Map.empty[List[Shape], PolymorphicMembers.Supply]
   private var witnessNumber = 0
   private var work = 0
   private var depth = 0
@@ -68,7 +72,9 @@ final private[inhabitation] class GoalSolver(
   private def covered(count: Count, vacuous: Boolean): Count = {
     val reasons = memo.keys.toList.flatMap { (env, _) =>
       val shapes = live(env).map(_.shape)
-      shapes.collect { case poly: Poly => poly }.flatMap(PolymorphicMembers.uncovered(_, shapes))
+      shapes
+        .collect { case poly: Poly => poly }
+        .flatMap(PolymorphicMembers.uncovered(_, supply(shapes)))
     }.distinct
     count match {
       case _ if reasons.isEmpty || vacuous       => count
@@ -156,24 +162,50 @@ final private[inhabitation] class GoalSolver(
   // PB5: each polymorphic path the context's applied values fix joins it as one monomorphic
   // callable per instantiation, named by its member, path and instance. An instance's result may be
   // a new applied value (`get[A](fa: F[A]): A` at `A := F[B]`), always a part of one already
-  // supplied, so the closure ends.
+  // supplied, so the closure ends; each path read and each instance is a step of the caller's
+  // budget. A path an instance of another opens afterwards is refused, not kept with the instances
+  // it gave before.
   @scala.annotation.tailrec
   private def instantiated(env: List[Value]): List[Value] = {
-    val shapes = live(env).map(_.shape)
-    val instances = live(env).flatMap {
-      case Value(path, poly: Poly, _) =>
-        producerPaths.get(poly.body)(Nil).zipWithIndex.flatMap { (producer, index) =>
-          supplied(poly, producer, shapes).getOrElse(Nil).flatMap { shape =>
-            // An instance may hold another polymorphic member, read as `flatten` reads one.
-            flatten(List(Value(path :+ s"instance:$index:$shape", shape)))
-              .map(_.copy(reading = Reading.Read))
-          }
-        }
-      case _ => Nil
+    val context = supply(live(env).map(_.shape))
+    val instances = polymorphicPaths(env).flatMap { (path, index, poly, producer) =>
+      inspect("solver path")
+      supplied(poly, producer, context).getOrElse(Nil).flatMap { shape =>
+        inspect("solver instance")
+        val number = instanceNumbers.getOrElseUpdate(shape, instanceNumbers.size)
+        // An instance may hold another polymorphic member, read as `flatten` reads one.
+        flatten(List(Value(path :+ s"instance:$index:$number", shape)))
+          .map(_.copy(reading = Reading.Read))
+      }
     }
     val grown = (env ++ instances).distinct
-    if (grown.size == env.size) env else instantiated(grown)
+    if (grown.size > env.size) instantiated(grown)
+    else {
+      val origins = env.flatMap(_.path.inits.collect {
+        case init :+ s"instance:$index:$_" =>
+          (init, index.toInt)
+      })
+      polymorphicPaths(env).foreach { (path, index, poly, producer) =>
+        if (origins.contains((path, index)))
+          PolymorphicMembers.supplied(poly.binders, producer, context).foreach {
+            _.left.foreach(why => throw new Inhabitation.Unsupported(why))
+          }
+      }
+      env
+    }
   }
+
+  // Each polymorphic path of a context: the path of its member's value, its index there, the
+  // member and the path.
+  private def polymorphicPaths(env: List[Value]): List[(List[String], Int, Poly, Producer)] =
+    live(env).flatMap {
+      case Value(path, poly: Poly, _) =>
+        producerPaths
+          .get(poly.body)(Nil)
+          .zipWithIndex
+          .map((producer, index) => (path, index, poly, producer))
+      case _ => Nil
+    }
 
   private def record(recorded: Recorded): Int = {
     inspect("solver state")
@@ -275,7 +307,7 @@ final private[inhabitation] class GoalSolver(
     producerPaths
       .get(poly.body)(Nil)
       .exists(producer =>
-        supplied(poly, producer, env).isEmpty && (PolymorphicMembers
+        supplied(poly, producer, supply(env)).isEmpty && (PolymorphicMembers
           .offer(poly.binders, producer, shape) match {
           case PolymorphicMembers.Offer.Irrelevant | PolymorphicMembers.Offer.Monomorphic => false
           case _                                                                          => true
@@ -380,14 +412,14 @@ final private[inhabitation] class GoalSolver(
     import recorded.{env, target}
     val shapes = live(env).map(_.shape)
     producerPaths.get(poly.body)(Nil).zipWithIndex.flatMap { (producer, index) =>
-      val supply = PolymorphicMembers.supplied(poly.binders, producer, shapes)
+      val fixing = PolymorphicMembers.supplied(poly.binders, producer, supply(shapes))
       PolymorphicMembers.offer(poly.binders, producer, target) match {
-        case _ if supply.exists(_.isRight)        => Nil
+        case _ if fixing.exists(_.isRight)        => Nil
         case PolymorphicMembers.Offer.Irrelevant  => Nil
         case PolymorphicMembers.Offer.Monomorphic =>
           application(env, target, producer, refused.get(NeutralSaturation.Callee(path, index)))
         case PolymorphicMembers.Offer.Refused(reason) =>
-          List(Rule(Nil, Some(supply.flatMap(_.left.toOption).getOrElse(reason))))
+          List(Rule(Nil, Some(fixing.flatMap(_.left.toOption).getOrElse(reason))))
         case PolymorphicMembers.Offer.Instantiated(instance, quotient) =>
           application(env, target, instance, None).map(_.copy(quotient = Some(quotient)))
       }
@@ -443,8 +475,15 @@ final private[inhabitation] class GoalSolver(
 
   // The instances PB5 reads a polymorphic path at; `None` where its binders are not so fixed, or
   // the set is open (the path keeps its reason).
-  private def supplied(poly: Poly, producer: Producer, env: List[Shape]): Option[List[Shape]] =
-    PolymorphicMembers.supplied(poly.binders, producer, env).flatMap(_.toOption)
+  private def supplied(
+      poly: Poly,
+      producer: Producer,
+      context: PolymorphicMembers.Supply
+  ): Option[List[Shape]] =
+    PolymorphicMembers.supplied(poly.binders, producer, context).flatMap(_.toOption)
+
+  private def supply(env: List[Shape]): PolymorphicMembers.Supply =
+    supplies.getOrElseUpdate(env, PolymorphicMembers.Supply(env))
 
   private def tick(): Unit = {
     work += 1
