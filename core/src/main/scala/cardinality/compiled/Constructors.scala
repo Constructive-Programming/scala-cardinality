@@ -44,9 +44,16 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   import Unread.Uncovered
 
   /** The count of a class's primary constructor, built on an instance of each class `around` it
-    * (outermost first): a position over a type parameter may take a value that instance holds.
+    * (outermost first): a position over a type parameter may take a value that instance holds, or a
+    * parameter `captured` of the methods around a class written in a body, whose type parameters
+    * `methodBinders` binds.
     */
-  def count(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] = {
+  def count(
+      constructor: DefDef,
+      around: List[ClassDef],
+      methodBinders: List[(Symbol, Either[Unread, Shape])],
+      captured: List[Binding]
+  ): Either[Unread, Count] = {
     val owner = constructor.symbol.owner.asClass
     val self = owner.displayFullName
     val binders = constructor.paramLists.flatMap(_.toOption.toList.flatten)
@@ -64,20 +71,23 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
           case rigid            => Right(rigid)
         }
       }
-      outer <- receivers.atoms(around)
+      receiving <- receivers.atoms(around)
       // A bounded abstract type member of a receiver around it is not read either: the row hands no
       // proof to the positions.
-      _ <- outer
+      _ <- receiving
         .map(_._1)
         .collectFirst {
           case member: TypeMemberSymbol if Shapes.bounded(member) =>
             Unread.Uncovered(s"a bounded abstract type member around a constructor: ${member.name}")
         }
         .toLeft(())
-      env = Shapes.Env.of(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
+      env = Shapes.Env.of(
+        receiving ++ methodBinders ++ variables.zip(atoms ++ atoms),
+        constructor.symbol
+      )
       held <- receivers.bindings(around, constructor.symbol, env, Set.empty)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
-    } yield Constructors.product(self, placed, held)
+    } yield Constructors.product(self, placed, held ++ captured)
   }
 
   private def position(

@@ -390,8 +390,11 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   private def declared(c: ClassSymbol, arguments: List[Shape], env: Env): Either[Unread, Shape] =
     Shapes.tree(c).flatMap { tree =>
       val inside = env.copy(visiting = env.visiting + c)
-      // A member of a class nested in a class or a body may read what is around it.
-      if (!World.inObjects(c))
+      // A member of a class nested in a class or a body may read what is around it; one in a body
+      // alone whose members are its public fields, or none, reads nothing of it.
+      val plain = World.owners(c.owner).forall(k => !k.isClass || k.asClass.isModuleClass) &&
+        (plainCase(tree) || typesOnly(tree))
+      if (!World.inObjects(c) && !plain)
         Left(Uncovered(s"a class nested in a class or a body: ${c.displayFullName}"))
       else if (env.visiting(c)) recursive(c)
       else if (c.typeParams.sizeIs != arguments.size)

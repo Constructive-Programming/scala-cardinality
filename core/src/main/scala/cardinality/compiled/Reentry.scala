@@ -586,7 +586,7 @@ private[compiled] object Reentry {
   }
 
   /** A call's function and the value clauses it is applied to, in order. */
-  private def unapplied(tree: Tree): (Tree, List[List[TermTree]]) = tree match {
+  def unapplied(tree: Tree): (Tree, List[List[TermTree]]) = tree match {
     case Apply(function, arguments) =>
       val (head, clauses) = unapplied(function)
       (head, clauses :+ arguments)
