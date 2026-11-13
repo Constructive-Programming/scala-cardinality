@@ -126,6 +126,11 @@ final private[compiled] class Stored(world: World)(using Context) {
     val builders = factories.builders(tree, site)
     for {
       _ <- Either.cond(builders.nonEmpty, (), s"a restricted constructor: $name")
+      _ <- Either.cond(
+        !factories.toParent(tree),
+        (),
+        s"a restricted constructor passing a parameter to a parent: $name"
+      )
       fields <- stored(factories.observed(tree, site, outside = true))
       bounds <- Traversals.sequence(builders.map {
         case Some(parameters) => stored(parameters).map(held => Some(held.map(_.min(fields.size))))

@@ -49,6 +49,8 @@ final private[compiled] class Factories(world: World)(using Context) {
       Left(
         Uncovered(s"a capability record with no constructor or factory the site may call: $name")
       )
+    else if (toParent(tree))
+      Left(Uncovered(s"a capability record passing a parameter to a parent: $name"))
     else
       closed(observed(tree, site))
         .toRight(Uncovered(s"a capability record whose observed fields' space is not read: $name"))
@@ -109,19 +111,36 @@ final private[compiled] class Factories(world: World)(using Context) {
     */
   def observed(tree: ClassDef, site: Symbol, outside: Boolean = false): List[ValDef] = {
     val members = tree.rhs.body.collect { case m: ValOrDefDef => m }
-    val bySymbol = members.map(m => (m.symbol: Symbol) -> m).toMap
+    // A member of a class or object declared in the class is read where it is named too.
+    val bySymbol = Factories.declared(tree).map(m => (m.symbol: Symbol) -> m).toMap
+    val overriding = bySymbol.values.toList
+      .filterNot(m => m.symbol.isSynthetic || World.restates(m.symbol))
+      .flatMap(m => m.symbol.allOverriddenSymbols.map(_ -> m))
+    // The members a name runs on this class's values: itself, or what overrides it here.
+    def runs(named: Set[Symbol]) =
+      named.toList.flatMap(bySymbol.get) ++ overriding.collect { case (o, m) if named(o) => m }
     @annotation.tailrec
     def read(found: Set[Symbol], pending: List[Tree], seen: Set[Symbol]): Set[Symbol] =
       pending match {
         case Nil       => found
         case m :: rest =>
           val next = Factories.mentioned(m).filterNot(seen)
-          read(found ++ next, rest ++ next.toList.flatMap(bySymbol.get), seen ++ next)
+          read(found ++ next, rest ++ runs(next), seen ++ next)
       }
-    val open = members.filter { m =>
+    def shown(m: ValOrDefDef) =
       !m.symbol.isParamAccessor && !m.symbol.isSynthetic && !World.restates(m.symbol) &&
-      World.selectable(m.symbol, site)
+        World.selectable(m.symbol, site)
+    // A parent of the module's member the class inherits as it is runs on its values too.
+    val inherited = world.templates(tree.symbol).drop(1).flatMap { parent =>
+      parent.rhs.body.collect {
+        case m: ValOrDefDef
+            if shown(m) && tree.symbol.linearization
+              .takeWhile(_ != parent.symbol)
+              .forall(m.symbol.overridingSymbol(_).isEmpty) =>
+          m
+      }
     }
+    val open = members.filter(shown) ++ inherited
     // A class or object in the class the site may reach reads what its members read.
     val nested = tree.rhs.body.collect {
       case k: ClassDef if World.selectable(k.symbol, site) => k
@@ -130,7 +149,7 @@ final private[compiled] class Factories(world: World)(using Context) {
     val elsewhere = if (outside) mentionedOutside(tree.symbol) else Set.empty[Symbol]
     val names = read(
       elsewhere,
-      open ++ nested ++ elsewhere.flatMap(bySymbol.get),
+      open ++ nested ++ runs(elsewhere),
       open.map(m => m.symbol: Symbol).toSet ++ elsewhere
     )
     val accessors = tree.symbol.declarations.collect {
@@ -142,6 +161,16 @@ final private[compiled] class Factories(world: World)(using Context) {
         names(f) || f.allOverriddenSymbols.exists(names) || World.selectable(f, site)
       }
     }
+  }
+
+  /** Whether a class passes a constructor parameter to a parent's constructor, whose state its
+    * members may show: not read here.
+    */
+  def toParent(tree: ClassDef): Boolean = {
+    val passed = tree.rhs.parents.flatMap(Factories.mentioned).toSet
+    Shapes
+      .parameters(tree.rhs.constr)
+      .exists(p => passed(p.symbol) || tree.symbol.getDecl(p.name).exists(passed))
   }
 
   // The symbols the module's code outside a class's body names: its companion's, another class's,
@@ -203,6 +232,14 @@ private[compiled] object Factories {
   private enum Read {
     case Construction, Other, Unsupplied
   }
+
+  // Every method and `val` declared in a class's body, in its nested classes and objects too.
+  private def declared(tree: ClassDef)(using Context): List[ValOrDefDef] =
+    tree.rhs.body.flatMap {
+      case m: ValOrDefDef => List(m)
+      case k: ClassDef    => declared(k)
+      case _              => Nil
+    }
 
   // The symbols a tree names.
   private def mentioned(tree: Tree)(using Context): Set[Symbol] = {

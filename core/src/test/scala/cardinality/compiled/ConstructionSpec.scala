@@ -57,6 +57,17 @@ class ConstructionSpec extends Specification {
       |final class Inh private (protected val a: Boolean) extends Shown
       |object Inh { def of(a: Boolean): Inh = new Inh(a) }
       |final class Absurd(p: (Sing.type, Nothing => Boolean))
+      |final class Inh2 private (q: Boolean) extends Shown { protected def a: Boolean = q }
+      |object Inh2 { def of(q: Boolean): Inh2 = new Inh2(q) }
+      |class Par(val p: Boolean)
+      |final class ToPar private (q: Boolean) extends Par(q)
+      |object ToPar { def of(q: Boolean): ToPar = new ToPar(q) }
+      |final class Nest private (private val a: Boolean) {
+      |  private object H { def get(n: Nest): Boolean = n.a }
+      |  def peek: Boolean = H.get(this)
+      |}
+      |object Nest { def of(a: Boolean): Nest = new Nest(a) }
+      |object UseInh2 { def f(c: Inh2): Boolean = c.show }
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Construction.scala" -> text)
@@ -119,7 +130,10 @@ class ConstructionSpec extends Specification {
   // Code outside the class may read a field: `Peek.read` reads `a` through the private `get`, and
   // a pattern may extract a case class's `a`: 2 each. `Sub` builds a `Base` with any `a`, which
   // `Base.one` does not show: no size. `Holder.F.mk` builds a `Made` from the instance's `flag`:
-  // no known bound, no size. `Shown.show`, public, reads `Inh`'s protected `a`: 2.
+  // no known bound, no size. `Shown.show`, public, reads `Inh`'s protected `a`: 2; and `Inh2`'s
+  // `q` through the `a` it overrides: 2. `ToPar` passes `q` to `Par`, whose public `p` shows it:
+  // a parent's state is not read, no size. `Nest.peek` reads `a` through a private object: 2.
+  // `UseInh2.f` calls the inherited `show`, which reads `Inh2`'s `q`: 2 values, 2^2 = 4.
   private def restricted =
     (size("ctor.Mute") must beSome("1"))
       .and(size("ctor.Pair") must beSome("2"))
@@ -130,5 +144,10 @@ class ConstructionSpec extends Specification {
       .and(size("ctor.Kept") must beSome("2"))
       .and(List("ctor.Base", "ctor.Made").map(size) must_== List(None, None))
       .and(size("ctor.Inh") must beSome("2"))
+      .and(count("ctor.UseInh2.f") must_== Count.Finite(4))
+      .and(
+        List("ctor.Inh2", "ctor.ToPar", "ctor.Nest")
+          .map(size) must_== List(Some("2"), None, Some("2"))
+      )
 
 }
