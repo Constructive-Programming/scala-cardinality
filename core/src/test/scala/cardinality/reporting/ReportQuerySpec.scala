@@ -20,6 +20,7 @@ class ReportQuerySpec extends Specification {
       include content, selection and ingestion limits in the request key   $keys
       retain the existing report API and render query-only provenance      $legacy
       count non-Scala directory entries and bound compressed archives      $bounds
+      refuse a query to the TASTy front end, which has no selected reports $tasty
   """
 
   private def directory(): Path = Files.createTempDirectory("query-report")
@@ -47,6 +48,18 @@ class ReportQuerySpec extends Specification {
       .and(found.report.methods.head.count === Count.Finite(1))
       .and(found.report.sources.size === 1)
       .and(found.report.definitions === Nil)
+  }
+
+  def tasty = {
+    val main = file(directory(), "Main.scala", "def get[A](a: A): A = a")
+    val found = Report.query(
+      Report.Query(Seq(main), environment = Report.Environment(frontEnd = Report.Front.Tasty))
+    )
+    (found.report.methods === Nil).and(
+      found.report.errors === List(
+        Report.Error("", "selected reports are not read from compiled classes yet")
+      )
+    )
   }
 
   def incomplete = {

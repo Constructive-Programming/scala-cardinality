@@ -25,6 +25,9 @@ trait CardinalityModule extends ScalaModule {
   /** Type depth and solver state limits for selected reports. */
   def cardinalityQueryLimits: MethodAnalysis.Limits = MethodAnalysis.Limits()
 
+  /** Which front end reads the sources: `Report.Front.Tasty` reads the compiled classes alone. */
+  def cardinalityFrontEnd: Report.Front = Report.Environment().frontEnd
+
   /** Input acquisition limits for selected reports. */
   def cardinalitySnapshotLimits: SourceSnapshot.Limits = SourceSnapshot.Limits()
 
@@ -60,7 +63,11 @@ trait CardinalityModule extends ScalaModule {
     report(
       Report.of(
         allSourceFiles().map(_.path.toNIO),
-        Report.Environment(stubs = Some(stubs), classes = Some(compiled()))
+        Report.Environment(
+          stubs = Some(stubs),
+          classes = Some(compiled()),
+          frontEnd = cardinalityFrontEnd
+        )
       )
     )
   }
@@ -69,7 +76,12 @@ trait CardinalityModule extends ScalaModule {
     * sources jar such as the one a published library ships.
     */
   def cardinalityReportOf(paths: Leftover[String]): Command[PathRef] = Task.Command {
-    report(Report.of(paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO)))
+    report(
+      Report.of(
+        paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO),
+        Report.Environment(frontEnd = cardinalityFrontEnd)
+      )
+    )
   }
 
   /** Bounded implementation report for the given qualified method names. */
@@ -85,7 +97,8 @@ trait CardinalityModule extends ScalaModule {
         cardinalityQueryBudget,
         Report.Environment(
           stubs = Some(cardinalityDependencyStubs().path.toNIO),
-          classes = Some(compiled())
+          classes = Some(compiled()),
+          frontEnd = cardinalityFrontEnd
         )
       )
     )

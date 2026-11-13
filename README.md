@@ -319,6 +319,13 @@ inference is never imitated: under sbt, sources that do not compile are still re
 untyped members refuse; under Mill the module must compile. `cardinalityReportOf` reads sources
 without compiled classes, so its untyped members refuse too.
 
+The TASTy front end, which reads the compiled classes alone and will replace the syntax reading,
+is selected with `cardinalityFrontEnd := CardinalityFrontEnd.Tasty` under sbt and
+`override def cardinalityFrontEnd = Report.Front.Tasty` under Mill (in the library,
+`Report.Environment(frontEnd = Report.Front.Tasty)`). It refuses every source when the sources do
+not compile, and every source `cardinalityReportOf` names; it has no selected reports yet. A row it
+does not read yet is `?`: `not read from compiled classes yet`.
+
 `cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
 `Compile / dependencyClasspath` from their compiled TASTy, Scala 2 pickles and Java `.class`
 files: each Scala 3, Scala 2 and Java class of a dependency joins the environment as a signature stub

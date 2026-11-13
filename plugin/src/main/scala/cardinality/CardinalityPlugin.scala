@@ -57,6 +57,13 @@ object CardinalityPlugin extends AutoPlugin {
         "Where a report is written, under the project's target directory by default."
       )
 
+    val cardinalityFrontEnd = settingKey[Report.Front](
+      "Which front end reads the sources: `CardinalityFrontEnd.Tasty` reads the compiled classes " +
+        "alone and refuses sources that do not compile."
+    )
+
+    val CardinalityFrontEnd = Report.Front
+
     val cardinalitySkillFile = settingKey[File](
       "Where cardinalitySeedSkill writes the reduction skill, under the build's root by default."
     )
@@ -78,6 +85,7 @@ object CardinalityPlugin extends AutoPlugin {
 
   override def projectSettings: Seq[Setting[?]] = dependencySettings ++ Seq(
     cardinalityReportFile := target.value / "cardinality" / "report.txt",
+    cardinalityFrontEnd := Report.Environment().frontEnd,
     cardinalityQuerySupport := Nil,
     cardinalityQueryBudget := AnalysisQuery.Budget(),
     cardinalityQueryLimits := MethodAnalysis.Limits(),
@@ -104,7 +112,11 @@ object CardinalityPlugin extends AutoPlugin {
         log,
         Report.of(
           scalaSources.map(_.toPath),
-          Report.Environment(stubs = Some(stubs), classes = compiled.value)
+          Report.Environment(
+            stubs = Some(stubs),
+            classes = compiled.value,
+            frontEnd = cardinalityFrontEnd.value
+          )
         ),
         cardinalityReportFile.value
       )
@@ -118,7 +130,14 @@ object CardinalityPlugin extends AutoPlugin {
       val log = streams.value.log
       val paths = Def.spaceDelimited("<path>...").parsed
       Def.uncached {
-        report(log, Report.of(paths.map(path => file(path).toPath)), cardinalityReportFile.value)
+        report(
+          log,
+          Report.of(
+            paths.map(path => file(path).toPath),
+            Report.Environment(frontEnd = cardinalityFrontEnd.value)
+          ),
+          cardinalityReportFile.value
+        )
       }
     },
     cardinalityReportSelected := {
@@ -135,7 +154,8 @@ object CardinalityPlugin extends AutoPlugin {
             cardinalityQueryBudget.value,
             Report.Environment(
               stubs = Some(fileConverter.value.toPath(cardinalityDependencyStubs.value)),
-              classes = compiled.value
+              classes = compiled.value,
+              frontEnd = cardinalityFrontEnd.value
             )
           )
         )
@@ -151,16 +171,21 @@ object CardinalityPlugin extends AutoPlugin {
 
   // The project's compiled classes and the jars their types refer to: a member written without a
   // result type reads the compiler's (`CompiledTypes`). `exportedProducts` compiles first, so the
-  // classes match the sources the report reads. Sources that do not compile are still reported,
-  // from their syntax alone.
+  // classes match the sources the report reads. Sources that do not compile are still reported
+  // from their syntax alone by the scalameta front end, and refused by the TASTy one.
   private val compiled = Def.task {
     val converter = fileConverter.value
     val classpath = cardinalityDependencyClasspath.value.map(converter.toPath)
+    val front = cardinalityFrontEnd.value
     (Compile / exportedProducts).result.value.toEither match {
       case Right(products) =>
         Some(CompiledTypes.Classes(products.map(entry => converter.toPath(entry.data)), classpath))
       case Left(_) =>
-        streams.value.log.warn("sources do not compile: reporting from their syntax alone")
+        streams.value.log.warn(
+          if (front == Report.Front.Tasty)
+            "sources do not compile: the TASTy front end reads none of them"
+          else "sources do not compile: reporting from their syntax alone"
+        )
         None
     }
   }

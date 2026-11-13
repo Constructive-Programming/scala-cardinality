@@ -2,3 +2,15 @@
 # each holds, and writes the same report to the file the build asks for.
 > cardinalityReport
 $ must-mirror report.txt expected/report.txt
+# The TASTy front end reads the same rows from the compiled classes.
+> set cardinalityFrontEnd := CardinalityFrontEnd.Tasty
+> cardinalityReport
+$ must-mirror report.txt expected/report.txt
+# It reads nothing without compiled classes: a source named to `cardinalityReportOf`, and a source
+# that does not compile, are refused, and the task fails.
+-> cardinalityReportOf src/main/scala/Natural.scala
+$ must-mirror report.txt expected/uncompiled.txt
+$ delete src/main/scala
+$ copy-file broken/Broken.scala src/main/scala/Broken.scala
+-> cardinalityReport
+$ must-mirror report.txt expected/refused.txt

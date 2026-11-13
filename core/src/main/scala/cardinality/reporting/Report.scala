@@ -5,6 +5,7 @@ import scala.jdk.CollectionConverters.*
 import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.capacity.*
+import cardinality.compiled.TastyFrontEnd
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
 import cardinality.tasty.CompiledTypes
 import dev.constructive.eo.generics.{lens, prism}
@@ -88,13 +89,23 @@ object Report {
     * directories): their classes join the environment as signature stubs (`TastyStubs`), never
     * measured and never reported. `stubs` names a file of stubs already rendered (`StubFile`), read
     * instead of the classpath. `classes` is the sources' own compiled output: a member written
-    * without a result type takes the type the compiler gave it (`CompiledTypes`).
+    * without a result type takes the type the compiler gave it (`CompiledTypes`). `frontEnd` picks
+    * the front end that reads the sources; both plugins take their default from this field.
     */
   final case class Environment(
       classpath: Seq[Path] = Nil,
       stubs: Option[Path] = None,
-      classes: Option[CompiledTypes.Classes] = None
+      classes: Option[CompiledTypes.Classes] = None,
+      frontEnd: Front = Front.Scalameta
   )
+
+  /** The front ends (docs/plans/compiled-own-types.md, "Front end: design and status"). `Scalameta`
+    * reads the sources' syntax; `Tasty` reads the compiled classes alone and refuses a source
+    * without them, and has no selected reports yet.
+    */
+  enum Front {
+    case Scalameta, Tasty
+  }
 
   final case class QueryResult(
       report: Report,
@@ -119,17 +130,26 @@ object Report {
   }
 
   def query(request: Query): QueryResult = {
-    val result = try readQuery(request)
-    catch {
-      case scala.util.control.NonFatal(error) =>
+    val result = request.environment.frontEnd match {
+      case Front.Tasty =>
         QueryResult(
-          Report(
-            Nil,
-            List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}"))
-          ),
+          Report(Nil, List(Error("", "selected reports are not read from compiled classes yet"))),
           None,
           None
         )
+      case Front.Scalameta =>
+        try readQuery(request)
+        catch {
+          case scala.util.control.NonFatal(error) =>
+            QueryResult(
+              Report(
+                Nil,
+                List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}"))
+              ),
+              None,
+              None
+            )
+        }
     }
     result.copy(configuration =
       Some(
@@ -244,8 +264,12 @@ object Report {
     */
   def of(paths: Seq[Path], environment: Environment = Environment()): Report = {
     val found = paths.toList.distinct.map(path => path -> read(path))
+    val frontEnd = environment.frontEnd match {
+      case Front.Scalameta => ScalametaFrontEnd
+      case Front.Tasty     => TastyFrontEnd
+    }
     val rows =
-      ScalametaFrontEnd.rows(FrontEnd.Module(found.flatMap(_._2.toOption).flatten, environment))
+      frontEnd.rows(FrontEnd.Module(found.flatMap(_._2.toOption).flatten, environment))
     // The front end answers each source in order; a path that could not be read stands where it
     // was given.
     val answers = rows.sources.iterator
