@@ -27,55 +27,74 @@ import tastyquery.Trees.*
   *   - The class's space is the largest of min(builder, observed fields): the fields' own as soon
   *     as one builder reaches it, else the largest where every bound is known and comparable.
   */
-final private[compiled] class Factories(world: World, shapes: Shapes)(using Context) {
+final private[compiled] class Factories(world: World)(using Context) {
   import Unread.Uncovered
   import Factories.Read
 
   /** The space of a final class's values as the site may build and observe them. */
-  def space(tree: ClassDef, site: TermSymbol, env: Shapes.Env): Either[Unread, Card] = {
+  def space(
+      tree: ClassDef,
+      site: TermSymbol,
+      env: Shapes.Env,
+      shapes: Shapes
+  ): Either[Unread, Card] = {
     val name = tree.symbol.displayFullName
-    val secondaries = tree.rhs.body.collect {
-      case d: DefDef
-          if World.isConstructor(d.symbol) && d.symbol != tree.rhs.constr.symbol &&
-            World.callable(d.symbol, site) =>
-        closed(Shapes.parameters(d), env)
-    }
-    val factories = built(tree.symbol).collect {
-      case (definition, read)
-          if !World.owners(site).contains(definition.symbol) && reached(definition.symbol, site) =>
-        (read, definition) match {
-          case (Read.Unsupplied, _)                                => None
-          case (Read.Other, _)                                     => Some(Card.one)
-          case (_, d) if !Factories.singleton(d.symbol)            => None
-          case (_, d: DefDef) if Shapes.typeParameters(d).nonEmpty => None
-          case (_, d: DefDef) => closed(Shapes.parameters(d), env)
-          case (_, _: ValDef) => Some(Card.one)
-        }
-    }
-    if (secondaries.isEmpty && factories.isEmpty)
+    def closed(parameters: List[ValDef]) =
+      shapes
+        .inputs(parameters, env)
+        .toOption
+        .flatMap(read => ClosedSpaces.count(Shape.Product(read)))
+    val made = builders(tree, site)
+    if (made.isEmpty)
       Left(
         Uncovered(s"a capability record with no constructor or factory the site may call: $name")
       )
     else
-      closed(observed(tree, site), env)
+      closed(observed(tree, site))
         .toRight(Uncovered(s"a capability record whose observed fields' space is not read: $name"))
         .flatMap(fields =>
           Factories
-            .largest(fields, secondaries ++ factories)
+            .largest(fields, made.map(_.flatMap(closed)))
             .toRight(
               Uncovered(s"a capability record whose builders' spaces cannot be compared: $name")
             )
         )
   }
 
-  // The space of values of these parameters, where it is closed.
-  private def closed(parameters: List[ValDef], env: Shapes.Env): Option[Card] =
-    shapes.inputs(parameters, env).toOption.flatMap(read => ClosedSpaces.count(Shape.Product(read)))
+  /** What the site may call to build a class, one entry per builder: `Some(parameters)`, the
+    * parameters whose space bounds what it builds (a secondary constructor, a factory of an object
+    * or a package); `Some(Nil)`, one value (a `val` of one, a definition read as no construction);
+    * `None`, no known bound (a factory without a body, with type parameters of its own, or on a
+    * varying receiver).
+    */
+  def builders(tree: ClassDef, site: Symbol): List[Option[List[ValDef]]] = {
+    val secondaries = tree.rhs.body.collect {
+      case d: DefDef
+          if World.isConstructor(d.symbol) && d.symbol != tree.rhs.constr.symbol &&
+            World.callable(d.symbol, site) =>
+        Some(Shapes.parameters(d))
+    }
+    val factories = built(tree.symbol).collect {
+      case (definition, read)
+          if !World.owners(site).contains(definition.symbol) &&
+            reached(definition.symbol, tree.symbol, site) =>
+        (read, definition) match {
+          case (Read.Unsupplied, _)                                => None
+          case (Read.Other, _)                                     => Some(Nil)
+          case (_, d) if !World.inObjects(d.symbol)                => None
+          case (_, d: DefDef) if Shapes.typeParameters(d).nonEmpty => None
+          case (_, d: DefDef)                                      => Some(Shapes.parameters(d))
+          case (_, _: ValDef)                                      => Some(Nil)
+        }
+    }
+    secondaries ++ factories
+  }
 
   // Whether the site may call a definition and reach every template around it; a protected one
-  // from a subclass too.
-  private def reached(symbol: Symbol, site: TermSymbol): Boolean =
-    World.owners(symbol).forall {
+  // from a subclass too. A restriction on the class built or on a template around it is
+  // disregarded (rule B).
+  private def reached(symbol: Symbol, c: ClassSymbol, site: Symbol): Boolean =
+    World.owners(symbol).filterNot(World.owners(c).contains).forall {
       case s: TermOrTypeSymbol =>
         World.callable(s, site) || World.owners(site).exists {
           case k: ClassSymbol => s.owner.isClass && k.isSubClass(s.owner.asClass)
@@ -84,8 +103,11 @@ final private[compiled] class Factories(world: World, shapes: Shapes)(using Cont
       case _ => true
     }
 
-  /** The constructor parameters the site observes on a value it is given. */
-  def observed(tree: ClassDef, site: TermSymbol): List[ValDef] = {
+  /** The constructor parameters the site observes on a value it is given. With `outside`, for a row
+    * with no measuring site, also those code of the module outside the class's body may read
+    * (`mentionedOutside`), and every field of a case class, which a pattern may extract.
+    */
+  def observed(tree: ClassDef, site: Symbol, outside: Boolean = false): List[ValDef] = {
     val members = tree.rhs.body.collect { case m: ValOrDefDef => m }
     val bySymbol = members.map(m => (m.symbol: Symbol) -> m).toMap
     @annotation.tailrec
@@ -104,14 +126,43 @@ final private[compiled] class Factories(world: World, shapes: Shapes)(using Cont
     val nested = tree.rhs.body.collect {
       case k: ClassDef if World.selectable(k.symbol, site) => k
     }
-    val names = read(Set.empty, open ++ nested, open.map(m => m.symbol: Symbol).toSet)
+    // What code outside the class names, a private member of it included, reads in turn.
+    val elsewhere = if (outside) mentionedOutside(tree.symbol) else Set.empty[Symbol]
+    val names = read(
+      elsewhere,
+      open ++ nested ++ elsewhere.flatMap(bySymbol.get),
+      open.map(m => m.symbol: Symbol).toSet ++ elsewhere
+    )
     val accessors = tree.symbol.declarations.collect {
       case f: TermSymbol if f.isParamAccessor => f.name -> f
     }.toMap
+    // A field is read where it, or a member it implements, is named.
     Shapes.parameters(tree.rhs.constr).filter { p =>
-      accessors.get(p.name).exists(f => names(f) || World.selectable(f, site))
+      outside && tree.symbol.isCaseClass || accessors.get(p.name).exists { f =>
+        names(f) || f.allOverriddenSymbols.exists(names) || World.selectable(f, site)
+      }
     }
   }
+
+  // The symbols the module's code outside a class's body names: its companion's, another class's,
+  // a default argument's, whether or not public code reaches the mention.
+  private def mentionedOutside(c: ClassSymbol): Set[Symbol] = mentions.getOrElseUpdate(
+    c, {
+      val found = Set.newBuilder[Symbol]
+      val outside = new TreeTraverser {
+        override def traverse(tree: Tree): Unit = tree match {
+          case k: ClassDef if k.symbol == c => ()
+          case other                        =>
+            found ++= World.named(other)
+            super.traverse(other)
+        }
+      }
+      world.module.filter(_.owner.isPackage).flatMap(_.tree).foreach(outside.traverse)
+      found.result()
+    }
+  )
+
+  private val mentions = scala.collection.mutable.Map.empty[ClassSymbol, Set[Symbol]]
 
   // The definitions of the module that build `c`, each with how its body is read.
   private def built(c: ClassSymbol): List[(ValOrDefDef, Read)] =
@@ -151,12 +202,6 @@ private[compiled] object Factories {
   /** How a definition's body is read: as a construction, as none, or not at all (not supplied). */
   private enum Read {
     case Construction, Other, Unsupplied
-  }
-
-  // A definition that runs on no varying receiver: one of an object or a package.
-  private def singleton(symbol: Symbol): Boolean = symbol.owner match {
-    case c: ClassSymbol => c.isModuleClass
-    case other          => other.isPackage
   }
 
   // The symbols a tree names.

@@ -4,7 +4,7 @@ import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
 import cardinality.analysis.inhabitation.{Card, ClosedSpaces as Spaces}
 import cardinality.analysis.resolution.{StuckProjections, TopTypes}
 import cardinality.capacity.Definition.Unbound
-import cardinality.capacity.Size
+import cardinality.capacity.{NothingSize, Size}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Symbols.{Symbol, TypeMemberSymbol}
@@ -30,12 +30,16 @@ import tastyquery.Types.{AppliedType, ByNameType, Type, TypeRef}
   *     A)` has four), and for a class in a class those the instance around it holds, on which it is
   *     built (`Receivers`). A position mixing type parameters with ground values has no agreed
   *     reading and is refused.
+  *   - A singleton or evidence beside values, with no type parameter, is a value space: beside a
+  *     top the method side's, a singleton its one value; else the estimate's size.
+  *   - A secondary constructor's row is a method from its parameters to the primary's arguments
+  *     (`secondary`).
   *
   * Not read yet, where a position names it: a bounded type parameter (the row hands no proof to its
   * positions), or one of another kind than an invariant `F[_]`; a position the method side refuses
   * for another reason than recursion, or whose type is not estimable; one the estimate does not
-  * read; one over a singleton or evidence. An anonymous contextual parameter is a position like any
-  * other once `Readings` has found search selects it (`Readings#searched`).
+  * read; evidence beside a top. An anonymous contextual parameter is a position like any other once
+  * `Readings` has found search selects it (`Readings#searched`).
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored, receivers: Receivers)(
     using Context
@@ -43,16 +47,57 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   import Constructors.Position
   import Unread.Uncovered
 
-  /** The count of a class's primary constructor, built on an instance of each class `around` it
-    * (outermost first): a position over a type parameter may take a value that instance holds.
+  /** The count of a class's constructor, built on an instance of each class `around` it (outermost
+    * first): a position over a type parameter may take a value that instance holds. A secondary
+    * constructor's is `secondary`'s.
     */
-  def count(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] = {
+  def count(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] =
+    if (!Readings.primary(constructor.symbol)) secondary(constructor, around)
+    else {
+      val owner = constructor.symbol.owner.asClass
+      val variables = Shapes.typeParameters(constructor) ++ owner.typeParams
+      for {
+        (tree, env, held) <- built(constructor, around)
+        placed <- Traversals.sequence(
+          Shapes.parameters(constructor).map(position(_, tree, env, variables.toSet))
+        )
+      } yield Constructors.product(owner.displayFullName, placed, held)
+    }
+
+  // A secondary constructor's row, a method from its parameters to the primary constructor's
+  // arguments: its self-invocation calls another constructor of the class, and every chain of them
+  // ends in the primary one, so an implementation chooses those arguments, never a value of the
+  // class (the old `SecondaryConstructors`). A by-name argument is its value, a repeated one its
+  // sequence. The instance it builds does not exist yet; what a body after the self-invocation
+  // declares is another row (`<init#k>`).
+  private def secondary(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] = {
+    val self = constructor.symbol.displayFullName
+    for {
+      (tree, env, held) <- built(constructor, around)
+      inputs <- shapes.inputs(Shapes.parameters(constructor), env)
+      chosen <- shapes.inputs(Shapes.parameters(tree.rhs.constr), env)
+      values = held ++ Shapes.parameters(constructor).lazyZip(inputs).map { (p, shape) =>
+        Binding(s"$self.${p.name}", shape, Some(p.name.toString))
+      }
+      result = Shape.Product(chosen)
+      _ <- StuckProjections
+        .refusal(result :: values.map(_.shape), Nil)
+        .map(Unread.Refused(_))
+        .toLeft(())
+    } yield Readings.count(values, result)
+  }
+
+  // The class's tree, the environment a constructor's positions are read in, and what the
+  // instances `around` it hold. The primary constructor's copies of the class's type parameters
+  // are bound as the class's are, for a secondary constructor's row.
+  private def built(
+      constructor: DefDef,
+      around: List[ClassDef]
+  ): Either[Unread, (ClassDef, Shapes.Env, List[Binding])] = {
     val owner = constructor.symbol.owner.asClass
-    val self = owner.displayFullName
     val binders = constructor.paramLists.flatMap(_.toOption.toList.flatten)
     val copies = Shapes.typeParameters(constructor)
     val variables = copies ++ owner.typeParams
-    val parameters = Shapes.parameters(constructor)
     for {
       tree <- Shapes.tree(owner)
       // The class's type parameters and the constructor's copies of them: each an atom, or a
@@ -74,10 +119,12 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
             Unread.Uncovered(s"a bounded abstract type member around a constructor: ${member.name}")
         }
         .toLeft(())
-      env = Shapes.Env.of(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
+      env = Shapes.Env.of(
+        outer ++ variables.zip(atoms ++ atoms) ++ Shapes.typeParameters(tree.rhs.constr).zip(atoms),
+        constructor.symbol
+      )
       held <- receivers.bindings(around, constructor.symbol, env, Set.empty)
-      placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
-    } yield Constructors.product(self, placed, held)
+    } yield (tree, env, held)
   }
 
   private def position(
@@ -132,27 +179,41 @@ private[compiled] object Constructors {
     // The estimate's size is compared only where it gave no reason: with one (a type parameter),
     // the method side stands alone.
     val size = estimate.size.filter(_ => estimate.unbound.isEmpty)
+    def closed(shape: Shape) = Spaces.counted(shape) match {
+      case Left(reason) => Unresolved(List(reason))
+      // A top in an output (`f: Unit => Any`) is ω here and one value in the estimate, which
+      // reads every top as an input: the two are not compared, and the tier is the shape's.
+      case Right(Card.Omega) if TopTypes.unbounded(shape) => Estimated(Spaces.estimate(shape))
+      case Right(space) if size.exists(!agrees(space, shape, _)) =>
+        Unresolved(size.toList.map(Spaces.disagreement(name, space, _)))
+      case Right(Card.Omega) => Estimated(size.getOrElse(Spaces.estimate(shape)))
+      case Right(space)      => Exact(space)
+    }
+    def unvalued = Unread.Uncovered(s"a constructor position over a singleton or evidence: $name")
     if (ground && declined.nonEmpty) Right(Unresolved(declined))
-    else if (Spaces.closed(shape))
-      Right(Spaces.counted(shape) match {
-        case Left(reason) => Unresolved(List(reason))
-        // A top in an output (`f: Unit => Any`) is ω here and one value in the estimate, which
-        // reads every top as an input: the two are not compared, and the tier is the shape's.
-        case Right(Card.Omega) if TopTypes.unbounded(shape) => Estimated(Spaces.estimate(shape))
-        case Right(space) if size.exists(!agrees(space, shape, _)) =>
-          Unresolved(size.toList.map(Spaces.disagreement(name, space, _)))
-        case Right(Card.Omega) => Estimated(size.getOrElse(Spaces.estimate(shape)))
-        case Right(space)      => Exact(space)
-      })
+    else if (Spaces.closed(shape)) Right(closed(shape))
     else if (Spaces.mixed(shape))
       Right(
         Unresolved(
           List(s"constructor position mixes type parameters with transparent ground values: $name")
         )
       )
-    else if (Spaces.valued(shape))
-      Left(Unread.Uncovered(s"a constructor position over a singleton or evidence: $name"))
-    else Right(Shaped(name, shape))
+    // A singleton or evidence beside values and no type parameter: a value space, which the
+    // shape model would count the functions of. Beside a top, the method side reads it, a stable
+    // path's singleton as its one value; else the estimate's size stands (the old
+    // `ConstructorPositions.readPosition`).
+    // A value space of the estimate's that the method side's reading of it (`pointed`) contradicts
+    // is refused, and so is the estimate's empty space where the method side has none to compare:
+    // the two algebras differ on a function from an empty type.
+    else if (Spaces.valued(shape)) {
+      val pointed = Spaces.pointed(shape).map(closed)
+      if (TopTypes.holds(shape)) pointed.toRight(unvalued)
+      else
+        pointed
+          .collect { case refused: Unresolved => refused }
+          .orElse(size.filter(pointed.nonEmpty || _ != NothingSize).map(Estimated(_)))
+          .toRight(unvalued)
+    } else Right(Shaped(name, shape))
   }
 
   // A recursive position, which the method side refuses, is the estimate's, as the old reading

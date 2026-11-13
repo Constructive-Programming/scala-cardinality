@@ -99,9 +99,47 @@ final private[compiled] class Stored(world: World)(using Context) {
   // bound among them, each read at the class. The constructor names its own copies of the class's
   // type parameters.
   private def constructed(tree: ClassDef, env: Env): Either[String, Held] =
-    if (!tree.rhs.constr.symbol.isPublic)
+    if (!built(tree)) each.tupled(fields(tree, env)).map(Stored.product)
+    else if (world.extended(tree.symbol))
       Left(s"a restricted constructor: ${tree.symbol.displayFullName}")
-    else each.tupled(fields(tree, env)).map(Stored.product)
+    else restricted(tree, env)
+
+  // Whether a class holds what its public builders build (rule B): its constructor is restricted
+  // and it has no type parameter. A class with type parameters keeps its fields' product, as the
+  // old estimate (`capacity.Factories`) reads it.
+  private def built(tree: ClassDef): Boolean =
+    !tree.rhs.constr.symbol.isPublic && tree.symbol.typeParams.isEmpty
+
+  // Rule B, for a class nothing supplied extends (a subclass's constructor builds it too): it
+  // holds what its public secondary constructors and factories build (`Factories.builders`), each
+  // at most min(its parameters, the fields a public member or field shows or code outside the
+  // class may read; none: one value), the class the largest of these. "Public" is what a site
+  // outside every template may call: a row has no measuring site.
+  private def restricted(tree: ClassDef, env: Env): Either[String, Held] = {
+    val name = tree.symbol.displayFullName
+    val site = defn.RootPackage
+    // Each parameter read where it is written: a factory's at the factory.
+    def stored(parameters: List[ValDef]) =
+      Traversals
+        .sequence(parameters.map(p => of(p.tpt.toType, env.copy(site = p.symbol.owner))))
+        .map(Stored.product)
+    val builders = factories.builders(tree, site)
+    for {
+      _ <- Either.cond(builders.nonEmpty, (), s"a restricted constructor: $name")
+      fields <- stored(factories.observed(tree, site, outside = true))
+      bounds <- Traversals.sequence(builders.map {
+        case Some(parameters) => stored(parameters).map(held => Some(held.map(_.min(fields.size))))
+        case None             => Right(None)
+      })
+      largest <-
+        if (bounds.exists(_.exists(_.size == fields.size))) Right(fields)
+        else if (bounds.contains(None))
+          Left(s"a restricted constructor with a builder whose space is not known: $name")
+        else Right(bounds.flatten.maxBy(_.size)(using Size.order.toOrdering))
+    } yield largest.joined(fields :: bounds.flatten)
+  }
+
+  private lazy val factories = new Factories(world)
 
   // A class's constructor's parameters, and where they are read.
   private def fields(tree: ClassDef, env: Env): (List[Type], Env) =
@@ -641,13 +679,14 @@ final private[compiled] class Stored(world: World)(using Context) {
     }
 
   // A class's constructors as the ν completion reads them: an enum's cases (a value case has no
-  // field) or a concrete class's own; a family has none.
+  // field) or a concrete class's own; a family has none, nor a class its builders build.
   private def constructors(k: Instance): Either[String, Option[List[(List[Type], Env)]]] =
     World.tree(k.cls).flatMap { tree =>
       val inside = Env(k.cls.typeParams.zip(k.arguments).toMap, k.cls)
       if (k.cls.isEnum)
         cases(tree, inside).map(found => Some(found.map(_.fold(Nil -> inside)(fields.tupled))))
-      else if (Shapes.isFamily(k.cls)) Right(None)
+      // A family, or a class its builders build (`restricted`), is read through what it names.
+      else if (Shapes.isFamily(k.cls) || built(tree)) Right(None)
       else Right(Some(List(fields(tree, inside))))
     }
 
