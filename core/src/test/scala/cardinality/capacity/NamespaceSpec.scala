@@ -72,7 +72,7 @@ class NamespaceSpec extends Specification {
 
     Sealed families and lazy cycles say why they have no number
       a family the body does not sum is named                     $unsummedFamily
-      a lazy cycle the solver could not complete is a reason      $lazyCycle
+      a lazy cycle through a strict field, and one not completed  $lazyCycle
 
     A constructor slot is read where the constructor is written
       a qualified foreign name borrows nothing                    $slotQualified
@@ -678,26 +678,33 @@ class NamespaceSpec extends Specification {
       )
   }
 
-  // `S(head, tail: => O.Cell)` and `O.Cell(s: S)` form a lazy cycle whose strict `s: S` blocks the ν
-  // completion: its μ value 0 counts no lazy knot, yet `lazy val c: O.Cell = O.Cell(new S(true, c))`
-  // builds one (scalac accepts it). Every row on or above the cycle is `?`, in one body or across
-  // an object. A completed lazy cycle keeps its number: St = νX. 2·X = ω, read through `O`.
+  // `S(head, tail: => O.Cell)` and `O.Cell(s: S)` form a lazy cycle through the strict `s: S`; each
+  // lap passes the lazy `tail`, so a lazy knot ties it (`lazy val c: O.Cell = O.Cell(new S(true,
+  // c))`): per lap the label space 2 × 1, an endless Boolean stream, 2^ω = ω, in one body or across
+  // an object, and on every row above it. `O.Ks(p: (O.Ks, () => O.Ks))` names itself strictly and
+  // lazily in one field, which the ν completion cannot tell apart: not completed, every row on or
+  // above it is `?`. A completed lazy cycle keeps its number: St = νX. 2·X = ω, read through `O`.
   def lazyCycle = {
     val found = rows(
       """|final class S(val head: Boolean, tail0: => O.Cell)
-         |object O { final case class Cell(s: S); final class St(h: Boolean, t: => St) }
+         |object O {
+         |  final case class Cell(s: S); final class St(h: Boolean, t: => St)
+         |  final case class Ks(p: (Ks, () => Ks))
+         |}
          |final case class UsesCell(c: O.Cell)
          |final class S2(val head: Boolean, tail0: => Cell2)
          |final case class Cell2(s: S2)
          |final case class UsesSt(s: O.St)
+         |final case class UsesKs(k: O.Ks)
          |""".stripMargin
     )
-    def cycle(names: String*) = names.map(n => s"lazy cycle not completed: $n").mkString(", ")
-    (found(("O.Cell", Class)) === s"unresolved[${cycle("Cell", "S")}]")
-      .and(found(("S", Class)) === s"unresolved[${cycle("S", "O.Cell")}]")
-      .and(found(("UsesCell", Class)) === s"unresolved[${cycle("O.Cell", "S")}]")
-      .and(found(("S2", Class)) === s"unresolved[${cycle("S2", "Cell2")}]")
-      .and(found(("Cell2", Class)) === s"unresolved[${cycle("Cell2", "S2")}]")
+    (found(("O.Cell", Class)) === "ω")
+      .and(found(("S", Class)) === "ω")
+      .and(found(("UsesCell", Class)) === "ω")
+      .and(found(("S2", Class)) === "ω")
+      .and(found(("Cell2", Class)) === "ω")
+      .and(found(("O.Ks", Class)) === "unresolved[lazy cycle not completed: Ks]")
+      .and(found(("UsesKs", Class)) === "unresolved[lazy cycle not completed: O.Ks]")
       .and(found(("UsesSt", Class)) === "ω")
   }
 

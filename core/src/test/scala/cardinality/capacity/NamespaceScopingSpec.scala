@@ -258,17 +258,17 @@ class NamespaceScopingSpec extends Specification {
   }
 
   // `tail: Thunk` with `type Thunk = () => Cell` is a lazy field: `Cell(s: S)` and `S` form a lazy
-  // cycle whose strict `s: S` blocks the ν completion, and `lazy val c: Cell = Cell(new S(true, ()
-  // => c))` builds a value the μ reading (0) omits. A completed twin through an alias keeps its
-  // number: Node = νX. 2·X = ω.
+  // cycle through the strict `s: S`, tied by `lazy val c: Cell = Cell(new S(true, () => c))`: per
+  // lap 2 × 1, 2^ω = ω, the alias read again at the lap's values. `Pair(p: (Boolean, Next))` holds
+  // the alias inside a tuple: Pair = νX. 2·X = ω. So is `Node(b: Boolean, next: Next)`.
   def lazyAlias = {
     val found = rows(
-      "type Thunk = () => Cell\nfinal class S(val head: Boolean, val tail: Thunk)\nfinal case class Cell(s: S)\nfinal case class UsesCell(c: Cell)\ntype Next = () => Node\nfinal case class Node(b: Boolean, next: Next)"
+      "type Thunk = () => Cell\nfinal class S(val head: Boolean, val tail: Thunk)\nfinal case class Cell(s: S)\nfinal case class UsesCell(c: Cell)\ntype Next = () => Node\nfinal case class Node(b: Boolean, next: Next)\ntype Later = () => Pair\nfinal case class Pair(p: (Boolean, Later))"
     )
-    def cycle(names: String*) = names.map(n => s"lazy cycle not completed: $n").mkString(", ")
-    (found(("Cell", Class)) === s"unresolved[${cycle("Cell", "S", "Thunk")}]")
-      .and(found(("S", Class)) === s"unresolved[${cycle("S", "Thunk", "Cell")}]")
-      .and(found(("UsesCell", Class)) === s"unresolved[${cycle("Cell", "S", "Thunk")}]")
+    (found(("Cell", Class)) === "ω")
+      .and(found(("S", Class)) === "ω")
+      .and(found(("UsesCell", Class)) === "ω")
+      .and(found(("Pair", Class)) === "ω")
       .and(found(("Node", Class)) === "ω")
   }
 

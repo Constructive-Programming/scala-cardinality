@@ -3392,3 +3392,66 @@ Decided on the owner's values: better or equal measurement, then less source, th
 | Q9 | Must refusal reasons match? | No. A refusal stays a refusal or becomes a derived number. List the reasons that changed at the switch-over. | The gate compares counts. |
 | Q10 | A member the classpath does not hold | A refusal of its own, once fixtures record their classpath. | Uncovered until then. |
 | Q11 | `Report.query` | A filter over the new rows. | With S8. |
+
+### Group m3: lazy cycles at depth, two recorded gaps, recursive constructor rows by rule B
+
+**Lazy cycles at depth (both front ends, `capacity/Fixpoint.scala`).** The ν completion saw a
+lazy field only at its top, so `final case class Ltd(p: (Boolean, () => Ltd))` stored 0 in both
+front ends (a wrong number: `lazy val l: Ltd = Ltd((true, () => l))`, an endless Boolean stream,
+ω). Each front end now splits an arm's other fields into the nodes they demand (`Arm.names`) and
+those they name only under a by-name type or a function's result at any depth (`Arm.deferred`;
+`Solver.mentions` over the syntax, the body's bare aliases expanded; `Stored.mentions` over the
+TASTy type, a form it does not take apart naming its classes both ways). `Fixpoint` derives the
+lazily-named map from the arms (`Lazy.lazily`, `Solver.lazyTargets` and `Stored.lazyNames` are
+gone) and completes:
+
+- an inhabitance fixed point: a node holds a value when one is built in finitely many strict
+  steps around lazy knots (`Kx(kids: List[Kx], f: () => Kx)`: `Kx(Nil, () => k)`), or μ is
+  nonzero; a node with none keeps μ = 0 (`K9(k: K9, m: => K9)`), and one read as empty only
+  because a field names a node both strictly and lazily (`Ks(p: (Ks, () => Ks))`) leaves its
+  cycle open (`lazy cycle not completed`);
+- cycles: strongly-connected groups, with a lazy edge, of every edge (strict, lazy, a sealed
+  parent's children) between the nodes that hold a value, read without the arms that hold none
+  and the names under an empty factor (`o: Option[(Nothing, Y)]`);
+- per lap, each field read with the cycle as one value (the label space: a deterministic cycle
+  raises it to ω, a branch saturates at ω, or ε₀ where the labels are infinite) and as two (a
+  field that does not double branches); a definition between nodes (the source front end's
+  alias) is read again at those values.
+
+Rows: no corpus row moves on either side. Fixtures, both front ends alike: `Ltd` 0 -> ω, `Lu`
+0 -> 1, `Lw` 0 -> ω, `Pair` 0 -> ω, `Kx` 0 -> ε₀, `H9(m: => H9, s: Set[H9])` 0 -> ω (`new H9(h,
+Set())`), `T`/`A`/`B` (`A(t: () => T)`, `B(b: Boolean, a: A)`) 1/1/2 -> ω (a wrong number: `T`
+was below its summand `B`), `Lst(p: List[() => Lst])` ω -> ε₀ (ω arities per lap), and the
+strict-field cycles `S`/`Cell`/`Thunk`/`In`/`Out` `?` -> ω. Pins: `StoredRecursionSpec`
+(`nestedLazyCycles`, `emptyParts`, `uncompleted`), `CardinalitySpec`, `NamespaceSpec.lazyCycle`,
+`NamespaceScopingSpec.lazyAlias`. Left, both front ends, older than this unit: a sealed parent in a
+cycle ignores a child outside it that holds only a ν value (`sealed trait Pt; Pa(t: => Pt); Pb(h:
+Boolean, t: => Pb)`: `Pt` 1 where Pa(=> pb) for each Pb stream gives ω); the source front end does
+not expand an applied alias (`type L[A] = () => A`) in a field.
+
+**The recorded gaps.** `World.deferred` behind a match type: `Lm3(p: F[Lm3])` with `type F[X] = X
+match { case Any => () => X }`, and `Lm`, `Lm2`, `Lg` beside it, stored 0 in the new front end (a
+wrong number; 1 and ω). `Stored.mentions` names a match type's classes both ways, so the cycle is
+refused. A wildcard bound is refused already (`a wildcard type argument`). `World.mentioned` now
+walks a `RecType`'s parent; no probe found a reader that counts through one.
+
+**Recursive constructor rows with a hidden parameter (coordinator: rule B).** A recursive position
+(`Stored.recursive`: the position's system reaches the class) that the method side refuses for a
+parameter a class does not show (`Sums.Hides`, `Shapes.NoField`) is the stored estimate read for
+the constructor as observer (`Env.observer`): each class holds the fields `Factories.observed`
+says the constructor observes, through the system's equations and the ν arms. Rows (old -> new):
+`A11`/`B11.<init>` 1, `One`/`Two.<init>` ω (both fixtures: `Two(i: Int => E)` is a case class, its
+field observed, E = 1 + E^(2^32)), `Go.<init>` 1, `One.<init>` (`d84b…`) 1, identical; corrected:
+`Node.<init>` ω -> 2, `A.<init>` ω -> 2, `B.<init>` ω -> ≤2^32, and `O.Cell.<init>`, `Cell2.<init>`
+ω -> 2 (`S(val head: Boolean, tail0: => O.Cell)` shows its head). `UsesCell.<init>` is a new old
+numeric row still uncovered: the old front end now counts `Cell` (ω), and its position does not
+reach `UsesCell`.
+
+**Not done: a construction that always throws on the stored side** (the coordinator's extra item).
+It reproduces (`final class Dead { val z: Int = ???; final case class Leaf(b: Boolean) }` stores 1
+and 2 on both sides). Emptying it in the new front end (`World.unbuilt`, the classes around) is a
+few lines, but the old front end's `Builds` reads `???` by spelling and overridden vals not at
+all, so the two disagree on the D26 fixtures (`K` with `import Helpers.???` would be 0 there, a
+wrong number), and emptying the new side alone turns about thirty fixture rows worse, each to list
+as a correction, with `RecordsSpec`/`ReceiversSpec` agreement pins to adjust. Left for a unit of its
+own.

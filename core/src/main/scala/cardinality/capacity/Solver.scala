@@ -186,19 +186,18 @@ private[cardinality] object Solver {
 
   // What the ν completion reads off the body (`Fixpoint.Lazy`): each constructor's fields with the
   // aliases the body defines expanded at their heads, classified into continuations and read in
-  // their definition's view of the scope, and the names each definition's by-name and function
-  // fields mention.
+  // their definition's view of the scope.
   private def lazily(
       shapes: Shapes,
       views: TypeName => Scope => Scope
   ): Fixpoint.Lazy[TypeName, Scope] = {
-    val arms = shapes.arms.view.mapValues(_.map(_.map(dealias(shapes.aliases)))).toMap
+    val expand = dealias(shapes.aliases)
     val allNames = shapes.arms.keySet.union(shapes.parents.keySet)
     Fixpoint.Lazy(
-      arms =
-        arms.map((name, memberArms) => name -> memberArms.map(classified(allNames, views(name)))),
-      parents = shapes.parents,
-      lazily = arms.view.mapValues(_.flatten.flatMap(lazyTargets).toSet).toMap
+      arms = shapes.arms.map((name, memberArms) =>
+        name -> memberArms.map(arm => classified(allNames, views(name), expand)(arm.map(expand)))
+      ),
+      parents = shapes.parents
     )
   }
 
@@ -216,23 +215,35 @@ private[cardinality] object Solver {
     case other => other
   }
 
-  // The definitions a field names where a constructor does not demand them.
-  private def lazyTargets(param: Type): Set[TypeName] = param match {
-    case Type.ByName(inner)   => namesOf(inner)
-    case f: Type.FunctionType => namesOf(f.res)
-    case _                    => Set.empty
-  }
-
-  private def classified(allNames: Set[TypeName], view: Scope => Scope)(
-      arm: List[Type]
-  ): Arm[TypeName, Scope] = {
+  private def classified(
+      allNames: Set[TypeName],
+      view: Scope => Scope,
+      expand: Type => Type
+  )(arm: List[Type]): Arm[TypeName, Scope] = {
     val classified = arm.map(param => param -> continuation(param, allNames, view))
     val rest = classified.collect { case (param, None) => param }
-    Arm(
-      classified.flatMap(_._2),
-      scope => Counter.domain(view(scope))(rest),
-      rest.flatMap(namesOf).toSet
-    )
+    val (names, deferred) = Fixpoint.joined(rest.map(mentions(expand)))
+    Arm(classified.flatMap(_._2), scope => Counter.domain(view(scope))(rest), names, deferred)
+  }
+
+  // The names a field holds where its constructor demands them, and those it names only under a
+  // by-name type or a function's result (a domain's are demanded: the cycle is negative there),
+  // the aliases the body defines expanded.
+  private def mentions(expand: Type => Type)(tpe: Type): (Set[TypeName], Set[TypeName]) = {
+    val none = (Set.empty[TypeName], Set.empty[TypeName])
+    // `seen`: the aliases being expanded (`type Eq[A] = kernel.Eq[A]` names itself).
+    def walk(seen: Set[String])(tree: Tree): (Set[TypeName], Set[TypeName]) = tree match {
+      case Type.ByName(inner)   => (Set.empty, namesOf(inner))
+      case f: Type.FunctionType => (f.paramClause.values.flatMap(namesOf).toSet, namesOf(f.res))
+      case n @ Type.Name(name)  =>
+        val body = expand(n)
+        val (strict, deferred) = if ((body eq n) || seen(name)) none else walk(seen + name)(body)
+        (strict + TypeName.of(name), deferred)
+      case other => Fixpoint.joined(other.children.map(walk(seen)))
+    }
+    val (strict, deferred) = walk(Set.empty)(tpe)
+    // A name the walk did not place is demanded.
+    (strict ++ (namesOf(tpe) -- deferred), deferred)
   }
 
   // A continuation parameter carries a defined name in a position the constructor never

@@ -300,8 +300,9 @@ private[compiled] object World {
 
   /** The first symbol a type as it is written names that passes `test`: through its prefix (a
     * path's values included, and the class of a `this` or `super`), its arguments and a wildcard's
-    * bounds, an annotation, a refinement of a type or a value and its parent, a union or an
-    * intersection, a type lambda's body and bounds, a match type's parts; an alias is not followed.
+    * bounds, an annotation, a refinement of a type or a value and its parent (a recursive one's
+    * too), a union or an intersection, a type lambda's body and bounds, a match type's parts; an
+    * alias is not followed.
     */
   def mentioned(tpe: TypeOrWildcard, test: Symbol => Boolean)(using Context): Option[Symbol] = {
     def first(types: TypeOrWildcard*) = types.iterator.flatMap(mentioned(_, test)).nextOption()
@@ -330,6 +331,7 @@ private[compiled] object World {
         first(refined.parent :: List(refined.refinedType).collect { case value: Type => value }*)
       case refined: TypeRefinement =>
         first(refined.parent, refined.refinedBounds.low, refined.refinedBounds.high)
+      case rec: RecType           => first(rec.parent)
       case by: ByNameType         => first(by.resultType)
       case repeated: RepeatedType => first(repeated.elemType)
       case and: AndType           => first(and.first, and.second)

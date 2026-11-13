@@ -540,11 +540,18 @@ The current API and representation have important limits:
   point: a deterministic cycle adds its per-lap label space raised to ω, any branch (two
   continuations in one arm, an `Option` field beside a hole, a domain with two or more inputs, a
   sealed parent with several continuing children) saturates at ω under the §4 finite-program
-  reading, one program per unfolding; `LazyList` and `Stream` follow the same rule. A cycle demanded
-  outright — strict self argument, tuple, `Set[X]`, function domain — blocks coiteration: totals
-  keep the least-fixed-point value, and a row on or reading a blocked cycle that a by-name or
-  function field closes is `?` (`lazy cycle not completed`), because a lazy knot builds values that
-  value omits (see [stored-value names](research/stored-value-names.md)).
+  reading, one program per unfolding; `LazyList` and `Stream` follow the same rule. A name under a
+  by-name type or a function's result at any depth of a field (`p: (Boolean, () => X)`,
+  `Option[() => X]`) continues the cycle too; a strict field may lie on it (`Cell(s: S)` beside
+  `S(h: Boolean, t: => Cell)`), and a sealed parent passes through its children. A cycle is a
+  strongly-connected group of the definitions that hold a value (each built in finitely many strict
+  steps around lazy knots: `Kx(Nil, () => k)` for `Kx(kids: List[Kx], f: () => Kx)`), read without
+  the arms that hold none and the names under an empty factor. Each lap reads a field with the
+  cycle as one value (its label space) and as two (a field that does not double branches). A
+  definition that holds no value keeps μ = 0 (`K9(k: K9, m: => K9)`); a field naming the cycle both
+  strictly and lazily (`Ks(p: (Ks, () => Ks))`) cannot be read, and a row on or reading such a
+  cycle is `?` (`lazy cycle not completed`), because a lazy knot may build values μ omits (see
+  [stored-value names](research/stored-value-names.md)).
 - A growing recursive component is widened to its tier, as §8 describes: a name that can reach
   itself and keeps growing is replaced by the tier it has grown into, so the iteration terminates.
   Separately, completion of each lazy/coinductive type combines its μ estimate and infinite

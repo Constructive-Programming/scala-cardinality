@@ -153,12 +153,20 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
     val tpe = parameter.tpt.toType
     // A ground position is one whose written type names no type parameter of the class.
     val ground = !World.mentions(tpe, variables)
-    def estimate = stored.position(tree, tpe).left.map(Uncovered(_))
+    def estimate(observer: Option[Symbol] = None) =
+      stored.position(tree, tpe, observer).left.map(Uncovered(_))
     // A position is an input: a top type in it is one value.
     shapes.of(tpe, env).map(TopTypes.polarized(_, false)) match {
       case Left(Unread.Refused(reason))
           if reason.startsWith(Shapes.Recursive) && Constructors.estimable(tpe) =>
-        estimate.map(Constructors.fromEstimate(reason, _, ground))
+        estimate().map(Constructors.fromEstimate(reason, _, ground))
+      // A recursive position the method side refuses for a parameter a class does not show: under
+      // rule B the parameter is unobserved, so each class holds the fields this constructor
+      // observes (`final class A(h: Boolean, b: => B)` beside `final class B(x: Int, a: => A)`:
+      // `b` is one value, the row 2).
+      case Left(Constructors.Hidden(reason))
+          if Constructors.estimable(tpe) && stored.recursive(tree, tpe) =>
+        estimate(Some(parameter.symbol.owner)).map(Constructors.fromEstimate(reason, _, ground))
       case Left(Unread.Refused(reason)) =>
         Left(Uncovered(s"a constructor position the method side refuses: $reason"))
       case shaped =>
@@ -167,7 +175,7 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
           // An open position over a type parameter is the shape model's alone: the estimate,
           // which reads it only where it is ground or closed, is not asked.
           sized <-
-            if (ground || Spaces.closed(shape)) estimate else Right(Stored.Row(None, Nil))
+            if (ground || Spaces.closed(shape)) estimate() else Right(Stored.Row(None, Nil))
           read <- Constructors.read(name, shape, sized, ground)
         } yield read
     }
@@ -248,6 +256,19 @@ private[compiled] object Constructors {
       estimate.size
         .filter(_ => estimate.unbound.isEmpty && !estimate.undecided)
         .fold(Unresolved(List(reason)))(Estimated(_))
+  }
+
+  // The method side's refusal of a class value for a constructor parameter it does not show.
+  private object Hidden {
+
+    def unapply(refusal: Unread): Option[String] = refusal match {
+      case Unread.Refused(reason) if reason.startsWith(Sums.Hides) => Some(reason)
+      case Unread.Uncovered(reason)
+          if reason.startsWith(s"a capability record ${Shapes.NoField}") =>
+        Some(reason)
+      case _ => None
+    }
+
   }
 
   // Whether the old reading hands a position the method side refuses to the estimate: only class
