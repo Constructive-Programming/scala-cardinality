@@ -173,27 +173,29 @@ class RecordsSpec extends Specification {
       // `show` inherits a member of its own name and arity, but the object `Use` is no `Shows`:
       // that member is never the definition (`NamesSpec`). One Boolean member, 2^2.
       .and(count("show") must_== Count.Finite(4))
+      // `FbF.k` applies a function its constructor was given, but nothing names `fb`, so no
+      // behavior calls it (closed world): `k` is a Boolean capability and `j` computes from it,
+      // so `Fb` is 2 values and `fb` one of 2^2.
+      .and(count("fb") must_== Count.Finite(4))
 
   // Not read yet, each by its reason: an extension member; a class something extends; one with a
   // bounded abstract type member (a proof about each value's own witness); one whose inherited
   // member the site may not call; a final class that nothing the site may call builds; and an
   // overridden member a behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m`
-  // gives `OrdI` to `sorted`, which calls its `compare`, which calls `ord`; `FbF.k` applies a
-  // function its constructor was given, built where the search does not look.
+  // gives `OrdI` to `sorted`, which calls its `compare`, which calls `ord`.
   private def later = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def reason(name: String) = count(name) match {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "base", "bounded", "guards", "shut", "target", "ord", "fb")
+    List("tagged", "base", "bounded", "guards", "shut", "target", "ord")
       .map(reason) must_== List(
       "an extension method among the members of a capability record",
       "a capability record of a class something extends",
       "a capability record with a bounded abstract type member",
       "a capability record with a member hidden at the use site",
       "a capability record with no constructor or factory the site may call",
-      "an overridden member that may call it among the members of a capability record",
       "an overridden member that may call it among the members of a capability record",
       "an overridden member that may call it among the members of a capability record"
     )

@@ -35,6 +35,7 @@ class ProgramRowsSpec extends Specification {
     An overridden member (a capability: ReceiversSpec, `Wide.get`)
       is not read where a behavior of it may call the measured one    $reentry
       a `new` whose class the classes read do not hold may            $unresolvedNew
+      is read where no reference by name leads from it to the site  $unnamedCaller
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
@@ -211,7 +212,8 @@ class ProgramRowsSpec extends Specification {
   // `gone.Gone` that names no class read, either of which may be anything (left); an `Other`,
   // which reaches nothing, so `Back` is its `k` (2 values, `j` computing from it) and `target` one
   // of 2^2, with `gone` read or not (a type argument runs no code). On the site's own instance,
-  // `Own2.k` builds a `gone.Gone` unread: `Own.get` is left.
+  // `Own2.k` builds a `gone.Gone` unread: `Own.get` is left. (`Opens` names `target` in a function
+  // literal, which whatever applies the function may run: no reading by name settles these rows.)
   def unresolvedNew = {
     val gone = Programs.compiled("package gone\nclass Gone")
     def found(built: String, read: List[Path]) = rows(
@@ -222,6 +224,7 @@ class ProgramRowsSpec extends Specification {
         |object BackI extends Back { override def k: Boolean = { new $built; true } }
         |class Own(b: Boolean) { def get: Boolean = b; def k: Boolean = b }
         |class Own2 extends Own(true) { override def k: Boolean = { new $built; true } }
+        |object Opens { val f: () => Boolean = () => new Use().target(BackI) }
         |""".stripMargin,
       List(gone),
       Some(read)
@@ -234,6 +237,50 @@ class ProgramRowsSpec extends Specification {
       .and(found("Other[gone.Gone]", List(gone))("Use.target") must_== Count.Finite(4))
       .and(found("Other[gone.Gone]", Nil)("Use.target") must_== Count.Finite(4))
       .and(left("gone.Gone", Nil, "Own.get"))
+  }
+
+  // On a value of the record `E[Unit]` (another instance than the site's), the anonymous class of
+  // `instance` overrides `neqv` with `!f(x, y)`, applying a function it is given. Nothing that
+  // calls `target` is reached from a behavior of `neqv`: `probe` names it, but nothing names
+  // `probe`; `check` runs a function literal naming it inside `forall`, whose Boolean result keeps
+  // no function; `later` gives it by name to `twice`, which forces it where it names `b`. So `neqv`
+  // is a capability beside the abstract `eqv`, each one of the 2 functions (Unit, Unit) => Boolean
+  // (its input is one value): `E[Unit]` is 2 × 2 values and `target` one of 2^4. Left: `Mine.neqv` calls `probe`; `back` passes `lift`
+  // a function literal naming `target`, which whatever applies the function may run.
+  def unnamedCaller = {
+    def found(more: String) = rows(
+      s"""trait E[A] { def eqv(x: A, y: A): Boolean; def neqv(x: A, y: A): Boolean = !eqv(x, y) }
+      |object E {
+      |  def instance[A](f: (A, A) => Boolean): E[A] = new E[A] {
+      |    def eqv(x: A, y: A): Boolean = f(x, y)
+      |    override def neqv(x: A, y: A): Boolean = !f(x, y)
+      |  }
+      |  def lift[A](g: (A, A) => Boolean): E[A] = instance(g)
+      |  val units: E[Unit] = lift((x, y) => x == y)
+      |  def probe: Boolean = Use.target(units)
+      |  def check: Boolean = List(units).forall(e => Use.target(e))
+      |  def twice(b: => Boolean): Option[Boolean] = Some(b && b)
+      |  def later: Boolean = twice(Use.target(units)).isEmpty
+      |  $more
+      |}
+      |object Use { def target(e: E[Unit]): Boolean = true }
+      |""".stripMargin
+    )("Use.target")
+    (found("") must_== Count.Finite(16))
+      .and(
+        uncovered(
+          found(
+            "object Mine extends E[Unit] { def eqv(x: Unit, y: Unit) = true; override def neqv(x: Unit, y: Unit) = probe }"
+          ),
+          Receivers.Reenters
+        )
+      )
+      .and(
+        uncovered(
+          found("val back: E[Unit] = lift((x, y) => Use.target(units))"),
+          Receivers.Reenters
+        )
+      )
   }
 
   // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement

@@ -835,10 +835,11 @@ class TastyFrontEndSpec extends Specification {
     }
   }
 
-  // What the front end may use of the rest: the row types, the solver and the shape half of
-  // `TopTypes` it calls, the size algebra, the standard model's tables, the class loader and a
-  // list helper. Anything else would be the scalameta reading.
+  // What the front end may use of the rest: the row types, the solver and its step budget, the
+  // shape half of `TopTypes` it calls, the size algebra, the standard model's tables, the class
+  // loader and a list helper. Anything else would be the scalameta reading.
   private val allowed = Set(
+    "cardinality.analysis.AnalysisWork",
     "cardinality.analysis.BuiltinTypes",
     "cardinality.analysis.MethodAnalysis.Entry",
     "cardinality.analysis.inhabitation.Card",

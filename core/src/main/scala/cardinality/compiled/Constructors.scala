@@ -1,7 +1,7 @@
 package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
-import cardinality.analysis.inhabitation.{Card, ClosedSpaces as Spaces, Inhabitation}
+import cardinality.analysis.inhabitation.{Card, ClosedSpaces as Spaces}
 import cardinality.analysis.resolution.TopTypes
 import cardinality.capacity.Definition.Unbound
 import cardinality.capacity.Size
@@ -173,10 +173,9 @@ private[compiled] object Constructors {
         Count.product(
           positions.collect { case Exact(space) => space },
           positions.collect { case Estimated(size) => size },
-          Inhabitation.count(
+          Readings.count(
             held ++ shaped.map((name, shape) => Binding(s"$self.$name", shape, Some(name))),
-            Shape.Product(shaped.map(_._2)),
-            maxDepth = Readings.Depth
+            Shape.Product(shaped.map(_._2))
           )
         )
       case reasons => Count.Unresolved(reasons.distinct)

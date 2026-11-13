@@ -383,6 +383,40 @@ the method owning the parameter, recursively; refuse anything unresolved or outs
 then constructor positions, restricted constructors, re-entry among an enclosing class's members, a
 record of a class something extends, a parameter that is no public field.
 
+Stretch 13 (a third gate agent, private gate copy `/tmp/tg2/assets`; its scripts and logs under
+`/tmp/tg2/`). Scope from the coordinator: constructor positions the method side refuses (recursive
+types) moved to the front agent, which ports the stored side's fixed point. First unit, re-entry
+among a record's members. Following a held function to its method's call sites (the sketch above)
+did not help: the search stops at function parameters of lambdas that receive data (`Eq.by(_.apply())`
+on `Eq[() => A]`) and at its cap. Instead, on another instance, `Reentry.callersOf` closes the
+measured name over references by name: the definitions whose code names it or a caller (dispatch,
+overloads and unresolved references by the name alone; an object's body for its value's and
+members' names; a by-name argument for its parameter's, where the module's method declaring it is
+the only one the call runs; a function literal or by-name argument passed to a call whose value is a
+primitive, a `String` or `Unit` for the code around it, since nothing can keep it; a match for what
+an extractor's result is asked). It concludes nothing where code may run that no reference names: a
+function literal's body, another by-name argument, a member overriding code outside the module, a
+class body that is no object's, a class of the module without a tree. A behavior outside the set
+does not re-enter, whatever the search says (the two are joined: the search's own gaps, such as an
+instance of the module handed to code outside it that calls one of its overrides, `List(a).sorted`,
+remain where the closure concludes nothing). A measured strict field skips it. Freed rows hung the
+solver (minutes on `catsKernelStdHashForTuple4`), so `Readings.count` now gives each row 3,000,000
+solver steps (ten times the old reading's per-target quota, which refused rows measured here
+before), refused as "target budget exhausted at …". Regressions: `ProgramRowsSpec.unnamedCaller`;
+`RecordsSpec` `fb` is 4 (nothing names it); `unresolvedNew` gains a function literal naming
+`target` so the search's rules stay pinned. 27 rows past a model limit are derived in `derived.txt`
+(Eq and Hash of tuples, `Option`, `Function0`, `OneAnd`, `Tuple2K`, `Defer[Eq]`, the tuple, `Either`
+and `Ior` bifunctors, `Functor[Const]`, `Align` of `Option`, `Either` and `Id` through `imap`).
+Gate (method rows identical / better / worse / uncovered, then old numeric rows still uncovered):
+cats-core 1,758 / 378 / 70 / 5,445, 37 of 909 (was 48); cats-kernel 516 / 13 / 0 / 1,256, 81 of 368
+(was 111); others unchanged (cats-eo 83 of 271, core 58 of 768, fixtures 756 of 5,485, generics and
+schemes 0). One run each: corpus-core 20.9 s, cats-core 7.8 s, cats-kernel 7.5 s (3.1 s before, more
+rows solved). Shared coverage memory, rows newly measured inserted, none removed: cats-core 183,
+cats-kernel 194, cats-eo 2. Left of the group: cats-kernel 74 and cats-core 11 rows whose measured
+name (`hash`, `eqv`, `<init>`, `===`, …) a function literal names, so the closure concludes nothing
+and the search refuses. Next: restricted constructors, re-entry among an enclosing class's members, a
+record of a class something extends, a parameter that is no public field, the small groups.
+
 ### Commands
 
 | Command | What it does |
