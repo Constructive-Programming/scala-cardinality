@@ -465,9 +465,29 @@ class ProgramRowsSpec extends Specification {
     val wrapped = rows(
       fwd + "object Mk { def mk(o: E): Option[E] = Some[E]((a, b) => Use.same(o)) }\n"
     )
+    // A match's extractor given `this` (`X.unapply`, then `Opt`'s `isEmpty` and `get`), a tuple
+    // holding the other instance (`Tuple2.unapply`, `_1`, `_2`), or a case class's own pattern
+    // (`_1`, never `D`'s `isEmpty`), or `==` and a stable pattern on an `Any` (`equals(Any)`, never
+    // `Q`'s overloads of `==` and `equals`), hands nothing to `same` but `o`.
+    val viaX = neqv("this match { case X(x) => x && Use.same(o) }")
+    val viaTuple = neqv("(a, o) match { case (true, p) => Use.same(p); case _ => b }")
+    val viaD = neqv("this match { case D(_) => Use.same(o) }")
+    val viaQ = neqv(
+      "{ val me: Q = this; (this == (a: Any)) || ((a: Any) match { case `me` => Use.same(o); case _ => false }) }"
+    )
+    val matched = rows(
+      fwd + s"""object X { def unapply(e: E): Opt = new Opt(e) }
+      |final class Opt(e: E) { def isEmpty: Boolean = false; def get: Boolean = true }
+      |final class N(o: E) extends E { $viaX }
+      |final class T(o: E) extends E { $viaTuple }
+      |final case class D(o: E) extends E { def isEmpty: Boolean = !Use.same(this); $viaD }
+      |final class Q(o: E) extends E { def ==(q: Q): Boolean = Use.same(this); def equals(q: Q): Boolean = Use.same(this); $viaQ }
+      |""".stripMargin
+    )
     (found("Use.same") must_== Count.Finite(BigInt(2).pow(256)))
       .and(noInput("Use.all") must_== Count.Finite(BigInt(2).pow(8)))
       .and(wrapped("Use.same") must_== Count.Finite(BigInt(2).pow(256)))
+      .and(matched("Use.same") must_== Count.Finite(BigInt(2).pow(256)))
   }
 
   // Each behavior hands the value itself on to the site: `BackV.neqv` through a local alias of
@@ -512,7 +532,17 @@ class ProgramRowsSpec extends Specification {
   // outside the module (`lt`, with or without `this`) calling back into `compare`, which hands on
   // the module-built `Reg.c`; an alias of `this` given to `ScalaRunTime._toString`, which calls
   // the class's own `productElement`; an alias of `this` typed `Any` given to
-  // `ScalaRunTime.stringOf`, which tests it for an `Iterable` and calls its `iterator`.
+  // `ScalaRunTime.stringOf`, which tests it for an `Iterable` and calls its `iterator`; a member of
+  // `Equals` or `Product` the class implements by handing on `this`, called on an alias typed by
+  // that trait; and `this` typed by the record trait `E` (aliased, ascribed, as a bounded type
+  // argument, or in a `Some`) given to `stringOf`, where a class below `E` is an `Iterable`.
+  // Through the compiler's calls (`Matches`): `this` (or the object `Cap`) matched by a pattern,
+  // where a case class's own `_1` (beside a `get` the match does not call) or, nested under a
+  // name-based `Y`, `_2` hands it on, or a name-based extractor's `isEmpty` or `get` (in an `Opt`
+  // around it, or on the value itself, `_1` of its parameterless `get`), a sequence extractor's
+  // `lengthCompare` (a generic one too) or a product-sequence's `_1`, or `equals` (or an `==` of
+  // the class) of a stable pattern's value (an alias of `this`, or the object `Q`); and `this == a`
+  // and `this.##`, which run the class's `equals` and `hashCode`.
   def sameInstanceHidden = {
     val use = "object Use { def same(e: E): Boolean = true }\n"
     val wrap = "final class Wrap(e: E) { def go: Boolean = Use.same(e) }"
@@ -523,6 +553,10 @@ class ProgramRowsSpec extends Specification {
     def grows(body: String) =
       s"final class G extends E with scala.collection.mutable.Growable[Int] { def addOne(x: Int): this.type = this; def clear(): Unit = (); $body }"
     val sam = "trait K { def run(e: E): Boolean }\nobject Ks { val k: K = e => Use.same(e) }"
+    // A name-based extractor whose `isEmpty` is `!nonEmpty` and `get` is `get`, and a class `N`.
+    def opt(nonEmpty: String, get: String) =
+      s"object X { def unapply(e: E): Opt = new Opt(e) }\nfinal class Opt(e: E) { def isEmpty: Boolean = !$nonEmpty; def get: Boolean = $get }"
+    def inN(body: String) = s"final class N extends E { ${neqv(body)} }"
     (List(
       use -> s"final class W(e: E) { def go: Boolean = Use.same(e) }\nobject Cap extends E { ${neqv("new W(Cap).go")} }",
       use -> s"final class M extends E { def me(x: Boolean): E = this; ${neqv("Use.same(me(a))")} }",
@@ -562,8 +596,26 @@ class ProgramRowsSpec extends Specification {
       use -> s"object Cap extends E { ${neqv("Some[E](Cap).toList.sorted((p: E, q: E) => if (Use.same(p)) 0 else 1).isEmpty")} }",
       use -> s"object Cap extends E with Ordering[E] { def compare(p: E, q: E) = if (Use.same(p)) 0 else 1; ${neqv("Some[E](Cap).toList.sorted(Cap).isEmpty")} }",
       use -> s"final class P extends E with Product { ${neqv("{ val me: P = this; scala.runtime.ScalaRunTime._toString(me).isEmpty }")}; def productArity = 1; def productElement(n: Int): Any = Use.same(this); def canEqual(x: Any) = true }",
-      use -> s"final class I extends E with Iterable[Boolean] { ${neqv("{ val me: Any = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }")}; def iterator: Iterator[Boolean] = Iterator(Use.same(this)) }"
+      use -> s"final class QE extends E with Equals { ${neqv("{ val me: Equals = this; me.canEqual(1) }")}; def canEqual(x: Any) = Use.same(this) }",
+      use -> s"final class QP extends E with Product { ${neqv("{ val me: Product = this; me.productArity == 1 }")}; def productArity = if (Use.same(this)) 1 else 0; def productElement(n: Int): Any = n; def canEqual(x: Any) = true }",
+      use -> s"final case class C(v: Boolean) extends E { def _1: Boolean = Use.same(this); ${neqv("this match { case C(x) => x }")} }",
+      use -> s"final class Box(e: E) { def isEmpty = false; def get: E = e }\nobject Y { def unapply(e: E): Box = new Box(e) }\nfinal case class C(v: Boolean, w: Boolean) extends E { def _2: Boolean = Use.same(this); ${neqv("this match { case Y(C(_, y)) => y; case _ => a }")} }",
+      use -> s"${opt("Use.same(e)", "true")}\n${inN("this match { case X(x) => x }")}",
+      use -> s"${opt("true", "Use.same(e)")}\n${inN("this match { case X(x) => x }")}",
+      use -> s"${opt("true", "Use.same(e)")}\nobject Cap extends E { ${neqv("(Cap: E) match { case X(x) => x }")} }",
+      use -> s"object S { def unapplySeq(e: E): Sq = new Sq(e) }\nfinal class Sq(e: E) extends Seq[Boolean] { def apply(i: Int) = true; def length = 1; def iterator = Iterator(true); override def lengthCompare(n: Int) = if (Use.same(e)) 0 else 1 }\n${inN("this match { case S(x) => x; case _ => a }")}",
+      use -> s"final class Q extends E { override def equals(o: Any) = Use.same(this); ${neqv("{ val me: Q = this; (a: Any) match { case `me` => true; case _ => false } }")} }",
+      use -> s"object Q extends E { override def equals(o: Any) = Use.same(Q); ${neqv("(a: Any) match { case Q => true; case _ => false }")} }",
+      use -> s"object X { def unapply(n: N): N = n }\nfinal class N extends E { def isEmpty: Boolean = !Use.same(this); def get: Boolean = true; ${neqv("this match { case X(x) => x }")} }",
+      use -> s"object X { def unapply(n: N): N = n }\nfinal class N extends E { def isEmpty = false; def get(i: Int): Int = i; def get: N = this; def _1: Boolean = Use.same(this); def _2: Boolean = true; ${neqv("this match { case X(p, q) => p }")} }",
+      use -> s"final case class C(v: Boolean) extends E { def get: Boolean = v; def _1: Boolean = Use.same(this); ${neqv("this match { case C(x) => x }")} }",
+      use -> s"object S { def unapplySeq[A](n: N): N = n }\nfinal class N extends E with Seq[Boolean] { def apply(i: Int) = true; def length = 1; def iterator = Iterator(true); override def lengthCompare(n: Int) = if (Use.same(this)) 0 else 1; ${neqv("this match { case S(x) => x; case _ => a }")} }",
+      use -> s"object PS { def unapplySeq(p: P): P = p }\nfinal class P extends E with Product { def _1: Boolean = Use.same(this); def _2: Seq[Boolean] = Nil; def canEqual(x: Any) = true; def productArity = 2; def productElement(n: Int): Any = n; ${neqv("this match { case PS(x, _*) => x; case _ => a }")} }",
+      use -> s"final class Q extends E { def ==(o: Q): Boolean = Use.same(this); ${neqv("{ val me: Q = this; (this: Q) match { case `me` => true; case _ => false } }")} }",
+      use -> s"final class Q extends E { override def equals(o: Any) = Use.same(this); ${neqv("this == (a: Any)")} }",
+      use -> s"final class Q extends E { override def hashCode = if (Use.same(this)) 1 else 0; ${neqv("this.## == 1")} }"
     ) ++ List(
+      "{ val me: Any = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }",
       "{ val me: E = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }",
       "scala.runtime.ScalaRunTime.stringOf(this: E).isEmpty",
       "{ def h[A <: E](x: A): Boolean = scala.runtime.ScalaRunTime.stringOf(x).isEmpty; h[E](this) }",
