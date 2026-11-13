@@ -43,18 +43,18 @@ import tastyquery.Types.*
   * A sealed family or an enum is one value of its sum as a receiver: which case, and what the case
   * holds (`split`). Not read yet, each a `Left` naming it: a concrete sealed class or an enum
   * case's own class; a sum this reading does not take (`Readings` still counts an ω goal past an
-  * enum built from nothing, as the old front end does); a class that reaches one parent through two
-  * of its parents, or whose inherited members are not read; a parent in a class or a body, a parent
-  * whose private constructor parameters a subclass passes, a constructor field something overrides,
-  * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
-  * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
-  * settle; a self type narrower than the class (`World.ownSelf`); a type parameter of another kind
-  * than `F[_]` that a type read names; an abstract type member of a sum, a bounded one or one of
-  * another kind than `F[_]`, one two enclosing instances hold, one of a class no class written
-  * elsewhere extends, one another declaration of its name bounds or hides; a capability with type
-  * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
-  * parameter; and what implicit search chooses (S5's remainder): a contextual parameter without a
-  * name, an abstract given without a name, an abstract extension method. A given written
+  * enum built from nothing, as the old front end does); a class that reaches one generic parent
+  * through two of its parents, or whose inherited members are not read; a parent in a class or a
+  * body, a parent whose private constructor parameters a subclass passes, a constructor field
+  * something overrides, and for a class that is not fixed a parent without TASTy that is no trait;
+  * an overridden member a behavior of which may call the measured one (`Reentry`), or overriders
+  * the classes read do not settle; a self type narrower than the class (`World.ownSelf`); a type
+  * parameter of another kind than `F[_]` that a type read names; an abstract type member of a sum,
+  * a bounded one or one of another kind than `F[_]`, one two enclosing instances hold, one of a
+  * class no class written elsewhere extends, one another declaration of its name bounds or hides; a
+  * capability with type parameters of its own; a deferred `inline val`, or a deferred inline method
+  * over a type parameter; and what implicit search chooses (S5's remainder): a contextual parameter
+  * without a name, an abstract given without a name, an abstract extension method. A given written
   * `= deferred` is a capability like an abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes, including: Boolean = false)(
@@ -167,12 +167,16 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   private def free(c: ClassSymbol, member: TermSymbol): Boolean =
     member.isParamAccessor && member.owner != c && !passed(c, member.owner.asClass)
 
-  // Whether the template, or a class it extends, reaches one parent through two of its parents.
+  // Whether the template, or a class it extends, reaches one generic parent through two of its
+  // parents, each path with its own type arguments. A parent without type parameters is one type
+  // whatever the path, and the linearization resolves its members once.
   private def reachesTwice(c: ClassSymbol): Boolean = {
     val ancestors = World.ancestors(c)
     (c :: ancestors).exists { k =>
       val parents = k.parentClasses.filter(ancestors.contains)
-      ancestors.exists(ancestor => parents.count(_.isSubClass(ancestor)) > 1)
+      ancestors.exists(ancestor =>
+        ancestor.typeParams.nonEmpty && parents.count(_.isSubClass(ancestor)) > 1
+      )
     }
   }
 
@@ -218,10 +222,10 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
 
   private def inheritedOf(c: ClassSymbol): Either[String, List[TermOrTypeSymbol]] =
     if (fixed(c)) Right(Nil)
-    // A parent two of its parents extend is read once by the linearization, each with its own
-    // type arguments: not read yet.
+    // A generic parent two of its parents extend is read once by the linearization, each path
+    // with its own type arguments: not read yet.
     else if (reachesTwice(c))
-      Left(s"an enclosing class that reaches a parent through two parents: ${c.name}")
+      Left(s"an enclosing class that reaches a generic parent through two parents: ${c.name}")
     else
       try {
         val line = c.linearization

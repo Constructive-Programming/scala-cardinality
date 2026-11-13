@@ -563,12 +563,12 @@ class TastyFrontEndSpec extends Specification {
   //     public, are read: `RecordsSpec`); and a member of an enum nested in a class may read the
   //     instance around it (`key` reads `k`).
   //   - A case that pins its parent's parameter to a type holds values of `Index[Int]` only; one
-  //     that passes a parameter to two slots equates them; an invariant parameter in a covariant
-  //     slot holds more than its own type's values; `Any` in a covariant slot is no bottom pin;
-  //     a case with a bounded parameter is no case at other types.
+  //     that passes a parameter to two slots equates them; `Any` in a covariant slot is no bottom
+  //     pin; a case with a bounded parameter is no case at other types.
   //   - A case under two sealed levels would be summed twice. An enum's value case under a family
   //     is the enum's to read first (the enum itself reads it: `mixed` is one of 2). A case with a private constructor
-  //     or field is rule B's to read, and `class BareC` is one tree with `class BareC()`.
+  //     or field is rule B's to read. Read now: `inv` 2 (`Co[A]` holds `Inv[S]`, `S <: A`, whose
+  //     `a` is an `A`: an atom, so a constant); `bare` 1 (no field; the old reading refuses it).
   //   - A case whose construction throws (an object's body, there ascribed too, an enum case's
   //     argument, a repeated or a named argument of a parent, in order or not, in any clause) is
   //     never built and adds no summand (register D26): each of those families is empty, and a
@@ -586,14 +586,14 @@ class TastyFrontEndSpec extends Specification {
       "nested" -> "a class nested in a class or a body",
       "index" -> slots,
       "twice" -> slots,
-      "inv" -> slots,
+      "inv" -> "Finite(2)",
       "whole" -> slots,
       "small" -> slots,
       "diamond" -> "a sealed subtype reached twice",
       "under" -> "an enum case under a sealed family",
       "rst" -> "a restricted constructor",
       "fld" -> "a restricted field",
-      "bare" -> "a sealed subtype without parameters",
+      "bare" -> "Finite(1)",
       "thrown" -> "Finite(0)",
       "arg" -> "Finite(0)",
       "rep" -> "Finite(0)",
@@ -929,8 +929,8 @@ class TastyFrontEndSpec extends Specification {
       .map(_.row.key -> value)
     val closed = List("Loose", "Prot", "Impl").flatMap(name => keys(s"sizes.$name", "2"))
     val thrown = List("arg", "thrown", "rep", "cur").flatMap(n => keys(s"types.Use.$n", "0"))
-    val derived =
-      (keys("sizes.Seen", "1") ++ keys("sizes.Seen.<init>", "1") ++ closed ++ thrown).toMap
+    val seen = keys("sizes.Seen", "1") ++ keys("sizes.Seen.<init>", "1")
+    val derived = (seen ++ keys("types.Use.bare", "1") ++ closed ++ thrown).toMap
     val hidden = List("Nam", "Ord", "Asc").flatMap(n =>
       keys(s"types.$n", "1 -> 0") ++ keys(s"types.Use.${n.toLowerCase}", "1 -> 0")
     )
@@ -938,7 +938,7 @@ class TastyFrontEndSpec extends Specification {
       keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8") ++ hidden ++
       keys("shapes.Context.caller.<block#1>.passed", "4 -> 2^(2^33)")).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (9, 11))
+      .and((derived.size, corrected.size) must_== (10, 11))
       .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
       .and(Differential.unused(compared.compared, corrected) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))

@@ -80,6 +80,20 @@ class ReceiversSpec extends Specification {
       |  def wide(b: Boolean): Boolean = { def seed: Any = b; def target(b: Boolean): Boolean = b; target(true) }
       |  def ctx(using b: Boolean): Boolean = { def target(b: Unit): Boolean = summon[Boolean]; target(()) }
       |}
+      |class KF[A](val f: A) { def m(a1: A): A = a1 }
+      |class KA(val n: Any) { def m(b: Boolean): Boolean = b }
+      |class KT[X](val n: X) { def m(b: Boolean): Boolean = b }
+      |class KTwo[X, Y](val x: X, val y: Y) { def m(b: Boolean): Boolean = b }
+      |type KSw[P, Q] = KTwo[Q, P]
+      |type KTwoB[A] = KTwo[Boolean, A]
+      |object Passed {
+      |  def alias(n: Boolean): KTwo[Any, Boolean] = new KSw[Boolean, Any](true, n) { override def m(n: Boolean): Boolean = !n }
+      |  def partial(n: Boolean): KTwo[Boolean, Any] = new KTwoB[Any](n, ()) { override def m(n: Boolean): Boolean = !n }
+      |  def over(n: Boolean): KTwo[Any, Boolean] = new KSw[Boolean, Any](n, true) { override def m(n: Boolean): Boolean = !n }
+      |  def viaField[A](a1: A, a2: A): KF[A] = new KF[A](a1) { override def m(a1: A): A = a1 }
+      |  def wideField(n: Boolean): KA = new KA(n) { override def m(b: Boolean): Boolean = !b }
+      |  def wideArg(n: Boolean): KT[Any] = new KT[Any](n) { override def m(b: Boolean): Boolean = !b }
+      |}
       |object For { def outer(y: Option[Boolean]): Option[Boolean] = for (v <- y) yield { def inner: Boolean = v; inner } }
       |class ForC(val o: Option[Boolean]) { for (v <- o) { def inner: Boolean = v; inner } }
       |trait Has[F[_]]
@@ -104,6 +118,7 @@ class ReceiversSpec extends Specification {
       |sealed abstract class Fam { def get: Boolean = true }
       |case object One extends Fam
       |trait Self { self: Base => def me: Boolean = true }
+      |trait SelfUnit { self: Base => def done(): Unit }
       |class Own(b: Boolean) { own => def get: Boolean = own.b }
       |class Gen[A](a: A) { g => def pick(x: A): A = g.a }
       |trait Narrowed[A] { self: Env[A] => def get: Boolean = true }
@@ -257,7 +272,13 @@ class ReceiversSpec extends Specification {
   // old front end does; `Self`'s `run` 2^2, the self alias `y` hiding the parameter). A definition
   // the inner one sees that is the hidden parameter keeps it a value (`Held.kept`: `seed` is the
   // outer `x`, so `inner` computes from two Booleans, 2^(2 × 2) = 16; `Keeps.outer` the same); at
-  // a type with one value it shows nothing (`Held.top`, `Keeps.wide`, 4), and in a `throw` it
+  // a type with one value it shows nothing (`Held.top`, `Keeps.wide`, 4). A parent call passing
+  // it to a field reads the field's type as the call sees it: `Passed.viaField`'s `f: A` of
+  // `KF[A]` holds the outer `a1`, so `m` returns its own `a1`, the outer one or `a2`, 3; a field
+  // typed `Any`, written or as `KT[Any]`'s `X`, shows nothing (`wideField`, `wideArg`: `m` of `b`
+  // alone, 4). Through an alias the field is the class's (`KSw[P, Q] = KTwo[Q, P]`): `alias` and
+  // `partial` pass `n` to a Boolean field, which keeps it beside `m`'s own `n`, 2^(2 × 2) = 16;
+  // `over` passes it to the `Any` field, 4. In a `throw` it
   // supplies nothing (`Held.gone`, 4). Any other reading is left: `!x` (`Held.neg`, `HideHeld`),
   // an object reading `x` (`Held.obj`), a singleton of it, which is `x` again at another type
   // (`Held.single`), a method the definition is in, which it may call (`Held.mid`: `m()` is `!x`),
@@ -354,6 +375,12 @@ class ReceiversSpec extends Specification {
       .and(left("recv.Ctor2.mk.<block#1>.hp") must_== "a definition in a constructor's body")
       .and(count("recv.Keeps.outer.target") must_== Count.Finite(16))
       .and(count("recv.Keeps.wide.target") must_== Count.Finite(4))
+      .and(
+        List("viaField", "wideField", "wideArg", "alias", "partial", "over")
+          .map(n => count(s"recv.Passed.$n.<new#1>.m")) must_== List(3, 4, 4, 16, 16, 4).map(
+          Count.Finite(_)
+        )
+      )
       .and(left("recv.Keeps.ctx.target") must_== "a contextual capture a nearer scope binds again")
       .and(
         left("recv.For.outer.<lambda#1>.inner") must_== "a binder of an enclosing for-comprehension"
@@ -376,7 +403,8 @@ class ReceiversSpec extends Specification {
   // (`Bounded.get` is read now: `T <: AnyRef` says nothing of the values, so it returns `t`, 1.)
   // A class whose construction always throws is never built, so no call of its `get` returns
   // (`Thrown.get`, 1), and a class a static object encloses is built without the object
-  // (`Dead.In.get`, one of the 2^2 functions of `b`; register D26).
+  // (`Dead.In.get`, one of the 2^2 functions of `b`; register D26). A goal with one value has
+  // one implementation whatever the receivers hold: `SelfUnit.done` is 1 beside its self type.
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
@@ -385,6 +413,7 @@ class ReceiversSpec extends Specification {
       "Dead.In.get" -> "Finite(4)",
       "Self.me" -> "an enclosing class with a self type",
       "Narrowed.get" -> "an enclosing class with a self type",
+      "SelfUnit.done" -> "Finite(1)",
       "Deferred.m" -> "a deferred inline value of an enclosing class",
       "Thrown.get" -> "Finite(1)",
       "Bounded.get" -> "Finite(1)",

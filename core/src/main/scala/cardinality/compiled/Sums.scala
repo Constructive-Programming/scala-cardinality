@@ -158,9 +158,6 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
               Left(Uncovered(s"an enum case with several parameter clauses: $name"))
             else if (constructor.paramLists.count(_.isLeft) != 1)
               Left(Refused(s"sealed subtype shape unreadable: ${cls.name}"))
-            // `class L` and `class L()` are one tree, and only the second is an empty product.
-            else if (!cls.isCaseClass && Shapes.parameters(constructor).isEmpty)
-              Left(Uncovered(s"a sealed subtype without parameters: $name"))
             // Rule B: a constructor the site may call (`private[p]` inside `p`) builds every value.
             else if (!World.callable(constructor.symbol, env.site))
               Left(Uncovered(s"a restricted constructor: $name"))
@@ -237,10 +234,12 @@ private[compiled] object Sums {
   /** How a subtype stands for its parent applied to `arguments`, by its clause: what each of its
     * own type parameters stands for, the argument of the parent's slot that carries it.
     * `C[Y] extends P[a]` holds the values of `C[t]` in `P[t]`, for every `t`, where each of the
-    * subtype's parameters is unbounded and passed to exactly one slot, of its own variance, and
-    * every other slot is pinned bottom-up (`Nothing` into a covariant one, `Any` into a
-    * contravariant one). A slot pinned to another type, a parameter no slot or two slots carry, a
-    * bound and another variance each need more than this reads: none.
+    * subtype's parameters is passed to exactly one slot, bounded as the slot is (so every `t` the
+    * parent admits the subtype admits), of its own variance or invariant where its fields keep the
+    * slot's polarity (`keepsPolarity`), and every other slot is pinned bottom-up (`Nothing` into a
+    * covariant one, `Any` into a contravariant one). A slot pinned to another type, a parameter no
+    * slot or two slots carry, another bound and another variance each need more than this reads:
+    * none.
     */
   def carried[A](child: ClassSymbol | TermSymbol, parent: ClassSymbol, arguments: List[A])(using
       Context
@@ -269,10 +268,26 @@ private[compiled] object Sums {
         case ((argument, slot), index) if carries(argument, parameter) => slot -> index
       }
     }
+    // A bound the slot's own bound implies: the same type, or the parameter another slot carries
+    // where the slot is bounded by that slot's parameter (`D[A <: B, B] extends Q[A, B]`).
+    val slots = bound.collect {
+      case (parameter, List((slot, _))) => (parameter: Symbol) -> slot
+    }.toMap
+    def implied(mine: Type, theirs: Type): Boolean = (mine, theirs) match {
+      case (_: TypeLambda, _) | (_, _: TypeLambda)                                => false
+      case (ref: TypeRef, other: TypeRef) if ref.optSymbol.exists(slots.contains) =>
+        ref.optSymbol.flatMap(slots.get) == other.optSymbol
+      case _ =>
+        !World.mentions(mine, parameters.toSet) &&
+        !World.mentions(theirs, parent.typeParams.toSet) && mine.isSameType(theirs)
+    }
     val fits = bound.forall {
       case (parameter, List((slot, _))) =>
-        slot.declaredVariance == parameter.declaredVariance &&
-        Shapes.unbounded(parameter.declaredBounds)
+        implied(parameter.declaredBounds.low, slot.declaredBounds.low) &&
+        implied(parameter.declaredBounds.high, slot.declaredBounds.high) &&
+        (slot.declaredVariance == parameter.declaredVariance ||
+          parameter.declaredVariance == Variance.Invariant &&
+          keepsPolarity(child, parameter, slot.declaredVariance == Variance.Covariant))
       case _ => false
     }
     val settled = filled.forall {
@@ -282,6 +297,60 @@ private[compiled] object Sums {
     Option.when(passed.exists(_.sizeIs == parent.typeParams.size) && settled && fits)(
       bound.map((_, carriers) => arguments(carriers.head._2))
     )
+  }
+
+  // Whether an invariant parameter passed to a variant slot adds no values there. `C[S] extends
+  // P[S]` in `P[T]` holds `C[S]` for every `S` the slot admits (below `T` in a covariant slot,
+  // above it in a contravariant one). Where every constructor parameter of a concrete class
+  // mentions the parameter only at the slot's polarity, each such `C[S]` is a `C[T]` (`F(S) <:
+  // F(T)`), so the union is `C[T]`'s values. A field the other way (`f: A => Boolean` beside a
+  // covariant slot) holds functions a holder of `P[T]` cannot apply, and a sealed level below may
+  // pass the parameter on to such a field: neither is read.
+  private def keepsPolarity(
+      child: ClassSymbol | TermSymbol,
+      parameter: ClassTypeParamSymbol,
+      positive: Boolean
+  )(using
+      Context
+  ): Boolean = child match {
+    case cls: ClassSymbol if !cls.isAbstractClass =>
+      cls.tree.exists { tree =>
+        val constructor = tree.rhs.constr
+        val copies = Shapes.typeParameters(constructor).zip(cls.typeParams).collect {
+          case (copy, p) if p == parameter => copy
+        }
+        Shapes
+          .parameters(constructor)
+          .forall(p => polar(p.tpt.toType, copies.toSet + parameter, positive))
+      }
+    case _ => false
+  }
+
+  // Whether a type mentions `parameters` only where `allowed` holds: a class's covariant argument
+  // keeps the polarity, a contravariant one flips it, an invariant one or any other form may not
+  // mention them. Aliases are expanded first, so a class's slots meet its own arguments.
+  private def polar(tpe: TypeOrWildcard, parameters: Set[Symbol], allowed: Boolean)(using
+      Context
+  ): Boolean = (tpe match {
+    case t: Type => t.dealias
+    case other   => other
+  }) match {
+    case ref: TypeRef if ref.optSymbol.exists(parameters) => allowed
+    case by: ByNameType       => polar(by.resultType, parameters, allowed)
+    case applied: AppliedType =>
+      val slots = (applied.tycon match {
+        case ref: TypeRef => ref.optSymbol.collect { case c: ClassSymbol => c.typeParams }
+        case _            => None
+      }).getOrElse(Nil)
+      !World.mentions(applied.tycon, parameters) && slots.sizeIs == applied.args.size &&
+      applied.args.lazyZip(slots).forall { (argument, slot) =>
+        slot.declaredVariance match {
+          case Variance.Covariant     => polar(argument, parameters, allowed)
+          case Variance.Contravariant => polar(argument, parameters, !allowed)
+          case Variance.Invariant     => !World.mentions(argument, parameters)
+        }
+      }
+    case other => !World.mentions(other, parameters)
   }
 
   // A slot every instantiation admits: `Nothing` in a covariant one, `Any` in a contravariant one.

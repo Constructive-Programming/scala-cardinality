@@ -2593,6 +2593,70 @@ cases are built by a companion that throws, or whose case's parent throws). Old 
 that changed: fixtures `E` 2 -> 0 (`enum E { case E1, E2; val x: Int = ??? }`, now identical);
 no corpus row of either front end changed.
 
+### Group k4: variance of sealed cases, one-valued goals, diamonds, parent fields
+
+What it reads, each with a regression:
+
+- **An invariant case parameter in a variant slot** (`Sums.carried`, `keepsPolarity`, `polar`;
+  coordinator-approved, from h5's untested `/tmp/k4/variance.py`). `C[A] extends P[+A]` holds
+  `C[S]` in `P[T]` for every `S <: T` (above `T` for a contravariant slot). Where every
+  constructor parameter of a concrete `C` mentions `A` only at the slot's polarity (an argument of
+  a class's covariant slot keeps it, a contravariant one flips it, an invariant one or any other
+  form may not mention `A`; aliases expanded first), each such `C[S]` is a `C[T]`, so the union
+  is `C[T]`'s values. Refused: a field the other way (`A => Boolean` beside a covariant slot), an
+  alias whose arguments are not the class's in order, an invariant sealed level below (whose cases
+  may take `A` negatively), `A` under an invariant slot or inside a type lambda. A bounded case
+  parameter is read where its bounds are the slot's (or name the parameter another slot carries,
+  `D[A <: B, B] extends Q[A, B]`): every `T` the parent admits the case admits. Both sides (the
+  stored side calls `carried` too). Known limit: a class declared covariant through
+  `@uncheckedVariance` is trusted, as the same-variance path already trusts declared variance.
+  `TastyFrontEndSpec`'s pin `Inv[A](a: A) extends Co[A]` is reversed: `inv[A](c: Co[A]): Boolean`
+  is 2 (the constant functions; `Co[A]` holds `Inv[A]`, an atom).
+- **A sealed class written without `()`** (`class O extends L`) is one value, as `class O()` is:
+  no field. The old reading refuses it in some places (`types.Use.bare`, derived 1) and reads it in
+  others (`g.U.<init>` 2).
+- **A one-valued goal whatever the reading leaves** (`Readings.singleGoal`): a member row whose
+  result has one value is 1 when `measured` leaves it for any reason, as `counted` reads a
+  terminal goal first. Read only for a result that names no type parameter of the member or a
+  definition around it and no type member of a class around it or its ancestors (the receivers
+  would give those; reading cats' `compose` without that overflowed the stack). Constructors, the
+  rows `Readings.later` leaves and rule X keep their reason. Frees the three self-type rows `T.g`.
+- **A diamond over a parent without type parameters** (`Receivers.reachesTwice`): only a generic
+  ancestor reached through two parents is left (each path may give its own arguments).
+- **A captured parameter a parent call passes to a field** (`Readings.passes`, `seen`): the field's
+  type is read as the call sees it (`typeAsSeenFrom` the parent type, through an alias), so
+  `new F[A](a1)`'s `f: X` holds the outer `a1` (kept, 3), and a field typed `Any`, written or as
+  `PT[Any]`'s `X`, shows nothing of the capture (dropped, 4), as an alias at a one-valued type.
+- **`World.mentioned` walks type lambdas and match types** (it answered "no mention" for them,
+  which the variance check, among others, reads as safe).
+
+Derived (`derived.txt`): the `Ev`/`Od` system of the two `8977c616…`/`8b0047a9…` fixtures, ω
+each (`Ev = 1 + Ev` through `Even(Odd(…))`, countably many); `f.P.<init>` ω (`List[Boolean]` ×
+(`A` + 1)); `P.iterator` ω, `P.knownSize` 2^32, `P.g` ω (the receiver `P` is its one fieldless
+case `D1`); `types.Use.bare` 1.
+
+`old-unsound.txt` gains 24 fixture rows of two more classes, under the coordinator's decision:
+"constructor row: stored estimate for a non-recursive position" (17: the old reading takes the
+estimate for a position the method side refuses, where the class does not reach the position's
+type; several are overcounts by rule B, `Outer.Inner.<init>` 2 where `Outer` shows no field,
+`UsesSorted` 8 where the `Ord` evidence is observed by no member) and "secondary constructor body:
+the first this(...) call fixes the fields" (7: `S.<init#1>.helper` 4, `K.<init#1>.pick` 4, and
+so on, where the call fixes `a`). Not listed, back to the work list because the position is
+recursive: `A11`/`B11.<init>` (old 1), `A`/`B.<init>` (old ω, which rule B says is 2 and 2^32),
+`Node`, `One`/`Two` (×2), `Go`, `One` (`d84b…`): the old reading takes the estimate for a recursive
+position the method side refuses for a hidden parameter.
+
+Not taken: "a parent with constructor parameters or in a class" (12, path-dependent inner traits
+and local parents), "an enclosing class with a constructor field something overrides" (2: inside
+`P` both the parameter and the overriding getter may be read, two values, so the old `P.m` 16 may
+be an undercount), "a restricted constructor" (3: rule B part 2 for sealed cases, h5's note), the
+generic diamond `D1.pick`.
+
+Old numeric rows still uncovered (methods; definitions), integration → k4: fixtures 171 → 151;
+19 → 14, and past the old-unsound list 136 → 92; the corpora unchanged (core 3, cats-core 25,
+cats-kernel 76, cats-eo 3). Method rows, fixtures: identical 5,738, better 279, tightened 11
+(old upper bounds now exact), worse 5 (listed corrections), uncovered 729.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

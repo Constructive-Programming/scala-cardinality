@@ -25,7 +25,7 @@ class ProgramRowsSpec extends Specification {
       an abstract redeclaration makes a member abstract again         $reabstracted
       an inherited deferred given is a capability                     $deferredGiven
       a member a parent mixed in beside the template overrides varies $mixedIn
-      a parent reached through two parents is not read yet            $twoPaths
+      a generic parent reached through two parents is not read yet    $twoPaths
       a member a case overrides computes from the case a sum holds    $sumOverridden
       a case's `private[p]` constructor builds every value inside `p`  $scopedCase
       a field selected on `this` alone is not observed on an argument  $thisOnly
@@ -712,16 +712,23 @@ class ProgramRowsSpec extends Specification {
       .and(uncovered(found("O.I.<init>"), "a bounded abstract type member around a constructor"))
   }
 
-  // `D` reaches `A` through `B` and through `C`, and `E` extends `D`.
+  // `D` reaches `A` through `B` and through `C`, and `E` extends `D`: `A` has no type parameter,
+  // so it is one type on both paths, and `D`'s instance holds its capability `a`. `g` and `h` are
+  // a, !a, true or false: 4 each. `GD` reaches the generic `GA` twice, each path with its own type
+  // arguments: not read yet.
   def twoPaths = {
     val found = rows("""trait A { def a: Boolean }
       |trait B extends A
       |trait C extends A
       |trait D extends B with C { def g: Boolean = a }
       |trait E extends D { def h: Boolean = a }
+      |trait GA[X] { def a: X }
+      |trait GB[X] extends GA[X]
+      |trait GC[X] extends GA[X]
+      |trait GD[X] extends GB[X] with GC[X] { def g: X = a }
       |""".stripMargin)
-    uncovered(found("D.g"), "reaches a parent through two parents")
-      .and(uncovered(found("E.h"), "reaches a parent through two parents"))
+    (List("D.g", "E.h").map(found) must_== List(Count.Finite(4), Count.Finite(4)))
+      .and(uncovered(found("GD.g"), "reaches a generic parent through two parents"))
   }
 
 }
