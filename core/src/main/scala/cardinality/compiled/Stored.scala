@@ -23,6 +23,7 @@ import tastyquery.Trees.{
   TermTree,
   Tree,
   TypeAliasDefinitionTree,
+  TypeBoundsTree,
   TypeDefinitionTree,
   TypeMember,
   TypeTree,
@@ -346,7 +347,9 @@ final private[compiled] class Stored(world: World)(using Context) {
         body(inner).map((more, aliased) => (binders.map(_.symbol) ++ more, aliased))
       case TypeAliasDefinitionTree(alias)          => Right(Nil -> alias.toType)
       case OpaqueTypeAliasDefinitionTree(_, alias) => Right(Nil -> alias.toType)
-      case _                                       => Left("an abstract type member")
+      case tree: TypeBoundsTree if PathTypes.exported(tree.toTypeBounds) =>
+        Right(Nil -> tree.toTypeBounds.high)
+      case _ => Left("an abstract type member")
     }
 
   // A top-level value holds one value where its declared type has one (register D30): the size is
@@ -482,7 +485,7 @@ final private[compiled] class Stored(world: World)(using Context) {
             Left(s"an alias of a class beside an opaque type's scope: ${member.displayFullName}")
           case (_, Some(body), _) => applied(body)
           // An export's alias is a member bounded by one type on both sides: that type.
-          case (_, _, bounds) if bounds.low.isSameType(bounds.high) => applied(bounds.high)
+          case (_, _, bounds) if PathTypes.exported(bounds) => applied(bounds.high)
           // An abstract member nothing fixed is what each instance chooses.
           case _ => Right(Held(EffectiveOmega, List(Unbound.Member(member.name.toString))))
         }

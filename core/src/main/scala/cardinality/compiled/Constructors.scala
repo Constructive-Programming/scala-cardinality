@@ -164,7 +164,10 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
       case shaped =>
         for {
           shape <- shaped
-          sized <- estimate
+          // An open position over a type parameter is the shape model's alone: the estimate,
+          // which reads it only where it is ground or closed, is not asked.
+          sized <-
+            if (ground || Spaces.closed(shape)) estimate else Right(Stored.Row(None, Nil))
           read <- Constructors.read(name, shape, sized, ground)
         } yield read
     }

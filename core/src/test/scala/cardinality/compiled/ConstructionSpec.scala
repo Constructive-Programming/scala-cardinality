@@ -15,6 +15,7 @@ class ConstructionSpec extends Specification {
   A constructor is a method
     a secondary one chooses the primary constructor's arguments    $secondary
     a singleton beside values is one value of a position          $singletons
+    an open position over a type parameter is the shape model's   $open
   A class whose constructor is restricted stores what its public builders build
     each at most min(its parameters, the fields others may read)  $restricted
   """
@@ -72,6 +73,8 @@ class ConstructionSpec extends Specification {
       |}
       |object Nest { def of(a: Boolean): Nest = new Nest(a) }
       |object UseInh2 { def f(c: Inh2): Boolean = c.show }
+      |final class Wrap[A](val io: IterableOnce[A])
+      |final class Ev[A, B](val ev: A <:< B)
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Construction.scala" -> text)
@@ -163,5 +166,13 @@ class ConstructionSpec extends Specification {
         List("ctor.Inh2", "ctor.ToPar", "ctor.Nest")
           .map(size) must_== List(Some("2"), None, Some("2"))
       )
+
+  // A position over a type parameter whose shape is open is the shape model's alone, whatever the
+  // stored estimate says of its class: `Wrap` stores the sequence of `A`s it is given, any of
+  // infinitely many built from the input's, ω; `Ev` stores the evidence it is given, of which there
+  // is one at most, 1 (the old front end's counts).
+  private def open =
+    (count("ctor.Wrap.<init>") must_== Count.Countable)
+      .and(count("ctor.Ev.<init>") must_== Count.Finite(1))
 
 }

@@ -224,7 +224,12 @@ private[compiled] object PathTypes {
           Option.when(member.typeDef.isInstanceOf[TypeMemberDefinition.AbstractType])(ref.bounds)
         case _ => None
       }
-      .collect { case bounds if bounds.low.isSameType(bounds.high) => bounds.high }
+      .collect { case bounds if exported(bounds) => bounds.high }
+
+  /** Bounds that meet, one type on both sides (or bounds written so, which only that type meets):
+    * an export's alias, a member a refinement fixes.
+    */
+  def exported(bounds: TypeBounds)(using Context): Boolean = bounds.low.isSameType(bounds.high)
 
   /** Whether a shape tells none of a type's values apart: a type of type members alone, or a top.
     */

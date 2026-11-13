@@ -28,7 +28,8 @@ import tastyquery.Types.*
   *     abstract member is, its own body one of its behaviors.
   *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`),
   *     and so are its abstract type members, declared or inherited, on its own instance
-  *     (`Shapes.typeMember`).
+  *     (`Shapes.typeMember`). An export's alias, bounded by one type on both sides, is that type
+  *     (`PathTypes.follow`).
   *   - A class that inherits is read by its own state alone where every member it inherits is
   *     implemented and none can be overridden: a concrete class that is final or that nothing
   *     extends. An object is such a template with no state.
@@ -41,7 +42,8 @@ import tastyquery.Types.*
   *
   * A sealed family or an enum is one value of its sum as a receiver: which case, and what the case
   * holds (`split`). Not read yet, each a `Left` naming it: a concrete sealed class or an enum
-  * case's own class; a sum this reading does not take; a class that reaches one parent through two
+  * case's own class; a sum this reading does not take (`Readings` still counts an ω goal past an
+  * enum built from nothing, as the old front end does); a class that reaches one parent through two
   * of its parents, or whose inherited members are not read; a parent in a class or a body, a parent
   * whose private constructor parameters a subclass passes, a constructor field something overrides,
   * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
@@ -423,7 +425,11 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   ): Either[Unread, List[(TypeMemberSymbol, Shape)]] = {
     val c = tree.symbol
     val members = (tree.rhs.body.collect { case member: TypeMember => member.symbol } ++
-      inheriting).collect { case member: TypeMemberSymbol if member.isAbstractMember => member }
+      inheriting).collect {
+      case member: TypeMemberSymbol
+          if member.isAbstractMember && !Shapes.bounds(member).exists(PathTypes.exported) =>
+        member
+    }
     members.headOption
       .flatMap(_ => pinned(c))
       .orElse(members.view.flatMap(alike(c, _)).headOption)
@@ -575,7 +581,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
         .left
         .map {
           case Unread.Refused(reason) =>
-            Unread.Uncovered(s"an enclosing sum not read: $reason")
+            Unread.Uncovered(s"${Receivers.Unsplit}: $reason")
           case uncovered => uncovered
         }
     } else
@@ -727,6 +733,9 @@ private[compiled] object Receivers {
     * concrete code.
     */
   def accessor(member: TermSymbol): Boolean = member.name.toString.contains("$$")
+
+  /** Why a sum receiver is not read. */
+  val Unsplit = "an enclosing sum not read"
 
   /** Why an overridden member a behavior of which may call the measured one is not read. */
   val Reenters = "an overridden member that may call it"

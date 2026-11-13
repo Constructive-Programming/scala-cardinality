@@ -1,8 +1,8 @@
 package cardinality.compiled
 
 import cardinality.analysis.AnalysisWork
-import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Count, Shape}
+import cardinality.analysis.inhabitation.{ClosedSpaces, Inhabitation}
 import cardinality.analysis.resolution.TopTypes
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
@@ -120,6 +120,34 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       receivers: Receivers
   ): Either[Unread, Count] = {
     val (_, parameters, declared) = signature(tree)
+    // The count over what the receivers `kept` hold.
+    def solved(env: Shapes.Env, result: Shape, kept: List[ClassDef]) =
+      for {
+        // After the one-valued result: such a result needs nothing of the environment.
+        _ <- scope.blocked.map(Uncovered(_)).toLeft(())
+        _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
+        wrapping = evidence.binders(tree, declared.toType)
+        _ <- evidence.searched(parameters, parameters, wrapping)
+        // For a receiver's evidence, code between a local definition and its class (a method, a
+        // value's initializer, a class-body statement) may declare givens or import, and a
+        // context-function result's binders are not compared with it: not read yet.
+        found <-
+          if (
+            !World.owners(tree.symbol.owner).takeWhile(!_.isClass).exists(_.isTerm) &&
+            !evidence.functionResult(declared.toType)
+          )
+            evidence.receiverSearch(around, tree.symbol, parameters)
+          else Right(Set.empty[Symbol])
+        held <- receivers.bindings(kept, tree.symbol, env, found)
+        taken <- captured(methods, scope, env, parameters, wrapping)
+        inputs <- shapes.inputs(parameters, env)
+        // Under the proofs of the bounds of the parameters the result or a value mentions.
+        count <- bounds.count(
+          held ++ taken ++ parameters.lazyZip(inputs).map(Readings.bound(tree)),
+          result,
+          env
+        )
+      } yield count
     for {
       _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
       env <- environment(tree, around, methods)
@@ -127,32 +155,28 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
         else
-          for {
-            // After the one-valued result: such a result needs nothing of the environment.
-            _ <- scope.blocked.map(Uncovered(_)).toLeft(())
-            _ <- inlines.refusal(tree.symbol).map(Unread.Refused(_)).toLeft(())
-            wrapping = evidence.binders(tree, declared.toType)
-            _ <- evidence.searched(parameters, parameters, wrapping)
-            // For a receiver's evidence, code between a local definition and its class (a method,
-            // a value's initializer, a class-body statement) may declare givens or import, and a
-            // context-function result's binders are not compared with it: not read yet.
-            found <-
-              if (
-                !World.owners(tree.symbol.owner).takeWhile(!_.isClass).exists(_.isTerm) &&
-                !evidence.functionResult(declared.toType)
-              )
-                evidence.receiverSearch(around, tree.symbol, parameters)
-              else Right(Set.empty[Symbol])
-            held <- receivers.bindings(around, tree.symbol, env, found)
-            taken <- captured(methods, scope, env, parameters, wrapping)
-            inputs <- shapes.inputs(parameters, env)
-            // Under the proofs of the bounds of the parameters the result or a value mentions.
-            count <- bounds.count(
-              held ++ taken ++ parameters.lazyZip(inputs).map(Readings.bound(tree)),
-              result,
-              env
-            )
-          } yield count
+          solved(env, result, around).left.flatMap {
+            // A sum receiver not read cannot change a goal of infinitely many literals once the
+            // context is not absurd: the solver's ω over the rest proves the rest is not, and an
+            // enum with a case built from nothing keeps it so (finite programs bound it at ω), as
+            // the old front end's `SealedReceivers` reads it.
+            case unread @ Uncovered(why)
+                if why.startsWith(Receivers.Unsplit) &&
+                  ClosedSpaces.count(result).map(Count.of).contains(Count.Countable) =>
+              // The receivers `Receivers.supplied` words so.
+              val unsplit = around.filter { r =>
+                Receivers.split(r.symbol) && (shapes.receiver(r.symbol, env) match {
+                  case Left(_: Unread.Refused) => true
+                  case _                       => false
+                })
+              }
+              if (unsplit.forall(r => builtFromNothing(r.symbol, tree.symbol)))
+                solved(env, result, around.diff(unsplit)).toOption
+                  .filter(_ == Count.Countable)
+                  .toRight(unread)
+              else Left(unread)
+            case unread => Left(unread)
+          }
     } yield count
   }
 
@@ -191,6 +215,26 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             .map(taken.lazyZip(_).map(Readings.bound(method)))
       }.toList)
       .map(_.flatten)
+
+  // An enum without type parameters (a case of a generic one may be of one instantiation alone)
+  // one of whose cases the reading shows built from nothing: a value case, or a class case, each
+  // parameter of it and of the enum of a closed nonempty space. A sealed trait is not taken, as
+  // the old front end does not take it; a recursive field is not shown nonempty.
+  private def builtFromNothing(c: ClassSymbol, site: Symbol): Boolean = {
+    def ground(k: ClassSymbol) = k.tree.exists(t =>
+      Shapes.parameters(t.rhs.constr).forall { p =>
+        shapes
+          .of(p.tpt.toType, Shapes.Env(Map.empty, site))
+          .toOption
+          .flatMap(ClosedSpaces.count)
+          .exists(!_.isZero)
+      }
+    )
+    c.isEnum && c.typeParams.isEmpty && ground(c) && c.sealedChildren.exists {
+      case _: TermSymbol  => true
+      case k: ClassSymbol => ground(k)
+    }
+  }
 
   // Members of a receiver that may call the measured one leave the row. Taken for free capabilities
   // they bound the count from above (register D31): a count of 0 then is the count.

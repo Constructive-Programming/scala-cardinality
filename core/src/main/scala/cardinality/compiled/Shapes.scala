@@ -754,7 +754,7 @@ private[compiled] object Shapes {
     member.typeDef match {
       // Bounds that meet name one type (an exported alias): not an atom.
       case TypeMemberDefinition.AbstractType(bounds)
-          if proper(bounds) && !bounds.low.isSameType(bounds.high) =>
+          if proper(bounds) && !PathTypes.exported(bounds) =>
         Right(Shape.Atom(id))
       // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
       case TypeMemberDefinition.AbstractType(bounds) if free(member) && !unbounded(bounds) =>
