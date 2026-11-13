@@ -27,6 +27,7 @@ class ProgramRowsSpec extends Specification {
       a member a parent mixed in beside the template overrides varies $mixedIn
       a parent reached through two parents is not read yet            $twoPaths
       a member a case overrides computes from the case a sum holds    $sumOverridden
+      a case's `private[p]` constructor builds every value inside `p`  $scopedCase
       a bounded abstract type member is an atom with its bound's proof $boundedMember
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
@@ -165,6 +166,31 @@ class ProgramRowsSpec extends Specification {
       |case object A extends S { override def g: Boolean = false }
       |case object B extends S
       |""".stripMargin)("S.m") must_== Count.Finite(4)
+
+  // `V = E + Two`, `Two` built and read only inside `fx` (`private[fx]`, rule B), as eo's
+  // `PSVec.Slice` is: inside `fx` it holds two Booleans, so `V` is 1 + 4 and `g` one of 2^5
+  // predicates. From `out` no constructor of `Two` may be called, nor `Open.a` selected, and inside
+  // `Own` its `protected[this]` field is selected on `this` alone: none of them is read.
+  def scopedCase = {
+    val found = rows("""package fx {
+      |  sealed trait V
+      |  object V {
+      |    case object E extends V
+      |    final class Two private[fx] (private[fx] val a: Boolean, private[fx] val b: Boolean) extends V
+      |  }
+      |  sealed trait W
+      |  final class Open(private[fx] val a: Boolean) extends W
+      |  sealed trait T
+      |  final class Own(protected[this] val a: Boolean) extends T { def h(t: T): Boolean = ??? }
+      |  object Use { def g(v: V): Boolean = ??? }
+      |}
+      |package out { object Use { def f(v: fx.V): Boolean = ???; def k(w: fx.W): Boolean = ??? } }
+      |""".stripMargin)
+    (found("fx.Use.g") must_== Count.Finite(32))
+      .and(uncovered(found("out.Use.f"), "a restricted constructor"))
+      .and(uncovered(found("out.Use.k"), "a restricted field"))
+      .and(uncovered(found("fx.Own.h"), "a restricted field"))
+  }
 
   // `B` redeclares `A`'s concrete `f` abstract: in `C` it is abstract, a capability beside
   // `seed`, and `g` returns either: 2.

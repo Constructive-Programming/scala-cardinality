@@ -3185,6 +3185,21 @@ Old numeric rows still uncovered (methods; both tables): core 8 (8: the 12 `Size
 cats-core 44 (47), cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0,
 fixtures 673 (744); every input passes on the private memory. No derivation or correction.
 
+### Rule B, first unit (g2): a sealed case's constructor and fields from the site
+
+`Sums.caseFields` asks `World.callable` whether the measured site may call a case's primary
+constructor and select each of its fields, instead of asking whether they are public: a
+`private[p]` constructor or field counts inside `p`, a `private` one inside its class or companion
+(rule B). A `protected[this]` field stays a restricted field: it is selected on `this` alone, never
+on the value a site is given. Regression: `ProgramRowsSpec.scopedCase` (`V = E + Two`, `Two` two
+`private[fx]` Booleans: inside `fx` `g: V => Boolean` is 2^(1+4) = 32; from `out` the constructor,
+a `private[fx]` field behind a public one, and inside `Own` its `protected[this]` field stay
+uncovered). Old numeric method rows uncovered: cats-eo 73 → 42, fixtures 670 → 658, all freed
+rows identical; nothing else moved. Left out: a case the site may not build read through its
+factories (`/tmp/g2/restricted-cases.patch`, part 2), whose review found it unsound (a case
+pinning its parent's argument skips `Sums.carried`; `Factories.observed` misses a case class's
+`unapply` and a protected override a parent member reads).
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.
