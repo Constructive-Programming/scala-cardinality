@@ -591,7 +591,10 @@ class ProgramRowsSpec extends Specification {
   // functions of (b, n). `Q(true)` holds nothing of it: `lit`'s m is one of 2^2. Where the field is
   // overridden (`R`), the parent called is a secondary constructor (`S`), or another template is
   // nearer than the parent (`Inner`), the captured value the parent holds is not read; nor is an abstract type member of a local
-  // trait, which only the body may implement.
+  // trait, which only the body may implement. An import of a type named like the capture binds no
+  // term: `typed`'s g returns the captured seed, 1, and `mk`'s `D` takes x or seed, 2. Inside `Hid2`
+  // its wildcard imports the private hid, which makes the captured one ambiguous: 0; so does
+  // `import Imp.*` the public seed (`all`).
   def local = {
     val found = rows(
       """trait P[A] { def seed: A }
@@ -620,6 +623,14 @@ class ProgramRowsSpec extends Specification {
       |  def lit(n: Boolean): Q = new Q(true) { override def m(b: Boolean): Boolean = b }
       |  def over(n: Boolean): R = new R(n) { override val n: Boolean = true; override def m(b: Boolean): Boolean = !b }
       |  def loc(): Int = { trait T { type X; def k(x: X, y: X): X }; 0 }
+      |  def typed[X](seed: X): Int = { final class C { import ImpT.seed; def g(): X = ??? }; 0 }
+      |  def mk[X](seed: X): Int = { import ImpT.seed; final class D(x: X); 0 }
+      |  def all[X](seed: X): Int = { final class C { import Imp.*; def g(): X = ??? }; 0 }
+      |}
+      |object ImpT { type seed = Int }
+      |object Hid2 {
+      |  private val hid: Int = 1
+      |  def run[X](hid: X): Int = { final class C { import Hid2.*; def g(): X = ??? }; 0 }
       |}
       |""".stripMargin
     )
@@ -633,7 +644,11 @@ class ProgramRowsSpec extends Specification {
       "L.hid.C.g" -> 1,
       "L.but.C.g" -> 1,
       "L.inh.<new#1>.m" -> 16,
-      "L.lit.<new#1>.m" -> 4
+      "L.lit.<new#1>.m" -> 4,
+      "L.typed.C.g" -> 1,
+      "L.mk.D.<init>" -> 2,
+      "Hid2.run.C.g" -> 0,
+      "L.all.C.g" -> 0
     ).map((row, n) => found(row) must_== Count.Finite(n))
       .reduce(_ and _)
       .and(

@@ -2,9 +2,9 @@ package cardinality.compiled
 
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
-import tastyquery.Symbols.*
-import tastyquery.Trees.*
-import tastyquery.Types.*
+import tastyquery.Symbols.{ClassSymbol, Symbol, TermSymbol}
+import tastyquery.Trees.{ClassDef, DefDef, Import, Tree, ValDef, ValOrDefDef}
+import tastyquery.Types.{AppliedType, Type, TypeRef}
 
 /** The anonymous contextual parameters implicit search finds for a definition (`Readings`): a
   * method's, a constructor's, a receiver's, each told apart from the candidates it competes with.
@@ -143,6 +143,7 @@ final private[compiled] class Evidence(world: World)(using Context) {
     }.toList
     Traversals.sequence(found).map(_.toSet)
   }
+
 }
 
 private object Evidence {
@@ -186,4 +187,5 @@ private object Evidence {
     }
     parameters(left).zip(parameters(right)).exists(_.lazyZip(_).exists(_ != _))
   }
+
 }

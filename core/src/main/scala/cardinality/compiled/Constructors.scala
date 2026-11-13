@@ -62,7 +62,9 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
       methodBinders: List[(Symbol, Either[Unread, Shape])],
       captured: List[Binding]
   ): Either[Unread, Count] = {
-    val made = built(constructor, around, methodBinders, captured)
+    val made = built(constructor, methodBinders, around).map((tree, env, held) =>
+      (tree, env, if (Shapes.parameters(tree.rhs.constr).isEmpty) held else held ++ captured)
+    )
     if (!Readings.primary(constructor.symbol)) secondary(constructor, made)
     else {
       val owner = constructor.symbol.owner.asClass
@@ -101,15 +103,14 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
     } yield count
   }
 
-  // The class's tree, the environment a constructor's positions are read in, and what the
-  // instances `around` it and the methods' parameters `captured` hold. The primary constructor's
-  // copies of the class's type parameters are bound as the class's are, for a secondary
-  // constructor's row.
+  // The class's tree, the environment a constructor's positions are read in (the type parameters
+  // of the methods around a class written in a body bound by `binders`), and what the instances
+  // `around` it hold. The primary constructor's copies of the class's type parameters are bound as
+  // the class's are, for a secondary constructor's row.
   private def built(
       constructor: DefDef,
-      around: List[ClassDef],
-      methodBinders: List[(Symbol, Either[Unread, Shape])],
-      captured: List[Binding]
+      binders: List[(Symbol, Either[Unread, Shape])],
+      around: List[ClassDef]
   ): Either[Unread, (ClassDef, Shapes.Env, List[Binding])] = {
     val owner = constructor.symbol.owner.asClass
     val copies = Shapes.typeParameters(constructor)
@@ -130,7 +131,7 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
         }
         .toLeft(())
       env = Shapes.Env.of(
-        outer ++ methodBinders ++ variables.zip(atoms ++ atoms) ++
+        outer ++ binders ++ variables.zip(atoms ++ atoms) ++
           Shapes.typeParameters(tree.rhs.constr).zip(atoms),
         constructor.symbol
       )
@@ -138,7 +139,7 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
       // instances around hold; else a secondary one may choose the primary's arguments from them.
       held <-
         if (Shapes.parameters(tree.rhs.constr).isEmpty) Right(Nil)
-        else receivers.bindings(around, constructor.symbol, env, Set.empty).map(_ ++ captured)
+        else receivers.bindings(around, constructor.symbol, env, Set.empty)
     } yield (tree, env, held)
   }
 

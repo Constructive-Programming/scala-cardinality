@@ -169,25 +169,26 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       wrapping: Option[List[Type]]
   ): Either[Unread, List[Binding]] =
     Traversals
-      .sequence(methods.tails.collect { case method :: inner =>
-        val taken = Readings.taken(method).filterNot(p => scope.hidden(p.symbol))
-        val deeper = (method :: inner).flatMap(Shapes.parameters) ++ parameters
-        val written =
-          if (!Readings.literal(method.symbol)) Nil
-          else taken.filter(p => Readings.anonymous(p) && !p.pos.isZeroExtent)
-        Readings
-          .plainInputs(written)
-          .flatMap(_ => evidence.searched(taken, deeper, wrapping))
-          // A method around the definition took them before its receiver was built (a by-name
-          // type is read past its arrow, as nothing preceding); an inline one is evaluated where
-          // it is read, and may be the receiver.
-          .flatMap(_ =>
-            Traversals.sequence(taken.map { parameter =>
-              val before = env.copy(preceding = !parameter.symbol.isInline)
-              shapes.of(parameter.tpt.toType, before)
-            })
-          )
-          .map(taken.lazyZip(_).map(Readings.bound(method)))
+      .sequence(methods.tails.collect {
+        case method :: inner =>
+          val taken = Readings.taken(method).filterNot(p => scope.hidden(p.symbol))
+          val deeper = (method :: inner).flatMap(Shapes.parameters) ++ parameters
+          val written =
+            if (!Readings.literal(method.symbol)) Nil
+            else taken.filter(p => Readings.anonymous(p) && !p.pos.isZeroExtent)
+          Readings
+            .plainInputs(written)
+            .flatMap(_ => evidence.searched(taken, deeper, wrapping))
+            // A method around the definition took them before its receiver was built (a by-name
+            // type is read past its arrow, as nothing preceding); an inline one is evaluated where
+            // it is read, and may be the receiver.
+            .flatMap(_ =>
+              Traversals.sequence(taken.map { parameter =>
+                val before = env.copy(preceding = !parameter.symbol.isInline)
+                shapes.of(parameter.tpt.toType, before)
+              })
+            )
+            .map(taken.lazyZip(_).map(Readings.bound(method)))
       }.toList)
       .map(_.flatten)
 
@@ -323,32 +324,49 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
         // and that no other selector of its import names. A capture of such a name cannot be
         // named past the import (Scala refers to neither, an ambiguity, where both bind it).
         def importing(stats: List[Tree]): (Set[String], String => Boolean) = {
+          def qualifier(i: Import) = i.expr.tpe.widenTermRef match {
+            case tpe: Type => World.classNamed(tpe)
+            case _         => None
+          }
+          def terms(c: ClassSymbol) = c.linearization.flatMap(_.declarations).collect {
+            case m: TermSymbol => m
+          }
           def wildcard(i: Import) = {
             val named = i.selectors.filterNot(_.isWildcard).map(_.name.toString).toSet
-            (i.expr.tpe.widenTermRef match {
-              case qualifier: Type => World.classNamed(qualifier)
-              case _               => None
-            }).map { c =>
-              val members = c.linearization.flatMap(_.declarations).collect {
-                case m: TermSymbol if !m.isGivenOrUsing && !named(m.name.toString) => m
-              }
+            qualifier(i).map { c =>
+              val members =
+                terms(c).filter(m => !m.isGivenOrUsing && !named(m.name.toString))
+              // A private member is imported inside its class or companion, where it is accessible.
+              val inside =
+                World.owners(tree.symbol).exists(o => o == c || c.companionClass.contains(o))
               val (public, other) = members.partition(_.isPublic)
-              val restricted = other.filterNot(m =>
+              val (secret, restricted) = other.partition(m =>
                 m.visibility == Visibility.Private || m.visibility == Visibility.PrivateThis
               )
-              (public.map(_.name.toString).toSet, restricted.map(_.name.toString).toSet)
+              val bound = if (inside) public ++ secret else public
+              (bound.map(_.name.toString).toSet, restricted.map(_.name.toString).toSet)
             }
+          }
+          // A selector binds a term only where its qualifier has one of its name (a type of that
+          // name leaves the term to an outer scope); unsure where the qualifier is not read.
+          def explicit(i: Import, name: String, rename: String) = qualifier(i) match {
+            case Some(c) if terms(c).exists(_.name.toString == name) =>
+              Some(Set(rename) -> Set.empty)
+            case Some(_) => Some(Set.empty[String] -> Set.empty[String])
+            case None    => Some(Set.empty[String] -> Set(rename))
           }
           val read = stats.collect { case i: Import => i }.map { i =>
             if (i.pos.isUnknown || tree.pos.isUnknown) None
             else if (i.pos.startOffset > tree.pos.startOffset) Some(Set.empty[String] -> Set.empty)
             else
               i.selectors
-                .filterNot(s => s.isGiven || s.rename.toString == "_")
+                // A wildcard is spelled `_` too; a selector renamed to `_` binds nothing.
+                .filterNot(s => s.isGiven || !s.isWildcard && s.rename.toString == "_")
                 .foldLeft(Option(Set.empty[String] -> Set.empty[String])) { (sofar, s) =>
                   sofar
                     .zip(
-                      if (s.isWildcard) wildcard(i) else Some(Set(s.rename.toString) -> Set.empty)
+                      if (s.isWildcard) wildcard(i)
+                      else explicit(i, s.name.toString, s.rename.toString)
                     )
                     .map { case ((a, b), (c, d)) => (a ++ c, b ++ d) }
                 }
