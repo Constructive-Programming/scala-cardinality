@@ -10,8 +10,9 @@ import tastyquery.Symbols.*
 /** What a class of a dependency without TASTy is, read from its symbols: a Java class from its
   * class file's signatures, a Scala 2 class from its pickle. (A Scala 3 dependency's class has a
   * tree and is read as a class of the module is.) Nothing here reads a body, and nothing is
-  * guessed: a dependency's concrete member is code that is not supplied, never a capability and
-  * never a throw, and what the signatures do not say refuses.
+  * guessed: a dependency's concrete member is code that is not supplied, never a throw (a
+  * capability only where a class of the program overrides it, `Receivers.dependency`), and what the
+  * signatures do not say refuses.
   *
   * `classFile` answers what a Java class's class file holds and its symbol does not: the names of
   * its enum constants, and whether it is sealed (`CompiledTypes.javaFacts`).
@@ -158,7 +159,8 @@ private[compiled] object DependencyClasses {
     case Fields(constructor: TermSymbol, fields: List[TermSymbol])
 
     /** No state: the choice of its abstract members. Its concrete members are code that is not
-      * supplied, which a count may call and may not read.
+      * supplied, which a count may call and may not read (and which varies where a class of the
+      * program overrides it).
       */
     case Record(abstracts: List[TermSymbol], concrete: List[TermSymbol])
   }

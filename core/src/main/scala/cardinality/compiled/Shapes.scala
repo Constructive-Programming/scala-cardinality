@@ -28,13 +28,15 @@ private[compiled] enum Unread {
   *   - an enum and a sealed family are the sum of their cases (`Sums`);
   *   - a trait or class with only type members is one value;
   *   - any other class or trait is a capability record (`record`): the tuple of its public fields
-  *     and of what its abstract members supply;
+  *     and of what its abstract members supply, a package over its unbounded abstract type members
+  *     (`∃X. tuple`);
   *   - an opaque alias is one value outside the scope its representation is visible in (rule F),
   *     which every dependency's is, the standard library's aside.
   *
   * A dependency's class without TASTy (Java, Scala 2) is read from its symbols
-  * (`DependencyClasses`): the sum of its constants or children, or the product of its primary
-  * constructor's parameters; a generic one and a record of abstract members are not read yet.
+  * (`DependencyClasses`): the sum of its constants or children, the product of its primary
+  * constructor's parameters, or a capability record (`Receivers.dependency`); a generic one is not
+  * read yet.
   *
   * A literal type is its one constant, and a written `p.type` the one value p (`singleton`). A
   * union is the tagged sum of its alternatives where their values are told apart
@@ -279,12 +281,14 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     else of(body.appliedTo(arguments), env)
 
   // A dependency's class without TASTy (Java, Scala 2), read from its symbols: a sum of its
-  // constants or its children, the product of its primary constructor's parameters. A generic
-  // one, a record of abstract members and what the symbols do not say are not read yet.
+  // constants or its children, the product of its primary constructor's parameters, or a record
+  // of what its members supply (`Receivers.dependency`). A generic one and what the symbols do not
+  // say are not read yet.
   private def withoutTasty(c: ClassSymbol, env: Env): Either[Unread, Shape] = {
     import DependencyClasses.Declared
+    val inside = env.copy(visiting = env.visiting + c)
     def field(symbol: TermSymbol) = symbol.declaredType match {
-      case tpe: Type => of(tpe, env.copy(visiting = env.visiting + c))
+      case tpe: Type => of(tpe, inside)
       case _         => Left(Uncovered(s"a parameter of a method type: ${symbol.name}"))
     }
     if (env.visiting(c)) recursive(c)
@@ -296,18 +300,35 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           Traversals
             .sequence(cases.map {
               case child: ClassSymbol if !child.isModuleClass =>
-                withoutTasty(child, env.copy(visiting = env.visiting + c))
+                withoutTasty(child, inside)
               case _ => Right(Shape.Product(Nil))
             })
             .map(Shape.Sum(_))
         case Declared.Fields(_, fields) =>
           Traversals.sequence(fields.map(field)).map(Shape.Product(_))
-        case Declared.Record(_, _) =>
-          Left(
-            Uncovered(
-              s"a class that is no product, sum or type-only template: ${c.displayFullName}"
+        case Declared.Record(abstracts, concrete) =>
+          val refused = Shapes.unread(c.displayFullName)
+          for {
+            _ <- refused(!World.ownSelf(c), "with a self type")
+            _ <- refused(
+              Shapes.abstractType((c :: World.ancestors(c)).flatMap(_.declarations)),
+              "with an abstract type member"
             )
-          )
+            _ <- refused(
+              Shapes.clash(c, env.site),
+              "with a member named like the measured definition"
+            )
+            site <- Shapes.siteMember(env.site, c.displayFullName)
+            // A class whose constructor the site may not call holds what its scope builds.
+            _ <- refused(
+              c.declarations.exists {
+                case k: TermSymbol => World.isConstructor(k) && !World.callable(k, site)
+                case _             => false
+              },
+              "with a restricted constructor"
+            )
+            held <- receivers.dependency(c, abstracts, concrete, site, inside)
+          } yield Shape.Product(held)
       }
   }
 
@@ -344,7 +365,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
   // throws is S6's still). A member that may be the measured definition on another receiver is
   // refused (`Relations.clash`). Left for later steps, each named: a construction that binds a
-  // pattern, a sealed class, a self type narrower than the class, an abstract type member, a field
+  // pattern, a sealed class, a self type narrower than the class, a field
   // the site does not observe as itself, a restricted constructor of a class something may extend,
   // a class something extends, and what `Receivers.record` and `Factories` leave.
   private def record(template: ClassDef, bound: List[Shape], env: Env): Either[Unread, Shape] = {
@@ -355,8 +376,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     }.toSet
     val fixed = !c.isTrait && !c.isAbstractClass && (Shapes.isFinal(c) || !world.extended(c))
     val clash = relations.clash(c, env)
-    def refused(left: Boolean, what: String) =
-      Either.cond(!left, (), Uncovered(s"a capability record $what: $name"))
+    val refused = Shapes.unread(name)
     // What a member of the value returns may be built after it, the receiver among them: only
     // the value itself is `preceding`.
     val read = env.copy(
@@ -373,7 +393,6 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         _ <- refused(world.unbuilt(template), "whose construction binds a pattern")
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
         _ <- refused(!World.ownSelf(c), "with a self type")
-        _ <- refused(Shapes.abstractTypeMember(template), "with an abstract type member")
         _ <- Either.cond(
           !clash,
           (),
@@ -382,10 +401,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           )
         )
         _ <- refused(!c.isTrait && !c.isAbstractClass && !fixed, "of a class something extends")
-        site <- env.site match {
-          case site: TermSymbol => Right(site)
-          case _ => Left(Uncovered(s"a capability record read outside a member: $name"))
-        }
+        site <- Shapes.siteMember(env.site, name)
         public = World.callable(template.rhs.constr.symbol, site)
         _ <- refused(!fixed && !public, "with a restricted constructor")
         _ <- refused(
@@ -398,7 +414,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         shape <-
           if (fixed && !public)
             factories.space(template, site, read).map(Shape.Ground(name, _))
-          else receivers.record(template, site, read).map(Shape.Product(_))
+          else receivers.record(template, site, read)
       } yield shape
   }
 
@@ -661,23 +677,25 @@ private[compiled] object Shapes {
   }
 
   /** What an abstract type member of a receiver stands for on its instance, as a type parameter
-    * would (`binder`): one atom, or a rigid constructor for an invariant `F[_]`. A bound is not
-    * read yet.
+    * would (`binder`): one atom, bounded or not (`Bounds` reads a bound's proofs), or a rigid
+    * constructor for an invariant, unbounded `F[_]`.
     */
   def typeMember(owner: ClassSymbol, member: TypeMemberSymbol)(using
       Context
   ): Either[Unread, Shape] = {
     val id = s"${owner.displayFullName}#${member.name}"
     member.typeDef match {
-      case TypeMemberDefinition.AbstractType(bounds) if unbounded(bounds) => Right(Shape.Atom(id))
-      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
+      // Bounds that meet name one type (an exported alias): not an atom.
       case TypeMemberDefinition.AbstractType(bounds)
-          if rigidBounds(bounds) && tastyquery.Variances.invariant(bounds.high) =>
+          if proper(bounds) && !bounds.low.isSameType(bounds.high) =>
+        Right(Shape.Atom(id))
+      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
+      case TypeMemberDefinition.AbstractType(bounds) if free(member) && !unbounded(bounds) =>
         Right(Shape.Constructor(id))
       case _ =>
         Left(
           Unread.Uncovered(
-            s"a bounded abstract type member, or one of another kind than F[_]: ${member.name}"
+            s"an abstract type member that is an alias, variant, or of another kind: ${member.name}"
           )
         )
     }
@@ -737,6 +755,25 @@ private[compiled] object Shapes {
   private def proper(bounds: TypeBounds): Boolean =
     !bounds.high.isInstanceOf[TypeLambda] && !bounds.low.isInstanceOf[TypeLambda]
 
+  /** The bounds of an abstract type member; none for any other. */
+  def bounds(member: TypeMemberSymbol): Option[TypeBounds] = member.typeDef match {
+    case TypeMemberDefinition.AbstractType(bounds) => Some(bounds)
+    case _                                         => None
+  }
+
+  /** Whether an abstract type member is bounded (its bound is a proof, `Bounds`). */
+  def bounded(member: TypeMemberSymbol)(using Context): Boolean =
+    bounds(member).exists(!unbounded(_))
+
+  /** Whether an abstract type member says nothing of what it stands for: unbounded, or an invariant
+    * `F[_]` of unbounded parameters.
+    */
+  def free(member: TypeMemberSymbol)(using Context): Boolean = bounds(member).exists { b =>
+    // Without a tree a declared variance is not seen: such a member is not free.
+    unbounded(b) || rigidBounds(b) && tastyquery.Variances.invariant(b.high) &&
+    member.tree.nonEmpty && !tastyquery.Variances.variant(member)
+  }
+
   /** Bounds any type meets. */
   def unbounded(bounds: TypeBounds)(using Context): Boolean =
     bounds.low.isSameType(defn.NothingType) && bounds.high.isSameType(defn.AnyType)
@@ -752,6 +789,32 @@ private[compiled] object Shapes {
 
   /** A class written `final`: the closed world's finality is `World.extended`'s to say. */
   def isFinal(c: ClassSymbol): Boolean = c.openLevel == OpenLevel.Final
+
+  /** Whether a record has a member named like the measured definition, own or inherited, which may
+    * be that one on another receiver; a constructor row measures no member.
+    */
+  private def clash(c: ClassSymbol, site: Symbol)(using Context): Boolean =
+    !World.isConstructor(site) &&
+      (c.declarations.collect { case term: TermSymbol => term } ++
+        World.ancestors(c).flatMap(_.declarations)).exists { member =>
+        !member.isSynthetic && member.name.toString == site.name.toString
+      }
+
+  /** The measured member a record of `name` is read for, or why a site that is none leaves it. */
+  private def siteMember(site: Symbol, name: String): Either[Unread, TermSymbol] = site match {
+    case site: TermSymbol => Right(site)
+    case _ => Left(Unread.Uncovered(s"a capability record read outside a member: $name"))
+  }
+
+  /** Whether one of `members` is an abstract type member. */
+  def abstractType(members: List[Symbol]): Boolean = members.exists {
+    case member: TypeMemberSymbol => member.isAbstractMember
+    case _                        => false
+  }
+
+  /** A record of `name` left where it has `what` (`left`). */
+  private def unread(name: String)(left: Boolean, what: String): Either[Unread, Unit] =
+    Either.cond(!left, (), Unread.Uncovered(s"a capability record $what: $name"))
 
   /** A sealed trait or abstract class, which is the sum of its subtypes; an enum is read by its own
     * rule.
@@ -770,10 +833,8 @@ private[compiled] object Shapes {
   }
 
   /** Whether a template declares an abstract type member. */
-  def abstractTypeMember(tree: ClassDef): Boolean = tree.rhs.body.exists {
-    case member: TypeMember => member.symbol.isAbstractMember
-    case _                  => false
-  }
+  def abstractTypeMember(tree: ClassDef): Boolean =
+    abstractType(tree.rhs.body.collect { case member: TypeMember => member.symbol })
 
   /** A class's tree, or what it needs that is not read. */
   def tree(c: ClassSymbol): Either[Unread, ClassDef] = World.tree(c).left.map(Unread.Uncovered(_))

@@ -8,26 +8,33 @@ import tastyquery.Contexts.*
 import tastyquery.Symbols.*
 import tastyquery.Types.*
 
-/** The bounds of a proper type parameter, read from its symbol, as the old front end's
-  * `BinderBounds` reads them from syntax (hkt R5): a subtype bound is an ambient proof, never a
-  * value. `A <: U` is `A <:< U` and `A >: L` is `L <:< A`; `A <: Any` and `A >: Nothing` say
-  * nothing, and `AnyRef` (`Object`), `Matchable` or `AnyVal` above says nothing of the values. Only
-  * a bound that is another type parameter, a rigid application (an endpoint) or a closed type is a
-  * proof; a trait or class of the module is closed where its shape reads (a capability record's
-  * values are read through its members). A bound to a structural type that is none of them needs
-  * coercion analysis: the model's refusal, as before. As there, a bound is read only for a
+/** The bounds of a proper type parameter or abstract type member, read from its symbol, as the old
+  * front end's `BinderBounds` reads them from syntax (hkt R5): a subtype bound is an ambient proof,
+  * never a value. `A <: U` is `A <:< U` and `A >: L` is `L <:< A`; `A <: Any` and `A >: Nothing`
+  * say nothing, and `AnyRef` (`Object`), `Matchable` or `AnyVal` above says nothing of the values.
+  * Only a bound that is another type parameter, a rigid application (an endpoint) or a closed type
+  * is a proof; a trait or class of the module is closed where its shape reads (a capability
+  * record's values are read through its members). A bound to a structural type that is none of them
+  * needs coercion analysis: the model's refusal, as before. As there, a bound is read only for a
   * parameter the shapes mention, and for the parameters its bounds mention in turn.
   */
 final private[compiled] class Bounds(shapes: Shapes)(using Context) {
   import Unread.{Refused, Uncovered}
 
-  /** The proofs of the bounds of the bounded proper parameters the shapes mention, as values. */
+  /** The proofs of the bounds of the bounded proper parameters and abstract type members the shapes
+    * mention, as values.
+    */
   def proofs(mentioned: List[Shape], env: Shapes.Env): Either[Unread, List[Binding]] = {
-    val bounded = env.binders.toList.collect {
-      case (parameter: TypeParamSymbol, atom: Shape.Atom)
-          if !Shapes.unbounded(parameter.declaredBounds) =>
-        atom -> parameter
-    }.toMap
+    val bounded = env.binders.toList
+      .flatMap {
+        case (parameter: TypeParamSymbol, atom: Shape.Atom) =>
+          Some((atom, (parameter.declaredBounds, parameter.name.toString)))
+        case (member: TypeMemberSymbol, atom: Shape.Atom) =>
+          Shapes.bounds(member).map(bounds => (atom, (bounds, member.name.toString)))
+        case _ => None
+      }
+      .filter { case (_, (bounds, _)) => !Shapes.unbounded(bounds) }
+      .toMap
     def atoms(shape: Shape): List[Shape.Atom] = shape match {
       case atom: Shape.Atom => List(atom).filter(bounded.contains)
       case other            => Shape.children(other).flatMap(atoms)
@@ -41,7 +48,7 @@ final private[compiled] class Bounds(shapes: Shapes)(using Context) {
       case Nil                                 => Right(done)
       case atom :: rest if done.contains(atom) => reach(rest, done)
       case atom :: rest                        =>
-        read(atom, bounded(atom), env).flatMap(found =>
+        read(atom, bounded(atom)._1, bounded(atom)._2, env).flatMap(found =>
           reach(rest ++ found._1.flatMap(atoms), done + (atom -> found))
         )
     }
@@ -78,19 +85,19 @@ final private[compiled] class Bounds(shapes: Shapes)(using Context) {
   // A parameter's proofs, and whether a class bound is above it.
   private def read(
       atom: Shape,
-      parameter: TypeParamSymbol,
+      bounds: TypeBounds,
+      name: String,
       env: Shapes.Env
   ): Either[Unread, (List[Shape], Boolean)] = {
-    val bounds = parameter.declaredBounds
     val classBound = bounds.high.dealias match {
       case ref: TypeRef => ref.optSymbol.exists(s => Bounds.ClassBounds(s.displayFullName))
       case _            => false
     }
     val upper = Option.when(!bounds.high.isSameType(defn.AnyType) && !classBound)(
-      structural(bounds.high, parameter, env).map(Shape.Evidence(atom, _, false))
+      structural(bounds.high, name, env).map(Shape.Evidence(atom, _, false))
     )
     val lower = Option.when(!bounds.low.isSameType(defn.NothingType))(
-      structural(bounds.low, parameter, env).map(Shape.Evidence(_, atom, false))
+      structural(bounds.low, name, env).map(Shape.Evidence(_, atom, false))
     )
     Traversals.sequence(upper.toList ++ lower.toList).map(_ -> classBound)
   }
@@ -99,16 +106,16 @@ final private[compiled] class Bounds(shapes: Shapes)(using Context) {
   // it, which a proof does not carry: not read yet.
   private def structural(
       bound: Type,
-      parameter: TypeParamSymbol,
+      name: String,
       env: Shapes.Env
   ): Either[Unread, Shape] =
     shapes.of(bound, env).flatMap {
       case shape if TopTypes.holds(shape) =>
-        Left(Uncovered(s"a bound that holds a top type: ${parameter.name}"))
+        Left(Uncovered(s"a bound that holds a top type: $name"))
       case shape if EvidenceAnalysis.endpoint(shape) || EvidenceAnalysis.closed(shape) =>
         Right(shape)
       case _ =>
-        Left(Refused(s"bound to a structural type requires coercion analysis: ${parameter.name}"))
+        Left(Refused(s"bound to a structural type requires coercion analysis: $name"))
     }
 
 }

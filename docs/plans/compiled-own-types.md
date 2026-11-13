@@ -262,6 +262,115 @@ record`, 1,146 rows: cats' `eqv`, `neqv`, `imap`, …) takes `Reentry`'s receive
 behavior that passes `this` on or calls through it may re-enter; for a record value, another
 instance, only a behavior that reaches the site itself can, which a narrower search would read.
 
+Stretch 11 narrows that guard for a record value (`Reentry.may` with `instance = false`): a
+behavior re-enters the site only by naming a member of its name, calling a member of the module
+that does (through its overriders), a name or selection that does not resolve, applying a
+function a field holds, building an instance of the site's class, or handing an instance (`this`,
+or one it builds) to code outside the module whose members the module overrides and which reach
+the site. The receiver rule is unchanged. A finished search that found nothing caches the members
+it visited per measured name and class. Record refusals for re-entry fall from 1,146 to 905 corpus
+rows; cats-core's identical method rows rise from 1,195 to 1,198, and corpus time rises (cats-core
+4.8 s to 7.0 s, the search reading the module's call graph).
+
+Stretch 12 (a new gate agent, private gate copy `/tmp/tg/s11/assets`). Its first commit derives
+the two rows stretch 11 freed past a model limit and left without a derivation, which failed the
+cats-core gate: `HashInstances.catsContravariantForHash.<new#1>.contramap` and
+`HashInstances.catsDeferForHash`, both 2^(2^39 + 2^73) (`derived.txt` has the arithmetic: a
+`Hash[X]` is `hash`, `eqv` and the overridden `neqv`). The next makes a `new` whose type does not
+resolve count as possibly re-entering the site in both of `Reentry`'s searches (it read as building
+nothing); no corpus row moves, since the `<init>` such a `new` selects fails to resolve first and
+refused already, and `ProgramRowsSpec.unresolvedNew` pins the cases.
+
+The third reads a dependency's record without TASTy (`Declared.Record`: a Java interface, a Scala 2
+trait or stateless abstract class) in `Shapes.withoutTasty` and `Receivers.dependency`: its
+abstract members and the concrete ones a class of the program overrides are capabilities read from
+their signatures (`inheritedCapability`); a concrete one nothing overrides computes from them. A
+member the site may not call refuses (`capability record with members hidden at the use site`, the
+scalameta reading's words): code that is not supplied, the record's or other code in the member's
+scope, may read it. Left uncovered as a record of the module is: a self type, an abstract type
+member, a member named like the measured definition, a restricted constructor; and a parent reached
+through two parents, a parent class with constructor parameters or Java state (what each instance
+chooses), overriders the classes read do not settle. scalameta's `Tree`, `Type`, `Stat`, `Source`
+and the rest all have `private[meta]` abstract members, so their rows are now the old reading's
+`?`: corpus-core's identical method rows rise from 1,533 to 2,676 and its uncovered ones fall from
+2,454 to 1,311 (`a class that is no product, sum or type-only template` 1,268 → 0; the rows freed
+stop at the refusal, or, for 111 constructor rows, at `a constructor position the method side
+refuses`, whose estimate tier is not read; 2 rows of a sum receiver whose case holds a
+`scala.meta.Type`, ω in the old reading, stay uncovered). Fixtures: identical 4,817 → 4,818,
+better 177 → 179 (past a resolution limit), uncovered 1,740 → 1,737. No other input moves; no row
+is worse. Not covered by a regression: a Scala 2 parent class with constructor parameters (no Scala
+2 compiler in the tests). `Shapes.clash`, `abstractType` and `unread` are shared with the module's
+record now. Next: records' abstract type members (the old reading opens an unbounded one as the
+witness of a package, `Shape.Existential`), then bounded abstract type members on receivers.
+Edits to the shared coverage memory after the third commit (targeted inserts of rows newly
+measured, every earlier line kept, none removed): cats-core 7 (the rows stretch 11 freed, whose
+derivations the first commit adds), corpus-core 1,143 (the scalameta records' `?`), fixtures 3.
+
+The fifth reads a capability record's unbounded abstract type members, own or inherited, as the old
+reading does: each is the witness of the package a value carries (`Shape.Existential` over the
+record's product, each witness the atom `C#T` that `Shapes.binds` reads on the record's instance),
+which the solver opens per value (`RecordsSpec`: `typing` 4, `pack` 4, `two` 16, a goal of a
+package refused by the solver as in the old reading, a path `p.T` not read). The pinned and alike
+checks are `Receivers.typeMembers`, shared with `atoms`. Left uncovered: a bounded one (typeMember's
+reason), one of another kind (`F[_]`: the old reading refuses a higher-kinded one too), one a
+receiver around the site holds. No corpus row moves to a number: cats-core's 157 rows of `a
+capability record with an abstract type member` now stop at `… of another kind` (148), a member
+named like the measured definition (+4), a bounded one (+4) or re-entry (+1); fixtures' identical
+method rows rise from 4,818 to 4,829 (uncovered 1,737 → 1,726). Shared coverage memory: fixtures 11
+rows inserted, none removed. 
+The sixth reads a receiver's bounded proper abstract type member as an atom whose bounds `Bounds`
+reads as a bounded type parameter's (a proof each way, the same refusals: a top inside, a
+structural bound needing coercion, a recursive bound). Still uncovered: a record's bounded witness
+(a proof about each value's own member), a bounded member around a constructor row (which hands no
+proof to its positions, as for its class's bounded parameters), an exported alias (an abstract
+member whose bounds meet), and a variant `type F[+X]`, whose variance `Variances.variant` now reads
+from the member's tree (the bound's lambda does not carry it: such a member was read as a rigid
+constructor before; a member without a tree is not free). `alike` refuses another declaration of
+the name unless it is free. cats-core's identical method rows rise from 1,198 to 1,214 (`a bounded
+abstract type member, or one of another kind than F[_]` 286 → 4, the rest stopping at later
+reasons); no other input moves. Shared coverage memory: cats-core 16 rows inserted, none removed.
+
+Merged `tasty-front` at `398df9e` (literal and singleton types, unions and intersections, other-kind
+constructors, members named like the measured definition, anonymous contextual parameters of the
+measured method; `ClosedProgram.mixes` restored for unions and kept). Resolved: the module record's
+`clash` is the front's (a varying member of the measured name and arity where one instance may be
+of both classes, refused as the old reading's `selfView`); a dependency record keeps the name-only
+`Shapes.clash`, left uncovered; `Receivers.own` takes the front's `where`/`kept`/`receiving` and a
+record value is `!receiving` for `Reentry.may`; `atoms` keeps the front's unsequenced binders over
+`typeMembers`; `typeMember` keeps the bounded atom and the free constructor over the front's
+`rigidBounds`. Gate on the merged tree (method rows identical / better / worse / uncovered, then
+old numeric rows still uncovered): cats-core 1,595 / 358 / 70 / 5,628, 48 of 909; cats-eo 231 / 10
+/ 0 / 456, 83 of 271; cats-eo-generics 40 / 0 / 0 / 40, 0 of 16; cats-eo-schemes 5 / 0 / 0 / 14, 0
+of 5; cats-kernel 330 / 5 / 0 / 1,450, 111 of 368; core 2,780 / 13 / 0 / 1,207, 58 of 768;
+fixtures 5,090 / 193 / 4 / 1,450, 756 of 5,485. Shared coverage memory, rows newly measured on the
+merged tree inserted, none removed: cats-core 409, cats-eo 25, cats-eo-generics 3, cats-eo-schemes
+1, cats-kernel 55, core 104, fixtures 276. From here the work is ranked by old numeric rows still
+uncovered (the switch-over criterion).
+
+Timing, back to back with no other JVM of the gate agent's running (the differential runner over a
+corpus with the old rows read from disk, so the time is the compiled front end's and the pairing;
+three runs each; CPU and peak RSS are of sbt and the forked JVM together, `wait4`): at `6441b5f`
+corpus-core 23.0 / 20.2 / 15.9 s wall, 93 / 85 / 70 s CPU, 2.7-2.9 GiB; cats-core 6.1 / 5.8 / 6.2
+s, 55-58 s CPU, 1.6-1.9 GiB. At `fd94706` (the merge included) corpus-core 19.5 / 19.8 / 19.1 s, 83-85
+s CPU, 2.9-3.3 GiB; cats-core 7.0 / 7.0 / 7.5 s, 59-63 s CPU, 1.6-1.8 GiB. No cost is the
+re-entry search's to cut here; `measure-corpus.sh` times the scalameta front end's `Report.of`,
+not this one.
+
+Old numeric rows still uncovered on the merged tree, by first blocker (both tables), the gate
+agent's groups first: re-entry among a record's members, cats-kernel 104 and cats-core 24 (every
+one `neqv` or `eqv` of an `Eq` or `Hash` instance: an overrider's body applies a function a
+captured parameter holds, `Eq.instance(f)`'s `f(x, y)`, which `Reentry.reached` takes for possibly
+re-entering since it does not read where the function was built; next: search the module's call
+sites of the method whose parameter it is, recursively, refusing anything else); constructor
+positions the method side refuses, core 50 and fixtures 68; restricted constructors, cats-eo 36,
+fixtures 34, cats-core 2; a record of a class something extends, fixtures 43; re-entry among an
+enclosing class's members, fixtures 68, cats-kernel 3, cats-eo 2; a parameter that is no public
+field, cats-eo 14, fixtures 21; overriders not read, cats-core 3, core 2; parents not read,
+fixtures 5, cats-core 1; two parents, fixtures 3; a class of a dependency, fixtures 1. The front
+agent's: `a type` (fixtures 149, cats-eo 21), a definition that reaches itself (core 41, fixtures
+93), anonymous contextual parameters (cats-core 9, fixtures 31), a value of a class of the module
+(core 12), definitions in function literals, case clauses and constructor bodies, captures.
+
 ### Commands
 
 | Command | What it does |
@@ -1893,8 +2002,11 @@ the same six deleted when this branch is merged; every input passes otherwise.
   of item 6: a captured method's, a receiver's and a capability's anonymous parameters. Done since:
   the move of the union, intersection and clash readings to `Relations` (no change in rows).
   Done since: the back end's undercount of a polymorphic member inside a record ("Stretch 5,
-  eleventh unit"). Next (re-ranked by old numeric rows still uncovered): the merge of `tasty-gate`
-  at `f75b9d4` (the coordinator), match types and the rest of `a type` (`MatchType.reduced`,
+  eleventh unit"); the merge of `tasty-gate` at `f75b9d4` (the coordinator; one conflict, the
+  record clash test, resolved to `Relations.clash` beside the gate's `Shapes.unread`; every input
+  passes on the private memory: method rows identical corpus-core 2,780, cats-core 1,601,
+  cats-kernel 330, cats-eo 231, cats-eo-generics 40, cats-eo-schemes 5, fixtures 5,116). Next
+  (re-ranked by old numeric rows still uncovered): match types and the rest of `a type` (`MatchType.reduced`,
   stuck projections), a definition that reaches itself, the rest of item 6, a value of a class of
   the module, refinements. A constructor position the method side refuses is the gate agent's
   (its note at `f75b9d4`). Scope

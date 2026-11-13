@@ -19,6 +19,7 @@ class ProgramRowsSpec extends Specification {
       an opaque type of a dependency is one value                     $opaque
       a library's namespace under `scala` is a dependency like another $underScala
       a Java enum is its constants; a Java class's state is not read  $java
+      a record without TASTy is what its members supply              $records
     What a template inherits
       a concrete member wins over an abstract one mixed in after it   $concreteWins
       an abstract redeclaration makes a member abstract again         $reabstracted
@@ -26,22 +27,33 @@ class ProgramRowsSpec extends Specification {
       a member a parent mixed in beside the template overrides varies $mixedIn
       a parent reached through two parents is not read yet            $twoPaths
       a member a case overrides computes from the case a sum holds    $sumOverridden
+      a bounded abstract type member is an atom with its bound's proof $boundedMember
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
     A parent's constructor parameters
       are what the template passes, or free public fields             $parents
     An overridden member (a capability: ReceiversSpec, `Wide.get`)
       is not read where a behavior of it may call the measured one    $reentry
+      a `new` whose class the classes read do not hold may            $unresolvedNew
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
-  private def rows(code: String, classpath: List[Path] = Nil): Map[String, Count] =
-    module(code, classpath).flatMap(_.methods).map(entry => entry.name -> entry.count).toMap
+  private def rows(
+      code: String,
+      classpath: List[Path] = Nil,
+      read: Option[List[Path]] = None
+  ): Map[String, Count] =
+    module(code, classpath, read).flatMap(_.methods).map(entry => entry.name -> entry.count).toMap
 
-  // `code` compiled against `classpath` and read with it by the compiled front end.
-  private def module(code: String, classpath: List[Path]): List[Report.Source] = {
+  // `code` compiled against `classpath`, read with `read` (by default the same) by the compiled
+  // front end.
+  private def module(
+      code: String,
+      classpath: List[Path],
+      read: Option[List[Path]] = None
+  ): List[Report.Source] = {
     val classes = Programs.compiled(code, classpath)
-    val libraries = classpath ++ Programs.libraries
+    val libraries = read.getOrElse(classpath) ++ Programs.libraries
     val module = FrontEnd.Module(
       List("Example.scala" -> code),
       Report.Environment(libraries, classes = Some(CompiledTypes.Classes(List(classes), libraries)))
@@ -81,6 +93,34 @@ class ProgramRowsSpec extends Specification {
       "final case class Holds(f: scala.mylib.Flag)"
     (rows(code, List(library))("M.h") must_== Count.Finite(4))
       .and(definitions(code, List(library))("Holds") must beSome("2"))
+  }
+
+  // A Java interface is a capability record: `Toggle` is its abstract `flip`, one of the 2^2
+  // functions of a Boolean (its default `same`, which nothing overrides, is code that is not
+  // supplied and computes from it), so `t` is one of 2^4 predicates on it. `Dial.Fast` overrides
+  // `Dial`'s default `twice`, which then varies beside `turn`: `Dial` is one of 4 × 4 values and `d`
+  // one of 2^16 predicates on it. scalameta's `Tree`, a Scala 2 trait, has abstract members the
+  // site may not call (`private[meta]`), which code that is not supplied may read: what a `Tree`
+  // is, the sources do not say.
+  def records = {
+    val t = rows(
+      "object M { def t(x: javafixtures.Toggle): Boolean = ??? }",
+      List(Programs.packaged("javafixtures"))
+    )("M.t")
+    val d = rows(
+      "object M { def d(x: javarecords.Dial): Boolean = ??? }",
+      List(Programs.packaged("javarecords"))
+    )("M.d")
+    val meta = List(classOf[scala.meta.Tree], classOf[scala.meta.internal.trees.Metadata.Ast])
+      .map(Programs.jarOf)
+    val m = rows("object M { def m(x: scala.meta.Tree): Boolean = ??? }", meta)("M.m")
+    (t must_== Count.Finite(16))
+      .and(d must_== Count.Finite(65536))
+      .and(
+        m must_== Count.Unresolved(
+          List("capability record with members hidden at the use site: scala.meta.Tree")
+        )
+      )
   }
 
   // `Coin` has the constants HEADS and TAILS, so `c` is one of 2^2 predicates. A `Box.Point`
@@ -165,6 +205,37 @@ class ProgramRowsSpec extends Specification {
       .reduce(_ and _)
   }
 
+  // A `new` whose class may be the site's re-enters it (its constructor runs). On a value of the
+  // record `Back` (another instance than the site's), `BackI.k` builds: a `UseOf`, which is a `Use`
+  // (left); with `gone` unread, a `UseOf[gone.Gone]` whose type does not resolve and a
+  // `gone.Gone` that names no class read, either of which may be anything (left); an `Other`,
+  // which reaches nothing, so `Back` is its `k` (2 values, `j` computing from it) and `target` one
+  // of 2^2, with `gone` read or not (a type argument runs no code). On the site's own instance,
+  // `Own2.k` builds a `gone.Gone` unread: `Own.get` is left.
+  def unresolvedNew = {
+    val gone = Programs.compiled("package gone\nclass Gone")
+    def found(built: String, read: List[Path]) = rows(
+      s"""trait Back { def k: Boolean = true; def j: Boolean = k }
+        |class Use { def target(b: Back): Boolean = true }
+        |class UseOf[A] extends Use
+        |class Other[A]
+        |object BackI extends Back { override def k: Boolean = { new $built; true } }
+        |class Own(b: Boolean) { def get: Boolean = b; def k: Boolean = b }
+        |class Own2 extends Own(true) { override def k: Boolean = { new $built; true } }
+        |""".stripMargin,
+      List(gone),
+      Some(read)
+    )
+    def left(built: String, read: List[Path], row: String = "Use.target") =
+      uncovered(found(built, read)(row), Receivers.Reenters)
+    left("UseOf[gone.Gone]", List(gone))
+      .and(left("UseOf[gone.Gone]", Nil))
+      .and(left("gone.Gone", Nil))
+      .and(found("Other[gone.Gone]", List(gone))("Use.target") must_== Count.Finite(4))
+      .and(found("Other[gone.Gone]", Nil)("Use.target") must_== Count.Finite(4))
+      .and(left("gone.Gone", Nil, "Own.get"))
+  }
+
   // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement
   // and a `val`'s value: each re-enters `get` in a receiver that overrides nothing, so no
   // implementation uses it. `Loop.get` is a Boolean computed from `b` alone, 2^2, and so is
@@ -210,6 +281,28 @@ class ProgramRowsSpec extends Specification {
       .and(uncovered(found("Hid.g"), "a parent with constructor parameters or in a class"))
       .and(uncovered(found("R.target"), "a constructor field something overrides"))
       .and(uncovered(found("T.m"), "a parent with constructor parameters or in a class"))
+  }
+
+  // A bounded abstract type member of a receiver is an atom, and its bound a proof, as a bounded
+  // type parameter's is. In `Lo`, `T <: Boolean` makes `t` a Boolean through the proof, which the
+  // solver refuses to combine with the value a member produces, as for a bounded type parameter.
+  // `U <: AnyRef` says nothing of the values: `pick` returns `u`, 1. In
+  // `Var`, `F[+X]` relates its applications by subtyping: not read. A constructor row hands no
+  // proof to its positions: `I`'s `x: T` with `T >: Boolean` is not read (true and false are Ts).
+  def boundedMember = {
+    val found = rows("""trait Lo { type T <: Boolean; def t: T; def get: Boolean = true }
+      |trait Ref { type U <: AnyRef; def u: U; def pick: U = u }
+      |trait Var { type F[+X]; def f: F[Int]; def g: F[Int] = f }
+      |trait O { type T >: Boolean; class I(val x: T) }
+      |""".stripMargin)
+    (found("Lo.get") must_== Count.Unresolved(
+      List(
+        "unsupported subtype evidence interaction: a callable produces a value its bound views as a structural type"
+      )
+    ))
+      .and(found("Ref.pick") must_== Count.Finite(1))
+      .and(uncovered(found("Var.g"), "variant"))
+      .and(uncovered(found("O.I.<init>"), "a bounded abstract type member around a constructor"))
   }
 
   // `D` reaches `A` through `B` and through `C`, and `E` extends `D`.
