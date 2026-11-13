@@ -306,6 +306,20 @@ Edits to the shared coverage memory after the third commit (targeted inserts of 
 measured, every earlier line kept, none removed): cats-core 7 (the rows stretch 11 freed, whose
 derivations the first commit adds), corpus-core 1,143 (the scalameta records' `?`), fixtures 3.
 
+The fifth reads a capability record's unbounded abstract type members, own or inherited, as the old
+reading does: each is the witness of the package a value carries (`Shape.Existential` over the
+record's product, each witness the atom `C#T` that `Shapes.binds` reads on the record's instance),
+which the solver opens per value (`RecordsSpec`: `typing` 4, `pack` 4, `two` 16, a goal of a
+package refused by the solver as in the old reading, a path `p.T` not read). The pinned and alike
+checks are `Receivers.typeMembers`, shared with `atoms`. Left uncovered: a bounded one (typeMember's
+reason), one of another kind (`F[_]`: the old reading refuses a higher-kinded one too), one a
+receiver around the site holds. No corpus row moves to a number: cats-core's 157 rows of `a
+capability record with an abstract type member` now stop at `… of another kind` (148), a member
+named like the measured definition (+4), a bounded one (+4) or re-entry (+1); fixtures' identical
+method rows rise from 4,818 to 4,829 (uncovered 1,737 → 1,726). Shared coverage memory: fixtures 11
+rows inserted, none removed. Next: bounded abstract type members (receivers' and records'), whose
+bounds `Bounds` reads for type parameters only.
+
 ### Commands
 
 | Command | What it does |

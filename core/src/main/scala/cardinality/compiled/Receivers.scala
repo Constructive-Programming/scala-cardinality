@@ -301,11 +301,15 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     * template's receiver reading reads it (`own`): its constructor's fields and the members a
     * subclass supplies, own or inherited, an overridden one included unless a behavior of it may
     * call the site (`Reentry`). Synthetic members, setters and members restating one every value
-    * has (`universal`) observe nothing of the value and are set aside. Refused: a parent this
-    * reading does not take (`inherits`, `inherited`), an inherited abstract type member, a member
-    * the site may not call, and overriders the classes read do not settle.
+    * has (`universal`) observe nothing of the value and are set aside. Its unbounded abstract type
+    * members, declared or inherited, are the witnesses of the package each value carries (`∃X.
+    * members over X`, as the old front end reads it): each an atom on the record's instance, which
+    * the solver opens per value. Refused: a parent this reading does not take (`inherits`,
+    * `inherited`), an abstract type member that is bounded, of another kind than a type, one
+    * `atoms` would not read or one a receiver around the site holds too, a member the site may not
+    * call, and overriders the classes read do not settle.
     */
-  def record(template: ClassDef, site: TermSymbol, env: Shapes.Env): Either[Unread, List[Shape]] = {
+  def record(template: ClassDef, site: TermSymbol, env: Shapes.Env): Either[Unread, Shape] = {
     val c = template.symbol
     val where = Receivers.Record
     val hidden = (supplies(template, site).map(_.symbol) ++ inheritedOpen(c, site))
@@ -319,11 +323,18 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
             s"$where whose parents are not read: ${reason.replace("an enclosing class", "a class")}"
           )
         )
-      _ <- Either.cond(
-        !Shapes.abstractType(inheriting),
-        (),
-        Uncovered(s"$where with an abstract type member: ${c.displayFullName}")
-      )
+      witnesses <- typeMembers(template, inheriting)
+      _ <- witnesses
+        .collectFirst { case (member, _) if env.binders.contains(member) => member }
+        .map(member =>
+          Uncovered(s"$where with an abstract type member a receiver holds: ${member.name}")
+        )
+        .toLeft(())
+      ids <- Traversals.sequence(witnesses.map {
+        case (_, Shape.Atom(id)) => Right(id)
+        case (member, _)         =>
+          Left(Uncovered(s"$where with an abstract type member of another kind: ${member.name}"))
+      })
       _ <- hidden
         .map(member => Uncovered(s"$where with a member hidden at the use site: ${member.name}"))
         .toLeft(())
@@ -332,8 +343,11 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         (),
         Uncovered(s"$where whose overriders are not read: ${c.displayFullName}")
       )
-      held <- own(template, site, env, value = true)
-    } yield held.map(_.shape)
+      held <- own(template, site, env.copy(binders = env.binders ++ witnesses), value = true)
+    } yield {
+      val product = Shape.Product(held.map(_.shape))
+      if (ids.isEmpty) product else Shape.Existential(ids, product)
+    }
   }
 
   /** What a value of a dependency's record without TASTy holds as the site observes it
@@ -387,22 +401,13 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     Traversals
       .sequence(receivers.map { tree =>
         val c = tree.symbol
-        val members = (tree.rhs.body.collect { case member: TypeMember => member.symbol } ++
-          inherited(c).getOrElse(Nil)).collect {
-          case member: TypeMemberSymbol if member.isAbstractMember => member
-        }
         for {
           named <- Traversals.sequence(
             c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr)))
           )
-          _ <- members.headOption
-            .flatMap(_ => pinned(c))
-            .orElse(members.view.flatMap(alike(c, _)).headOption)
-            .map(Uncovered(_))
-            .toLeft(())
-          held <- Traversals.sequence(members.map(Shapes.typeMember(c, _)))
+          held <- typeMembers(tree, inherited(c).getOrElse(Nil))
         } yield c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named) ++
-          members.zip(held)
+          held
       })
       .flatMap { pairs =>
         // Two instances around the member each hold their own type of one declaration.
@@ -413,6 +418,25 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
           case None => Right(pairs.flatten.toMap)
         }
       }
+
+  // What the abstract type members of a template, declared or among those it inherits, stand for
+  // on its instance (`Shapes.typeMember`), unless the program's classes pick them (`pinned`) or
+  // another declaration bounds or hides one (`alike`).
+  private def typeMembers(
+      tree: ClassDef,
+      inheriting: List[TermOrTypeSymbol]
+  ): Either[Unread, List[(TypeMemberSymbol, Shape)]] = {
+    val c = tree.symbol
+    val members = (tree.rhs.body.collect { case member: TypeMember => member.symbol } ++
+      inheriting).collect { case member: TypeMemberSymbol if member.isAbstractMember => member }
+    members.headOption
+      .flatMap(_ => pinned(c))
+      .orElse(members.view.flatMap(alike(c, _)).headOption)
+      .map(Uncovered(_))
+      .toLeft(())
+      .flatMap(_ => Traversals.sequence(members.map(Shapes.typeMember(c, _))))
+      .map(members.zip(_))
+  }
 
   // Why the types an abstract type member of `c` stands for are only those the program's classes
   // pick, as the old front end reads it: it counts one as any type only where a class written

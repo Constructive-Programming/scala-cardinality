@@ -27,7 +27,8 @@ private[compiled] enum Unread {
   *   - an enum and a sealed family are the sum of their cases (`Sums`);
   *   - a trait or class with only type members is one value;
   *   - any other class or trait is a capability record (`record`): the tuple of its public fields
-  *     and of what its abstract members supply;
+  *     and of what its abstract members supply, a package over its unbounded abstract type members
+  *     (`∃X. tuple`);
   *   - an opaque alias is one value outside the scope its representation is visible in (rule F),
   *     which every dependency's is, the standard library's aside.
   *
@@ -299,7 +300,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
   // template whose construction always throws, or a class written `final abstract`, has no value
   // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
   // throws is S6's still). Left for later steps, each named: a construction that binds a pattern, a
-  // sealed class, a self type narrower than the class, an abstract type member, a member named like
+  // sealed class, a self type narrower than the class, a member named like
   // the measured definition, own or inherited (it may be that one on another receiver), a field
   // the site does not observe as itself, a restricted constructor of a class something may extend,
   // a class something extends, and what `Receivers.record` and `Factories` leave.
@@ -324,7 +325,6 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         _ <- refused(world.unbuilt(template), "whose construction binds a pattern")
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
         _ <- refused(!World.ownSelf(c), "with a self type")
-        _ <- refused(Shapes.abstractTypeMember(template), "with an abstract type member")
         _ <- refused(Shapes.clash(c, env.site), "with a member named like the measured definition")
         _ <- refused(!c.isTrait && !c.isAbstractClass && !fixed, "of a class something extends")
         site <- Shapes.siteMember(env.site, name)
@@ -340,7 +340,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
         shape <-
           if (fixed && !public)
             factories.space(template, site, read).map(Shape.Ground(name, _))
-          else receivers.record(template, site, read).map(Shape.Product(_))
+          else receivers.record(template, site, read)
       } yield shape
   }
 

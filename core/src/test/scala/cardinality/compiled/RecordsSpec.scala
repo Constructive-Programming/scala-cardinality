@@ -57,6 +57,8 @@ class RecordsSpec extends Specification {
       |final class Shut private (val a: Boolean)
       |trait Typed { type T; def t: T }
       |trait Typing extends Typed { def b: Boolean }
+      |trait Pack { type T; def x: T; def same(a: T, b: T): Boolean }
+      |trait Bounded { type T <: Int; def t: T }
       |trait Guarded { protected def h: Boolean }
       |trait Guards extends Guarded { def k: Boolean = h }
       |object Use {
@@ -88,6 +90,11 @@ class RecordsSpec extends Specification {
       |  def mkPin(x: Boolean, y: Boolean): Pin = ???
       |  def shut(s: Shut): Boolean = true
       |  def typing(t: Typing): Boolean = true
+      |  def pack(p: Pack): Boolean = true
+      |  def packOut(b: Boolean): Pack = ???
+      |  def two(p: Pack, q: Pack): Boolean = true
+      |  def path(p: Pack): p.T = p.x
+      |  def bounded(b: Bounded): Boolean = true
       |  def guards(g: Guards): Boolean = true
       |}
       |""".stripMargin
@@ -140,7 +147,13 @@ class RecordsSpec extends Specification {
   // `Product`'s (`canEqual`) is outside the model: `Prod` is its `x`, 2^2. A record value is another
   // instance than the site's: `SameI.neqv` never reaches `same`, so `neqv` is a capability beside
   // `eqv`, each one of the 2^2 functions of a Boolean: `Same` is one of 4 × 4 values, and `same`
-  // one of 2^16.
+  // one of 2^16. An unbounded abstract type member, own or inherited, is the witness of the
+  // package each value carries: `Typing` is ∃T. (t: T, b: Boolean), and nothing tells a `T` apart,
+  // so `typing` is a Boolean computed from `b`, 2^2; `Pack` is ∃T. (x: T, same: (T, T) => Boolean),
+  // whose one observation is `same(x, x)`, so `pack` is one of 2^2. Each value carries its own
+  // witness: `q.same` takes no `p.x`, so `two` sees `p.same(p.x, p.x)` and `q.same(q.x, q.x)`, one
+  // of 2^(2 × 2). A type a path names (`p.T`) is not read. A goal of a package needs a
+  // witness chosen, which the solver refuses (`packOut`), as the old front end does.
   private def inherited =
     (count("grown") must_== Count.Finite(16))
       .and(count("derived") must_== Count.Finite(4))
@@ -149,10 +162,18 @@ class RecordsSpec extends Specification {
       .and(count("prod") must_== Count.Finite(4))
       .and(count("free") must_== Count.Finite(16))
       .and(count("same") must_== Count.Finite(65536))
+      .and(count("typing") must_== Count.Finite(4))
+      .and(count("pack") must_== Count.Finite(4))
+      .and(count("two") must_== Count.Finite(16))
+      .and(count("path") must beLike { case Count.Unresolved(_) => ok })
+      .and(count("packOut") must beLike {
+        case Count.Unresolved(List(why)) =>
+          why must startWith("existential wildcard result construction")
+      })
 
   // Not read yet, each by its reason: an extension member; a class something extends; a record
   // that inherits a member named like the measured definition, which may be that one on another
-  // value; one that inherits an abstract type member; one whose inherited member the site may not
+  // value; one with a bounded abstract type member; one whose inherited member the site may not
   // call; a final class that nothing the site may call builds; and an overridden member a
   // behavior of which reaches the site: `BackI.k` calls `target`; `OrdI.m` gives `OrdI` to
   // `sorted`, which calls its `compare`, which calls `ord`; `FbF.k` applies a function its
@@ -163,12 +184,12 @@ class RecordsSpec extends Specification {
       case Count.Unresolved(List(why)) => why.stripPrefix(prefix).takeWhile(_ != ':')
       case other                       => other.toString
     }
-    List("tagged", "base", "show", "typing", "guards", "shut", "target", "ord", "fb")
+    List("tagged", "base", "show", "bounded", "guards", "shut", "target", "ord", "fb")
       .map(reason) must_== List(
       "an extension method among the members of a capability record",
       "a capability record of a class something extends",
       "a capability record with a member named like the measured definition",
-      "a capability record with an abstract type member",
+      "a bounded abstract type member, or one of another kind than F[_]",
       "a capability record with a member hidden at the use site",
       "a capability record with no constructor or factory the site may call",
       "an overridden member that may call it among the members of a capability record",
