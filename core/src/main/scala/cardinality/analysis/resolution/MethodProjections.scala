@@ -167,7 +167,7 @@ private[cardinality] object MethodProjections {
                 if StuckProjections.instantiable(id, resolver.boundedBinders.contains) =>
               if (matched.bounded)
                 Left(
-                  s"inert match type: a bounded match type stays stuck on ${SourceBindings.label(id)}"
+                  s"inert match type: a bounded match type stays stuck on ${Atoms.label(id)}"
                 )
               else
                 frozen(

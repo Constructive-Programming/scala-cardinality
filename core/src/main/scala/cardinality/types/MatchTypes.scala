@@ -27,7 +27,7 @@ private[cardinality] object MatchTypes {
   // the scrutinee does (`same`): `Int` written where a source binds `type Int = String` is not the
   // pattern's `Int`.
   private def bindings(same: String => Boolean): Pair => Option[Map[TypeName, Type]] =
-    TypeSubstitution.hylo[Pair, Option[Map[TypeName, Type]]](
+    Traversals.hylo[Pair, Option[Map[TypeName, Type]]](
       expandPair,
       (pair, kids) =>
         pair match {
@@ -45,7 +45,7 @@ private[cardinality] object MatchTypes {
     )
 
   val determinateHylo: Pair => Boolean =
-    TypeSubstitution.hylo[Pair, Boolean](
+    Traversals.hylo[Pair, Boolean](
       expandPair,
       (pair, kids) =>
         pair match {
@@ -57,7 +57,7 @@ private[cardinality] object MatchTypes {
     )
 
   val projectionPattern: Type => Boolean =
-    TypeSubstitution.hylo[Type, Boolean](
+    Traversals.hylo[Type, Boolean](
       {
         case PositionalTuple(parts) => parts
         case _                      => Nil

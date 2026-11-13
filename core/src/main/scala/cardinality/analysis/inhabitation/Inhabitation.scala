@@ -73,7 +73,7 @@ object Inhabitation {
 
   object Shape {
 
-    given platedShape: Plated[Shape] = cardinality.types.TypeSubstitution.plated {
+    given platedShape: Plated[Shape] = cardinality.types.Traversals.plated {
       case Singleton(id, Some(u))       => List(u) -> (kids => Singleton(id, Some(kids.head)))
       case Product(fields)              => fields -> Product.apply
       case Sum(alternatives)            => alternatives -> Sum.apply

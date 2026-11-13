@@ -38,6 +38,9 @@ import Inhabitation.Shape
   */
 private[cardinality] object StdlibModel {
 
+  /** The anchor segment of an absolute path. */
+  val RootPackage = "_root_"
+
   /** The table's version: Scala 3.9.0's library API, on 2.13 collections (`Seq` is
     * `immutable.Seq`). A reason naming it says what the table does not hold.
     */
@@ -387,7 +390,7 @@ private[cardinality] object StdlibModel {
   object Spelling {
 
     def of(written: String): Spelling = {
-      val name = written.stripPrefix(s"${SourceIndex.Root}.")
+      val name = written.stripPrefix(s"$RootPackage.")
       (written != name, name.takeWhile(_ != '.')) match {
         case (true, head) if head == name                                => TopLevel(name)
         case (anchored, head) if anchored || head == name || roots(head) => Rooted(name, anchored)
