@@ -25,23 +25,27 @@ import tastyquery.Types.{AppliedType, ByNameType, Type, TypeRef}
   *     parameter, the method side's reading stands alone.
   *   - A recursive position, which the method side refuses, takes the estimate's size where its
   *     type is estimable (`estimable`), as the old reading does (`fromEstimate`).
-  *   - A type parameter is an atom, or a rigid constructor for `F[_]` (`Shapes.binder`); its slot
-  *     is left to the shape model, which counts the values the caller supplies (`Pair[A](x: A, y:
-  *     A)` has four), and for a class in a class those the instance around it holds, on which it is
-  *     built (`Receivers`). A position mixing type parameters with ground values has no agreed
-  *     reading and is refused.
+  *   - A type parameter is an atom, or a rigid constructor (`F[_]`, `F[_[_]]`, `Shapes.binder`);
+  *     its slot is left to the shape model, which counts the values the caller supplies
+  *     (`Pair[A](x: A, y: A)` has four), and for a class in a class those the instance around it
+  *     holds, on which it is built (`Receivers`). A position mixing type parameters with ground
+  *     values has no agreed reading and is refused.
   *
-  * Not read yet, where a position names it: a bounded type parameter (the row hands no proof to its
-  * positions), or one of another kind than an invariant `F[_]`; a position the method side refuses
-  * for another reason than recursion, or whose type is not estimable; one the estimate does not
-  * read; one over a singleton or evidence. An anonymous contextual parameter is a position like any
-  * other once `Readings` has found search selects it (`Readings#searched`).
+  * A bounded type parameter's bounds are proofs, as a method's are (`Bounds`). Not read yet, where
+  * a position names it: a type parameter declared variant, or a constructor with a bound; a
+  * position the method side refuses for another reason than recursion, or whose type is not
+  * estimable; one the estimate does not read; one over a singleton or evidence. An anonymous
+  * contextual parameter is a position like any other once `Readings` has found search selects it
+  * (`Readings#searched`).
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored, receivers: Receivers)(
     using Context
 ) {
   import Constructors.Position
+  import Constructors.Position.Shaped
   import Unread.Uncovered
+
+  private val bounds = new Bounds(shapes)
 
   /** The count of a class's primary constructor, built on an instance of each class `around` it
     * (outermost first): a position over a type parameter may take a value that instance holds.
@@ -49,24 +53,17 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   def count(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] = {
     val owner = constructor.symbol.owner.asClass
     val self = owner.displayFullName
-    val binders = constructor.paramLists.flatMap(_.toOption.toList.flatten)
     val copies = Shapes.typeParameters(constructor)
     val variables = copies ++ owner.typeParams
     val parameters = Shapes.parameters(constructor)
     for {
       tree <- Shapes.tree(owner)
       // The class's type parameters and the constructor's copies of them: each an atom, or a
-      // rigid constructor for `F[_]` (`Shapes.binder`). A bounded one is not read where a
-      // position names it: the row hands no proof to the positions.
-      atoms = binders.zip(owner.typeParams).map { (binder, parameter) =>
-        Shapes.binder(owner, parameter, copies).flatMap {
-          case atom: Shape.Atom => Readings.unbounded(binder).map(_ => atom)
-          case rigid            => Right(rigid)
-        }
-      }
+      // rigid constructor (`Shapes.binder`).
+      atoms = owner.typeParams.map(Shapes.binder(owner, _, copies))
       outer <- receivers.atoms(around)
-      // A bounded abstract type member of a receiver around it is not read either: the row hands no
-      // proof to the positions.
+      // A bounded abstract type member of a receiver around it is not read: what the instance
+      // around fixes it to is not read beside its bounds.
       _ <- outer
         .map(_._1)
         .collectFirst {
@@ -77,7 +74,9 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
       env = Shapes.Env.of(outer ++ variables.zip(atoms ++ atoms), constructor.symbol)
       held <- receivers.bindings(around, constructor.symbol, env, Set.empty)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
-    } yield Constructors.product(self, placed, held)
+      // The proofs of the bounds of the parameters the positions or the instances around mention.
+      proofs <- bounds.proofs(held.map(_.shape) ++ placed.collect { case Shaped(_, s) => s }, env)
+    } yield Constructors.product(self, placed, held, proofs)
   }
 
   private def position(
@@ -205,18 +204,24 @@ private[compiled] object Constructors {
 
   // The product of the positions' value spaces with the shape model's count of the slots left to
   // it; any position without a number, or stuck projections no single instantiation reduces
-  // (`StuckProjections`; no proofs, since a bounded type parameter is not read here), leave the row
-  // `?`.
-  private def product(self: String, positions: List[Position], held: List[Binding]): Count = {
+  // (`StuckProjections`, under the bounds' proofs), leave the row `?`.
+  private def product(
+      self: String,
+      positions: List[Position],
+      held: List[Binding],
+      proofs: List[Binding]
+  ): Count = {
     val shaped = positions.collect { case Shaped(name, shape) => name -> shape }
-    val stuck = StuckProjections.refusal(held.map(_.shape) ++ shaped.map(_._2), Nil)
+    val stuck = StuckProjections.refusal(held.map(_.shape) ++ shaped.map(_._2), proofs.map(_.shape))
     positions.collect { case Unresolved(reasons) => reasons }.flatten ++ stuck match {
       case Nil =>
         Count.product(
           positions.collect { case Exact(space) => space },
           positions.collect { case Estimated(size) => size },
           Readings.count(
-            held ++ shaped.map((name, shape) => Binding(s"$self.$name", shape, Some(name))),
+            held ++ proofs ++ shaped.map((name, shape) =>
+              Binding(s"$self.$name", shape, Some(name))
+            ),
             Shape.Product(shaped.map(_._2))
           )
         )

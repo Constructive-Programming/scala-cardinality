@@ -691,13 +691,6 @@ private[compiled] object Readings {
     } yield function.symbol
   }
 
-  /** A proper type parameter any type instantiates (a constructor row's: its positions are read
-    * without the proofs a bound would give).
-    */
-  def unbounded(binder: TypeParam)(using Context): Either[Unread, Unit] =
-    if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
-    else Left(Unread.Uncovered(s"a bounded type parameter: ${binder.name}"))
-
   /** Whether two applications of one class are never subtypes of each other in a body: their
     * arguments are unbounded type parameters held rigid there (a method's, or the class's own
     * through `this`), distinct at some place, whatever the variance (`[A: Show, B: Show]`; the old

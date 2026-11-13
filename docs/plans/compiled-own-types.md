@@ -2160,6 +2160,54 @@ in `Readings` and `Receivers`.
   is compared by its field's type, which names the class's own type parameters rather than the
   constructor's copies (`Readings.seen`).
 
+### Group h3: types and type parameters
+
+New readings in `PathTypes.scala` (beside `Shapes`, which stays under 1,000 lines), `Bounds`,
+`Constructors` and `Stored`; regressions in `TypeFormsSpec`.
+
+- A named tuple (`scala.NamedTuple.NamedTuple`, an opaque alias of the standard library) is read
+  by the standard model under the name it spells (`PathTypes.standard`, `StdlibModel`: its fields'
+  tuple); the stored side stores the fields too. Any other opaque alias of the standard library
+  stays uncovered. A match on a named tuple is not reduced: the compiler reduces none (the old
+  `namedStuck`), and `Shapes.trusted` does not trust tasty-query there (the opaque alias is no
+  class, so the scrutinee is not ground and no tuple a case projects).
+- A class applied to unbounded wildcards at proper parameters (`Packed[?, R]`) is a package
+  `∃W. Packed[W, R]`, one witness per wildcard (`PathTypes.existential`, the old
+  `ExistentialInputs`): the wildcards become the parameters of a type lambda whose references read
+  as the witnesses' atoms. The solver opens an input package per value and refuses one built as a
+  result. A bounded wildcard, or one for a bounded parameter or one that takes a constructor (a
+  bound would give the witness proofs, not read), stays uncovered.
+- A class bound (`AnyRef`, `Object`, `AnyVal`) beside structural lower bounds is a no-op where
+  every structural lower bound is a subtype of every class bound of the environment (`Bounds`,
+  tasty-query's `isSubType`; which parameter lies below which is not read), as `Matchable` always
+  is; otherwise the row stays uncovered (the old reading refuses it). Scala 3.9.0 checked:
+  `[A >: Flag <: AnyVal]` rejects every call (E057), and a trait extending a universal trait
+  (`U1 extends U0`, `U0 extends Any`) is an `AnyRef` (`summon[U1 <:< AnyRef]` compiles), so
+  `universal[A >: U1 <: AnyRef](x: A): A` is x or U1a, 2, where the old reading refuses it.
+- A constructor row's bounded type parameters give their bounds' proofs (`Bounds`), as a method's
+  do; the stuck projections are checked under them.
+- A type parameter that takes constructors (`F[_[_]]`, `C[_[_]]`) is a rigid head like `F[_]`:
+  its applications compare their arguments' identities (`key`), and a type lambda that applies one
+  constructor to its parameters in order is that constructor (`PathTypes.Eta`: `[y] =>> G[y]` is
+  `G`). A lambda of another body or order is not read as a key yet.
+- An abstract type member bounded by one type on both sides, as its prefix sees it, is that type
+  (`PathTypes.pinned`): an export's alias (`export Types.Pair`, applied or not) and a member a
+  refinement fixes, selected on a type (`R#X` for `R[A] = { type X = A }`). `A | A` as a key is
+  `A`. The stored side reads a type lambda applied at its arguments (`([x] =>> x)[A]` is `A`), as
+  the method side's `dealias` does.
+
+Rows (against the integration tree): the group's old numeric uncovered rows go from 80 to 26 (23
+"a type", 3 "a written constructor over a parameter bound again"); method rows identical 5,481 ->
+5,535 on the fixtures, 313 -> 321 on cats-eo, 40 -> 42 on cats-eo-generics; corpus-core better 15
+-> 19 (four eo lenses whose complement is a named tuple, ω, derived in `derived.txt`, with
+`K.universal`). No worse row; every gate passes.
+
+Left: the rest of "a type" (paths through a class's `val`s and `this`, `this.Y` inside a
+refinement, a higher-kinded member of a parameter applied, the stored side's match types over a
+class's parameter, which its fixed point caches by sizes alone), a refinement's member aliasing a
+sibling (`R[A, B]#X` for `X = Y; Y = A`: tasty-query leaves the lambda's parameter
+unsubstituted), and the written constructors bound again.
+
 ### Rule B, first unit (g2): a sealed case's constructor and fields from the site
 
 `Sums.caseFields` asks `World.callable` whether the measured site may call a case's primary

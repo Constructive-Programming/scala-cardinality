@@ -23,7 +23,7 @@ class TypeParametersSpec extends Specification {
   A bound of a proper type parameter is a proof beside it
     an upper bound views the values, a lower bound builds them  $proofs
     a bound the model does not read is refused, as before       $refused
-    a top inside a bound, or a lower one by a class, is later   $later
+    a top inside a bound is later                               $later
   A literal or singleton type has one value
     a literal is a constant, a key by its class and value       $literals
     a parameter's, an object's or a dependency's path            $singletons
@@ -52,7 +52,6 @@ class TypeParametersSpec extends Specification {
       |  def same[A, B >: A <: A](x: B, y: B): A = x
       |  def top[A >: AnyRef](): A = ???
       |  def fn[A <: (Boolean => Any)](a: A): Boolean = true
-      |  def cls[A >: Boolean <: AnyVal](a: A): A = a
       |}
       |final class Box[A <: Boolean](val a: A) { def get: Boolean = a }
       |final case class Wrap[F[_], A](v: F[A]) {
@@ -191,13 +190,12 @@ class TypeParametersSpec extends Specification {
 
   // A top in a bound is read by the place the bound puts it, which a proof does not carry: `A >:
   // AnyRef` would build one value where any object is a result (ω), and `A <: (Boolean => Any)`
-  // would hide the output top of the function a is read as. `AnyVal` above admits `Boolean` below
-  // only because Boolean is a value class, which is not read.
+  // would hide the output top of the function a is read as. (`AnyVal` above `Boolean` below is a
+  // no-op: `TypeFormsSpec`.)
   private def later =
-    List("Use.top", "Use.fn", "Use.cls").map(uncovered) must_== List(
+    List("Use.top", "Use.fn").map(uncovered) must_== List(
       "a bound that holds a top type: A",
-      "a bound that holds a top type: A",
-      "a structural lower bound beside a class bound"
+      "a bound that holds a top type: A"
     )
 
   // `depth` has the one value 128. `flag`'s input has one value, so its count is the Booleans,
