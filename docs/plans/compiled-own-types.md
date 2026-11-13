@@ -1311,6 +1311,41 @@ corrected: `S2.<extension@5>.later` 2^16 -> 2^8 (the old reading missed the exte
 `m`). `ProgramRowsSpec.definitePositions` pins the positions, the bound and five cases that must
 stay left.
 
+#### Re-entry among an enclosing class's members, the rest (group h2)
+
+The receiver path again (the record value's is g1's). What stays left, and why: a member that
+calls the measured method with other arguments than its own parameters may return without calling
+it again (the integration's base rule, `ArgF2.m = false`), so it is no definite view, and a count
+that takes it for one is not derived; 35 of the group's 40 fixture rows and cats-kernel `Eq.eqv`,
+`PartialOrder.partialCompare` rest on such a call and stay `?`. What is read now:
+
+- A class's extension method is a method of its instance (`Shapes.member`, `extensions`), which a
+  body in the class may call on any receiver: a capability over all its clauses. A capability
+  record's is not read yet (g1's path).
+- A member of a one-valued result supplies nothing, whatever it calls: neither re-entry nor an
+  input not read leaves the row (`Receivers.own`, `inheritedCapability`, `Shapes.member`).
+- A constructor without parameters builds one value, whatever the instances around hold
+  (`Constructors.count`), as a method's one-valued goal does.
+- A wrong count of both front ends, refused now: a local definition without parameters captures
+  the parameters of the methods it is written in, which a call that reached it again may have given
+  other values, so `again` holds only where those methods take none. `class C { def m(b: Boolean)
+  = { def h: Boolean = ???; h } }` with `D extends C { override def m(b: Boolean) = false }`:
+  `h = if b then m(false) else true` is total in a `C` (`m(false)` is the inner `h`, `true`) and
+  in a `D` (`false`), and differs from the four functions of `b`; both said 4.
+- Own members of a receiver are bound under their signed name, as inherited ones are: two
+  overloads of one shape (extension methods on several receivers) are two capabilities.
+
+Rows (method rows, old numeric still uncovered, before -> after): fixtures 399 -> 395 (`Ext.x` 0
+and `T.H.<init>` 1 identical; `T.<extension@1>.flip` 4 -> 2^32 and `.choose` 2^8 -> 2^16
+corrected: the old reading leaves a sibling extension method out, or reads it as its value at the
+receiver, though it counts the plain-method twin the same as the new one), cats-eo 12 -> 8
+(`singletonTo`, `singletonFrom`, `reconstructSingleton`, `mfAssocPSVec.maybeHitTo`, all
+identical); other inputs unchanged; no row measured before is `?` now. Derived: fixture `E3.to`
+4 (its overridden `m` returns `Unit`). `ContextualSpec`'s `Exts.get` 2 -> 16 is a correction of
+the same kind. Left of the group: the 35 fixture rows and two cats-kernel rows of the base rule;
+`Hash.hash` (as g3 left it); `C2.a` (an overrider of `d` returns `this`, which the search reads as
+giving the instance away).
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its

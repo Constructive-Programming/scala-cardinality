@@ -33,6 +33,9 @@ class ProgramRowsSpec extends Specification {
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
       in a position the body always evaluates; else 0 if 0 even so  $definitePositions
+      but not a local one inside a method that takes parameters       $capturedAgain
+    What else a class's members supply
+      an extension method; none of a one-valued result or no position $suppliedOrNot
     A parent's constructor parameters
       are what the template passes, or free public fields             $parents
     An overridden member (a capability: ReceiversSpec, `Wide.get`)
@@ -530,6 +533,48 @@ class ProgramRowsSpec extends Specification {
           .map(row => uncovered(found(row), Receivers.Reenters))
           .reduce(_ and _)
       )
+  }
+
+  // `h` captures `b`, which a call of `m` gives anew: `if b then m(false) else true` is total in a
+  // `C` (`m(false)` is the inner `h`, `true`) and in a `D` (`false`), and no function of `b` alone,
+  // so `m` is no definite view of `h` and 4 would be wrong. `N.m.h` is written in a method without
+  // parameters: each call of `m` gives `h` what it had, and `m` re-enters it, so `h` is one of the
+  // 2^2 functions of the field `c`.
+  def capturedAgain = {
+    val found = rows("""class C { def m(b: Boolean): Boolean = { def h: Boolean = ???; h } }
+      |class D extends C { override def m(b: Boolean): Boolean = false }
+      |class N(val c: Boolean) { def m: Boolean = { def h: Boolean = ???; h } }
+      |class N2 extends N(true) { override def m: Boolean = false }
+      |""".stripMargin)
+    uncovered(found("C.m.h"), Receivers.Reenters).and(found("N.m.h") must_== Count.Finite(4))
+  }
+
+  // `T`'s extension methods are methods of its instance, which a body in `T` may call on any
+  // Boolean: `flip` computes from `b` and `choose`, a function of 2 × 2 Booleans (2^4 values), so
+  // over 2 × 2^4 points, 2^32; `choose` from `b`, `x` and `flip` (2^2 values), 2^(2 × 2 × 4) =
+  // 2^16. `collect` returns `Unit`, so whatever it calls, and whatever its inputs (a
+  // `StringBuilder` is not read), it supplies nothing: `to` and `from` have no S or A to start
+  // from, 0. `H`'s constructor takes no parameters: one value, though `m`
+  // builds an `H` that calls `target`.
+  def suppliedOrNot = {
+    val found = rows("""trait T { extension (b: Boolean) { def flip: Boolean; def choose(x: Boolean): Boolean } }
+      |trait MF[S, A] {
+      |  def to(s: S): A
+      |  def from(a: A): S
+      |  def collect(s: S, b: StringBuilder): Unit = { val a = to(s); () }
+      |}
+      |class MF2 extends MF[Int, Int] {
+      |  def to(s: Int): Int = s; def from(a: Int): Int = a
+      |  override def collect(s: Int, b: StringBuilder): Unit = ()
+      |}
+      |trait TH { def target(b: Boolean): Boolean; class H { def run: Boolean = target(true) }; def m: Boolean = new H().run }
+      |trait TH2 extends TH { override def m: Boolean = false }
+      |""".stripMargin)
+    (found("T.<extension@1>.flip") must_== Count.Finite(1L << 32))
+      .and(found("T.<extension@1>.choose") must_== Count.Finite(1 << 16))
+      .and(found("MF.to") must_== Count.Finite(0))
+      .and(found("MF.from") must_== Count.Finite(0))
+      .and(found("TH.H.<init>") must_== Count.Finite(1))
   }
 
   // `Abs` passes its `c` to `Base`, so `Base` holds `c`: `x` is a Boolean computed from `c`, 2^2,

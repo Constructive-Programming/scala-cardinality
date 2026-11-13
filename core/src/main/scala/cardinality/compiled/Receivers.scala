@@ -501,7 +501,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
         } ++ supplies(tree, measured, value = false)
           .collect {
             case member
-                if !member.symbol.isExtensionMethod && !member.name.toString.endsWith("_=") &&
+                if !member.name.toString.endsWith("_=") &&
                   // A deferred inline method is supplied to inline code alone.
                   (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
               member.name.toString
@@ -528,14 +528,17 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   // Whether an overridden member may be a behavior of the measured one's own (`Reentry`); a search
   // that meets what the classes read do not resolve may. `including` keeps every member the search
   // would leave as a capability (`Readings.bounded`'s upper bound); a definite one is still dropped.
+  // On a receiver, a member of a one-valued result (`read` none) supplies nothing, whatever it
+  // calls; a capability record's is searched as before (g1's path).
   private def reenters(
       c: ClassSymbol,
       member: TermSymbol,
       measured: TermSymbol,
-      value: Boolean
+      value: Boolean,
+      read: => Either[Unread, Option[?]]
   ): Boolean =
-    !including && overridden(c, member) && Try(reentry.may(c, member, measured, instance = !value))
-      .getOrElse(true)
+    !including && overridden(c, member) && (value || read != Right(None)) &&
+      Try(reentry.may(c, member, measured, instance = !value)).getOrElse(true)
 
   // The members of a template's own body a subclass supplies, the measured one aside.
   private def supplies(tree: ClassDef, measured: TermSymbol, value: Boolean): List[ValOrDefDef] = {
@@ -602,8 +605,10 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   ) = {
     val value = !receiving
     val self = template.symbol.displayFullName
+    // Overloads (extension methods on several receivers) are capabilities of their own: each is
+    // named with its signature.
     def held(of: ValOrDefDef, shape: Shape) =
-      Binding(s"$self.${of.name}", shape, Some(of.name.toString))
+      Binding(s"$self.${of.symbol.signedName}", shape, Some(of.name.toString))
     val parameters = Shapes.parameters(template.rhs.constr)
     val capabilities = supplies(template, measured, value).filter(member => kept(member.symbol))
     for {
@@ -623,13 +628,14 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
         shapes.of(parameter.tpt.toType, env.copy(preceding = before))
       })
       members <- Traversals.sequence(capabilities.map { member =>
-        if (reenters(template.symbol, member.symbol, measured, value))
-          Left(
-            Uncovered(
-              s"${Receivers.Reenters} among the members of $where: ${member.name}"
-            )
-          )
-        else shapes.member(member, where, env).map(_.map(held(member, _)))
+        lazy val shape = shapes.member(member, where, env)
+        def left(why: String) = Left(Uncovered(s"$why among the members of $where: ${member.name}"))
+        if (reenters(template.symbol, member.symbol, measured, value, shape))
+          left(Receivers.Reenters)
+        // A class's extension method is a method of its instance, which a body in it may call on
+        // any receiver; a capability record's is not read yet.
+        else if (value && member.symbol.isExtensionMethod) left("an extension method")
+        else shape.map(_.map(held(member, _)))
       })
       more <- Traversals.sequence(
         inheritedOpen(template.symbol, measured, value)
@@ -654,12 +660,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     // Overloads an ancestor declares are capabilities of their own: each is named with its
     // signature.
     val identity = s"${c.displayFullName}.${member.signedName}"
-    val unread =
-      if (reenters(c, member, measured, value)) Left(Receivers.Reenters)
-      else if (member.isExtensionMethod) Left("an extension method")
-      else if (Readings.contextual(member) && name.startsWith("given_")) Left("an anonymous given")
-      else if (member.isInline) Left("a deferred inline member")
-      else Readings.later(member)
     def clauses(tpe: TypeOrMethodic, read: List[Type]): Either[Unread, (List[Type], Type)] =
       tpe match {
         case _: PolyType =>
@@ -673,26 +673,37 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
         // A result that names a parameter has no shape: `shapes.of` leaves it uncovered.
         case result: Type => Right((read, result))
       }
-    for {
-      _ <- unread.left.map(what => Uncovered(s"$what among the members of $where: $name"))
-      seen = member.typeAsSeenFrom(c.thisType)
-      binding <-
-        if (!member.isMethod)
-          seen match {
-            case tpe: Type =>
-              shapes.of(tpe, env).map(s => Some(Binding(identity, s, Some(name))))
-            case _ => Left(Uncovered(s"a value of a method type: $name"))
+    lazy val binding: Either[Unread, Option[Binding]] = {
+      val seen = member.typeAsSeenFrom(c.thisType)
+      if (!member.isMethod)
+        seen match {
+          case tpe: Type =>
+            shapes.of(tpe, env).map(s => Some(Binding(identity, s, Some(name))))
+          case _ => Left(Uncovered(s"a value of a method type: $name"))
+        }
+      else
+        clauses(seen, Nil).flatMap { (parameters, result) =>
+          shapes.of(result, env).flatMap { output =>
+            // A one-valued result supplies nothing, whatever the inputs are.
+            if (output == Shape.Product(Nil)) Right(None)
+            else
+              Traversals
+                .sequence(parameters.map(shapes.of(_, env)))
+                .map(inputs => Some(Binding(identity, Shape.Function(inputs, output), Some(name))))
           }
-        else
-          clauses(seen, Nil).flatMap { (parameters, result) =>
-            for {
-              inputs <- Traversals.sequence(parameters.map(shapes.of(_, env)))
-              read <- shapes.of(result, env)
-            } yield Option.when(read != Shape.Product(Nil))(
-              Binding(identity, Shape.Function(inputs, read), Some(name))
-            )
-          }
-    } yield binding
+        }
+    }
+    val unread =
+      if (reenters(c, member, measured, value, binding)) Left(Receivers.Reenters)
+      // An extension method of a class is a method of its instance, which a body in it may call
+      // on any receiver; a capability record's is not read yet.
+      else if (member.isExtensionMethod && value) Left("an extension method")
+      else if (Readings.contextual(member) && name.startsWith("given_")) Left("an anonymous given")
+      else if (member.isInline) Left("a deferred inline member")
+      else Readings.later(member)
+    unread.left
+      .map(what => Uncovered(s"$what among the members of $where: $name"))
+      .flatMap(_ => binding)
   }
 
 }

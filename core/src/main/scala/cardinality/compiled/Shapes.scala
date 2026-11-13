@@ -496,7 +496,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
     * instance in a reason): a value of its type, or one function from all of a method's parameters
     * to its result; an abstract given with a `using` clause is such a method (the old front end
     * read it as a value of its result type: a listed correction). A one-valued result (`Unit`, an
-    * opaque type outside its scope) supplies nothing: every body builds it without the member.
+    * opaque type outside its scope) supplies nothing, whatever its inputs: every body builds it
+    * without the member.
     */
   def member(member: ValOrDefDef, where: String, env: Env): Either[Unread, Option[Shape]] = {
     val symbol = member.symbol
@@ -504,11 +505,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case term: TermSymbol => term.isInline
       case _                => false
     }
-    // An extension method is no member of its receiver's instances, and a given without a name is
-    // found by search alone: neither is read as a capability yet.
+    // A given without a name is found by search alone: not read as a capability yet.
     val unread =
-      if (symbol.isExtensionMethod) Left("an extension method")
-      else if (Readings.contextual(symbol) && member.name.toString.startsWith("given_"))
+      if (Readings.contextual(symbol) && member.name.toString.startsWith("given_"))
         Left("an anonymous given")
       else Readings.later(symbol)
     (unread, member) match {
@@ -540,7 +539,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           own <- polymorphic(symbol.displayFullName, method)
           inside = env.copy(binders = env.binders ++ own.map((p, shape, _) => p -> shape))
           result <- of(method.resultTpt.toType, inside)
-          read <- inputs(parameters, inside)
+          read <- if (result == Shape.Product(Nil)) Right(Nil) else inputs(parameters, inside)
           // A member's own type parameters are read as the scalameta front end reads them
           // (`PolymorphicMembers.close`): exact where a reading is, kept for the solver otherwise.
           closed <- PolymorphicMembers
