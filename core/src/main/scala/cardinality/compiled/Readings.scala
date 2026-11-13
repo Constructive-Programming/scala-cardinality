@@ -827,12 +827,13 @@ private[compiled] object Readings {
       .map(p => Unread.Uncovered(s"an anonymous contextual parameter: ${p.name}"))
       .toLeft(())
 
-  // A parameter's type as its class's members see it: a constructor's parameter names the
+  // A parameter's type as its class's members see it: a primary constructor's parameter names the
   // constructor's copies of the class's type parameters, its field the class's own; none without
-  // a field.
+  // a field. A secondary constructor's parameters have no fields, and are compared among
+  // themselves.
   private def seen(parameter: ValDef)(using Context): Option[Type] = {
     val owner = parameter.symbol.owner
-    if (!World.isConstructor(owner)) Some(parameter.tpt.toType)
+    if (!Readings.primary(owner)) Some(parameter.tpt.toType)
     else
       owner.owner.asClass
         .getDecl(parameter.name)

@@ -99,6 +99,10 @@ class ContextualSpec extends Specification {
       |trait H[A] { type T = A ?=> A }
       |trait CB { def fold[M: Le](m: M): M }
       |final class K4[A](a: A)(using A, Boolean)
+      |final class Pv(val b: Boolean)
+      |final class Rv(val b: Boolean)
+      |final class Qv(val b: Boolean)
+      |final class Sec(using Pv, Rv) { def this()(using Qv, Qv) = this(using Pv(true), Rv(true)) }
       |""".stripMargin
 
   private lazy val input = TastyFrontEndSpec.compiled("Contextual.scala" -> text)
@@ -210,6 +214,15 @@ class ContextualSpec extends Specification {
       Count.Finite(2)
     ))
       .and(count("Params.same").toString must contain("ambiguous anonymous evidence"))
+      // A secondary constructor's two `Qv`s are ambiguous too, whatever the primary's fields are.
+      .and(
+        rows.sources
+          .flatMap(_.toOption.toList.flatMap(_.methods))
+          .filter(_.name.endsWith("Sec.<init>"))
+          .last
+          .count
+          .toString must contain("ambiguous anonymous evidence")
+      )
       .and(
         List("Params.wide", "Params.nul")
           .map(count(_).toString)
