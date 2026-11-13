@@ -67,13 +67,17 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       // `Nothing` is a type of its own in the tree, with no class to name.
       case _: NothingType              => standard("scala.Nothing", Nil).getOrElse(uncovered(tpe))
       case repeated: RepeatedType      => of(repeated.elemType, parts).map(Shape.Repeated(_))
-      case World.Named(ref, arguments) => applied(arguments).flatMap(named(ref, _, env))
-      case constant: ConstantType      => literal(constant).map(Shape.Singleton(_, None))
-      case path: TermRef               => singleton(path, parts)
-      case or: OrType                  => relations.union(Relations.alternatives(or), parts)
-      case and: AndType                => relations.intersection(Relations.conjuncts(and), parts)
-      case matched: MatchType          => matchType(matched, parts)
-      case refined: TypeRefinement     => paths.refinement(refined, parts)
+      case World.Named(ref, arguments) =>
+        paths
+          .existential(ref, arguments, env)
+          .getOrElse(applied(arguments).flatMap(named(ref, _, env)))
+      case witness: TypeParamRef   => paths.witness(witness)
+      case constant: ConstantType  => literal(constant).map(Shape.Singleton(_, None))
+      case path: TermRef           => singleton(path, parts)
+      case or: OrType              => relations.union(Relations.alternatives(or), parts)
+      case and: AndType            => relations.intersection(Relations.conjuncts(and), parts)
+      case matched: MatchType      => matchType(matched, parts)
+      case refined: TypeRefinement => paths.refinement(refined, parts)
       case refined: TermRefinement if PathTypes.polyIdentity(refined) => Right(Shape.Product(Nil))
       case other                                                      => uncovered(other)
     }
@@ -210,7 +214,9 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           case _ => uncovered(tpe)
         }
       }
-    case other => uncovered(other)
+    case PathTypes.Eta(constructor)                   => key(constructor, env)
+    case or: OrType if or.first.isSameType(or.second) => key(or.first, env)
+    case other                                        => uncovered(other)
   }
 
   private def uncovered(tpe: Type): Either[Unread, Shape] =
@@ -315,15 +321,14 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
 
   // Rule F: outside the scope its representation is visible in (its owner), an opaque alias is one
   // value; inside, it is its representation. No measured site is inside a dependency's scope.
-  // The standard library's are left to their own readings (a named tuple is its fields).
+  // The standard library's are read by the standard model (`PathTypes.standard`).
   private def opaque(
       alias: TypeMemberSymbol,
       body: Type,
       arguments: List[Type],
       env: Env
   ): Either[Unread, Shape] =
-    if (World.standard(alias))
-      Left(Uncovered(s"an opaque type of the standard library: ${alias.displayFullName}"))
+    if (World.standard(alias)) paths.standard(alias, arguments, env)
     else if (!World.owners(env.site).contains(alias.owner)) Right(Shape.Product(Nil))
     // The compiler refuses an alias that refers to itself: a cycle passes through a class.
     else of(body.appliedTo(arguments), env)
@@ -693,12 +698,11 @@ private[compiled] object Shapes {
 
   /** What a type parameter of a measured definition or a receiver stands for, its identity being
     * its owner's name and its own: one atom where any type instantiates it; a rigid constructor
-    * where any invariant type constructor of proper parameters does (`F[_]`), applied as an
-    * uninterpreted head (`key`). A proper parameter with bounds is an atom too, its bounds being
-    * proofs beside it (`Bounds`). A constructor with a bound, or with a variance on a parameter of
-    * its own, is refused, as the old front end refuses it (`Kinds.refusal` of `types`; its view
-    * bound is no Scala 3); one declared variant itself, or a constructor of constructors, is not
-    * read yet.
+    * where any invariant type constructor does (`F[_]`, `F[_[_]]`), applied as an uninterpreted
+    * head over its arguments' identities (`key`). A proper parameter with bounds is an atom too,
+    * its bounds being proofs beside it (`Bounds`). A constructor with a bound, or with a variance
+    * on a parameter of its own, is refused, as the old front end refuses it (`Kinds.refusal` of
+    * `types`; its view bound is no Scala 3); one declared variant itself is not read yet.
     */
   def binder(owner: Symbol, parameter: TypeParamSymbol, copies: List[Symbol] = Nil)(using
       Context
@@ -777,7 +781,7 @@ private[compiled] object Shapes {
       }
 
   // Whether a parameter whose bounds say nothing and which declares no variance on a parameter of
-  // its own is a constructor of proper parameters, and not itself declared `+F[_]` or `-F[_]` (a
+  // its own is a constructor (`F[_]`, `F[_[_]]`), and not itself declared `+F[_]` or `-F[_]` (a
   // class's: its applications are related by subtyping).
   private def constructor(parameter: TypeParamSymbol): Boolean = {
     val invariant = parameter match {
@@ -785,10 +789,7 @@ private[compiled] object Shapes {
         declared.declaredVariance == tastyquery.Modifiers.Variance.Invariant
       case _ => true
     }
-    invariant && (parameter.declaredBounds.high match {
-      case lambda: TypeLambda => lambda.paramTypeBounds.forall(!_.high.isInstanceOf[TypeLambda])
-      case _                  => false
-    })
+    invariant && parameter.declaredBounds.high.isInstanceOf[TypeLambda]
   }
 
   // Bounds any type constructor of proper, unbounded parameters meets: `[X] =>> Any`

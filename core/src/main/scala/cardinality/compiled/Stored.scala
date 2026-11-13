@@ -384,8 +384,10 @@ final private[compiled] class Stored(world: World)(using Context) {
     case and: AndType => both(and.first, and.second, env)(_.min(_)).map(_.copy(undecided = true))
     case refined: RefinedType        => refinement(refined, env)
     case World.Named(ref, arguments) => named(ref, arguments, env)
-    case matched: MatchType          => matchType(matched, env)
-    case other                       => Left(s"a type: ${other.showBasic}")
+    // A type lambda applied is its body at the arguments, as the compiler reduces it.
+    case applied: AppliedType if applied.tycon.isInstanceOf[TypeLambda] => of(applied.dealias, env)
+    case matched: MatchType                                             => matchType(matched, env)
+    case other => Left(s"a type: ${other.showBasic}")
   }
 
   // A match type is what the compiler reduces it to, where the method side trusts the reduction
@@ -460,6 +462,11 @@ final private[compiled] class Stored(world: World)(using Context) {
         BaseTypes.get("EmptyTuple").map(Held(_)).toRight(s"a type: ${ref.showBasic}")
       case Some(member: TypeMemberSymbol) =>
         (member.typeDef, ref.optAliasedType, ref.bounds) match {
+          // A named tuple, `NamedTuple[names, values]`, stores its values' tuple, as the method
+          // side reads it (`StdlibModel`).
+          case (_: TypeMemberDefinition.OpaqueTypeAlias, _, _)
+              if member.displayFullName == "scala.NamedTuple$.NamedTuple" && arguments.sizeIs == 2 =>
+            World.proper(arguments).flatMap(types => of(types.last, env))
           case (_: TypeMemberDefinition.OpaqueTypeAlias, _, _) =>
             opaque(member, env)(written(member, arguments, env))
           // A match type alias is applied to its arguments, where the compiler reduces it.
@@ -479,7 +486,10 @@ final private[compiled] class Stored(world: World)(using Context) {
           // An abstract member nothing fixed is what each instance chooses.
           case _ => Right(Held(EffectiveOmega, List(Unbound.Member(member.name.toString))))
         }
-      case _ => Left(s"a type: ${ref.showBasic}")
+      // A member a refinement declares (`R#X` for `R = { type X = Unit }`) has no symbol: the type
+      // its bounds pin, if any (`PathTypes.pinned`).
+      case None => PathTypes.pinned(ref).fold(Left(s"a type: ${ref.showBasic}"))(applied)
+      case _    => Left(s"a type: ${ref.showBasic}")
     }
   }
 

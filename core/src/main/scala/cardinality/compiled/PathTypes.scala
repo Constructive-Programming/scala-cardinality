@@ -1,15 +1,19 @@
 package cardinality.compiled
 
+import cardinality.analysis.BuiltinTypes
 import cardinality.analysis.inhabitation.Inhabitation.Shape
 import cardinality.analysis.resolution.TopTypes
+import cardinality.types.Traversals
 import tastyquery.Contexts.*
+import tastyquery.Names.typeName
 import tastyquery.Symbols.*
 import tastyquery.Types.*
 
 /** Types selected on paths and refined, as the method side reads them (`Shapes` asks): a member
   * alias as its prefix sees it (`follow`), an abstract member of a parameter as the path's own atom
   * (`member`, members M0), a refinement of type members over a type whose values nothing tells
-  * apart (`refinement`), and the polymorphic identity (`polyIdentity`).
+  * apart (`refinement`), the polymorphic identity (`polyIdentity`), the standard library's opaque
+  * aliases (`standard`) and a class applied to wildcards (`existential`).
   */
 final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
   import Shapes.Env
@@ -81,6 +85,72 @@ final private[compiled] class PathTypes(of: Shapes.Reading)(using Context) {
     atom.toRight(Uncovered(s"a type: ${ref.showBasic}"))
   }
 
+  /** An opaque alias of the standard library, read by the standard model under the name it spells
+    * (a named tuple is its fields, `StdlibModel`); not read otherwise.
+    */
+  def standard(alias: TypeMemberSymbol, arguments: List[Type], env: Env): Either[Unread, Shape] =
+    Traversals.sequence(arguments.map(of(_, env))).flatMap { read =>
+      BuiltinTypes
+        .known(alias.displayFullName.replace("$.", "."), read)
+        .map(_.left.map(Unread.Refused(_)))
+        .getOrElse(
+          Left(Uncovered(s"an opaque type of the standard library: ${alias.displayFullName}"))
+        )
+    }
+
+  // The type lambdas `existential` builds, each parameter a witness. A witness's atom only needs to
+  // differ from every other atom of the count (the solver renames an input package's witnesses per
+  // value), so the order the lambdas are built in changes no count.
+  private val witnesses = scala.collection.mutable.ListBuffer.empty[TypeLambda]
+
+  private def witnessId(lambda: Int, parameter: Int) = s"wildcard:$lambda:$parameter"
+
+  /** A class applied to wildcards (`Packed[?, R]`) is a package whose witnesses are the wildcards,
+    * one each: `∃W. Packed[W, R]`. The solver opens an input package per value and refuses to build
+    * one as a result (the old `ExistentialInputs`). Read where each wildcard and the parameter it
+    * stands for are unbounded and take types: a bound would give the witness proofs, which are not
+    * read. None otherwise (`World.proper` refuses the wildcard).
+    */
+  def existential(
+      ref: TypeRef,
+      arguments: List[TypeOrWildcard],
+      env: Env
+  ): Option[Either[Unread, Shape]] = {
+    val parameters = ref.optSymbol.collect { case c: ClassSymbol => c.typeParams }.toList.flatten
+    val wildcards = arguments.collect { case wildcard: WildcardTypeArg => wildcard }
+    val read = wildcards.nonEmpty && parameters.sizeIs == arguments.size &&
+      arguments.lazyZip(parameters).forall {
+        case (wildcard: WildcardTypeArg, parameter) =>
+          Shapes.unbounded(wildcard.bounds) && Shapes.unbounded(parameter.declaredBounds)
+        case _ => true
+      }
+    Option.when(read) {
+      val lambda = TypeLambda(wildcards.indices.map(i => typeName(s"W$i")).toList)(
+        _ => wildcards.map(_.bounds),
+        lambda => {
+          val refs = lambda.paramRefs.iterator
+          AppliedType(
+            ref,
+            arguments.map {
+              case _: WildcardTypeArg => refs.next()
+              case argument           => argument
+            }
+          )
+        }
+      )
+      witnesses += lambda
+      val ids = wildcards.indices.map(witnessId(witnesses.size, _)).toList
+      of(lambda.resultType, env).map(Shape.Existential(ids, _))
+    }
+  }
+
+  /** A wildcard's witness (`existential`), as its atom. */
+  def witness(ref: TypeParamRef): Either[Unread, Shape] =
+    witnesses.indexWhere(_ eq ref.binder) match {
+      case -1    => Left(Uncovered(s"a type: ${ref.showBasic}"))
+      case index => Right(Shape.Atom(witnessId(index + 1, ref.paramNum)))
+    }
+
 }
 
 private[compiled] object PathTypes {
@@ -106,18 +176,55 @@ private[compiled] object PathTypes {
       case _ => false
     }
 
+  /** A type lambda that applies one constructor to its parameters in their order is that
+    * constructor (`[y] =>> G[y]` is `G`, `[a, b] =>> Either[a, b]` is `Either`).
+    */
+  object Eta {
+
+    def unapply(lambda: TypeLambda): Option[TypeRef] = lambda.resultType match {
+      case applied: AppliedType =>
+        applied.tycon match {
+          case constructor: TypeRef if applied.args.corresponds(lambda.paramRefs) {
+                case (argument: TypeParamRef, own) =>
+                  (argument.binder eq lambda) && argument.paramNum == own.paramNum
+                case _ => false
+              } =>
+            Some(constructor)
+          case _ => None
+        }
+      case _ => None
+    }
+
+  }
+
   /** A type with its aliases followed as the compiler sees them: a member alias through the prefix
     * it is selected on (`p.X` for a `p: R { type X = A }` is `A`; `Y` of a parent seen from a
-    * subclass, its arguments substituted), which `dealias` does not do. An opaque alias stays.
+    * subclass, its arguments substituted), which `dealias` does not do, and a member its bounds pin
+    * to one type (`pinned`), applied or not. An opaque alias stays.
     */
   def follow(tpe: Type)(using Context): Type = tpe match {
     case ref: TypeRef if ref.optSymbol.forall {
           case member: TypeMemberSymbol => !member.isOpaqueTypeAlias
           case _                        => true
         } =>
-      ref.optAliasedType.fold(tpe.dealias)(follow)
+      ref.optAliasedType.orElse(pinned(ref)).fold(tpe.dealias)(follow)
+    case World.Named(ref, arguments) =>
+      pinned(ref).fold(tpe.dealias)(body => follow(body.appliedTo(arguments)))
     case _ => tpe.dealias
   }
+
+  /** An abstract type member bounded by one type on both sides, as its prefix sees it: that type.
+    * An export's alias is one (`export Types.Pair`), and so is a member a refinement fixes (`R#X`
+    * for `R = { type X = Unit }` or `{ type X <: Nothing }`).
+    */
+  def pinned(ref: TypeRef)(using Context): Option[Type] =
+    ref.optSymbol
+      .fold(Some(ref.bounds)) {
+        case member: TypeMemberSymbol =>
+          Option.when(member.typeDef.isInstanceOf[TypeMemberDefinition.AbstractType])(ref.bounds)
+        case _ => None
+      }
+      .collect { case bounds if bounds.low.isSameType(bounds.high) => bounds.high }
 
   /** Whether a shape tells none of a type's values apart: a type of type members alone, or a top.
     */
