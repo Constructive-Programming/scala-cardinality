@@ -57,12 +57,13 @@ final private[compiled] class Reentry(world: World)(using Context) {
     lazy val outward = external || callersOf(name).isEmpty
 
     // Every body that may run where `m` is called on an instance of `owner`: its own and each
-    // overrider's; and a function literal's that implements it, not read, where code outside the
-    // module may reach the measured member (else no such body names it).
+    // overrider's; and, where code outside the module may reach the measured member (else no such
+    // body names it), a function literal's, not read, that implements a subclass of `owner` (whose
+    // abstract method may redeclare `m`) or a class that does not resolve.
     def behaviors(owner: ClassSymbol, m: TermSymbol, reach: TermSymbol => Boolean): Boolean = {
       val others = world.overriders(owner, m)
       others.exists(_.isEmpty) || (m :: others.flatten).exists(reach) ||
-      m.isAbstractMember && outward && implemented.exists(_.isSubClass(owner))
+      outward && implemented.exists(_.forall(_.isSubClass(owner)))
     }
 
     def dispatched(m: TermSymbol): Boolean =
@@ -238,19 +239,21 @@ final private[compiled] class Reentry(world: World)(using Context) {
   ).getOrElse(true)
 
   // The classes a function literal of the module implements other than a function type (a single
-  // abstract method conversion): its body runs where that method is called.
-  private lazy val implemented: Set[ClassSymbol] = {
-    val found = mutable.Set.empty[ClassSymbol]
+  // abstract method conversion): its body runs where that method is called. `None` for one whose
+  // class does not resolve, or for a class of the module without a tree, which may hold any.
+  private lazy val implemented: Set[Option[ClassSymbol]] = {
+    val found = mutable.Set.empty[Option[ClassSymbol]]
     val traverser = new TreeTraverser {
       override def traverse(tree: Tree): Unit = {
         tree match {
-          case Lambda(_, Some(tpt)) => found ++= Try(World.classNamed(tpt.toType)).toOption.flatten
+          case Lambda(_, Some(tpt)) => found += Try(World.classNamed(tpt.toType)).toOption.flatten
           case _                    => ()
         }
         super.traverse(tree)
       }
     }
     world.module.flatMap(_.tree).foreach(traverser.traverse)
+    if (world.module.exists(_.tree.isEmpty)) found += None
     found.toSet
   }
 

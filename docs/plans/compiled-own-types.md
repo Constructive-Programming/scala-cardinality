@@ -451,6 +451,30 @@ Narrowing re-entry by the symbol each reference may run (`runs`: same member, or
 class one instance may share, `ClosedProgram.mixes`) frees cats-core +54 / kernel +5 / fixtures +3
 identical rows, but also `KleisliStrong.lmap` at that wrong 1; held back until the solver is fixed.
 
+Stretch 15 (a fifth gate agent, private gate copy `/tmp/tg5/assets`, corpora copied: the gate
+does not read a corpus through a symbolic link). Merged `tasty-front` at `b977b40` (`6053ec4`):
+`Readings` and `Constructors` keep the per-row budget (`Readings.count`) and take the front's
+stuck-projection refusal. The merge frees three rows past a model limit and makes one worse, all
+listed (`b821c95`): `catsDataEqForWriterTId`, `catsKernelEqForEither`, `catsKernelHashForEither`
+derived; `catsDataEqForIor` 1 → `?` corrected (1 read `Ior` as empty). `c9d2afa` already fixes
+the solver's wrong 1 for a record reached through a producer: `def fu: Fun[G]`, a parameter
+`() => Fun[G]` or `Boolean => Fun[G]` now refuse in both front ends as the `val` does. Then the
+re-review of `3060127`: a function literal implementing a subclass of a member's class (a
+`Sam extends A { override def run(): Boolean }` re-abstracting a concrete `run`) or a class that
+does not resolve may be a body of that member wherever `outward` holds; `World.classNamed` reads a
+refinement's class; a re-entry search that meets what the classes read do not resolve refuses
+(`Receivers.reenters`). `ProgramRowsSpec` `samRedeclared` and `unreadObject` pin them; no corpus
+row moves. Gate (method rows identical / better / worse / uncovered, old numeric rows still
+uncovered): cats-core 1,769 / 370 / 72 / 5,440, 33 of 909; cats-eo 244 / 10 / 0 / 443, 73 of 271;
+generics 40 / 0 / 0 / 40, 0; schemes 5 / 0 / 0 / 14, 0; cats-kernel 515 / 15 / 0 / 1,255, 81 of
+368; core 2,832 / 15 / 0 / 1,153, 8 of 768; fixtures 5,207 / 204 / 4 / 1,344, 673 of 5,500. Shared
+coverage memory: deleted cats-core's six `InjectK` rows the front proved unsound (`apply` lines
+51 and 91, `unapply`, `catsRightInjectKInstance` and its `inj` and `prj`) and the six rows
+`3060127` left unsettled (cats-core `Const.hash`, `catsDeferForHashCache.<new#1>.defer`,
+`catsContravariantForHash.<new#1>.contramap`, `Deferred.resolve` and `.loop`; cats-kernel
+`catsKernelPartialOrderingForPartialOrder.<new#1>.lteq`); inserted the rows the merged tree newly
+measures: cats-core 20, cats-eo 11, cats-kernel 2, core 113, fixtures 255.
+
 ### Commands
 
 | Command | What it does |

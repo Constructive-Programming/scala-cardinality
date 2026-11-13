@@ -37,6 +37,8 @@ class ProgramRowsSpec extends Specification {
       a `new` whose class the classes read do not hold may            $unresolvedNew
       is read where no reference by name leads from it to the site  $unnamedCaller
       not where code outside the module may call the site            $outsideCaller
+      nor where a function literal may implement a member it calls    $samRedeclared
+      nor where an object whose parent does not resolve is accessed   $unreadObject
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
@@ -307,6 +309,46 @@ class ProgramRowsSpec extends Specification {
     List("Ord.compare", "Base.compare", "Kc.get")
       .map(row => uncovered(found(row), Receivers.Reenters))
       .reduce(_ and _)
+  }
+
+  // `Use.reab` is given an `S`, whose `m` `Srt` overrides with a call of `A.run`, concrete there;
+  // `Sam` makes it abstract again and `Mk`'s function literal implements it, calling `reab`: the row
+  // is left. So is `Use.reab2`, where `Sam2 { type T = Int }`, a refinement, is implemented. `Use.keep`
+  // is given a `K` whose overrider calls `B.run`; the only function literal implements `Sam`, which
+  // no class of `B` is: `K.m` is a Boolean capability and `keep` one of 2^2 functions of it.
+  def samRedeclared = {
+    val found = rows("""object Use {
+      |  def reab(s: S): Boolean = true; def reab2(s: S2): Boolean = true; def keep(k: K): Boolean = true
+      |}
+      |trait S { def m: Boolean = true; def n: Boolean = m }
+      |trait A { def run(): Boolean = true }
+      |trait Sam extends A { override def run(): Boolean }
+      |final class Srt(f: A) extends S { override def m: Boolean = f.run() }
+      |object Mk { def s: Srt = new Srt((() => Use.reab(s)): Sam) }
+      |trait S2 { def m: Boolean = true; def n: Boolean = m }
+      |trait Sam2 { type T; def run(): Boolean }
+      |final class Srt2(f: Sam2) extends S2 { override def m: Boolean = f.run() }
+      |object Mk2 { def s: Srt2 = new Srt2((() => Use.reab2(s)): Sam2 { type T = Int }) }
+      |trait K { def m: Boolean = true; def n: Boolean = m }
+      |trait B { def run(): Boolean = true }
+      |final class Kb(b: B) extends K { override def m: Boolean = b.run() }
+      |""".stripMargin)
+    uncovered(found("Use.reab"), Receivers.Reenters)
+      .and(uncovered(found("Use.reab2"), Receivers.Reenters))
+      .and(found("Use.keep") must_== Count.Finite(4))
+  }
+
+  // `Srt.m` names `Init.x`, whose first access runs `Init`'s body, which calls `Use.reab` on a
+  // value of `S`: the row is left. `Init` extends a class of a dependency the classes read do not
+  // hold, so its linearization does not resolve: the row is still left, not lost.
+  def unreadObject = {
+    val parent = Programs.compiled("package dep\nclass Base")
+    val code = """object Use { def reab(s: S): Boolean = true }
+      |trait S { def m: Boolean = true; def n: Boolean = m }
+      |object Init extends dep.Base { val x: Int = if (Use.reab(new Srt)) 1 else 0 }
+      |final class Srt extends S { override def m: Boolean = Init.x == 1 }
+      |""".stripMargin
+    uncovered(rows(code, List(parent), read = Some(Nil))("Use.reab"), Receivers.Reenters)
   }
 
   // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement

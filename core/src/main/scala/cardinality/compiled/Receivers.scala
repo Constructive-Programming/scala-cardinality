@@ -1,5 +1,7 @@
 package cardinality.compiled
 
+import scala.util.Try
+
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Shape}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
@@ -523,14 +525,16 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         member
     }
 
-  // Whether an overridden member may be a behavior of the measured one's own (`Reentry`).
+  // Whether an overridden member may be a behavior of the measured one's own (`Reentry`); a search
+  // that meets what the classes read do not resolve may.
   private def reenters(
       c: ClassSymbol,
       member: TermSymbol,
       measured: TermSymbol,
       value: Boolean
   ): Boolean =
-    overridden(c, member) && reentry.may(c, member, measured, instance = !value)
+    overridden(c, member) && Try(reentry.may(c, member, measured, instance = !value))
+      .getOrElse(true)
 
   // The members of a template's own body a subclass supplies, the measured one aside.
   private def supplies(tree: ClassDef, measured: TermSymbol): List[ValOrDefDef] =

@@ -731,16 +731,15 @@ class TastyFrontEndSpec extends Specification {
     expected.map((name, _) => name -> row(name)) must_== expected
   }
 
-  // What the stored side does not read yet, each row uncovered for its own reason: a sealed
-  // family whose object's construction throws (`Thr`), with a subtype something extends
-  // (`Wide2`) or that inherits from a class outside the module, whose state it holds too
-  // (`Outer`), or with a case under two of its levels
-  // (`Twice2`; `Dbl`, whose clause names the family and its level both), or with an enum's value
-  // case under a sealed level (`Deep`) or behind a reference (`HasMixed`); a class's alias read as its prefix sees it from inside an opaque type's scope, where
-  // what it names was written elsewhere; a private constructor (rule B); an enum case that pins its enum's parameter to a type;
-  // a refinement written without a type, which is not told from one of `Object`; a dependent
-  // function type, whose result its parent does not hold; a wildcard argument; and a class the
-  // algebra has no entry for.
+  // Uncovered on the stored side, each for its own reason: a sealed family whose object's
+  // construction throws (`Thr`), with a subtype something extends (`Wide2`) or that inherits from a
+  // class outside the module, whose state it holds too (`Outer`), or with a case under two of its
+  // levels (`Twice2`; `Dbl`, whose clause names the family and its level both), or with an enum's
+  // value case under a sealed level (`Deep`) or behind a reference (`HasMixed`); a class's alias
+  // read as its prefix sees it from inside an opaque type's scope, where what it names was written
+  // elsewhere; a private constructor (rule B); an enum case that pins its enum's parameter to a
+  // type; a refinement written without a type, not told from one of `Object`; a dependent function
+  // type, whose result its parent does not hold; a wildcard argument; a class the algebra lacks.
   private def unstored = {
     val expected = List(
       "Thr" -> "a construction that always throws or binds a pattern",

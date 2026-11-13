@@ -293,6 +293,7 @@ private[compiled] object World {
   def classNamed(tpe: Type)(using Context): Option[ClassSymbol] = tpe.dealias match {
     case ref: TypeRef         => ref.optSymbol.collect { case c: ClassSymbol => c }
     case applied: AppliedType => classNamed(applied.tycon)
+    case refined: RefinedType => classNamed(refined.parent)
     case _                    => None
   }
 
