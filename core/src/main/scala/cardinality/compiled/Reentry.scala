@@ -9,7 +9,16 @@ import tastyquery.Names.{SignedName, TermName}
 import tastyquery.Symbols.*
 import tastyquery.Traversers.TreeTraverser
 import tastyquery.Trees.*
-import tastyquery.Types.{ByNameType, MethodType, PolyType, TermType, Type}
+import tastyquery.Types.{
+  ByNameType,
+  MethodType,
+  NoPrefix,
+  PolyType,
+  TermRef,
+  TermType,
+  ThisType,
+  Type
+}
 
 /** Whether a concrete member a class of the program overrides may call the member being measured
   * (the old reading's view): such a member is a behavior of the measured member's own, not a
@@ -125,7 +134,11 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // member's class, or its construction reaches it (an object's whatever code outside the module
     // may do, since references name its body; a class's where that code may reach the member).
     def reachesBuilt(k: ClassSymbol): Boolean =
-      home.exists(k.isSubClass) || (outward || k.isModuleClass) && constructs(k)
+      if (instance)
+        // The site's own instance is not the one built: only its construction may reach the
+        // measured member (a class of the module without a tree, anything).
+        k.linearization.exists(a => world.ofModule(a) && a.tree.isEmpty) || constructs(k)
+      else home.exists(k.isSubClass) || (outward || k.isModuleClass) && constructs(k)
 
     // Whether a reference to an object of the module, or to a member of one, runs the object's
     // body (its first access does) and that reaches the measured member.
@@ -173,6 +186,8 @@ final private[compiled] class Reentry(world: World)(using Context) {
       seen.size >= Reentry.Reach || seen.add(c) && c.tree.exists { definition =>
         val template = definition.rhs
         (template.parents ++ template.body).exists {
+          // The measured field's own initializer runs.
+          case value: ValDef if value.symbol == measured                    => true
           case _: DefDef | _: ClassDef | _: TypeMember | _: TypeTree        => false
           case value: ValDef if value.symbol.kind == TermSymbolKind.LazyVal => false
           case statement                                                    => calls(statement)
@@ -188,16 +203,26 @@ final private[compiled] class Reentry(world: World)(using Context) {
     def calls(body: Tree): Boolean = if (!instance) reached(body)
     else
       Reentry.search(body) {
+        // The measured member's own definition (a local one's, in the member it is written in)
+        // is the body being counted.
+        case definition: DefDef if definition.symbol == measured => Some(false)
         case reference: TermReferenceTree if measures(reference) =>
           Some(true)
         case tree if outward && handsOver(tree)   => Some(true)
         case tree @ Select(_: This | _: Super, _) => Some(called(tree).forall(fromInstance))
         case _: This                              => Some(true)
-        // A name that does not resolve may be anything.
-        case reference: Ident if called(reference).isEmpty                 => Some(true)
-        case reference: Ident if called(reference).exists(_.owner.isClass) =>
+        // A name that does not resolve may be anything (a package is no call).
+        case reference: Ident
+            if !Try(reference.symbol).toOption.exists(_.isPackage) &&
+              called(reference).isEmpty =>
+          Some(true)
+        // A member named alone is the instance's, or an object's (imported, or `Predef`'s `???`),
+        // which is read as a selection on that object.
+        case reference: Ident
+            if called(reference).exists(m => m.owner.isClass && !objectMember(m)) =>
           Some(called(reference).forall(fromInstance))
-        case reference: Select =>
+        case reference: TermReferenceTree
+            if reference.isInstanceOf[Select] || called(reference).exists(objectMember) =>
           Option.when(called(reference).forall { m =>
             runs(m, measured) || (world.ofModule(m) && dispatched(m))
           })(true)
@@ -395,62 +420,122 @@ final private[compiled] class Reentry(world: World)(using Context) {
 
   /** Whether the member's own body evaluates the measured one whenever it is evaluated (the
     * scalameta front end's definite view): the measured member, or a member of the instance whose
-    * own body does, fully applied on the instance as the body's result, a statement of a block or
-    * the value of one of its `val`s. Such a member re-enters the measured one in a receiver that
-    * overrides nothing, so no implementation uses it: it supplies nothing.
+    * own body does, fully applied on the instance, in a position the body always evaluates. Such a
+    * member re-enters the measured one in a receiver that overrides nothing, so no implementation
+    * uses it: it supplies nothing.
     *
-    * Only what no conversion, overload or deferred argument can redirect is definite: not a
-    * measured member that is implicit, a given or an extension (the compiler inserts or selects
-    * it), nor one an overload of as many value clauses shares a name with, nor a body that imports
-    * anything (a conversion it brings may take the call by name). The old reading finds more
-    * positions definite; a member this reading misses is left by `may`.
+    * The positions (`strict`): the body's result, and a function literal it returns as a function
+    * (every use of a function-typed member applies it); a block's statements and result, a strict
+    * `val`'s value; a call's function and its arguments (named or not) a parameter takes by value
+    * (not by name, and not an inline method's, whose expansion may drop it); a selection's receiver
+    * (an extension or a conversion is a call in the tree, which takes its argument as its parameter
+    * says); an `if`'s condition and a match's scrutinee. Not the operand of `&&` or `||`, which the
+    * compiler evaluates only on one value of the left one, and not the function literal a member
+    * further along the chain holds, which reading it does not apply. A call is on the instance
+    * (`onThis`) when its receiver is `this`, it names a member of the instance or a local
+    * definition alone (not through an import of another value's members), it builds the measured
+    * member's own constructor or a `c` (which runs exactly that constructor, in a `c`), or it
+    * selects a member of an object the instance names alone (one object, its class final, whose
+    * members are its own). The tree has resolved every name, so a reference to the measured member
+    * is a call of it: no conversion or overload can redirect it. A member this reading misses is
+    * left by `may`.
+    *
+    * On a record value (`value`) the measured member runs on no instance of the record, and a call
+    * of it re-enters only with the same arguments: only `this` and the members it names alone
+    * chain, as the old reading's view has it. A member of the instance runs the body an instance of
+    * `c` that overrides nothing has: the nearest in `c`'s linearization.
     */
-  def definite(member: TermSymbol, measured: TermSymbol): Boolean = {
+  def definite(
+      c: ClassSymbol,
+      member: TermSymbol,
+      measured: TermSymbol,
+      value: Boolean
+  ): Boolean = {
     val seen = mutable.Set.empty[Symbol]
-    def evaluates(m: TermSymbol): Boolean =
+    def effective(m: TermSymbol): TermSymbol =
+      Try(c.linearization.iterator.flatMap(m.overridingSymbol).nextOption()).toOption.flatten
+        .getOrElse(m)
+    // `top` for the member itself, every use of which applies a function it returns.
+    def evaluates(m: TermSymbol, top: Boolean): Boolean =
       seen.add(m) && !m.isAbstractMember && m.tree.exists {
-        case method: DefDef => method.rhs.exists(body => !imports(body) && spine(body))
-        case value: ValDef  => value.rhs.exists(body => !imports(body) && spine(body))
+        case method: DefDef => method.rhs.exists(result(_, top))
+        case field: ValDef  => field.rhs.exists(result(_, top))
         case _              => false
       }
-    def spine(tree: Tree): Boolean = tree match {
-      case Block(statements, result) =>
-        statements.exists {
-          // A lazy value runs only where something reads it.
-          case value: ValDef if value.symbol.kind != TermSymbolKind.LazyVal =>
-            value.rhs.exists(spine)
-          case term: TermTree => spine(term)
-          case _              => false
-        } || spine(result)
-      case Typed(expression, _) => spine(expression)
-      case _                    =>
-        onThis(tree) && applied(tree).exists { m =>
-          m == measured || (m.owner.isClass && evaluates(m))
-        }
+    def result(tree: Tree, top: Boolean): Boolean = tree match {
+      case Block(List(literal: DefDef), Lambda(_, None)) if top =>
+        literal.rhs.exists(result(_, top))
+      case Block(statements, last) => statements.exists(statement) || result(last, top)
+      case Typed(expression, _)    => result(expression, top)
+      case _                       => strict(tree)
     }
-    settled(measured) && evaluates(member)
+    def statement(tree: Tree): Boolean = tree match {
+      // A lazy value runs only where something reads it.
+      case local: ValDef if local.symbol.kind != TermSymbolKind.LazyVal => local.rhs.exists(strict)
+      case term: TermTree                                               => strict(term)
+      case _                                                            => false
+    }
+    def strict(tree: Tree): Boolean = tree match {
+      case Block(statements, last) => statements.exists(statement) || strict(last)
+      case Typed(expression, _)    => strict(expression)
+      case If(condition, _, _)     => strict(condition)
+      case Match(scrutinee, _)     => strict(scrutinee)
+      case NamedArg(_, argument)   => strict(argument)
+      case _                       =>
+        onThis(tree) && applied(tree).exists { m =>
+          m == measured || (m.owner.isClass && evaluates(effective(m), top = false))
+        } || (tree match {
+          case Apply(function, arguments) =>
+            strict(function) || arguments.zipWithIndex.exists { (argument, i) =>
+              byValue(function, i) && strict(argument)
+            }
+          case TypeApply(function, _) => strict(function)
+          case Select(qualifier, _)   => strict(qualifier)
+          case _                      => false
+        })
+    }
+    // Whether a call is made on the instance the measured member runs on.
+    def onThis(tree: Tree): Boolean = tree match {
+      case Apply(function, _)     => onThis(function)
+      case TypeApply(function, _) => onThis(function)
+      case Select(_: This, _)     => true
+      case Select(New(tpt), _)    =>
+        !value && (called(tree).contains(measured) ||
+          Try(World.classNamed(tpt.toType)).toOption.flatten.contains(c))
+      case Select(path, _) if !value && named(path) =>
+        called(path).flatMap(_.moduleClass).exists(k => called(tree).exists(_.owner == k))
+      case reference: Ident =>
+        named(reference) &&
+        called(reference).exists(m => !objectMember(m) || !value && m.owner == measured.owner)
+      case _ => false
+    }
+    // A name alone that the instance or a scope around it binds: not a member of another value an
+    // import brings.
+    def named(path: Tree): Boolean = path match {
+      case Select(_: This, _) => true
+      case reference: Ident   =>
+        Try(reference.tpe match {
+          case ref: TermRef => ref.prefix == NoPrefix || ref.prefix.isInstanceOf[ThisType]
+          case _            => false
+        }).getOrElse(false)
+      case _ => false
+    }
+    evaluates(member, top = true)
   }
 
-  // Whether a call of `measured` is its own: no conversion, extension or given, and no overload of
-  // as many value clauses.
-  private def settled(measured: TermSymbol): Boolean = {
-    val clauses = measured.paramSymss.count(_.isLeft)
-    !measured.isImplicit && !measured.isGivenOrUsing && !measured.isExtensionMethod &&
-    (measured.owner match {
-      case owner: ClassSymbol =>
-        Try(owner.linearization).getOrElse(List(owner)).flatMap(_.declarations).forall {
-          case other: TermSymbol if other != measured && other.name == measured.name =>
-            other.paramSymss.count(_.isLeft) != clauses
-          case _ => true
+  // Whether a call's function takes its argument at `i` by value: its type says so, and it is no
+  // inline method and no `&&` or `||`, whose operand is evaluated on one value of the left one.
+  private def byValue(function: Tree, i: Int): Boolean =
+    !called(Reentry.unapplied(function)._1).exists { m =>
+      m.isInline || m.owner.displayFullName == "scala.Boolean" && Set("&&", "||")(m.name.toString)
+    } && Try(function match {
+      case term: TermTree =>
+        term.tpe.widenTermRef match {
+          case method: MethodType => !method.paramTypes(i).isInstanceOf[ByNameType]
+          case _                  => false
         }
-      case _ => true
-    })
-  }
-
-  private def imports(body: Tree): Boolean = Reentry.search(body) {
-    case _: Import => Some(true)
-    case _         => None
-  }
+      case _ => false
+    }).getOrElse(false)
 
   // The member a tree applies to every value clause it takes (a value: named alone), if any.
   private def applied(tree: Tree): Option[TermSymbol] = {
@@ -458,20 +543,16 @@ final private[compiled] class Reentry(world: World)(using Context) {
     called(head).filter(_.paramSymss.count(_.isLeft) == clauses.size)
   }
 
-  // Whether a call is made on the instance (or is a local method's): its receiver is `this`, or it
-  // names the member alone.
-  private def onThis(tree: Tree): Boolean = tree match {
-    case Apply(function, _)     => onThis(function)
-    case TypeApply(function, _) => onThis(function)
-    case Select(_: This, _)     => true
-    case _: Ident               => true
-    case _                      => false
-  }
-
   // Whether a `new` builds a class `p` holds of, or one whose type does not resolve (its arguments
   // included), which may be any. (The `<init>` it selects mostly fails to resolve first.)
   private def builds(tpt: TypeTree, p: ClassSymbol => Boolean): Boolean =
     Try(World.classNamed(tpt.toType).forall(p)).getOrElse(true)
+
+  // Whether a member is an object's, which a name alone reaches through an import or `Predef`.
+  private def objectMember(m: TermSymbol): Boolean = m.owner match {
+    case k: ClassSymbol => k.isModuleClass
+    case _              => false
+  }
 
   // The member a reference names; none where it does not resolve, which may be anything.
   private def called(tree: Tree): Option[TermSymbol] = World.named(tree)

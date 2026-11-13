@@ -1559,6 +1559,45 @@ parents` 245 to 0, `an enclosing class` 57 to 0, `an enclosing class with an abs
 the capability records' reasons (a member something overrides 54 to 508, a member named like the
 measured definition 348 to 415) and at capabilities with type parameters of their own (148 to 274).
 
+#### Re-entry among an enclosing class's members (group g3)
+
+The receiver path of `Reentry` (the record-value path is g1's), ported from the old reading's
+views (`TargetViews`, `ViewSandwich`), reading symbols and the typed tree:
+
+- `definite` (the definite view) follows every position the body always evaluates: the result
+  and a function literal the member returns as a function; block statements, strict `val`s; a
+  call's function and the arguments its method type takes by value (not by name, not an inline
+  method's, not `&&`/`||`'s operand); a selection's receiver; an `if`'s condition, a scrutinee,
+  a named argument. A call is on the instance when it selects on `this`, names a member or local
+  alone with a `this` or no prefix (not a member of another value an import brings), builds the
+  measured constructor or a `c`, or selects a member of an object the instance names alone. A
+  member further along the chain runs `c`'s nearest override (`effective`); its function literal
+  is not applied. The old syntax guards (conversion, given, extension, same-arity overload,
+  imports) are gone: the tree resolved the call. On a record value (`value`) only `this` and
+  members named alone chain, as before.
+- `may` (receiver): a member of an object named alone (`Predef.???`, an import) is a selection on
+  that object, not a call on the instance; the measured member's own definition (a local one
+  inside the member) is not a mention; building a class re-enters only where its construction
+  reaches the measured member (a strict field initializer of it included) or a class of the
+  module without a tree is built; a package named alone is no unresolved name.
+- `Readings.bounded` (register D31): a row refused only by such members is counted again with
+  them as capabilities (`Receivers(including = true)`); a 0 then is the count.
+
+Owner ruling (re-entry through another instance is counted): the receiver rules refuse only for
+the same instance (`this`, a class built within reach, `this` handed on); a path through another
+value (`friend.Inner.k`, `import friend.target`) is never definite, and the search still leaves
+it (more `?` only).
+
+Rows (method rows, old numeric still uncovered, before -> after): fixtures 670 -> 605 (all 65 of
+the group freed, 63 identical, `S2.later` corrected), cats-kernel 78 -> 76 (`Eq.eqv`,
+`PartialOrder.partialCompare`), cats-eo 73 -> 72 (`singletonTo`); other inputs unchanged. Left
+of the group: cats-kernel `Hash.hash` (an overrider of `neqv` the search follows through `Order`
+instances reaches code it cannot settle) and cats-eo `singletonFrom` (the bound refuses for
+another reason). Derived: 11 fixture rows and cats-core `Functor.map` (0, through the bound);
+corrected: `S2.<extension@5>.later` 2^16 -> 2^8 (the old reading missed the extension call in
+`m`). `ProgramRowsSpec.definitePositions` pins the positions, the bound and five cases that must
+stay left.
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its

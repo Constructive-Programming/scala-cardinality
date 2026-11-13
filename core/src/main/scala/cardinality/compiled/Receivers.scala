@@ -56,7 +56,9 @@ import tastyquery.Types.*
   * name, an abstract extension method. A given written `= deferred` is a capability like an
   * abstract member.
   */
-final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
+final private[compiled] class Receivers(world: World, shapes: Shapes, including: Boolean = false)(
+    using Context
+) {
   import Unread.Uncovered
 
   private val reentry = new Reentry(world)
@@ -315,7 +317,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
   def record(template: ClassDef, site: TermSymbol, env: Shapes.Env): Either[Unread, Shape] = {
     val c = template.symbol
     val where = Receivers.Record
-    val hidden = (supplies(template, site).map(_.symbol) ++ inheritedOpen(c, site))
+    val hidden = (supplies(template, site, value = true).map(_.symbol) ++
+      inheritedOpen(c, site, value = true))
       .find(member => Receivers.observes(member) && !member.isPublic)
     for {
       inheriting <- inherits(template)
@@ -502,48 +505,59 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     receivers.flatMap { tree =>
       if (Receivers.split(tree.symbol)) List(Receivers.whole(tree.symbol))
       else
-        Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ supplies(tree, measured)
+        Shapes.parameters(tree.rhs.constr).map(_.name.toString) ++ supplies(
+          tree,
+          measured,
+          value = false
+        )
           .collect {
             case member
                 if !member.symbol.isExtensionMethod && !member.name.toString.endsWith("_=") &&
                   // A deferred inline method is supplied to inline code alone.
                   (measured.isInline || !(member.symbol.isInline && member.isInstanceOf[DefDef])) =>
               member.name.toString
-          } ++ inheritedOpen(tree.symbol, measured)
+          } ++ inheritedOpen(tree.symbol, measured, value = false)
           .filter(!_.name.toString.endsWith("_="))
           .map(_.name.toString)
     }
 
   // The members a template that is not fixed inherits and a subclass may supply: capabilities, as
   // its own are, the measured one aside.
-  private def inheritedOpen(c: ClassSymbol, measured: TermSymbol): List[TermSymbol] =
+  private def inheritedOpen(
+      c: ClassSymbol,
+      measured: TermSymbol,
+      value: Boolean
+  ): List[TermSymbol] =
     inherited(c).getOrElse(Nil).collect {
       case member: TermSymbol
           if (abstractLike(member) || overridden(c, member) || free(c, member)) &&
             member != measured &&
-            !reentry.definite(member, measured) =>
+            !reentry.definite(c, member, measured, value) =>
         member
     }
 
   // Whether an overridden member may be a behavior of the measured one's own (`Reentry`); a search
-  // that meets what the classes read do not resolve may.
+  // that meets what the classes read do not resolve may. `including` keeps every member the search
+  // would leave as a capability (`Readings.bounded`'s upper bound); a definite one is still dropped.
   private def reenters(
       c: ClassSymbol,
       member: TermSymbol,
       measured: TermSymbol,
       value: Boolean
   ): Boolean =
-    overridden(c, member) && Try(reentry.may(c, member, measured, instance = !value))
+    !including && overridden(c, member) && Try(reentry.may(c, member, measured, instance = !value))
       .getOrElse(true)
 
   // The members of a template's own body a subclass supplies, the measured one aside.
-  private def supplies(tree: ClassDef, measured: TermSymbol): List[ValOrDefDef] =
+  private def supplies(tree: ClassDef, measured: TermSymbol, value: Boolean): List[ValOrDefDef] = {
+    val c = tree.symbol
     tree.rhs.body.collect {
       case member: ValOrDefDef
-          if (Receivers.open(member) || overridden(tree.symbol, member.symbol)) &&
-            member.symbol != measured && !reentry.definite(member.symbol, measured) =>
+          if (Receivers.open(member) || overridden(c, member.symbol)) &&
+            member.symbol != measured && !reentry.definite(c, member.symbol, measured, value) =>
         member
     }
+  }
 
   // A concrete member a class of the program overrides varies across instances as an abstract
   // one does: it is a capability of the template, its own body one of its behaviors.
@@ -589,7 +603,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     def held(of: ValOrDefDef, shape: Shape) =
       Binding(s"$self.${of.name}", shape, Some(of.name.toString))
     val parameters = Shapes.parameters(template.rhs.constr)
-    val capabilities = supplies(template, measured).filter(member => kept(member.symbol))
+    val capabilities = supplies(template, measured, value).filter(member => kept(member.symbol))
     for {
       _ <- Readings.plainInputs(parameters)
       // A receiver's constructor parameter was built before it, and is never the receiver: one
@@ -616,7 +630,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         else shapes.member(member, where, env).map(_.map(held(member, _)))
       })
       more <- Traversals.sequence(
-        inheritedOpen(template.symbol, measured)
+        inheritedOpen(template.symbol, measured, value)
           .filter(kept)
           .map(inheritedCapability(template.symbol, _, measured, env, value))
       )

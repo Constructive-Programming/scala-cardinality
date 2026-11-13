@@ -39,6 +39,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   private val shapes: Shapes = new Shapes(world, receivers)
   private val bounds = new Bounds(shapes)
   private lazy val receivers: Receivers = new Receivers(world, shapes)
+  private lazy val including: Receivers = new Receivers(world, shapes, including = true)
   private val constructors = new Constructors(shapes, stored, receivers)
 
   // ---- method rows --------------------------------------------------------------------------
@@ -79,7 +80,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           (tree match {
             case constructor: DefDef if primary =>
               constructorSearch(constructor).flatMap(_ => constructors.count(constructor, around))
-            case _ => counted(tree, around, methods)
+            case _ => bounded(counted(tree, around, methods, _))
           }).map(_ -> captures(tree, around, methods)).left.flatMap {
             // A row the model refuses lists no captures, as the old front end's does not.
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
@@ -98,7 +99,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   private def counted(
       tree: ValOrDefDef,
       around: List[ClassDef],
-      methods: List[DefDef]
+      methods: List[DefDef],
+      receivers: Receivers
   ): Either[Unread, Count] = {
     val (_, parameters, declared) = signature(tree)
     // A value of the environment: a parameter of the member or of a method it is written in.
@@ -146,6 +148,15 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           } yield Readings.count(values ++ proofs, result)
     } yield count
   }
+
+  // Members of a receiver that may call the measured one leave the row. Taken for free capabilities
+  // they bound the count from above (register D31): a count of 0 then is the count.
+  private def bounded(count: Receivers => Either[Unread, Count]): Either[Unread, Count] =
+    count(receivers).left.flatMap {
+      case unread @ Uncovered(why) if why.startsWith(Receivers.Reenters) =>
+        count(including).toOption.filter(_.isZero).toRight(unread)
+      case unread => Left(unread)
+    }
 
   // An anonymous contextual parameter of the measured method is found by implicit search alone.
   // A body is counted, not searched, and what one declares tells nothing of the others; what
