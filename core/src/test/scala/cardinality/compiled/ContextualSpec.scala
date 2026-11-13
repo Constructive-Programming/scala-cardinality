@@ -127,11 +127,15 @@ class ContextualSpec extends Specification {
       .and(count("Fed.get") must_== Count.Finite(16))
 
   // An extension method is a method of all its clauses: `flip` is one of the 2^2 functions, `or`
-  // returns `x` or `y`, and `choose` returns `x` or the A its `Option[A]` may hold, 2.
+  // returns `x` or `y`, and `choose` returns `x` or the A its `Option[A]` may hold, 2. A class's
+  // abstract extension method is a method of its instance, which a body in the class may call on
+  // any Boolean: `Exts.get` is a Boolean computed from `tag`, one of the 2^2 functions, 2^4 = 16.
+  // (The old front end leaves `tag` out and says 2: a correction.)
   private def extensions =
     (count(".flip") must_== Count.Finite(4))
       .and(count(".or") must_== Count.Finite(2))
       .and(count(".choose") must_== Count.Finite(2))
+      .and(count("Exts.get") must_== Count.Finite(16))
 
   // An anonymous parameter no other candidate competes with is the value search finds: `anon`
   // returns `x` or what its `Option[A]` may hold, 2, as the named `pick`; `bound`'s `List[A]` holds any
@@ -182,7 +186,7 @@ class ContextualSpec extends Specification {
   // which search finds first), a constructor's beside a given its class body
   // declares or its self type holds (`Crowd`, `Selfish`, ambiguous there), a receiver's beside the
   // code between a local definition and its class, which may declare one (`Blk`), and among a class's
-  // members a deferred given without a name and an abstract extension method.
+  // members a deferred given without a name.
   private def later = {
     val expected = List(
       "Vied.g" -> "an anonymous contextual parameter search may not tell apart",
@@ -190,8 +194,7 @@ class ContextualSpec extends Specification {
       "Crowd.<init>" -> "an anonymous contextual parameter beside the class's contextual scope",
       "Blk.<block#1>.pick" -> "an anonymous contextual parameter",
       "Selfish.<init>" -> "an anonymous contextual parameter beside the class's contextual scope",
-      "Anon.get" -> "an anonymous given among the members of an enclosing class",
-      "Exts.get" -> "an extension method among the members of an enclosing class"
+      "Anon.get" -> "an anonymous given among the members of an enclosing class"
     )
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     expected.map { (name, _) =>
@@ -202,15 +205,17 @@ class ContextualSpec extends Specification {
     } must_== expected.map(_._2)
   }
 
-  // Two rows differ, each derived above: `Two.k` counts where the old front end refuses for
-  // re-entry, and `Fed.get` is the correction of an abstract given read as a function.
+  // Three rows differ, each derived above: `Two.k` counts where the old front end refuses for
+  // re-entry, `Fed.get` is the correction of an abstract given read as a function, and `Exts.get`
+  // that of an abstract extension method left out.
   private def agrees = {
     val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
     def key(name: String) = compared.compared.filter(_.row.name == name).map(_.row.key)
     val derived = key("ctx.Two.k").map(_ -> "9").toMap
-    val corrected = key("ctx.Fed.get").map(_ -> "4 -> 16").toMap
+    val corrected =
+      (key("ctx.Fed.get").map(_ -> "4 -> 16") ++ key("ctx.Exts.get").map(_ -> "2 -> 16")).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (1, 1))
+      .and((derived.size, corrected.size) must_== (1, 2))
       .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
       .and(Differential.unused(compared.compared, corrected) must_== Nil)
   }

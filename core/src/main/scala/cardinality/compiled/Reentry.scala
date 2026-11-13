@@ -497,10 +497,16 @@ final private[compiled] class Reentry(world: World)(using Context) {
         })
     }
     // Whether a call of the measured member passes it its own parameters, in order: with any
-    // other arguments it may return without calling itself again.
+    // other arguments it may return without calling itself again. A local one also captures the
+    // parameters of the methods it is written in, which the call that reached it may have given
+    // other values: only where those methods take none.
     def again(tree: Tree): Boolean =
       Reentry.unapplied(tree)._2.flatten.map(World.named) ==
-        measured.paramSymss.collect { case Left(clause) => clause }.flatten.map(Some(_))
+        measured.paramSymss.collect { case Left(clause) => clause }.flatten.map(Some(_)) &&
+        World.owners(measured.owner).takeWhile(!_.isClass).forall {
+          case method: TermSymbol => method.paramSymss.forall(_.left.forall(_.isEmpty))
+          case _                  => true
+        }
     // Whether a call is made on the instance the measured member runs on.
     def onThis(tree: Tree): Boolean = tree match {
       case Apply(function, _)     => onThis(function)
