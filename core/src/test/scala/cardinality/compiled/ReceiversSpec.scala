@@ -50,6 +50,21 @@ class ReceiversSpec extends Specification {
       |object Loc { def outer(y: Boolean): Boolean = { def inner(x: Boolean): Boolean = x; inner(y) } }
       |class LocC(z: Boolean) { def outer[A](y: A): A = { def inner(x: A): A = x; inner(y) } }
       |object Hide { def outer(x: Boolean): Boolean = { def inner(x: Boolean): Boolean = x; inner(x) } }
+      |object Held {
+      |  def kept(x: Boolean): Boolean = { def seed: Boolean = x; def inner(x: Boolean): Boolean = x; inner(x) }
+      |  def top(x: Boolean): Boolean = { def seed: Any = x; def inner(x: Boolean): Boolean = x; inner(x) }
+      |  def neg(x: Boolean): Boolean = { def seed: Boolean = !x; def inner(x: Boolean): Boolean = x; inner(x) }
+      |  def gone(x: Boolean): Boolean = { def seed: Boolean = throw new Exception(x.toString); def inner(x: Boolean): Boolean = x; inner(x) }
+      |  def obj(x: Boolean): Boolean = { object K { def seed: Boolean = x }; def inner(x: Boolean): Boolean = x; inner(x) }
+      |  def single(x: Boolean): Boolean = { val seed: x.type = x; def inner(x: Boolean): Boolean = x; inner(x) }
+      |  def mid(x: Boolean): Boolean = { def m(): Boolean = { def inner(x: Boolean): Boolean = x; !x }; m() }
+      |  def far(x: Boolean): Boolean = { def seed: Boolean = x; def inner(x: Boolean, seed: Boolean): Boolean = x; inner(x, x) }
+      |  def caught(x: Boolean): Boolean = { def seed: Boolean = try throw new Exception(x.toString) catch { case _ => true }; def inner(x: Boolean): Boolean = x; inner(x) }
+      |  def ctx(using x: Shown): Boolean = { def inner(x: Boolean): Boolean = x; inner(true) }
+      |  def selfed(x: Boolean): Fn = { def seed: Boolean = x; new Fn { seed => def run(x: Boolean): Boolean = x } }
+      |  def own[A](seed: A, other: A): Seeded[A] = new Seeded[A] { def seed: A = other; def g(): A = seed }
+      |}
+      |trait Seeded[A] { def seed: A }
       |object Lit { def outer(y: Boolean): Boolean = List(y).map { v => def inner: Boolean = v; inner }.head }
       |object Pat { def outer(y: Option[Boolean]): Boolean = y match { case Some(v) => def inner: Boolean = v; inner; case None => true } }
       |class Ctor(val p: Boolean) { locally { def hc(): Boolean = p; hc() } }
@@ -194,16 +209,28 @@ class ReceiversSpec extends Specification {
 
   // A local method counts over its own parameters and those of the methods around it: `Loc`'s
   // `inner` is a Boolean computed from `x` and `y`, 2^(2 × 2) = 16, and `LocC`'s returns `x` or
-  // `y` as the class's Boolean `z` decides, 2^2 = 4. Its captures are `y`, and `y` and `z`. A member of an
-  // anonymous class, which is final, reads the same: `Mk`'s `run` is a Boolean computed from `b`
-  // and the `y` of the method the instance is made in, 16; an object inside such a class reads `y`
-  // too (`Deep`: a Boolean computed from it, 2^2); a parameter named like a member the class
-  // inherits cannot be named inside it, and is left (`Hid`; `DeepHid`, where an object in the class inherits it), and so is one the class's self alias
-  // takes (`Self`). Left for later: a name an
-  // inner definition takes again (`Hide`), a definition in a function literal, whose parameter
-  // may be a generator's binder (`Lit`), a member of a local class, which a subclass in the same
-  // body may override (`LocalK`), one in a case clause (`Pat`) and one in a constructor's body, which runs before the instance
-  // holds what its members read (`Ctor`).
+  // `y` as the class's Boolean `z` decides, 2^2 = 4. Its captures are `y`, and `y` and `z`. A
+  // member of an anonymous class, which is final, reads the same: `Mk`'s `run` is a Boolean
+  // computed from `b` and the `y` of the method the instance is made in, 16; an object inside
+  // such a class reads `y` too (`Deep`: a Boolean computed from it, 2^2). A parameter named like a
+  // member the class inherits cannot be named inside it, and is left (`Hid`; `DeepHid`, where an
+  // object in the class inherits it), and so is one the class's self alias takes (`Self`: the old
+  // front end reads the outer `y` there).
+  // A parameter an inner definition takes again is hidden (`Hide`: `inner` is a Boolean computed
+  // from its own `x`, 2^2; the row still lists `x`, as the old front end does). A definition the
+  // inner one sees that is the hidden parameter keeps it a value (`Held.kept`: `seed` is the
+  // outer `x`, so `inner` computes from two Booleans, 2^(2 × 2) = 16); at `Any` it shows nothing
+  // (`Held.top`, 4), and in a `throw` it supplies nothing (`Held.gone`, 4). Any other reading is
+  // refused: `!x` (`Held.neg`), an object reading `x` (`Held.obj`), a singleton of it, which is
+  // `x` again at another type (`Held.single`), and a method the definition is in, which it may
+  // call (`Held.mid`: `m()` is `!x`), an alias the definition cannot name (`Held.far`, `Held.selfed`), a
+  // `throw` a `try` may catch (`Held.caught`); a contextual parameter, which search reaches
+  // whatever hides its name, is refused too (`Held.ctx`). `Held.own`'s `g` sees the member `seed`, not the
+  // parameter: it returns `other`, the one A left, 1.
+  // Left for later: a definition in a function literal, whose parameter may be a generator's
+  // binder (`Lit`), a member of a local class, which a subclass in the same body may override
+  // (`LocalK`), one in a case clause (`Pat`) and one in a constructor's body, which runs before
+  // the instance holds what its members read (`Ctor`).
   private def locals = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def left(name: String) = count(name) match {
@@ -214,14 +241,27 @@ class ReceiversSpec extends Specification {
       .and(count("recv.LocC.outer.inner") must_== Count.Finite(4))
       .and(entry("recv.Loc.outer.inner").captures must_== List("y"))
       .and(entry("recv.LocC.outer.inner").captures must_== List("y", "z"))
-      .and(left("recv.Hide.outer.inner") must_== "a capture a nearer scope binds again")
+      .and(count("recv.Hide.outer.inner") must_== Count.Finite(4))
+      .and(entry("recv.Hide.outer.inner").captures must_== List("x"))
+      .and(count("recv.Held.kept.inner") must_== Count.Finite(16))
+      .and(count("recv.Held.top.inner") must_== Count.Finite(4))
+      .and(count("recv.Held.gone.inner") must_== Count.Finite(4))
+      .and(left("recv.Held.neg.inner") must_== "a hidden capture a definition reads")
+      .and(left("recv.Held.obj.inner") must_== "a hidden capture a definition reads")
+      .and(left("recv.Held.single.inner") must_== "a hidden capture a definition reads")
+      .and(left("recv.Held.mid.m.inner") must_== "a hidden capture a definition reads")
+      .and(left("recv.Held.far.inner") must_== "a hidden capture a definition reads")
+      .and(left("recv.Held.selfed.<new#1>.run") must_== "a hidden capture a definition reads")
+      .and(left("recv.Held.caught.inner") must_== "a hidden capture a definition reads")
+      .and(left("recv.Held.ctx.inner") must_== "a hidden contextual parameter")
+      .and(count("recv.Held.own.<new#1>.g") must_== Count.Finite(1))
       .and(count("recv.Mk.mk.<new#1>.run") must_== Count.Finite(16))
       .and(entry("recv.Mk.mk.<new#1>.run").captures must_== List("y"))
       .and(left("recv.LocalK.f.K.get") must_== "a local class or object")
       .and(left("recv.Hid.mk.<new#1>.get") must_== "a capture an inherited member hides")
       .and(count("recv.Deep.mk.<new#1>.H.h") must_== Count.Finite(4))
       .and(left("recv.DeepHid.mk.<new#1>.H.get") must_== "a capture an inherited member hides")
-      .and(left("recv.Self.mk.<new#1>.run") must_== "a capture a nearer scope binds again")
+      .and(left("recv.Self.mk.<new#1>.run") must_== "a capture a self alias may hide")
       .and(
         rows.sources
           .flatMap(_.toOption.toList.flatMap(_.methods))

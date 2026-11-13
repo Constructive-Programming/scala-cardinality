@@ -16,10 +16,10 @@ import tastyquery.Types.{AppliedType, Type, TypeRef}
   * refuses is the row's `?` with the model's reason (`Unread.Refused`).
   *
   * Method rows: a method or value whose environment is its own parameters, those of the methods a
-  * local definition is written in (`local` says what of them is not read yet), and what the classes
-  * around it hold (`Receivers`; a concrete member around it computes from what the environment
-  * already holds, and an object holds nothing), over the types `Shapes` reads and the type
-  * parameters as `Shapes.binder` reads them.
+  * local definition is written in (`hiddenCaptures` says which of them it cannot read), and what
+  * the classes around it hold (`Receivers`; a concrete member around it computes from what the
+  * environment already holds, and an object holds nothing), over the types `Shapes` reads and the
+  * type parameters as `Shapes.binder` reads them.
   *
   * An inline method counts as a method unless an expansion of it is decided at a call site, which
   * `Inlines` says: its refusal is the row's reason, the model's own.
@@ -57,7 +57,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       // A constructor row reads the classes around its class; a member reads its receivers.
       // A local definition reads the methods it is written in, then the classes around them.
       (methods, top) <- if (primary) Right(Nil -> owner) else enclosing(owner)
-      _ <- local(tree, methods)
+      hidden <- hiddenCaptures(tree, methods)
       around <-
         if (!primary) receivers.around(top)
         // A class in a class is built on an instance of the class around it, whose state its
@@ -66,7 +66,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           inTemplates(owner).flatMap(_ =>
             if (World.inObjects(tree.symbol.owner)) Right(Nil) else receivers.around(owner)
           )
-      _ <- inherited(methods, top)
+      _ <- inherited(methods, hidden, top)
       _ <- plain(top)
       count <-
         // A call of an inline method is its expansion, which builds no object: the old front
@@ -78,7 +78,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           (tree match {
             case constructor: DefDef if primary =>
               constructorSearch(constructor).flatMap(_ => constructors.count(constructor, around))
-            case _ => counted(tree, around, methods)
+            case _ => counted(tree, around, methods, hidden)
           }).map(_ -> captures(tree, around, methods)).left.flatMap {
             // A row the model refuses lists no captures, as the old front end's does not.
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
@@ -97,7 +97,8 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   private def counted(
       tree: ValOrDefDef,
       around: List[ClassDef],
-      methods: List[DefDef]
+      methods: List[DefDef],
+      hidden: Set[Symbol]
   ): Either[Unread, Count] = {
     val (_, parameters, declared) = signature(tree)
     // A value of the environment: a parameter of the member or of a method it is written in.
@@ -119,7 +120,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
             _ <- searched(declared.toType, parameters)
             held <- receivers.bindings(around, tree.symbol, env)
             captured <- Traversals.sequence(methods.map { method =>
-              val taken = Shapes.parameters(method)
+              val taken = Shapes.parameters(method).filterNot(p => hidden(p.symbol))
               Readings
                 .plainInputs(taken)
                 // A method around the definition took them before its receiver was built (a
@@ -271,8 +272,14 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
   // A class written in a method inherits members whose names come before that method's
   // parameters: a parameter of such a name cannot be named in the class at all.
-  private def inherited(methods: List[DefDef], top: Symbol): Either[String, Unit] = {
-    val taken = methods.flatMap(Shapes.parameters).map(_.name.toString).toSet
+  // A parameter a nearer scope hides already (`hiddenCaptures`) is not read there either.
+  private def inherited(
+      methods: List[DefDef],
+      hidden: Set[Symbol],
+      top: Symbol
+  ): Either[String, Unit] = {
+    val taken =
+      methods.flatMap(Shapes.parameters).filterNot(p => hidden(p.symbol)).map(_.name.toString).toSet
     // Every class or object around the member that is itself inside a method.
     val members = World
       .owners(top)
@@ -283,19 +290,32 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     members.find(taken).map(name => s"a capture an inherited member hides: $name").toLeft(())
   }
 
-  // What a local definition reads of the methods around it: each of their parameters, by its
-  // name. Left to later steps: a parameter's name that a scope between that method and the
-  // definition binds again (a block's definition, an inner method's parameter, a class's
-  // member, the definition's own parameter: the definition sees the inner name), and a
-  // definition in a case clause, whose pattern may bind names. A definition elsewhere in the
-  // method that shares the name hides nothing here.
-  private def local(tree: ValOrDefDef, methods: List[DefDef]): Either[String, Unit] =
+  // The parameters of the methods around a local definition that it cannot read, which the
+  // environment drops: those a scope between their method and the definition binds again (a
+  // block's definition, an inner method's parameter, a class's member, the definition's own
+  // parameter: the definition sees the inner name) and that no definition it sees keeps
+  // (`kept`). An anonymous contextual parameter is found by search, not by name. Not read yet: a
+  // parameter a self alias between may hide (the old front end reads the outer one there), and a
+  // definition in a case clause, whose pattern may bind names.
+  private def hiddenCaptures(
+      tree: ValOrDefDef,
+      methods: List[DefDef]
+  ): Either[String, Set[Symbol]] =
     methods.headOption match {
-      case None            => Right(())
+      case None            => Right(Set.empty)
       case Some(outermost) =>
-        // The scopes open at each point, innermost first: the definition a scope is of, if any,
-        // and the names it binds. A block's names count over the whole block.
-        type Scope = (Option[Symbol], Set[String])
+        // A scope open at a point: the definition it is of, if any, the names it binds, the self
+        // alias it gives, and what it holds that the definition may read through. A block's
+        // names count over the whole block.
+        final case class Scope(
+            of: Option[Symbol],
+            names: Set[String],
+            holders: List[Tree] = Nil,
+            alias: Option[String] = None,
+            // What else may bind a holder's name there: a member a template inherits, or an
+            // import of the scope.
+            shadows: String => Boolean = _ => false
+        )
         var scopes = List.empty[Scope]
         var cases = 0
         var seen = Option.empty[(List[Scope], Boolean)]
@@ -314,41 +334,109 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
               cases += 1
               super.traverse(clause)
               cases -= 1
-            case block: Block       => within(None -> named(block.stats))(super.traverse(block))
+            case block: Block =>
+              val imports = block.stats.exists(_.isInstanceOf[Import])
+              within(Scope(None, named(block.stats), block.stats, shadows = _ => imports))(
+                super.traverse(block)
+              )
             case template: ClassDef =>
-              // Its members, and the alias it may give itself (`new T { self => … }`).
-              val alias = template.rhs.self.map(_.name.toString).toSet
-              within(None -> (named(template.rhs.body) ++ alias))(super.traverse(template))
+              val body = template.rhs.body
+              val alias = template.rhs.self.map(_.name.toString)
+              val imports = body.exists(_.isInstanceOf[Import])
+              val inherited =
+                template.symbol.linearization.tail.flatMap(_.declarations).map(_.name.toString)
+              val shadows = (name: String) => imports || inherited.contains(name)
+              within(Scope(None, named(body), template.rhs.parents ++ body, alias, shadows))(
+                super.traverse(template)
+              )
             case definition: ValOrDefDef =>
               val own = definition match {
                 case method: DefDef => Shapes.parameters(method).map(_.name.toString).toSet
                 case _: ValDef      => Set.empty[String]
               }
-              within(Some(definition.symbol) -> own) {
+              within(Scope(Some(definition.symbol), own)) {
                 if (definition.symbol == tree.symbol) seen = Some(scopes -> (cases > 0))
                 super.traverse(definition)
               }
             case other => super.traverse(other)
           }
         }.traverse(outermost)
+        // A template the definition is in holds it: its members are read one by one.
+        val around = World.owners(tree.symbol).toSet
         seen match {
           case None                => Left("a definition not found in the method around it")
           case Some((_, true))     => Left("a definition in a case clause")
           case Some((open, false)) =>
-            methods.iterator
-              .flatMap { method =>
-                val nearer = open.takeWhile(!_._1.contains(method.symbol)).flatMap(_._2).toSet
-                Shapes.parameters(method).map(_.name.toString).filter(nearer)
-              }
-              .nextOption()
-              .map(name => s"a capture a nearer scope binds again: $name")
-              .toLeft(())
+            Traversals
+              .sequence(methods.flatMap { method =>
+                val nearer = open.takeWhile(!_.of.contains(method.symbol))
+                val names = nearer.flatMap(_.names).toSet
+                val aliases = nearer.flatMap(_.alias).toSet
+                // Each holder, and whether the definition can name it: no scope nearer than its
+                // own binds its name again or may.
+                val holders = nearer.zipWithIndex.flatMap { (scope, i) =>
+                  def again(name: String) = nearer.take(i).exists { s =>
+                    s.names(name) || s.alias.contains(name) || s.shadows(name)
+                  }
+                  scope.holders.collect {
+                    case d: ValOrDefDef                         => d -> !again(d.name.toString)
+                    case c: ClassDef if !around(c.symbol)       => c -> false
+                    case other if !other.isInstanceOf[ClassDef] => other -> false
+                  }
+                }
+                Shapes.parameters(method).filterNot(Readings.anonymous).collect {
+                  case p if aliases(p.name.toString) =>
+                    Left(s"a capture a self alias may hide: ${p.name}")
+                  // Implicit search reaches a contextual one whatever hides its name.
+                  case p if names(p.name.toString) && Readings.contextual(p.symbol) =>
+                    Left(s"a hidden contextual parameter: ${p.name}")
+                  case p if names(p.name.toString) =>
+                    kept(p, holders, tree.symbol).map(Option.unless(_)(p.symbol))
+                }
+              })
+              .map(_.flatten.toSet)
         }
     }
 
+  // Whether a hidden parameter is still a value where the definition `site` is (the old
+  // `HeldCaptures`): concrete code adds no choice only where it computes from what the
+  // environment holds, and a hidden parameter is not among that. A holder that reads it and is
+  // the parameter itself at its type, and that the definition can name, keeps it; at a type with
+  // one value it shows nothing; any other reading is refused, a method the definition is in
+  // included (the definition may call it). A `throw`'s operand reads nothing a result is built
+  // from, unless a `try` around it may catch what it throws.
+  private def kept(
+      parameter: ValDef,
+      holders: List[(Tree, Boolean)],
+      site: Symbol
+  ): Either[String, Boolean] = {
+    def reads(holder: Tree, caught: Boolean): Boolean =
+      Reentry.search(holder) {
+        case t: Try if !caught                                    => Some(reads(t, caught = true))
+        case _: Throw if !caught                                  => Some(false)
+        case d: ValOrDefDef if d.symbol == site                   => Some(false)
+        case node if World.named(node).contains(parameter.symbol) => Some(true)
+        case _                                                    => None
+      }
+    def oneValued(at: Type) = shapes.of(at, Shapes.Env.of(Nil, site)).exists {
+      case _: Shape.Singleton => false
+      case shape              => TopTypes.terminalGoal(TopTypes.polarized(shape, false))
+    }
+    Traversals
+      .sequence(holders.filter((holder, _) => reads(holder, caught = false)).map {
+        case (Readings.Alias(at, of), true)
+            if of == parameter.symbol && at.isSameType(parameter.tpt.toType) =>
+          Right(true)
+        case (Readings.Alias(at, of), _) if of == parameter.symbol && oneValued(at) => Right(false)
+        case _ => Left(s"a hidden capture a definition reads: ${parameter.name}")
+      })
+      .map(_.contains(true))
+  }
+
   // A row's captures, as the report lists them: the names its receivers supply, the parameters
-  // of the methods a local definition is written in, and for an
-  // extension method the parameters of its `extension` clause, written before the method.
+  // of the methods a local definition is written in (a hidden one too, as the old front end lists
+  // it), and for an extension method the parameters of its `extension` clause, written before the
+  // method.
   private def captures(
       tree: ValOrDefDef,
       around: List[ClassDef],
@@ -464,6 +552,22 @@ private[compiled] object Readings {
           }
       case _ => false
     }
+
+  /** A definition that is a parameter and nothing else: a value, or a method without clauses, whose
+    * body is the parameter's name, with its declared type.
+    */
+  private object Alias {
+
+    def unapply(tree: Tree)(using Context): Option[(Type, Symbol)] = tree match {
+      case d: ValOrDefDef if d match {
+            case m: DefDef => m.paramLists.isEmpty
+            case _: ValDef => true
+          } =>
+        World.rhs(d).flatMap(Shapes.named).map(World.declared(d) -> _)
+      case _ => None
+    }
+
+  }
 
   /** The solver's depth budget, the same for every row; its state budget is its own default. */
   val Depth = 64

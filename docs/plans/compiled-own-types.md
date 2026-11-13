@@ -2011,6 +2011,9 @@ the same six deleted when this branch is merged; every input passes otherwise.
   shared with the old front end (`capacity/Fixpoint.scala`), and a constructor position the method
   side refuses for recursion taking the estimate's size ("Stretch 6, first unit").
   Done since: a top-level value of a class of the module ("Stretch 6, second unit").
+  Done since (a new agent took the branch over at `b977b40`): hidden captures ("Stretch 6, third
+  unit"). Next, by old numeric rows: definitions in function literals, case clauses and
+  constructor bodies; the rest of `a type`; anonymous contextual parameters.
   Next, by the coordinator's order after `43fa5d8`: (1) what is left of it: a position the method side refuses
   for another reason than recursion (`sealed subtype hides a parameter`, fixtures 7, `sealed
   subtype shape unreadable`, 1) stays uncovered, since the estimate counts a hidden parameter the
@@ -3058,6 +3061,37 @@ the others nonzero). No correction. Regressions: `StoredRecursionSpec`, and `Tas
 Old numeric rows still uncovered (methods; both tables): core 8 (8: the 12 `Size` values are read),
 cats-core 44 (47), cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0,
 fixtures 673 (744); every input passes on the private memory. No derivation or correction.
+
+### Stretch 6, third unit: hidden captures
+
+- A parameter of a method around a local definition whose name a scope between binds again (a
+  block's definition, an inner method's parameter, a class's member, the definition's own
+  parameter) is hidden: the environment drops it, as the old front end binds the inner name over
+  it (`Readings.hiddenCaptures`, was the refusal `a capture a nearer scope binds again`). The old
+  `HeldCaptures` rule is ported over symbols (`Readings.kept`): a definition the measured one sees
+  in such a scope (a block's statement, a member or parent of a template on the path, a method the
+  definition is in) that reads the hidden parameter holds it. One that is the parameter and
+  nothing else, at its type and nameable at the definition, keeps it a value; at a type with one
+  value it shows nothing; any other reading is refused (`a hidden capture a definition reads`). A
+  `throw`'s operand reads nothing unless a `try` around it may catch it. The row's captures still
+  list a hidden name, as the old ones do.
+- Refused where the old front end reads more than it should, each a reviewer's finding: a method
+  the definition is in that reads the parameter outside it (the old reading skips it, though the
+  definition may call it), a singleton-typed alias, an alias whose own name a nearer scope binds
+  again, a named contextual parameter (search reaches it whatever hides its name: `a hidden
+  contextual parameter`), and a parameter a self alias between may hide (the old reading keeps the
+  outer one there: `a capture a self alias may hide`). An anonymous contextual parameter is not
+  hidden by name: it keeps its own reason.
+- Derived past a model limit: cats-core `catsStdInstancesForList.<new#1>.void.build`, ω (a
+  `List[Unit]` of any length; the hidden `fa` of `void` is read by nothing it sees).
+  Regressions: `ReceiversSpec.locals` (`Hide` 4, `Held.kept` 16, `Held.top` 4, `Held.gone` 4,
+  `Held.own` 1, and the refusals).
+- Of the 41 + 2 old numeric rows of the group, 13 fixture rows are identical (and
+  cats-core's `foldMapK.loop`, `?` on both sides); every other one now stops at a later reason (a local class or object, a parent with
+  constructor parameters, an overridden member: the gate agent's), or at a refusal above.
+  Old numeric rows still uncovered (methods; both tables): core 8 (8), cats-core 44 (47),
+  cats-kernel 111 (111), cats-eo 73 (76), cats-eo-generics 0, cats-eo-schemes 0, fixtures 660
+  (731).
 
 ### How each model rule reads over symbols
 

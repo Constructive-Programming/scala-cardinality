@@ -581,7 +581,7 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
                   case d: DefDef => d.paramLists.isEmpty
                   case _: ValDef => true
                 }) =>
-            World.rhs(alias).exists(Shapes.names(_, field))
+            World.rhs(alias).flatMap(Shapes.named).contains(field)
           case _ => false
         }
       }
@@ -908,13 +908,14 @@ private[compiled] object Shapes {
     c.openLevel == OpenLevel.Sealed && c.isAbstractClass && !c.isEnum
 
   /** Whether a term is a reference to `field` on the instance, through ascriptions. */
-  private def names(term: TermTree, field: TermSymbol)(using Context): Boolean = term match {
-    case Typed(inner, _)             => names(inner, field)
-    case Inlined(inner, _, _)        => names(inner, field)
-    case Block(Nil, inner)           => names(inner, field)
-    case ident: Ident                => World.named(ident).contains(field)
-    case select @ Select(_: This, _) => World.named(select).contains(field)
-    case _                           => false
+  /** The term a term is and nothing else: a name, or a member of `this`, ascribed or not. */
+  def named(term: TermTree)(using Context): Option[TermSymbol] = term match {
+    case Typed(inner, _)             => named(inner)
+    case Inlined(inner, _, _)        => named(inner)
+    case Block(Nil, inner)           => named(inner)
+    case ident: Ident                => World.named(ident)
+    case select @ Select(_: This, _) => World.named(select)
+    case _                           => None
   }
 
   /** Whether a template declares an abstract type member. */
