@@ -42,6 +42,9 @@ class ProgramRowsSpec extends Specification {
       not where code outside the module may call the site            $outsideCaller
       nor where a function literal may implement a member it calls    $samRedeclared
       nor where an object whose parent does not resolve is accessed   $unreadObject
+      is read where it re-enters only on another instance             $anotherInstance
+      not where it hands on the same instance                         $sameInstance
+      nor through aliases, literals, inner classes, parents or objects $sameInstanceHidden
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
@@ -423,6 +426,106 @@ class ProgramRowsSpec extends Specification {
       |final class Srt extends S { override def m: Boolean = Init.x == 1 }
       |""".stripMargin
     uncovered(rows(code, List(parent), read = Some(Nil))("Use.reab"), Receivers.Reenters)
+  }
+
+  // A record trait whose `neqv` a class of the program may override, and a behavior overriding it.
+  private val record =
+    "trait E { def eqv(a: Boolean, b: Boolean): Boolean; def neqv(a: Boolean, b: Boolean): Boolean = !eqv(a, b) }\n"
+
+  private def neqv(body: String) =
+    s"def eqv(a: Boolean, b: Boolean) = a; override def neqv(a: Boolean, b: Boolean) = $body"
+
+  // A record value the site is given is universally quantified (the owner's ruling): `Fwd.neqv`
+  // calls `same` on its field `o`, another instance, so `E` is its `eqv` and `neqv`, each one of
+  // the 2^4 functions of two Booleans: `same` observes the 8 Booleans they give and is one of
+  // 2^(2^8) = 2^256 functions of them.
+  def anotherInstance = {
+    val found = rows(record + s"""final class Fwd(o: E) extends E { ${neqv("Use.same(o)")} }
+      |object Use { def same(e: E): Boolean = true }
+      |""".stripMargin)
+    // `Use.all` has no input that may hold the `Cap` the module hands to `W`, whose `go` calls it:
+    // the record it returns is another instance, so `all` is one value of `E`, 2^4 * 2^4 = 2^8.
+    val noInput = rows(
+      record + s"""final class W(e: E) { def go: Boolean = Use.all.eqv(true, true) }
+      |object Cap extends E { ${neqv("new W(Cap).go")} }
+      |object Use { def all: E = new E { def eqv(a: Boolean, b: Boolean) = a } }
+      |""".stripMargin
+    )
+    (found("Use.same") must_== Count.Finite(BigInt(2).pow(256)))
+      .and(noInput("Use.all") must_== Count.Finite(BigInt(2).pow(8)))
+  }
+
+  // Each behavior hands the value itself on to the site: `BackV.neqv` through a local alias of
+  // `this`; `SrtC.neqv` builds an `SrtC` whose `helper` passes its `this`; `Lam.neqv` gives `h` a
+  // function literal returning `Lam`, which `h` applies and passes; `Cap.neqv` builds the site's
+  // receiver `Home` around `this` and calls `target` on it. Each row is left.
+  def sameInstance = {
+    val found = rows(
+      record + s"""object Use { def alias(e: E): Boolean = true; def built(e: E): Boolean = true; def lam(e: E): Boolean = true }
+      |final class BackV extends E { ${neqv("{ val me: E = this; Use.alias(me) }")} }
+      |final class SrtC extends E { ${neqv(
+                   "new SrtC().helper"
+                 )}; def helper: Boolean = Use.built(this) }
+      |object Lam extends E { ${neqv("H.h(() => Lam)")} }
+      |object H { def h(f: () => E): Boolean = Use.lam(f()) }
+      |final class Home(b: E) { def target(x: Boolean): Boolean = b.neqv(x, x) }
+      |object Cap extends E { ${neqv("new Home(this).target(a)")} }
+      |""".stripMargin
+    )
+    List("Use.alias", "Use.built", "Use.lam", "Home.target")
+      .map(row => uncovered(found(row), Receivers.Reenters))
+      .reduce(_ and _)
+  }
+
+  // More ways a behavior hands the value itself to the site, each one program, each row left: a
+  // module-built `Cap` given to a class whose member passes it on; a member with a parameter
+  // returning `this`; a pattern variable bound to `this`; an inner class's and an inner object's
+  // outer instance; a parent's constructor argument; `Cap` named (not `this`) into the site's
+  // receiver `Home`, directly, through mutually recursive factories, and through a pattern; `this`
+  // returned by a member outside the module (`this.type`), as an argument or a receiver; `this`
+  // given to an abstract member a function literal implements; `this` or `Cap` given to a function
+  // literal through code outside the module or a method of it; an abstract member an overrider
+  // implements as `this`; an inner class's outer instance built around `this` or `Cap`; an inner
+  // class or object whose parent's argument passes the outer `this`; a literal a method of the
+  // module transforms or gives on as an `Ordering`.
+  def sameInstanceHidden = {
+    val use = "object Use { def same(e: E): Boolean = true }\n"
+    val home = "final class Home(b: E) { def target(x: Boolean): Boolean = b.neqv(x, x) }\n"
+    val outer =
+      "final class Outer(e: E) { final class Inner { def target: Boolean = e.neqv(true, true) } }\n"
+    def grows(body: String) =
+      s"final class G extends E with scala.collection.mutable.Growable[Int] { def addOne(x: Int): this.type = this; def clear(): Unit = (); $body }"
+    val sam = "trait K { def run(e: E): Boolean }\nobject Ks { val k: K = e => Use.same(e) }"
+    List(
+      use -> s"final class W(e: E) { def go: Boolean = Use.same(e) }\nobject Cap extends E { ${neqv("new W(Cap).go")} }",
+      use -> s"final class M extends E { def me(x: Boolean): E = this; ${neqv("Use.same(me(a))")} }",
+      use -> s"final class P extends E { ${neqv("(this, a) match { case (x, _) => Use.same(x) }")} }",
+      use -> s"final class O extends E { final class In { def go: Boolean = Use.same(O.this) }; ${neqv("new In().go")} }",
+      use -> s"final class O extends E { object Inner { def go: Boolean = Use.same(O.this) }; ${neqv("Inner.go")} }",
+      use -> s"class Base(val r: Boolean)\nfinal class W(e: E) extends Base(Use.same(e))\nfinal class X extends E { ${neqv("new W(this).r")} }",
+      home -> s"object Cap extends E { ${neqv("new Home(Cap).target(a)")} }",
+      home -> s"object Cap extends E { ${neqv("new Home(F.f(a)).target(a)")} }\nobject F { def f(b: Boolean): E = if (b) g(b) else Cap; def g(b: Boolean): E = f(!b) }",
+      home -> s"object Cap extends E { ${neqv("(Cap: E) match { case y => new Home(y).target(a) }")} }",
+      use -> grows(neqv("Use.same(this.addAll(Nil))")),
+      use -> grows(neqv("Use.same(addAll(Nil))")),
+      use -> grows(neqv("this.addAll(Nil).kick") + "; def kick: Boolean = Use.same(this)"),
+      use -> s"$sam\nobject S extends E { ${neqv("Ks.k.run(this)")} }",
+      use -> s"$sam\nfinal class S extends E { ${neqv("Ks.k.run(this)")} }\nobject Main { def go: Boolean = new S().neqv(true, true) }",
+      use -> s"final class X extends E { ${neqv("List[E](this).forall(e => Use.same(e))")} }",
+      use -> s"object H { def h(f: E => Boolean, x: E): Boolean = f(x) }\nfinal class X extends E { ${neqv("H.h(e => Use.same(e), this)")} }",
+      use -> s"object Cap extends E { ${neqv("List[E](Cap).forall(e => Use.same(e))")} }",
+      use -> s"abstract class B extends E { def me: E; ${neqv("Use.same(me)")} }\nfinal class G extends B { def me: E = this }",
+      outer -> s"final class X extends E { ${neqv("{ val o = new Outer(this); new o.Inner().target }")} }",
+      outer -> s"object Cap extends E { ${neqv("{ val o = new Outer(Cap); new o.Inner().target }")} }",
+      use -> s"class Base(val r: Boolean)\nfinal class X extends E { final class In extends Base(Use.same(X.this)); ${neqv("new In().r")} }",
+      use -> s"class Base(val r: Boolean)\nfinal class X extends E { object In extends Base(Use.same(X.this)); ${neqv("In.r")} }",
+      use -> s"object H { def h(f: E => Boolean, x: E): Boolean = f.andThen(b => b)(x) }\nfinal class X extends E { ${neqv("H.h(e => Use.same(e), this)")} }",
+      use -> s"object H { def h(o: Ordering[E], x: E): Boolean = List(x, x).sorted(o).isEmpty }\nfinal class X extends E { ${neqv("H.h((p, q) => if (Use.same(p)) 0 else 1, this)")} }"
+    ).map { (site, program) =>
+      val row =
+        if (site == use) "Use.same" else if (site == home) "Home.target" else "Outer.Inner.target"
+      uncovered(rows(record + site + program)(row), Receivers.Reenters)
+    }.reduce(_ and _)
   }
 
   // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement

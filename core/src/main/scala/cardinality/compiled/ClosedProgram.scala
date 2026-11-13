@@ -230,7 +230,13 @@ final private[compiled] class ClosedProgram(
     * what it mixes in beside `owner`), and `None` for a subclass no symbol stands for, whose body
     * is not read.
     */
-  def overriders(owner: ClassSymbol, member: TermOrTypeSymbol): List[Option[TermSymbol]] = {
+  def overriders(owner: ClassSymbol, member: TermOrTypeSymbol): List[Option[TermSymbol]] =
+    overriderLists.getOrElseUpdate((owner, member), overridersOf(owner, member))
+
+  private val overriderLists =
+    mutable.Map.empty[(ClassSymbol, TermOrTypeSymbol), List[Option[TermSymbol]]]
+
+  private def overridersOf(owner: ClassSymbol, member: TermOrTypeSymbol) = {
     val below = subclasses(owner)
     val ownerLine = linearized(owner)._1.toSet
     val name = member.name.toString

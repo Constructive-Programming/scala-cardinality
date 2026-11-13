@@ -151,6 +151,7 @@ across a version's runs.
 | D3 | A builtin name the compiler binds differently from "builtin names are never shadowed by what is not supplied" | **The compiler's binding wins.** The rule is kept in the contract for uncompiled sources only (a future task). |
 | D4 | A given left to implicit search in an inline body | **Read the given the compiler resolved.** Refuse only when that given is inline with a compile-time operation, as for a written call. |
 | D5 (owner, via the coordinator, 2026-11-13) | A construction, body or default that throws, and a pattern definition | **Not refused: AGENTS.md's "Ignore throwing".** A construction that always throws builds no value, and the count follows from that, as the old front end reads it (register D26). A pattern definition is an ordinary binding; one that may not match is a possible throw, which is ignored. Applies wherever the compiled front end refused only for those reasons (the stored side's value rows, `Sums`, records, receivers). The 8 constructor rows refused for "sealed subtype hides a parameter" / "shape unreadable" stay as they are. |
+| D6 (owner, 2026-11-13) | Re-entry among a capability record's members through another instance | **Counted.** A record value the body receives as a parameter or capture is universally quantified, so it is a free capability even where it may be an instance of the measured member's class: by parametricity the implementation must work for every value. Only same-instance re-entry refuses: the value is `this`, or an instance of the record's class the module builds or names (a `new`, an object, a factory; anywhere in the module, which only refuses more) reaches the site, or `this` is handed to code that may call back (`List(this).sorted(c)`). AGENTS.md is unchanged: the model never had the refusal. |
 
 ## Where the boundary is
 
@@ -1310,6 +1311,49 @@ another reason). Derived: 11 fixture rows and cats-core `Functor.map` (0, throug
 corrected: `S2.<extension@5>.later` 2^16 -> 2^8 (the old reading missed the extension call in
 `m`). `ProgramRowsSpec.definitePositions` pins the positions, the bound and five cases that must
 stay left.
+
+#### Re-entry on a record value (group g1b)
+
+The owner's ruling D6 on `Reentry.may`'s record-value path (`instance = false`), finished from the
+previous g1 agent's patch. A record value the body receives is a free capability; the row is left
+(`Receivers.Reenters`) only where a behavior may re-enter on the same instance:
+
+- `selfReenters`: a behavior run on the value hands `this` on, as `holder` reads it (an alias: a
+  local, or a member of a class that may be the record's, with or without parameters, through
+  every body a call may run; a pattern variable through its scrutinee; an instance of a class
+  nested in such a class, which holds its outer instance; a member outside the module selected on
+  or named in `this`, which may return it), to the measured member, a method of the module that
+  passes it on (`passes`; an abstract one a function literal implements may), a constructor of the
+  module whose members (its nested classes' included) or construction reach the member (a carried
+  outer instance included: building an inner class runs its parents' arguments), or code
+  outside the module, as an argument or the receiver, where that code may reach the member or the
+  call gives it a function that may (`callsBack`: a literal whose body reaches it, any other term
+  of a function type or of a class a literal of the module may implement, applying one).
+- `handsMade`: an instance of the record's class the module builds or names (`madeOf`: a `new`, a
+  function literal, an object, a factory, a pattern variable's scrutinee) is handed on anywhere in
+  the module (`handings`), the measured member has an input that may hold it (a value parameter, a
+  capture or an outer instance, its receiver or the receiver's fields), and the plain search
+  reaches the member. The old narrowing by the class each parameter names was unsound for a
+  wrapped input (`IterableOnce[Eq[A]]`); only "no input at all" narrows now.
+- A constructor no longer dispatches by name (`new Object()` read as running `ListEq.<init>`);
+  `built` reads a case class's synthetic `apply` through its type lambda.
+
+Speed: `handings` is one index per module (every call and selection, with the classes of what it
+hands on), read by `madeOf`; `madeOf` and `holder` are memoized per tree and member through `Fixed`
+(least fixed points read on demand: every answer is read once per outermost read, and one that
+depended on a member still being read is kept after only where the outermost answer is the
+bottom); `ClosedProgram` memoizes `overriders`. Gate times (as the gate reports them, same machine,
+`e318915` -> this): cats-kernel 10.4 s -> 14.2 s, cats-core 12.0 s -> 10.7 s (the patch as handed
+over did not finish cats-core in 25 minutes).
+
+`ProgramRowsSpec`: `anotherInstance` (2^256; and `Use.all`, with no input, 2^8), `sameInstance`
+(four refusals), `sameInstanceHidden` (twenty-four same-instance programs four correctness
+reviews found, each refused). Left open (more refusals only, or an owner question): `this == this`
+with a module `equals` (the universal `==` is outside the model); `handsMade` looks anywhere in the
+module, not within reach of the behavior; a local or anonymous class's captures make any home not
+nested in objects alone an input (`Eq.allEqualBoundedSemilattice.<new#1>.empty` stays left). Rows (old numeric still uncovered, methods): cats-kernel 78 -> 30, fixtures 399 -> 397;
+other inputs unchanged. Every better row was derived (the patch's four cats-kernel lines); its five
+cats-core derivations stay in `derived.txt` for rows still left.
 
 ## Phase 5: the TASTy front end, slice by slice
 
