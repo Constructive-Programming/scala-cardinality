@@ -247,8 +247,20 @@ something overrides, is read as what its template supplies as a receiver (`Recei
 `Shapes.record` asks, `3adf7ed`). Rule B reads a final record: where the site may call its
 primary constructor, a field it observes as itself (a field it may select, or a public alias);
 where it may not, the largest of what its secondary constructors and factories build over the
-fields it observes (`Factories`, the port of the scalameta reading's receiver factories). A record's
-abstract type members are next.
+fields it observes (`Factories`, the port of the scalameta reading's receiver factories, `6f23c0e`).
+A record's abstract type members are next. Edits to the shared coverage memory: the gate run after
+merging `tasty-front` at `662b56e` (`877c65f`, derivations in the next commit) added cats-core 545,
+cats-eo 22, cats-kernel 1, corpus-core 2 and fixtures 233 rows. No row was removed.
+
+Investigated for later: `a class that is no product, sum or type-only template` (1,268 corpus rows)
+is almost all corpus-core's use of scalameta's Scala 2 traits without TASTy (`scala.meta.Tree`,
+`Type`, `Stat`, `Source`), which `DependencyClasses` reads as `Declared.Record` and `Shapes` does not
+read yet: they need a dependency record read from its pickled signatures (its abstract members as
+capabilities, its subclasses on the classpath settling which concrete members vary). The record
+reading's re-entry guard (`an overridden member that may call it among the members of a capability
+record`, 1,146 rows: cats' `eqv`, `neqv`, `imap`, …) takes `Reentry`'s receiver rules, under which a
+behavior that passes `this` on or calls through it may re-enter; for a record value, another
+instance, only a behavior that reaches the site itself can, which a narrower search would read.
 
 ### Commands
 
