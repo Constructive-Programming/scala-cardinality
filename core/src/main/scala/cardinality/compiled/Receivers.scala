@@ -525,7 +525,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       case member: TermSymbol
           if (abstractLike(member) || overridden(c, member, measured) || free(c, member)) &&
             member != measured &&
-            !reentry.definite(c, member, measured, value) =>
+            !Definite(c, member, measured, value) =>
         member
     }
 
@@ -550,7 +550,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     tree.rhs.body.collect {
       case member: ValOrDefDef
           if (Receivers.open(member) || overridden(c, member.symbol, measured)) &&
-            member.symbol != measured && !reentry.definite(c, member.symbol, measured, value) =>
+            member.symbol != measured && !Definite(c, member.symbol, measured, value) =>
         member
     }
   }

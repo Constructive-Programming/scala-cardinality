@@ -151,6 +151,7 @@ across a version's runs.
 | D3 | A builtin name the compiler binds differently from "builtin names are never shadowed by what is not supplied" | **The compiler's binding wins.** The rule is kept in the contract for uncompiled sources only (a future task). |
 | D4 | A given left to implicit search in an inline body | **Read the given the compiler resolved.** Refuse only when that given is inline with a compile-time operation, as for a written call. |
 | D5 (owner, via the coordinator, 2026-11-13) | A construction, body or default that throws, and a pattern definition | **Not refused: AGENTS.md's "Ignore throwing".** A construction that always throws builds no value, and the count follows from that, as the old front end reads it (register D26). A pattern definition is an ordinary binding; one that may not match is a possible throw, which is ignored. Applies wherever the compiled front end refused only for those reasons (the stored side's value rows, `Sums`, records, receivers). The 8 constructor rows refused for "sealed subtype hides a parameter" / "shape unreadable" stay as they are. |
+| D6 (owner, 2026-11-13) | Re-entry among a capability record's members through another instance | **Counted.** A record value the body receives as a parameter or capture is universally quantified, so it is a free capability even where it may be an instance of the measured member's class: by parametricity the implementation must work for every value. Only same-instance re-entry refuses: the value is `this`, or an instance of the record's class the module builds or names (a `new`, an object, a factory; anywhere in the module, which only refuses more) reaches the site, or `this` is handed to code that may call back (`List(this).sorted(c)`). AGENTS.md is unchanged: the model never had the refusal. |
 
 ## Where the boundary is
 
@@ -1346,6 +1347,49 @@ the same kind. Left of the group: the 35 fixture rows and two cats-kernel rows o
 `Hash.hash` (as g3 left it); `C2.a` (an overrider of `d` returns `this`, which the search reads as
 giving the instance away).
 
+#### Re-entry on a record value (group g1b)
+
+The owner's ruling D6 on `Reentry.may`'s record-value path (`instance = false`), finished from the
+previous g1 agent's patch. A record value the body receives is a free capability; the row is left
+(`Receivers.Reenters`) only where a behavior may re-enter on the same instance:
+
+- `selfReenters`: a behavior run on the value hands `this` on, as `holder` reads it (an alias: a
+  local, or a member of a class that may be the record's, with or without parameters, through
+  every body a call may run; a pattern variable through its scrutinee; an instance of a class
+  nested in such a class, which holds its outer instance; a member outside the module selected on
+  or named in `this`, which may return it), to the measured member, a method of the module that
+  passes it on (`passes`; an abstract one a function literal implements may), a constructor of the
+  module whose members (its nested classes' included) or construction reach the member (a carried
+  outer instance included: building an inner class runs its parents' arguments), or code
+  outside the module, as an argument or the receiver, where that code may reach the member or the
+  call gives it a function that may (`callsBack`: a literal whose body reaches it, any other term
+  of a function type or of a class a literal of the module may implement, applying one).
+- `handsMade`: an instance of the record's class the module builds or names (`madeOf`: a `new`, a
+  function literal, an object, a factory, a pattern variable's scrutinee) is handed on anywhere in
+  the module (`handings`), the measured member has an input that may hold it (a value parameter, a
+  capture or an outer instance, its receiver or the receiver's fields), and the plain search
+  reaches the member. The old narrowing by the class each parameter names was unsound for a
+  wrapped input (`IterableOnce[Eq[A]]`); only "no input at all" narrows now.
+- A constructor no longer dispatches by name (`new Object()` read as running `ListEq.<init>`);
+  `built` reads a case class's synthetic `apply` through its type lambda.
+
+Speed: `handings` is one index per module (every call and selection, with the classes of what it
+hands on), read by `madeOf`; `madeOf` and `holder` are memoized per tree and member through `Fixed`
+(least fixed points read on demand: every answer is read once per outermost read, and one that
+depended on a member still being read is kept after only where the outermost answer is the
+bottom); `ClosedProgram` memoizes `overriders`. Gate times (as the gate reports them, same machine,
+`e318915` -> this): cats-kernel 10.4 s -> 14.2 s, cats-core 12.0 s -> 10.7 s (the patch as handed
+over did not finish cats-core in 25 minutes).
+
+`ProgramRowsSpec`: `anotherInstance` (2^256; and `Use.all`, with no input, 2^8), `sameInstance`
+(four refusals), `sameInstanceHidden` (twenty-four same-instance programs four correctness
+reviews found, each refused). Left open (more refusals only, or an owner question): `this == this`
+with a module `equals` (the universal `==` is outside the model); `handsMade` looks anywhere in the
+module, not within reach of the behavior; a local or anonymous class's captures make any home not
+nested in objects alone an input (`Eq.allEqualBoundedSemilattice.<new#1>.empty` stays left). Rows (old numeric still uncovered, methods): cats-kernel 78 -> 30, fixtures 399 -> 397;
+other inputs unchanged. Every better row was derived (the patch's four cats-kernel lines); its five
+cats-core derivations stay in `derived.txt` for rows still left.
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its
@@ -1444,7 +1488,7 @@ still uncovered, methods (both tables); every worse row is a listed correction:
 | fixtures | 5,481 | 252 | 3 | 1,017 | 399 (445) |
 
 The integration's private coverage memory dropped the rows above and `Outer.Inner.<init>` (g2's
-own note). Pending: `tasty-g1` (re-entry on the record-value path), to come last.
+own note). `tasty-g1` came as `tasty-g1b`, merged in round 3 below.
 
 Round 2 merged, one merge commit each, each certified by the same gate: `tasty-h5` (`4d375f9`),
 `tasty-h2` (`e414333`), `tasty-h4` (`5994049`), `tasty-h3` (`20fd65b`), `tasty-h1` (`cb0e41c`),
@@ -1489,6 +1533,51 @@ uncovered, methods (both tables), and past the old-unsound list:
 | cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
 | cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
 | fixtures | 5,719 | 269 | 5 | 759 | 171 (190) | 136 (155) |
+
+Round 3 merged `tasty-g1b` (`cb61054`, re-entry through another instance on a capability record's
+value, the owner's ruling D6), certified by the same gate. Conflicts only in `derived.txt` and this
+plan (both sides added; the union, no duplicate key). `Reentry.scala` auto-merged with h2's `again`
+and h7's never-built overriders; its definite view moved verbatim to `Definite.scala` (no behavior
+change) to keep the file under 1,000 lines. The correctness review of the merge found two ways a
+same-instance re-entry was counted on the record path, both g1b's, each fixed with a regression in
+`ProgramRowsSpec.sameInstanceHidden`:
+
+- The value given through code outside the module to a function literal (a partial function's
+  included) whose body wraps it: `Some[E](this).map(e => new Wrap(e)).get.go`, `List(this).map(new
+  Wrap(_))`, `for`, `collect`, `Cap` named: `Use.same` was 2^256. A literal's parameter now holds
+  what the call's receiver and other arguments hold (`Reentry.bound`, read by `holder` and
+  `madeOf`).
+- A site without value parameters whose result's implementation is given the value: `def all: E =>
+  Boolean` (or `E ?=> Boolean`) with `Cap.neqv = Use.all(Cap)`, through a member of `Cap`, or a
+  module-built `Reg.x`: `Use.all` was 2^256. `handsMade`'s narrowing to "no input" now counts as
+  inputs what an abstract member of the result's class is given (`Reentry.opens`): a parameter that
+  is no primitive, `String` or `Unit`, and no type parameter without a bound (a parametric body
+  cannot use one, so `Eq.allEqual[A]: Eq[A]` stays counted); `Use.all: E`, whose members take
+  Booleans, stays 2^8.
+
+A first fix of the first finding (asking `dispatched` of any member selected on a term holding the
+value) cost about 110 cats-kernel rows and was dropped. Coverage memory: `Direct.traverse.traverse`
+(cats-eo) went from a measured `?` to uncovered (g1b's record path refuses `Invariant[G]`'s
+`composeFunctor`, whose overriders outside the module are not read); both print `?`, old not
+numeric; its line was deleted.
+
+Method rows after round 3 (identical / better / worse / uncovered), old numeric rows still
+uncovered, methods (both tables), and past the old-unsound list; every worse row is a listed
+correction, as before:
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,885 | 19 | 0 | 1,096 | 3 (3) | 3 (3) |
+| cats-core | 2,138 | 373 | 72 | 5,068 | 25 (26) | 25 (26) |
+| cats-kernel | 635 | 19 | 0 | 1,131 | 28 (28) | 26 (26) |
+| cats-eo | 326 | 12 | 0 | 359 | 3 (4) | 3 (4) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,721 | 269 | 5 | 757 | 169 (188) | 134 (153) |
+
+Gate times (as the gate reports them; the machine was shared, so noisy): cats-kernel 12.3 s
+(round 2) / 19.1 s (round 2's tree, this session) -> 15.5 s; cats-core 14.3 s / 22.8 s -> 14.7 s.
+`compiled/` is 8,849 lines (8,339 before).
 
 ### What exists
 
