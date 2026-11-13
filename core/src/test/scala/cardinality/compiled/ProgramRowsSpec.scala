@@ -38,6 +38,8 @@ class ProgramRowsSpec extends Specification {
       an extension method; none of a one-valued result or no position $suppliedOrNot
     A parent's constructor parameters
       are what the template passes, or free public fields             $parents
+    A class written in a body
+      captures the parameters of the methods around it                $local
     An overridden member (a capability: ReceiversSpec, `Wide.get`)
       is not read where a behavior of it may call the measured one    $reentry
       a `new` whose class the classes read do not hold may            $unresolvedNew
@@ -575,6 +577,73 @@ class ProgramRowsSpec extends Specification {
       .and(found("MF.to") must_== Count.Finite(0))
       .and(found("MF.from") must_== Count.Finite(0))
       .and(found("TH.H.<init>") must_== Count.Finite(1))
+  }
+
+  // A class written in a method captures its parameters, a type parameter's values among them,
+  // and may branch on the captured b. `Box`'s x is x or a at each b, 2^2 = 4; `Two`'s x and y each
+  // x, y or a at each b, (3^2)^2 = 81. `H.m` returns c or a at each b (`seed` is final and computes
+  // a): 2^2 = 4. `In` is a case class of one Boolean, which captures
+  // nothing it shows, so `Out` is 2. In `C`, `import Imp.seed` makes the captured seed ambiguous
+  // (unnameable) and nothing else holds an X: `g` is 0. An import after the class, a wildcard over
+  // a private member, or one that excludes the name binds nothing of it: each `g` returns the
+  // captured X, 1. The anonymous `Q`'s inherited field n hides
+  // the captured n, but `Q(n)` passes it to that public field: `inh`'s m is one of the 2^(2 × 2)
+  // functions of (b, n). `Q(true)` holds nothing of it: `lit`'s m is one of 2^2. Where the field is
+  // overridden (`R`), the parent called is a secondary constructor (`S`), or another template is
+  // nearer than the parent (`Inner`), the captured value the parent holds is not read; nor is an abstract type member of a local
+  // trait, which only the body may implement.
+  def local = {
+    val found = rows(
+      """trait P[A] { def seed: A }
+      |object Imp { val seed: Int = 0 }
+      |class Q(val n: Boolean) { def m(b: Boolean): Boolean = b }
+      |class R(val n: Boolean) { def m(b: Boolean): Boolean = b }
+      |class S(val n: Boolean) { def this(n: Boolean, z: Int) = this(true); def m(b: Boolean): Boolean = b }
+      |object Hid { private val hid: Int = 1; val other: Int = 2 }
+      |object L {
+      |  def f[A](a: A, b: Boolean): Int = {
+      |    final case class Box(x: A)
+      |    final class Two(x: A, y: A)
+      |    final class H extends P[A] { def seed: A = a; def m(c: A): A = ??? }
+      |    0
+      |  }
+      |  def g(n: Boolean): Int = { final case class In(b: Boolean); final case class Out(i: In); 0 }
+      |  def run[X](seed: X): Int = { final class C { import Imp.seed; def g(): X = ??? }; 0 }
+      |  def after[X](seed: X): Int = { final class C { def g(): X = ??? }; import Imp.seed; 0 }
+      |  def hid[X](hid: X): Int = { final class C { import Hid.*; def g(): X = ??? }; 0 }
+      |  def but[X](seed: X): Int = { final class C { import Imp.{seed as _, *}; def g(): X = ??? }; 0 }
+      |  def sec(n: Boolean): S = new S(n, 0) { override def m(b: Boolean): Boolean = !b }
+      |  def inner(n: Boolean): Q = new Q(n) {
+      |    def k(): Int = { final class Inner extends Q(false) { def g(b: Boolean): Boolean = ??? }; 0 }
+      |  }
+      |  def inh(n: Boolean): Q = new Q(n) { override def m(b: Boolean): Boolean = !b }
+      |  def lit(n: Boolean): Q = new Q(true) { override def m(b: Boolean): Boolean = b }
+      |  def over(n: Boolean): R = new R(n) { override val n: Boolean = true; override def m(b: Boolean): Boolean = !b }
+      |  def loc(): Int = { trait T { type X; def k(x: X, y: X): X }; 0 }
+      |}
+      |""".stripMargin
+    )
+    List(
+      "L.f.Box.<init>" -> 4,
+      "L.f.Two.<init>" -> 81,
+      "L.f.H.m" -> 4,
+      "L.g.Out.<init>" -> 2,
+      "L.run.C.g" -> 0,
+      "L.after.C.g" -> 1,
+      "L.hid.C.g" -> 1,
+      "L.but.C.g" -> 1,
+      "L.inh.<new#1>.m" -> 16,
+      "L.lit.<new#1>.m" -> 4
+    ).map((row, n) => found(row) must_== Count.Finite(n))
+      .reduce(_ and _)
+      .and(
+        List("L.over.<new#1>.m", "L.sec.<new#1>.m", "L.inner.<new#1>.k.Inner.g")
+          .map(row => uncovered(found(row), "held by other code"))
+          .reduce(_ and _)
+      )
+      .and(found("L.loc.T.k") must beLike {
+        case Count.Unresolved(List(r)) => r must contain("is local")
+      })
   }
 
   // `Abs` passes its `c` to `Base`, so `Base` holds `c`: `x` is a Boolean computed from `c`, 2^2,

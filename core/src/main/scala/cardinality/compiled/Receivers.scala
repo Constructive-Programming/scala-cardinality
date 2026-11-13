@@ -63,17 +63,13 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   private val reentry = new Reentry(world)
 
   /** The classes around a member, outermost first. An object holds no state of its own; a
-    * definition a class is written in is skipped (`Readings.enclosing` reads its methods); an
-    * anonymous class is read as the final template it is, a local class or object is not.
+    * definition a class is written in is skipped (`Readings.enclosing` reads its methods, whose
+    * parameters a local class captures); an anonymous class is read as the final template it is.
     */
   def around(owner: Symbol): Either[String, List[ClassDef]] = owner match {
     case _: PackageSymbol => Right(Nil)
     // A definition a class is written in: `Readings` reads what its methods supply.
-    case term: TermSymbol => around(term.owner)
-    // A local class or object holds what the methods around it take by rules of its own (a
-    // subclass in the same body may override it): not read. An anonymous class is final.
-    case c: ClassSymbol if !c.owner.isClass && !c.owner.isPackage && !Receivers.anonymous(c) =>
-      Left(s"a local class or object: ${c.name}")
+    case term: TermSymbol                  => around(term.owner)
     case c: ClassSymbol if c.isModuleClass =>
       for {
         tree <- World.tree(c)
@@ -441,7 +437,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   // pick, as the old front end reads it: it counts one as any type only where a class written
   // anywhere may extend `c`, which is not so where `c` is never extended (final, `final abstract`,
   // a value class), where a restricted constructor of it or of a class it extends is callable only
-  // in its scope, or where `c` or a class around it is private to a template.
+  // in its scope, where `c` or a class around it is private to a template, or where it is written
+  // in a body, which code elsewhere cannot name.
   private def pinned(c: ClassSymbol): Option[String] = {
     def confined(s: TermOrTypeSymbol, toPackage: Boolean) = s.visibility match {
       case Visibility.Private | Visibility.PrivateThis => true
@@ -455,6 +452,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
          .map(k => s"the constructor of ${k.name} is not public")
          .orElse(World.owners(c).collectFirst {
            case k: ClassSymbol if confined(k, toPackage = false) => s"${k.name} is private"
+           case _: TermSymbol                                    => s"${c.name} is local"
          })).map(why =>
       s"an abstract type member of a class no class written elsewhere extends: $why"
     )
@@ -723,9 +721,6 @@ private[compiled] object Receivers {
     */
   private def observes(member: TermSymbol)(using Context): Boolean =
     !member.isSynthetic && !member.name.toString.endsWith("_=") && !World.restates(member)
-
-  /** An anonymous class (`new T { … }`), which nothing can extend. */
-  def anonymous(c: ClassSymbol): Boolean = c.name.toString == "$anon"
 
   /** A member the compiler adds to a trait for a `super` call (`superT$$m`): abstract, and
     * implemented by every class mixing the trait in as the call of the parent's member, which is

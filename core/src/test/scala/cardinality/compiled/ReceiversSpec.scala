@@ -231,8 +231,8 @@ class ReceiversSpec extends Specification {
   // member of an anonymous class, which is final, reads the same: `Mk`'s `run` is a Boolean
   // computed from `b` and the `y` of the method the instance is made in, 16; an object inside
   // such a class reads `y` too (`Deep`: a Boolean computed from it, 2^2). A parameter named like a
-  // member the class inherits cannot be named inside it, and is left (`Hid`; `DeepHid`, where an
-  // object in the class inherits it).
+  // member the class inherits cannot be named inside it, and nothing holds it: `get` is one of the
+  // 2 Booleans (`Hid`; `DeepHid`, where an object in the class inherits it).
   // A parameter a nearer scope binds again is out of the definition's reach and adds nothing
   // (`Hide`: `inner` is a Boolean computed from its own `x`, 2^2; the row still lists `x`, as the
   // old front end does; `Self`'s `run` 2^2, the self alias `y` hiding the parameter). A definition
@@ -253,8 +253,9 @@ class ReceiversSpec extends Specification {
   // binder is left (`For`, `ForC`; `ForX` through an extension `foreach` with a `using` clause). A
   // definition in a class-body statement reads the instance as a member does (`Ctor`: `hc`
   // returns `p` or not, 2^2); one in a parent's argument, outside the instance (`Ctor2`), or a
-  // secondary constructor's body, whose call fixes the fields, is left. Left for later: a member of
-  // a local class, which a subclass in the same body may override (`LocalK`).
+  // secondary constructor's body, whose call fixes the fields, is left. A member of a local class
+  // nothing extends reads the captures as an anonymous class's does (`LocalK`: a Boolean computed
+  // from `y`, 2^2).
   private def locals = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def left(name: String) = count(name) match {
@@ -324,10 +325,10 @@ class ReceiversSpec extends Specification {
       .and(left("recv.Pat.outer.<case#1>.inner") must_== "a binder of an enclosing case clause")
       .and(count("recv.Mk.mk.<new#1>.run") must_== Count.Finite(16))
       .and(entry("recv.Mk.mk.<new#1>.run").captures must_== List("y"))
-      .and(left("recv.LocalK.f.K.get") must_== "a local class or object")
-      .and(left("recv.Hid.mk.<new#1>.get") must_== "a capture an inherited member hides")
+      .and(count("recv.LocalK.f.K.get") must_== Count.Finite(4))
+      .and(count("recv.Hid.mk.<new#1>.get") must_== Count.Finite(2))
       .and(count("recv.Deep.mk.<new#1>.H.h") must_== Count.Finite(4))
-      .and(left("recv.DeepHid.mk.<new#1>.H.get") must_== "a capture an inherited member hides")
+      .and(count("recv.DeepHid.mk.<new#1>.H.get") must_== Count.Finite(2))
       .and(count("recv.Self.mk.<new#1>.run") must_== Count.Finite(4))
       .and(count("recv.Ctor.<block#1>.hc") must_== Count.Finite(4))
       .and(left("recv.Ctor.<init#1>.hs") must_== "a definition in a constructor's body")

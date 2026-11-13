@@ -52,16 +52,23 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   private val bounds = new Bounds(shapes)
 
   /** The count of a class's constructor, built on an instance of each class `around` it (outermost
-    * first): a position over a type parameter may take a value that instance holds. A secondary
-    * constructor's is `secondary`'s.
+    * first): a position over a type parameter may take a value that instance holds, or a parameter
+    * `captured` of the methods around a class written in a body, whose type parameters
+    * `methodBinders` binds. A secondary constructor's is `secondary`'s.
     */
-  def count(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] =
-    if (!Readings.primary(constructor.symbol)) secondary(constructor, around)
+  def count(
+      constructor: DefDef,
+      around: List[ClassDef],
+      methodBinders: List[(Symbol, Either[Unread, Shape])],
+      captured: List[Binding]
+  ): Either[Unread, Count] = {
+    val made = built(constructor, around, methodBinders, captured)
+    if (!Readings.primary(constructor.symbol)) secondary(constructor, made)
     else {
       val owner = constructor.symbol.owner.asClass
       val variables = Shapes.typeParameters(constructor) ++ owner.typeParams
       for {
-        (tree, env, held) <- built(constructor, around)
+        (tree, env, held) <- made
         placed <- Traversals.sequence(
           Shapes.parameters(constructor).map(position(_, tree, env, variables.toSet))
         )
@@ -69,6 +76,7 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
         proofs <- bounds.proofs(held.map(_.shape) ++ placed.collect { case Shaped(_, s) => s }, env)
       } yield Constructors.product(owner.displayFullName, placed, held, proofs)
     }
+  }
 
   // A secondary constructor's row, a method from its parameters to the primary constructor's
   // arguments: its self-invocation calls another constructor of the class, and every chain of them
@@ -76,10 +84,13 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   // class (the old `SecondaryConstructors`). A by-name argument is its value, a repeated one its
   // sequence. The instance it builds does not exist yet; what a body after the self-invocation
   // declares is another row (`<init#k>`).
-  private def secondary(constructor: DefDef, around: List[ClassDef]): Either[Unread, Count] = {
+  private def secondary(
+      constructor: DefDef,
+      made: Either[Unread, (ClassDef, Shapes.Env, List[Binding])]
+  ): Either[Unread, Count] = {
     val self = constructor.symbol.displayFullName
     for {
-      (tree, env, held) <- built(constructor, around)
+      (tree, env, held) <- made
       inputs <- shapes.inputs(Shapes.parameters(constructor), env)
       chosen <- shapes.inputs(Shapes.parameters(tree.rhs.constr), env)
       own = held ++ Shapes.parameters(constructor).lazyZip(inputs).map { (p, shape) =>
@@ -91,11 +102,14 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   }
 
   // The class's tree, the environment a constructor's positions are read in, and what the
-  // instances `around` it hold. The primary constructor's copies of the class's type parameters
-  // are bound as the class's are, for a secondary constructor's row.
+  // instances `around` it and the methods' parameters `captured` hold. The primary constructor's
+  // copies of the class's type parameters are bound as the class's are, for a secondary
+  // constructor's row.
   private def built(
       constructor: DefDef,
-      around: List[ClassDef]
+      around: List[ClassDef],
+      methodBinders: List[(Symbol, Either[Unread, Shape])],
+      captured: List[Binding]
   ): Either[Unread, (ClassDef, Shapes.Env, List[Binding])] = {
     val owner = constructor.symbol.owner.asClass
     val copies = Shapes.typeParameters(constructor)
@@ -116,14 +130,15 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
         }
         .toLeft(())
       env = Shapes.Env.of(
-        outer ++ variables.zip(atoms ++ atoms) ++ Shapes.typeParameters(tree.rhs.constr).zip(atoms),
+        outer ++ methodBinders ++ variables.zip(atoms ++ atoms) ++
+          Shapes.typeParameters(tree.rhs.constr).zip(atoms),
         constructor.symbol
       )
       // Where the primary constructor has no parameters the row has one value, whatever the
       // instances around hold; else a secondary one may choose the primary's arguments from them.
       held <-
         if (Shapes.parameters(tree.rhs.constr).isEmpty) Right(Nil)
-        else receivers.bindings(around, constructor.symbol, env, Set.empty)
+        else receivers.bindings(around, constructor.symbol, env, Set.empty).map(_ ++ captured)
     } yield (tree, env, held)
   }
 

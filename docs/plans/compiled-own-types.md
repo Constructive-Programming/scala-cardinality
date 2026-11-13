@@ -2404,6 +2404,44 @@ fields' product, so the position's method-side reading stands. Two fixture rows 
 restricted constructor, extended by `Below`) stay uncovered: a class something extends is not
 read by its builders.
 
+### Group h1: classes written in a body, captures an import or an inherited member hides
+
+What it reads (`Readings`, `Receivers.around`, `Constructors.count`, `Shapes.declared`):
+
+- A class written in a method's body, or in an anonymous class or value initializer around one, is
+  read as a class in an object is, its captures the parameters of the methods around it. Its
+  members' rows were "a local class or object" (the closed world already makes it final where
+  nothing in the body extends it); its constructor's row "an enclosing definition". A constructor
+  row now takes the methods' parameters as values (`Readings.captured`, shared with members) and
+  their type parameters as atoms (`binders`): `Box(x: A)` in `def f[A](a: A)` is 2 (x or a).
+  The constructor's scope is the caller's: the class body's members do not hide a capture from it.
+- An abstract type member of a local class refuses ("... no class written elsewhere extends: T is
+  local"), as the old reading does ("fixed: L is local").
+- A plain local case class (public fields only) or a members-free local class, with no instance
+  class around it, is read as a type (`Out(i: In)` is 2).
+- Captures a scope hides (`Readings.local`): an import written before the definition binds its
+  explicit names and, for a wildcard, the qualifier's public non-given members that no sibling
+  selector names; Scala then refers to neither (scalac: "Reference to seed is ambiguous"). A
+  wildcard over a class not read, an unknown position, or a member of restricted access of that
+  name leaves the row. An inherited non-private term member hides a capture of its name (the old
+  check "a capture an inherited member hides" is gone): the capture stays a value only where a
+  holder keeps it, now including a parent call of the nearest template that passes it whole to a
+  public primary-constructor field of its type that nothing overrides (`passes`; `new P(n) { … }`).
+
+Derivations added to `derived.txt` (better past a model limit): `U.hidden.Fn.apply`,
+`U.fresh.Gn.apply` (2^(2^69), inline methods with no compile-time operation), `Out.outer.D.h`,
+`Out.outer.W.h` (2: an export's forwarder hides the capture), `Out.run.C.g` (0: an import makes
+the capture ambiguous). `Passed.imported.<new#1>.seed` (16, derived earlier) is uncovered now: the
+wildcard `import Box.*` makes the captured `a` unnameable, and the parent call `Hide(a)` passes it
+to a private parameter, a holder not read; the private coverage memory dropped its line.
+
+Old numeric rows still uncovered (the `--rows` listing, against `e318915`): fixtures 445 → 359,
+cats-core 31 → 29, the other corpora unchanged. Method rows, fixtures: identical 5,570, better
+258, worse 3 (listed corrections), uncovered 922. Of this group's 108 fixture rows 23 remain: a
+definition in a secondary constructor's body 7, a parent written in a body 4 (its members may read
+a capture the subclass hides; not read), a class nested in a class 10, a wide or generic parent
+field 2. cats-core: two `Deferred.<init>` rows are identical; the third stops at re-entry.
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.
