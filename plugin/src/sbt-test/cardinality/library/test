@@ -3,3 +3,10 @@
 > librarySources
 > cardinalityReportOf library-sources.jar
 $ must-mirror report.txt expected/report.txt
+# The TASTy front end reads the library's binary jar, its sources jar naming and placing the rows;
+# the binary jar alone is refused.
+> libraryBinary
+> set cardinalityFrontEnd := CardinalityFrontEnd.Tasty
+> cardinalityReportOf library.jar library-sources.jar
+> checkTasty
+-> cardinalityReportOf library.jar

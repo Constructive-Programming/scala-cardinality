@@ -20,7 +20,7 @@ final private[cardinality] case class MemberPath(
 ) {
 
   /** The atom of an abstract member every level of the path leaves open. */
-  def atom(name: String): String = MemberPath.Atom(key, spell(name))
+  def atom(name: String): String = Atoms.Member(key, spell(name))
 
   def spell(name: String): String = s"$label#$name"
 
@@ -42,21 +42,5 @@ private[cardinality] object MemberPath {
 
   /** The identity of `this` of a template. */
   def selfKey(template: Frame): String = s"this@${template.id}"
-
-  /** A member atom carries how a reason spells it ahead of its identity, so a reason can name it.
-    */
-  object Atom {
-
-    private val Spelled = """(?s)member:(\d+):(.*)""".r
-
-    def apply(key: String, spelled: String): String = s"member:${spelled.length}:$spelled$key"
-
-    /** How a reason spells a member atom. */
-    def unapply(atom: String): Option[String] = atom match {
-      case Spelled(length, rest) if rest.length >= length.toInt => Some(rest.take(length.toInt))
-      case _                                                    => None
-    }
-
-  }
 
 }

@@ -15,6 +15,6 @@ case class Holder[A](value: A, count: Int)
 // `Nat` lives in `Natural.scala`, so this consumer also reads across files.
 case class Cursor(at: Nat, open: Boolean)
 
-case class Timeline(head: Boolean, tail: => Timeline)
+class Timeline(head: Boolean, tail: => Timeline) // not a case class: one cannot take `=> A`
 
 case class Reducer(run: String => String)

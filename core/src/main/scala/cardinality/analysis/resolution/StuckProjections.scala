@@ -1,7 +1,7 @@
 package cardinality.analysis.resolution
 
 import cardinality.analysis.inhabitation.Inhabitation.Shape
-import cardinality.analysis.model.SourceBindings
+import cardinality.analysis.model.Atoms
 import cardinality.types.Universe
 
 /** Stuck tuple projections (members MT3).
@@ -66,12 +66,12 @@ private[cardinality] object StuckProjections {
     )
     projected.groupMap(_._1)(_._2).toList.sortBy(_._1).collectFirst {
       case (scrutinee, arities) if arities.distinct.size > 1 =>
-        s"stuck match types on ${SourceBindings.label(scrutinee)} have no common reducing " +
+        s"stuck match types on ${Atoms.label(scrutinee)} have no common reducing " +
           s"instantiation: arities ${arities.distinct.sorted.mkString(", ")}"
       case (scrutinee, _) if bound(scrutinee) =>
-        s"stuck match types on ${SourceBindings.label(scrutinee)} meet a bound that mentions it"
+        s"stuck match types on ${Atoms.label(scrutinee)} meet a bound that mentions it"
       case (scrutinee, _) if equated(scrutinee) =>
-        s"stuck match types on ${SourceBindings.label(scrutinee)} meet type evidence that mentions it"
+        s"stuck match types on ${Atoms.label(scrutinee)} meet type evidence that mentions it"
     }
   }
 

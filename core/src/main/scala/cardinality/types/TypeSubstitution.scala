@@ -6,6 +6,8 @@ import dev.constructive.eo.data.PSVec
 import dev.constructive.eo.optics.{Getter, Lens, Optional, Plated, Prism}
 import dev.constructive.eo.schemes.Schemes
 
+import Traversals.{hylo, plated}
+
 // Parameter substitution shared by match-type reduction and its callers.
 private[cardinality] object TypeSubstitution {
   private given Dialect = dialects.Scala3
@@ -40,9 +42,6 @@ private[cardinality] object TypeSubstitution {
   private val refineStatsLens =
     Lens[Type.Refine, Stat.Block](_.body, (r, b) => r.copy(tpe = r.tpe, body = b))
       .andThen(Lens[Stat.Block, List[Stat]](_.stats, (b, s) => b.copy(stats = s)))
-
-  def plated[S](parts: S => (List[S], List[S] => S)): Plated[S] =
-    Plated.fromChildren(s => parts(s)._1, (s, kids) => parts(s)._2(kids))
 
   given platedType: Plated[Type] = plated {
     case a: Type.Apply =>
@@ -108,14 +107,6 @@ private[cardinality] object TypeSubstitution {
       .cata[Type, A] { (node, kids) =>
         alg(node, kids.toList, rebuilt => localPlate.rebuild(node, PSVec.from(rebuilt)))
       }(using localPlate)
-      .get
-
-  def hylo[S, A](expand: S => List[S], merge: (S, List[A]) => A): S => A =
-    Schemes
-      .hylo[S, A](
-        seed => PSVec.from(expand(seed)),
-        (seed, kids) => merge(seed, kids.toList)
-      )
       .get
 
   def typeNames(tpe: Type): List[String] =

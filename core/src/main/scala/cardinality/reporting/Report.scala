@@ -5,6 +5,7 @@ import scala.jdk.CollectionConverters.*
 import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.capacity.*
+import cardinality.compiled.TastyFrontEnd
 import cardinality.request.{AnalysisQuery, SourceSnapshot}
 import cardinality.tasty.CompiledTypes
 import dev.constructive.eo.generics.{lens, prism}
@@ -88,13 +89,24 @@ object Report {
     * directories): their classes join the environment as signature stubs (`TastyStubs`), never
     * measured and never reported. `stubs` names a file of stubs already rendered (`StubFile`), read
     * instead of the classpath. `classes` is the sources' own compiled output: a member written
-    * without a result type takes the type the compiler gave it (`CompiledTypes`).
+    * without a result type takes the type the compiler gave it (`CompiledTypes`); its output may be
+    * empty where only the classpath is given, for a binary jar among the paths. `frontEnd` picks
+    * the front end that reads the sources; both plugins take their default from this field.
     */
   final case class Environment(
       classpath: Seq[Path] = Nil,
       stubs: Option[Path] = None,
-      classes: Option[CompiledTypes.Classes] = None
+      classes: Option[CompiledTypes.Classes] = None,
+      frontEnd: Front = Front.Scalameta
   )
+
+  /** The front ends (docs/plans/compiled-own-types.md, "Front end: design and status"). `Scalameta`
+    * reads the sources' syntax; `Tasty` reads the compiled classes alone (the module's, and a
+    * binary jar among the paths) and refuses a source without them.
+    */
+  enum Front {
+    case Scalameta, Tasty
+  }
 
   final case class QueryResult(
       report: Report,
@@ -118,23 +130,51 @@ object Report {
 
   }
 
-  def query(request: Query): QueryResult = {
-    val result = try readQuery(request)
-    catch {
-      case scala.util.control.NonFatal(error) =>
-        QueryResult(
-          Report(
-            Nil,
-            List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}"))
-          ),
-          None,
-          None
+  def query(request: Query): QueryResult = request.environment.frontEnd match {
+    case Front.Tasty     => selected(request)
+    case Front.Scalameta =>
+      val result = try readQuery(request)
+      catch {
+        case scala.util.control.NonFatal(error) =>
+          QueryResult(acquisitionFailed(error), None, None)
+      }
+      result.copy(configuration =
+        Some(
+          s"${request.captureLimits}; ${request.limits}; ${request.budget}"
         )
-    }
-    result.copy(configuration =
-      Some(
-        s"${request.captureLimits}; ${request.limits}; ${request.budget}"
       )
+  }
+
+  // A query that failed before any row was measured: what was thrown, by its class alone.
+  private def acquisitionFailed(error: Throwable): Report =
+    Report(Nil, List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}")))
+
+  // A selected report from the compiled classes: the targets' report, its method rows filtered by
+  // qualified name (all of them when no name is given). The support is compiled with the module,
+  // so its classes are already read and its sources are not needed; the limits and budgets bound
+  // the syntax search only and have no counterpart here.
+  private def selected(request: Query): QueryResult = {
+    val report =
+      try of(request.targets, request.environment)
+      catch {
+        case scala.util.control.NonFatal(error) => acquisitionFailed(error)
+      }
+    def chosen(entry: MethodAnalysis.Entry) =
+      request.targetNames.isEmpty || request.targetNames(entry.name)
+    // A name is not found only where every source was read: a refused source may hold it.
+    val missing = request.targetNames -- report.methods.map(_.name)
+    val notFound =
+      Option.when(missing.nonEmpty && report.errors.isEmpty)(
+        Error("", s"selected targets not found: ${missing.toList.sorted.mkString(", ")}")
+      )
+    QueryResult(
+      report.copy(
+        sources =
+          report.sources.map(source => Source(source.path, Nil, source.methods.filter(chosen))),
+        errors = report.errors ++ notFound
+      ),
+      None,
+      None
     )
   }
 
@@ -240,26 +280,63 @@ object Report {
 
   /** Reads every Scala source under `paths` — a file, a directory walked recursively, or a jar such
     * as the `-sources.jar` a library publishes — and measures the definitions it finds, in
-    * `environment`.
+    * `environment`. Under the TASTy front end a jar of compiled classes among `paths` (a library's
+    * binary jar) joins `environment.classes`' output, read against its classpath; the sources still
+    * name and place the rows.
     */
   def of(paths: Seq[Path], environment: Environment = Environment()): Report = {
-    val found = paths.toList.distinct.map(path => path -> read(path))
-    val rows =
-      ScalametaFrontEnd.rows(FrontEnd.Module(found.flatMap(_._2.toOption).flatten, environment))
+    val listed = paths.toList.distinct
+    val (frontEnd, binaries) = environment.frontEnd match {
+      case Front.Scalameta => (ScalametaFrontEnd, Map.empty[Path, Boolean])
+      case Front.Tasty     =>
+        (TastyFrontEnd, listed.flatMap(path => compiledEntries(path).map(path -> _)).toMap)
+    }
+    // A binary jar that holds no sources is not read, nor placed, as sources.
+    val found = listed.filterNot(binaries.get(_).contains(false)).map(path => path -> read(path))
+    val sources = found.flatMap(_._2.toOption).flatten
+    val classes =
+      if (binaries.isEmpty) environment.classes
+      else {
+        val module = environment.classes.getOrElse(CompiledTypes.Classes(Nil))
+        Some(module.copy(output = module.output ++ listed.filter(binaries.contains)))
+      }
+    val rows = frontEnd.rows(FrontEnd.Module(sources, environment.copy(classes = classes)))
     // The front end answers each source in order; a path that could not be read stands where it
-    // was given.
+    // was listed.
     val answers = rows.sources.iterator
     val answered = found.flatMap {
       case (_, Left(error))    => List(Left(error))
       case (_, Right(sources)) => sources.map(_ => answers.next())
     }
+    // The rows of a binary jar are named and placed by its sources, which a sources jar holds.
+    val unsourced = Option.when(binaries.nonEmpty && sources.isEmpty)(
+      Error(
+        listed.filter(binaries.contains).mkString(", "),
+        "no sources beside the compiled classes: give the sources jar too"
+      )
+    )
     Report(
       answered.collect { case Right(source) => source },
-      answered.collect { case Left(error) => error },
+      answered.collect { case Left(error) => error } ++ unsourced,
       Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1)))),
       rows.warnings
     )
   }
+
+  // For a jar of compiled classes (TASTy or class files), whether it holds sources too; nothing for
+  // any other path. A jar that cannot be opened is left to `read`, which reports it.
+  private def compiledEntries(path: Path): Option[Boolean] =
+    Option.when(Locations.jar(path))(path).flatMap { jar =>
+      try {
+        val archive = new ZipFile(jar.toFile)
+        try {
+          val names = archive.entries().asScala.map(_.getName).toList
+          Option.when(names.exists(n => n.endsWith(".tasty") || n.endsWith(".class")))(
+            names.exists(isScala)
+          )
+        } finally archive.close()
+      } catch { case _: IOException => None }
+    }
 
   // The Scala sources one path holds: a directory is walked recursively, a jar is read as the
   // sources jar a library publishes, and any other path is a single source file. A path that

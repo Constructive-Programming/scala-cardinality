@@ -181,7 +181,7 @@ private[inhabitation] object Live {
   // With no cycle behind it the reachable graph is a DAG, so a memo-aware hylomorphism counts
   // each goal as the sum of its rules' counts, exactly.
   val count: ((Live, Int, Int)) => Card =
-    cardinality.types.TypeSubstitution.hylo[(Live, Int, Int), Card](
+    cardinality.types.Traversals.hylo[(Live, Int, Int), Card](
       (live, id, depth) => {
         live.inspect("solver count")
         if (depth >= live.maxDepth)

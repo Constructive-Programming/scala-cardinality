@@ -709,8 +709,8 @@ object SourceIndex {
   def importPath(ref: Term): Option[List[String]] =
     segments(ref).filterNot(_.drop(1).contains(Root))
 
-  /** The anchor segment of an absolute path. */
-  val Root = "_root_"
+  /** `StdlibModel.RootPackage`, under the name the syntax front end reads. */
+  val Root: String = StdlibModel.RootPackage
 
   /** The name an explicit selector binds: its own, or a rename's new one. */
   def boundName(importee: Importee): Option[String] = importee match {
