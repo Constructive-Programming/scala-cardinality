@@ -40,6 +40,7 @@ class PolymorphicMemberSpec extends Specification {
       a bare-binder result that grows every goal exhausts the budget $growingChain
       a bare-binder result's compound instantiations are not searched $compoundInstantiation
       a polymorphic member inside a record's member counts as one supplied directly $nestedRecord
+      a record a receiver's method or a function returns keeps its polymorphic member $produced
     Deferred inline members (no term of a body that is not inline)
       one inhabited under every instantiation is dropped            $deferredInline
       one whose type may be empty is refused                        $deferredInlineEmpty
@@ -380,6 +381,21 @@ class PolymorphicMemberSpec extends Specification {
       .map(name => found(s"nested.Use.$name") === Count.Finite(2))
       .reduce(_ and _)
       .and(refused(found("nested.Use.same"), "polymorphic capability binder: A"))
+  }
+
+  // `map` may build an argument of itself (`fu.map(fu.map(x)(f))(g)`), so its instantiations are
+  // not closed (PB5) wherever a `Fun[G]` is reached: a receiver's `def fu`, or what a parameter
+  // `() => Fun[G]` returns, as for a parameter `Fun[G]`. Each row read 1 before `flatten` moved a
+  // polymorphic member out of a function (the member was lost).
+  def produced = {
+    val found = counts("""package produced
+      |trait Fun[F[_]] { def map[A, B](fa: F[A])(f: A => B): F[B] }
+      |trait KS[G[_]] { def fu: Fun[G]; def g(x: G[Boolean]): G[Boolean] = x }
+      |object U { def q[G[_]](fu: () => Fun[G], x: G[Boolean]): G[Boolean] = x }
+      |""".stripMargin)
+    List("produced.KS.g", "produced.U.q")
+      .map(name => refused(found(name), "instantiations not closed"))
+      .reduce(_ and _)
   }
 
   private lazy val poly4 = counts("""package poly4

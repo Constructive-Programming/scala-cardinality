@@ -20,7 +20,7 @@ import tastyquery.Types.{ByNameType, MethodType, PolyType, TermType, Type}
   * member they call that the module declares, with what overrides it in turn. A call may reach the
   * measured member
   *
-  *   - by naming a member of its name (a path or an override the search does not follow);
+  *   - by a reference that may run it (`runs`: the member, or one of its name it may dispatch to);
   *   - by calling, on the instance, code the module does not declare, whose body is not read and
   *     may call back (what `Any` declares aside);
   *   - by giving the instance away (`this` anywhere but as the receiver of a selection);
@@ -35,13 +35,12 @@ import tastyquery.Types.{ByNameType, MethodType, PolyType, TermType, Type}
   *
   * A value of a capability record is another instance than the site's (`may` with `instance`
   * false): its behaviors re-enter the measured member only by reaching it, which `reached` reads,
-  * and only if a chain of references by name leads from them to it (`callersOf`).
+  * and only if a chain of references leads from them to it (`callersOf`).
   */
 final private[compiled] class Reentry(world: World)(using Context) {
 
   def may(c: ClassSymbol, member: TermSymbol, measured: TermSymbol, instance: Boolean): Boolean = {
     val seen = mutable.Set.empty[Symbol]
-    val name = measured.name.toString
     // The class the measured member runs in (a local method's enclosing one).
     val home = World.owners(measured.owner).collectFirst { case k: ClassSymbol => k }
 
@@ -53,8 +52,8 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // Code outside the module may call the measured member, which no reference names.
     val external = calledOutside(measured)
     // Whether code outside the module may run code that reaches the measured member: it may call
-    // the member, or references by name do not settle what calls the member (`callersOf`).
-    lazy val outward = external || callersOf(name).isEmpty
+    // the member, or references do not settle what calls the member (`callersOf`).
+    lazy val outward = external || callersOf(measured).isEmpty
 
     // Every body that may run where `m` is called on an instance of `owner`: its own and each
     // overrider's; and, where code outside the module may reach the measured member (else no such
@@ -67,7 +66,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
     }
 
     def dispatched(m: TermSymbol): Boolean =
-      m.name.toString == name || (m.owner match {
+      runs(m, measured) || (m.owner match {
         case owner: ClassSymbol => behaviors(owner, m, reaches)
         case _                  => reaches(m)
       })
@@ -79,21 +78,23 @@ final private[compiled] class Reentry(world: World)(using Context) {
     def fromInstance(m: TermSymbol): Boolean =
       if (Receivers.accessor(m)) {
         val target = m.name.toString.split("\\$\\$").last
-        target == name || m.owner.isClass && m.owner.asClass.linearization.drop(1).exists {
-          _.declarations.exists {
-            case parent: TermSymbol if parent.name.toString == target => fromInstance(parent)
-            case _                                                    => false
+        target == measured.name.toString || m.owner.isClass && m.owner.asClass.linearization
+          .drop(1)
+          .exists {
+            _.declarations.exists {
+              case parent: TermSymbol if parent.name.toString == target => fromInstance(parent)
+              case _                                                    => false
+            }
           }
-        }
       } else if (world.ofModule(m)) dispatched(m)
-      else m.name.toString == name || !World.universal(m.owner)
+      else runs(m, measured) || !World.universal(m.owner)
 
-    // Whether a reference names a member of the measured one's name.
-    def measures(reference: Tree): Boolean = called(reference).exists(_.name.toString == name)
+    // Whether a reference may run the measured member.
+    def measures(reference: Tree): Boolean = called(reference).exists(runs(_, measured))
 
     // On another instance than the site's (a value of a capability record), a behavior re-enters
-    // the measured member only by reaching it: naming a member of its name, calling a member of the
-    // module that does, a name that does not resolve, applying a function a field or parameter
+    // the measured member only by reaching it: a reference that may run it, a call of a member of
+    // the module that does, a name that does not resolve, applying a function a field or parameter
     // holds or naming a by-name parameter (built where the search does not look), building an
     // instance of its class or of one that does not resolve, or first accessing an object whose
     // body reaches it. Where code outside the module may reach it (`outward`), so may that code:
@@ -198,19 +199,19 @@ final private[compiled] class Reentry(world: World)(using Context) {
           Some(called(reference).forall(fromInstance))
         case reference: Select =>
           Option.when(called(reference).forall { m =>
-            m.name.toString == name || (world.ofModule(m) && dispatched(m))
+            runs(m, measured) || (world.ofModule(m) && dispatched(m))
           })(true)
         case reference: TermReferenceTree if initializes(reference) => Some(true)
         case New(tpt) if builds(tpt, reachesBuilt)                  => Some(true)
         case _                                                      => None
       }
 
-    // On another instance, a behavior no chain of references by name leads from to the measured
+    // On another instance, a behavior no chain of references leads from to the measured
     // member (`callersOf`) does not reach it, whatever the search says. A measured strict field
     // runs when its class is built, which no reference names: not read so. A behavior that is a
     // field runs in its class's body, so it is a caller where that body is.
     val field = !measured.isMethod && measured.kind != TermSymbolKind.LazyVal
-    val callers = Option.when(!instance && !field && !external)(callersOf(name)).flatten
+    val callers = Option.when(!instance && !field && !external)(callersOf(measured)).flatten
     val found = callers.forall { set =>
       behaviors(c, member, m => set(m) || (!m.isMethod && set(m.owner)))
     } && behaviors(c, member, reaches)
@@ -222,6 +223,16 @@ final private[compiled] class Reentry(world: World)(using Context) {
   // For a record value, the members a finished search found to reach nothing, by the measured
   // member: what `reached` reads depends on it alone (and on the program).
   private val unreaching = mutable.Map.empty[TermSymbol, mutable.Set[Symbol]]
+
+  // Whether a reference to `s` may run `t`: the same member, one of its name in a class an instance
+  // may share with `t`'s (or one `mixes` cannot compare), through which it dispatches, or the field
+  // of a constructor's parameter, which its class's body names.
+  private def runs(s: TermSymbol, t: TermSymbol): Boolean =
+    s == t || s.name == t.name && ((s.owner, t.owner) match {
+      case (a: ClassSymbol, b: ClassSymbol) => Try(world.mixes(a, b)).getOrElse(true)
+      case (a: ClassSymbol, b: TermSymbol)  => World.isConstructor(b) && b.owner == a
+      case _                                => false
+    })
 
   // Whether code outside the module may call `m`: it overrides a member of that code, or a class
   // of the program that inherits it has a parent outside the module declaring a member of its name,
@@ -257,27 +268,29 @@ final private[compiled] class Reentry(world: World)(using Context) {
     found.toSet
   }
 
-  /** The definitions of the module that may call a member of the name: those whose code holds a
-    * reference of the name, or of a caller's (a call names what it calls: dispatch, overloads and
-    * unresolved references are read by the name alone). Code a module class's body holds is run by
-    * any access to it, which names its value or a member. None where code may run that no reference
-    * names: the body of a function literal or a by-name argument (run by whatever holds it), of a
-    * member code outside the module may call (`calledOutside`), of a class that is no object (which
-    * `new` runs), or a class of the module without a tree.
+  /** The definitions of the module that may call `measured`: those whose code holds a reference
+    * that may run it, or run a caller (`runs`: dispatch; a reference that does not resolve, by its
+    * name alone). Code a module class's body holds is run by any access to it, which names its
+    * value or a member. None where code may run that no reference names: the body of a function
+    * literal or a by-name argument (run by whatever holds it), of a member code outside the module
+    * may call (`calledOutside`), of a class that is no object (which `new` runs), or a class of the
+    * module without a tree.
     */
-  private def callersOf(name: String): Option[Set[Symbol]] = callerSets.getOrElseUpdate(
-    name, {
+  private def callersOf(measured: TermSymbol): Option[Set[Symbol]] = callerSets.getOrElseUpdate(
+    measured, {
       val found = mutable.Set.empty[Symbol]
-      val names = mutable.Queue(name)
-      val named = mutable.Set(name)
-      def call(symbol: Symbol): Unit = {
-        val called = symbol.name.toString
-        if (named.add(called)) names += called
+      val targets = mutable.Queue(measured)
+      val queued = mutable.Set[Symbol](measured)
+      def call(symbol: Symbol): Unit = symbol match {
+        case t: TermSymbol if queued.add(t) => targets += t
+        case _                              => ()
       }
       var open = world.module.exists(_.tree.isEmpty)
-      while (!open && names.nonEmpty)
-        referrers.getOrElse(names.dequeue(), Nil).foreach {
-          case Some(holder) =>
+      while (!open && targets.nonEmpty) {
+        val target = targets.dequeue()
+        referrers.getOrElse(target.name.toString, Nil).foreach {
+          case (_, Some(symbol)) if !runs(symbol, target) => ()
+          case (Some(holder), _)                          =>
             if (found.add(holder)) holder match {
               case k: ClassSymbol if k.isModuleClass =>
                 Try {
@@ -287,23 +300,26 @@ final private[compiled] class Reentry(world: World)(using Context) {
               case t: TermSymbol if !calledOutside(t) => call(t)
               case _                                  => open = true
             }
-          case None => open = true
+          case (None, _) => open = true
         }
+      }
       Option.when(!open)(found.toSet)
     }
   )
 
-  private val callerSets = mutable.Map.empty[String, Option[Set[Symbol]]]
+  private val callerSets = mutable.Map.empty[TermSymbol, Option[Set[Symbol]]]
 
   // Each name the module references, with the code that holds such a reference: the nearest
   // method or lazy value around it, the class whose body does, or the parameter a by-name argument
   // of a method of the module nothing overrides is given (its code runs where the parameter is
   // named); none for a function literal's body or another by-name argument (run by whatever holds
-  // it). A pattern's extractor is applied, and its result asked what the match reads.
-  private lazy val referrers: Map[String, List[Option[Symbol]]] = {
-    val found = mutable.Map.empty[String, mutable.Set[Option[Symbol]]]
+  // it). Each reference comes with the member it resolves to, if it does. A pattern's extractor is
+  // applied, and its result asked what the match reads.
+  private lazy val referrers: Map[String, List[(Option[Symbol], Option[TermSymbol])]] = {
+    val found = mutable.Map.empty[String, mutable.Set[(Option[Symbol], Option[TermSymbol])]]
     class Holder(holder: Option[Symbol]) extends TreeTraverser {
-      def note(name: String): Unit = found.getOrElseUpdate(name, mutable.Set.empty) += holder
+      def note(name: String, symbol: Option[TermSymbol] = None): Unit =
+        found.getOrElseUpdate(name, mutable.Set.empty) += holder -> symbol
       def inside(tree: Tree): Unit = super.traverse(tree)
       override def traverse(tree: Tree): Unit = tree match {
         case d: DefDef =>
@@ -312,7 +328,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
           Holder(Some(v.symbol)).inside(v)
         case c: ClassDef => Holder(Some(c.symbol)).inside(c)
         case _: Unapply  =>
-          Reentry.Matched.foreach(note)
+          Reentry.Matched.foreach(note(_))
           super.traverse(tree)
         case call: Apply =>
           val (head, clauses) = Reentry.unapplied(call)
@@ -362,10 +378,13 @@ final private[compiled] class Reentry(world: World)(using Context) {
             }
           }
         case reference: TermReferenceTree =>
-          note(Reentry.unsigned(reference match {
-            case Ident(name)     => name
-            case Select(_, name) => name
-          }))
+          note(
+            Reentry.unsigned(reference match {
+              case Ident(name)     => name
+              case Select(_, name) => name
+            }),
+            World.named(reference)
+          )
           super.traverse(reference)
         case _ => super.traverse(tree)
       }

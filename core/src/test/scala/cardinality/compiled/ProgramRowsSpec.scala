@@ -248,8 +248,11 @@ class ProgramRowsSpec extends Specification {
   // `probe`; `check` runs a function literal naming it inside `forall`, whose Boolean result keeps
   // no function; `later` gives it by name to `twice`, which forces it where it names `b`. So `neqv`
   // is a capability beside the abstract `eqv`, each one of the 2 functions (Unit, Unit) => Boolean
-  // (its input is one value): `E[Unit]` is 2 × 2 values and `target` one of 2^4. Left: `Mine.neqv` calls `probe`; `back` passes `lift`
-  // a function literal naming `target`, which whatever applies the function may run.
+  // (its input is one value): `E[Unit]` is 2 × 2 values and `target` one of 2^4. `Mine2.neqv` calls
+  // `Other.target`, a member of the same name whose calls never run `Use.target` (no instance is of
+  // both objects): 2^4 still. Left: `Mine.neqv` calls `probe`; `back` passes `lift` a function
+  // literal naming `target`, which whatever applies the function may run; `Mine3.neqv` gives `K` by
+  // name a call of `target`, which `K.get` runs where it names its field `f`.
   def unnamedCaller = {
     def found(more: String) = rows(
       s"""trait E[A] { def eqv(x: A, y: A): Boolean; def neqv(x: A, y: A): Boolean = !eqv(x, y) }
@@ -271,6 +274,12 @@ class ProgramRowsSpec extends Specification {
     )("Use.target")
     (found("") must_== Count.Finite(16))
       .and(
+        found("""object Other { def target(i: Int): Boolean = i > 0 }
+          |  object Mine2 extends E[Unit] {
+          |    def eqv(x: Unit, y: Unit) = true; override def neqv(x: Unit, y: Unit) = Other.target(1)
+          |  }""".stripMargin) must_== Count.Finite(16)
+      )
+      .and(
         uncovered(
           found(
             "object Mine extends E[Unit] { def eqv(x: Unit, y: Unit) = true; override def neqv(x: Unit, y: Unit) = probe }"
@@ -281,6 +290,16 @@ class ProgramRowsSpec extends Specification {
       .and(
         uncovered(
           found("val back: E[Unit] = lift((x, y) => Use.target(units))"),
+          Receivers.Reenters
+        )
+      )
+      .and(
+        uncovered(
+          found("""final class K(f: => Boolean) { def get: Boolean = f }
+          |  object Mine3 extends E[Unit] {
+          |    def eqv(x: Unit, y: Unit) = true
+          |    override def neqv(x: Unit, y: Unit) = new K(Use.target(this)).get
+          |  }""".stripMargin),
           Receivers.Reenters
         )
       )

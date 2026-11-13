@@ -475,6 +475,18 @@ coverage memory: deleted cats-core's six `InjectK` rows the front proved unsound
 `catsKernelPartialOrderingForPartialOrder.<new#1>.lteq`); inserted the rows the merged tree newly
 measures: cats-core 20, cats-eo 11, cats-kernel 2, core 113, fixtures 255.
 
+Second unit, the held-back narrowing, ported onto the current `Reentry`: a reference re-enters only
+if it may run the measured member (`runs`: the same symbol, one of its name in a class an instance
+may share, `ClosedProgram.mixes`, or the field of a constructor's parameter), and `callersOf` closes
+over symbols (a reference that does not resolve still counts by its name). `KleisliStrong.lmap` is
+the solver's refusal now, identical to the old `?`. Regressions: `ProgramRowsSpec.unnamedCaller`
+(`Mine2` counted, `Mine3` left), `PolymorphicMemberSpec.produced` (the producer cases of the solver
+fix). Method rows identical: cats-core 1,769 → 1,826 (old numeric uncovered 33 → 32), cats-kernel
+515 → 521 (81 → 78), fixtures 5,207 → 5,214 with one better row past a model limit derived
+(`Outer.Inner.target`, 2^16). Shared coverage memory: inserted cats-core 57, cats-kernel 6,
+fixtures 11. Next: restricted constructors, re-entry among an enclosing class's members, a record of
+a class something extends, a parameter that is no public field, the small groups.
+
 ### Commands
 
 | Command | What it does |
