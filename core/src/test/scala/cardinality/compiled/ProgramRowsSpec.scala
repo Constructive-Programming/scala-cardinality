@@ -32,16 +32,26 @@ class ProgramRowsSpec extends Specification {
       are what the template passes, or free public fields             $parents
     An overridden member (a capability: ReceiversSpec, `Wide.get`)
       is not read where a behavior of it may call the measured one    $reentry
+      a `new` whose class the classes read do not hold may            $unresolvedNew
   """
 
   // Each method of `code`, compiled against `classpath` and read with it, by its row name.
-  private def rows(code: String, classpath: List[Path] = Nil): Map[String, Count] =
-    module(code, classpath).flatMap(_.methods).map(entry => entry.name -> entry.count).toMap
+  private def rows(
+      code: String,
+      classpath: List[Path] = Nil,
+      read: Option[List[Path]] = None
+  ): Map[String, Count] =
+    module(code, classpath, read).flatMap(_.methods).map(entry => entry.name -> entry.count).toMap
 
-  // `code` compiled against `classpath` and read with it by the compiled front end.
-  private def module(code: String, classpath: List[Path]): List[Report.Source] = {
+  // `code` compiled against `classpath`, read with `read` (by default the same) by the compiled
+  // front end.
+  private def module(
+      code: String,
+      classpath: List[Path],
+      read: Option[List[Path]] = None
+  ): List[Report.Source] = {
     val classes = Programs.compiled(code, classpath)
-    val libraries = classpath ++ Programs.libraries
+    val libraries = read.getOrElse(classpath) ++ Programs.libraries
     val module = FrontEnd.Module(
       List("Example.scala" -> code),
       Report.Environment(libraries, classes = Some(CompiledTypes.Classes(List(classes), libraries)))
@@ -163,6 +173,37 @@ class ProgramRowsSpec extends Specification {
     List("Loop.get", "Sup.get", "Esc.get", "Wide.get", "C.g", "K.compare")
       .map(n => uncovered(found(n), "an overridden member that may call it"))
       .reduce(_ and _)
+  }
+
+  // A `new` whose class may be the site's re-enters it (its constructor runs). On a value of the
+  // record `Back` (another instance than the site's), `BackI.k` builds: a `UseOf`, which is a `Use`
+  // (left); with `gone` unread, a `UseOf[gone.Gone]` whose type does not resolve and a
+  // `gone.Gone` that names no class read, either of which may be anything (left); an `Other`,
+  // which reaches nothing, so `Back` is its `k` (2 values, `j` computing from it) and `target` one
+  // of 2^2, with `gone` read or not (a type argument runs no code). On the site's own instance,
+  // `Own2.k` builds a `gone.Gone` unread: `Own.get` is left.
+  def unresolvedNew = {
+    val gone = Programs.compiled("package gone\nclass Gone")
+    def found(built: String, read: List[Path]) = rows(
+      s"""trait Back { def k: Boolean = true; def j: Boolean = k }
+        |class Use { def target(b: Back): Boolean = true }
+        |class UseOf[A] extends Use
+        |class Other[A]
+        |object BackI extends Back { override def k: Boolean = { new $built; true } }
+        |class Own(b: Boolean) { def get: Boolean = b; def k: Boolean = b }
+        |class Own2 extends Own(true) { override def k: Boolean = { new $built; true } }
+        |""".stripMargin,
+      List(gone),
+      Some(read)
+    )
+    def left(built: String, read: List[Path], row: String = "Use.target") =
+      uncovered(found(built, read)(row), Receivers.Reenters)
+    left("UseOf[gone.Gone]", List(gone))
+      .and(left("UseOf[gone.Gone]", Nil))
+      .and(left("gone.Gone", Nil))
+      .and(found("Other[gone.Gone]", List(gone))("Use.target") must_== Count.Finite(4))
+      .and(found("Other[gone.Gone]", Nil)("Use.target") must_== Count.Finite(4))
+      .and(left("gone.Gone", Nil, "Own.get"))
   }
 
   // `Loop.more` returns `get` (its body's result) and `Wrap.m` evaluates it as a block statement

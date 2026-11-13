@@ -79,7 +79,8 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // On another instance than the site's (a value of a capability record), a behavior re-enters
     // the measured member only by reaching it: naming a member of its name, calling a member of
     // the module that does, a name that does not resolve, applying a function a field holds (built
-    // where the search does not look), or building an instance of its class. Code outside the
+    // where the search does not look), or building an instance of its class or of one that does
+    // not resolve. Code outside the
     // module reaches the module back only through the members of the module's classes that
     // override its own: those of a class whose instance the behavior gives away (`this`) or builds
     // are searched.
@@ -101,11 +102,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
         }).getOrElse(true))
       case reference: TermReferenceTree => Option.when(module(reference))(true)
       case New(tpt)                     =>
-        Try(World.classNamed(tpt.toType)).toOption.flatten
-          .map { k =>
-            home.exists(k.isSubClass) || escapes(k)
-          }
-          .filter(identity)
+        Option.when(builds(tpt, k => home.exists(k.isSubClass) || escapes(k)))(true)
       case _ => None
     }
 
@@ -139,9 +136,8 @@ final private[compiled] class Reentry(world: World)(using Context) {
           Option.when(called(reference).forall { m =>
             m.name.toString == name || (world.ofModule(m) && dispatched(m))
           })(true)
-        case New(tpt) if World.classNamed(tpt.toType).exists(k => home.exists(k.isSubClass)) =>
-          Some(true)
-        case _ => None
+        case New(tpt) if builds(tpt, k => home.exists(k.isSubClass)) => Some(true)
+        case _                                                       => None
       }
 
     val found = behaviors(c, member)
@@ -236,6 +232,11 @@ final private[compiled] class Reentry(world: World)(using Context) {
     case _: Ident               => true
     case _                      => false
   }
+
+  // Whether a `new` builds a class `p` holds of, or one whose type does not resolve (its arguments
+  // included), which may be any. (The `<init>` it selects mostly fails to resolve first.)
+  private def builds(tpt: TypeTree, p: ClassSymbol => Boolean): Boolean =
+    Try(World.classNamed(tpt.toType).forall(p)).getOrElse(true)
 
   // The member a reference names; none where it does not resolve, which may be anything.
   private def called(tree: Tree): Option[TermSymbol] = World.named(tree)
