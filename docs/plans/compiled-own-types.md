@@ -1577,6 +1577,21 @@ right); no row of the inputs had one. Method rows: cats-core 842 identical (161 
 better past a resolution limit (`EitherK.<init>`, 1: the one `Either[F[A], G[A]]` in reach is
 `run`), cats-eo 191 (4 more), fixtures 4,541 (23 more).
 
+### Stretch 5, fifth unit: capabilities with type parameters of their own
+
+A capability member's own type parameters are read as the scalameta front end reads them:
+`PolymorphicMembers.close` (PB0, PB1 Yoneda, otherwise `Shape.Poly` for the solver; a bounded
+binder the type meets, and one the result applies, refused). To share it, `PolymorphicMembers`
+no longer imports scalameta: `close` takes each parameter's name and declared bounds, and the
+syntax reading of a binder moved into `MemberSyntax`. The compiled front end binds each own
+parameter to the member's `Binder` atom, or rigid constructor for `F[_]`, through
+`Shapes.binder`; a written `<: Any` or `>: Nothing` is no bound there, which can only read more.
+Inherited capabilities (`Receivers.inheritedCapability`, the gate agent's) still refuse one.
+
+Method rows: cats-core 875 identical (33 more) and two better past a model limit, derived
+(`Semigroupal[A => *]` and `Defer[A => *]`, each 1); cats-eo 193 (2 more); fixtures 4,604 (63
+more).
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1634,7 +1649,8 @@ better past a resolution limit (`EitherK.<init>`, 1: the one `Either[F[A], G[A]]
   (bounded proper parameters, intersections, refinements, opaque members through paths,
   unions, singletons), then the records' remaining reasons, then item 6. Done since: bounded
   proper parameters ("Stretch 5, third unit"); rigid constructors in constructor rows ("Stretch 5,
-  fourth unit"). Scope change: the records' remaining reasons (parents, members something
+  fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit"). Scope
+  change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in
   order: the rest of item 4 (types, bounded or other-kind type parameters, abstract type members,

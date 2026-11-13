@@ -5,7 +5,7 @@ import scala.meta.*
 import cardinality.analysis.MethodAnalysis.Resolved
 import cardinality.analysis.inhabitation.{Inhabitation, PolymorphicMembers}
 import cardinality.types.Trees.{hasCase, hasInline, parameters}
-import cardinality.types.{Kind, TypeApplications}
+import cardinality.types.{Kind, Kinds, TypeApplications}
 
 import Inhabitation.Shape
 
@@ -24,11 +24,26 @@ private[cardinality] object MemberSyntax {
       rigid: (String, Kind) => Shape
   ) {
 
+    // A first-order binder is its own atom; a higher-kinded one is the rigid constructor `rigid`
+    // binds (`TypeOperators.rigid`): the member's type applies it uninterpreted, exactly as a
+    // method's own higher-kinded binder reads.
     lazy val binders: Map[String, Resolved] =
-      typeParameters.map(p => p.name.value -> PolymorphicMembers.binder(member, p, rigid)).toMap
+      typeParameters.map { p =>
+        val id = Inhabitation.Binder(member, p.name.value).id
+        p.name.value -> Right(
+          if (p.tparamClause.values.isEmpty) Shape.Atom(id) else rigid(id, Kinds.of(p))
+        )
+      }.toMap
 
     def close(shape: Inhabitation.Shape): Resolved =
-      PolymorphicMembers.close(member, typeParameters, shape)
+      PolymorphicMembers.close(
+        member,
+        typeParameters.map { p =>
+          val b = p.bounds
+          PolymorphicMembers.Declared(p.name.value, b.lo.nonEmpty, b.hi.nonEmpty, b.view.nonEmpty)
+        },
+        shape
+      )
 
   }
 

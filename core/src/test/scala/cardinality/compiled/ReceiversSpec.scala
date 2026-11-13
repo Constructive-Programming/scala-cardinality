@@ -44,7 +44,6 @@ class ReceiversSpec extends Specification {
       |abstract final class Never extends Shown { def get: Boolean = true }
       |sealed class Closed(b: Boolean) { def get: Boolean = b }
       |trait Late { inline def late: Boolean; def now: Boolean = true; inline def soon: Boolean = late }
-      |trait Lifted { def lift[M](m: M): M; def get: Boolean = true }
       |object Dead { val z: Boolean = ???; class In(b: Boolean) { def get: Boolean = b } }
       |class Host(x: Boolean) { class Part { def px: Boolean = x } }
       |object Guest { val o: Host = new Host(true); final class K extends o.Part { def g: Boolean = true } }
@@ -211,12 +210,11 @@ class ReceiversSpec extends Specification {
   // a class (its members may read state the class's own code may not); a concrete sealed class or an enum case; a self
   // type; a deferred `inline val`, and a deferred inline method where a type parameter is in
   // scope; a class whose construction always throws, or in an object whose does (S6); an abstract
-  // type member; a capability with type parameters of its own.
+  // type member.
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
       "Closed.get" -> "an enclosing concrete sealed class or enum case",
-      "Lifted.get" -> "a capability with type parameters of its own",
       "Wished.get" -> "a deferred inline method over a type parameter",
       "Dead.In.get" -> "an object whose construction always throws or binds a pattern",
       "Self.me" -> "an enclosing class with a self type",
