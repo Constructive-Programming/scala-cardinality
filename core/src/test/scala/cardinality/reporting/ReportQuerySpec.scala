@@ -20,7 +20,7 @@ class ReportQuerySpec extends Specification {
       include content, selection and ingestion limits in the request key   $keys
       retain the existing report API and render query-only provenance      $legacy
       count non-Scala directory entries and bound compressed archives      $bounds
-      refuse a query to the TASTy front end, which has no selected reports $tasty
+      read a query under the TASTy front end as the report filtered by name $tasty
   """
 
   private def directory(): Path = Files.createTempDirectory("query-report")
@@ -51,15 +51,28 @@ class ReportQuerySpec extends Specification {
   }
 
   def tasty = {
-    val main = file(directory(), "Main.scala", "def get[A](a: A): A = a")
-    val found = Report.query(
-      Report.Query(Seq(main), environment = Report.Environment(frontEnd = Report.Front.Tasty))
-    )
-    (found.report.methods === Nil).and(
-      found.report.errors === List(
-        Report.Error("", "selected reports are not read from compiled classes yet")
+    val code = "package p; def get[A](a: A): A = a; def other[A](a: A, b: A): A = a"
+    val main = file(directory(), "Main.scala", code)
+    val query = Report.Query(
+      Seq(main),
+      targetNames = Set("p.get"),
+      environment = Report.Environment(
+        classes = Some(cardinality.Compiled.classesOf("Main.scala" -> code)),
+        frontEnd = Report.Front.Tasty
       )
     )
+    val found = Report.query(query).report
+    val missing = Report.query(query.copy(targetNames = Set("p.get", "p.missing"))).report
+    val uncompiled = Report.query(query.copy(environment = query.environment.copy(classes = None)))
+    (found.errors === Nil)
+      .and(found.methods.map(m => m.name -> m.count) === List("p.get" -> Count.Finite(1)))
+      .and(found.definitions === Nil)
+      .and(missing.errors === List(Report.Error("", "selected targets not found: p.missing")))
+      .and(
+        uncompiled.report.errors === List(
+          Report.Error(main.toString, "no compiled classes supplied")
+        )
+      )
   }
 
   def incomplete = {

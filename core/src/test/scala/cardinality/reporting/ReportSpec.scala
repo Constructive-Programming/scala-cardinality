@@ -1,5 +1,6 @@
 package cardinality.reporting
 
+import scala.jdk.CollectionConverters.*
 import scala.meta.*
 
 import cardinality.capacity.*
@@ -39,6 +40,7 @@ class ReportSpec extends Specification {
     Report
       reads a directory of sources              $directory
       reads a library's sources jar             $jar
+      reads a library's binary jar beside its sources jar, under TASTy  $binaryJar
       reads a single file                       $singleFile
       reports a path it cannot read             $missing
       reports a source it cannot parse          $unparsable
@@ -257,20 +259,64 @@ class ReportSpec extends Specification {
   }
 
   def jar = {
-    val archive = Files.createTempFile("cardinality", ".jar")
-    val out = new ZipOutputStream(Files.newOutputStream(archive))
-    try {
-      out.putNextEntry(new ZipEntry("README.md"))
-      out.write("not a source".getBytes(UTF_8))
-      out.closeEntry()
-      out.putNextEntry(new ZipEntry("p/Light.scala"))
-      out.write("package p\nenum Light { case Red, Green }".getBytes(UTF_8))
-      out.closeEntry()
-    } finally out.close()
+    val archive = zipped(
+      List(
+        "README.md" -> "not a source".getBytes(UTF_8),
+        "p/Light.scala" -> "package p\nenum Light { case Red, Green }".getBytes(UTF_8)
+      )
+    )
     val report = Report.of(List(archive))
     (report.sources.map(_.path) === List("p/Light.scala"))
       .and(report.definitions.map(_.name) === List("p.Light"))
       .and(report.errors === Nil)
+  }
+
+  // A jar of the given entries, each a path and its bytes.
+  private def zipped(entries: List[(String, Array[Byte])]): Path = {
+    val archive = Files.createTempFile("cardinality", ".jar")
+    val out = new ZipOutputStream(Files.newOutputStream(archive))
+    try
+      entries.foreach { (name, bytes) =>
+        out.putNextEntry(new ZipEntry(name))
+        out.write(bytes)
+        out.closeEntry()
+      }
+    finally out.close()
+    archive
+  }
+
+  def binaryJar = {
+    val code = "package p\ncase class Pair(a: Boolean, b: Boolean)"
+    val compiled = cardinality.Compiled.classesOf("p/Pair.scala" -> code)
+    val classes = compiled.output.head
+    val held = Files.walk(classes)
+    val compiledEntries =
+      try
+        held.iterator.asScala
+          .filter(Files.isRegularFile(_))
+          .map(file => classes.relativize(file).toString -> Files.readAllBytes(file))
+          .toList
+      finally held.close()
+    val source = "p/Pair.scala" -> code.getBytes(UTF_8)
+    val binary = zipped(compiledEntries)
+    val sources = zipped(List(source))
+    val environment = Report.Environment(
+      classes = Some(cardinality.tasty.CompiledTypes.Classes(Nil, compiled.classpath)),
+      frontEnd = Report.Front.Tasty
+    )
+    val read = Report.of(List(binary, sources), environment)
+    val alone = Report.of(List(binary), environment)
+    // A jar of both is its own sources jar.
+    val both = Report.of(List(zipped(source :: compiledEntries)), environment)
+    (read.errors === Nil)
+      .and(read.sources.map(_.path) === List("p/Pair.scala"))
+      .and(read.methods.map(m => m.name -> m.count.render) === List("p.Pair.<init>" -> "4"))
+      .and(both.methods.map(m => m.name -> m.count.render) === List("p.Pair.<init>" -> "4"))
+      .and(
+        alone.errors.map(_.message) === List(
+          "no sources beside the compiled classes: give the sources jar too"
+        )
+      )
   }
 
   def singleFile = {

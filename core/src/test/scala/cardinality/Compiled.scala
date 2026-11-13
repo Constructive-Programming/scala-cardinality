@@ -332,6 +332,14 @@ object Compiled {
   def reportOver(dependencies: List[Path], files: (String, String)*): Report =
     reported(Some(dependencies), files)
 
+  /** A source set's compiled classes and the classpath a build hands with them (the set's own units
+    * and the Scala library), for a caller that writes the files itself.
+    */
+  def classesOf(files: (String, String)*): CompiledTypes.Classes =
+    classes(inputs(files*)).getOrElse(
+      throw new AssertionError("no compiled classes: scalac rejects this fixture")
+    )
+
   private def reported(dependencies: Option[List[Path]], files: Seq[(String, String)]): Report = {
     val all = inputs(files*)
     read(all, dependencies) {

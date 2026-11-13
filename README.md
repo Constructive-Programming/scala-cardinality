@@ -323,7 +323,10 @@ The TASTy front end, which reads the compiled classes alone and will replace the
 is selected with `cardinalityFrontEnd := CardinalityFrontEnd.Tasty` under sbt and
 `override def cardinalityFrontEnd = Report.Front.Tasty` under Mill (in the library,
 `Report.Environment(frontEnd = Report.Front.Tasty)`). It refuses every source when the sources do
-not compile, and every source `cardinalityReportOf` names; it has no selected reports yet. A row it
+not compile. `cardinalityReportOf` reads a library's binary jar, which carries its TASTy, given
+beside its sources jar (`cardinalityReportOf lib.jar lib-sources.jar`): the sources name and place
+the rows, and a source without classes is refused. A selected report is the module's report
+filtered by qualified name; the query limits and budgets bound only the syntax reading. A row it
 does not read yet is `?`: `not read from compiled classes yet`.
 
 `cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's

@@ -23,7 +23,8 @@ object CardinalityPlugin extends AutoPlugin {
 
     val cardinalityReportOf = inputKey[Unit](
       "Report the cardinality of the Scala sources at the given paths: files, directories, or a " +
-        "sources jar such as the one a published library ships.",
+        "sources jar such as the one a published library ships. The TASTy front end reads a " +
+        "library's binary jar given beside its sources jar.",
     )
 
     val cardinalityReportSelected =
@@ -134,7 +135,7 @@ object CardinalityPlugin extends AutoPlugin {
           log,
           Report.of(
             paths.map(path => file(path).toPath),
-            Report.Environment(frontEnd = cardinalityFrontEnd.value)
+            Report.Environment(classes = libraryClasses.value, frontEnd = cardinalityFrontEnd.value)
           ),
           cardinalityReportFile.value
         )
@@ -188,6 +189,17 @@ object CardinalityPlugin extends AutoPlugin {
         )
         None
     }
+  }
+
+  // What a binary jar given to `cardinalityReportOf` is read against: the project's dependencies,
+  // under the TASTy front end only, so that the scalameta one resolves nothing more.
+  private val libraryClasses = Def.taskIf {
+    if (cardinalityFrontEnd.value == Report.Front.Tasty)
+      Some(
+        CompiledTypes
+          .Classes(Nil, cardinalityDependencyClasspath.value.map(fileConverter.value.toPath))
+      )
+    else None
   }
 
   // The dependency declarations the reports read: which jars, and their stubs rendered once.

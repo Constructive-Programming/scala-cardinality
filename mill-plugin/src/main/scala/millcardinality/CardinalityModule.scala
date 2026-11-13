@@ -73,13 +73,19 @@ trait CardinalityModule extends ScalaModule {
   }
 
   /** Report the cardinality of the Scala sources at the given paths: files, directories, or a
-    * sources jar such as the one a published library ships.
+    * sources jar such as the one a published library ships. The TASTy front end reads a library's
+    * binary jar given beside its sources jar, against this module's compile classpath.
     */
   def cardinalityReportOf(paths: Leftover[String]): Command[PathRef] = Task.Command {
     report(
       Report.of(
         paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO),
-        Report.Environment(frontEnd = cardinalityFrontEnd)
+        Report.Environment(
+          // Mill evaluates a command's tasks whatever its body reads: the compile classpath is
+          // resolved under either front end, and only the TASTy one reads it.
+          classes = Some(CompiledTypes.Classes(Nil, dependencyJars())),
+          frontEnd = cardinalityFrontEnd
+        )
       )
     )
   }
