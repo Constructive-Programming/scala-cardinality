@@ -1530,6 +1530,52 @@ newtypes (`NonEmptySetEq.eqv`, `sortedMap.scala`), whose selection tasty-query c
 re-entry through the extractor protocol (`this match { case C(x) => x }` with a `_1`, `get` or
 `isEmpty` handing on `this`) counts 2^256, before and after this unit.
 
+#### Calls the compiler inserts, on the same instance (group m6)
+
+Two wrong numbers, both 2^256 where a same-instance path exists: m5's `Product`/`Equals` members
+(cherry-picked, `4f40d4d`, with its regressions), and the calls a match runs, which no tree holds.
+`Matches` writes those calls as tasty-query trees on the scrutinee, built once per tree (`Fixed`
+keys by identity), and `Reentry`'s `search` and `visit` read them as written ones. Which calls, as
+Scala 3's `PatternMatcher` chooses them (each checked at run time with a probe):
+
+- the extractor applied to the scrutinee (a generic one through `Reentry.unapplied`, its using
+  clause after);
+- on its result: `_1`… for a `Product` of as many as the patterns (a case class, `Tuple2`; never
+  `isEmpty` or `get` then); nothing for a `Boolean`; else `isEmpty` and the parameterless `get`,
+  and `_1`… of `get` for more than one pattern;
+- `unapplySeq`: `lengthCompare`, `drop`, `toSeq`, `apply` on the result (or `get`), or, for a
+  `Product` that is no sequence, `_1`… and the sequence protocol on the last;
+- a stable pattern: `equals(Any)` of its value given the scrutinee, and an `==` overload of its
+  class the scrutinee's type fits;
+- outside matches: `==` and `!=` of `Any` run the receiver's `equals(Any)`, `##` its `hashCode`.
+
+A nested pattern is matched against what its part yields. Overloads (`equals(Q)`, `get(Int)`) and
+private members are not selected; a name that does not resolve adds nothing. `referrers` notes
+`_1`… up to the pattern count plus one, and `equals`/`==` for a stable pattern.
+
+Regressions: `sameInstanceHidden` gains 16 programs, each refusing and each counting 2^256 without
+`Matches` (checked); `anotherInstance` gains a program counting 2^256 (D6: no same-instance path) with
+a name-based extractor given `this`, a tuple pattern over another instance, a case class whose
+`isEmpty` the product match never calls, and `==` / a stable pattern on an `Any` beside `==(Q)` and
+`equals(Q)` overloads. Rows: none changes on any of the seven inputs (more refusals only, and none
+of the corpus's matches reaches a measured member on the same instance).
+
+Left open, found by the correctness review (wrong numbers, 2^256 where `Use.same` is reached on the
+same instance), outside this unit:
+
+- a universal member selected on a receiver typed `E` or `Any` dispatches to the module's override,
+  which `silent` never reads: `val me: E = this; me.toString` with `toString` handing on `this`;
+- `inert` takes a class of the module overriding `toString`, `hashCode` or `equals` (with no other
+  parent outside the module) for one code outside it cannot call back: `s"$this"`, `"" + this`,
+  `List[E](this, this).distinct`, `Set[E](o, this)`, `Some(this) == Some(o)`;
+- pre-existing over-approximation the matches now also reach: an extractor wrapping its argument
+  (`new Opt(e)`) refuses if any member of `Opt` reaches the site (`flows`' constructor branch), as
+  the written `X.unapply(this).get` did.
+
+The review found no miss in for-comprehensions, `copy` and default arguments, implicit and
+`Conversion` applications, extension methods, inferred givens, `Ordering`/`Ordered`, `apply` and
+`update` sugar, `+=`, dynamics, or the synthetic members of a case class: TASTy holds them as calls.
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its

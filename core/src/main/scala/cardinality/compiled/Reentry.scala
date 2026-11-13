@@ -118,7 +118,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // body reaches it. Where code outside the module may reach it (`outward`), so may that code:
     // when the behavior hands it a value of the module (`handsOver`, a member declared outside the
     // module selected on the instance included), or builds a class whose body reaches it.
-    def reached(body: Tree): Boolean = Reentry.search(body) {
+    def reached(body: Tree): Boolean = search(body) {
       case reference: TermReferenceTree if measures(reference) =>
         Some(true)
       case reference: TermReferenceTree if Try(reference.symbol).isFailure => Some(true)
@@ -180,7 +180,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // Whether a term may hold a value of the module: the instance, or a reference to what the module
     // declares (or one that does not resolve) whose value is no primitive, `String` or `Unit`. A
     // function literal's closure names only its own method, whose body beside it is searched.
-    def handed(term: Tree): Boolean = Reentry.search(term) {
+    def handed(term: Tree): Boolean = search(term) {
       case _: This                                 => Some(true)
       case _: Lambda                               => Some(false)
       case plain: TermTree if Reentry.plain(plain) => Some(false)
@@ -211,7 +211,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
 
     def calls(body: Tree): Boolean = if (!instance) reached(body)
     else
-      Reentry.search(body) {
+      search(body) {
         // The measured member's own definition (a local one's, in the member it is written in)
         // is the body being counted.
         case definition: DefDef if definition.symbol == measured => Some(false)
@@ -310,7 +310,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // receiver of a member it selects (one selected on `this` runs on the instance, which
     // `selfReenters` reads): code outside the module that may reach the measured member, or a
     // member of the module whose behaviors, run on that value, hand it on.
-    def handsOn(body: Tree, carries: Tree => Boolean): Boolean = Reentry.search(body) {
+    def handsOn(body: Tree, carries: Tree => Boolean): Boolean = search(body) {
       case call: Apply if flows(call, carries) => Some(true)
       case tree @ Select(qualifier, _) if !Reentry.onInstance(tree) && carries(qualifier) =>
         Option.when(called(tree).forall { m =>
@@ -342,7 +342,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
       others.exists(_.isEmpty) || (m :: others.flatten).exists { d =>
         val unread = d.tree.isEmpty && !d.isAbstractMember && !Reentry.silent(d.owner)
         onSelf.add(d) && (outward && unread || d.tree.exists { body =>
-          handsOn(body, holdsSelf(c)) || Reentry.search(body) {
+          handsOn(body, holdsSelf(c)) || search(body) {
             case tree if Reentry.onInstance(tree) =>
               Option.when(called(tree).exists { n =>
                 !Reentry.silent(n.owner) && Try(selfReenters(n)).getOrElse(true)
@@ -593,6 +593,10 @@ final private[compiled] class Reentry(world: World)(using Context) {
   // Whether a function literal of the module may implement `k`.
   private def literalFor(k: ClassSymbol): Boolean = implemented.exists(_.forall(_.isSubClass(k)))
 
+  // The calls the compiler inserts (`Matches`), which `search` and `visit` read as written ones.
+  private val matches = new Matches
+  private def search(body: Tree)(d: Tree => Option[Boolean]) = Reentry.search(body, matches(_))(d)
+
   // Runs `f` on every tree of the module it is defined at; `visit`, on every tree in `roots`.
   private def everyTree(f: PartialFunction[Tree, Unit]): Unit =
     visit(world.module.flatMap(_.tree))(f)
@@ -602,6 +606,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
       override def traverse(tree: Tree): Unit = {
         f.applyOrElse(tree, (_: Tree) => ())
         super.traverse(tree)
+        matches(tree).foreach(traverse)
       }
     }
     roots.foreach(traverser.traverse)
@@ -738,9 +743,9 @@ final private[compiled] class Reentry(world: World)(using Context) {
           Holder(Option.unless(d.symbol.name.toString.startsWith("$anonfun"))(d.symbol)).inside(d)
         case v: ValDef if v.symbol.kind == TermSymbolKind.LazyVal =>
           Holder(Some(v.symbol)).inside(v)
-        case c: ClassDef => Holder(Some(c.symbol)).inside(c)
-        case _: Unapply  =>
-          Reentry.Matched.foreach(note(_))
+        case c: ClassDef                             => Holder(Some(c.symbol)).inside(c)
+        case pattern @ (_: Unapply | _: ExprPattern) =>
+          Matches.selected(pattern).foreach(note(_))
           super.traverse(tree)
         case call: Apply =>
           val (head, clauses) = Reentry.unapplied(call)
@@ -876,11 +881,6 @@ private[compiled] object Reentry {
     found.result()
   }
 
-  /** What a pattern match may call on an extractor's result. */
-  private val Matched =
-    List("isEmpty", "get", "lengthCompare", "length", "apply", "drop", "toSeq") ++
-      (1 to 22).map(n => s"_$n")
-
   /** Whether a term's value holds no function: a primitive value, a `String` or `Unit`. */
   private def plain(term: TermTree)(using Context): Boolean = Try(term.tpe match {
     case tpe: Type => plainType(tpe)
@@ -981,14 +981,16 @@ private[compiled] object Reentry {
   val Reach = 200
 
   /** Whether a node of `body` is found: `decide` says so for a node it knows (`false` leaves the
-    * node's children unsearched), and the children of any other node are searched.
+    * node's children unsearched), and the children of any other node, and what `expand` adds.
     */
-  def search(body: Tree)(decide: Tree => Option[Boolean]): Boolean = {
+  def search(body: Tree, expand: Tree => List[Tree] = _ => Nil)(
+      decide: Tree => Option[Boolean]
+  ): Boolean = {
     var found = false
     new TreeTraverser {
       override def traverse(tree: Tree): Unit = if (!found) decide(tree) match {
         case Some(answer) => found = answer
-        case None         => super.traverse(tree)
+        case None         => super.traverse(tree); expand(tree).foreach(traverse)
       }
     }.traverse(body)
     found
