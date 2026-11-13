@@ -23,18 +23,21 @@ import tastyquery.Trees.*
   * An inline method counts as a method unless an expansion of it is decided at a call site, which
   * `Inlines` says: its refusal is the row's reason, the model's own.
   *
-  * A class's row is its primary constructor's, read by `Constructors` where the class is declared.
-  * Definition rows are measured by `Stored`.
+  * A class's row is its primary constructor's, read by `Constructors` where the class is declared:
+  * a class in a class is built on an instance of each class around it, whose captures the row
+  * lists. Definition rows are measured by `Stored`.
   */
 final private[compiled] class Readings(world: World, stored: Stored, inlines: Inlines)(using
     Context
 ) {
   import Unread.Uncovered
 
-  private val shapes = new Shapes(world)
+  // A capability record is read as what its template supplies as a receiver: `Shapes` asks
+  // `Receivers`, which reads types with `Shapes`.
+  private val shapes: Shapes = new Shapes(world, receivers)
   private val bounds = new Bounds(shapes)
-  private val constructors = new Constructors(shapes, stored)
-  private val receivers = new Receivers(world, shapes)
+  private lazy val receivers: Receivers = new Receivers(world, shapes)
+  private val constructors = new Constructors(shapes, stored, receivers)
 
   // ---- method rows --------------------------------------------------------------------------
 
@@ -50,11 +53,18 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     val owner = if (primary) tree.symbol.owner.owner else tree.symbol.owner
     for {
       _ <- if (primary) Right(()) else Readings.later(tree.symbol)
-      // A constructor row is read where every owner is an object; a member reads its receivers.
+      // A constructor row reads the classes around its class; a member reads its receivers.
       // A local definition reads the methods it is written in, then the classes around them.
       (methods, top) <- if (primary) Right(Nil -> owner) else enclosing(owner)
       _ <- local(tree, methods)
-      around <- if (primary) static(owner).map(_ => Nil) else receivers.around(top)
+      around <-
+        if (!primary) receivers.around(top)
+        // A class in a class is built on an instance of the class around it, whose state its
+        // constructor's positions may take; an object holds no such state.
+        else
+          inTemplates(owner).flatMap(_ =>
+            if (World.inObjects(tree.symbol.owner)) Right(Nil) else receivers.around(owner)
+          )
       _ <- inherited(methods, top)
       _ <- plain(top)
       count <-
@@ -65,10 +75,9 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
           built(top, methods.headOption.getOrElse(tree))
         )
           (tree match {
-            case constructor: DefDef if primary => constructors.count(constructor).map(_ -> Nil)
-            case _                              =>
-              counted(tree, around, methods).map(_ -> captures(tree, around, methods))
-          }).left.flatMap {
+            case constructor: DefDef if primary => constructors.count(constructor, around)
+            case _                              => counted(tree, around, methods)
+          }).map(_ -> captures(tree, around, methods)).left.flatMap {
             // A row the model refuses lists no captures, as the old front end's does not.
             case Unread.Refused(reason) => Right(Count.Unresolved(List(reason)) -> Nil)
             case Uncovered(what)        => Left(what)
@@ -98,7 +107,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       )
     for {
       _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
-      env = environment(tree, around, methods)
+      env <- environment(tree, around, methods)
       result <- shapes.of(declared.toType, env)
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
@@ -139,13 +148,13 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       tree: ValOrDefDef,
       around: List[ClassDef],
       methods: List[DefDef]
-  ): Shapes.Env = {
+  ): Either[Unread, Shapes.Env] = {
     val own = (methods :+ tree).flatMap { of =>
       signature(of)._1.map { binder =>
         binder.symbol -> Shapes.binder(of.symbol, binder.symbol.asInstanceOf[TypeParamSymbol])
       }
     }
-    Shapes.Env.of(receivers.atoms(around) ++ own, tree.symbol)
+    receivers.atoms(around).map(receiving => Shapes.Env.of(receiving ++ own, tree.symbol))
   }
 
   // The methods a definition is written in, outermost first, at whatever depth (a member of a
@@ -276,15 +285,11 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
     (receivers.names(around, tree.symbol) ++ taken ++ group).distinct.sorted
   }
 
-  // Every owner up to the package is an object that inherits nothing.
-  private def static(owner: Symbol): Either[String, Unit] = owner match {
-    case _: PackageSymbol                  => Right(())
-    case c: ClassSymbol if c.isModuleClass =>
-      // An object's self type is its own singleton.
-      if (World.ancestors(c).isEmpty) static(c.owner)
-      else Left(s"an enclosing object with parents: ${c.name}")
-    case c: ClassSymbol => Left(s"an enclosing class: ${c.name}")
-    case other          => Left(s"an enclosing definition: ${other.name}")
+  // Whether every owner of a constructor up to the package is a class or an object.
+  private def inTemplates(owner: Symbol): Either[String, Unit] = owner match {
+    case _: PackageSymbol => Right(())
+    case c: ClassSymbol   => inTemplates(c.owner)
+    case other            => Left(s"an enclosing definition: ${other.name}")
   }
 
   // Which values of a pattern or multi-name definition the constructor evaluates, and which is the

@@ -227,10 +227,40 @@ TASTy, `DependencyClasses`) is committed, and stretch 7 wired both into the comp
 (`e952ebe`, `b3f8fce`); stretch 8 read the open member and parents with constructor parameters
 (`e0eb38a`, `4c87c8d`). "Wired into the front end" and "The open member and parents with
 constructor parameters" at the end of the section "The closed world and dependency classes over
-symbols" have what changed and the measurements. Nothing of it is half done;
-`ClosedProgram.mixes` is written and asked by nothing yet. Left for whoever continues: templates
+symbols" have what changed and the measurements. Nothing of it is half done. Left for whoever continues: templates
 that reach one parent through two parents (475 corpus rows), generic classes without TASTy, and a
 check of the dependencies' classes in `ClosedVerdicts`, which compares the module's classes only.
+
+Stretch 9 merged `tasty-front` at `9bcea74` (`ff83f6c`), read a self type that adds nothing to its
+class (`7825fbf`), and then constructor rows in a class or in an object with parents and the
+abstract type members of a receiver; "Self types, constructor rows and abstract type members
+(stretch 9)" at the end of the section has what changed. Edits to the shared coverage memory
+(`/var/cache/users/rhansen/cardinality-tasty/covered/`): the gate run after `ff83f6c` added the rows
+that merge newly measures, through `scripts/differential.sh`, and a second run over `corpus-cats-eo`
+and `fixtures` added two more once their derivations were in `derived.txt`. The gate run at
+`cc72929` (after merging `tasty-front` at `5357531`) added the rows the stretch newly measures:
+cats-core 102, cats-eo 9, cats-eo-generics 6, cats-kernel 91, corpus-core 158, fixtures 479. No row
+was removed.
+
+Stretch 10 takes the capability records' remaining reasons. A record with parents, or with a member
+something overrides, is read as what its template supplies as a receiver (`Receivers.record`, which
+`Shapes.record` asks, `3adf7ed`). Rule B reads a final record: where the site may call its
+primary constructor, a field it observes as itself (a field it may select, or a public alias);
+where it may not, the largest of what its secondary constructors and factories build over the
+fields it observes (`Factories`, the port of the scalameta reading's receiver factories, `6f23c0e`).
+A record's abstract type members are next. Edits to the shared coverage memory: the gate run after
+merging `tasty-front` at `662b56e` (`877c65f`, derivations in the next commit) added cats-core 545,
+cats-eo 22, cats-kernel 1, corpus-core 2 and fixtures 233 rows. No row was removed.
+
+Investigated for later: `a class that is no product, sum or type-only template` (1,268 corpus rows)
+is almost all corpus-core's use of scalameta's Scala 2 traits without TASTy (`scala.meta.Tree`,
+`Type`, `Stat`, `Source`), which `DependencyClasses` reads as `Declared.Record` and `Shapes` does not
+read yet: they need a dependency record read from its pickled signatures (its abstract members as
+capabilities, its subclasses on the classpath settling which concrete members vary). The record
+reading's re-entry guard (`an overridden member that may call it among the members of a capability
+record`, 1,146 rows: cats' `eqv`, `neqv`, `imap`, …) takes `Reentry`'s receiver rules, under which a
+behavior that passes `this` on or calls through it may re-enter; for a record value, another
+instance, only a behavior that reaches the site itself can, which a narrower search would read.
 
 ### Commands
 
@@ -958,7 +988,6 @@ final private[compiled] class ClosedProgram(
   def subclasses(c: ClassSymbol): Subclasses             // Subclasses(found, complete)
   def finalClass(c: ClassSymbol): Boolean
   def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): Overriding  // No | Unknown | Supplied
-  def mixes(left: ClassSymbol, right: ClassSymbol): Boolean
 }
 ```
 
@@ -981,11 +1010,10 @@ What each answers:
   extend `owner` is found, which asking the overrider (`allOverriddenSymbols`) does not find.
   `No` for a private or final member and where no subclass has one. Where a signature is not
   read, a declaration of the name is taken for an overrider, as the scalameta reading takes one.
-- `mixes(a, b)`: one extends the other, or a class of the program extends both.
 
 Where the program is not all known, no answer is "none": `complete` is false, `overriding` is
 `Unknown` (the row's `member may be overridden through a parent outside the sources`),
-`finalClass` is false, `mixes` is true. That is so for:
+`finalClass` is false. That is so for:
 
 - a class that does not load: of the module, every answer; of the classpath, every answer about
   a class outside the module;
@@ -1098,13 +1126,14 @@ enum Declared {
 No body is read anywhere: a `concrete` member is code that is not supplied, which a count may
 call and may not read, never a capability and never a throw.
 
-**Integration**: done in stretch 7 ("Wired into the front end", below), but for
-`ClosedProgram.mixes`, which nothing asks yet.
+**Integration**: done in stretch 7 ("Wired into the front end", below). Whether two classes
+share an instance (`mixes`) was written and asked by nothing, and is deleted: the old front end
+asks it of a capability record's member named like the measured one, which the compiled reading
+refuses outright, and a self type needs no such answer (stretch 9, below).
 
 #### Wired into the front end (stretch 7)
 
-The integration is done on `tasty-gate` (after merging `tasty-front` at `0538b5b`),
-but for `ClosedProgram.mixes`:
+The integration is done on `tasty-gate` (after merging `tasty-front` at `0538b5b`):
 
 - `ClosedProgram` and `DependencyClasses` are in `compiled/`. `TastyFrontEnd` builds one
   `ClosedProgram` per module, which takes the same lazy dependency listing as `Inlines`, and one
@@ -1255,6 +1284,45 @@ The differential, after `b3f8fce` and after `4c87c8d`; every input passes (defin
   enclosing class with a bounded or higher-kinded type parameter` (1,343 → 1,458), `an enclosing
   class with a self type` (349 → 617).
 - Cost, three runs each: corpus-core 3.4 s, cats-core 2.8–3.0 s, peak heap 1.25 and 1.15 GiB.
+
+#### Self types, constructor rows and abstract type members (stretch 9)
+
+- **Self types.** An untyped self alias (`self =>`) records the class's own type as its self type,
+  so it was refused wherever a self type was. `World.ownSelf` reads a self type the class already
+  conforms to (`appliedRefInsideThis <:< givenSelfType`) as none: `this` is of the class's own type.
+  It frees receivers, capability records and type-only templates alike. A self type narrower than
+  the class (11 classes in cats-core, `ApplyArityFunctions { self: Apply[F] => }` among them) stays
+  uncovered: reading it is reading what a second parent brings, the case of templates that reach a
+  parent through two parents, and it is left with them.
+- **Constructor rows.** A constructor ignores the objects around it: an object's members compute
+  from no state a position may take, so an object with parents is read like one without. A class
+  in a class is built on an instance of it (`Constructors.count` takes the receivers around): a
+  position over a type parameter places the caller's value or one the instance holds (`Outer[A](a:
+  A) { class Two(x: A, y: A) }` is 3^2), a ground position is its value space, and the row lists
+  the instance's captures, as the old front end counts and lists them.
+- **Abstract type members.** An unbounded abstract type member of a receiver, declared or
+  inherited, is an atom (`F[_]`-shaped: a rigid constructor), bound in the environment beside the
+  type parameters and read only on the instance (`this.T`; another path to one is not read).
+  Refused, as the old front end refuses: a bounded one; one two enclosing instances hold; one of a
+  class no class written elsewhere extends (final, a value class, a private constructor of it or of
+  a class it extends, a class private to a template around it), whose types are those the program
+  picks; a sum's. tasty-query takes a parent's private type member for one a subclass inherits
+  from elsewhere when it matches members (`P2 { private type X = Boolean }` beside `Q { type X }`
+  makes two `to` methods one), so a private type member of a parent named like a held one refuses,
+  and so does a declaration of the name elsewhere in the line that bounds it. A member is bound to
+  the receiver that holds it: `this.T` of a fixed class inside it, which holds none, is not read.
+- **`ClosedProgram.mixes`** is deleted: nothing in reach asks whether two templates share an
+  instance.
+
+Measured on the private gate copy, the merge (`ff83f6c`) against this stretch's head: method rows
+identical, cats-core 644 to 701 (better 255 to 265), cats-kernel 191 to 275, cats-eo 187 to 188,
+cats-eo-generics 31 to 37, corpus-core 1,385 to 1,531 (better 1 to 13), fixtures 4,435 to 4,580
+(better 161 to 172); no row worse but the corrected ones. Blockers: `an enclosing class with a self
+type` 735 to 184, `a capability record with a self type` 683 to 0, `an enclosing object with
+parents` 245 to 0, `an enclosing class` 57 to 0, `an enclosing class with an abstract type member`
+394 to 19 (sums), with 282 rows at `a bounded abstract type member`. Rows freed stop next at
+the capability records' reasons (a member something overrides 54 to 508, a member named like the
+measured definition 348 to 415) and at capabilities with type parameters of their own (148 to 274).
 
 ## Phase 5: the TASTy front end, slice by slice
 
@@ -1656,6 +1724,21 @@ Method rows: cats-core 936 identical (44 more: `NonEmptyCollection`'s members an
 `*Functions.<init>` rows, 1 each: no parameter, whatever `E[T] <: Eq[T]` is), cats-eo 198 (1
 more), fixtures 4,774 (3 more).
 
+### Merge of `tasty-gate` at `a8dc05f` (the coordinator's instruction)
+
+Records with parents, records with overridden members, rule B (`Factories`) and abstract type
+members of receivers. Conflicts: `Receivers.atoms` keeps the gate's abstract type members, read
+eagerly, beside this branch's type parameters read lazily (a list of each symbol's reading, for
+`Shapes.Env.of`); `Shapes.binds` keeps the gate's path check for a type member and lets an unread
+type parameter through to its reason; `Constructors.count` reads the receivers around it and
+builds `Env.of`; the gate's `constructor(bounds)` is `rigidBounds` (an abstract type member's);
+`ClosedProgram.mixes`, which the gate deleted as unused, is restored for `Shapes.union`. One row
+the two branches free together is derived: cats-kernel's `catsKernelStdOrderForChar`, 1
+(`CharOrder & Hash[Char] & BoundedEnumerable[Char]` is `CharOrder`, a concrete class without
+parameters nothing extends). Bounded or other-kind abstract type members are the gate agent's
+now (the coordinator). Method rows: corpus-core 1,543 identical, cats-core 1,280, cats-kernel
+316, cats-eo 214, cats-eo-generics 37, cats-eo-schemes 5, fixtures 4,987; all inputs pass.
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1715,7 +1798,8 @@ more), fixtures 4,774 (3 more).
   proper parameters ("Stretch 5, third unit"); rigid constructors in constructor rows ("Stretch 5,
   fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit");
   literal and singleton types ("Stretch 5, sixth unit"); unions and intersections ("Stretch 5,
-  seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"). Scope
+  seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"); the merge of
+  `tasty-gate` at `a8dc05f`. Next: members named like the measured definition, then item 6. Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in

@@ -500,6 +500,7 @@ class TastyFrontEndSpec extends Specification {
   // is its one Boolean, the secondary constructor adding no value: 2. `Top` is a Boolean for the
   // definitions of its file's top level (`top` is one of 2^2) and one value in `Use` (`outside`).
   // `Der` has 2 values, the instance its `derives` clause adds to the companion being no pattern.
+  // `Line`, a final case class with a parent, is its one Boolean: `line` is one of 2^2.
   private def products = {
     val expected = List(
       "pair" -> 16,
@@ -518,7 +519,8 @@ class TastyFrontEndSpec extends Specification {
       "twin" -> 2,
       "outside" -> 1,
       "der" -> 2,
-      "mixed" -> 2
+      "mixed" -> 2,
+      "line" -> 4
     )
     (expected.map((name, _) => count(s"types.Use.$name")) must_==
       expected.map((_, n) => Count.Finite(n)))
@@ -568,9 +570,10 @@ class TastyFrontEndSpec extends Specification {
   }
 
   // What no slice reads yet, each for its own reason.
-  //   - A capability record with a written parent, a private field or a private constructor is
-  //     not read yet (`record` and `curried`, whose fields are public, are: `RecordsSpec`); and a
-  //     member of an enum nested in a class may read the instance around it (`key` reads `k`).
+  //   - A capability record with a private field no member exposes is not read yet, nor one with a
+  //     private constructor and no factory (rule B; `record` and `curried`, whose fields are
+  //     public, are read: `RecordsSpec`); and a member of an enum nested in a class may read the
+  //     instance around it (`key` reads `k`).
   //   - A case that pins its parent's parameter to a type holds values of `Index[Int]` only; one
   //     that passes a parameter to two slots equates them; an invariant parameter in a covariant
   //     slot holds more than its own type's values; `Any` in a covariant slot is no bottom pin;
@@ -591,9 +594,8 @@ class TastyFrontEndSpec extends Specification {
     val construction =
       "a construction that throws, binds a pattern or inherits a member of the empty type"
     val expected = List(
-      "line" -> "a capability record with parents",
       "veiled" -> "a capability record with a parameter that is no public field",
-      "shut" -> "a capability record with a restricted constructor",
+      "shut" -> "a capability record with no constructor or factory the site may call",
       "nested" -> "a class nested in a class or a body",
       "index" -> slots,
       "twice" -> slots,
@@ -848,6 +850,7 @@ class TastyFrontEndSpec extends Specification {
     "cardinality.analysis.inhabitation.Inhabitation.Head",
     "cardinality.analysis.inhabitation.Inhabitation.Count",
     "cardinality.analysis.inhabitation.Inhabitation.Shape",
+    "cardinality.analysis.inhabitation.Natural",
     "cardinality.analysis.inhabitation.PolymorphicMembers",
     "cardinality.analysis.resolution.LiteralTypes",
     "cardinality.analysis.resolution.TopTypes",
@@ -904,7 +907,7 @@ class TastyFrontEndSpec extends Specification {
       .and(lines.filter(delegating.findFirstIn(_).nonEmpty) must_== Nil)
       .and(
         lines.filter(_.contains("cardinality.")).filterNot(_.trim.startsWith("import ")) must_==
-          List("package cardinality.compiled").flatMap(List.fill(16)(_))
+          List("package cardinality.compiled").flatMap(List.fill(17)(_))
       )
   }
 

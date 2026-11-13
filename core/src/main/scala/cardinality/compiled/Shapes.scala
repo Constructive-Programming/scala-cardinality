@@ -44,7 +44,7 @@ private[compiled] enum Unread {
   * read`, `enum case type not read`). What the reading does not cover yet stays `Uncovered`, each
   * by its reason.
   */
-final private[compiled] class Shapes(world: World)(using Context) {
+final private[compiled] class Shapes(world: World, receivers: => Receivers)(using Context) {
   import Shapes.Env
   import Unread.{Refused, Uncovered}
 
@@ -181,7 +181,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
     case World.Named(ref, arguments) =>
       applied(arguments).flatMap { proper =>
         ref.optSymbol match {
-          case Some(binder) if env.binds(binder) =>
+          case Some(binder) if Shapes.binds(ref, binder, env) =>
             env
               .binding(binder)
               .flatMap((_, proper) match {
@@ -235,7 +235,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
 
   private def named(ref: TypeRef, arguments: List[Type], env: Env): Either[Unread, Shape] =
     ref.optSymbol match {
-      case Some(parameter) if env.binds(parameter) =>
+      case Some(parameter) if Shapes.binds(ref, parameter, env) =>
         env.binding(parameter).flatMap(bound(ref, _, arguments, env, of))
       // An evidence type compares its arguments as types, and two types of the program with one
       // shape are two types: their shapes are not read there.
@@ -389,42 +389,35 @@ final private[compiled] class Shapes(world: World)(using Context) {
       else record(tree, arguments, inside)
     }
 
-  // A capability record: a class or trait with members, named by a type (v1.md §2). Every
-  // constructor parameter must be a public field, which a body may read. A trait or abstract
-  // class is any implementation of its abstract members: its value is the tuple of its fields and
-  // of what those members supply (`member`). A concrete class nothing extends is final: its value
-  // is the tuple of its fields, from which every member computes. A template whose construction
-  // always throws, or a class written `final abstract`, has no value at all: the empty sum, as the
-  // old front end reads a record (a sealed case's construction that throws is S6's still).
-  // Left for later steps, each named: parents (what they declare, the index's overriders),
-  // overriders tasty-query does not read, a construction that binds a pattern, an abstract member
-  // hidden at the use site, a sealed class, a self type, an abstract type member, a concrete
-  // member something overrides, a member named like the measured definition (it may be that one
-  // on another receiver), a restricted constructor and a parameter that is no public field (rule
-  // B), a class something extends, and what `member` leaves.
+  // A capability record: a class or trait with members, named by a type (v1.md §2). A trait or
+  // abstract class is any implementation of the members a subclass supplies: its value is the
+  // tuple of its fields, each a public one, and of what those members supply, own or inherited,
+  // read as a receiver reads them (`Receivers.record`). A concrete class nothing extends is final,
+  // and rule B reads it: where the site may call its primary constructor, its value is the tuple
+  // of its fields, each one the site observes as itself (`exposed`), from which every member
+  // computes; where it may not, it is one of what the site may call to build one (`Factories`). A
+  // template whose construction always throws, or a class written `final abstract`, has no value
+  // at all: the empty sum, as the old front end reads a record (a sealed case's construction that
+  // throws is S6's still). Left for later steps, each named: a construction that binds a pattern, a
+  // sealed class, a self type narrower than the class, an abstract type member, a member named like
+  // the measured definition, own or inherited (it may be that one on another receiver), a field
+  // the site does not observe as itself, a restricted constructor of a class something may extend,
+  // a class something extends, and what `Receivers.record` and `Factories` leave.
   private def record(template: ClassDef, bound: List[Shape], env: Env): Either[Unread, Shape] = {
     val (c, name) = (template.symbol, template.symbol.displayFullName)
     val parameters = Shapes.parameters(template.rhs.constr)
     val fieldNames = template.rhs.body.collect {
       case v: ValDef if v.symbol.isParamAccessor && v.symbol.isPublic => v.name
     }.toSet
+    val fixed = !c.isTrait && !c.isAbstractClass && (Shapes.isFinal(c) || !world.extended(c))
     val members = template.rhs.body.collect { case member: ValOrDefDef => member }
-    val supplied = members.filter { member =>
-      Receivers.open(member) && !member.symbol.isSynthetic &&
-      !member.name.toString.endsWith("_=") &&
-      // A member restating one of `Any`'s is outside the model.
-      member.symbol.allOverriddenSymbols.isEmpty && !universal(member)
-    }
-    // How a class of the program may override each concrete member (the closed world).
-    val overriding = members.collect {
-      case member if !member.symbol.isAbstractMember => world.overriding(c, member.symbol)
-    }
-    // A member named like the measured definition, which may be that one on another receiver; a
-    // constructor row measures no member.
+    // A member named like the measured definition, own or inherited, which may be that one on
+    // another receiver; a constructor row measures no member.
     val measured = env.site.name.toString
-    val clash = !World.isConstructor(env.site) && members.exists { member =>
-      !member.symbol.isSynthetic && member.name.toString == measured
-    }
+    val clash = !World.isConstructor(env.site) &&
+      (members.map(_.symbol) ++ World.ancestors(c).flatMap(_.declarations)).exists { member =>
+        !member.isSynthetic && member.name.toString == measured
+      }
     def refused(left: Boolean, what: String) =
       Either.cond(!left, (), Uncovered(s"a capability record $what: $name"))
     val read = env.copy(binders =
@@ -437,47 +430,30 @@ final private[compiled] class Shapes(world: World)(using Context) {
       Right(Shape.Sum(Nil))
     else
       for {
-        _ <- refused(World.ancestors(c).nonEmpty, "with parents")
-        _ <- refused(
-          overriding.contains(ClosedProgram.Overriding.Unknown),
-          "whose overriders are not read"
-        )
         _ <- refused(world.unbuilt(template), "whose construction binds a pattern")
-        _ <- refused(supplied.exists(!_.symbol.isPublic), "with a member hidden at the use site")
         _ <- refused(c.openLevel == OpenLevel.Sealed, "of a sealed class")
-        _ <- refused(c.givenSelfType.nonEmpty, "with a self type")
+        _ <- refused(!World.ownSelf(c), "with a self type")
         _ <- refused(Shapes.abstractTypeMember(template), "with an abstract type member")
-        _ <- refused(
-          overriding.contains(ClosedProgram.Overriding.Supplied),
-          "with a member something overrides"
-        )
         _ <- refused(clash, "with a member named like the measured definition")
-        _ <- refused(!template.rhs.constr.symbol.isPublic, "with a restricted constructor")
+        _ <- refused(!c.isTrait && !c.isAbstractClass && !fixed, "of a class something extends")
+        site <- env.site match {
+          case site: TermSymbol => Right(site)
+          case _ => Left(Uncovered(s"a capability record read outside a member: $name"))
+        }
+        public = World.callable(template.rhs.constr.symbol, site)
+        _ <- refused(!fixed && !public, "with a restricted constructor")
         _ <- refused(
-          !parameters.forall(p => fieldNames(p.name)),
+          public &&
+            !parameters.forall(p => fieldNames(p.name) || fixed && exposed(template, p, site)),
           "with a parameter that is no public field"
         )
-        _ <- refused(
-          !c.isTrait && !c.isAbstractClass && !Shapes.isFinal(c) && world.extended(c),
-          "of a class something extends"
-        )
-        fields <- inputs(parameters, read)
-        held <- Traversals.sequence(supplied.map(member(_, "a capability record", read)))
-      } yield Shape.Product(fields ++ held.flatten)
-  }
-
-  // Whether a member restates one of `Any`'s (`toString`, `hashCode`, `equals(that: Any)`), which
-  // the model excludes: by its name and parameters, since a trait with no parent overrides
-  // nothing. Any other member counts, an overload of such a name and `canEqual` included.
-  private def universal(member: ValOrDefDef): Boolean = member match {
-    case method: DefDef =>
-      val taken = Shapes.parameters(method).map(_.tpt.toType)
-      method.name.toString match {
-        case "toString" | "hashCode" => taken.isEmpty
-        case "equals"                => taken.sizeIs == 1 && taken.head.isSameType(defn.AnyType)
-        case _                       => false
-      }
-    case _: ValDef => false
+        // A final class no constructor callable from the site builds is one of what the site may
+        // call to build one, over the fields it observes (rule B).
+        shape <-
+          if (fixed && !public)
+            factories.space(template, site, read).map(Shape.Ground(name, _))
+          else receivers.record(template, site, read).map(Shape.Product(_))
+      } yield shape
   }
 
   /** A class of the module as the receiver of a member written in it: its type parameters are the
@@ -519,14 +495,15 @@ final private[compiled] class Shapes(world: World)(using Context) {
       // it from any other body, to which it therefore supplies nothing. One over a type parameter
       // may have no implementation at some instance, which says something of the instance: not
       // read. (Its signature may name one through an alias too, so it is not searched.) The
-      // templates around it, and no measured site, have the type parameters its signature may name.
+      // templates around it, and no measured site, have the type parameters its signature may name, and
+      // the environment the abstract type members.
       case (_, method: DefDef) if symbol.isInline && !inlineSite =>
         Either.cond(
           Shapes.typeParameters(method).isEmpty && World.owners(symbol.owner).forall {
             case owner: ClassSymbol => owner.typeParams.isEmpty
             case _: PackageSymbol   => true
             case _                  => false
-          },
+          } && !env.binders.keys.exists(_.isInstanceOf[TypeMemberSymbol]),
           None,
           Uncovered(s"a deferred inline method over a type parameter: ${method.name}")
         )
@@ -603,6 +580,29 @@ final private[compiled] class Shapes(world: World)(using Context) {
         case _            => false
       }
 
+  // Whether the site observes a final class's constructor parameter as itself: a field it may
+  // select, or a member it may call without arguments whose body is that field (an alias).
+  private def exposed(template: ClassDef, parameter: ValDef, site: TermSymbol): Boolean =
+    template.symbol.declarations
+      .collectFirst {
+        case field: TermSymbol if field.isParamAccessor && field.name == parameter.name => field
+      }
+      .exists { field =>
+        World.callable(field, site) || template.rhs.body.exists {
+          case alias: ValOrDefDef
+              if alias.symbol != field && !alias.symbol.isParamAccessor &&
+                !alias.symbol.isSynthetic && World.callable(alias.symbol, site) &&
+                World.declared(alias).isSameType(parameter.tpt.toType) && (alias match {
+                  case d: DefDef => d.paramLists.isEmpty
+                  case _: ValDef => true
+                }) =>
+            World.rhs(alias).exists(Shapes.names(_, field))
+          case _ => false
+        }
+      }
+
+  private lazy val factories = new Factories(world, this)
+
   // A trait or plain class whose only members are types: no observation tells two of its values
   // apart, and it has a value where each abstract member can be given a type (one bound at most).
   private def typesOnly(tree: ClassDef): Boolean = {
@@ -610,7 +610,7 @@ final private[compiled] class Shapes(world: World)(using Context) {
     c.openLevel != OpenLevel.Sealed && !c.isCaseClass && Shapes.bare(tree) &&
     Shapes
       .parameters(tree.rhs.constr)
-      .isEmpty && c.givenSelfType.isEmpty && !(Shapes.isFinal(c) && c.isAbstractClass) &&
+      .isEmpty && World.ownSelf(c) && !(Shapes.isFinal(c) && c.isAbstractClass) &&
     tree.rhs.body.forall {
       case member: TypeMember =>
         member.symbol.typeDef match {
@@ -712,6 +712,44 @@ private[compiled] object Shapes {
     top(bounds.high) && bottom(bounds.low)
   }
 
+  /** What an abstract type member of a receiver stands for on its instance, as a type parameter
+    * would (`binder`): one atom, or a rigid constructor for an invariant `F[_]`. A bound is not
+    * read yet.
+    */
+  def typeMember(owner: ClassSymbol, member: TypeMemberSymbol)(using
+      Context
+  ): Either[Unread, Shape] = {
+    val id = s"${owner.displayFullName}#${member.name}"
+    member.typeDef match {
+      case TypeMemberDefinition.AbstractType(bounds) if unbounded(bounds) => Right(Shape.Atom(id))
+      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
+      case TypeMemberDefinition.AbstractType(bounds)
+          if rigidBounds(bounds) && tastyquery.Variances.invariant(bounds.high) =>
+        Right(Shape.Constructor(id))
+      case _ =>
+        Left(
+          Unread.Uncovered(
+            s"a bounded abstract type member, or one of another kind than F[_]: ${member.name}"
+          )
+        )
+    }
+  }
+
+  // Whether a reference names what the environment binds: a type parameter, or an abstract type
+  // member on the instance of the receiver that holds it (`this.T`, `typeMember`'s identity), never
+  // one reached through another path or another instance.
+  private def binds(ref: TypeRef, binder: Symbol, env: Env)(using Context): Boolean =
+    (env.unread.contains(binder) && !binder.isInstanceOf[TypeMemberSymbol]) ||
+      env.binders.get(binder).exists { shape =>
+        (binder, ref.prefix) match {
+          case (_: TypeMemberSymbol, self: ThisType) =>
+            val id = s"${self.cls.displayFullName}#${binder.name}"
+            shape == Shape.Atom(id) || shape == Shape.Constructor(id)
+          case (_: TypeMemberSymbol, _) => false
+          case _                        => true
+        }
+      }
+
   // Whether a parameter whose bounds say nothing and which declares no variance on a parameter of
   // its own is a constructor of proper parameters, and not itself declared `+F[_]` or `-F[_]` (a
   // class's: its applications are related by subtyping).
@@ -724,6 +762,20 @@ private[compiled] object Shapes {
     invariant && (parameter.declaredBounds.high match {
       case lambda: TypeLambda => lambda.paramTypeBounds.forall(!_.high.isInstanceOf[TypeLambda])
       case _                  => false
+    })
+  }
+
+  // Bounds any type constructor of proper, unbounded parameters meets: `[X] =>> Any`
+  // above, nothing below (written as a lambda too, on a method's own parameter).
+  private def rigidBounds(bounds: TypeBounds)(using Context): Boolean = {
+    val bottom = bounds.low match {
+      case lambda: TypeLambda => lambda.resultType.isSameType(defn.NothingType)
+      case low                => low.isSameType(defn.NothingType)
+    }
+    bottom && (bounds.high match {
+      case lambda: TypeLambda =>
+        lambda.paramTypeBounds.forall(unbounded) && lambda.resultType.isSameType(defn.AnyType)
+      case _ => false
     })
   }
 
@@ -806,6 +858,16 @@ private[compiled] object Shapes {
     */
   def isFamily(c: ClassSymbol): Boolean =
     c.openLevel == OpenLevel.Sealed && c.isAbstractClass && !c.isEnum
+
+  /** Whether a term is a reference to `field` on the instance, through ascriptions. */
+  private def names(term: TermTree, field: TermSymbol)(using Context): Boolean = term match {
+    case Typed(inner, _)             => names(inner, field)
+    case Inlined(inner, _, _)        => names(inner, field)
+    case Block(Nil, inner)           => names(inner, field)
+    case ident: Ident                => World.named(ident).contains(field)
+    case select @ Select(_: This, _) => World.named(select).contains(field)
+    case _                           => false
+  }
 
   /** Whether a template declares an abstract type member. */
   def abstractTypeMember(tree: ClassDef): Boolean = tree.rhs.body.exists {

@@ -2,14 +2,15 @@ package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.{Binding, Shape}
 import cardinality.types.Traversals
-import tastyquery.Contexts.Context
-import tastyquery.Modifiers.OpenLevel
+import tastyquery.Contexts.*
+import tastyquery.Modifiers.{OpenLevel, Visibility}
 import tastyquery.Symbols.*
 import tastyquery.Trees.*
 import tastyquery.Types.*
 
 /** What the classes around a member supply to its body (slice S4, v1.md §2): a member of a class
-  * runs on an instance, so it reads what the instance holds.
+  * runs on an instance, so it reads what the instance holds. A value of a capability record is read
+  * the same way, as what its template supplies as a receiver (`record`).
   *
   *   - Every parameter of the class's primary constructor is a value of the environment, `val` or
   *     not, whatever its visibility: the member is inside the class. (Its primary constructor is
@@ -21,7 +22,9 @@ import tastyquery.Types.*
   *     That holds where no class of the program overrides it (the closed world, `ClosedProgram`);
   *     one a class of the program overrides varies across instances, and is a capability as an
   *     abstract member is, its own body one of its behaviors.
-  *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`).
+  *   - The class's type parameters are atoms, or rigid constructors for `F[_]` (`Shapes.binder`),
+  *     and so are its abstract type members, declared or inherited, on its own instance
+  *     (`Shapes.typeMember`).
   *   - A class that inherits is read by its own state alone where every member it inherits is
   *     implemented and none can be overridden: a concrete class that is final or that nothing
   *     extends. An object is such a template with no state.
@@ -39,12 +42,15 @@ import tastyquery.Types.*
   * whose private constructor parameters a subclass passes, a constructor field something overrides,
   * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
   * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
-  * settle; a self type; a type parameter of another kind than `F[_]` that a type read names; an
-  * abstract type member; a capability with type parameters of its own; a deferred `inline val`, or
-  * a deferred inline method over a type parameter; a construction that always throws or binds a
-  * pattern (S6); and what implicit search chooses (S5's remainder): a contextual parameter without
-  * a name, an abstract given without a name, an abstract extension method. A given written
-  * `= deferred` is a capability like an abstract member.
+  * settle; a self type narrower than the class (`World.ownSelf`); a type parameter of another kind
+  * than `F[_]` that a type read names; an abstract type member of a sum, a bounded one or one of
+  * another kind than `F[_]`, one two enclosing instances hold, one of a class no class written
+  * elsewhere extends, one another declaration of its name bounds or hides; a capability with type
+  * parameters of its own; a deferred `inline val`, or a deferred inline method over a type
+  * parameter; a construction that always throws or binds a pattern (S6); and what implicit search
+  * chooses (S5's remainder): a contextual parameter without a name, an abstract given without a
+  * name, an abstract extension method. A given written `= deferred` is a capability like an
+  * abstract member.
   */
 final private[compiled] class Receivers(world: World, shapes: Shapes)(using Context) {
   import Unread.Uncovered
@@ -250,11 +256,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     // A concrete member a class of the program overrides is a capability of this class; one a
     // class that is not read may override is not known to be either.
     val inheriting = inherited(c)
-    val overriding = tree.rhs.body.collect {
-      case member: ValOrDefDef if !Receivers.open(member) => world.overriding(c, member.symbol)
-    } ++ inheriting.getOrElse(Nil).collect {
-      case member: TermSymbol if !abstractLike(member) => world.overriding(c, member)
-    }
     val sum = Receivers.split(c)
     for {
       // A sealed family or an enum is the sum of its cases (`split`); a concrete sealed class or
@@ -266,13 +267,11 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       // What a sum receiver inherits, or a case overrides, computes from the case it is, which
       // the sum holds.
       _ <- if (sum) Right(()) else inherits(tree).flatMap(_ => inheriting)
+      _ <- refused(unsettled(tree), "an enclosing class whose overriders are not read")
+      _ <- refused(!World.ownSelf(c), "an enclosing class with a self type")
+      // A class's abstract type members are atoms (`atoms`); a sum's are not read yet.
       _ <- refused(
-        overriding.contains(ClosedProgram.Overriding.Unknown),
-        "an enclosing class whose overriders are not read"
-      )
-      _ <- refused(c.givenSelfType.nonEmpty, "an enclosing class with a self type")
-      _ <- refused(
-        Shapes.abstractTypeMember(tree) || (!sum && inheriting.getOrElse(Nil).exists {
+        sum && (Shapes.abstractTypeMember(tree) || inheriting.getOrElse(Nil).exists {
           case member: TypeMemberSymbol => member.isAbstractMember
           case _                        => false
         }),
@@ -285,15 +284,125 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield ()
   }
 
-  /** What the receivers' type parameters stand for (`Shapes.binder`), each read or not, and the
-    * copies their constructors hold.
+  // Whether a class that is not read may override a concrete member of the template, own or
+  // inherited, which is then not known to be a capability or to compute from the instance.
+  private def unsettled(tree: ClassDef): Boolean =
+    (tree.rhs.body.collect {
+      case member: ValOrDefDef if !Receivers.open(member) => member.symbol
+    } ++ inherited(tree.symbol).getOrElse(Nil).collect {
+      case member: TermSymbol if !abstractLike(member) => member
+    }).exists(world.overriding(tree.symbol, _) == ClosedProgram.Overriding.Unknown)
+
+  /** What a value of a capability record holds as the site observes it (v1.md §2), read as the
+    * template's receiver reading reads it (`own`): its constructor's fields and the members a
+    * subclass supplies, own or inherited, an overridden one included unless a behavior of it may
+    * call the site (`Reentry`). Synthetic members, setters and members restating one every value
+    * has (`universal`) observe nothing of the value and are set aside. Refused: a parent this
+    * reading does not take (`inherits`, `inherited`), an inherited abstract type member, a member
+    * the site may not call, and overriders the classes read do not settle.
     */
-  def atoms(receivers: List[ClassDef]): List[(Symbol, Either[Unread, Shape])] =
-    receivers.flatMap { tree =>
-      val c = tree.symbol
-      val copies = Shapes.typeParameters(tree.rhs.constr)
-      val named = c.typeParams.map(Shapes.binder(c, _, copies))
-      c.typeParams.zip(named) ++ copies.zip(named)
+  def record(template: ClassDef, site: TermSymbol, env: Shapes.Env): Either[Unread, List[Shape]] = {
+    val c = template.symbol
+    val where = "a capability record"
+    def kept(member: TermSymbol) =
+      !member.isSynthetic && !member.name.toString.endsWith("_=") && !World.restates(member)
+    val hidden = (supplies(template, site).map(_.symbol) ++ inheritedOpen(c, site))
+      .find(member => kept(member) && !member.isPublic)
+    for {
+      inheriting <- inherits(template)
+        .flatMap(_ => inherited(c))
+        .left
+        .map(reason =>
+          Uncovered(
+            s"$where whose parents are not read: ${reason.replace("an enclosing class", "a class")}"
+          )
+        )
+      _ <- Either.cond(
+        !inheriting.exists {
+          case member: TypeMemberSymbol => member.isAbstractMember
+          case _                        => false
+        },
+        (),
+        Uncovered(s"$where with an abstract type member: ${c.displayFullName}")
+      )
+      _ <- hidden
+        .map(member => Uncovered(s"$where with a member hidden at the use site: ${member.name}"))
+        .toLeft(())
+      _ <- Either.cond(
+        !unsettled(template),
+        (),
+        Uncovered(s"$where whose overriders are not read: ${c.displayFullName}")
+      )
+      held <- own(template, site, env, where, kept)
+    } yield held.map(_.shape)
+  }
+
+  /** What the receivers' type parameters stand for (`Shapes.binder`), each read or not, and the
+    * copies their constructors hold; and what their abstract type members, declared or inherited,
+    * stand for (`Shapes.typeMember`), on the instance alone (`this.T`; `Shapes` reads no other path
+    * to one).
+    */
+  def atoms(receivers: List[ClassDef]): Either[Unread, List[(Symbol, Either[Unread, Shape])]] =
+    Traversals
+      .sequence(receivers.map { tree =>
+        val c = tree.symbol
+        val members = (tree.rhs.body.collect { case member: TypeMember => member.symbol } ++
+          inherited(c).getOrElse(Nil)).collect {
+          case member: TypeMemberSymbol if member.isAbstractMember => member
+        }
+        for {
+          named = c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr)))
+          _ <- members.headOption
+            .flatMap(_ => pinned(c))
+            .orElse(members.view.flatMap(alike(c, _)).headOption)
+            .map(Uncovered(_))
+            .toLeft(())
+          held <- Traversals.sequence(members.map(Shapes.typeMember(c, _)))
+        } yield c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named) ++
+          members.zip(held.map(Right(_)))
+      })
+      .flatMap { pairs =>
+        // Two instances around the member each hold their own type of one declaration.
+        val members = pairs.flatten.map(_._1).collect { case m: TypeMemberSymbol => m }
+        members.diff(members.distinct).headOption match {
+          case Some(twice) =>
+            Left(Uncovered(s"an abstract type member two enclosing instances hold: ${twice.name}"))
+          case None => Right(pairs.flatten)
+        }
+      }
+
+  // Why the types an abstract type member of `c` stands for are only those the program's classes
+  // pick, as the old front end reads it: it counts one as any type only where a class written
+  // anywhere may extend `c`, which is not so where `c` is never extended (final, `final abstract`,
+  // a value class), where a restricted constructor of it or of a class it extends is callable only
+  // in its scope, or where `c` or a class around it is private to a template.
+  private def pinned(c: ClassSymbol): Option[String] = {
+    def confined(s: TermOrTypeSymbol, toPackage: Boolean) = s.visibility match {
+      case Visibility.Private | Visibility.PrivateThis => true
+      case Visibility.ScopedPrivate(scope)             => toPackage || !scope.isPackage
+      case _                                           => false
+    }
+    (if (Shapes.isFinal(c) || c.isSubClass(defn.AnyValClass)) Some(s"${c.name} is never extended")
+     else
+       (c :: World.ancestors(c))
+         .find(_.tree.exists(k => confined(k.rhs.constr.symbol, toPackage = true)))
+         .map(k => s"the constructor of ${k.name} is not public")
+         .orElse(World.owners(c).collectFirst {
+           case k: ClassSymbol if confined(k, toPackage = false) => s"${k.name} is private"
+         })).map(why =>
+      s"an abstract type member of a class no class written elsewhere extends: $why"
+    )
+  }
+
+  // Another declaration of an abstract type member's name along `c`'s parents: a private one,
+  // which tasty-query takes for the member when it matches members, or one that bounds it, which
+  // the member's own declaration does not show.
+  private def alike(c: ClassSymbol, member: TypeMemberSymbol): Option[String] =
+    World.ancestors(c).flatMap(_.declarations).collectFirst {
+      case other: TypeMemberSymbol
+          if other != member && other.name == member.name &&
+            (other.isPrivate || Shapes.typeMember(c, other).isLeft) =>
+        s"an abstract type member another declaration of its name bounds or hides: ${member.name}"
     }
 
   /** What the receivers supply to `measured`: their constructors' parameters and their abstract
@@ -377,16 +486,23 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
             Unread.Uncovered(s"an enclosing sum not read: $reason")
           case uncovered => uncovered
         }
-    } else own(tree, measured, env)
+    } else own(tree, measured, env, "an enclosing class", _ => true)
 
   // What a receiver that is no sum supplies: its constructor's parameters and its members a
-  // subclass supplies, `measured` aside.
-  private def own(template: ClassDef, measured: TermSymbol, env: Shapes.Env) = {
+  // subclass supplies, `measured` aside, the ones `kept` keeps; `where` names the template in a
+  // reason.
+  private def own(
+      template: ClassDef,
+      measured: TermSymbol,
+      env: Shapes.Env,
+      where: String,
+      kept: TermSymbol => Boolean
+  ) = {
     val self = template.symbol.displayFullName
     def held(of: ValOrDefDef, shape: Shape) =
       Binding(s"$self.${of.name}", shape, Some(of.name.toString))
     val parameters = Shapes.parameters(template.rhs.constr)
-    val capabilities = supplies(template, measured)
+    val capabilities = supplies(template, measured).filter(member => kept(member.symbol))
     for {
       _ <- Readings.plainInputs(parameters)
       fields <- shapes.inputs(parameters, env)
@@ -394,14 +510,15 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         if (reenters(template.symbol, member.symbol, measured))
           Left(
             Uncovered(
-              s"${Receivers.Reenters} among the members of an enclosing class: ${member.name}"
+              s"${Receivers.Reenters} among the members of $where: ${member.name}"
             )
           )
-        else shapes.member(member, "an enclosing class", env).map(_.map(held(member, _)))
+        else shapes.member(member, where, env).map(_.map(held(member, _)))
       })
       more <- Traversals.sequence(
         inheritedOpen(template.symbol, measured)
-          .map(inheritedCapability(template.symbol, _, measured, env))
+          .filter(kept)
+          .map(inheritedCapability(template.symbol, _, measured, env, where))
       )
     } yield parameters.lazyZip(fields).map(held) ++ members.flatten ++ more.flatten
   }
@@ -413,7 +530,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
       c: ClassSymbol,
       member: TermSymbol,
       measured: TermSymbol,
-      env: Shapes.Env
+      env: Shapes.Env,
+      where: String
   ): Either[Unread, Option[Binding]] = {
     val name = member.name.toString
     // Overloads an ancestor declares are capabilities of their own: each is named with its
@@ -439,9 +557,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
         case result: Type => Right((read, result))
       }
     for {
-      _ <- unread.left.map(what =>
-        Uncovered(s"$what among the members of an enclosing class: $name")
-      )
+      _ <- unread.left.map(what => Uncovered(s"$what among the members of $where: $name"))
       seen = member.typeAsSeenFrom(c.thisType)
       binding <-
         if (!member.isMethod)
