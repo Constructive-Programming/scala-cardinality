@@ -285,6 +285,12 @@ class CardinalitySpec extends Specification {
     a strict list beside a thunk               ${src(
       "case class Kx(kids: List[Kx], f: () => Kx)"
     ) === EffectiveEpsilon0} (Kx(Nil, () => k) ties it; ω arities per node: ε₀)
+    an alias under a thunk's result is expanded  ${src(
+      "type T = (Boolean, Xa); final case class Xa(f: () => T)"
+    ) === EffectiveOmega} (Xa = νX. 2·X, ω; it read 0; the alias adds nothing)
+    an alias under a by-name type is expanded  ${src(
+      "type T2 = (Boolean, Ya); final class Ya(f: => T2)"
+    ) === EffectiveOmega} (Ya = νX. 2·X, ω)
     a name held strictly and lazily in one field  ${src(
       "case class Ks(p: (Ks, () => Ks))"
     ) === NothingSize} (its μ value; the row is `?`)

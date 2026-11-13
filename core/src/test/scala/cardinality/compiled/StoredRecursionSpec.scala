@@ -86,6 +86,21 @@ class StoredRecursionSpec extends Specification {
       |final class Ho(e: => He) extends He
       |final case class Ht(i: Int => He) extends He
       |final class Hw(v: Hv)
+      |final class Hm(h: Boolean, b: => Hk)
+      |final class Hk(x: Nothing, a: => Hm)
+      |final class Hc(h: Boolean, d: Hd)
+      |final class Hd(x: Int, c: Hc)
+      |final class Shut private () { final case class In(b: Boolean) }
+      |final class Hp(h: Boolean, p: (Hq, Shut#In))
+      |final class Hq(x: Int, a: => Hp)
+      |final class Hp2(h: Boolean, p: (Shut#In, Hq2))
+      |final class Hq2(x: Int, a: => Hp2)
+      |object Op { opaque type Th = () => Q; final case class Q(b: Boolean, t: Th) }
+      |object Op2 {
+      |  opaque type Th[A] = () => A
+      |  final case class Bx[A](a: Th[A])
+      |  final case class Q(b: Boolean, p: Bx[Q])
+      |}
       |final class Hv(x: Int)
       |final case class HoldsAbs(r: AbsR)
       |final class Thr(x: Boolean) { val z: Int = ??? }
@@ -189,8 +204,17 @@ class StoredRecursionSpec extends Specification {
   private def emptyParts =
     List("Za", "Ia", "Ib").map(definition) must_== List("ω", "ω", "ω")
 
+  // `Op.Q` holds an opaque alias of a thunk of itself, read inside its scope (rule F): an endless
+  // Boolean stream, ω, which the completion does not take apart; it read 0 (`Q` demanded strictly).
+  // `Op2.Q` holds it under a class argument: no in-place reading of `Bx` (it read 0 too).
   private def uncompleted =
-    definition("Ks") must_== "lazy cycle not completed"
+    (definition("Ks"), definition("Op.Q"), constructor("Op.Q"), definition("Op2.Q")) must_==
+      (
+        "lazy cycle not completed",
+        "lazy cycle not completed",
+        "?",
+        "a class a system reads through a type argument"
+      )
 
   // The method side refuses a recursive position; the row takes the estimate's size: `Loop`'s
   // position is 0, `Lz`'s 1, `Str`'s String × Option[Str] = ω × (1 + ε₀), ε₀. `AbsR` reads 0, the
@@ -206,9 +230,15 @@ class StoredRecursionSpec extends Specification {
   // one subtype `Hn` shows nothing, 2 × 1. `Ho(e: => He)`: `He` is `Ho` (1) or the case class
   // `Ht(i: Int => He)`, whose `i` is a field: He = 1 + He^(2^32), countably many, ω; `Ht`'s
   // position `Int => He` is ω. `Hw(v: Hv)` reaches no class again: the method side's refusal stands.
+  // A class with no value has none whatever the constructor observes: `Hk` holds a `Nothing`, so
+  // `Hm`'s position is empty, 0, and so is `Hk`'s (no `Hm` without a `Hk`); `Hc` and `Hd` need each
+  // other strictly, no value, 0 each. A part beside the cycle the method side refuses keeps the
+  // refusal in either order: `Shut` is never built, so `Shut#In` is refused in `Hp` and `Hp2`, and
+  // in `Hq` and `Hq2`, which reach them.
   private def hiddenPositions =
-    List("Ha", "Hb", "Hn", "Ho", "Ht", "Hw").map(constructor) must_==
-      List("2", "≤2^32", "2", "ω", "ω", "?")
+    List("Ha", "Hb", "Hn", "Ho", "Ht", "Hw", "Hm", "Hk", "Hc", "Hd", "Hp", "Hp2").map(
+      constructor
+    ) must_== List("2", "≤2^32", "2", "ω", "ω", "?", "0", "0", "0", "0", "?", "?")
 
   // `Neg` reaches itself through a function's domain, where the numeric equation is no count
   // (Cantor). `GS[A]` continues through `=> GS[A]`, a class named with arguments: a field the

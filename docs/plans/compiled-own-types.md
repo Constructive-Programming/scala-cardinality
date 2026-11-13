@@ -1871,6 +1871,45 @@ vals m4 derives (measured `?` before, 1 now). Left, as the review noted: the sto
 Every worse row is a listed correction (m4's `Outer.Inner.Use.<init>` 1 -> 2 the sixth). Gate
 times: cats-kernel 23.1 s, cats-core 31.5 s (shared machine). `compiled/` is 9,391 lines.
 
+Round 5, one merge commit each, each certified by the same gate. First `tasty-m3` (`a415439`).
+Conflicts: `World.mentioned`'s comment (both sides' additions kept) and `corrected.txt` (the
+union). The review found four wrong numbers, each fixed with a regression:
+
+- m3's rule-B constructor rows dropped an unobserved field with its emptiness: `A(h: Boolean, b:
+  => B)` with `B(x: Nothing, a: => A)` read 2, and the strict pair `C(h: Boolean, d: D)`, `D(x:
+  Int, c: C)` 2 and 2^32, where no value exists (0). An empty estimate of the whole class now
+  stands (`StoredRecursionSpec.hiddenPositions`: `Hm`, `Hk`, `Hc`, `Hd` 0).
+- The method side reports a position's first refusal only, so a recursive (or hidden) position
+  took the estimate though a part beside the cycle was refused for another reason:
+  `A(h: Boolean, p: (B, Outer#In))` with `Outer` never built read 4, the same tuple swapped `?`.
+  `Constructors.position` now asks the method side of every part the cycle's refusal covers
+  (`beside`; `Hp`, `Hp2` refused). Older than m3 on the `Recursive` path, widened by m3's.
+- An opaque alias read inside its scope (`opaque type Th = () => Q`, `Q(b: Boolean, t: Th)`) was
+  a strict edge, so `Q` stored 0 (old front end ω); under a class argument (`Bx[Q]` with `Bx[A](a:
+  Th[A])`) `Bx` was read in place, 0 in both. `Stored.mentions` blocks the alias (no number: the
+  completion does not take it apart) and `World.deferred` takes an opaque alias as deferred
+  (`uncompleted`: `Op.Q`, `Op2.Q` refused). Older than m3.
+- Old front end: an alias under a function's result or a by-name type (`type T = (Boolean, X)`,
+  `X(f: () => T)`) was a continuation to the alias, no node, so the cycle was lost: 0. `Solver`
+  now expands the aliases there, and a continuation targets only a definition with constructors
+  (`CardinalitySpec`: ω).
+
+The fixture cache was rebuilt (a stale fixture of `NamespaceSpec` from before m3 paired `O.Cell`
+twice); the coverage memory dropped `H9` and `H9.<init>` (0 -> ω, m3's). Every worse row is a
+listed correction (m3's five added).
+
+| input | identical | better | worse | uncovered | old numeric uncovered | past old-unsound |
+|---|---|---|---|---|---|---|
+| core | 2,889 | 29 | 0 | 1,082 | 2 (2) | 2 (2) |
+| cats-core | 2,809 | 393 | 72 | 4,377 | 18 (19) | 16 (16) |
+| cats-kernel | 664 | 23 | 0 | 1,098 | 4 (4) | 2 (2) |
+| cats-eo | 329 | 12 | 0 | 356 | 2 (2) | 2 (2) |
+| cats-eo-generics | 42 | 0 | 0 | 38 | 0 (0) | 0 (0) |
+| cats-eo-schemes | 5 | 0 | 0 | 14 | 0 (0) | 0 (0) |
+| fixtures | 5,809 | 287 | 11 | 659 | 96 (104) | 30 (32) |
+
+Gate times: cats-kernel 15.1 s, cats-core 26.4 s. `compiled/` is 9,498 lines.
+
 ### What exists
 
 | Piece | Where | What it is |

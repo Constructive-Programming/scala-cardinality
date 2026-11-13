@@ -796,8 +796,9 @@ final private[compiled] class Stored(world: World)(using Context) {
       case World.Applied(_, parts) => joined(parts)
       case and: AndType            => joined(List(and.first, and.second))
       case or: OrType              => joined(List(or.first, or.second))
-      case _: TypeRef              => (all, none)
-      case _                       => (all, all)
+      // An opaque alias read inside its scope is not taken apart: blocked, as any other form.
+      case ref: TypeRef if !ref.optSymbol.exists(World.opaque) => (all, none)
+      case _                                                   => (all, all)
     }
     // A class the parts do not place (the applied class itself) is demanded.
     (strict ++ (all -- deferred), deferred)

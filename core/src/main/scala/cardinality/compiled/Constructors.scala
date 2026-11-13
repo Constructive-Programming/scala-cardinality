@@ -155,18 +155,43 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
     val ground = !World.mentions(tpe, variables)
     def estimate(observer: Option[Symbol] = None) =
       stored.position(tree, tpe, observer).left.map(Uncovered(_))
+    // The method side reports a position's first refusal only: the estimate stands for a recursive
+    // position where no part beside the cycle is refused too (`p: (B, Outer#In)`, `B` in the
+    // cycle, keeps `Outer#In`'s refusal whichever part comes first).
+    def beside(part: Type): Option[Unread] = {
+      def parts = part.dealias match {
+        case by: ByNameType       => beside(by.resultType)
+        case applied: AppliedType =>
+          applied.args.iterator.collect { case t: Type => t }.flatMap(beside).nextOption()
+        case _ => None
+      }
+      shapes.of(part, env) match {
+        case Right(_)                                                            => None
+        case Left(Unread.Refused(reason)) if reason.startsWith(Shapes.Recursive) => parts
+        case Left(Constructors.Hidden(_)) if stored.recursive(tree, part)        => parts
+        case Left(refusal)                                                       => Some(refusal)
+      }
+    }
+    def recursive(observer: Option[Symbol]) =
+      beside(tpe).toLeft(()).flatMap(_ => estimate(observer))
     // A position is an input: a top type in it is one value.
     shapes.of(tpe, env).map(TopTypes.polarized(_, false)) match {
       case Left(Unread.Refused(reason))
           if reason.startsWith(Shapes.Recursive) && Constructors.estimable(tpe) =>
-        estimate().map(Constructors.fromEstimate(reason, _, ground))
+        recursive(None).map(Constructors.fromEstimate(reason, _, ground))
       // A recursive position the method side refuses for a parameter a class does not show: under
       // rule B the parameter is unobserved, so each class holds the fields this constructor
       // observes (`final class A(h: Boolean, b: => B)` beside `final class B(x: Int, a: => A)`:
-      // `b` is one value, the row 2).
+      // `b` is one value, the row 2). A class with no value has none whatever is observed: an
+      // empty estimate of the whole class stands (`B(x: Nothing, a: => A)`: 0).
       case Left(Constructors.Hidden(reason))
           if Constructors.estimable(tpe) && stored.recursive(tree, tpe) =>
-        estimate(Some(parameter.symbol.owner)).map(Constructors.fromEstimate(reason, _, ground))
+        recursive(None)
+          .flatMap(whole =>
+            if (whole.size.contains(NothingSize)) Right(whole)
+            else estimate(Some(parameter.symbol.owner))
+          )
+          .map(Constructors.fromEstimate(reason, _, ground))
       case Left(Unread.Refused(reason)) =>
         Left(Uncovered(s"a constructor position the method side refuses: $reason"))
       case shaped =>

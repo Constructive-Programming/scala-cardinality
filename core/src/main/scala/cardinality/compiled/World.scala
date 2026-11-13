@@ -265,11 +265,20 @@ private[compiled] object World {
     !c.isEnum && !Shapes.isFamily(c) &&
       c.tree.exists(t => !Shapes.parameters(t.rhs.constr).exists(p => deferred(p.tpt.toType)))
 
-  /** Whether a type is by-name or holds a function type at any depth (a context function's too). */
+  /** Whether a type is by-name or holds a function type at any depth (a context function's too); an
+    * opaque alias, whose representation may hold one, is taken to.
+    */
   def deferred(tpe: Type)(using Context): Boolean = tpe.dealias match {
-    case _: ByNameType               => true
+    case _: ByNameType                                 => true
+    case Named(ref, _) if ref.optSymbol.exists(opaque) => true
     case applied @ Applied(_, parts) => functional(applied) || parts.exists(deferred)
     case _                           => false
+  }
+
+  /** Whether a symbol is an opaque type alias. */
+  def opaque(symbol: Symbol): Boolean = symbol match {
+    case alias: TypeMemberSymbol => alias.isOpaqueTypeAlias
+    case _                       => false
   }
 
   /** Whether a method is a constructor, primary or secondary. */

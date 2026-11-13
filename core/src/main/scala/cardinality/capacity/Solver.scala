@@ -232,10 +232,16 @@ private[cardinality] object Solver {
   private def mentions(expand: Type => Type)(tpe: Type): (Set[TypeName], Set[TypeName]) = {
     val none = (Set.empty[TypeName], Set.empty[TypeName])
     // `seen`: the aliases being expanded (`type Eq[A] = kernel.Eq[A]` names itself).
+    // Every name a part holds, its bare aliases expanded.
+    def every(seen: Set[String])(tpe: Type): Set[TypeName] = {
+      val (strict, deferred) = walk(seen)(tpe)
+      strict ++ deferred ++ namesOf(tpe)
+    }
     def walk(seen: Set[String])(tree: Tree): (Set[TypeName], Set[TypeName]) = tree match {
-      case Type.ByName(inner)   => (Set.empty, namesOf(inner))
-      case f: Type.FunctionType => (f.paramClause.values.flatMap(namesOf).toSet, namesOf(f.res))
-      case n @ Type.Name(name)  =>
+      case Type.ByName(inner)   => (Set.empty, every(seen)(inner))
+      case f: Type.FunctionType =>
+        (f.paramClause.values.flatMap(every(seen)).toSet, every(seen)(f.res))
+      case n @ Type.Name(name) =>
         val body = expand(n)
         val (strict, deferred) = if ((body eq n) || seen(name)) none else walk(seen + name)(body)
         (strict + TypeName.of(name), deferred)
@@ -278,7 +284,9 @@ private[cardinality] object Solver {
         Some(edge(target, Continuation.Kind.OptionBranch, Nil))
       case _ => None
     }
-  }
+    // Only a definition with constructors is a node: a field targeting an alias (`() => T`) is read
+    // by its mentions, the alias expanded.
+  }.filter(edge => allNames(edge.target))
 
   // The single name an occurrence targets: `X` itself, or `Option[X]`. Uses the current
   // `Apply` shape (`After_4_6_0`) — the plain unapply silently fails to match it.
