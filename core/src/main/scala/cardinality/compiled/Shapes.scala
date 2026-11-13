@@ -1,8 +1,7 @@
 package cardinality.compiled
 
 import cardinality.analysis.BuiltinTypes
-import cardinality.analysis.inhabitation.Inhabitation.{Binder, Head, Shape}
-import cardinality.analysis.inhabitation.PolymorphicMembers
+import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
 import cardinality.analysis.resolution.{LiteralTypes, StuckProjections}
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
@@ -538,51 +537,15 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
           None,
           Uncovered(s"a deferred inline method over a type parameter: ${method.name}")
         )
-      case (_, value: ValDef)  => of(value.tpt.toType, env).map(Some(_))
+      case (_, value: ValDef) => of(value.tpt.toType, env).map(Some(_))
+      // A capability's parameter is an argument its caller passes, named or not.
       case (_, method: DefDef) =>
-        val parameters = Shapes.parameters(method)
-        // A capability's parameter is an argument its caller passes, named or not.
-        for {
-          own <- polymorphic(symbol.displayFullName, method)
-          inside = env.copy(binders = env.binders ++ own.map((p, shape, _) => p -> shape))
-          result <- of(method.resultTpt.toType, inside)
-          read <- if (result == Shape.Product(Nil)) Right(Nil) else inputs(parameters, inside)
-          // A member's own type parameters are read as the scalameta front end reads them
-          // (`PolymorphicMembers.close`): exact where a reading is, kept for the solver otherwise.
-          closed <- PolymorphicMembers
-            .close(symbol.displayFullName, own.map(_._3), Shape.Function(read, result))
-            .left
-            .map(Uncovered(_))
-        } yield Option.when(result != Shape.Product(Nil))(closed)
+        Capabilities.method(symbol, Shapes.typeParameters(method), env)(
+          inside => of(method.resultTpt.toType, inside),
+          inputs(Shapes.parameters(method), _)
+        )
     }
   }
-
-  // A capability's own type parameters, each under the identity `PolymorphicMembers.close` looks
-  // for: the member's own atom, or a rigid constructor for an `F[_]`, with the bounds it declares.
-  private def polymorphic(member: String, method: DefDef) =
-    Traversals.sequence(Shapes.typeParameters(method).map { symbol =>
-      val parameter = symbol.asInstanceOf[TypeParamSymbol]
-      val (name, bounds) = (parameter.name.toString, parameter.declaredBounds)
-      // The old front end reads any constructor here as rigid (`MemberSyntax`): a bound or a
-      // variance it does not refuse is not read yet.
-      val read = Shapes.binder(method.symbol, parameter).left.map {
-        case Unread.Refused(_) =>
-          Uncovered(s"a type parameter of another kind than an invariant F[_]: $name")
-        case uncovered => uncovered
-      }
-      read.map { read =>
-        // A rigid constructor's bounds are a type lambda's, which `Shapes.binder` checked.
-        val proper = !read.isInstanceOf[Shape.Constructor]
-        val declared = PolymorphicMembers.Declared(
-          name,
-          lower = proper && !bounds.low.isSameType(defn.NothingType),
-          upper = proper && !bounds.high.isSameType(defn.AnyType),
-          view = false
-        )
-        val id = Binder(member, name).id
-        (symbol, if (proper) Shape.Atom(id) else Shape.Constructor(id), declared)
-      }
-    })
 
   /** A class's constructor parameters, read with its type parameters bound to `arguments`: the
     * constructor's own copies of them, which its parameter types name, and the class's.

@@ -2593,6 +2593,50 @@ cases are built by a companion that throws, or whose case's parent throws). Old 
 that changed: fixtures `E` 2 -> 0 (`enum E { case E1, E2; val x: Int = ??? }`, now identical);
 no corpus row of either front end changed.
 
+### Group k2: a capability with type parameters of its own
+
+What h6 left. Three changes, the first two in the shared back end:
+
+- **The instantiation closure has a budget** (`GoalSolver.instantiated`). Each polymorphic path read
+  and each instance it gives is a step of the caller's budget (`Readings.Work`, 3,000,000 per row;
+  past it the row reads "target budget exhausted"). An instance is labelled by a number its shape
+  gets once per solver run, not by the shape's `toString`.
+- **Only a path that can be called supplies an applied value** (`PolymorphicMembers.Supply`). PB5
+  took the result of every monomorphic path as a candidate, even of one whose applied parameters no
+  value of the context can fill. In `Cokleisli.andThen` (a `CoflatMap[F]`, no F value) `void`'s
+  `F[Unit]` fixed `coflatten` at `Unit`, whose instance built `F[F[Unit]]`, and so on without end:
+  that is the 40-minute row. Now the heads available are computed once per context (the least fixed
+  point `opens` already used), and both the candidates and `opens` read the paths callable there.
+  A path that an instance added later opens is refused rather than kept beside the instances it gave
+  before. A context's supply is read once (`GoalSolver.supply`). The old front end gives the same
+  rows, values and reasons, on all six corpora (compared row by row, old rows recomputed).
+- **An inherited capability with type parameters of its own** (`Receivers.inheritedCapability`)
+  is read as a declared one is: its `PolyType` is instantiated at its own type-parameter symbols, and
+  `Capabilities.method` (moved out of `Shapes`, shared by both) binds them and closes the function
+  (`PolymorphicMembers.close`). Bounds are read as declared, so a bound a subclass makes trivial still
+  refuses; a member with several type-parameter clauses is uncovered.
+
+Derivations (`derived.txt`, 15 rows of cats-core):
+
+- `Comonad.extract` 0: F is not fixed, every capability of the instance returns an F or a function
+  into one, and nothing takes an F apart.
+- `Comonad[Tuple1]` … `Comonad[(A0, …, A9, *)]` (`catsStdInstancesForTuple1`–`11`),
+  `Invariant.catsComonadForTuple2`, `catsInstancesForIdCompat2_6_1` (`Comonad[Id]`),
+  `catsDataCoflatMapForWriterTId` ω: the goal record holds `Functor.imap`, concrete but overridden
+  (`catsInstancesForId`, `WriterT`, `OptionT`), so it varies. Its result holds a B, and
+  `f((g andThen f)^n(a))`, n ≥ 0, are pairwise distinct (f = _ + 1, g = identity at Int); every other
+  member (extract, coflatMap, coflatten, void, map, lift) has at least one implementation and
+  countably many. The rule of the derived row `catsInstancesForId.<new#1>.imap`.
+
+Old numeric rows covered, each identical: cats-core `Category.id` (0),
+`Profunctor.catsStrongForFunction1` (1), `KleisliInstances3.catsDataChoiceForKleisliId` (1); cats-eo
+`ForgetfulApplicative.pure` (0); fixtures `UsesIds.pick`, `UsesAbsurd.pick`, `FL2O.other`,
+`Instance.get` (two), `binders.ForgetfulApplicative.pure`, `Child.pick`. cats-core's new front end
+runs in 15 s (24 s before).
+
+Regression: `RecordsSpec` "an inherited member with type parameters of its own" (`get` 1, `noA` 0,
+`run` 0, the last the endless closure).
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

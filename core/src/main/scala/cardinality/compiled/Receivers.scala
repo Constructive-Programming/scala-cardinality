@@ -677,10 +677,15 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     // Overloads an ancestor declares are capabilities of their own: each is named with its
     // signature.
     val identity = s"${c.displayFullName}.${member.signedName}"
+    // Its own type parameters, read at their symbols as a declared member's are (`Shapes.member`),
+    // with the bounds it declares: a bound the subclass makes trivial still refuses.
+    val own = member.paramSymss.flatMap(_.toOption.toList.flatten)
     def clauses(tpe: TypeOrMethodic, read: List[Type]): Either[Unread, (List[Type], Type)] =
       tpe match {
+        case poly: PolyType if poly.paramNames.sizeIs == own.size =>
+          clauses(poly.instantiate(own.map(_.localRef)), read)
         case _: PolyType =>
-          Left(Uncovered(s"a capability with type parameters of its own: $name"))
+          Left(Uncovered(s"a capability with several clauses of type parameters: $name"))
         case method: MethodType
             if method.isImplicitOrContextual && method.paramNames.exists(
               _.toString.contains("$")
@@ -700,14 +705,12 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
         }
       else
         clauses(seen, Nil).flatMap { (parameters, result) =>
-          shapes.of(result, env).flatMap { output =>
-            // A one-valued result supplies nothing, whatever the inputs are.
-            if (output == Shape.Product(Nil)) Right(None)
-            else
-              Traversals
-                .sequence(parameters.map(shapes.of(_, env)))
-                .map(inputs => Some(Binding(identity, Shape.Function(inputs, output), Some(name))))
-          }
+          Capabilities
+            .method(member, own, env)(
+              shapes.of(result, _),
+              inside => Traversals.sequence(parameters.map(shapes.of(_, inside)))
+            )
+            .map(_.map(Binding(identity, _, Some(name))))
         }
     }
     val unread =
