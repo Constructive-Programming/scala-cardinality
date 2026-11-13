@@ -1979,6 +1979,27 @@ listed correction (m3's five added).
 
 Gate times: cats-kernel 15.1 s, cats-core 26.4 s. `compiled/` is 9,498 lines.
 
+Then `tasty-m6` (`9be2bf6`, with m5's `a0b8144`), merged without conflicts. Coordinator ruling,
+recorded here: a path through the universal members of `Any` (`toString`, `equals`, `hashCode`:
+`s"$this"`, `Set(this, o)`) is outside the model (AGENTS.md excludes the universal members and
+unrestricted equality tests), so a count it would change is no wrong number and is not chased. The
+review found three ways `Matches` missed a call the compiler inserts, each a same-instance
+re-entry counted (`Use.same` 2^256 where it is refused), each fixed with a regression in
+`sameInstanceHidden`:
+
+- A private `isEmpty`, `get` or `_1` was skipped, but a match written in its class selects it: the
+  private filter is dropped (a private member elsewhere is only read, more conservatively).
+- An extractor's result typed `N & Serializable` names no single class (the written `&` is an
+  application of the alias `scala.&`), so no `isEmpty`/`get` was inserted: `Matches` now reads
+  each side of an intersection or union, and an abstract type's upper bound.
+- A pattern variable was bound to the scrutinee only: `a match { case Me(n) => Use.same(n) }`
+  with `Me.unapply` returning `Some(N.this)`. A variable is now bound also to what its pattern is
+  matched against (`Matches.boundTo`, read by `Reentry.bound`).
+
+`Reentry.scala` went past 1,000 lines: the record-carrier predicates (`opens`, `carrier`) moved
+verbatim to `Openings.scala` (no behavior change). No row moved; the table is m3's above. Gate
+times: cats-kernel 15.7 s, cats-core 19.2 s. `compiled/` is 9,719 lines.
+
 ### What exists
 
 | Piece | Where | What it is |

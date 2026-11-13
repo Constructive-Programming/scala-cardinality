@@ -17,10 +17,7 @@ import tastyquery.Types.{
   TermType,
   ThisType,
   Type,
-  TypeBounds,
   TypeLambda,
-  TypeOrMethodic,
-  TypeOrWildcard,
   TypeParamRef,
   TypeRef,
   WildcardTypeArg
@@ -370,7 +367,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // member and the record's class alone.
     def handsMade: Boolean = {
       val inputs = measured.paramSymss.exists(_.isLeft) || !measured.owner.isClass ||
-        home.exists(h => !World.inObjects(h)) || Reentry.opens(measured.declaredType)
+        home.exists(h => !World.inObjects(h)) || Openings.opens(measured.declaredType)
       def stateful(k: ClassSymbol) = k.linearization.exists { a =>
         world.ofModule(a) && a.declarations.exists {
           case field: TermSymbol => !field.isMethod
@@ -518,17 +515,19 @@ final private[compiled] class Reentry(world: World)(using Context) {
 
   private val selfHeld = mutable.Map.empty[ClassSymbol, Tree => Boolean]
 
-  // Each variable a match's pattern binds in the module, with the scrutinee it is matched against
+  // Each variable a match's pattern binds in the module, with the scrutinee and what its pattern is
+  // matched against (`Matches.boundTo`)
   // (a caught exception is no value: a throw supplies nothing); and each parameter of a function
   // literal (a partial function's included) a call is given, with the call's receiver and other
   // arguments, which code not read may give it (`Option(this).map(e => new Wrap(e))`).
   private lazy val bound: Map[Symbol, List[Tree]] = {
     val found = mutable.Map.empty[Symbol, List[Tree]]
     everyTree {
-      case Match(scrutinee, cases) =>
+      case m @ Match(scrutinee, cases) =>
+        matches(m): Unit
         visit(cases.map(_.pattern)) {
           case variable: Bind =>
-            found(variable.symbol) = List(scrutinee)
+            found(variable.symbol) = scrutinee :: matches.boundTo(variable)
         }
       case call: Apply =>
         val (head, clauses) = Reentry.unapplied(call)
@@ -826,7 +825,7 @@ private[compiled] object Reentry {
   }
 
   /** The class a type names; none where it names none or does not resolve. */
-  private def classOf(tpe: => Type)(using Context): Option[ClassSymbol] =
+  def classOf(tpe: => Type)(using Context): Option[ClassSymbol] =
     Try(World.classNamed(tpe)).toOption.flatten
 
   /** The class `this` stands for; none where it does not resolve. */
@@ -887,7 +886,7 @@ private[compiled] object Reentry {
     case _         => false
   }).getOrElse(false)
 
-  private def plainType(tpe: Type)(using Context): Boolean =
+  def plainType(tpe: Type)(using Context): Boolean =
     List(
       defn.IntType,
       defn.LongType,
@@ -900,62 +899,6 @@ private[compiled] object Reentry {
       defn.UnitType,
       defn.StringType
     ).exists(tpe.isSubType)
-
-  /** Whether an implementation of a member of this type is args a value that may hold a record: one
-    * of a value parameter's (`carrier`), or one an abstract member of its result's class (a
-    * function's `apply` included) is args, which the implementation builds; one not read may.
-    * `args` holds the type arguments of the class whose member is read.
-    */
-  private def opens(
-      tpe: TypeOrMethodic,
-      args: Map[Symbol, TypeOrWildcard] = Map.empty,
-      seen: Set[ClassSymbol] = Set.empty
-  )(using Context): Boolean = Try(tpe match {
-    case poly: PolyType     => opens(poly.resultType, args, seen)
-    case method: MethodType =>
-      method.paramTypes.exists(carrier(_, args)) || opens(method.resultType, args, seen)
-    case byName: ByNameType => opens(byName.resultType, args, seen)
-    case result: Type       =>
-      !plainType(result) && (World.functional(result) || classOf(result).forall { k =>
-        val arguments: Map[Symbol, TypeOrWildcard] = result.dealias match {
-          case applied: AppliedType => k.typeParams.zip(applied.args.map(resolve(_, args))).toMap
-          case _                    => Map.empty
-        }
-        !seen(k) && k.linearization.filterNot(World.universal).flatMap(_.declarations).exists {
-          case m: TermSymbol => m.isAbstractMember && opens(m.declaredType, arguments, seen + k)
-          case _             => false
-        }
-      })
-  }).getOrElse(true)
-
-  /** Whether a value of this type may hold a record: no plain value (`plainType`), and no type
-    * parameter without a bound, which a parametric body cannot use; `args` substitutes a class's
-    * type arguments for its parameters.
-    */
-  private def carrier(tpe: Type, args: Map[Symbol, TypeOrWildcard])(using Context): Boolean =
-    resolve(tpe, args) match {
-      case ref: TypeRef =>
-        ref.optSymbol match {
-          case Some(p: (ClassTypeParamSymbol | LocalTypeParamSymbol)) => bounded(p.declaredBounds)
-          case _                                                      => !plainType(ref)
-        }
-      case ref: TypeParamRef => bounded(ref.bounds)
-      case other: Type       => !plainType(other)
-      case _                 => true
-    }
-
-  // Whether a type parameter's upper bound is no top type.
-  private def bounded(bounds: TypeBounds)(using Context): Boolean = !(bounds.high match {
-    case lambda: TypeLambda => classOf(lambda.resultType)
-    case high               => classOf(high)
-  }).exists(World.universal)
-
-  private def resolve(tpe: TypeOrWildcard, args: Map[Symbol, TypeOrWildcard])(using
-      Context
-  ): TypeOrWildcard = tpe match {
-    case ref: TypeRef => ref.optSymbol.flatMap(args.get).getOrElse(ref)
-    case other        => other
-  }
 
   /** The containers outside the module that hold only the values of their type arguments, built
     * eagerly: no function of the module hides in one.

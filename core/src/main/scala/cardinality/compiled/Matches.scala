@@ -6,8 +6,9 @@ import tastyquery.Constants.Constant
 import tastyquery.Contexts.*
 import tastyquery.Names.termName
 import tastyquery.SourcePosition
+import tastyquery.Symbols.{ClassSymbol, TypeSymbolWithBounds}
 import tastyquery.Trees.*
-import tastyquery.Types.{ByNameType, MethodType, ThisType, Type}
+import tastyquery.Types.*
 
 /** The calls the compiler inserts where the tree does not hold them, written as calls, so that a
   * search over the module's trees (`Reentry`) follows them.
@@ -27,6 +28,13 @@ import tastyquery.Types.{ByNameType, MethodType, ThisType, Type}
   */
 final private[compiled] class Matches(using Context) {
   private val built = new java.util.IdentityHashMap[Tree, List[Tree]]
+  private val bindings = new java.util.IdentityHashMap[Bind, List[TermTree]]
+
+  /** What a match's variable is bound to: each value its pattern is matched against, once the
+    * match's calls are built (`apply`).
+    */
+  def boundTo(variable: Bind): List[TermTree] =
+    Option(bindings.get(variable)).getOrElse(Nil)
 
   def apply(tree: Tree): List[Tree] = tree match {
     case _: Match | Apply(Select(_, _), _) | Select(_, _) =>
@@ -57,7 +65,9 @@ final private[compiled] class Matches(using Context) {
   private def matched(pattern: PatternTree, scrutinee: TermTree)(using
       at: SourcePosition
   ): List[Tree] = pattern match {
-    case Bind(_, body, _)   => matched(body, scrutinee)
+    case variable @ Bind(_, body, _) =>
+      bindings.put(variable, scrutinee :: boundTo(variable)): Unit
+      matched(body, scrutinee)
     case TypeTest(body, _)  => matched(body, scrutinee)
     case Alternative(trees) => trees.flatMap(matched(_, scrutinee))
     case ExprPattern(value) =>
@@ -120,17 +130,17 @@ final private[compiled] class Matches(using Context) {
       .toList
 
   private def products(term: TermTree)(using SourcePosition): List[TermTree] =
-    if (classOf(term).exists(_.isSubClass(defn.ProductClass))) selectors(term) else Nil
+    if (classesOf(term).exists(_.isSubClass(defn.ProductClass))) selectors(term) else Nil
 
-  // A selection of each member of that name the term's class declares or inherits (every overload
-  // of the nearest class declaring one; with `parameterless`, those without a value clause), but a
-  // private one; none where the term's type names no class.
+  // A selection of each member of that name each class of the term's type declares or inherits
+  // (every overload of the nearest class declaring one; with `parameterless`, those without a value
+  // clause). A private one is kept: a match written in its class selects it.
   private def select(qualifier: TermTree, name: String, parameterless: Boolean = false)(using
       at: SourcePosition
-  ): List[Select] = classOf(qualifier).toList.flatMap { k =>
+  ): List[Select] = classesOf(qualifier).flatMap { k =>
     k.linearization.iterator
       .map(_.getAllOverloadedDecls(termName(name)).filter { m =>
-        !m.isPrivate && (!parameterless || m.paramSymss.forall(_.isRight))
+        !parameterless || m.paramSymss.forall(_.isRight)
       })
       .find(_.nonEmpty)
       .getOrElse(Nil)
@@ -149,12 +159,37 @@ final private[compiled] class Matches(using Context) {
     }
   }).getOrElse(true)
 
-  private def classOf(term: TermTree) = Try(term.tpe.widenTermRef match {
-    case byName: ByNameType => World.classNamed(byName.resultType)
-    case self: ThisType     => Some(self.cls)
-    case tpe: Type          => World.classNamed(tpe)
-    case _                  => None
-  }).toOption.flatten
+  // The classes a term's type names: each side of an intersection or a union, an abstract type's
+  // upper bound.
+  private def classesOf(term: TermTree): List[ClassSymbol] = {
+    def of(tpe: Type): List[ClassSymbol] = tpe.dealias match {
+      case byName: ByNameType => of(byName.resultType)
+      // `A & B` and `A | B` as written are applications of the aliases `&` and `|`.
+      case World.Named(ref, List(first: Type, second: Type))
+          if ref.optSymbol
+            .exists(s => s.owner == defn.scalaPackage && Set("&", "|")(s.name.toString)) =>
+        of(first) ++ of(second)
+      case self: ThisType           => List(self.cls)
+      case and: AndType             => of(and.first) ++ of(and.second)
+      case or: OrType               => of(or.first) ++ of(or.second)
+      case annotated: AnnotatedType => of(annotated.typ)
+      case other                    =>
+        World
+          .classNamed(other)
+          .map(List(_))
+          .getOrElse(other.dealias match {
+            case ref: TypeRef =>
+              ref.optSymbol
+                .collect { case b: TypeSymbolWithBounds => of(b.declaredBounds.high) }
+                .getOrElse(Nil)
+            case _ => Nil
+          })
+    }
+    Try(term.tpe.widenTermRef match {
+      case tpe: Type => of(tpe).distinct
+      case _         => Nil
+    }).getOrElse(Nil)
+  }
 
 }
 
