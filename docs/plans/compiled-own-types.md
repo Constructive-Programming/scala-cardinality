@@ -1507,6 +1507,29 @@ What refuses them on this tree, from tracing `Reentry.may`:
 
 Gate time for cats-core on this tree: 19.8 s (baseline run, shared machine).
 
+#### Product and Equals members on a record value (group m5)
+
+A wrong number m1 found, older than m1's change: `Reentry` skipped every member of `Product` and
+`Equals` as universal (`World.universal`), so a class of the module implementing one by handing on
+`this`, called through an alias typed by that trait (`val me: Equals = this; me.canEqual(1)`),
+counted 2^256. `Reentry` now skips only what `Any`, `Matchable`, `AnyVal`, `Object` and
+`Serializable` declare (`silent`), in `fromInstance`, `outside`, `flows`, `handsOn`,
+`selfReenters` and `holder`'s `returned`: more refusals only. Also ported from `tasty-int`
+(`d984c07`): `inertClass` reads every supplied class below the static one. `sameInstanceHidden`
+gains the two alias programs and the four `stringOf` programs. Rows: none changes on any of the
+seven inputs.
+
+Left open: the argument-position flow for `handsMade` (the 16 cats-core, 2 core, 1 cats-eo rows).
+A design was tried (`/tmp/m5/flow-wip.patch`): the measured member's input only at positions whose
+type may hold the record (`Outside.holds`), a constructor read through its class's code with the
+tainted fields, and code outside the module routing a value only through the module's entry points
+(members it may call, function literals), searched once per measured member and record class. It
+passes `ProgramRowsSpec` but moves no row: the global entry search meets `x === y` on cats'
+newtypes (`NonEmptySetEq.eqv`, `sortedMap.scala`), whose selection tasty-query cannot resolve
+(`None.get`), and an unresolved name refuses. A correctness review also found that same-instance
+re-entry through the extractor protocol (`this match { case C(x) => x }` with a `_1`, `get` or
+`isEmpty` handing on `this`) counts 2^256, before and after this unit.
+
 ## Phase 5: the TASTy front end, slice by slice
 
 Each slice lands when the differential runner shows no **worse** row for the rows it covers and its

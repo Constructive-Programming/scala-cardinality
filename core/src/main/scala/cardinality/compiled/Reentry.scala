@@ -105,7 +105,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
             }
           }
       } else if (world.ofModule(m)) dispatched(m)
-      else runs(m, measured) || !World.universal(m.owner)
+      else runs(m, measured) || !Reentry.silent(m.owner)
 
     // Whether a reference may run the measured member.
     def measures(reference: Tree): Boolean = called(reference).exists(runs(_, measured))
@@ -163,7 +163,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
 
     // Whether a call or selection runs code outside the module (what `Any` declares aside).
     def outside(tree: Tree): Boolean =
-      called(Reentry.unapplied(tree)._1).exists(m => !own(m) && !World.universal(m.owner))
+      called(Reentry.unapplied(tree)._1).exists(m => !own(m) && !Reentry.silent(m.owner))
 
     // Whether a call or selection hands a value of the module to code outside it: an argument, on
     // which that code may call anything; or the receiver, on which the member selected runs its
@@ -265,7 +265,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
       (taint.nonEmpty || received) && called(head).forall { m =>
         taint.nonEmpty && runs(m, measured) || Try(
           if (!own(m))
-            outward && !World.universal(m.owner) &&
+            outward && !Reentry.silent(m.owner) &&
             (clauses.flatten ++ Reentry.receiver(head)).exists(!inert(_)) ||
             callsBack(head, clauses)
           else if (taint.isEmpty) false
@@ -315,7 +315,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
       case tree @ Select(qualifier, _) if !Reentry.onInstance(tree) && carries(qualifier) =>
         Option.when(called(tree).forall { m =>
           if (own(m)) Try(selfReenters(m)).getOrElse(true)
-          else outward && !World.universal(m.owner) && !inert(qualifier)
+          else outward && !Reentry.silent(m.owner) && !inert(qualifier)
         })(true)
       case _ => None
     }
@@ -340,12 +340,12 @@ final private[compiled] class Reentry(world: World)(using Context) {
     def selfReenters(m: TermSymbol, owner: Option[ClassSymbol] = None): Boolean = {
       val others = owner.fold(overridersOf(m))(world.overriders(_, m))
       others.exists(_.isEmpty) || (m :: others.flatten).exists { d =>
-        val unread = d.tree.isEmpty && !d.isAbstractMember && !World.universal(d.owner)
+        val unread = d.tree.isEmpty && !d.isAbstractMember && !Reentry.silent(d.owner)
         onSelf.add(d) && (outward && unread || d.tree.exists { body =>
           handsOn(body, holdsSelf(c)) || Reentry.search(body) {
             case tree if Reentry.onInstance(tree) =>
               Option.when(called(tree).exists { n =>
-                !World.universal(n.owner) && Try(selfReenters(n)).getOrElse(true)
+                !Reentry.silent(n.owner) && Try(selfReenters(n)).getOrElse(true)
               })(true)
             // Building a class nested in the value's, or first accessing such an object, runs its
             // construction on the value as its outer instance.
@@ -480,7 +480,7 @@ final private[compiled] class Reentry(world: World)(using Context) {
     // Whether a member outside the module (or, selected, a name that does not resolve) selected on,
     // or named in, an instance that may be `self` may return that instance (`this.type`).
     def returned(reference: Tree, instance: => Boolean): Boolean = self.nonEmpty &&
-      !called(reference).exists(m => world.ofModule(m) || World.universal(m.owner)) && instance
+      !called(reference).exists(m => world.ofModule(m) || Reentry.silent(m.owner)) && instance
     def alias(reference: Tree): Boolean = called(reference).exists { m =>
       val member = !m.owner.isClass || ofSelf(m)
       // Each body a call may run: the member's own and each overrider's (one not read, any).
@@ -968,15 +968,14 @@ private[compiled] object Reentry {
   )
 
   /** Whether a class declares no member but those every value has (`Product` and `Equals` aside,
-    * whose members a class of the module may implement and code outside it call).
+    * whose members a class of the module may implement and code outside it call): a call of such a
+    * member calls nothing back. (`World.universal`, which `callersOf` and `opens` read, also holds
+    * `Product` and `Equals`: there the question is which members a count reads.)
     */
-  private def silent(k: ClassSymbol): Boolean = Set(
-    "scala.Any",
-    "scala.Matchable",
-    "scala.AnyVal",
-    "java.lang.Object",
-    "java.io.Serializable"
-  )(k.displayFullName)
+  private def silent(owner: Symbol): Boolean = Silent(owner.displayFullName)
+
+  private val Silent =
+    Set("scala.Any", "scala.Matchable", "scala.AnyVal", "java.lang.Object", "java.io.Serializable")
 
   /** How many members the search reads before it gives up. */
   val Reach = 200

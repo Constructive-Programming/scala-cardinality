@@ -512,7 +512,10 @@ class ProgramRowsSpec extends Specification {
   // outside the module (`lt`, with or without `this`) calling back into `compare`, which hands on
   // the module-built `Reg.c`; an alias of `this` given to `ScalaRunTime._toString`, which calls
   // the class's own `productElement`; an alias of `this` typed `Any` given to
-  // `ScalaRunTime.stringOf`, which tests it for an `Iterable` and calls its `iterator`.
+  // `ScalaRunTime.stringOf`, which tests it for an `Iterable` and calls its `iterator`; a member of
+  // `Equals` or `Product` the class implements by handing on `this`, called on an alias typed by
+  // that trait; and `this` typed by the record trait `E` (aliased, ascribed, as a bounded type
+  // argument, or in a `Some`) given to `stringOf`, where a class below `E` is an `Iterable`.
   def sameInstanceHidden = {
     val use = "object Use { def same(e: E): Boolean = true }\n"
     val wrap = "final class Wrap(e: E) { def go: Boolean = Use.same(e) }"
@@ -562,8 +565,10 @@ class ProgramRowsSpec extends Specification {
       use -> s"object Cap extends E { ${neqv("Some[E](Cap).toList.sorted((p: E, q: E) => if (Use.same(p)) 0 else 1).isEmpty")} }",
       use -> s"object Cap extends E with Ordering[E] { def compare(p: E, q: E) = if (Use.same(p)) 0 else 1; ${neqv("Some[E](Cap).toList.sorted(Cap).isEmpty")} }",
       use -> s"final class P extends E with Product { ${neqv("{ val me: P = this; scala.runtime.ScalaRunTime._toString(me).isEmpty }")}; def productArity = 1; def productElement(n: Int): Any = Use.same(this); def canEqual(x: Any) = true }",
-      use -> s"final class I extends E with Iterable[Boolean] { ${neqv("{ val me: Any = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }")}; def iterator: Iterator[Boolean] = Iterator(Use.same(this)) }"
+      use -> s"final class QE extends E with Equals { ${neqv("{ val me: Equals = this; me.canEqual(1) }")}; def canEqual(x: Any) = Use.same(this) }",
+      use -> s"final class QP extends E with Product { ${neqv("{ val me: Product = this; me.productArity == 1 }")}; def productArity = if (Use.same(this)) 1 else 0; def productElement(n: Int): Any = n; def canEqual(x: Any) = true }"
     ) ++ List(
+      "{ val me: Any = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }",
       "{ val me: E = this; scala.runtime.ScalaRunTime.stringOf(me).isEmpty }",
       "scala.runtime.ScalaRunTime.stringOf(this: E).isEmpty",
       "{ def h[A <: E](x: A): Boolean = scala.runtime.ScalaRunTime.stringOf(x).isEmpty; h[E](this) }",
