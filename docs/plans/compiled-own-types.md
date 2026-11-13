@@ -347,6 +347,30 @@ merged tree inserted, none removed: cats-core 409, cats-eo 25, cats-eo-generics 
 1, cats-kernel 55, core 104, fixtures 276. From here the work is ranked by old numeric rows still
 uncovered (the switch-over criterion).
 
+Timing, back to back with no other JVM of the gate agent's running (the differential runner over a
+corpus with the old rows read from disk, so the time is the compiled front end's and the pairing;
+three runs each; CPU and peak RSS are of sbt and the forked JVM together, `wait4`): at `6441b5f`
+corpus-core 23.0 / 20.2 / 15.9 s wall, 93 / 85 / 70 s CPU, 2.7-2.9 GiB; cats-core 6.1 / 5.8 / 6.2
+s, 55-58 s CPU, 1.6-1.9 GiB. At `fd94706` (the merge included) corpus-core 19.5 / 19.8 / 19.1 s, 83-85
+s CPU, 2.9-3.3 GiB; cats-core 7.0 / 7.0 / 7.5 s, 59-63 s CPU, 1.6-1.8 GiB. No cost is the
+re-entry search's to cut here; `measure-corpus.sh` times the scalameta front end's `Report.of`,
+not this one.
+
+Old numeric rows still uncovered on the merged tree, by first blocker (both tables), the gate
+agent's groups first: re-entry among a record's members, cats-kernel 104 and cats-core 24 (every
+one `neqv` or `eqv` of an `Eq` or `Hash` instance: an overrider's body applies a function a
+captured parameter holds, `Eq.instance(f)`'s `f(x, y)`, which `Reentry.reached` takes for possibly
+re-entering since it does not read where the function was built; next: search the module's call
+sites of the method whose parameter it is, recursively, refusing anything else); constructor
+positions the method side refuses, core 50 and fixtures 68; restricted constructors, cats-eo 36,
+fixtures 34, cats-core 2; a record of a class something extends, fixtures 43; re-entry among an
+enclosing class's members, fixtures 68, cats-kernel 3, cats-eo 2; a parameter that is no public
+field, cats-eo 14, fixtures 21; overriders not read, cats-core 3, core 2; parents not read,
+fixtures 5, cats-core 1; two parents, fixtures 3; a class of a dependency, fixtures 1. The front
+agent's: `a type` (fixtures 149, cats-eo 21), a definition that reaches itself (core 41, fixtures
+93), anonymous contextual parameters (cats-core 9, fixtures 31), a value of a class of the module
+(core 12), definitions in function literals, case clauses and constructor bodies, captures.
+
 ### Commands
 
 | Command | What it does |
