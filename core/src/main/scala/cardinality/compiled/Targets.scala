@@ -371,7 +371,7 @@ private[compiled] object Targets {
   private def enumClass(symbol: ClassSymbol): Boolean = symbol.isEnum && !symbol.isCaseClass
 
   /** The scopes a body opens, as the typed tree holds them. */
-  private object Scope {
+  object Scope {
 
     /** `new T { … }`: the anonymous class. */
     object Anonymous {

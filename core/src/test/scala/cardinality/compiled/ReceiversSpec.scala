@@ -52,7 +52,23 @@ class ReceiversSpec extends Specification {
       |object Hide { def outer(x: Boolean): Boolean = { def inner(x: Boolean): Boolean = x; inner(x) } }
       |object Lit { def outer(y: Boolean): Boolean = List(y).map { v => def inner: Boolean = v; inner }.head }
       |object Pat { def outer(y: Option[Boolean]): Boolean = y match { case Some(v) => def inner: Boolean = v; inner; case None => true } }
-      |class Ctor(val p: Boolean) { locally { def hc(): Boolean = p; hc() } }
+      |object PatNo { def outer(y: Option[Boolean]): Boolean = y match { case Some(_) => def inner: Boolean = true; inner; case None => true } }
+      |object PatGen { def outer[A](y: Option[A], a: A): A = y match { case Some(_) => def inner: A = a; inner; case None => a } }
+      |object HideHeld { def outer(x: Boolean): Boolean = { val h: Boolean = !x; def inner(x: Boolean): Boolean = h; inner(x) } }
+      |class Ctor(val p: Boolean) { locally { def hc(): Boolean = p; hc() }; def this(u: Unit) = { this(true); def hs(v: Unit): Boolean = p } }
+      |class CtorP(val q: Boolean)
+      |object Ctor2 { def mk(p: Boolean): CtorP = new CtorP({ def hp: Boolean = p; hp }) {} }
+      |object Keeps {
+      |  def outer(b: Boolean): Boolean = { def seed: Boolean = b; def target(b: Boolean): Boolean = b; target(true) }
+      |  def wide(b: Boolean): Boolean = { def seed: Any = b; def target(b: Boolean): Boolean = b; target(true) }
+      |  def ctx(using b: Boolean): Boolean = { def target(b: Unit): Boolean = summon[Boolean]; target(()) }
+      |}
+      |object For { def outer(y: Option[Boolean]): Option[Boolean] = for (v <- y) yield { def inner: Boolean = v; inner } }
+      |class ForC(val o: Option[Boolean]) { for (v <- o) { def inner: Boolean = v; inner } }
+      |trait Has[F[_]]
+      |given Has[Option] = new Has[Option] {}
+      |extension [F[_], A](fa: F[A])(using Has[F]) def foreach(f: A => Unit): Unit = ()
+      |object ForX { def outer(o: Option[Boolean]): Unit = for (v <- o) { def inner: Boolean = v; inner; () } }
       |trait Fn { def run(b: Boolean): Boolean }
       |object Mk { def mk(y: Boolean): Fn = new Fn { def run(b: Boolean): Boolean = b } }
       |trait Help { def helper: Boolean = true; def get: Boolean }
@@ -199,11 +215,19 @@ class ReceiversSpec extends Specification {
   // and the `y` of the method the instance is made in, 16; an object inside such a class reads `y`
   // too (`Deep`: a Boolean computed from it, 2^2); a parameter named like a member the class
   // inherits cannot be named inside it, and is left (`Hid`; `DeepHid`, where an object in the class inherits it), and so is one the class's self alias
-  // takes (`Self`). Left for later: a name an
-  // inner definition takes again (`Hide`), a definition in a function literal, whose parameter
-  // may be a generator's binder (`Lit`), a member of a local class, which a subclass in the same
-  // body may override (`LocalK`), one in a case clause (`Pat`) and one in a constructor's body, which runs before the instance
-  // holds what its members read (`Ctor`).
+  // takes (`Self`). A parameter a nearer scope binds again is out of the definition's reach and
+  // adds nothing: `Hide`'s `inner` is 2^2 and `Self`'s `run` 2^2, but `HideHeld`'s `h` holds the
+  // outer `x` for `inner`, which is left. A function literal's parameter is a parameter (`Lit`:
+  // `v` and `y`, 2^(2 × 2)); a case clause is read where its pattern binds nothing (`PatNo`: over
+  // `y`, 2^3) and, with a type parameter in scope, adds no type equation (`PatGen` is left), and
+  // `Pat`'s binder is left. A parameter some definition beside it holds stays an input when the holder
+  // is exactly it (`Keeps.outer`: `target` reads its own `b` and the outer one through `seed`,
+  // 2^(2 × 2)), and adds nothing at a type with one value (`Keeps.wide`, 2^2); a contextual one is
+  // still found by search (`Keeps.ctx`, left). A generator's binder is left (`For`, `ForC`; `ForX` through an extension `foreach` with a `using` clause). A
+  // definition in a class-body statement reads the instance as a member does (`Ctor`: `hc`
+  // returns `p` or not, 2^2); one in a parent's argument, outside the instance (`Ctor2`), or a secondary constructor's
+  // body, whose call fixes the fields, is left. Left for later: a member of a local class, which a
+  // subclass in the same body may override (`LocalK`).
   private def locals = {
     val prefix = s"${TastyFrontEnd.Uncovered}: "
     def left(name: String) = count(name) match {
@@ -214,27 +238,41 @@ class ReceiversSpec extends Specification {
       .and(count("recv.LocC.outer.inner") must_== Count.Finite(4))
       .and(entry("recv.Loc.outer.inner").captures must_== List("y"))
       .and(entry("recv.LocC.outer.inner").captures must_== List("y", "z"))
-      .and(left("recv.Hide.outer.inner") must_== "a capture a nearer scope binds again")
+      .and(count("recv.Hide.outer.inner") must_== Count.Finite(4))
+      .and(
+        left(
+          "recv.HideHeld.outer.inner"
+        ) must_== "a capture a nearer scope binds again, held by other code"
+      )
+      .and(count("recv.Lit.outer.<block#1>.<lambda#1>.inner") must_== Count.Finite(16))
+      .and(count("recv.PatNo.outer.<case#1>.inner") must_== Count.Finite(8))
+      .and(
+        left(
+          "recv.PatGen.outer.<case#1>.inner"
+        ) must_== "a pattern of an enclosing case clause that may refine a type"
+      )
+      .and(left("recv.Pat.outer.<case#1>.inner") must_== "a binder of an enclosing case clause")
       .and(count("recv.Mk.mk.<new#1>.run") must_== Count.Finite(16))
       .and(entry("recv.Mk.mk.<new#1>.run").captures must_== List("y"))
       .and(left("recv.LocalK.f.K.get") must_== "a local class or object")
       .and(left("recv.Hid.mk.<new#1>.get") must_== "a capture an inherited member hides")
       .and(count("recv.Deep.mk.<new#1>.H.h") must_== Count.Finite(4))
       .and(left("recv.DeepHid.mk.<new#1>.H.get") must_== "a capture an inherited member hides")
-      .and(left("recv.Self.mk.<new#1>.run") must_== "a capture a nearer scope binds again")
+      .and(count("recv.Self.mk.<new#1>.run") must_== Count.Finite(4))
+      .and(count("recv.Ctor.<block#1>.hc") must_== Count.Finite(4))
+      .and(left("recv.Ctor.<init#1>.hs") must_== "a definition in a constructor's body")
+      .and(left("recv.Ctor2.mk.<block#1>.hp") must_== "a definition in a constructor's body")
+      .and(count("recv.Keeps.outer.target") must_== Count.Finite(16))
+      .and(count("recv.Keeps.wide.target") must_== Count.Finite(4))
+      .and(left("recv.Keeps.ctx.target") must_== "a contextual capture a nearer scope binds again")
       .and(
-        rows.sources
-          .flatMap(_.toOption.toList.flatMap(_.methods))
-          .filter(m => m.name.startsWith("recv.Ctor.") && m.name.endsWith(".hc"))
-          .map(m => left(m.name)) must_== List("a definition in a constructor's body")
+        left("recv.For.outer.<lambda#1>.inner") must_== "a binder of an enclosing for-comprehension"
       )
+      .and(left("recv.ForC.<lambda#1>.inner") must_== "a binder of an enclosing for-comprehension")
       .and(
-        rows.sources
-          .flatMap(_.toOption.toList.flatMap(_.methods))
-          .filter(m => m.name.startsWith("recv.Lit.") || m.name.startsWith("recv.Pat."))
-          .filter(_.name.endsWith(".inner"))
-          .map(m => left(m.name)) must_==
-          List("a definition in a function literal", "a definition in a case clause")
+        left(
+          "recv.ForX.outer.<lambda#1>.inner"
+        ) must_== "a binder of an enclosing for-comprehension"
       )
   }
 
@@ -277,13 +315,18 @@ class ReceiversSpec extends Specification {
   // No row the compiled front end measures differs from the scalameta front end's, and none it
   // counts past a model limit of the old reading is left without a derivation.
   // `Bounded.get` is derived above (1); the old front end refuses a bounded abstract type member.
+  // `Self`'s `run` is a correction: the self alias `y` hides the parameter `y` in the instance,
+  // and `mk` reads it nowhere else, so `run` is one of the 2^2 functions of its `b`; the old
+  // reading kept the parameter and counted 2^(2 × 2) = 16.
   private def agrees = {
     val compared = Differential.run(input, Differential.answer(ScalametaFrontEnd, input.old))
-    val derived =
-      compared.compared.filter(_.row.name == "recv.Bounded.get").map(_.row.key -> "1").toMap
+    def key(name: String) = compared.compared.filter(_.row.name == name).map(_.row.key)
+    val derived = key("recv.Bounded.get").map(_ -> "1").toMap
+    val corrected = key("recv.Self.mk.<new#1>.run").map(_ -> "16 -> 4").toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and(derived.size must_== 1)
-      .and(Differential.failures(compared.compared, derived) must_== Nil)
+      .and((derived.size, corrected.size) must_== (1, 1))
+      .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
+      .and(Differential.unused(compared.compared, corrected) must_== Nil)
   }
 
 }

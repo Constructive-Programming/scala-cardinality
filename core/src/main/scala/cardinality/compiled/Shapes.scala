@@ -910,7 +910,7 @@ private[compiled] object Shapes {
     c.openLevel == OpenLevel.Sealed && c.isAbstractClass && !c.isEnum
 
   /** Whether a term is a reference to `field` on the instance, through ascriptions. */
-  private def names(term: TermTree, field: TermSymbol)(using Context): Boolean = term match {
+  def names(term: TermTree, field: TermSymbol)(using Context): Boolean = term match {
     case Typed(inner, _)             => names(inner, field)
     case Inlined(inner, _, _)        => names(inner, field)
     case Block(Nil, inner)           => names(inner, field)
