@@ -84,8 +84,8 @@ final private[compiled] class Factories(world: World, shapes: Shapes)(using Cont
       case _ => true
     }
 
-  // The constructor parameters the site observes.
-  private def observed(tree: ClassDef, site: TermSymbol): List[ValDef] = {
+  /** The constructor parameters the site observes on a value it is given. */
+  def observed(tree: ClassDef, site: TermSymbol): List[ValDef] = {
     val members = tree.rhs.body.collect { case m: ValOrDefDef => m }
     val bySymbol = members.map(m => (m.symbol: Symbol) -> m).toMap
     @annotation.tailrec
@@ -98,18 +98,18 @@ final private[compiled] class Factories(world: World, shapes: Shapes)(using Cont
       }
     val open = members.filter { m =>
       !m.symbol.isParamAccessor && !m.symbol.isSynthetic && !World.restates(m.symbol) &&
-      World.callable(m.symbol, site)
+      World.selectable(m.symbol, site)
     }
     // A class or object in the class the site may reach reads what its members read.
     val nested = tree.rhs.body.collect {
-      case k: ClassDef if World.callable(k.symbol, site) => k
+      case k: ClassDef if World.selectable(k.symbol, site) => k
     }
     val names = read(Set.empty, open ++ nested, open.map(m => m.symbol: Symbol).toSet)
     val accessors = tree.symbol.declarations.collect {
       case f: TermSymbol if f.isParamAccessor => f.name -> f
     }.toMap
     Shapes.parameters(tree.rhs.constr).filter { p =>
-      accessors.get(p.name).exists(f => names(f) || World.callable(f, site))
+      accessors.get(p.name).exists(f => names(f) || World.selectable(f, site))
     }
   }
 

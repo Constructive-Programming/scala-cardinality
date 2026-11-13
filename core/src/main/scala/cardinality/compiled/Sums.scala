@@ -149,11 +149,7 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
             else if (accessors.exists(_.visibility == Visibility.PrivateThis))
               Left(Refused(s"sealed subtype hides a parameter: ${cls.name}"))
             // A field the site may not select, or may select on `this` alone (`protected[this]`).
-            else if (
-              accessors.exists(a =>
-                a.visibility == Visibility.ProtectedThis || !World.callable(a, env.site)
-              )
-            )
+            else if (!accessors.forall(World.selectable(_, env.site)))
               Left(Uncovered(s"a restricted field: $name"))
             else instantiated(cls).flatMap(shapes.fields(below, _, env))
           }

@@ -568,17 +568,24 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       }
 
   // Whether the site observes a final class's constructor parameter as itself: a field it may
-  // select, or a member it may call without arguments whose body is that field (an alias).
+  // select on a value it is given, a member it may call without arguments whose body is that
+  // field (an alias), or, for a field it may select on `this` alone (a receiver is read by
+  // `Receivers.own`), one a member it may call reads (rule B's observed fields, `Factories`). A
+  // constructor's position of its own class keeps every such field: the row reads it with the
+  // stored side's estimate, whose value holds every parameter (`Constructors`).
   private def exposed(template: ClassDef, parameter: ValDef, site: TermSymbol): Boolean =
     template.symbol.declarations
       .collectFirst {
         case field: TermSymbol if field.isParamAccessor && field.name == parameter.name => field
       }
       .exists { field =>
-        World.callable(field, site) || template.rhs.body.exists {
+        val own = World.isConstructor(site) && site.owner == template.symbol
+        World.selectable(field, site) || World.callable(field, site) &&
+        (own || factories.observed(template, site).contains(parameter)) ||
+        template.rhs.body.exists {
           case alias: ValOrDefDef
               if alias.symbol != field && !alias.symbol.isParamAccessor &&
-                !alias.symbol.isSynthetic && World.callable(alias.symbol, site) &&
+                !alias.symbol.isSynthetic && World.selectable(alias.symbol, site) &&
                 World.declared(alias).isSameType(parameter.tpt.toType) && (alias match {
                   case d: DefDef => d.paramLists.isEmpty
                   case _: ValDef => true

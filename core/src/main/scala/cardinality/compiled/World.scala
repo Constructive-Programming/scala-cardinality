@@ -174,6 +174,24 @@ private[compiled] object World {
     }
   }
 
+  /** Whether the site may select a member on a value it is given: callable there, and not selected
+    * on `this` alone: a `protected[this]` member, or a field private to the instance (a plain
+    * class's parameter). The compiler marks every `private` member it finds read on `this` alone
+    * private to the instance too, which a new body may still select on another value: such a member
+    * that is no field counts as `private` (an explicit `private[this]` one, deprecated, reads the
+    * same).
+    */
+  def selectable(symbol: TermOrTypeSymbol, site: Symbol)(using Context): Boolean =
+    callable(symbol, site) && (symbol.visibility match {
+      case Visibility.ProtectedThis => false
+      case Visibility.PrivateThis   =>
+        symbol match {
+          case term: TermSymbol => !term.isParamAccessor
+          case _                => true
+        }
+      case _ => true
+    })
+
   /** Whether a member restates one every value has (`Any`'s `toString`, `hashCode`,
     * `equals(that: Any)`, and those of the compiler's parents of a case class: `canEqual`,
     * `productArity`, …), which the model excludes. An overload of such a name counts.

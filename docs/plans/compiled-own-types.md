@@ -3200,6 +3200,30 @@ factories (`/tmp/g2/restricted-cases.patch`, part 2), whose review found it unso
 pinning its parent's argument skips `Sums.carried`; `Factories.observed` misses a case class's
 `unapply` and a protected override a parent member reads).
 
+### Rule B, second unit (g2): a field selected on `this` alone
+
+A plain class's parameter without `val` (`private[this]`) and a `protected[this]` field are
+selected on `this` alone. `Shapes.exposed` took them as observed wherever the site was inside the
+class, so a method of the class reading an argument of its own class counted a field the body
+cannot read (`final class P(a: Boolean, protected[this] val b: Boolean) { def m(o: P) }` was
+2^16). `World.selectable` (beside `callable`) refuses them on a value the site is given. TASTy
+cannot tell a written `private[this]` from a `private` member the compiler found read on `this`
+alone (both pickle `PRIVATE LOCAL`, checked with scalac 3.9), and a new body may select the second
+on another value: a member private to the instance that is no field counts as `private` (an
+explicit `private[this]` `val`, `def` or `object` in the body, deprecated, reads the same: a known
+ceiling, `final class P(a: Boolean) { private[this] val x = a; def m(o: P) }` counts 16 where it
+should be `?`). A `private val` parameter pickles `PRIVATE` without `LOCAL` and stays a field. Such a field still
+counts where a member the site may select reads it (rule B's observed fields,
+`Factories.observed`, which now asks `selectable` of members, nested templates and accessors), so
+eo's `Getter.andThen` keeps its count. A constructor's position of its own class keeps the old
+reading: the row reads it with the stored side's estimate (`Constructors.position`), whose value
+holds every parameter. The correctness review flagged that estimate as a possible overcount of
+the stored side's own (it counts fields no observer reads); the 18 fixture rows it gives
+(`St(head: Boolean, tail: => St)` ω, …) are kept identical, and fixing `Stored` is left open.
+Regression: `ProgramRowsSpec.thisOnly`. Rows: no number changed; one fixture constructor row
+(`class Outer(a: Boolean) { case class Inner(o: Outer) }`, `Inner.<init>`, 2) is uncovered now,
+its argument `o` observing no field of `Outer` (removed from the private coverage memory).
+
 ### How each model rule reads over symbols
 
 Done in the first slice where marked; the rest is the plan for its slice.

@@ -28,6 +28,7 @@ class ProgramRowsSpec extends Specification {
       a parent reached through two parents is not read yet            $twoPaths
       a member a case overrides computes from the case a sum holds    $sumOverridden
       a case's `private[p]` constructor builds every value inside `p`  $scopedCase
+      a field selected on `this` alone is not observed on an argument  $thisOnly
       a bounded abstract type member is an atom with its bound's proof $boundedMember
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
@@ -190,6 +191,33 @@ class ProgramRowsSpec extends Specification {
       .and(uncovered(found("out.Use.f"), "a restricted constructor"))
       .and(uncovered(found("out.Use.k"), "a restricted field"))
       .and(uncovered(found("fx.Own.h"), "a restricted field"))
+  }
+
+  // A field private or protected to the instance is selected on `this` alone: the receiver
+  // observes it (`k` is a Boolean of a receiver holding two Booleans: 2^4), an argument of the
+  // class does not, unless a member it may call reads it (rule B). `m`'s argument `o` has fields
+  // no member reads, which a public constructor's reading leaves uncovered (read as observed, `m`
+  // was 2^16). `Q.not` is public and reads `a`: `o` observes `a`, so `n` is one of 2^(2·2).
+  // `N.get` is private, which the compiler marks private to the instance (read on `this` alone),
+  // yet `m` may write `o.get`: 2^(2·2) too.
+  def thisOnly = {
+    val found = rows("""final class P(a: Boolean, protected[this] val b: Boolean) {
+      |  def k: Boolean = ???
+      |  def m(o: P): Boolean = ???
+      |}
+      |final class N(a: Boolean) {
+      |  private def get: Boolean = a
+      |  def m(o: N): Boolean = ???
+      |}
+      |final class Q(a: Boolean) {
+      |  def not: Boolean = !a
+      |  def n(o: Q): Boolean = ???
+      |}
+      |""".stripMargin)
+    (found("P.k") must_== Count.Finite(16))
+      .and(uncovered(found("P.m"), "a parameter that is no public field"))
+      .and(found("Q.n") must_== Count.Finite(16))
+      .and(found("N.m") must_== Count.Finite(16))
   }
 
   // `B` redeclares `A`'s concrete `f` abstract: in `C` it is abstract, a capability beside
