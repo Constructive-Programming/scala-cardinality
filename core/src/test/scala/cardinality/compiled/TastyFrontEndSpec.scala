@@ -919,7 +919,8 @@ class TastyFrontEndSpec extends Specification {
   // `Right(b: B)` and `Both(a: A, b: B)`, so its value space is A + B + A × B, and at Boolean and
   // Boolean 2 + 2 + 4 = 8. The old reading does not see cases written infix (`extends (A Ior
   // Nothing)`) and takes the family for empty: a field of it 0, a constructor over it 0, and a
-  // function from it the one empty function, where there are 2^8.
+  // function from it the one empty function, where there are 2^8. `passed` (h4): `run`'s block, an
+  // `Int ?=> Boolean`, gives an Int it may summon: 2^(2 × 2^32); the old reading counts 4.
   private def agrees = {
     val verdicts = compared.compared.map(_.verdict).toSet
     // The row of that name that is not identical (`sizes.Ior` is also its companion's row).
@@ -934,9 +935,10 @@ class TastyFrontEndSpec extends Specification {
       keys(s"types.$n", "1 -> 0") ++ keys(s"types.Use.${n.toLowerCase}", "1 -> 0")
     )
     val corrected = (keys("sizes.Ior", "0 -> ? A; B") ++ keys("sizes.Iors", "0 -> 8") ++
-      keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8") ++ hidden).toMap
+      keys("sizes.Iors.<init>", "0 -> 8") ++ keys("sizes.UseIor.split", "1 -> 2^8") ++ hidden ++
+      keys("shapes.Context.caller.<block#1>.passed", "4 -> 2^(2^33)")).toMap
     ((compared.failed, compared.noted) must_== (Nil, Nil))
-      .and((derived.size, corrected.size) must_== (9, 10))
+      .and((derived.size, corrected.size) must_== (9, 11))
       .and(Differential.failures(compared.compared, derived, corrected) must_== Nil)
       .and(Differential.unused(compared.compared, corrected) must_== Nil)
       .and(verdicts must contain(Verdict.Identical))

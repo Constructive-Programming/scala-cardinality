@@ -534,8 +534,8 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case (_, value: ValDef)  => of(value.tpt.toType, env).map(Some(_))
       case (_, method: DefDef) =>
         val parameters = Shapes.parameters(method)
+        // A capability's parameter is an argument its caller passes, named or not.
         for {
-          _ <- Readings.plainInputs(parameters)
           own <- polymorphic(symbol.displayFullName, method)
           inside = env.copy(binders = env.binders ++ own.map((p, shape, _) => p -> shape))
           result <- of(method.resultTpt.toType, inside)
