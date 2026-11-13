@@ -32,6 +32,7 @@ class ProgramRowsSpec extends Specification {
       a bounded abstract type member is an atom with its bound's proof $boundedMember
     An overridden member whose own body always calls the measured one
       supplies nothing                                                $definite
+      in a position the body always evaluates; else 0 if 0 even so  $definitePositions
     A parent's constructor parameters
       are what the template passes, or free public fields             $parents
     An overridden member (a capability: ReceiversSpec, `Wide.get`)
@@ -441,6 +442,94 @@ class ProgramRowsSpec extends Specification {
     (found("Loop.get") must_== Count.Finite(4))
       .and(found("Wrap.get") must_== Count.Finite(4))
       .and(uncovered(found("Lazy.get"), Receivers.Reenters))
+  }
+
+  // An overridden member that evaluates the measured one whenever it is evaluated, with the
+  // measured one's own parameters, supplies nothing. With another argument the measured body may
+  // return without calling itself again, so the member is a real capability, which is left: `Arg.m`
+  // passes `target(true)` by value to the final `g`, `Un.m` selects `unary_!` on it, `Outer.m` runs
+  // `Inner.k`, which runs `target(true)` on the one object `Inner`, `PQ`'s inherited `neqv` runs
+  // `eqv`, whose body in a `PQ` is `cmp(true)`, and `ArgF.m` is `target(true)`, which `ArgF2.m =
+  // false` overrides (`target` = `b => b && !m` is total and not a function of `b` alone).
+  // `Out.C.f` builds a `C` on the object `WO`, whose `k` differs, so its `m` is no call on the
+  // instance: left too. `OpenGet.get` throws
+  // (`Predef.???`, an object's member, calls nothing back): a free Boolean, so `m` is a function of
+  // (b, get), 2^4. `C2.other` builds a `Sub2`, whose construction runs nothing: a free Boolean, so
+  // `h` is 2^(2 × 2). `Rec.m` names `h` only inside `h`'s own body: `m` is a free function
+  // Boolean => Boolean, and `h` a function of (y, b, m), 2^(2 × 2 × 4) = 2^16. Left: `Init.other`
+  // builds an `Init`, whose construction runs the measured `x`. `Z.other` calls `target` in a
+  // branch (left by itself), but even taken for a capability nothing builds a `Nothing`: 0. Not
+  // definite, each left: `L.m` reads `step` without applying it; `A.m` runs `target` only where
+  // `flag` holds; `F.m` runs it on another `F`'s object, `I.m` on another `I` through an import; `CP.other`
+  // builds a `P`, whose constructor's `k` is `P.k`, not the `CP.k` that calls `h`.
+  // `OC.f` calls `m` on the object `O`, which extends `OC` and overrides `f`: `m` runs there with
+  // `O`'s members, not the instance's. `OK.f` builds a `K`, which runs no member of `K`'s
+  // constructor row: its positions are inputs.
+  def definitePositions = {
+    val found = rows(
+      """trait Arg { def target(b: Boolean): Boolean; final def g(x: Boolean): Boolean = x; def m: Boolean = g(target(true)) }
+      |trait Arg2 extends Arg { override def m: Boolean = true }
+      |trait Un { def target(b: Boolean): Boolean; def m: Boolean = !target(true) }
+      |trait Un2 extends Un { override def m: Boolean = true }
+      |class Outer { def m: Boolean = Inner.k; object Inner { def target(b: Boolean): Boolean = b; def k: Boolean = target(true) } }
+      |class Outer2 extends Outer { override def m: Boolean = true }
+      |trait Q { def eqv: Boolean; def neqv: Boolean = !eqv }
+      |trait PQ extends Q { def cmp(b: Boolean): Boolean; def eqv: Boolean = cmp(true) }
+      |trait PQ2 extends PQ { override def eqv: Boolean = true; override def neqv: Boolean = true }
+      |class OpenGet { def get: Boolean = ???; def m(b: Boolean): Boolean = b }
+      |class OpenGet2 extends OpenGet { override def get: Boolean = true }
+      |class C2 { def h(y: Boolean): Boolean = y; def other: Boolean = new Sub2().x }
+      |class Sub2 extends C2 { def x: Boolean = true }
+      |class C3 extends C2 { override def other: Boolean = true }
+      |class Rec { def m(b: Boolean): Boolean = { def h(y: Boolean): Boolean = if y then h(!y) else y; b } }
+      |class Rec2 extends Rec { override def m(b: Boolean): Boolean = b }
+      |class Init(val n: Boolean) { val x: Boolean = n; def other: Boolean = new Init(true).n }
+      |class Init2 extends Init(true) { override def other: Boolean = false }
+      |trait Z { def target(b: Boolean): Nothing; def other(c: Boolean): Boolean = if (c) target(c) else c }
+      |trait Z2 extends Z { override def other(c: Boolean): Boolean = c }
+      |trait L { def target(b: Boolean): Boolean; def step: Boolean => Boolean = x => target(x); def m: Boolean = { val f = step; true } }
+      |trait L2 extends L { override def m: Boolean = false }
+      |trait A { def target(b: Boolean): Boolean; def flag: Boolean; def m: Boolean = flag && target(true) }
+      |trait A2 extends A { override def m: Boolean = true }
+      |object Fs { val friend: F = ??? }
+      |trait F { def m: Boolean = Fs.friend.Inner.k; object Inner { def target(b: Boolean): Boolean = b; def k: Boolean = target(true) } }
+      |trait F2 extends F { override def m: Boolean = false }
+      |object Is { val friend: I = ??? }
+      |trait I { def target(b: Boolean): Boolean; def m: Boolean = { import Is.friend.{target => t}; t(true) } }
+      |trait I2 extends I { override def m: Boolean = true }
+      |class P(val n: Boolean) { def k: Boolean = n; def this(u: Unit) = { this(true); val _ = k } }
+      |class CP extends P(true) { def h(y: Boolean): Boolean = y; override def k: Boolean = h(true); def other: Boolean = new P(()).n }
+      |class CP2 extends CP { override def other: Boolean = false }
+      |class OC { def f: Boolean = O.g; def m(b: Boolean): Boolean = b; object O extends OC { override def f: Boolean = true; def g: Boolean = this.m(true) } }
+      |abstract class OK[A] { def a: A; def f: A = new K(a).x; class K(val x: A) }
+      |class OK2[A](v: A) extends OK[A] { def a: A = v; override def f: A = v }
+      |trait ArgF { def target(b: Boolean): Boolean; def m: Boolean = target(true) }
+      |trait ArgF2 extends ArgF { override def m: Boolean = false }
+      |class Out { def k: Boolean = true; class C { def f: Boolean = new WO.C().m; def m: Boolean = ??? }; class D extends C { override def f: Boolean = true } }
+      |object WO extends Out { override def k: Boolean = false }
+      |""".stripMargin
+    )
+    (found("OpenGet.m") must_== Count.Finite(16))
+      .and(found("C2.h") must_== Count.Finite(16))
+      .and(found("Rec.m.h") must_== Count.Finite(1 << 16))
+      .and(uncovered(found("Init.x"), Receivers.Reenters))
+      .and(found("Z.target") must_== Count.Finite(0))
+      .and(
+        List("Arg.target", "Un.target", "Outer.Inner.target", "PQ.cmp", "ArgF.target", "Out.C.m")
+          .++(
+            List(
+              "L.target",
+              "A.target",
+              "F.Inner.target",
+              "I.target",
+              "CP.h",
+              "OC.m",
+              "OK.K.<init>"
+            )
+          )
+          .map(row => uncovered(found(row), Receivers.Reenters))
+          .reduce(_ and _)
+      )
   }
 
   // `Abs` passes its `c` to `Base`, so `Base` holds `c`: `x` is a Boolean computed from `c`, 2^2,
