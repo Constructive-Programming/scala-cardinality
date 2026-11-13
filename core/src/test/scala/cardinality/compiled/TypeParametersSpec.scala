@@ -19,6 +19,7 @@ class TypeParametersSpec extends Specification {
     a constructor row reads a rigid constructor's positions    $constructors
     a capability's own type parameters are read as before      $polymorphic
     a symbol two sites bind differently is not read yet        $rebound
+    a bounded or variant constructor is refused where it is used $kinds
   A bound of a proper type parameter is a proof beside it
     an upper bound views the values, a lower bound builds them  $proofs
     a bound the model does not read is refused, as before       $refused
@@ -101,6 +102,12 @@ class TypeParametersSpec extends Specification {
       |  def open(x: Show & Two): Boolean = true
       |  def single(x: Boolean & Singleton): Boolean = x
       |}
+      |trait Vary { def g[G[+_]](x: G[Int]): G[Int]; def get: Boolean = true }
+      |object Kind {
+      |  def bounded[S[T] <: Show](s: S[Int]): S[Int] = s
+      |  def variant[F[+_]](x: F[Int]): F[Int] = x
+      |  def unused[F[+_]](b: Boolean): Boolean = b
+      |}
       |object Hk {
       |  def wrap(w: Wrap[[X] =>> Either[Boolean, X], Boolean]): Boolean = true
       |  def held[G[_]](w: Wrap[G, Int]): G[Int] = w.v
@@ -149,6 +156,16 @@ class TypeParametersSpec extends Specification {
   private def rebound =
     (uncovered("Wrap.Ops.back") must startWith("a written constructor over a parameter bound"))
       .and(uncovered("Hk.held") must startWith("a class's parameter bound to a value"))
+
+  // A constructor with a bound has its bound's members, and one with a variant parameter relates
+  // its applications by subtyping: neither is read, as before, where a type names it. `unused`
+  // names no such parameter: one of the 2^2 functions of `b`. A capability's own constructor the
+  // old front end reads as rigid whatever it declares (`MemberSyntax`): `Vary.get` is not read yet.
+  private def kinds =
+    (count("Kind.bounded").toString must contain("bounded higher-kinded parameter"))
+      .and(count("Kind.variant").toString must contain("variant higher-kinded parameter"))
+      .and(count("Kind.unused") must_== Count.Finite(4))
+      .and(uncovered("Vary.get") must startWith("a type parameter of another kind"))
 
   // A row's reason when it is uncovered, without the prefix that says so.
   private def uncovered(name: String): String = count(name) match {

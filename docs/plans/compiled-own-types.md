@@ -1638,6 +1638,24 @@ result). Method rows: corpus-core 1,395 identical (10 more, refusals of unions o
 types), cats-eo 197 (2 more: `Array[Int] | Null`; `S & B` refused as before), fixtures 4,771
 (92 more).
 
+### Stretch 5, eighth unit: type parameters of other kinds, read where named
+
+`Shapes.binder` refuses a higher-kinded parameter with a bound, or with a variance on a parameter
+of its own, with the old reasons (`types/Kinds.refusal`); the bounds are read, not the spelling,
+so a written `F[_] <: Any` says nothing (the old front end refused it; no row of the inputs has
+one). A parameter declared `+F[_]` itself, and a constructor of constructors, stay uncovered. A
+capability's own constructor keeps the uncovered reason: the old front end reads it as rigid
+whatever it declares (`MemberSyntax`). A type parameter that is not read is now kept in
+`Shapes.Env.unread`, its reason that of a type that names it only (`Env.binds`, `Env.binding`),
+as the old front end binds its parameters lazily: an unused parameter's kind tells nothing.
+`Readings.environment`, `Receivers.atoms` and `Constructors.count` build their environment
+with `Shapes.Env.of`.
+
+Method rows: cats-core 936 identical (44 more: `NonEmptyCollection`'s members and the bounded
+`S[T] <: Semigroup[T]` rows, refused as before), cats-kernel 231 (37 more, among them the eight
+`*Functions.<init>` rows, 1 each: no parameter, whatever `E[T] <: Eq[T]` is), cats-eo 198 (1
+more), fixtures 4,774 (3 more).
+
 **In progress** (kept current, so that the work can be taken over from the files alone).
 
 - Stretch 2, extended through S5: each slice is committed when `scripts/differential.sh` passes
@@ -1697,7 +1715,7 @@ types), cats-eo 197 (2 more: `Array[Int] | Null`; `S & B` refused as before), fi
   proper parameters ("Stretch 5, third unit"); rigid constructors in constructor rows ("Stretch 5,
   fourth unit"); capabilities with type parameters of their own ("Stretch 5, fifth unit");
   literal and singleton types ("Stretch 5, sixth unit"); unions and intersections ("Stretch 5,
-  seventh unit"). Scope
+  seventh unit"); type parameters of other kinds ("Stretch 5, eighth unit"). Scope
   change: the records' remaining reasons (parents, members something
   overrides, rule B, abstract type members of records) moved to the gate agent, which works in
   `Shapes.scala` and `Receivers.scala` on records: keep edits to the record code small. Next, in

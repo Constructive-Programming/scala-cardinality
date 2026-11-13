@@ -39,9 +39,9 @@ import tastyquery.Types.*
   * whose private constructor parameters a subclass passes, a constructor field something overrides,
   * and for a class that is not fixed a parent without TASTy that is no trait; an overridden member
   * a behavior of which may call the measured one (`Reentry`), or overriders the classes read do not
-  * settle; a self type; a bounded type parameter, or one of another kind than `F[_]`; an abstract
-  * type member; a capability with type parameters of its own; a deferred `inline val`, or a
-  * deferred inline method over a type parameter; a construction that always throws or binds a
+  * settle; a self type; a type parameter of another kind than `F[_]` that a type read names; an
+  * abstract type member; a capability with type parameters of its own; a deferred `inline val`, or
+  * a deferred inline method over a type parameter; a construction that always throws or binds a
   * pattern (S6); and what implicit search chooses (S5's remainder): a contextual parameter without
   * a name, an abstract given without a name, an abstract extension method. A given written
   * `= deferred` is a capability like an abstract member.
@@ -285,20 +285,16 @@ final private[compiled] class Receivers(world: World, shapes: Shapes)(using Cont
     } yield ()
   }
 
-  /** What the receivers' type parameters stand for (`Shapes.binder`), and the copies their
-    * constructors hold.
+  /** What the receivers' type parameters stand for (`Shapes.binder`), each read or not, and the
+    * copies their constructors hold.
     */
-  def atoms(receivers: List[ClassDef]): Either[Unread, Map[Symbol, Shape]] =
-    Traversals
-      .sequence(receivers.map { tree =>
-        val c = tree.symbol
-        Traversals
-          .sequence(c.typeParams.map(Shapes.binder(c, _, Shapes.typeParameters(tree.rhs.constr))))
-          .map(named =>
-            c.typeParams.zip(named) ++ Shapes.typeParameters(tree.rhs.constr).zip(named)
-          )
-      })
-      .map(_.flatten.toMap)
+  def atoms(receivers: List[ClassDef]): List[(Symbol, Either[Unread, Shape])] =
+    receivers.flatMap { tree =>
+      val c = tree.symbol
+      val copies = Shapes.typeParameters(tree.rhs.constr)
+      val named = c.typeParams.map(Shapes.binder(c, _, copies))
+      c.typeParams.zip(named) ++ copies.zip(named)
+    }
 
   /** What the receivers supply to `measured`: their constructors' parameters and their abstract
     * members, `measured` aside (a member is no capability of its own).

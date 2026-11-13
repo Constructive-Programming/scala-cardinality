@@ -98,7 +98,7 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
       )
     for {
       _ <- inlines.narrowed(tree.symbol).map(Unread.Refused(_)).toLeft(())
-      env <- environment(tree, around, methods)
+      env = environment(tree, around, methods)
       result <- shapes.of(declared.toType, env)
       count <-
         if (TopTypes.terminalGoal(TopTypes.polarized(result, true))) Right(Count.Finite(1))
@@ -134,23 +134,19 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
   }
 
   // The type parameters of the measured method and of the methods around it (`Shapes.binder`),
-  // beside its receivers', and the
-  // method as the site rule F reads an opaque type from.
+  // beside its receivers', and the method as the site rule F reads an opaque type from.
   private def environment(
       tree: ValOrDefDef,
       around: List[ClassDef],
       methods: List[DefDef]
-  ): Either[Unread, Shapes.Env] =
-    for {
-      receiving <- receivers.atoms(around)
-      own <- Traversals.sequence((methods :+ tree).flatMap { of =>
-        signature(of)._1.map { binder =>
-          Shapes
-            .binder(of.symbol, binder.symbol.asInstanceOf[TypeParamSymbol])
-            .map(binder.symbol -> _)
-        }
-      })
-    } yield Shapes.Env(receiving ++ own, tree.symbol)
+  ): Shapes.Env = {
+    val own = (methods :+ tree).flatMap { of =>
+      signature(of)._1.map { binder =>
+        binder.symbol -> Shapes.binder(of.symbol, binder.symbol.asInstanceOf[TypeParamSymbol])
+      }
+    }
+    Shapes.Env.of(receivers.atoms(around) ++ own, tree.symbol)
+  }
 
   // The methods a definition is written in, outermost first, at whatever depth (a member of a
   // class in a body, or of a template inside such a class, is written in them too), and the

@@ -27,10 +27,10 @@ import tastyquery.Trees.{ClassDef, DefDef, ValDef}
   *     A)` has four). A position mixing type parameters with ground values has no agreed reading
   *     and is refused.
   *
-  * Not read yet: a bounded type parameter (the row hands no proof to its positions), or one of
-  * another kind than an invariant `F[_]`; a position the method side refuses (a recursive type),
-  * which takes the estimate's tier; one the estimate does not read; one over a singleton or
-  * evidence; a contextual one without a name.
+  * Not read yet, where a position names it: a bounded type parameter (the row hands no proof to its
+  * positions), or one of another kind than an invariant `F[_]`; a position the method side refuses
+  * (a recursive type), which takes the estimate's tier; one the estimate does not read; one over a
+  * singleton or evidence; a contextual one without a name.
   */
 final private[compiled] class Constructors(shapes: Shapes, stored: Stored)(using Context) {
   import Constructors.Position
@@ -47,15 +47,15 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored)(using
     for {
       tree <- Shapes.tree(owner)
       // The class's type parameters and the constructor's copies of them: each an atom, or a
-      // rigid constructor for `F[_]` (`Shapes.binder`). A bounded one is not read: the row hands
-      // no proof to the positions.
-      atoms <- Traversals.sequence(binders.zip(owner.typeParams).map { (binder, parameter) =>
+      // rigid constructor for `F[_]` (`Shapes.binder`). A bounded one is not read where a
+      // position names it: the row hands no proof to the positions.
+      atoms = binders.zip(owner.typeParams).map { (binder, parameter) =>
         Shapes.binder(owner, parameter, copies).flatMap {
           case atom: Shape.Atom => Readings.unbounded(binder).map(_ => atom)
           case rigid            => Right(rigid)
         }
-      })
-      env = Shapes.Env(variables.zip(atoms ++ atoms).toMap, constructor.symbol)
+      }
+      env = Shapes.Env.of(variables.zip(atoms ++ atoms), constructor.symbol)
       _ <- Readings.plainInputs(parameters)
       placed <- Traversals.sequence(parameters.map(position(_, tree, env, variables.toSet)))
     } yield Constructors.product(self, placed)
