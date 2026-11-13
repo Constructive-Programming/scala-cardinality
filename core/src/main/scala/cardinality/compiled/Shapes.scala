@@ -1,7 +1,8 @@
 package cardinality.compiled
 
 import cardinality.analysis.BuiltinTypes
-import cardinality.analysis.inhabitation.Inhabitation.{Head, Shape}
+import cardinality.analysis.inhabitation.Inhabitation.{Binder, Head, Shape}
+import cardinality.analysis.inhabitation.PolymorphicMembers
 import cardinality.types.Traversals
 import tastyquery.Contexts.*
 import tastyquery.Modifiers.OpenLevel
@@ -388,16 +389,41 @@ final private[compiled] class Shapes(world: World, receivers: => Receivers)(usin
       case (_, value: ValDef)  => of(value.tpt.toType, env).map(Some(_))
       case (_, method: DefDef) =>
         val parameters = Shapes.parameters(method)
-        if (Shapes.typeParameters(method).nonEmpty)
-          Left(Uncovered(s"a capability with type parameters of its own: ${method.name}"))
-        else
-          for {
-            _ <- Readings.plainInputs(parameters)
-            result <- of(method.resultTpt.toType, env)
-            read <- inputs(parameters, env)
-          } yield Option.when(result != Shape.Product(Nil))(Shape.Function(read, result))
+        for {
+          _ <- Readings.plainInputs(parameters)
+          own <- polymorphic(symbol.displayFullName, method)
+          inside = env.copy(binders = env.binders ++ own.map((p, shape, _) => p -> shape))
+          result <- of(method.resultTpt.toType, inside)
+          read <- inputs(parameters, inside)
+          // A member's own type parameters are read as the scalameta front end reads them
+          // (`PolymorphicMembers.close`): exact where a reading is, kept for the solver otherwise.
+          closed <- PolymorphicMembers
+            .close(symbol.displayFullName, own.map(_._3), Shape.Function(read, result))
+            .left
+            .map(Uncovered(_))
+        } yield Option.when(result != Shape.Product(Nil))(closed)
     }
   }
+
+  // A capability's own type parameters, each under the identity `PolymorphicMembers.close` looks
+  // for: the member's own atom, or a rigid constructor for an `F[_]`, with the bounds it declares.
+  private def polymorphic(member: String, method: DefDef) =
+    Traversals.sequence(Shapes.typeParameters(method).map { symbol =>
+      val parameter = symbol.asInstanceOf[TypeParamSymbol]
+      val (name, bounds) = (parameter.name.toString, parameter.declaredBounds)
+      Shapes.binder(method.symbol, parameter).map { read =>
+        // A rigid constructor's bounds are a type lambda's, which `Shapes.binder` checked.
+        val proper = !read.isInstanceOf[Shape.Constructor]
+        val declared = PolymorphicMembers.Declared(
+          name,
+          lower = proper && !bounds.low.isSameType(defn.NothingType),
+          upper = proper && !bounds.high.isSameType(defn.AnyType),
+          view = false
+        )
+        val id = Binder(member, name).id
+        (symbol, if (proper) Shape.Atom(id) else Shape.Constructor(id), declared)
+      }
+    })
 
   /** A class's constructor parameters, read with its type parameters bound to `arguments`: the
     * constructor's own copies of them, which its parameter types name, and the class's.
@@ -506,21 +532,24 @@ private[compiled] object Shapes {
     else
       Left(
         Unread.Uncovered(
-          s"a type parameter of another kind than F[_], or a bounded or variant F[_]: ${parameter.name}"
+          s"a type parameter of another kind than an invariant F[_]: ${parameter.name}"
         )
       )
   }
 
   /** What an abstract type member of a receiver stands for on its instance, as a type parameter
-    * would (`binder`): one atom, or a rigid constructor for `F[_]`. A bound is not read yet.
+    * would (`binder`): one atom, or a rigid constructor for an invariant `F[_]`. A bound is not
+    * read yet.
     */
   def typeMember(owner: ClassSymbol, member: TypeMemberSymbol)(using
       Context
   ): Either[Unread, Shape] = {
     val id = s"${owner.displayFullName}#${member.name}"
     member.typeDef match {
-      case TypeMemberDefinition.AbstractType(bounds) if unbounded(bounds)   => Right(Shape.Atom(id))
-      case TypeMemberDefinition.AbstractType(bounds) if constructor(bounds) =>
+      case TypeMemberDefinition.AbstractType(bounds) if unbounded(bounds) => Right(Shape.Atom(id))
+      // A parameter declared `+X` or `-X` relates the member's applications by subtyping.
+      case TypeMemberDefinition.AbstractType(bounds)
+          if constructor(bounds) && tastyquery.Variances.invariant(bounds.high) =>
         Right(Shape.Constructor(id))
       case _ =>
         Left(
@@ -545,8 +574,17 @@ private[compiled] object Shapes {
       }
     }
 
-  private def constructor(parameter: TypeParamSymbol)(using Context): Boolean =
-    constructor(parameter.declaredBounds) && !Shapes.variant(parameter)
+  // Whether a parameter is an invariant type constructor of proper, unbounded parameters (bounds
+  // `constructor` takes), with no variance on it or on its parameters: a class's parameter
+  // declared `+F[_]` or `-F[_]` relates its applications by subtyping.
+  private def constructor(parameter: TypeParamSymbol)(using Context): Boolean = {
+    val invariant = parameter match {
+      case declared: ClassTypeParamSymbol =>
+        declared.declaredVariance == tastyquery.Modifiers.Variance.Invariant
+      case _ => true
+    }
+    constructor(parameter.declaredBounds) && invariant && !Shapes.variant(parameter)
+  }
 
   // Bounds any type constructor of proper, unbounded parameters meets: `[X] =>> Any`
   // above, nothing below (written as a lambda too, on a method's own parameter).

@@ -316,12 +316,12 @@ final private[compiled] class Readings(world: World, stored: Stored, inlines: In
 
 private[compiled] object Readings {
 
-  /** A proper type parameter any type instantiates (a constructor row's: its positions are read as
-    * value spaces, where a rigid constructor has no reading yet).
+  /** A proper type parameter any type instantiates (a constructor row's: its positions are read
+    * without the proofs a bound would give).
     */
   def unbounded(binder: TypeParam)(using Context): Either[Unread, Unit] =
     if (Shapes.unbounded(binder.symbol.declaredBounds)) Right(())
-    else Left(Unread.Uncovered(s"a bounded or higher-kinded type parameter: ${binder.name}"))
+    else Left(Unread.Uncovered(s"a bounded type parameter: ${binder.name}"))
 
   /** Parameters the reading takes as inputs. A contextual one with a name is a value like any other
     * (slice S5): only implicit search tells it apart, and a body is counted, not searched. One

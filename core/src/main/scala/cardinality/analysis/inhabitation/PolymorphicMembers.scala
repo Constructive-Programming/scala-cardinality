@@ -1,8 +1,6 @@
 package cardinality.analysis.inhabitation
 
-import scala.meta.*
-
-import cardinality.types.{Graphs, Kind, Kinds, Traversals}
+import cardinality.types.{Graphs, Traversals}
 import dev.constructive.eo.optics.Getter
 
 import GoalSolver.Producer
@@ -35,45 +33,32 @@ import Shape.*
   */
 private[cardinality] object PolymorphicMembers {
 
-  /** How a member's binder is read in its type: a first-order one is its own atom; a higher-kinded
-    * one is the rigid constructor `rigid` binds (`TypeOperators.rigid`) — the member's type applies
-    * it uninterpreted, exactly as a method's own higher-kinded binder reads.
+  /** A member's own type parameter as `close` reads it: its name, and which bounds it declares (a
+    * context bound is the evidence parameter the callable already spells, so it is none).
     */
-  def binder(
-      member: String,
-      parameter: Type.Param,
-      rigid: (String, Kind) => Shape
-  ): Either[String, Shape] = {
-    val holes = parameter.tparamClause.values
-    if (holes.isEmpty) Right(Atom(Binder(member, parameter.name.value).id))
-    else Right(rigid(Binder(member, parameter.name.value).id, Kinds.of(parameter)))
-  }
+  final case class Declared(name: String, lower: Boolean, upper: Boolean, view: Boolean)
 
-  /** A member's type with its binders read (PB0, PB1), or kept for the solver. A context bound is
-    * the evidence parameter the callable already spells (`MemberSyntax`), so it bounds nothing. A
-    * view bound, or a subtype bound, restricts the instantiations a reading would need, so such a
-    * binder is read only when its type never meets it. Even then the bound must be met by some
-    * type, or no call of the member typechecks: a one-sided bound always is (`Nothing` below an
-    * upper bound, `Any` above a lower one, whatever other binders it mentions), a two-sided one
-    * need not be (`M >: Int <: String`, or `M >: X <: String` for a rigid `X`), so it is refused
-    * rather than dropped.
+  /** A member's type with its binders read (PB0, PB1), or kept for the solver. A view bound, or a
+    * subtype bound, restricts the instantiations a reading would need, so such a binder is read
+    * only when its type never meets it. Even then the bound must be met by some type, or no call of
+    * the member typechecks: a one-sided bound always is (`Nothing` below an upper bound, `Any`
+    * above a lower one, whatever other binders it mentions), a two-sided one need not be (`M >: Int
+    * <: String`, or `M >: X <: String` for a rigid `X`), so it is refused rather than dropped.
     */
-  def close(member: String, parameters: List[Type.Param], shape: Shape): Either[String, Shape] = {
-    val binders = parameters.map(p => p -> Binder(member, p.name.value))
+  def close(member: String, parameters: List[Declared], shape: Shape): Either[String, Shape] = {
+    val binders = parameters.map(p => p -> Binder(member, p.name))
     val occurring = binders.filter((_, binder) => occurs(shape, binder))
     val applied = binders.find((_, binder) => appliesResult(shape, binder))
-    val evidence = parameters.find(p => p.bounds.view.nonEmpty)
-    val twoSided = parameters.find(p => p.bounds.lo.nonEmpty && p.bounds.hi.nonEmpty)
-    val bounded = occurring.collectFirst {
-      case (p, _) if p.bounds.lo.nonEmpty || p.bounds.hi.nonEmpty => p
-    }
+    val evidence = parameters.find(_.view)
+    val twoSided = parameters.find(p => p.lower && p.upper)
+    val bounded = occurring.collectFirst { case (p, _) if p.lower || p.upper => p }
     evidence.orElse(twoSided).orElse(bounded) match {
-      case Some(p) => Left(s"polymorphic capability binder: ${p.name.value} (bounded)")
+      case Some(p) => Left(s"polymorphic capability binder: ${p.name} (bounded)")
       case None    =>
         applied match {
           case Some((p, _)) =>
             Left(
-              s"polymorphic capability binder: ${p.name.value} (the result instantiates the binder)"
+              s"polymorphic capability binder: ${p.name} (the result instantiates the binder)"
             )
           case None =>
             val kept = occurring.map(_._2)

@@ -15,6 +15,8 @@ class TypeParametersSpec extends Specification {
   def is = s2"""
   A written type constructor is applied where its parameter is
     a closure is read with the binders of both sites           $closures
+    a constructor row reads a rigid constructor's positions    $constructors
+    a capability's own type parameters are read as before      $polymorphic
     a symbol two sites bind differently is not read yet        $rebound
   A bound of a proper type parameter is a proof beside it
     an upper bound views the values, a lower bound builds them  $proofs
@@ -48,6 +50,14 @@ class TypeParametersSpec extends Specification {
       |final case class Wrap[F[_], A](v: F[A]) {
       |  object Ops { def back(w: Wrap[[X] =>> (A, X), Boolean]): A = w.v._1 }
       |}
+      |final class Hold[F[_]](val b: Boolean)
+      |final class Held[F[_], A](val fa: F[A])
+      |final class Co[+F[_]](val a: F[Option[Int]], val b: F[Some[Int]])
+      |trait Lift { def lift[M](m: M): M; def get: Boolean = true }
+      |trait Pick { def pick[M](x: M, y: M): M }
+      |object Poly { def tag(p: Pick, a: Boolean): Boolean = a }
+      |trait Narrow { def narrow[M <: String](m: M): M; def get: Boolean = true }
+      |trait Apply { def lift[G[_]](g: G[Int]): G[Int]; def get: Boolean = true }
       |object Hk {
       |  def wrap(w: Wrap[[X] =>> Either[Boolean, X], Boolean]): Boolean = true
       |  def held[G[_]](w: Wrap[G, Int]): G[Int] = w.v
@@ -66,6 +76,27 @@ class TypeParametersSpec extends Specification {
 
   // `wrap`'s argument holds an `Either[Boolean, Boolean]`, 4 values: it is one of 2^4.
   private def closures = count("Hk.wrap") must_== Count.Finite(16)
+
+  // `Hold`'s constructor takes a Boolean, 2, whatever F is. `Held`'s one position is a rigid
+  // application: the shape model counts what the caller supplies, `fa` alone, 1.
+  // `Co`'s F is covariant: `F[Some[Int]]` is an `F[Option[Int]]` too, which a rigid application
+  // does not say, so its row is not read.
+  private def constructors =
+    (List("Hold.<init>", "Held.<init>").map(count) must_== List(2, 1).map(Count.Finite(_)))
+      .and(
+        uncovered("Co.<init>") must startWith(
+          "a type parameter of another kind than an invariant F[_]"
+        )
+      )
+
+  // `lift: ∀M. M => M` is the identity, which tells nothing: `Lift.get` is one of 2 Booleans.
+  // `pick: ∀M. (M, M) => M` picks its first or second argument, so a `Pick` has 2 values; with
+  // `a`, `tag` has 4 inputs and is one of 2^4 functions to Boolean. A bounded binder the type
+  // meets, and one the result applies, are not read, as before.
+  private def polymorphic =
+    (List("Lift.get", "Poly.tag").map(count) must_== List(2, 16).map(Count.Finite(_)))
+      .and(uncovered("Narrow.get") must contain("polymorphic capability binder: M (bounded)"))
+      .and(uncovered("Apply.get") must contain("the result instantiates the binder"))
 
   // In `Wrap.Ops.back`, the written `(A, X)` means the `A` of the enclosing `Wrap`, while reading
   // the argument `Wrap[..., Boolean]` binds that same `A` to `Boolean`: one symbol with two

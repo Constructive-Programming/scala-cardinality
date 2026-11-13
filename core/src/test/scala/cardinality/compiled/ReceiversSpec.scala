@@ -44,7 +44,6 @@ class ReceiversSpec extends Specification {
       |abstract final class Never extends Shown { def get: Boolean = true }
       |sealed class Closed(b: Boolean) { def get: Boolean = b }
       |trait Late { inline def late: Boolean; def now: Boolean = true; inline def soon: Boolean = late }
-      |trait Lifted { def lift[M](m: M): M; def get: Boolean = true }
       |object Dead { val z: Boolean = ???; class In(b: Boolean) { def get: Boolean = b } }
       |class Host(x: Boolean) { class Part { def px: Boolean = x } }
       |object Guest { val o: Host = new Host(true); final class K extends o.Part { def g: Boolean = true } }
@@ -83,6 +82,7 @@ class ReceiversSpec extends Specification {
       |final class Fin { type T; def get(t: T, u: T): T = t }
       |trait WishedM { type T; inline def wish: T; def get: Boolean = true }
       |trait Kinded { type F[_]; def get(x: F[Int]): F[Int] = x }
+      |trait CoKinded { type F[+X]; def none: F[Nothing]; def get: F[Int] = none }
       |trait Typed { type T }
       |abstract class Holds extends Typed { def seed: T; final class Fixed extends Typed { def get(t: T): T = t } }
       |abstract class Twice extends Typed { abstract class Again extends Typed { def get(t: T): T = t } }
@@ -244,13 +244,11 @@ class ReceiversSpec extends Specification {
   // scope; a class whose construction always throws, or in an object whose does (S6); a bounded
   // abstract type member, one of a class only its own scope may extend, whose types are those
   // the program picks, one two enclosing instances hold, one another declaration bounds, and
-  // `this.T` of a fixed class, which holds no type member of its own, inside one that holds it; a
-  // capability with type parameters of its own.
+  // `this.T` of a fixed class, which holds no type member of its own, inside one that holds it.
   private def later = {
     val expected = List(
       "Guest.K.g" -> "a parent with constructor parameters or in a class",
       "Closed.get" -> "an enclosing concrete sealed class or enum case",
-      "Lifted.get" -> "a capability with type parameters of its own",
       "Wished.get" -> "a deferred inline method over a type parameter",
       "Dead.In.get" -> "an object whose construction always throws or binds a pattern",
       "Self.me" -> "an enclosing class with a self type",
@@ -258,6 +256,7 @@ class ReceiversSpec extends Specification {
       "Deferred.m" -> "a deferred inline value of an enclosing class",
       "Thrown.get" -> "an enclosing class whose construction always throws or binds a pattern",
       "Bounded.get" -> "a bounded abstract type member, or one of another kind than F[_]",
+      "CoKinded.get" -> "a type",
       "Pinned.get" -> "an abstract type member of a class no class written elsewhere extends",
       "Fin.get" -> "an abstract type member of a class no class written elsewhere extends",
       "WishedM.get" -> "a deferred inline method over a type parameter",

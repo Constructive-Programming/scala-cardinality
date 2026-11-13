@@ -36,4 +36,13 @@ object Variances {
     inLambda || inTree
   }
 
+  /** Whether a bound is a type lambda that declares no variance on its parameters (an abstract type
+    * member `F[_]`, not `F[+_]`).
+    */
+  def invariant(bound: Types.Type): Boolean = bound match {
+    case lambda: TypeLambda =>
+      lambda.typeLambdaParams.forall(_.declaredVariance == Variance.Invariant)
+    case _ => false
+  }
+
 }
