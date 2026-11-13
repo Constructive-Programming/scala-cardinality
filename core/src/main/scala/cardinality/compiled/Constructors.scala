@@ -123,11 +123,10 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
         outer ++ variables.zip(atoms ++ atoms) ++ Shapes.typeParameters(tree.rhs.constr).zip(atoms),
         constructor.symbol
       )
-      // A primary constructor without parameters has one value, whatever the instances around
-      // hold; a secondary one may choose the primary's arguments from them.
+      // Where the primary constructor has no parameters the row has one value, whatever the
+      // instances around hold; else a secondary one may choose the primary's arguments from them.
       held <-
-        if (Readings.primary(constructor.symbol) && Shapes.parameters(constructor).isEmpty)
-          Right(Nil)
+        if (Shapes.parameters(tree.rhs.constr).isEmpty) Right(Nil)
         else receivers.bindings(around, constructor.symbol, env, Set.empty)
     } yield (tree, env, held)
   }

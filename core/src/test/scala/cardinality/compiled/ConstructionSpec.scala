@@ -33,6 +33,8 @@ class ConstructionSpec extends Specification {
       |final class Lazy(f: => Boolean, xs: Boolean*) { def this(u: Unit) = this(true) }
       |class Outer(val o: Boolean) { final class In(val i: Boolean) { def this(u: Unit) = this(o) } }
       |final class Rec(val r: Option[Rec]) { def this(u: Unit) = this(None) }
+      |trait OA[A] { def a: A; class In(x: A) { def this() = this(a) } }
+      |trait OB { def b: Boolean; class In() { def this(x: Boolean) = this() } }
       |object Sing
       |final class Pos(p: (Sing.type, Boolean), q: (Any, Sing.type))
       |final class Mute private (private val a: Boolean)
@@ -101,11 +103,17 @@ class ConstructionSpec extends Specification {
   // argument is its Boolean, a repeated one a sequence of them, ω. `In` is built on an instance of
   // `Outer`, whose `o` it may pass: a Boolean from `u` and `o`, 2^2 = 4. `Rec`'s argument is its
   // own class, which the method side refuses: no estimate stands for a secondary constructor.
+  // `OA.In()` may pass only the instance's `a`: 1. `OB.In(x)` calls a primary without
+  // parameters: 1.
   private def secondary =
     (counts("ctor.Two.<init>") must_== List(2, 2, 16).map(Count.Finite(_)))
       .and(counts("ctor.Gen.<init>").last must_== Count.Finite(2))
       .and(counts("ctor.Lazy.<init>").last must_== Count.Countable)
       .and(counts("ctor.Outer.In.<init>").last must_== Count.Finite(4))
+      .and(
+        List("ctor.OA.In.<init>", "ctor.OB.In.<init>")
+          .map(counts(_).last) must_== List(Count.Finite(1), Count.Finite(1))
+      )
       .and(counts("ctor.Rec.<init>").last must beLike { case Count.Unresolved(_) => ok })
 
   // A tuple holding a singleton beside values, no type parameter: `(Sing.type, Boolean)` is the
