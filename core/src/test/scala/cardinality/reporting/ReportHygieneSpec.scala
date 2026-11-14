@@ -38,8 +38,8 @@ class ReportHygieneSpec extends Specification with AfterAll {
     )}
       an operator name stays apart from its result's colon  ${Pending.oldBehavior(operatorNames)}
       a signature drops its layout and trailing comma       $signatureLayout
-      curried clauses read one way however laid out         ${Pending.oldBehavior(curriedClauses)}
-      a braceless match type result reads as valid Scala    ${Pending.oldBehavior(bracelessResult)}
+      curried clauses read one way however laid out         $curriedClauses
+      a braceless match type result reads as valid Scala    $bracelessResult
       a literal shaped like a placeholder is the literal    ${Pending.resolvedRefusal(
       placeholderLiteral
     )}

@@ -26,11 +26,9 @@
 (a) pins old behavior | NestedScopesSpec | every control-flow form is read alike
 (a) pins old behavior | OwnersAndRecordsSpec | a given or a final member an inline body selects is fixed
 (a) pins old behavior | PolymorphicMemberSpec | a bare-binder result that grows every goal exhausts the budget
-(a) pins old behavior | ReportHygieneSpec | a braceless match type result reads as valid Scala
 (a) pins old behavior | ReportHygieneSpec | a literal type reads as written in rows and reasons
 (a) pins old behavior | ReportHygieneSpec | a refinement reads one way however it is laid out
 (a) pins old behavior | ReportHygieneSpec | an operator name stays apart from its result's colon
-(a) pins old behavior | ReportHygieneSpec | curried clauses read one way however laid out
 (a) pins old behavior | ReportHygieneSpec | so does one whose result is inferred
 (a) pins old behavior | ReportHygieneSpec | whatever its alternatives are spelled like
 (a) pins old behavior | ReportSpec | an abstract member is open
