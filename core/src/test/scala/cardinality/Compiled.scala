@@ -406,29 +406,36 @@ object Compiled {
             case (failed, _) => failed
           }
           .fold(identity, built => scalac(src, staged.resolve("classes"), built ++ cp, own))
-      // The full classpath is tried where the small one is not enough, not where the compiler ran
-      // out of time: it would run out again.
-      val (problems, compiledWith) = run(minimal) match {
-        case Nil                                                            => (Nil, minimal)
-        case small if small.lastOption.exists(_.startsWith("not finished")) => (small, minimal)
-        case _ => (run(classpath), classpath)
-      }
+      val (problems, compiledWith) = tried(run)
       // The classpath is written before the marker: an entry marked `ok` has it.
       val files =
         if (problems.isEmpty) List(ClasspathFile -> compiledWith.mkString("\n"), "ok" -> asker)
         else List("failed" -> (asker :: problems).mkString("\n"))
       files.foreach((name, text) => Files.writeString(staged.resolve(name), text))
-      try Files.move(staged, root)
-      catch {
-        // Another thread compiled the same text first (the move then fails as file exists or as
-        // directory not empty): its entry stands and this copy goes. A compile that timed out may
-        // still be writing here, so what cannot be deleted stays.
-        case moved: java.nio.file.FileSystemException =>
-          if (!Files.isDirectory(root)) throw moved
-          deleted(staged)
-      }
+      moved(staged, root)
       Option.when(Files.exists(root.resolve("ok")))(out)
     }
   }
+
+  // The problems of a compile and the classpath it ran with: the full classpath is tried where the
+  // small one is not enough, not where the compiler ran out of time: it would run out again.
+  private def tried(run: List[Path] => List[String]): (List[String], List[Path]) =
+    run(minimal) match {
+      case Nil                                                            => (Nil, minimal)
+      case small if small.lastOption.exists(_.startsWith("not finished")) => (small, minimal)
+      case _ => (run(classpath), classpath)
+    }
+
+  // A staged entry moved to its key's place.
+  private def moved(staged: Path, root: Path): Unit =
+    try Files.move(staged, root): Unit
+    catch {
+      // Another thread compiled the same text first (the move then fails as file exists or as
+      // directory not empty): its entry stands and this copy goes. A compile that timed out may
+      // still be writing here, so what cannot be deleted stays.
+      case clash: java.nio.file.FileSystemException =>
+        if (!Files.isDirectory(root)) throw clash
+        deleted(staged)
+    }
 
 }
