@@ -276,17 +276,17 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
       }
 
     private def referenced(reference: TermReferenceTree): Unit = symbolOf(reference).foreach {
-      case symbol: TermSymbol =>
-        if (compileTime(symbol)) stop(s"uses ${named(symbol)}")
-        else {
-          if (inlineMethod(symbol)) brings += symbol
-          if (onReceiver(reference) && overridable(symbol)) {
-            val found = overriders(symbol)
-            brings ++= found
-            found.foreach(selected.getOrElseUpdate(_, symbol -> receiver(reference)))
-          }
-        }
+      case symbol: TermSymbol if compileTime(symbol) => stop(s"uses ${named(symbol)}")
+      case symbol: TermSymbol                        =>
+        if (inlineMethod(symbol)) brings += symbol
+        if (onReceiver(reference) && overridable(symbol)) bringOverriders(reference, symbol)
       case _ => ()
+    }
+
+    private def bringOverriders(reference: TermReferenceTree, symbol: TermSymbol): Unit = {
+      val found = overriders(symbol)
+      brings ++= found
+      found.foreach(selected.getOrElseUpdate(_, symbol -> receiver(reference)))
     }
 
     // Whether a member is selected on what a call site may type as a subclass: `this` (a member

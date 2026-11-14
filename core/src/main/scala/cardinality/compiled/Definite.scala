@@ -45,11 +45,17 @@ private[compiled] object Definite {
       member: TermSymbol,
       measured: TermSymbol,
       value: Boolean
-  )(using Context): Boolean = {
-    val seen = scala.collection.mutable.Set.empty[Symbol]
-    def effective(m: TermSymbol): TermSymbol =
+  )(using Context): Boolean = Evaluation(c, measured, value).evaluates(member, top = true)
+
+  final private class Evaluation(c: ClassSymbol, measured: TermSymbol, value: Boolean)(using
+      Context
+  ) {
+    private val seen = scala.collection.mutable.Set.empty[Symbol]
+
+    private def effective(m: TermSymbol): TermSymbol =
       Try(c.linearization.iterator.flatMap(m.overridingSymbol).nextOption()).toOption.flatten
         .getOrElse(m)
+
     // `top` for the member itself, every use of which applies a function it returns.
     def evaluates(m: TermSymbol, top: Boolean): Boolean =
       seen.add(m) && !m.isAbstractMember && m.tree.exists {
@@ -57,90 +63,110 @@ private[compiled] object Definite {
         case field: ValDef  => field.rhs.exists(result(_, top))
         case _              => false
       }
-    def result(tree: Tree, top: Boolean): Boolean = tree match {
+
+    private def result(tree: Tree, top: Boolean): Boolean = tree match {
       case Block(List(literal: DefDef), Lambda(_, None)) if top =>
         literal.rhs.exists(result(_, top))
       case Block(statements, last) => statements.exists(statement) || result(last, top)
       case Typed(expression, _)    => result(expression, top)
       case _                       => strict(tree)
     }
-    def statement(tree: Tree): Boolean = tree match {
+
+    private def statement(tree: Tree): Boolean = tree match {
       // A lazy value runs only where something reads it.
       case local: ValDef if local.symbol.kind != TermSymbolKind.LazyVal => local.rhs.exists(strict)
       case term: TermTree                                               => strict(term)
       case _                                                            => false
     }
-    def strict(tree: Tree): Boolean = tree match {
+
+    private def strict(tree: Tree): Boolean = tree match {
       case Block(statements, last) => statements.exists(statement) || strict(last)
       case Typed(expression, _)    => strict(expression)
       case If(condition, _, _)     => strict(condition)
       case Match(scrutinee, _)     => strict(scrutinee)
       case NamedArg(_, argument)   => strict(argument)
-      case _                       =>
-        onThis(tree) && applied(tree).exists { m =>
-          m == measured && again(tree) ||
-          m != measured && m.owner.isClass && evaluates(effective(m), top = false)
-        } || (tree match {
-          case Apply(function, arguments) =>
-            strict(function) || arguments.zipWithIndex.exists { (argument, i) =>
-              byValue(function, i) && strict(argument)
-            }
-          case TypeApply(function, _) => strict(function)
-          case Select(qualifier, _)   => strict(qualifier)
-          case _                      => false
-        })
+      case _                       => reenters(tree) || strictParts(tree)
     }
+
+    // Whether the tree itself is a call on the instance of a member that evaluates the measured one.
+    private def reenters(tree: Tree): Boolean =
+      onThis(tree) && applied(tree).exists { m =>
+        m == measured && again(tree) ||
+        m != measured && m.owner.isClass && evaluates(effective(m), top = false)
+      }
+
+    private def strictParts(tree: Tree): Boolean = tree match {
+      case Apply(function, arguments) =>
+        strict(function) || arguments.zipWithIndex.exists { (argument, i) =>
+          byValue(function, i) && strict(argument)
+        }
+      case TypeApply(function, _) => strict(function)
+      case Select(qualifier, _)   => strict(qualifier)
+      case _                      => false
+    }
+
     // Whether a call of the measured member passes it its own parameters, in order: with any
     // other arguments it may return without calling itself again. A local one also captures the
     // parameters of the methods it is written in, which the call that reached it may have given
     // other values: only where those methods take none.
-    def again(tree: Tree): Boolean =
+    private def again(tree: Tree): Boolean =
       Reentry.unapplied(tree)._2.flatten.map(World.named) ==
         measured.paramSymss.collect { case Left(clause) => clause }.flatten.map(Some(_)) &&
         World.owners(measured.owner).takeWhile(!_.isClass).forall {
           case method: TermSymbol => method.paramSymss.forall(_.left.forall(_.isEmpty))
           case _                  => true
         }
+
     // Whether a call is made on the instance the measured member runs on.
-    def onThis(tree: Tree): Boolean = tree match {
+    private def onThis(tree: Tree): Boolean = tree match {
       case Apply(function, _)     => onThis(function)
       case TypeApply(function, _) => onThis(function)
       case Select(_: This, _)     => true
-      // A new instance of the class runs its own members, which nothing overrides. Building one
-      // calls no member of the measured constructor's row, whose positions are inputs.
-      // Only one built on the instance's own outer instance: `new w.C` runs `w`'s members.
-      case Select(New(tpt), _) =>
-        !value && Try(World.classNamed(tpt.toType)).toOption.flatten.contains(c) &&
+      case Select(New(tpt), _)    => builtOnThis(tpt)
+      case Select(path, _)        => !value && named(path) && ofNamedObject(path, tree)
+      case reference: Ident       => namedCall(reference)
+      case _                      => false
+    }
+
+    // A new instance of the class runs its own members, which nothing overrides. Building one
+    // calls no member of the measured constructor's row, whose positions are inputs.
+    // Only one built on the instance's own outer instance: `new w.C` runs `w`'s members.
+    private def builtOnThis(tpt: TypeTree): Boolean =
+      !value && Try(World.classNamed(tpt.toType)).toOption.flatten.contains(c) &&
         (World.inObjects(c) || local(tpt.toType))
-      // A member of an object the instance names: `this` there is the object, which is the
-      // measured instance's own only where it does not inherit the measured member itself.
-      case Select(path, _) if !value && named(path) =>
-        called(path).flatMap(_.moduleClass).exists { k =>
-          (measured.owner match {
-            case owner: ClassSymbol => owner == k || !k.isSubClass(owner)
-            case _                  => false
-          }) && called(tree).exists(_.owner == k)
-        }
-      case reference: Ident =>
-        named(reference) &&
+
+    // A member named alone: a member of the instance or a local definition, or on a record value
+    // a member of its own object.
+    private def namedCall(reference: Ident): Boolean =
+      named(reference) &&
         called(reference).exists(m =>
           !Reentry.objectMember(m) || !value && m.owner == measured.owner
         )
-      case _ => false
-    }
+
+    // A member of an object the instance names: `this` there is the object, which is the
+    // measured instance's own only where it does not inherit the measured member itself.
+    private def ofNamedObject(path: Tree, tree: Tree): Boolean =
+      called(path).flatMap(_.moduleClass).exists { k =>
+        (measured.owner match {
+          case owner: ClassSymbol => owner == k || !k.isSubClass(owner)
+          case _                  => false
+        }) && called(tree).exists(_.owner == k)
+      }
+
     // A name alone that the instance or a scope around it binds: not a member of another value an
     // import brings.
-    def named(path: Tree): Boolean = path match {
+    private def named(path: Tree): Boolean = path match {
       case Select(_: This, _) => true
       case reference: Ident   => local(reference.tpe)
       case _                  => false
     }
+
     // Whether a reference's prefix is none or a `this`: the instance or a scope around it.
-    def local(tpe: => TermType): Boolean = Try(tpe match {
+    private def local(tpe: => TermType): Boolean = Try(tpe match {
       case ref: (TermRef | TypeRef) => ref.prefix == NoPrefix || ref.prefix.isInstanceOf[ThisType]
       case _                        => false
     }).getOrElse(false)
-    evaluates(member, top = true)
+
   }
 
   // Whether a call's function takes its argument at `i` by value: its type says so, and it is no
