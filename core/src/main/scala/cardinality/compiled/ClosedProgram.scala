@@ -221,7 +221,7 @@ final private[compiled] class ClosedProgram(
                 }
               }
             // A signature that is not read: a declaration of the name between the two is taken
-            // for an overrider, as the scalameta reading takes one by name.
+            // for an overrider: the name alone decides (the member stays open).
             catch {
               case NonFatal(_) =>
                 between.exists(_.declarations.exists(d => d.name == member.name && !d.isPrivate))

@@ -23,10 +23,10 @@ import tastyquery.Types.{
   WildcardTypeArg
 }
 
-/** Whether a concrete member a class of the program overrides may call the member being measured
-  * (the old reading's view): such a member is a behavior of the measured member's own, not a
+/** Whether a concrete member a class of the program overrides may call the member being measured (a
+  * view, capabilities C6): such a member is a behavior of the measured member's own, not a
   * capability beside it, and `Receivers` leaves the row. (An abstract member is a capability
-  * whatever its implementations call, as the scalameta front end has it.)
+  * whatever its implementations call: v1.md §2, abstract members stay capabilities.)
   *
   * Every behavior is searched: the member's own body and each overrider's, and from them every
   * member they call that the module declares, with what overrides it in turn. A call may reach the

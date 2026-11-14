@@ -363,8 +363,8 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
 
 private[compiled] object Inlines {
 
-  /** How a refusal for an inline method starts, and for a definition inside one, as the scalameta
-    * front end's do.
+  /** How a refusal for an inline method starts, and for a definition inside one (AGENTS.md, "Inline
+    * methods count as methods": the reason says so).
     */
   val Prefix = "inline method"
   val Inside = "definition inside an inline method"

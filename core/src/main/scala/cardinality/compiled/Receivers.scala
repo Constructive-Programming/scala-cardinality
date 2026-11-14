@@ -18,7 +18,7 @@ import tastyquery.Types.*
   *
   *   - Every parameter of the class's primary constructor is a value of the environment, `val` or
   *     not, whatever its visibility: the member is inside the class. (Its primary constructor is
-  *     callable there, rule B's site: the old front end reads its own receivers so.)
+  *     callable there: the member's site is rule B's site.)
   *   - Every abstract member of the class is a capability: a value of its type, or for a method one
   *     function from all its parameters to its result. One with a one-valued result supplies
   *     nothing: every body builds that value without it.
@@ -43,12 +43,12 @@ import tastyquery.Types.*
   * A sealed family or an enum is one value of its sum as a receiver: which case, and what the case
   * holds (`split`). Not read yet, each a `Left` naming it: a concrete sealed class or an enum
   * case's own class; a sum this reading does not take (`Readings` still counts an ω goal past an
-  * enum built from nothing, as the old front end does); a class that reaches one parent through two
-  * of its parents with other type arguments, or whose inherited members are not read; a parent in a
-  * class or a body, a parent whose private constructor parameters a subclass passes, a constructor
-  * field something overrides, and for a class that is not fixed a parent without TASTy that is no
-  * trait; an overridden member a behavior of which may call the measured one (`Reentry`), or
-  * overriders the classes read do not settle; a self type narrower than the class
+  * enum built from nothing: finite programs bound it at ω); a class that reaches one parent through
+  * two of its parents with other type arguments, or whose inherited members are not read; a parent
+  * in a class or a body, a parent whose private constructor parameters a subclass passes, a
+  * constructor field something overrides, and for a class that is not fixed a parent without TASTy
+  * that is no trait; an overridden member a behavior of which may call the measured one
+  * (`Reentry`), or overriders the classes read do not settle; a self type narrower than the class
   * (`World.ownSelf`); a type parameter of another kind than `F[_]` that a type read names; an
   * abstract type member of a sum, a bounded one or one of another kind than `F[_]`, a bounded one
   * two enclosing instances hold, one of a class no class written elsewhere extends, one another
@@ -179,7 +179,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
 
   // Whether the template, or a class it extends, reaches one parent through two of its parents
   // with other type arguments, or through parents that do not read. Reached again with the same
-  // ones, it is one parent, as the old reading takes it (`InheritedScopes.walk`).
+  // ones, it is one parent (a class linearizes it once).
   private def reachesTwice(c: ClassSymbol): Boolean = {
     val ancestors = World.ancestors(c)
     Try((c :: ancestors).exists { k =>
@@ -307,7 +307,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     * call the site (`Reentry`). Synthetic members, setters and members restating one every value
     * has (`universal`) observe nothing of the value and are set aside. Its unbounded abstract type
     * members, declared or inherited, are the witnesses of the package each value carries (`∃X.
-    * members over X`, as the old front end reads it): each an atom on the record's instance, which
+    * members over X`, docs/research/type-members.md): each an atom on the record's instance, which
     * the solver opens per value. Refused: a parent this reading does not take (`inherits`,
     * `inherited`), an abstract type member that is bounded, of another kind than a type, one
     * `atoms` would not read or one a receiver around the site holds too, a member the site may not
@@ -379,8 +379,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     * from its signature; a concrete one nothing overrides is code that is not supplied, which
     * computes from the others. Code that is not supplied (the record's, or other code in the
     * member's scope) may read such a member the site may not call: then the sources do not say what
-    * a value is, which the scalameta reading refuses in the same words. Not read yet: a parent
-    * reached through two parents or holding state, and overriders the classes read do not settle.
+    * a value is, and the row is refused. Not read yet: a parent reached through two parents or
+    * holding state, and overriders the classes read do not settle.
     */
   def dependency(
       c: ClassSymbol,
@@ -467,7 +467,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   }
 
   // Why the types an abstract type member of `c` stands for are only those the program's classes
-  // pick, as the old front end reads it: it counts one as any type only where a class written
+  // pick (closed world): it counts one as any type only where a class written
   // anywhere may extend `c`, which is not so where `c` is never extended (final, `final abstract`,
   // a value class), where a restricted constructor of it or of a class it extends is callable only
   // in its scope, where `c` or a class around it is private to a template, or where it is written
@@ -516,9 +516,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       .map(_.flatten)
 
   /** The names the receivers give a member's captures, as the report lists them: each constructor
-    * parameter and each member a subclass supplies, the measured one aside. (The old front end also
-    * lists a value that is an alias of one of those, and a later overload as `name#2`: the gate
-    * classes both differences.)
+    * parameter and each member a subclass supplies, the measured one aside. (A value that is an
+    * alias of one of those is not listed, nor is a later overload named `name#2`.)
     */
   def names(receivers: List[ClassDef], measured: TermSymbol): List[String] =
     receivers.flatMap { tree =>
@@ -559,7 +558,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   // that meets what the classes read do not resolve may. `including` keeps every member the search
   // would leave as a capability (`Readings.bounded`'s upper bound); a definite one is still dropped.
   // On a receiver, a member of a one-valued result (`read` none) supplies nothing, whatever it
-  // calls; a capability record's is searched as before (g1's path).
+  // calls; a capability record's is searched like any other (group g1).
   private def reenters(
       c: ClassSymbol,
       member: TermSymbol,
@@ -612,8 +611,8 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     if (Receivers.split(tree.symbol)) {
       // The receiver is one value of its family's sum: which case, and what that case holds.
       val label = Receivers.whole(tree.symbol)
-      // A sum this reading does not take leaves the row uncovered, not refused: the old front end
-      // still counts a row whose goal stands without the split (an infinite one).
+      // A sum this reading does not take leaves the row uncovered, not refused: a row whose goal
+      // stands without the split (an infinite one) is still counted.
       shapes
         .receiver(tree.symbol, env)
         .map(sum => List(Binding(label, sum, Some(label))))
@@ -658,8 +657,7 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       _ <- if (evidenceFound) Right(()) else Readings.plainInputs(parameters)
       // A receiver's constructor parameter was built before it, and is never the receiver: one
       // whose field no class of the program overrides (with the receiver, say), and not inline
-      // (by-name is read past its arrow, as nothing preceding), as the old front end's
-      // `builtBefore`.
+      // (by-name is read past its arrow, as nothing preceding).
       fields <- Traversals.sequence(parameters.map { parameter =>
         val fixed = template.rhs.body.exists {
           case field: ValDef =>
@@ -785,7 +783,7 @@ private[compiled] object Receivers {
   /** A receiver read as one value of its sum: a sealed family or an enum. */
   def split(c: ClassSymbol): Boolean = Shapes.isFamily(c) || c.isEnum
 
-  /** The name a sum receiver is bound and listed under, as the old front end names it. */
+  /** The name a sum receiver is bound and listed under in the report. */
   def whole(c: ClassSymbol): String = s"<receiver ${c.displayFullName.replace("$.", ".")}>"
 
   private val Record = "a capability record"

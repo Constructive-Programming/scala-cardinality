@@ -24,7 +24,7 @@ import tastyquery.Types.{AppliedType, ByNameType, Type, TypeRef}
   *     stands for it and the row is `?` with that reason; where its only reason is a type
   *     parameter, the method side's reading stands alone.
   *   - A recursive position, which the method side refuses, takes the estimate's size where its
-  *     type is estimable (`estimable`), as the old reading does (`fromEstimate`).
+  *     type is estimable (`estimable`), the stored side's size of it (`fromEstimate`).
   *   - A type parameter is an atom, or a rigid constructor (`F[_]`, `F[_[_]]`, `Shapes.binder`);
   *     its slot is left to the shape model, which counts the values the caller supplies
   *     (`Pair[A](x: A, y: A)` has four), and for a class in a class those the instance around it
@@ -83,8 +83,8 @@ final private[compiled] class Constructors(shapes: Shapes, stored: Stored, recei
   // A secondary constructor's row, a method from its parameters to the primary constructor's
   // arguments: its self-invocation calls another constructor of the class, and every chain of them
   // ends in the primary one, so an implementation chooses those arguments, never a value of the
-  // class (the old `SecondaryConstructors`). A by-name argument is its value, a repeated one its
-  // sequence. The instance it builds does not exist yet; what a body after the self-invocation
+  // class (Rule B: the primary builds every field). A by-name argument is its value, a repeated one
+  // its sequence. The instance it builds does not exist yet; what a body after the self-invocation
   // declares is another row (`<init#k>`).
   private def secondary(
       constructor: DefDef,
@@ -254,8 +254,8 @@ private[compiled] object Constructors {
       )
     // A singleton or evidence beside values and no type parameter: a value space, which the
     // shape model would count the functions of. Beside a top, the method side reads it, a stable
-    // path's singleton as its one value; else the estimate's size stands (the old
-    // `ConstructorPositions.readPosition`).
+    // path's singleton as its one value; else the stored estimate's size stands, unless the
+    // method side's reading contradicts it (below).
     // A value space of the estimate's that the method side's reading of it (`pointed`) contradicts
     // is refused, and so is the estimate's empty space where the method side has none to compare:
     // the two algebras differ on a function from an empty type.
@@ -270,11 +270,11 @@ private[compiled] object Constructors {
     } else Right(Shaped(name, shape))
   }
 
-  // A recursive position, which the method side refuses, is the estimate's, as the old reading
-  // takes it: its reasons other than an unresolved name make the row `?` where one names a
-  // declaration it could not read or the position is ground; with no reason at all, and a size
-  // that says a value exists (not an absurd function's 0, an intersection's bound), its size is
-  // the position's; otherwise the method side's refusal stands.
+  // A recursive position, which the method side refuses, is the estimate's (a least fixed point
+  // the stored side solves): its reasons other than an unresolved name make the row `?` where one
+  // names a declaration it could not read or the position is ground; with no reason at all, and a
+  // size that says a value exists (not an absurd function's 0, an intersection's bound), its size
+  // is the position's; otherwise the method side's refusal stands.
   private def fromEstimate(reason: String, estimate: Stored.Row, ground: Boolean): Position = {
     val declined = estimate.unbound.filterNot(_.isInstanceOf[Unbound.Unknown]).flatMap(rendered)
     val declaration = estimate.unbound.exists(_.isInstanceOf[Unbound.Refusal])
@@ -298,7 +298,7 @@ private[compiled] object Constructors {
 
   }
 
-  // Whether the old reading hands a position the method side refuses to the estimate: only class
+  // Whether a position the method side refuses is handed to the estimate: only class
   // references, applied types and by-name types, none of them a top type, `Null` or `Nothing`,
   // through aliases (no union, intersection, singleton, refinement or other form).
   private def estimable(tpe: Type)(using Context): Boolean = tpe.dealias match {

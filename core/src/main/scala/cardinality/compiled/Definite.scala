@@ -14,10 +14,10 @@ import tastyquery.Types.{ByNameType, MethodType, NoPrefix, TermRef, TermType, Th
 private[compiled] object Definite {
 
   /** Whether the member's own body evaluates the measured one whenever it is evaluated (the
-    * scalameta front end's definite view): the measured member, or a member of the instance whose
-    * own body does, fully applied on the instance, in a position the body always evaluates. Such a
-    * member re-enters the measured one in a receiver that overrides nothing, so no implementation
-    * uses it: it supplies nothing.
+    * definite view, closed world: no override elsewhere): the measured member, or a member of the
+    * instance whose own body does, fully applied on the instance, in a position the body always
+    * evaluates. Such a member re-enters the measured one in a receiver that overrides nothing, so
+    * no implementation uses it: it supplies nothing.
     *
     * The positions (`strict`): the body's result, and a function literal it returns as a function
     * (every use of a function-typed member applies it); a block's statements and result, a strict
@@ -36,8 +36,8 @@ private[compiled] object Definite {
     * left by `may`.
     *
     * On a record value (`value`) the measured member runs on no instance of the record, and a call
-    * of it re-enters only with the same arguments: only `this` and the members it names alone
-    * chain, as the old reading's view has it. A member of the instance runs the body an instance of
+    * of it re-enters only with the same arguments: only `this` and the members it names alone chain
+    * (the arguments are fixed by the call). A member of the instance runs the body an instance of
     * `c` that overrides nothing has: the nearest in `c`'s linearization.
     */
   def apply(

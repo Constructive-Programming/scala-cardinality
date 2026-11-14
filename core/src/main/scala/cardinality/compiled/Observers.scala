@@ -16,8 +16,8 @@ final private[compiled] class Observers(
 )(using Context) {
   import Shapes.Env
 
-  /** Whether the site observes a final class's constructor parameter as itself (the scalameta
-    * reading's `observes`).
+  /** Whether the site observes a final class's constructor parameter as itself (rule B: only the
+    * fields the site observes count).
     */
   def exposed(
       c: ClassSymbol,
