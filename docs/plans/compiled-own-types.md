@@ -1,6 +1,6 @@
 # Compiled own types: reading the module's TASTy
 
-## Status (branch `tasty-final`, 2026-11-14)
+## Status (branch `tasty-final`, merged with main, 2026-11-14)
 
 The TASTy front end is the only one. On `b53f9bf` (S8) the branch merges the three spec rewrites
 (`tasty-r1`, `-r2`, `-r3`), the closed-world intersections (`tasty-f1`: `World.meet`; `UM` 3 -> 1)
@@ -41,6 +41,35 @@ abstract type member reached through a path read as open, and the leftovers belo
   (cats.data.NonEmptyChainImpl.Type)` and the other newtypes' `Type` (tally 245 -> 232
   instantiation-dependent, 58 -> 71 open), cats-eo-generics 1 row, `HearthPlateMacro#ChildFieldKind`
   (`member TypeRepr` -> `quotes.reflect.TypeRepr`).
+
+Merged with `origin/main` (`36cd3cd`, 2026-11-14; merge `d48de25`, follow-ups `d509b0f`,
+`1e358d1`). Main's toolchain is in: core on Scala 3.10.1 with tasty-query 1.10.0, Java 17
+bytecode, cats-eo 1.3.0. The plugins reach core through main's loader (`cardinality.Entry`,
+`plugin-loader`): `Entry.report(sources, names, output, classpath, out)`, where `output` is the
+module's compiled classes, or empty when they did not compile; stubs, `Entry.stubs` and the
+selected report's support and limits are gone. The sbt 1 plugin, the sbt 2 plugin and Mill pass
+compiled classes. The seed-skill task is main's. Main's capacity hotspots and `MemberSyntax`'s
+weak map were in deleted code, and are dropped. core-native does not compile against the TASTy
+front end, because tasty-query has no Scala Native build; it is kept unaggregated, as main had it.
+No tasty-query API change was needed.
+
+- Tests: 2,062 examples, 0 failures, 370 pending (SkillSpec went with the branch's seed task;
+  EntrySpec has 2). Gates: `scalafmtCheckAll`, `scalafmtSbtCheck`, `scalafixAll --check`,
+  `core/testFull`, `plugin/scripted` (6 of 6), `sbt1Plugin/scripted` (3 of 3), `millPlugin/testFull`,
+  `scripts/check-file-metrics.sh`, CPD (25 tokens, the six directories CI scans), `siteRender`, and
+  a cold `coverageAll` (core 94.48% statements, 90.17% branches; floor 90%).
+- Corpora rendered at `aac8cc7` and at the merge: core, cats-eo, cats-eo-generics, cats-eo-schemes
+  and cats-kernel are byte-identical. cats-core differs in 82 rows and 1 count. The cause is
+  tasty-query 1.10.0's `scala.caps.Pure` lookup. On a Scala 3.2 to 3.6 library (cats-core's
+  classpath has scala3-library 3.3.4), 1.9.0 creates `scala.caps` as a package although it is an
+  object, so erasing any intersection type throws (12 of cats-core's method signatures). With the
+  merge's code on tasty-query 1.9.0, cats-core renders `aac8cc7`'s report byte for byte.
+  `Reentry.may` threw, and `Receivers.reenters` read the throw as `an overridden member that may
+  call it`. Under 1.10 the search completes. 81 rows now refuse for their own reasons: `polymorphic
+  capability binder` 50, `sealed subtype hides a parameter` 16, and others. One row now counts:
+  `cats.syntax.EqOps.===` goes from `?` to 2^256, the count of its twin `=!=`, which has the same
+  signature and captures. Tallies: finite 845 -> 846, unresolved 6,387 -> 6,386. Two renders at the
+  head are identical.
 
 Open follow-ups:
 
