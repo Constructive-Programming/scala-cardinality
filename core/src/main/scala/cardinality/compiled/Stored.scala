@@ -96,12 +96,20 @@ final private[compiled] class Stored(world: World)(using Context) {
 
   // What a class's constructor stores: the product of its parameters, the evidence of a context
   // bound among them, each read at the class. The constructor names its own copies of the class's
-  // type parameters.
+  // type parameters. A class never built stores nothing (register D26, decision D5).
   private def constructed(tree: ClassDef, env: Env): Either[String, Held] =
-    if (!built(tree)) each.tupled(fields(tree, env)).map(Algebra.product)
+    if (never(tree.symbol)) Right(Held(NothingSize))
+    else if (!built(tree)) each.tupled(fields(tree, env)).map(Algebra.product)
     else if (world.extended(tree.symbol))
       Left(s"a restricted constructor: ${tree.symbol.displayFullName}")
     else restricted(tree, env)
+
+  // Whether no instance of a class is ever built: its construction always throws, in its own
+  // template or one of the module it extends, or that of a class around it, one instance of which
+  // each instance needs (an object around it is not read: register D26).
+  private def never(c: ClassSymbol): Boolean =
+    (c :: World.owners(c.owner).collect { case k: ClassSymbol if !k.isModuleClass => k })
+      .exists(world.unbuilt(_))
 
   // Whether a class holds what its public builders build (rule B): its constructor is restricted
   // and it has no type parameter. A class with type parameters keeps its fields' product, as the

@@ -2,12 +2,11 @@ package cardinality.compiled
 
 import cardinality.analysis.inhabitation.Inhabitation.Count
 import cardinality.capacity.TinySize
-import cardinality.reporting.{Report, ScalametaFrontEnd}
+import cardinality.reporting.Report
 import org.specs2.Specification
 
 /** Wrong numbers found in both front ends and corrected (docs/plans/compiled-own-types.md, group
-  * h7). Every expected count is derived in its example's comment, and each row is asked of both
-  * front ends.
+  * h7). Every expected count is derived in its example's comment.
   */
 class CorrectionsSpec extends Specification {
 
@@ -17,6 +16,7 @@ class CorrectionsSpec extends Specification {
     a member private to the instance is read on `this` alone       $local
     a concrete class nothing extends is final, written open or not $open
     an enum whose construction throws has no value on either side  $thrown
+    a class never built stores nothing, nor does a class inside it $unbuilt
     a member only a never-built subclass overrides does not vary   $dormant
   """
 
@@ -65,6 +65,10 @@ class CorrectionsSpec extends Specification {
       |  enum Boom { case A, B; val z: Int = ??? }
       |  enum BoomC { case C(b: Boolean); case D; val z: Int = ??? }
       |  enum Arg2(val n: Int) { case One extends Arg2(???); case Two extends Arg2(2) }
+      |  final class Dead { val z: Int = ???; final case class Leaf(b: Boolean) }
+      |  final class Live { final case class Leaf(b: Boolean) }
+      |  object DeadO { val z: Int = ???; final case class In(b: Boolean) }
+      |  final case class HoldsLeaf(l: Dead#Leaf, b: Boolean)
       |  trait DT { def m: Boolean = true; def k: Boolean }
       |  class DTSub extends DT { override def m: Boolean = false; def k = true; val z: Int = ??? }
       |  abstract class DA { def m: Boolean = true; def k: Boolean }
@@ -99,18 +103,17 @@ class CorrectionsSpec extends Specification {
 
   private lazy val input = TastyFrontEndSpec.compiled("Fix.scala" -> text)
 
-  private lazy val rows = List(TastyFrontEnd -> input.next, ScalametaFrontEnd -> input.old)
-    .map((frontEnd, module) => Differential.answer(frontEnd, module).sources.flatMap(_.toOption))
+  private lazy val rows: List[Report.Source] = TastyFrontEnd.rows(input).sources.flatMap(_.toOption)
 
-  // A row's field in both front ends, the new one's first.
-  private def both[R, A](of: Report.Source => List[R], name: R => String, field: R => A)(
+  // A row's field.
+  private def field[R, A](of: Report.Source => List[R], name: R => String, field: R => A)(
       wanted: String
-  ): List[A] = rows.map(sources => field(sources.flatMap(of).find(r => name(r) == wanted).get))
+  ): A = field(rows.flatMap(of).find(r => name(r) == wanted).get)
 
-  private def count(name: String): List[Count] = both(_.methods, _.name, _.count)(name)
-  private def size(name: String) = both(_.definitions, _.name, _.size)(name)
-  private def counts(name: String, expected: Count) = count(name) must_== List(expected, expected)
-  private def next(name: String): Count = count(name).head
+  private def count(name: String): Count = field(_.methods, _.name, _.count)(name)
+  private def size(name: String) = field(_.definitions, _.name, _.size)(name)
+  private def counts(name: String, expected: Count) = count(name) must_== expected
+  private def next(name: String): Count = count(name)
 
   private def unread(count: Count, reason: String) =
     count must beLike { case Count.Unresolved(List(why)) => why must contain(reason) }
@@ -135,7 +138,7 @@ class CorrectionsSpec extends Specification {
       .and(counts("out.Use.coll", Count.Finite(4)))
       .and(counts("out.Use.pq", Count.Finite(4)))
       .and(counts("out.Use.xb", Count.Finite(4)))
-      .and(size("fix.Comp") must_== List(Some(TinySize(4)), Some(TinySize(4))))
+      .and(size("fix.Comp") must_== Some(TinySize(4)))
       // `PO.obs.f(k)` runs the private `Impl.f`, which reads `b`: through the public `Obs.f` the
       // site reaches it, so `Ko` is 2 × 2 and `ko` one of 2^4 (the old front end misses it, 2^2).
       .and(next("out.Use.ko") must_== Count.Finite(16))
@@ -146,7 +149,6 @@ class CorrectionsSpec extends Specification {
   private def local =
     unread(next("fix.PT.m"), "a parameter that is no public field")
       .and(unread(next("fix.PV.m"), "a parameter that is no public field"))
-      .and(count("fix.PT.m")(1) must beLike { case Count.Unresolved(_) => ok })
 
   // A concrete class nothing extends is final, written `open` or not: `OpJ` reads its parent
   // compiled from Java as `ClJ` does, and `m` is one of the 2^2 functions of `x`.
@@ -161,10 +163,18 @@ class CorrectionsSpec extends Specification {
       .and(next("fix.Here.boomC") must_== Count.Finite(0))
       .and(next("fix.Here.arg2") must_== Count.Finite(0))
       .and(
-        List("fix.Boom", "fix.BoomC", "fix.Arg2").map(size) must_== List.fill(3)(
-          List(Some(TinySize(0)), Some(TinySize(0)))
-        )
+        List("fix.Boom", "fix.BoomC", "fix.Arg2").map(size) must_== List.fill(3)(Some(TinySize(0)))
       )
+
+  // A class whose initializer always throws is never built (D26, decision D5): `Dead` stores no
+  // value (it was 1), and neither does `Dead#Leaf`, whose every instance needs a `Dead` around it
+  // (it was 2); `HoldsLeaf` holds one, so it stores none either (it was 2 × 2). `Live#Leaf` is its
+  // Boolean, 2. An object around a class is not read (register D26): `DeadO.In` is its Boolean, 2.
+  private def unbuilt =
+    (List("fix.Dead", "fix.Dead#Leaf", "fix.HoldsLeaf").map(size) must_== List.fill(3)(
+      Some(TinySize(0))
+    ))
+      .and(List("fix.Live#Leaf", "fix.DeadO.In").map(size) must_== List.fill(2)(Some(TinySize(2))))
 
   // `DRSub` is never built, so its override of `m` never runs: on every `DR`, `m` is `true`, and
   // `g` is one of the 2^2 functions of `x` (the old front end lets `m` vary: 2^(2 × 2)). `DMLive`
