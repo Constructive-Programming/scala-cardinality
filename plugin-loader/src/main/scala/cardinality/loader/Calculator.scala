@@ -21,17 +21,10 @@ final class Calculator private (jars: Seq[Path]) {
   private val entry = loader.loadClass("cardinality.Entry")
 
   /** Writes the report over `sources` to `out` (with `names`, the report of those qualified methods
-    * alone); the number of errors it holds. `output` is the sources' compiled classes, read against
-    * the dependency `classpath`; `None` when they did not compile, and every source is refused.
+    * alone), read from their compiled `classes`; the number of errors it holds.
     */
-  def report(
-      sources: Seq[Path],
-      names: Seq[String],
-      output: Option[Seq[Path]],
-      classpath: Seq[Path],
-      out: Path
-  ): Int =
-    count(call("report", list(sources), list(names), optional(output), list(classpath), out))
+  def report(sources: Seq[Path], names: Seq[String], classes: Calculator.Classes, out: Path): Int =
+    count(call("report", list(sources), list(names), compiled(classes), out))
 
   private def list[A](values: Seq[A]): java.util.List[A] = {
     val result = new java.util.ArrayList[A]
@@ -39,8 +32,10 @@ final class Calculator private (jars: Seq[Path]) {
     result
   }
 
-  private def optional(output: Option[Seq[Path]]): Optional[java.util.List[Path]] =
-    output.fold(Optional.empty[java.util.List[Path]])(paths => Optional.of(list(paths)))
+  private def compiled(classes: Calculator.Classes) =
+    Optional.ofNullable(
+      classes.output.map(paths => java.util.Map.entry(list(paths), list(classes.classpath))).orNull
+    )
 
   private def count(result: AnyRef): Int = result.asInstanceOf[java.lang.Integer].intValue
 
@@ -71,6 +66,11 @@ final class Calculator private (jars: Seq[Path]) {
 }
 
 object Calculator {
+
+  /** The classes a report reads: the sources' compiled `output` (`None` when they did not compile,
+    * and every source is refused), and the dependency `classpath` its types refer to.
+    */
+  final case class Classes(output: Option[Seq[Path]], classpath: Seq[Path])
 
   /** The calculator's version: the plugin's own. */
   val version: String = BuildInfo.version

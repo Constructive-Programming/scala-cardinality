@@ -369,49 +369,22 @@ class ReceiversSpec extends Specification {
       .and(count("recv.Held.top.inner") must_== Count.Finite(4))
       .and(count("recv.Held.gone.inner") must_== Count.Finite(4))
       .and(
-        left(
-          "recv.Held.neg.inner"
-        ) must_== "a capture a nearer scope binds again, held by other code"
-      )
-      .and(
-        left(
-          "recv.Held.obj.inner"
-        ) must_== "a capture a nearer scope binds again, held by other code"
-      )
-      .and(
-        left(
-          "recv.Held.single.inner"
-        ) must_== "a capture a nearer scope binds again, held by other code"
-      )
-      .and(
-        left(
-          "recv.Held.mid.m.inner"
-        ) must_== "a capture a nearer scope binds again, held by other code"
-      )
-      .and(
-        left(
-          "recv.Held.far.inner"
-        ) must_== "a capture a nearer scope binds again, held by other code"
-      )
-      .and(
-        left(
-          "recv.Held.selfed.<new#1>.run"
-        ) must_== "a capture a nearer scope binds again, held by other code"
-      )
-      .and(
-        left(
-          "recv.Held.caught.inner"
-        ) must_== "a capture a nearer scope binds again, held by other code"
+        List(
+          "recv.Held.neg.inner",
+          "recv.Held.obj.inner",
+          "recv.Held.single.inner",
+          "recv.Held.mid.m.inner",
+          "recv.Held.far.inner",
+          "recv.Held.selfed.<new#1>.run",
+          "recv.Held.caught.inner",
+          "recv.HideHeld.outer.inner"
+        ).map(left(_) must_== "a capture a nearer scope binds again, held by other code")
+          .reduce(_ and _)
       )
       .and(left("recv.Held.ctx.inner") must_== "a contextual capture a nearer scope binds again")
       .and(count("recv.Held.own.<new#1>.g") must_== Count.Finite(1))
       .and(count("recv.InLit.outer.<block#1>.<lambda#1>.<block#1>.inner") must_== Count.Finite(4))
       .and(count("recv.Stat.outer.<new#1>.run") must_== Count.Finite(4))
-      .and(
-        left(
-          "recv.HideHeld.outer.inner"
-        ) must_== "a capture a nearer scope binds again, held by other code"
-      )
       .and(count("recv.Lit.outer.<block#1>.<lambda#1>.inner") must_== Count.Finite(16))
       .and(count("recv.PatNo.outer.<case#1>.inner") must_== Count.Finite(8))
       .and(

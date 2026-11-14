@@ -183,7 +183,7 @@ object Report {
       case (_, Left(error))       => List(Left(error))
       case (path, Right(sources)) =>
         val mine = sources.map(_ => answers.next())
-        if (unclassed && Locations.jar(path) && !Files.isDirectory(path)) unbuilt(path, mine)
+        if (unclassed && sourcesJar(path)) unbuilt(path, mine)
         else mine
     }
     // The rows of a binary jar are named and placed by its sources, which a sources jar holds.
@@ -217,6 +217,9 @@ object Report {
         )
       )
   }
+
+  // Whether a path is read as a sources jar (`read`): a jar, not a directory.
+  private def sourcesJar(path: Path): Boolean = Locations.jar(path) && !Files.isDirectory(path)
 
   // For a jar of compiled classes (TASTy or class files), whether it holds sources too; nothing for
   // any other path. A jar that cannot be opened is left to `read`, which reports it.

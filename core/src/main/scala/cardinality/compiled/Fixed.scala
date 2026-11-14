@@ -28,25 +28,28 @@ final private[compiled] class Fixed[A](bottom: A, settled: A => Boolean) {
     } else if (symbol.exists(!reading.add(_))) {
       cut ++= symbol
       bottom
-    } else {
-      val outer = cut
-      cut = Set.empty
-      depth += 1
-      try {
-        val found = read
-        cut --= symbol
-        if (settled(found) || cut.isEmpty) known.put(key, found): Unit
-        else pending.put(key, (found, cut)): Unit
-        if (depth == 1 && found == bottom) pending.forEach((k, v) => known.put(k, v._1): Unit)
-        found
-      } finally {
-        depth -= 1
-        reading --= symbol
-        cut = outer ++ cut -- symbol
-        if (depth == 0) {
-          pending.clear()
-          cut = Set.empty
-        }
+    } else first(key, symbol)(read)
+  }
+
+  // A key read for the first time, `symbol` now being read.
+  private def first(key: AnyRef, symbol: Option[Symbol])(read: => A): A = {
+    val outer = cut
+    cut = Set.empty
+    depth += 1
+    try {
+      val found = read
+      cut --= symbol
+      if (settled(found) || cut.isEmpty) known.put(key, found): Unit
+      else pending.put(key, (found, cut)): Unit
+      if (depth == 1 && found == bottom) pending.forEach((k, v) => known.put(k, v._1): Unit)
+      found
+    } finally {
+      depth -= 1
+      reading --= symbol
+      cut = outer ++ cut -- symbol
+      if (depth == 0) {
+        pending.clear()
+        cut = Set.empty
       }
     }
   }

@@ -60,18 +60,10 @@ private[cardinality] object TastyFrontEnd {
               CompiledClasses.unnamed(classes.output),
               CompiledClasses.unnamed(classes.classpath)
             )
-            val answers =
-              read(
-                sources,
-                own,
-                new Inlines(own.toSet, dependencies),
-                closed,
-                // A class file is read only for a class without TASTy that a type names.
-                {
-                  lazy val facts = CompiledClasses.javaFacts(classes)
-                  new DependencyClasses(c => facts(c))
-                }
-              )
+            // A class file is read only for a class without TASTy that a type names.
+            lazy val facts = CompiledClasses.javaFacts(classes)
+            val world = new World(own.toSet, closed, new DependencyClasses(c => facts(c)))
+            val answers = read(sources, own, new Inlines(own.toSet, dependencies), world)
             Rows(
               answers,
               (unloaded ++ missed).map(why => s"compiled class not read: $why")
@@ -90,13 +82,10 @@ private[cardinality] object TastyFrontEnd {
       sources: List[(String, String)],
       own: List[ClassSymbol],
       inlines: Inlines,
-      closed: ClosedProgram,
-      dependencyClasses: DependencyClasses
+      world: World
   )(using Context): List[Either[Report.Error, Report.Source]] = {
     // A class file is listed under its class's and its object's name: each class once.
     val trees = own.distinct.flatMap(_.tree).groupBy(_.pos.sourceFile.path)
-    val world =
-      new World(own.toSet, closed, dependencyClasses)
     val stored = new Stored(world)
     val measure = rowsOf(new Readings(world, stored, inlines), stored)
     // Each compiled path belongs to the source that shares most of it (`Exp.scala` against

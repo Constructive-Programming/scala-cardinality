@@ -42,26 +42,31 @@ object Overriders {
       val overrider = s"$kind ${c.name.value}__O${c.tparamClause.syntax}" +
         declared.map(_.mkString("(", ", ", ")")).mkString
       // A class is open where a template extends it, whatever that overrides.
-      template(overrider, c.name.value, c.tparamClause, clauses.map(arguments), c.templ, prefix)
+      template(
+        overrider,
+        parent(prefix, c.name.value, c.tparamClause, clauses.map(arguments)),
+        c.templ
+      )
         .map(_._1)
     case t: Defn.Trait =>
       val overrider = s"trait ${t.name.value}__O${t.tparamClause.syntax}"
       // A trait is open whatever extends it: one with nothing to override gets no overrider.
-      template(overrider, t.name.value, t.tparamClause, Nil, t.templ, prefix).collect {
+      template(overrider, parent(prefix, t.name.value, t.tparamClause, Nil), t.templ).collect {
         case (written, true) => written
       }
     case _ => Nil
   }
 
-  // One overrider, and whether it overrides anything: its head, the template it extends as written
-  // from where it stands, and the members it overrides.
+  // The template an overrider extends, as written from where it stands.
+  private def parent(prefix: String, name: String, tparams: Type.ParamClause, args: List[String]) =
+    s"$prefix$name${typeArguments(tparams)}${args.mkString}"
+
+  // One overrider, and whether it overrides anything: its head, the template it extends (`parent`),
+  // and the members it overrides.
   private def template(
       overrider: String,
-      name: String,
-      tparams: Type.ParamClause,
-      args: List[String],
-      templ: Template,
-      prefix: String
+      parent: String,
+      templ: Template
   ): List[(String, Boolean)] = {
     val members = templ.body.stats.collect {
       case d: Defn.Def if !d.mods.exists(_.is[Mod.Final]) && d.decltpe.nonEmpty =>
@@ -78,7 +83,7 @@ object Overriders {
     val nested = templates(templ.body.stats, "")
     List(
       (
-        s"$overrider extends $prefix$name${typeArguments(tparams)}${args.mkString} " +
+        s"$overrider extends $parent " +
           (members ++ nested).mkString("{ ", "; ", " }"),
         members.nonEmpty || nested.nonEmpty
       )

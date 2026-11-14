@@ -61,29 +61,23 @@ private[cardinality] object Fixpoint {
     */
   final case class Lazy[K, S](arms: Map[K, List[Arm[K, S]]], parents: Map[K, List[K]])
 
-  /** Solves a system of equations whose dependency graph is read (`reaches`) and whose definitions
-    * on a cycle through a non-positive position (`fixed`) hold a fixed value in `marked`: the least
-    * fixed point, then the ν completion of the lazy cycles; the definitions left on a lazy cycle it
-    * did not complete are blocked.
+  /** Solves a system of equations whose dependency graph is read (`reaches`), from the store
+    * `empty`: the least fixed point, then the ν completion of the lazy cycles; the definitions left
+    * on a lazy cycle it did not complete are blocked.
     */
-  def solve[K, S](
-      eqs: List[(K, S => Size)],
-      fixed: Set[K],
-      marked: S,
-      nu: Lazy[K, S],
-      reaches: Map[K, Set[K]]
-  )(using Store[K, S]): S = {
+  def solve[K, S](eqs: List[(K, S => Size)], empty: S, nu: Lazy[K, S], reaches: Map[K, Set[K]])(
+      using Store[K, S]
+  ): S = {
     val cyclic = reaches.keySet.filter(name => reaches(name)(name))
-    val mu = iterate(eqs, cyclic, marked, frozen = fixed)
+    val mu = iterate(eqs, cyclic, empty, frozen = Set.empty)
     // A definition between the cycle's nodes (the source front end's alias `type T = () => X`)
     // is read again from the values a lap reads the nodes at.
     val nodes = nu.arms.keySet ++ nu.parents.keySet
     val between = eqs.map(_._1).filter { k =>
-      !nodes(k) && !fixed(k) && reaches.getOrElse(k, Set.empty).exists(nodes)
+      !nodes(k) && reaches.getOrElse(k, Set.empty).exists(nodes)
     }
     val read = iterate(eqs, cyclic, _: S, eqs.map(_._1).toSet -- between)
-    val (cycles, closed, readable) = cycleGroups(nu, mu, read)
-    val groups = cycles.filterNot(_.exists(fixed))
+    val (groups, closed, readable) = cycleGroups(nu, mu, read)
     val completed = groups.flatten.toSet
     // What each definition names where its constructor does not demand it (a strict `Option[X]`
     // demands it).
@@ -93,16 +87,15 @@ private[cardinality] object Fixpoint {
           arm.deferred
       }.toSet
     }
-    val incomplete =
-      blocked(lazily, reaches, closed -- cycles.filter(_.exists(fixed)).flatten) -- fixed
+    val incomplete = blocked(lazily, reaches, closed)
     // Re-derive everything outside the completed cycles from their frozen values. Widening during
     // the iteration is a way of stopping it, not a result: a consumer widened only because a
     // cyclic dependency was still growing lands here on the value its own definition has, so a
     // definition and a reference to it always agree, and a chain of consumers carries the ν count
     // all the way down.
-    // `around(group)` keeps the other completed cycles and the fixed definitions and re-derives the
-    // rest, the group's own nodes from the empty type.
-    val around = (group: Set[K]) => iterate(eqs, cyclic, _: S, completed -- group ++ fixed)
+    // `around(group)` keeps the other completed cycles and re-derives the rest, the group's own
+    // nodes from the empty type.
+    val around = (group: Set[K]) => iterate(eqs, cyclic, _: S, completed -- group)
     val settled =
       if (groups.isEmpty) mu
       else around(Set.empty)(greatestFixpoint(readable, groups, mu, read, around))
@@ -211,9 +204,8 @@ private[cardinality] object Fixpoint {
   //
   // Each completed cycle combines its finite value with the infinite contribution, then collapses
   // an infinite total to its highest tier. Finite totals stay unchanged. Each round a cycle's
-  // finite value and label space are re-derived (`around`: the other completed cycles and the
-  // fixed definitions keep their values, everything else is re-derived from the empty type) rather
-  // than accumulated —
+  // finite value and label space are re-derived (`around`: the other completed cycles keep their
+  // values, everything else is re-derived from the empty type) rather than accumulated —
   // adding a contribution per round would count solver rounds as coefficients. A cycle may
   // consume another cycle's ν, even through a sum's arm or a definition outside both (`Pt = Pa +
   // Pb` with `Pb` an endless stream: μ 0, ν ω), so the environment is refined until stable,
@@ -370,30 +362,6 @@ private[cardinality] object Fixpoint {
         s * (if (group(edge.target) && !manyHoles) edge.domain(in) else edge.size(in))
       }
     }
-    // Whether an arm has two holes or more: its continuations into the cycle (a function field
-    // over two inputs or more being several) and its fields' degree in the cycle. The degree is
-    // read from how the fields' width grows with the cycle's at two widths far above its constants:
-    // by that width once per hole (`(Int, () => X)`: one; `Option[() => X]`: one; `(() => X, () =>
-    // X)`: two), and past the finite tier for an exponent (`String => X`).
-    def manyHoles(arm: Arm[K, S]): Boolean = {
-      val edges = arm.continuations
-        .filter(c => group(c.target))
-        .map { edge =>
-          if (edge.kind == Continuation.Kind.FunctionField && edge.domain(one).larger(UnitSize)) 2
-          else 1
-        }
-        .sum
-      def width(bits: BigInt) = arm.rest(at(_ => FiniteSize(bits)))
-      // Wider than every constant of the fields (each at most their width at one: a sum rounds to
-      // its widest summand, `Either[Long => Boolean, X]`), so the holes' growth shows.
-      val wide = (BigInt(1) << 40).max(arm.rest(one).finite.bits * 4)
-      val (narrow, broad) = (width(wide), width(wide * 2))
-      val degree =
-        if (!(arm.names ++ arm.deferred).exists(group)) BigInt(0)
-        else if (narrow.hasInfinite || broad.hasInfinite) BigInt(2)
-        else ((broad.finite.bits - narrow.finite.bits) * 2 + wide) / (wide * 2) // rounded
-      degree + edges >= 2
-    }
     def lap(held: S): Size =
       group.toList
         .map { name =>
@@ -403,7 +371,7 @@ private[cardinality] object Fixpoint {
               ctx
                 .arms(name)
                 .filter(arm => (lazyTargets(arm) ++ arm.names).exists(group))
-                .map(arm => label(held, manyHoles(arm), arm))
+                .map(arm => label(held, manyHoles(arm, group, at, one), arm))
                 .foldLeft(NothingSize: Size)(_ + _)
           }
         }
@@ -416,6 +384,37 @@ private[cardinality] object Fixpoint {
       if (next == infinite || rounds <= 0) next else settle(next, rounds - 1)
     }
     settle(NothingSize, 4)
+  }
+
+  // Whether an arm of the cycle `group` (read by `at`, `one` at every node one value) has two
+  // holes or more: its continuations into the cycle (a function field over two inputs or more
+  // being several) and its fields' degree in the cycle. The degree is read from how the fields'
+  // width grows with the cycle's at two widths far above its constants: by that width once per
+  // hole (`(Int, () => X)`: one; `Option[() => X]`: one; `(() => X, () => X)`: two), and past the
+  // finite tier for an exponent (`String => X`).
+  private def manyHoles[K, S](
+      arm: Arm[K, S],
+      group: Set[K],
+      at: (K => Size) => S,
+      one: S
+  ): Boolean = {
+    val edges = arm.continuations
+      .filter(c => group(c.target))
+      .map { edge =>
+        if (edge.kind == Continuation.Kind.FunctionField && edge.domain(one).larger(UnitSize)) 2
+        else 1
+      }
+      .sum
+    def width(bits: BigInt) = arm.rest(at(_ => FiniteSize(bits)))
+    // Wider than every constant of the fields (each at most their width at one: a sum rounds to
+    // its widest summand, `Either[Long => Boolean, X]`), so the holes' growth shows.
+    val wide = (BigInt(1) << 40).max(arm.rest(one).finite.bits * 4)
+    val (narrow, broad) = (width(wide), width(wide * 2))
+    val degree =
+      if (!(arm.names ++ arm.deferred).exists(group)) BigInt(0)
+      else if (narrow.hasInfinite || broad.hasInfinite) BigInt(2)
+      else ((broad.finite.bits - narrow.finite.bits) * 2 + wide) / (wide * 2) // rounded
+    degree + edges >= 2
   }
 
 }

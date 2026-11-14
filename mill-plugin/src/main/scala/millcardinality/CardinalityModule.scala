@@ -1,5 +1,6 @@
 package millcardinality
 
+import cardinality.loader.Calculator.Classes
 import cardinality.loader.{Calculator, Skill}
 import mainargs.Leftover
 import mill.*
@@ -43,8 +44,7 @@ trait CardinalityModule extends ScalaModule {
       cardinalityCalculatorJars(),
       allSourceFiles().map(_.path.toNIO),
       Nil,
-      Classes(ownClasses(), dependencyJars()),
-      "source(s) could not be read"
+      Classes(ownClasses(), dependencyJars())
     )
   }
 
@@ -57,8 +57,7 @@ trait CardinalityModule extends ScalaModule {
       cardinalityCalculatorJars(),
       paths.value.map(os.Path(_, mill.api.BuildCtx.workspaceRoot).toNIO),
       Nil,
-      Classes(Some(Nil), dependencyJars()),
-      "source(s) could not be read"
+      Classes(Some(Nil), dependencyJars())
     )
   }
 
@@ -69,8 +68,7 @@ trait CardinalityModule extends ScalaModule {
       cardinalityCalculatorJars(),
       allSourceFiles().map(_.path.toNIO),
       names.value,
-      Classes(ownClasses(), dependencyJars()),
-      "selected report error(s)"
+      Classes(ownClasses(), dependencyJars())
     )
   }
 
@@ -104,13 +102,6 @@ trait CardinalityModule extends ScalaModule {
 
   private def calculator(jars: Seq[PathRef]): Calculator = Calculator.of(jars.map(_.path.toNIO))
 
-  // The classes a report reads: the sources' compiled output (`None`: every source is refused) and
-  // the dependency classpath its types refer to.
-  final private case class Classes(
-      output: Option[Seq[java.nio.file.Path]],
-      classpath: Seq[java.nio.file.Path]
-  )
-
   // Writes the report to the command's `Task.dest` and fails the command when it holds errors: a
   // report over sources the calculator could not read is incomplete, and failing quietly would
   // present the numbers it did find as the whole story.
@@ -118,12 +109,11 @@ trait CardinalityModule extends ScalaModule {
       jars: Seq[PathRef],
       sources: Seq[java.nio.file.Path],
       names: Seq[String],
-      classes: Classes,
-      what: String
+      classes: Classes
   )(using mill.api.TaskCtx): Result[PathRef] = {
     val output = Task.dest / "report.txt"
-    val errors =
-      calculator(jars).report(sources, names, classes.output, classes.classpath, output.toNIO)
+    val errors = calculator(jars).report(sources, names, classes, output.toNIO)
+    val what = if (names.isEmpty) "source(s) could not be read" else "selected report error(s)"
     Task.log.info(os.read(output))
     Task.log.info(s"report written to $output")
     if (errors > 0) Result.Failure(s"$errors $what") else Result.Success(PathRef(output))

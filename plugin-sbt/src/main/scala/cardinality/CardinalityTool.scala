@@ -71,8 +71,7 @@ private[cardinality] object CardinalityTool {
       val errors = calculator.report(
         nio(sources),
         names,
-        classes.output.map(nio),
-        nio(classes.classpath),
+        Calculator.Classes(classes.output.map(nio), nio(classes.classpath)),
         output.toPath
       )
       log.info(IO.read(output))

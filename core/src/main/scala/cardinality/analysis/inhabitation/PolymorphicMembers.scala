@@ -48,24 +48,27 @@ private[cardinality] object PolymorphicMembers {
   def close(member: String, parameters: List[Declared], shape: Shape): Either[String, Shape] = {
     val binders = parameters.map(p => p -> Binder(member, p.name))
     val occurring = binders.filter((_, binder) => occurs(shape, binder))
-    val applied = binders
-      .collectFirst { case (p, b) if appliesResult(shape, b) => (p, "the result") }
-      .orElse(binders.collectFirst { case (p, b) if constructs(shape, b.id) => (p, "a parameter") })
     val evidence = parameters.find(_.view)
     val twoSided = parameters.find(p => p.lower && p.upper)
     val bounded = occurring.collectFirst { case (p, _) if p.lower || p.upper => p }
-    evidence.orElse(twoSided).orElse(bounded) match {
-      case Some(p) => Left(s"polymorphic capability binder: ${p.name} (bounded)")
-      case None    =>
-        applied match {
-          case Some((p, where)) =>
-            Left(s"polymorphic capability binder: ${p.name} ($where instantiates the binder)")
-          case None =>
-            val kept = occurring.map(_._2)
-            Right(if (kept.isEmpty) shape else yoneda(kept, shape).getOrElse(Poly(kept, shape)))
-        }
+    (evidence.orElse(twoSided).orElse(bounded), instantiating(shape, binders)) match {
+      case (Some(p), _)             => Left(s"polymorphic capability binder: ${p.name} (bounded)")
+      case (None, Some((p, where))) =>
+        Left(s"polymorphic capability binder: ${p.name} ($where instantiates the binder)")
+      case (None, None) =>
+        val kept = occurring.map(_._2)
+        Right(if (kept.isEmpty) shape else yoneda(kept, shape).getOrElse(Poly(kept, shape)))
     }
   }
+
+  // The first binder a caller instantiates, and where: the result first, then a parameter.
+  private def instantiating(
+      shape: Shape,
+      binders: List[(Declared, Binder)]
+  ): Option[(Declared, String)] =
+    binders
+      .collectFirst { case (p, b) if appliesResult(shape, b) => (p, "the result") }
+      .orElse(binders.collectFirst { case (p, b) if constructs(shape, b.id) => (p, "a parameter") })
 
   /** Whether the callable's result applies the binder's rigid constructor: a caller instantiates
     * the binder there, and the solver's terms from such a member never search the instantiation
