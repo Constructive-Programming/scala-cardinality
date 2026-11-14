@@ -31,7 +31,7 @@ private[cardinality] object ImportBinding {
   /** What one importer binds: named and renamed selectors their members, a wildcard every member,
     * and a `given` selector the prefix's given instances — terms, under their own names, whatever
     * type `import p.{given T}` selects by (Scala 3.9.0 binds `compose` through `import zzz.given`
-    * over another file's package `compose`: probes/review-A7/r11).
+    * over another file's package `compose`: session fixture review-A7/r11).
     */
   def of(importer: Importer, path: List[String]): ImportBinding = {
     val named = importer.importees.collect {

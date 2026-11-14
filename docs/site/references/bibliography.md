@@ -22,8 +22,9 @@ recorded per claim in the [evidence register](https://github.com/Constructive-Pr
 - Paweł Urzyczyn, [Inhabitation in typed lambda-calculi (a syntactic approach)](https://doi.org/10.1007/3-540-62688-3_47)
   (TLCA 1997) — inhabitation is undecidable for the second-order λ-calculus: why a
   polymorphic count above one needs an exact reduction, never a guess.
-- José Espírito Santo, Ralph Matthes & Luís Pinto, [Coinductive proof search for polarized logic](https://doi.org/10.4230/LIPIcs.TYPES.2020.4)
-  (TYPES 2020) — proof search shaped by polarity; the search the solver approximates.
+- José Espírito Santo, Ralph Matthes & Luís Pinto, [Coinductive proof search for polarized logic with applications to full intuitionistic propositional logic](https://doi.org/10.4230/LIPIcs.TYPES.2020.4)
+  (TYPES 2020, LIPIcs 188, 2021) — proof search shaped by polarity; the search the solver
+  approximates.
 - Jonas Duregård, Patrik Jansson & Meng Wang, [Feat: functional enumeration of algebraic types](https://doi.org/10.1145/2364506.2364515)
   (Haskell Symposium 2012) — enumerating the inhabitants a count reports.
 - Chris Taylor, [The Algebra of Algebraic Data Types](https://web.archive.org/web/20140222124650/chris-taylor.github.io/blog/2013/02/10/the-algebra-of-algebraic-data-types)
@@ -38,7 +39,8 @@ recorded per claim in the [evidence register](https://github.com/Constructive-Pr
   (Semantics of Data Types, LNCS 173, 1984) — why a polymorphic type cannot be read as a
   set intersection.
 - Andrew M. Pitts, [Polymorphism is set theoretic, constructively](https://doi.org/10.1007/3-540-18508-9_18)
-  (TACS 1991, LNCS 526) — the constructive reading that restores it.
+  (Category Theory and Computer Science, LNCS 283, 1987) — the constructive reading that
+  restores it.
 - Philip Wadler, [Theorems for free!](https://doi.org/10.1145/99370.99404) (FPCA 1989) —
   the free theorems behind `∀a. (a, a) => a` counting `2`.
 - Robert Atkey, [Relational Parametricity for Higher Kinds](https://doi.org/10.4230/LIPIcs.CSL.2012.46)
@@ -64,8 +66,9 @@ recorded per claim in the [evidence register](https://github.com/Constructive-Pr
   (OOPSLA/Onward! 2009) — abstract data types and objects as two distinct forms of data
   abstraction.
 - William R. Cook & Jens Palsberg, [A Denotational Semantics of Inheritance and its Correctness](http://web.cs.ucla.edu/~palsberg/paper/ic94.pdf)
-  (DAIMI PB 284, 1989; Information and Computation, 1994) — self-reference as a fixed
-  point: why an overridable member stays open.
+  (OOPSLA 1989, [DOI](https://doi.org/10.1145/74877.74922); DAIMI PB 284, 1989; Information
+  and Computation, 1994) — self-reference as a fixed point: why an overridable member stays
+  open.
 
 ## Definability and foundations
 
@@ -92,9 +95,9 @@ recorded per claim in the [evidence register](https://github.com/Constructive-Pr
   (PACMPL 2, POPL 2018) — the contextual argument rules the model reads.
 - Lionel Parreaux, Aleksander Boruch-Gruszecki & Paolo G. Giarrusso, [Towards improved GADT reasoning in Scala](https://doi.org/10.1145/3337932.3338813)
   (Scala 2019) — GADT constraints as equations over type variables.
-- Fen Hu & Ondřej Lhoták, [Undecidability of D<: and its decidable fragments](https://doi.org/10.1145/3371077)
+- Jason Z. S. Hu & Ondřej Lhoták, [Undecidability of D<: and its decidable fragments](https://doi.org/10.1145/3371077)
   (POPL 2020) — the subtyping the resolver walks, and where it becomes undecidable.
-- David Blanvillain, Philipp Brachthäuser, Martin Kjaer & Martin Odersky, [Type-Level Programming with Match Types](https://doi.org/10.1145/3498698)
+- Olivier Blanvillain, Jonathan Immanuel Brachthäuser, Maxime Kjaer & Martin Odersky, [Type-Level Programming with Match Types](https://doi.org/10.1145/3498698)
   (POPL 2022) — match types, which the model keeps stuck until instantiation.
 - Scala Improvement Process SIP-58, named tuples (2024) — the product reading of named
   tuples.
@@ -119,6 +122,9 @@ recorded per claim in the [evidence register](https://github.com/Constructive-Pr
   — one entry per decision, with its sources and how far each was verified.
 - [Russell citation inventory](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/russell-citation-inventory.md)
   — 376 database-reported citing works, with per-record verification levels.
+- [Verification record](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/research/bibliography.md)
+  — every source the register and the research notes cite, with its full reference, its
+  verification level and the corrections the metadata pass made.
 - [v1 plan](https://github.com/Constructive-Programming/scala-cardinality/blob/main/docs/plans/v1.md)
   — the counting contract, the eo baseline and the remaining work.
 - [Research notes](https://github.com/Constructive-Programming/scala-cardinality/tree/main/docs/research)

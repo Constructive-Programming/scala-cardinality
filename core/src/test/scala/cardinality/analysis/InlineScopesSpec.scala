@@ -9,7 +9,8 @@ import org.specs2.matcher.MatchResult
 /** What an inline body reaches besides its own calls: the definitions written inside it, the
   * templates `this` names there, the clauses an application applies to a callee's result, the
   * classes an expansion reifies, and conversions behind aliases (register D27). Every fixture is
-  * valid Scala 3.9.0 (probes/a6-fix2, run: the printed values are the ones the comments quote).
+  * valid Scala 3.9.0 (session fixture a6-fix2, run: the printed values are the ones the comments
+  * quote).
   */
 class InlineScopesSpec extends Specification with InventoryFixtures {
   import Inhabitation.Count
@@ -283,8 +284,8 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
   // `forgetful.*` is in doubt (its `forgetful` may be `zzz.forgetful`), so the given's type name is
   // not read; the declaration it would otherwise be is: a plain trait leaves `U.f` its number (4),
   // one extending `Conversion` makes the inline-apply given a conversion every body may meet
-  // (probes/a7fix1/conv, valid Scala 3.9.0). The alternative, a type outside the sources, is not
-  // read as a conversion (D27's boundary). U.scala itself imports nothing.
+  // (session fixture a7fix1/conv, valid Scala 3.9.0). The alternative, a type outside the sources,
+  // is not read as a conversion (D27's boundary). U.scala itself imports nothing.
   def doubtedConversions = {
     val use =
       "p/U.scala" -> "package p\nobject U {\n  enum B { case T, F }\n  def id(b: B): B = b\n  inline def f(x: B): B = id(x)\n}"
@@ -306,7 +307,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
 
   // `scala.quoted.*` declares the terms `Varargs` and `quotes` and no term `ExprMap` (a trait
   // alone): it binds `Varargs` over another file's object of the name, and leaves `ExprMap` the
-  // package's (probes/a7fix1/listed, valid Scala 3.9.0).
+  // package's (session fixture a7fix1/listed, valid Scala 3.9.0).
   def listedTerms = {
     val found = counts(
       "p/defs.scala" ->

@@ -113,8 +113,8 @@ class EnvironmentCompletenessSpec extends Specification with InventoryFixtures {
       "f"
     ) === Count.Finite(4)
 
-  // Cross-check X5 (fixture xprobe/ow): `FBox` is final, so `other` is its own concrete code, which
-  // computes `b` from what `target` already has: a or b (2).
+  // Cross-check X5 (session fixture `ow`): `FBox` is final, so `other` is its own concrete code,
+  // which computes `b` from what `target` already has: a or b (2).
   def finalMembers =
     count(
       "final class FBox[A](a: A, b: A) { def other: A = b; def target: A = a }",

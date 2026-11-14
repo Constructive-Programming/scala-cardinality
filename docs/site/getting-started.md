@@ -24,18 +24,23 @@ introduce — nested definitions included — and logs a report. The same report
 it, or post it as an artifact.
 
 ```
-scala-cardinality — 1 source, 10 definitions
-  stored-value estimates: constructor inputs only; finite capacities are upper bounds
-  ?: unresolved, not a proof of infinity
-  2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
+scala-cardinality — 2 sources, 11 definitions
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
+  ?: no single number here — the reason after the row says what would give one
+  1 instantiation-dependent · 8 with more than one value · 2 with one value
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
-?  example.Holder[A]  class     Light.scala:11  unresolved: A
-ω  example.Succ       class     Light.scala:17
-ω  example.Timeline   class     Light.scala:19
-2  example.Custom     class     Light.scala:5
-1  example.Zero       object    Light.scala:16
-—  example.Light      abstract  Light.scala:3
+?   example.Holder[A]  class     Light.scala:11  depends on its instantiation (A)
+ε₀  example.Reducer    class     Light.scala:20
+ω   example.Cursor     class     Light.scala:16
+ω   example.Nat        abstract  Natural.scala:5
+ω   example.Succ       class     Natural.scala:7
+ω   example.Timeline   class     Light.scala:18
+3   example.Light      abstract  Light.scala:3
+2   example.Custom     class     Light.scala:5
+2   example.Mode       enum      Light.scala:7
+1   example.Red        object    Light.scala:4
+1   example.Zero       object    Natural.scala:6
 ```
 
 `cardinalityReportSelected` analyzes named signatures only:

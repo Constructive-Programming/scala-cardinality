@@ -4,7 +4,7 @@ import scala.meta.*
 
 import cardinality.analysis.model.Throws
 
-// Whether an instance of a template is ever built (registers D26 and D30; CROSSCHECK X6). A class
+// Whether an instance of a template is ever built (registers D26 and D30; cross-check X6). A class
 // row counts what a constructor stores; a value row asks whether a value exists, and building one
 // runs the primary constructor of the template and of every ancestor: the arguments of its
 // `extends` clause, the defaults its parents fall back to, and the strict members and statements of

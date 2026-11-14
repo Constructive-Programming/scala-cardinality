@@ -233,7 +233,7 @@ private[cardinality] object SingletonIntersections {
   // name resolves to nothing the sources hold and no channel may rebind it — a wildcard over a
   // namespace no source supplies may (Scala 3.9.0 reads `O.type & Singleton` as `Nothing` under a
   // `zzz` declaring `type Singleton = Nothing`), and `quotes.reflect.*` does: reflect's own
-  // `Singleton` (probes/review-A7q).
+  // `Singleton` (session fixture review-A7q).
   private def marker(written: WrittenType): Boolean =
     written.tpe.syntax match {
       case spelled @ ("scala.Singleton" | "Singleton") =>

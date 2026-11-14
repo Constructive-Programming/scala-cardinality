@@ -1,6 +1,6 @@
 # Code without side effects: vars, throws and throwables
 
-The counting contract ([v1 §2](../plans/v1.md#_2-agreed-counting-contract)) excludes effects,
+The counting contract ([v1 §2](../plans/v1.md#2-agreed-counting-contract)) excludes effects,
 mutation-dependent behavior and exceptions. The owner's directive makes the consequence explicit:
 the analysis assumes the measured code has **no side effects**. A `var` is read as a `val`, throwing
 is ignored, and other effects are excluded like the universal members. This page says how each
@@ -216,8 +216,8 @@ reason `open to implementations (Throwable)`. It never claims a finite size.
 - \[30\] Scala 3 draft specification, ch. 5, *Classes and Objects* (**Inspected (full text) —
   bibliographer**): a `val` or `var` class parameter adds an accessor, and a `var` adds a setter
   `x_=`; "A stable member can only be overridden by a stable member".
-- **Compiler fixtures** (Scala 3.9.0, `$S/probes/c4/fixtures`, `$S/probes/c4-fix1`,
-  `$S/probes/c4-fix2`, `$S/probes/review-C4/r2`):
+- **Compiler fixtures** (Scala 3.9.0, session fixtures `c4/fixtures`, `c4-fix1`,
+  `c4-fix2`, `review-C4/r2`):
   - `throw`, `???`, `sys.error` and a block ending in a throw each conform to `Int`, `String`,
     `Boolean` and `Unit`, so each is `Nothing`;
   - `if (c) 1 else throw …` conforms to `Int`;

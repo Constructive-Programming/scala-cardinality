@@ -319,7 +319,7 @@ companion of an expected type or of a qualifier's type — is no channel this re
 by-name conversion or extension declared there is not assumed absent but missed: with `final def
 g(w: ext.W)`, `def m = g(target(true))` and `object W { implicit def lift(b: => Boolean): W }`, m
 never runs target (scalac 3.9.0 run), yet m is read as a definite view (`T.target` reads 4, true
-16; fixture `probes/b3land/fc`). Closing it needs the expected type of every typed position and the
+16; session fixture `b3land/fc`). Closing it needs the expected type of every typed position and the
 type of every selection's qualifier, and a stated assumption for the stdlib's companions. A member
 whose parameter type is unreadable and whose result is not Unit fails the environment eagerly
 (capabilities.md C7 in full needs a solver marker for an unread parameter).
@@ -339,8 +339,8 @@ whose parameter type is unreadable and whose result is not Unit fails the enviro
   & Turner 1994 and Bruce, Cardelli & Pierce 1999 (**metadata-verified**, background only): object
   encodings. The record reading and the view rule are this register's derivations from these and
   from the model's exclusions.
-- Compiler fixtures (Scala 3.9.0, `probes/b3/spec`, `probes/b3fix1/spec`, `probes/b3fix1r/spec`,
-  `probes/b3fix2/spec`): every `CapabilitySpec` and `TargetViewsSpec` fixture compiles; a diamond
+- Compiler fixtures (Scala 3.9.0, session fixtures `b3/spec`, `b3fix1/spec`, `b3fix1r/spec`,
+  `b3fix2/spec`): every `CapabilitySpec` and `TargetViewsSpec` fixture compiles; a diamond
   `R extends C with B` reads B's final `m` (run); an extension with a by-name receiver, a by-name
   `==` overload, a by-name conversion, a context-function parameter and `summon` of a given that is
   `this` behave as the view rules say (runs, review round 2); an implementation leaving an
@@ -349,7 +349,7 @@ whose parameter type is unreadable and whose result is not Unit fails the enviro
   warning and the override is what the parent's code reads (run fixture); a by-name left operand of
   a right-associative operator is not evaluated (run fixture); a class in another file of the
   package extends a template with a `private[p]` constructor, and a public subclass of a class with
-  a private constructor. At landing (`probes/b3land/fix`, `probes/b3land/fc`, runs): a by-name
+  a private constructor. At landing (session fixtures `b3land/fix`, `b3land/fc`, runs): a by-name
   extension imported by the file, the template or a block, or exported by the template, never runs
   its receiver; nor does a by-name conversion in the companion of a parameter's type outside the
   sources (the open gap above).

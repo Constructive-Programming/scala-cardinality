@@ -7,11 +7,12 @@ import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// Target views (design/capabilities.md C6): which overridable members re-enter the measured
-// declaration. Every fixture is valid Scala 3.9.0 (compiled with scalac: probes/b3fix1/spec,
-// probes/b3fix2/spec). Each count is derived in the comment above its check; a `?` is a possible
-// view, never a number. They are read in the open world (`MethodAnalysis.analyzeOpen`), where each
-// overridable member is open as one a supplied template overrides is in the closed world.
+// Target views (capabilities design, C6): which overridable members re-enter the measured
+// declaration. Every fixture is valid Scala 3.9.0 (compiled with scalac; session fixtures
+// b3fix1/spec, b3fix2/spec). Each count is derived in the comment above its check; a `?` is a
+// possible view, never a number. They are read in the open world (`MethodAnalysis.analyzeOpen`),
+// where each overridable member is open as one a supplied template overrides is in the closed
+// world.
 class TargetViewsSpec extends Specification {
   import Inhabitation.Count
 
@@ -375,9 +376,9 @@ class TargetViewsSpec extends Specification {
     }""")("T.target") === Count.Finite(16)
 
   // `foo`, `bar` and `baz` are imported (in the file, in the template) or exported from the
-  // unsupplied `ext`: each may be an extension whose receiver is by name (fixture
-  // probes/b3land/fix: m returns true and never runs target), so m is a possible view — refused,
-  // never 4 (the true count is 2^8: every Boolean function of b, m(true) and m(false)).
+  // unsupplied `ext`: each may be an extension whose receiver is by name (session fixture
+  // b3land/fix: m returns true and never runs target), so m is a possible view — refused, never 4
+  // (the true count is 2^8: every Boolean function of b, m(true) and m(false)).
   def importedExtension = {
     val found = one("""
       import ext.Syntax.foo

@@ -1,6 +1,6 @@
 # Evidence register: defending the counting decisions
 
-**Purpose.** This is the body of material behind the [v1 counting contract](../plans/v1.md#_2-agreed-counting-contract):
+**Purpose.** This is the body of material behind the [v1 counting contract](../plans/v1.md#2-agreed-counting-contract):
 for each decision the analyzer makes — and will keep making as it audits codebases — the sources
 that justify it, how far each source was verified, and the boundary beyond which it must not be
 stretched. When a review questions a number, this is the register to answer from.
@@ -8,11 +8,26 @@ stretched. When a review questions a number, this is the register to answer from
 **Verification levels.** Every source states one:
 
 - **Executable** — a runnable artifact in this repository (a spec, the analyzer itself).
-- **Inspected** — the text (abstract, page, or PDF) was read in the session cited.
-- **Bibliography-verified** — the item's reference list was inspected (via Crossref), but the full
-  text was not.
-- **Metadata-verified** — publication metadata was confirmed via Crossref; content not read.
+- **Inspected** — the text (abstract, page, or PDF) was read in the session cited. "(full text)"
+  marks a whole text read; "(extraction)" a tool's extraction of the page; "abstract inspected"
+  only the abstract.
+- **Bibliography-verified** — the item was confirmed through an inspected reference list (via
+  Crossref for the earliest entries), but its full text was not read.
+- **Metadata-verified** — publication metadata was confirmed (via Crossref, or through search
+  results from authoritative pages); the content was not read. Where an entry says "the abstract
+  reports", that is the abstract as the search rendered it, never a text read.
 - **Classical** — a foundational result stated as such, not re-verified this session.
+- **Compiler fixture** — a Scala 3.9.0 compilation (or run, where marked) of a fixture written for
+  this repository, in the session cited; it pins the compiler's behaviour, not the specification.
+  Fixtures not retained in the repository are named "session fixture" with their label.
+- **Tool output** — a named tool's output (e.g. `javap`) on a named artifact.
+
+"— bibliographer" and "(verifier)" after a level name who inspected the text: the research
+workflow's bibliographer step or its verifier step. Numbers in brackets (`[28]`), the clusters
+(`T1`–`T5` and kin) and `C-n` point into the [bibliography record](bibliography.md), which lists
+every source with its full reference and level; the site's
+[bibliography](../site/references/bibliography.md) is the public, curated list. The cross-check
+items an entry answers are listed in the [appendix](#appendix-cross-check-items).
 
 No entry below claims more than its level. The [Russell citation inventory](russell-citation-inventory.md)
 records the database-reported line of descent in full.
@@ -20,7 +35,7 @@ records the database-reported line of descent in full.
 ## D1. Fix the collection before counting
 
 **Decision.** A count is only meaningful once the language, the accessible environment, the
-equivalence, and the model assumptions are fixed ([plan §2](../plans/v1.md#_2-agreed-counting-contract)).
+equivalence, and the model assumptions are fixed ([plan §2](../plans/v1.md#2-agreed-counting-contract)).
 A free type parameter is one atom per binder, never "a type of unknown finite size"; binder
 identity is per declaration.
 
@@ -79,7 +94,9 @@ uncountable implementation count. Stored-value estimates are kept in a separate 
 
 **Boundary.** Countability does not mean effective enumerability with decidable equality or
 totality (D7). Reynolds and Pitts argue about specific idealized calculi, not Scala; they
-justify our *shape* of answer, not any particular number we emit.
+justify our *shape* of answer, not any particular number we emit. A constructor row that reads a
+value space may print `ε₀` or a tier sum: that is a value-space count under the owner's
+convention, not an implementation count ([plan §2, output meanings](../plans/v1.md#assumptions-and-output-meanings)).
 
 ## D3. Parametricity constrains generic implementations
 
@@ -104,12 +121,29 @@ count. Concrete types mention concrete sizes.
   ([archived](https://web.archive.org/web/20181221193229/https://alexknvl.com/posts/counting-type-inhabitants.html))
   — **executable**: the worked examples our `ReferenceInhabitantsSpec` encodes, including
   `∀a. (a,a) -> (a,a) ~ 4` — the pair-construction count on the type level.
+- Scala 3 reference, *The Matchable Trait* ([19], **Inspected (full text) — bibliographer**): the
+  members of `Any` are `getClass`, `isInstanceOf`, `asInstanceOf`, `==`, `!=`, `##`, `equals`,
+  `hashCode` and `toString`; "No unbounded type parameter or abstract type should be decomposable
+  with a pattern match"; universal equality "is unsafe in the presence of abstract types and opaque
+  types". The language's own direction treats universal members and type tests on abstract types
+  as abstraction-breaking, the boundary this entry draws when it excludes them.
+- Scala 3 reference, *Macros*, *Compile-time operations*, *Inline* ([17], **Inspected (full
+  text)** (verifier)), *TypeTest* ([25]) and `scala.reflect.ClassTag` ([11]): a quote on an
+  abstract `T` needs a `Type[T]`, `summonFrom` and an inline match dispatch on `T`, a `ClassTag[T]`
+  "can serve as an extractor that matches only objects of type `T`", a `TypeTest` makes a test on an
+  abstract type possible. Each is evidence through which a result can depend on `T`, so a signature
+  carrying one reads `?` (D23), never a parametric count.
+- Related work, **metadata-verified**: Johann & Voigtländer 2004 (POPL; the abstract reports that
+  with `seq` parametricity holds only for restricted relations — an analogy for Scala's universal
+  members).
 
 **Boundary.** Free theorems hold for *ideally parametric* languages. Scala has `asInstanceOf`,
 reflection, and side effects; our model excludes them explicitly, and a signature whose result
 depends on such features must read `?`, not a parametric count. Laws (functor, optic) are
 *additional* constraints on top of parametricity, never consequences of it — counting
-law-abiding implementations is a separate, unsolved mode ([plan §8](../plans/v1.md#_8-boundaries-and-decisions-still-open)).
+law-abiding implementations is a separate, unsolved mode ([plan §8](../plans/v1.md#8-boundaries-and-decisions-still-open)).
+The Matchable warning is opt-in (`-source future-migration` or higher): Scala itself still lets a
+body call universal members on a type parameter, so the exclusion is the model's.
 
 ## D4. Recursion requires productivity
 
@@ -131,10 +165,22 @@ equations are read as least fixed points. A declaration may not supply its own i
   be defined in terms of itself. Our analogue is narrow and practical — the signature being
   measured is excluded from its own supplied slots — but it is the same discipline: circular
   "definitions" do not create inhabitants.
+- The finiteness test for context-free languages (C-8, **classical**, the Hopcroft–Ullman textbook
+  result): after removing non-generating and unreachable symbols and ε/unit productions, a language
+  is infinite iff some nonterminal derives itself with non-empty context (`A ⇒* uAv`, `uv ≠ ε`).
+  It is the template for the solver's ω test: the cycle must be **reachable** from the root,
+  **productive** (it bottoms out in a seed) and **non-trivial** (the contract's "a known identity is
+  not an unconstrained producer").
+- Absurd elimination (C-5, **classical**; Knvl 2018, **executable**: `0 -> a ~ 1`): `Γ × 0 ≅ 0`, so
+  a context holding an uninhabited value has exactly one map to any goal, and "more producers ⇒ at
+  least as many inhabitants" holds only for environments proven not absurd (D25).
 
 **Boundary.** Least-fixed-point semantics justifies *reading* a recursive type; it does not
 justify assuming a program terminates. Divergence is excluded by model assumption, not proven
-away, and any recursive signature our fragment cannot decide stays `?`.
+away, and any recursive signature our fragment cannot decide stays `?`. The grammar test is an
+analogy for the *shape* of the cycle condition, not a theorem about proof terms; memoising a goal
+by its type alone is sound for finite versus infinite, but exact finite counts keep the
+multiplicity of same-typed hypotheses (Knvl: `∀a. (a, a) -> a ~ 2`).
 
 ## D5. Cardinality is not order type
 
@@ -164,7 +210,7 @@ opt-in mode, never mixed into exact or unresolved rows.
   **inspected** (PDF read this session): the estimator's error characterizes uncertainty about
   *the elements supplied to the sketch*, not about inhabitants the generator or workload failed
   to produce. Even Ertl's improved joint estimator for overlapping sets operates on recorded
-  elements. Recorded in [plan §10](../plans/v1.md#_10-future-exploration-hyperloglog-measurement)
+  elements. Recorded in [plan §10](../plans/v1.md#10-future-exploration-hyperloglog-measurement)
   as deferred exploration.
 
 **Boundary.** A sketch estimate is evidence about a sample, never about the full inhabitant
@@ -201,6 +247,10 @@ budget's name, rather than returning a partial count.
 - **Executable**: `InhabitationSpec` pins the budget behaviors, and `ReferenceInhabitantsSpec`
   pins the algebra they guard. The design is the report's honesty rule applied to computation
   itself: an incomplete computation is an incomplete answer.
+- Why budgets are needed at all: Urzyczyn 1997 (TLCA; **metadata-verified**: the abstract reports
+  that inhabitation is PSPACE-complete for the simply typed λ-calculus and undecidable for System F
+  and beyond — C-7). Statman 1979 (TCS 9(1), **metadata-verified**, background) is the classical
+  PSPACE-completeness record for intuitionistic propositional logic.
 
 **Boundary.** A budget hit is an obligation to raise the limit or restructure, not evidence
 about the signature.
@@ -215,18 +265,20 @@ space. Counts above 65,536 bits are exact symbolic naturals (`Count.Symbolic`).
 
 **Evidence.**
 
-- Knvl 2018 (D3, the [solver's reference](../counting-type-inhabitants.md)) — **executable** as
+- Knvl 2018 (D3, the [solver's reference](../site/arithmetic/counting-methods.md)) — **executable** as
   far as `ReferenceInhabitantsSpec` encodes it; its `Int ~ 2^32` and `a -> b ~ |b| ^ |a|` are what
   the split reproduces for closed signatures (`def f(x: Int): Int` = `2^(2^37)`).
-- [type-arithmetic.md](../type-arithmetic.md) §2–3 — the repository's own fixed-width sizes and
+- [counting data](../site/arithmetic/counting-data.md) §2–3 — the repository's own fixed-width sizes and
   extensional function spaces; the stored-value side reads `Int => Int` as the same `2^37`-bit
   capacity.
 - Decision-tree definability of every function on a finite domain from literals and equality
   (**classical**), and D2 for the countable `String`: `c^ω` is 0, 1 or ω under the finite-program
   reading, never `2^ℵ₀`.
-- JLS §4.2 for the integral and `char` value sets, and the JDK's `Float.equals` /
-  `floatToIntBits` for one NaN class and two zeros — **classical**, recalled, not re-inspected
-  (docs.oracle.com is outside this session's network allow-list).
+- OpenJDK jdk21u `Double.java` / `Float.java` ([5], [6], **Inspected (full text) —
+  bibliographer**; not pinned to the JDK that runs the analyzer): one NaN class under `equals`, two
+  zeros; `Math.copySign` ([7]) may observe a NaN's sign, hence the exclusion.
+- JLS §4.2 for the integral and `char` value sets — **classical**, recalled (the JLS source is not
+  published where this work could read it; the Java SE 21 edition record is metadata-verified).
 - Scala 3.9.0 compiler fixtures (**compiler fixture**): an object or final class must implement
   every inherited abstract member, a class has one member per name and signature (two abstract
   parents' `def g(x: Int): X` are one member), and a member type reached through a parent, a self
@@ -249,7 +301,9 @@ constructor positions resting on it included. `String`'s ω is an idealization (
 
 **Decision.** A value joins a signature's environment only when the body can reach it the way
 Scala binds it: by name, as an inherited member under the substitution its `extends` chain gives,
-or — for an anonymous contextual parameter — through an implicit search that provably selects it.
+or — for an anonymous contextual parameter — through an implicit search that provably selects it
+(a model assumption, [v1 §2](../plans/v1.md#assumptions-and-output-meanings): bodies never spell
+compiler-synthesized names).
 A name means the declaration Scala binds it to — an explicit import before a wildcard, a wildcard
 before a package member of another file, an inherited member or an export (which defines one,
 D19) before both, for a path's first segment as for a simple name — and a first segment bound to a
@@ -274,9 +328,25 @@ that reason. Details: [environment readings](environment-readings.md).
   inner package member is E049); an inherited member beats an import inside the body; two
   same-shaped classes of two scopes are two overloads (E231 when only one is implemented); evidence
   of two distinct final classes is selected by type (run), and so is evidence of two unrelated
-  traits (`probes/b4fix2/overlap/o3`, compiled).
-- The Scala Language Specification's binding precedence (ch. 2) and base-type / matching-member
-  rules (§5.1) (**classical**, not re-read this session; the fixtures pin the behaviour used).
+  traits (`b4fix2/overlap/o3`, compiled).
+- [28] Scala 3 draft specification ch. 2 and [32] SLS 2.13 ch. 2 (**Inspected (full text)**), [30]
+  / [33] ch. 5 for matching members (**Inspected (full text) — bibliographer**): the precedence
+  list, inner-scope shadowing, "a concrete definition always overrides an abstract definition".
+  The texts are drafts not versioned for 3.9.0; where they and scalac 3.9.0 could differ
+  (inherited-versus-outer ambiguity, given ranking), the fixtures decide.
+- Scala 3 reference, *Using Clauses* and *Changes in Implicit Resolution* ([27], **Inspected (full
+  text)** (verifier)), and specification ch. 7, *Implicits* ([34], **Inspected (full text)**
+  (verifier)): anonymous context parameters "just provide [their] type"; missing arguments come
+  "by either implicit search or default arguments"; a more deeply nested candidate wins (rule 2);
+  the pages show same-type ambiguity examples (rule 4's `a1` / `a2`); rule 9's "From Scala 3.5 on,
+  we pick the most general one instead" is why same-level ranking is never relied on.
+- Scala 3 reference, *Context Bounds* ([15], **Inspected (full text) — bibliographer**): a bound
+  "indicates a context parameter `using Ord[T]`", and an unnamed bound's witness "gets a
+  compiler-synthesized name". *Translation of Enums and ADTs* ([24], same level), rule 7: a case
+  with an explicit `extends` takes the enum's type parameters a parameter type or parent argument
+  mentions — the language text behind the enum-case fixture above. Specification ch. 3 ([29]): a
+  sealed class is provably disjoint only when "`sealed` without anonymous child", so a family with
+  an anonymous member is not closed, which agrees with refusing anonymous summands.
 
 **Boundary.** Only lexical contextual candidates and supplied parents are read: the implicit scope
 of companions matters only when the lexical search fails, which a counted parameter rules out, but
@@ -348,7 +418,7 @@ constructor`. See [stored-value names](stored-value-names.md).
   accepts the readings for positional imports, object wildcards, `import x.*` naming a package's
   own object `x`, wildcard exports, package values and pattern variables as first names, self
   aliases, match-type case bodies in their own scope, and abstract type members.
-- **Compiler fixture** (Scala 3.9.0, `probes/a7/prec`, `probes/a7/plain`, `probes/a7/spec`): an
+- **Compiler fixture** (Scala 3.9.0, session fixtures `a7/prec`, `a7/plain`, `a7/spec`): an
   unsupplied wildcard's member beats another file's package member, rebinds a later wildcard's
   prefix (`import zzz.v.*; import compose.*`), a named import's first name (`import dev.other.Y`)
   and a qualified type's (`dev.r.optics.BijectionIso`, but not its `_root_` spelling), and an inner
@@ -356,8 +426,8 @@ constructor`. See [stored-value names](stored-value-names.md).
   wildcard of the same scope win; an outer definition, an outer named import, a same-scope
   supplied wildcard or an inner package's member of another file against a wildcard binding the
   name are each E049.
-- **Compiler fixture** (Scala 3.9.0, `probes/review-A7/r5`, `r8`, `r9`, `r11`, `r12`, `r14`–`r16`,
-  `probes/review-A7q/sc`): a definition in a sibling `package p { }` block of the same file beats
+- **Compiler fixture** (Scala 3.9.0, session fixtures `review-A7/r5`, `r8`, `r9`, `r11`, `r12`, `r14`–`r16`,
+  `review-A7q/sc`): a definition in a sibling `package p { }` block of the same file beats
   `import zzz.*`; `import zzz.given` binds a given `zzz.compose` over another file's package
   `p.compose`; `import zzz.{Boolean as _, *}` then `import compose.*` (or
   `scala.jdk.CollectionConverters.*`) binds a `zzz.compose.Boolean` (`zzz.scala.jdk…`); a member of
@@ -365,8 +435,8 @@ constructor`. See [stored-value names](stored-value-names.md).
   only `package zzz.inner`; `import Lib.*` binds `val Lib.compose`, `import E.*` the case class
   `E.A`, `import Outer.this.o.*` the value's `o.Two`, each over another file's declaration; under
   `import zzz.*` a `zzz` declaring `type Singleton = Nothing` makes `O.type & Singleton` empty.
-- **Compiler fixture** (Scala 3.9.0, `probes/review-A7/round2/*`, `probes/a7fix2/spec`,
-  `probes/a7fix2/stored`): `import Lib.*` binds an object, a value or a type alias `Lib` inherits
+- **Compiler fixture** (Scala 3.9.0, session fixtures `review-A7/round2/*`, `a7fix2/spec`,
+  `a7fix2/stored`): `import Lib.*` binds an object, a value or a type alias `Lib` inherits
   or exports, and a package object's parents' members through its package's wildcard; it binds no
   given, no private member, no type or class as a path's first name, and no singleton enum case as
   a type; `import Lib.given` binds an inherited given; `c` in package `a.b` is `a.b.c` when the
@@ -375,13 +445,24 @@ constructor`. See [stored-value names](stored-value-names.md).
   gives the same least fixed point as solving the body and then the object.
 - **Executable**: `NamespaceSpec`, `NamespaceScopingSpec`, `ReportSpec`, `ImportClausesSpec`,
   `UnsuppliedWildcardSpec`.
+- Scala 3 draft specification, ch. 5 ([30], **Inspected (full text) — bibliographer**): "A `sealed`
+  class may not be directly inherited, except if the inheriting template is defined in the same
+  source file as the inherited class" — the language text for the fixture rejecting a sealed
+  subtype in another file. Ch. 2 ([28]): the compiler-supplied imports are "taken as lowest
+  precedence, so that they are always shadowed by user code", which with nesting gives the order
+  above: another file's package member before a root import.
+- tudelft-pl, *scala.mstx* README ([36], **Inspected (full text)** (verifier)): a Statix
+  formalization of Scala 2.13 imports reports that "The Scala path order cannot be constructed" as
+  a lexicographic lifting of label orders — Scala's precedence is no simple label order, which
+  supports refusing a clause this reading does not follow. The associated OOPSLA 2020 paper is not
+  verified and is not cited.
 
 **Boundary.** This decides only *which* declaration a name denotes, and refuses where the value
 is not computed; it adds no counting rule. It reads an enum as a namespace only through an
 explicit companion, whose class cases it refuses as types (D29), and does not read
 a namespace no source supplies — the standard library's included, beyond what `ListedNamespaces`
 lists (D16) — each stays `?` with its reason. It does not argue that a rebinding would make the
-rest of the program fail to typecheck (no rule licenses that; the B3 delta audit's dissent on
+rest of the program fail to typecheck (no rule licenses that; one audit verifier argued it for
 `ModifyF.map.map`). The closed-package assumption is an assumption, not a fact Scala checks: a
 dependency may declare members in a package the sources also declare members in; the decision reads
 such a package as the sources give it. The stored side, and the constructor slots it reads, read
@@ -403,12 +484,13 @@ method-side model.
 **Evidence.**
 
 - Mitchell and Plotkin 1988, *Abstract types have existential type* (TOPLAS 10(3)) —
-  **classical**: a type with no operations is `∃X. X`.
+  **classical** (C-10); record **metadata-verified**, the abstract reports abstract data type
+  declarations typed as existential types: a type with no operations is `∃X. X`.
 - Reynolds 1983 / Wadler 1989 (D3) — the free theorem `k[U] ∘ g = k[T]` gives
   `∀X. X → R ≅ R`, hence `∃X. X ≅ ∀R. R → R ≅ 1`; `ReferenceInhabitantsSpec` encodes
   `∀a. a → a ~ 1` (**executable**).
 - Observational equivalence, the counting rule of the
-  [reference](../counting-type-inhabitants.md) — the contract's own rule, **executable** through
+  [reference](../site/arithmetic/counting-methods.md) — the contract's own rule, **executable** through
   `ReferenceInhabitantsSpec`: a goal with one value admits one implementation up to observation,
   and an empty context the unique absurd one.
 - Scala 3.9.0 compiler fixtures (**compiler fixture**): `-language:strictEquality` rejects `==` on
@@ -417,6 +499,15 @@ method-side model.
   have sizes 0–3; an `inline match` on an `Any` parameter separates `isInt(1)` from `isInt("s")`;
   constructor parameters are typed outside the template's body, parents and companion.
 - **Executable**: `TopTypesUnionSpec`.
+- Scala 3 reference, *The Matchable Trait* ([19], **Inspected (full text) — bibliographer**) and
+  *Multiversal Equality* ([20], **Inspected — bibliographer**): the members of `Any` listed above;
+  "No unbounded type parameter or abstract type should be decomposable with a pattern match";
+  universal equality "cannot properly distinguish the meaning of a type from its representation".
+  Specification ch. 3 ([29]): "A literal type `lit` denotes the single literal value `lit`", and a
+  term designator denotes `{null, v}` when `Null <: U` — one value once the model excludes `null`.
+  SIP-23 ([3]) and `scala.ValueOf` ([12], both **Inspected (full text) — bibliographer**): singleton
+  types have "a unique inhabitant". *Inline* ([17]): a `transparent inline` method's return type
+  "can be specialized to a more precise type upon expansion" — the exception below.
 
 **Boundary.** Only inside the stated model: an idealized terminal top type is not unrestricted
 Scala `Any`, and the exclusions above are what make it terminal. A `transparent inline` result
@@ -445,12 +536,24 @@ a known subclass, idempotence, `Nothing` / `Null` empty) apply first.
 
 - The universal property of the coproduct — **classical**: the class-test `match` is a total,
   well-defined, well-typed copairing, unique for every map out of the union.
-- Scala 3's `TypeComparer.provablyDisjoint` (SIP-56) — **classical**, not re-read this session;
-  the fixtures pin the behaviour used (**compiler fixture**): final class vs unrelated trait,
+- SIP-56 ([1]) and [29] ch. 3 (**Inspected (full text) — bibliographer**): a class is provably
+  disjoint from another when one is final, both are classes, or one is "`sealed` without anonymous
+  child" with every child disjoint; the analyzer's relation is its own conservative one and the
+  fixtures pin the behaviour used (**compiler fixture**): final class vs unrelated trait,
   unrelated classes, sealed trait with final leaves vs open trait, object vs `Tuple2` are disjoint;
   non-final class vs open trait, two open traits and type parameters are not; `case _: Box[Unit]`
   after `case _: Box[Boolean]` is unreachable (erased type arguments).
 - **Executable**: `TopTypesUnionSpec`, `MethodUnionNullabilitySpec`.
+- Scala 3 reference, *Union Types* and *More Details* ([26], **Inspected (full text) —
+  bibliographer**): "A union type `A | B` includes all values of both types"; neither page states a
+  tag or a disjointness rule, so a sum reading must prove disjointness itself. Specification ch. 8
+  ([31], same level): a type pattern is erased and "will only test whether the top-level
+  runtime-class of the value `x` conforms", hence keys ignore type arguments. Compiler
+  `patmat/Space.scala` header ([13], same level): exhaustivity is "a subspace of the union of space
+  covered by all the patterns" — what makes the class-test copairing total. Related work,
+  **metadata-verified**: Liu 2016 (SCALA; the abstract reports an exhaustivity check for patterns
+  over union types, decoupled from any one type theory); Frisch, Castagna & Benzaken 2002 (LICS,
+  background).
 
 **Boundary.** Type arguments never separate alternatives (runtime tests are by erased class).
 Ancestry rests on supplied declarations: a parent that does not resolve refuses the pair unless no
@@ -476,15 +579,16 @@ a closed structural type an elimination-only view (upper) or a construction (low
 
 - Strong normalisation of System Fω (Girard 1972) and the absence of eliminators for an abstract
   application in a β-normal term (**classical**); completeness of the set-theoretic model over ℕ
-  for βη (Friedman 1975, **metadata-verified via secondary sources**) and with coproducts
-  (Dougherty & Subrahmanyam 2000, **metadata and abstract verified**) — instantiating each rigid
-  head as a constant constructor separates distinct normal forms.
-- Relational parametricity for higher kinds (Atkey 2012, **metadata-verified**) and the
-  identity-only inhabitation of an equality type (Vytiniotis & Weirich 2010, **metadata and
-  abstract verified**): the semantic form of the rule, and the licence for rewriting under `=:=`
-  through any `F`.
-- Undecidability of F<: subtyping (Pierce 1994, **metadata-verified**) bounds the fragment: a
-  finite graph of binder bounds plus closed structural views.
+  for βη (Friedman 1975, **classical**; its publication record was not verified) and with
+  coproducts (Dougherty & Subrahmanyam 2000, **classical**, not verified by the metadata pass) —
+  instantiating each rigid head as a constant constructor separates distinct normal forms.
+- Relational parametricity for higher kinds (Atkey 2012, **metadata-verified**: the abstract
+  reports a model of relational parametricity for System Fω) and the identity-only inhabitation of
+  an equality type (Vytiniotis & Weirich 2010, **metadata-verified (design memo session, not
+  re-checked)**): the semantic form of the rule, and the licence for rewriting under `=:=` through
+  any `F`.
+- Undecidability of F<: subtyping (Pierce 1994, **metadata-verified (design memo session, not
+  re-checked)**) bounds the fragment: a finite graph of binder bounds plus closed structural views.
 - **Compiler fixtures** (Scala 3.9.0, this session): context bounds are `using` parameters, two of
   one type ambiguous (E172); for `A <: B` with evidence of both, `summon[B]` selects the `B`
   parameter (run); every positive fixture of the spec compiles; `F[?]` for an abstract `F` is
@@ -494,6 +598,10 @@ a closed structural type an elimination-only view (upper) or a construction (low
 - **Executable**: `HigherKindedBindingSpec`, `HigherKindedRefusalSpec`, `BinderBoundsSpec`,
   `KindedIdentitySpec` (positive and adversarial: nominal keys separate `Option[A]` from
   `Either[Unit, A]`, hygiene, closure scope, views of views, bounds, refusals).
+- Scala 3 reference, *Context Bounds* ([15], **Inspected (full text) — bibliographer**): "A bound
+  like `: Ord` on a type parameter `T` … indicates a context parameter `using Ord[T]`"; *Changes in
+  Implicit Resolution* ([27], **Inspected (full text)** (verifier)): two same-type candidates are
+  ambiguous and the ambiguity propagates.
 
 **Boundary.** Nothing structural is assumed of a rigid `F` — no law, no variance (a variant hole is
 refused), no bound (a bounded higher-kinded binder is refused). A key never identifies two types
@@ -557,8 +665,9 @@ See [stored-value families](stored-value-families.md).
   sealed class is disjoint only "without anonymous child".
 - \[15\] Scala 3 reference, *Context Bounds* (**Inspected (full text) — bibliographer**, T2): a
   context bound is a `using` parameter of the bound applied to the type parameter.
-- Sum of products and the least fixed point for recursive types (type-arithmetic §2, §8;
-  **classical**); `|List[A]| = Σₙ aⁿ` ≥ `a` (type-arithmetic §4; **classical**); no set X ≅ 2^X
+- Sum of products and the least fixed point for recursive types ([counting
+  data](../site/arithmetic/counting-data.md) §2, §8; **classical**); `|List[A]| = Σₙ aⁿ` ≥ `a`
+  (counting data §4; **classical**); no set X ≅ 2^X
   (Cantor; **classical**), so a negative recursion has no count.
 - Scala 3 reference, *Match Types*, and the Scala 3 draft specification, ch. 3: a case is passed
   only when provably disjoint (**Inspected (full text) — bibliographer**, bibliography T4).
@@ -653,9 +762,14 @@ parent is reported, not ignored.
   declares 323 type members, abstract ones among them (which `javap` cannot show); `Singleton` and
   `Symbol` are the only ones a `scala.*`, `scala.Predef` or `java.lang.*` type also spells — a
   compiler fixture accepts `summon[Symbol =:= quotes.reflect.Symbol]` and `Singleton <:< TypeTree`
-  under `import quotes.reflect.*` (`probes/review-A7/r4/m.scala`).
+  under `import quotes.reflect.*` (`review-A7/r4/m.scala`).
 - **Executable**: `StdlibModelSpec`, `ImportClausesSpec.listedWildcards`,
   `UnsuppliedWildcardSpec`.
+- Scala 3 draft specification, ch. 2 ([28], **Inspected (full text)** (verifier)): the
+  compiler-supplied imports (`java.lang.*`, `scala.*`, `Predef.*`) "are taken as lowest precedence,
+  so that they are always shadowed by user code" — so the model answers only where no source
+  binding, named import or wildcard intervenes, and a wildcard over an unsupplied namespace, which
+  may bind any name, must refuse.
 
 **Boundary.** The table describes one library version and must be refused for others. Readings hold
 under the contract's exclusions (identity, mutation, runtime equality): an `Array` is its contents,
@@ -677,7 +791,7 @@ rule cannot reach (in a supplied sum, a callable's result, a built function's pa
 
 **Evidence.**
 
-- [type-arithmetic.md](../type-arithmetic.md) §4, §7 — `List[A] ≅ Σₙ Aⁿ`, and a function out of a
+- [counting data](../site/arithmetic/counting-data.md) §4, §7 — `List[A] ≅ Σₙ Aⁿ`, and a function out of a
   sum is a product of functions (shapes are lengths): an implementation is a family indexed by
   length, chosen by a total length test.
 - D2 (**classical**): at most ℵ₀ finite programs, so infinitely many distinct families are ω.
@@ -712,9 +826,9 @@ code (members gate G1). Details: [type members](type-members.md).
 
 **Evidence.**
 
-- Mitchell & Plotkin 1988 (C-10, **metadata-verified**: the abstract reports abstract data type
-  declarations typed as existential types); reading a parameter path as the opening of that
-  package, whose witness the caller picks, is this register's derivation. Cardelli & Leroy 1990
+- Mitchell & Plotkin 1988 (**classical** (C-10); record **metadata-verified**, the abstract
+  reports abstract data type declarations typed as existential types); reading a parameter path as
+  the opening of that package, whose witness the caller picks, is this register's derivation. Cardelli & Leroy 1990
   (**metadata-verified**, background only): dot notation.
 - Scala 3 draft specification ch. 3 (\[29\], **inspected**): abstract types have bounds, and the
   lower-bound rule breaks transitivity, so only unbounded members are free atoms; Hu & Lhoták 2020
@@ -744,6 +858,10 @@ code (members gate G1). Details: [type members](type-members.md).
   private aliases, unsatisfiable refinements, X6), `TypeMemberScopeSpec` (refinement bodies, a
   field read for its receiver, closed scopes, bounded templates, evidence on stuck projections),
   `MethodMatchProjectionSpec`, `MethodRefinementSpec`.
+- Scala 3 reference, *Opaque Type Aliases* and *More Details* ([21], **Inspected (full text)**
+  (verifier)): inside its defining scope "the alias is transparent", outside it an abstract type
+  with the same bounds; SIP-35 ([8], **Inspected (full text) — bibliographer**), whose
+  companion-scoped visibility [21] supersedes.
 
 **Boundary.** Only a member someone may pick is an atom: a final class (abstract or not, a value
 class too), object or given never instantiates it; a private constructor (the template's own or an
@@ -793,8 +911,9 @@ class, an object's singleton kept, any other singleton refused). Details:
 
 **Evidence.**
 
-- Reynolds 1983 (\[9\], **bibliography-verified**) and Mitchell & Plotkin 1988 (C-10,
-  **classical**): a closed term's denotation is parametric and its internals are unobservable
+- Reynolds 1983 (\[9\], **bibliography-verified**) and Mitchell & Plotkin 1988 (**classical**
+  (C-10); record **metadata-verified**, the abstract reports abstract data type declarations typed
+  as existential types): a closed term's denotation is parametric and its internals are unobservable
   through readable types. Pitts & Stark 1998 (**metadata-verified**: the abstract reports that
   local state must be handled for representation independence) is why mutation must be excluded,
   not the `var`-as-value reading itself, which is the contract's.
@@ -821,6 +940,9 @@ class, an object's singleton kept, any other singleton refused). Details:
   `MethodAnalysisSpec.concreteProducers`,
   `EnvironmentSoundnessSpec.varParameter`, `GroundEnvironmentSpec` (exports and inherited members
   through imports).
+- Scala 3 reference, *Opaque Type Aliases: More Details* ([21], **Inspected (full text)**
+  (verifier)): outside its scope an opaque alias "behaves as an abstract type": its representation
+  is not readable there, and the model counts it one value (rule F, D35).
 
 **Boundary.** The premise is readability: classes neither a public constructor nor a factory
 builds (D35, D42), opaque
@@ -888,7 +1010,7 @@ records](capability-records.md).
   & Turner 1994, Bruce, Cardelli & Pierce 1999 (**metadata-verified**, background only). The
   record reading, the coincidence condition and the view rule are this register's derivations.
 - Environment readings' §3.0(1) "closed-world dispatch" is **superseded** for overridable members
-  (crosscheck X5): an open class's concrete member is a capability (`ow`: `Box.target` 3, `FBox`
+  (cross-check X5): an open class's concrete member is a capability (`ow`: `Box.target` 3, `FBox`
   2).
 - **Compiler fixtures** (Scala 3.9.0, B3 probes): every `CapabilitySpec` and `TargetViewsSpec`
   fixture compiles; a class leaving an inherited abstract member undefined must be abstract; a
@@ -897,7 +1019,7 @@ records](capability-records.md).
   operator is not evaluated (run); review round 2 (Scala 3.9.0 runs): a diamond `R extends C with
   B` reads B's final `m` though a breadth-first walk meets A first; a by-name extension receiver,
   `==` overload or conversion, a context-function parameter and `summon[T]` of `given self: T =
-  this` each behave as the view rule says; at landing (Scala 3.9.0 runs, `probes/b3land/fix`): an
+  this` each behave as the view rule says; at landing (Scala 3.9.0 runs, `b3land/fix`): an
   extension with a by-name receiver imported by the file, the template or a block, or exported by
   the template, never runs its receiver.
 - **Executable**: `CapabilitySpec` (open siblings, fixed siblings, definite and possible views,
@@ -947,8 +1069,8 @@ sign).
 
 **Evidence.**
 
-- Odersky 2024, SIP-58, and the reference page *Named Tuples* — **inspected (full text)** by the
-  verifier: "`NamedTuple` is an opaque type alias of its second, value parameter"; "The order of
+- Odersky 2024, SIP-58, and the reference page *Named Tuples* ([4]) — **inspected (full text)** by
+  the verifier: "`NamedTuple` is an opaque type alias of its second, value parameter"; "The order of
   names in a named tuple matters."
 - Scala 3 draft specification, ch. 3 (\[29\]) — **inspected (full text)**: "A literal type `lit`
   denotes the single literal value `lit`." SIP-23 (\[3\]) — **inspected (full text)**: literals
@@ -1019,6 +1141,11 @@ the refusal of every inline method this entry first recorded).
   abstract states that "type abstraction and intensional type analysis are features seemingly at
   odds").
 - **Executable**: `SyntaxFeaturesSpec`.
+- Scala 3 reference, *Macros*, *Compile-time operations*, *Inline* ([17], **Inspected (full
+  text)** (verifier)): "A quote that refers to a generic or abstract type `T` requires a given
+  `Type[T]`"; `erasedValue` "pretends to return a value of its type argument"; `summonFrom` chooses
+  by whether a given exists; "The scrutinee `x` is examined statically and the inline match is
+  reduced accordingly".
 
 **Boundary.** `ValueOf` is not excluded (it supplies a value). See
 [syntax-features.md](syntax-features.md).
@@ -1070,19 +1197,19 @@ of its receiver's static type (`deferred inline member resolved at each expansio
 - Urzyczyn 1997 (**metadata-verified**: the abstract reports System F inhabitation undecidable;
   C-7 **classical**): no instantiation bound computable from the goal is complete, so counts above
   1 need an exact reduction. Scala 3 reference *Polymorphic Function Types* \[23\] (**inspected**).
-- PB2's upper bound (crosscheck X7) rests on coverage, which holds for members with no bare-binder
+- PB2's upper bound (cross-check X7) rests on coverage, which holds for members with no bare-binder
   result: every application of a path ending in a rigid constructor `F[M]` stands at a goal whose
   match fixes it, so every long normal form has a representative; quotienting only merges. Round 1
-  claimed coverage for every member, which is false (review round 2, `probes/review-B4/r2/i1`:
+  claimed coverage for every member, which is false (review round 2, session fixture `review-B4/r2/i1`:
   `c.run[(B, B)](swap, (b1, b2))._1` has no representative instantiating `run` at `B`); a bare-binder
   result now leaves only ω and absurd contexts reported. A record member's type is read at the
-  record's arguments, template aliases included (`probes/review-B4/r2/a1check`: scalac types
+  record's arguments, template aliases included (session fixture `review-B4/r2/a1check`: scalac types
   `b.get[String](1)` on a `Box[Int]` whose `type T = A`).
-- **Compiler fixtures** (Scala 3.9.0, `probes/b4/spec` poly1–poly4, `probes/b4fix/spec` inl and
-  bounds): every `PolymorphicMemberSpec` fixture compiles. `probes/review-B4/pb0c`: scalac rejects
-  every call of `f[M >: Int <: String]` and of `f[M >: X <: String]` (E057). `probes/review-B4/inlc`,
+- **Compiler fixtures** (Scala 3.9.0, session fixtures `b4/spec` poly1–poly4, `b4fix/spec` inl and
+  bounds): every `PolymorphicMemberSpec` fixture compiles. `review-B4/pb0c`: scalac rejects
+  every call of `f[M >: Int <: String]` and of `f[M >: X <: String]` (E057). `review-B4/inlc`,
   `inlc2`, `inl2c`: a call of a deferred inline member from a body that is not inline is rejected
-  ("Deferred inline method … cannot be invoked"); `probes/b4fix/inl`: an inline body may call one,
+  ("Deferred inline method … cannot be invoked"); `b4fix/inl`: an inline body may call one,
   and its expansion at a receiver whose static type has an inline override compiles.
 - **Executable**: `PolymorphicMemberSpec` (phantom, fold 1 where naive is ω, chooser 4 and its goal
   2, constant Boolean 4, `Option[M]` 2, known identity 1, `∀C. C` 1 and its goal 0, a two-sided
@@ -1119,7 +1246,7 @@ types, and types a polymorphic input may build, are `sum elimination over an arg
 enumerated: p`; higher-order arguments keep the elimination reason. A root whose rules carry
 reasons is ω when it reaches, along rules with no reason and no polymorphic instantiation whose
 every child is built without reasons, a cycle, and the empty goal is not built even optimistically
-at any goal on the way (C11 as restricted by crosscheck X3). Details: [polymorphic members and
+at any goal on the way (C11 as restricted by cross-check X3). Details: [polymorphic members and
 saturation](polymorphic-members-and-saturation.md).
 
 **Evidence.**
@@ -1130,13 +1257,13 @@ saturation](polymorphic-members-and-saturation.md).
   search; background for "cut only new sums"); Scherer 2016, thesis (**metadata-verified**). The
   once-per-path elimination with argument enumeration and the restricted ω conjunction are this
   register's derivations; the empty-type part rests on the solver's per-node absurd rule, never on
-  an at-most-two cutoff (crosscheck X8).
+  an at-most-two cutoff (cross-check X8).
 - Espírito Santo, Matthes & Pinto 2021, TYPES 2020, DOI 10.4230/LIPIcs.TYPES.2020.4
   (**metadata-verified**: the summary reports finiteness of focused inhabitants decidable with
   disjunction); David & Zaionc 2009 (**metadata-verified**, background). D2 (finite texts) bounds ω
   from above; D4 (productivity) supplies the cycle.
-- **Compiler fixtures** (Scala 3.9.0, `probes/b4/spec` sums1 and c11, `probes/b4fix/spec` sat,
-  low and keys; `research/xprobe/c11`): every `NeutralSaturationSpec` fixture compiles.
+- **Compiler fixtures** (Scala 3.9.0, session fixtures `b4/spec` sums1 and c11, `b4fix/spec` sat,
+  low and keys; cross-check session fixture `c11`): every `NeutralSaturationSpec` fixture compiles.
 - **Executable**: `NeutralSaturationSpec` (composed getters 2, `FromFunctions` 2, prism modify 1 and
   replace 2, built arguments 16, Boolean results 16 and 4, an absurd case 1; unbounded, payload
   cycle, literal, sum, lower-bounded, polymorphically built and higher-order refusals, a record's
@@ -1461,21 +1588,21 @@ cases and unconditional structural givens are no rows. Details:
   invocation "must construct a generic instance of the class"; *Overriding* — "a stable member can
   only be overridden by a stable member"; *`final`* — "constant value definitions … require an
   explicit `final` modifier".
-- **Compiler fixtures** (Scala 3.9.0, this session; `$S/probes/b5`): a given alias is a `given def`
+- **Compiler fixtures** (Scala 3.9.0, session fixtures `b5`): a given alias is a `given def`
   (a `lazy given val` when nullary), a conditional structural given a `given class` with a `given
   def` building it, an unconditional one a module (`-Xprint:typer`); an enum case finds neither the
   enum's members (E006) nor its companion's ("illegal reference … from enum case") and needs a
   parameter list (E004); a `val` implements a parameterless `def`; an untyped `val` overriding a
   context-function `val` sees its binder; `final var x = 3` is an `Int` (E007 against `def useX:
   3 = x`) while `final val` and `final lazy val` keep `3`; `case D(y: A) extends E[Int]` of `enum
-  E[A, B]` prints `final case class D[A, B](y: A)` (`$S/probes/b5-fix1`, `-Vprint:typer`); a
+  E[A, B]` prints `final case class D[A, B](y: A)` (`b5-fix1`, `-Vprint:typer`); a
   secondary constructor's body reads the class's members and parameters; a context-function
   literal under a context-function result is one closure (no second wrapper); an anonymous given's
   name is `given_` and its type's names (`given_A`, `given_Ord_List`, `given_Int_String`,
-  `given_String_to_Int`, `given_&_Ord_Show`, …, `$S/probes/b5-fix2/gname`), and `new C[A](x,
+  `given_String_to_Int`, `given_&_Ord_Show`, …, `b5-fix2/gname`), and `new C[A](x,
   y).given_A` selects one; matching `case TInt()` makes a method's or a class's type parameter `A`
   Int in the arm (`def h: A = 42` compiles), while abstract type members, path-dependent types,
-  literal, binder and wildcard patterns refine nothing (`$S/probes/b5-fix2/refine`).
+  literal, binder and wildcard patterns refine nothing (`b5-fix2/refine`).
 - **Executable**: `DefinitionInventorySpec`; `MethodAnalysisSpec.abstractCase`,
   `ReportHygieneSpec.operatorNames` (abstract-class constructor rows).
 
@@ -1537,9 +1664,9 @@ names](stored-value-names.md).
   bibliographer**): a class case expands "analogous to a final case class in `E`'s companion
   object" — the companion holds the cases. That the enum's body imports them by name is the
   compiler's (fixtures below), not the reference's.
-- **Compiler fixtures** (Scala 3.9.0, this session: `$S/z1b/fx/inh`, `$S/z1b/fx/chk`,
-  `$S/z1b/fx/spec`; the integrated review's `probes/stored/{inh,self,inst2,inhterm,unsup,t3,en,
-  en2,en3,en4,pkgobj,pkgobj2}` and `probes/indep-*`): an inherited alias binds over a same-unit
+- **Compiler fixtures** (Scala 3.9.0, session fixtures `z1b/fx/inh`, `z1b/fx/chk`,
+  `z1b/fx/spec`; the integrated review's session fixtures `stored/{inh,self,inst2,inhterm,unsup,t3,en,
+  en2,en3,en4,pkgobj,pkgobj2}` and `indep-*`): an inherited alias binds over a same-unit
   package member and the root imports, and an outer object's definition beside it is E049 ("It is
   both defined in object Outer and inherited subsequently in object O"); a nested object's own
   definition is nearer than what its owner inherits; inherited `val p: H.type` and `object Inner`
@@ -1548,14 +1675,14 @@ names](stored-value-names.md).
   `import G.*` binds no type for `case Boolean`; `package object lib extends basep.Base` and
   another file's `export Src.*` (or `export Src.{Boolean as Flag}`) bind `Boolean` (`Flag`) inside
   the package as `Int`; `import E.*` over an explicit companion binds the case class `E.A`. Fix
-  round (`$S/probes/review-Z1b/{a,a2,en9,en10,en5n,x6,x8}`, `$S/z1bfix/{qp,en,t3,t4}`):
+  round (`review-Z1b/{a,a2,en9,en10,en5n,x6,x8}`, `z1bfix/{qp,en,t3,t4}`):
   `private[pa] type Boolean = Int` binds `Boolean` in `O extends Base` (`O.U(42)`), and from outside
   `pa` it is E173, not the builtin; `case C(a: A)` builds `E.C(E.A(true))` beside another file's
   `type A = Unit`, with or without an explicit companion, and `e.In(())` is rejected for an
   enum-body `In(a: A)`; a companion's own alias is "illegal reference to type T from enum case",
   its parent's is read (`G.K(true)`); a followed `export Src.*` passes on no `scala`, so
-  `scala.Boolean` stays the root's. Second fix round (`$S/z1bfix2/fx/{ex,vp}`, the review's
-  `probes/review-Z1b/r2/{inh,inh2}`): a parent's `export Src.Boolean`, `export Src.q` and `export
+  `scala.Boolean` stays the root's. Second fix round (`z1bfix2/fx/{ex,vp}`, the review's
+  `review-Z1b/r2/{inh,inh2}`): a parent's `export Src.Boolean`, `export Src.q` and `export
   Src.*` bind `Boolean`, `q` and `Flag` in a subclass's body (`O.U(42).b: Int`, `OW.UW(42L).f:
   Long`), a self type's export alike; a `val` parameter and a case class's parameter are inherited
   (`OP.UP(42).x: Int`), a plain or private one is not (`OC.UC(()).x: Unit`).
@@ -1596,7 +1723,7 @@ when its result type has one or a parameter type is empty (the absurd function),
 algebra counts it 0; a witness — a standard-library type the library gives a value of, an enum's
 parameterless case, a sealed family's module that is a member of every instantiation — decides the
 rest of the type. A value of a class, enum or module exists only if one is built, which runs every
-ancestor's primary constructor (D26, CROSSCHECK X6): the arguments of its `extends` clauses, the
+ancestor's primary constructor (D26, cross-check X6): the arguments of its `extends` clauses, the
 defaults its parents fall back to, the strict members and statements of its body, and an enum's
 companion for its singleton cases. Where one of them throws, where the constructor is private or
 protected, where implicit search supplies a parent's context argument, or where a parent is not
@@ -1606,23 +1733,23 @@ Nothing`. A singleton type `p.type` holds what `p` denotes: an object with no pa
 throws nothing is built, a standard-library object is; a value's singleton and any other path are
 refused (`value not decided: n.type, a value's singleton type`), and so is a class holding a
 singleton type. Adopted on a 2/3 vote of the integrated review: the dissent held that a value row is
-documented as one inhabitant with its declared type unmeasured. Details: [type arithmetic
-§10](../type-arithmetic.md), [pure code §2](pure-code.md).
+documented as one inhabitant with its declared type unmeasured. Details: [counting
+data](../site/arithmetic/counting-data.md) §10, [pure code §2](pure-code.md).
 
 **Evidence.**
 
 - \[21\] Scala 3 reference, *Opaque Type Aliases* and *More Details* (**Inspected (full text)**
   (verifier)): the alias is transparent inside its defining scope and abstract with its bounds
   outside it; the scope is the whole defining scope, not a companion.
-- **Compiler fixtures** (Scala 3.9.0, `$S/z1b/fx/opq`; the integrated review's
-  `probes/stored/opq`, `probes/indep-opq`, `probes/model-opq`): a top-level `def`, a class nested
+- **Compiler fixtures** (Scala 3.9.0, session fixtures `z1b/fx/opq`; the integrated review's session fixtures
+  `stored/opq`, `indep-opq`, `model-opq`): a top-level `def`, a class nested
   in one, `object Flag` beside `opaque type Flag` and `object Al` beside `type Al` read `Flag` as
   `Boolean`; a top-level class, another object, another file and a subclass of the declaring trait
-  reject it (E007). Fix round (`$S/z1bfix/op`, the review's `review-z1b-quality/p2`): `implicit
+  reject it (E007). Fix round (`z1bfix/op`, the review's `review-z1b-quality/p2`): `implicit
   class R(f: Flag)`, `implicit object IO` and a `given … with` body read `f` as `Boolean`; a plain
   `class R(f: Flag)` does not. Scala 3's desugaring wraps "implicit classes and objects" into the
   package object (compiler behaviour, not a reference text). Second fix round
-  (`$S/z1bfix2/fx/{ub,sg}`, the review's `probes/review-Z1b/r2/x6`): `final case class K() extends
+  (`z1bfix2/fx/{ub,sg}`, the review's `review-Z1b/r2/x6`): `final case class K() extends
   Base(???)`, `case object E extends V(???)`, `enum En extends Base(???) { case X }`, `final class P
   private (i: Int)` and `val sn: n.type = n` for `val n: Nothing` all compile; none of them
   builds a value (`???` throws, `P` has no caller, `n` holds none).
@@ -1632,7 +1759,7 @@ documented as one inhabitant with its declared type unmeasured. Details: [type a
   (refused, never read as empty).
 - **Classical** (set theory): a value of type `T` exists exactly when `T` is inhabited; `B^∅` has
   one element (the empty function), so the stored algebra's `0` for a function from an empty
-  domain ([type arithmetic](../type-arithmetic.md) §3: it never runs) is a capacity, not
+  domain ([counting data](../site/arithmetic/counting-data.md) §3: it never runs) is a capacity, not
   emptiness. Its intersection is the smaller side, an upper bound (`Int & String` is empty, its
   bound 2^32), and a refinement is the type it refines. Elsewhere its numbers are counts or
   rounded-up counts of at least 128: its 0 is emptiness and any other number inhabitation (sums,
@@ -2267,10 +2394,65 @@ this reading resolves it in). Names are matched, not typed: a simple name collis
 candidate Scala would not consider (a refusal, never a wrong count). A given instance anywhere in the
 program is no longer a scope a body finds by itself: it is found when the scope declaring it is.
 
+## Appendix: cross-check items
+
+The research workflow's literature cross-check raised twelve issues (X1–X12) against the rules as
+first drafted. The entries above also refer to six decisions by label: the owner took two
+(D-inline, D-pure), the design synthesis that planned the work the other four (D-top, D-terminal,
+D-env-concrete, D-capabilities). Each is settled, but for the one case X1 marks open; the entry
+named holds the rule as it stands and its regressions.
+
+- **X1** — An `export` defines aliases as members of its template, so it ranks with own and
+  inherited members, shadows outer definitions and beats an import of the same template; an export
+  this reading does not follow refuses. Open: a path's first name that an enclosing export
+  defines is neither followed nor refused (a wrong count on a reduced fixture, none on eo;
+  [ledger, known limits](../baselines/eo-checkout-2026-11-14-full.md#known-limits)). [D10](#d10-the-environment-holds-what-a-body-can-reach), [D11](#d11-a-name-denotes-the-declaration-scala-binds-it-to).
+- **X2** — The sequence rule's ω needs a witness with some length ≥ 1:
+  `def f[A](n: A => Nothing, xs: A*): Boolean` is 2, never ω. [D17](#d17-a-supplied-sequence-is-eliminated-by-length).
+- **X3** — Restricted ω-saturation needs every child on the path from the root to the cycle
+  productive by reason-free rules, and the absurd goal unproductive at every node of it.
+  [D25](#d25-a-supplied-sum-is-eliminated-once-per-argument-and-path).
+- **X4** — Context-function binders are contextual candidates one level deeper:
+  `def g[A](using A): A ?=> A` is 1 or `?`, never 2. [D22](#d22-a-context-function-is-a-function-whose-binders-are-givens-around-the-body).
+- **X5** — Only code nothing can override is fixed code; a concrete member a template may override
+  is an open capability. The closed world ([D39](#d39-the-supplied-sources-are-the-whole-program-closed-world))
+  decides which templates may: a member no supplied template overrides is final, and one a supplied
+  template overrides stays a capability (`Box.target` 3 where `Sub` overrides `Box.other`; the final
+  `FBox.target` 2). [D19](#d19-concrete-code-nothing-can-override-adds-no-implementation), [D20](#d20-a-value-of-a-source-class-is-the-record-of-its-observations).
+- **X6** — A record reading or an inhabitation witness must witness the constructor too:
+  `class CNothing(n: Nothing)` has no instance, so `def f(c: CNothing): Boolean` is 1 or `?`, never
+  2. [D20](#d20-a-value-of-a-source-class-is-the-record-of-its-observations), [D29](#d29-a-stored-read-binds-what-templates-packages-and-enum-companions-pass-on).
+- **X7** — A polymorphic member's resolution count is an upper bound only where every βη-class has
+  an enumerated representative (coverage), which fails for a bare-binder result. [D24](#d24-a-polymorphic-capability-member-is-read-up-to-its-free-theorems).
+- **X8** — Canonicity with sums and the empty type is Scherer 2017 and unique inhabitation Scherer
+  & Rémy 2015, both metadata-verified; no at-most-two cutoff is used. [D25](#d25-a-supplied-sum-is-eliminated-once-per-argument-and-path).
+- **X9** — `Math.copySign` is a second NaN-sign observation: transparency excludes any sign or
+  payload observation of a NaN. [D9](#d9-ground-scalar-types-are-transparent), [ground scalar types](ground-scalar-types.md).
+- **X10** — Synthetic names such as `x$2` compile, so "anonymous evidence is reachable only by
+  implicit search" is a model assumption ([v1 §2](../plans/v1.md#assumptions-and-output-meanings)).
+  [D10](#d10-the-environment-holds-what-a-body-can-reach).
+- **X11** — The literal-goal derivation needs a consistent environment (an absurd one has one
+  implementation). [Ground scalar types](ground-scalar-types.md).
+- **X12** — The reference reads `Set a` as a predicate `a -> Bool`; the first resolution kept `Set`
+  and `Map` outside the model on the method side. Superseded by
+  [D36](#d36-key-equality-is-lawful-and-a-single-pass-read-is-replayable): over closed arguments a
+  `Set[E]` is a finite subset, `2^|E|` values, the count of `E => Boolean` (`Set[Boolean]` 4), a
+  `Map` a finite partial function, and an open key type is refused.
+- **D-inline** (owner decision) — an `inline def` free of compile-time operations counts as a `def`.
+  [D27](#d27-an-inline-method-free-of-compile-time-operations-is-a-method).
+- **D-pure** (owner directive) — the measured code has no side effects: a `var` is its value, a
+  throw supplies nothing, a throwable is data, effects are excluded. [D26](#d26-code-has-no-side-effects-a-var-is-its-value-a-throw-supplies-nothing-a-throwable-is-data).
+- **D-top**, **D-terminal** (design synthesis) — top types are terminal on the method side; a
+  one-valued goal has one implementation. A top is now read by its place: one value in an input, ω
+  in an output. [D12](#d12-top-types-carry-nothing-in-an-input-a-goal-with-one-value-has-one-implementation),
+  [D38](#d38-a-top-type-is-read-by-its-place-in-its-own-arrow). **D-env-concrete** (design synthesis) — concrete code nothing can
+  override adds no implementation. [D19](#d19-concrete-code-nothing-can-override-adds-no-implementation). **D-capabilities** (design synthesis) — values of source classes are
+  records of their members, read with their polymorphic members and sums. [D20](#d20-a-value-of-a-source-class-is-the-record-of-its-observations), [D24](#d24-a-polymorphic-capability-member-is-read-up-to-its-free-theorems), [D25](#d25-a-supplied-sum-is-eliminated-once-per-argument-and-path).
+
 ## How to extend this register
 
 A new source earns an entry only with: the decision it defends, the exact claim relied on, its
 verification level as defined above, and the boundary past which it must not be cited. A new
 *decision* earns an entry only when it can name at least one source or one executable artifact
 in this repository as evidence. Assertions that cannot meet either bar do not belong in the
-register; they belong in the [plan's open-decisions list](../plans/v1.md#_8-boundaries-and-decisions-still-open).
+register; they belong in the [plan's open-decisions list](../plans/v1.md#8-boundaries-and-decisions-still-open).

@@ -1,15 +1,19 @@
 # Environment readings: what a body can actually reach
 
 A count is only as sound as the environment it is taken over. Nine readings of that environment
-over- or under-counted (census memo §3, hkt memo §4.3, members memo W1, stdlib memo H1); each now
+over- or under-counted (found by this work's design reviews, whose memos are not retained); each now
 follows the Scala 3.9.0 rule it stands for, or refuses with a reason naming what is missing.
 Regressions: `EnvironmentSoundnessSpec` and `NameLookupSoundnessSpec` (under
 `core/src/test/scala/cardinality/analysis/`). Every fixture there compiles with the Scala 3.9.0
 compiler (checked this session; bodies filled in).
 
+Register entry: [D10](code-cardinality-foundations.md#d10-the-environment-holds-what-a-body-can-reach).
+
 ## 1. Anonymous contextual parameters
 
-An anonymous `using T` has no name, so a body reaches it only through implicit search. Scala
+An anonymous `using T` has no name in the language, so under the model's assumption
+([v1 §2](../plans/v1.md#assumptions-and-output-meanings): bodies never spell synthesized names such
+as `x$2`, which 3.9.0 accepts) a body reaches it only through implicit search. Scala
 searches the lexical scope first; among the eligible candidates (contextual values whose type
 conforms to the searched type) a more deeply nested one wins outright, and candidates at one level
 are ranked. Compiler fixtures (3.9.0): two anonymous `Option[A]` parameters — or a named one and an

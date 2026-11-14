@@ -10,7 +10,7 @@ and what stays `?`. Name resolution itself is [stored-value-names.md](stored-val
 
 `sealed` means that every direct subtype of a trait or abstract class is declared in its source
 file. Matching on the runtime class tells those subtypes apart. So the parent's value space is
-the disjoint union of its subtypes' spaces (type-arithmetic §2; recursion is the least fixed point
+the disjoint union of its subtypes' spaces ([counting data](../site/arithmetic/counting-data.md) §2; recursion is the least fixed point
 of §8):
 
   |P\[t̄\]| = Σ over the direct subtypes D of |D\[ȳ := t̄\]|
@@ -195,7 +195,7 @@ bounds onto a case.
 
 ## Finite collections keep their element's tier
 
-`|List[A]| = Σₙ |A|ⁿ` (type-arithmetic §4). The n = 1 term alone is `|A|`, so a finite
+`|List[A]| = Σₙ |A|ⁿ` ([counting data](../site/arithmetic/counting-data.md) §4). The n = 1 term alone is `|A|`, so a finite
 collection is never below its element's tier:
 - over an element with an ε₀ term (`String => String`), `List`, `Vector`, `Seq`, `Array`, `Set`, a
   `Map`'s keys or values, and repeated parameters are ε₀;
@@ -249,8 +249,8 @@ A row belongs to the first class any of its reasons is in, and all classes are r
   reduction passes a case only when the scrutinee is provably disjoint from its pattern
   (**Inspected (full text) — bibliographer**, research bibliography T4).
 - Cantor's theorem (no set X ≅ 2^X) for the refusal of negative recursion (**classical**).
-- **Compiler fixture** (Scala 3.9.0, `$S/probes/c2r/valid`, `$S/probes/review-C2`,
-  `$S/probes/c2f`, `$S/probes/c2f2/valid`): every family, import and container fixture of
+- **Compiler fixture** (Scala 3.9.0, session fixtures `c2r/valid`, `review-C2`,
+  `c2f`, `c2f2/valid`): every family, import and container fixture of
   `StoredValueSoundnessSpec` compiles. Scalac also:
   - accepts a subtype through an alias, an anonymous instance through an alias, and a bounded
     subtype parameter;

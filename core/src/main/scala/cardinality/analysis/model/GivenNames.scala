@@ -12,7 +12,7 @@ import scala.meta.*
   * depth (`Ord[(Int, (Long, Short))]` is `Ord_Int_Long_Short`); a function `A_to_B`, or `Function`
   * as an argument; an infix operator (`&`, `|`, `A Two B`) its own name before its operands'; a
   * singleton `x_type`; a wildcard its bounds' or nothing. A structural given joins its parents'.
-  * Every rule is 3.9.0's, read off `-Xprint:typer` (compiler fixtures `$S/probes/b5-fix2/gname`).
+  * Every rule is 3.9.0's, read off `-Xprint:typer` (session fixtures `b5-fix2/gname`).
   */
 private[cardinality] object GivenNames {
 

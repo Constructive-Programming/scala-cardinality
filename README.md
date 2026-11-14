@@ -59,10 +59,18 @@ implementations a method admits. Two consequences come up constantly in real cod
   - `def make[A]: A` has `0` implementations, even though `throw new Exception` would compile.
   - No count is withheld because some code might throw.
   - Exceptions used as data are ordinary values: a `Throwable` passed in, stored in a field or
-    returned in an `Either`.
+    returned in an `Either`. A method row reads the twelve root-import throwables the
+    standard-library model lists (`Throwable`, `Exception`, `RuntimeException`, …) as countable
+    data (a value per message). Constructor rows keep the value-space convention
+    ([output meanings](docs/plans/v1.md#assumptions-and-output-meanings)), so there, as on the
+    stored-value side, `Throwable` is an open class: a slot of it reads `open to implementations:
+    Throwable`, not a size.
 
 Other effects are excluded the same way: I/O, logging, divergence, a `null` that the type does
-not declare, unsafe casts and reflection. None of them is counted. The members of `Product` and
+not declare, unsafe casts and reflection. So are the members every Scala value has, on a value of
+any type: identity (`eq`), equality, `hashCode`, runtime type tests, `getClass`, the default
+`toString`. Two instances of a final class with the same fields are one value; a ground type or a
+case class keeps `==` only as the equality of its data. None of them is counted. The members of `Product` and
 `Equals` (`productElement`, `canEqual`, …) are reflection and equality tests, so a trait extending
 `Product with Serializable` counts as one without those parents.
 
@@ -161,6 +169,9 @@ through their own bodies.
   `using` clause or context bound included), an inline or contextual extension the body may
   meet. Definitions written in the body are read like
   supplied ones, with `this` in a nested class or instance being that template.
+- An inline member of a static object or of a file's top level is counted as in a built owner: its
+  expansion does not build the owner unless it selects one of the owner's members (a Scala 3.9.0
+  run), and the owner's own members supply nothing.
 - Any other inline method is `?`, and the reason names what disqualified it.
 
 ## Status
@@ -209,8 +220,10 @@ Enclosing sums and source/signature aggregates are not normalized:
 `Either[LazyList[String], LazyList[String]]` is `2ε₀`.
 Any *branching* cycle saturates at `ω` (the §4 finite-program reading: one program per
 unfolding). Open work: coinduction blocked by a strict
-self argument or a deeply nested mention (kept at a sound under-count), parametric counts and
-sealed hierarchies spanning files — pinned as pending targets in the test suite.
+self argument or a deeply nested mention (totals keep the least-fixed-point value, and a row on
+such a cycle that a by-name or function field closes is `?`, `lazy cycle not completed`),
+parametric counts and sealed hierarchies spanning files — pinned as pending targets in the test
+suite.
 
 ## Documentation
 
@@ -326,31 +339,36 @@ definitions, ordered by how many values each holds. The same report is written t
 it, diff it, or post it as an artifact.
 
 ```
-scala-cardinality — 1 source, 10 definitions
-  stored-value estimates: constructor inputs only; finite capacities are upper bounds
-  ?: unresolved, not a proof of infinity
-  2 unresolved · 4 with more than one value · 2 with one value · 2 abstract
+scala-cardinality — 2 sources, 11 definitions
+  stored-value estimates: constructor inputs only; a finite capacity prints as the bound ≤2^b, marked (lossy) when it holds floating point
+  ?: no single number here — the reason after the row says what would give one
+  1 instantiation-dependent · 8 with more than one value · 2 with one value
 Stored-value estimates (constructor inputs; `?` = unresolved)
 
-?  example.Holder[A]  class     Light.scala:11  unresolved: A
-ω  example.Succ       class     Light.scala:17
-ω  example.Timeline   class     Light.scala:19
-2  example.Custom     class     Light.scala:5
-1  example.Zero       object    Light.scala:16
-—  example.Light      abstract  Light.scala:3
+?   example.Holder[A]  class     Light.scala:11  depends on its instantiation (A)
+ε₀  example.Reducer    class     Light.scala:20
+ω   example.Cursor     class     Light.scala:16
+ω   example.Nat        abstract  Natural.scala:5
+ω   example.Succ       class     Natural.scala:7
+ω   example.Timeline   class     Light.scala:18
+3   example.Light      abstract  Light.scala:3
+2   example.Custom     class     Light.scala:5
+2   example.Mode       enum      Light.scala:7
+1   example.Red        object    Light.scala:4
+1   example.Zero       object    Natural.scala:6
 ```
 
 A row carries the number and the reason: `ω` is a countably infinite value space (a recursive
 type solved as a fixed point, a lazy hole that unfolds for ever), `ε₀` the tier above it,
-`2^32` an upper bound on a finite count the calculator tracks in bits, `?` a size some name
-stopped it from bounding, and `—` a definition with no cardinality of its own (an abstract
-type). A `?` row still carries the size the calculator reached, and the summary tells definitions
-whose size depends on their own type parameters apart.
+`≤2^32` an upper bound on a finite count the calculator tracks in bits (`(lossy)` when it holds
+floating point), `?` a definition with no single number here, and `—` a definition with no
+cardinality of its own (an abstract type). A `?` row is followed by its reason, which says what
+would give it a number — the instantiation it depends on, the open abstraction, the name not
+supplied — and the summary counts those cases apart.
 
 The report reads the algebra's sums as they are, coefficients included: `Either[String, String]`
 is `ω + ω`, and a module with two `String => String` methods and one `String` field is
-`2ε₀ + ω`. What the calculator cannot bound, it names: a `?` row says both that the number
-reached ω or beyond and which type names stopped it from being tighter.
+`2ε₀ + ω`. What the calculator cannot bound, it names rather than guessing a tier.
 
 `cardinalityReport` and `cardinalityReportSelected` also read the declarations of the project's
 `Compile / dependencyClasspath` from their compiled TASTy, Scala 2 pickles and Java `.class`
@@ -392,11 +410,11 @@ cs fetch --sources dev.constructive:cats-eo_3:0.16.0
 sbt 'cardinalityReportOf <cache>/cats-eo_3-0.16.0-sources.jar'
 ```
 
-Its run over `eo-core` 0.16.0 (53 sources, 134 definitions) reads: 7 unresolved, 25
-instantiation-dependent, 5 unbounded by an open abstraction, 2 type constructors with no value
-space, 3 with more than one value (the two `2^32` array builders and a countable `PSVec.Slice`),
-81 holding a single value (the modules and the sealed parents whose one case is a module),
-5 with no values (the `X` aliases), 6 abstract. A library of generic optics has no small state
+Its retained run over `eo-core` 0.16.0 (analyzer `7f8bcff`; 53 sources, 134 definitions) reads:
+7 unresolved, 25 instantiation-dependent, 5 unbounded by an open abstraction, 2 type constructors
+with no value space, 3 with more than one value (the two `2^32` array builders and a countable
+`PSVec.Slice`), 81 holding a single value (the modules and the sealed parents whose one case is a
+module), 5 with no values (the `X` aliases), 6 abstract. A library of generic optics has no small state
 spaces to find; what the report says about it is *why* each row has no number — the type
 parameters a generic class leaves open, or the capability an unsealed trait leaves to its
 implementations.
@@ -421,15 +439,23 @@ parameterized by the build. The task refreshes a file it generated and refuses t
 one it did not, so adopting a newer template means deleting or moving the old copy first.
 
 The whole project is read at once by the opt-in `cardinality.EoCheckout` runner: pointed at a
-cats-eo checkout, it takes every production source of every module — the `v1.0.0` run covers
-thirteen modules, 189 sources and 1,639 signatures — and requires that all of it parse, that
-input order cannot move a result, that row identities stay unique, and that the production
-`Report.of` path renders the same report. An optional fourth argument names a classpath file (one
+cats-eo checkout, it takes every production source of every module — the `v1.0.0` run (main
+`36cd3cd`, sources only) covers thirteen modules, 189 sources, 435 definitions and 2,074
+signatures (354 finite, 185 countably infinite, 1,535 unresolved; 1,639 before definitions beyond
+`def`s got rows, register D28) — and requires that all of it parse, that input order cannot move a
+result, that row identities stay unique, and that the production `Report.of` path renders the
+same report. It also writes `eo-checkout-definitions.tsv`, and
+`sbt 'core/Test/runMain cardinality.EoDelta <old-run> <new-run>'` prints the per-row delta between
+two runs. An optional fourth argument names a classpath file (one
 jar per line): every Scala 3 and Java class those jars declare is read from its TASTy or class
 file and joins the
 environment as a signature stub - names and types, no bodies - never as a report row (see
-[`docs/plans/bounded-dependency-resolution.md`](docs/plans/bounded-dependency-resolution.md)). Its ledger, per-module inventory and blocker buckets
-are at [`docs/baselines/eo-checkout-2026-10-27-full.md`](docs/baselines/eo-checkout-2026-10-27-full.md).
+[`docs/plans/bounded-dependency-resolution.md`](docs/plans/bounded-dependency-resolution.md)). Its
+ledger, per-module inventory, the classification of every unresolved row (by design or analyzer
+gap), the known limits and the independent audits are at
+[`docs/baselines/eo-checkout-2026-11-14-full.md`](docs/baselines/eo-checkout-2026-11-14-full.md);
+the [2026-10-27 ledger](docs/baselines/eo-checkout-2026-10-27-full.md) is the state before the
+work that ledger records.
 
 ### Method and constructor cardinality
 
@@ -448,14 +474,25 @@ data type: `Pair[Int]` still holds `2^64` values.
 enclosing value, a callable producer and a product projection all count as captures, and a type
 parameter's identity is per binder, so a shadowed `A` is not an outer `A`.
 
+Rows also cover definitions beyond `def`s and primary constructors (register D28): given aliases
+and abstract givens (a method of their clauses), member `val`s and `var`s (a nullary signature of
+their type), members of anonymous classes, definitions in nested blocks, function literals, case
+clauses and comprehensions, parameterized enum cases' constructors, abstract classes' and traits'
+primary constructors, and secondary constructors (a `this(…)` signature) — each measured by the rule
+its translation has. A row is named by the path of its owners in the source: an anonymous given is
+`<given@L>` and an extension group `<extension@L>`, L the line it starts on; a nested scope is its
+kind and its ordinal under its parent (`<new#1>`, `<case#2>`, `<block#1>`, `<lambda#1>`,
+`<for#1>`); a secondary constructor is `<init>` like the primary one, told apart by its kind
+(`method`) and its `this(…)` signature.
+
 What the analysis cannot read is `?`, with the reason, and the section header sums the reasons
 into the triage list:
 
 ```
 Generic method / constructor implementation cardinalities
   53 signatures: 41 finite · 3 countably infinite · 9 unresolved
-  8 unresolved on: unresolved type
-  1 unresolved on: given environment not resolved
+  8 unresolved on: declaration not supplied
+  1 unresolved on: recursive type not read
 
 4  example.Pair.<init>  Pair[A](left: A, right: A)  Light.scala:11  [constructor]
 1  example.Accessor.get  get[X, A](fa: (X, A)): A  Accessor.scala:18  [method]
@@ -482,15 +519,17 @@ Recursive aliases, abstract type members, bounded or higher-kinded alias paramet
 type-lambda aliases remain guarded, and an opaque alias outside its scope is one value; expansion respects the configured type-depth limit, including
 nested argument positions.
 
-The refreshed eo-core 0.16.0 run reads **480 signatures: 32 finite, 4 countably infinite,
-444 unresolved**. The [review ledger](docs/baselines/eo-core-0.16.0-review.md) records the
-reproduction command, every numeric change since the previous baseline — the fifteen rows the
-refreshed analyzer resolved, then the four constructor rows the parameter-space rule moves — and
-five independently derived model counts checked against the original archive. The other numeric
-rows remain provisional. Major overlapping obligations include abstract/member-bearing
-representations (225 rows), unresolved types (179), polymorphic capability binders (104), inherited
-override identity (78), and higher-kinded parameters. These are named next steps, not claims about
-the code.
+The retained eo-core 0.16.0 baseline (analyzer `7f8bcff`) reads **480 signatures: 32 finite,
+4 countably infinite, 444 unresolved**; at main `36cd3cd` the same archive reads 644 signatures
+(212 finite, 45 countably infinite, 387 unresolved), the five reviewed counts unchanged. The
+[review ledger](docs/baselines/eo-core-0.16.0-review.md) records the reproduction command, every
+numeric change up to the retained baseline — the fifteen rows the refreshed analyzer resolved, then
+the four constructor rows the parameter-space rule moves — and five independently derived model
+counts checked against the original archive. The other numeric rows remain provisional. At
+`7f8bcff` the major overlapping obligations were abstract/member-bearing representations (225
+rows), unresolved types (179), polymorphic capability binders (104), inherited override identity
+(78) and higher-kinded parameters; the
+[full-checkout ledger](docs/baselines/eo-checkout-2026-11-14-full.md) has the current ones.
 
 ### Bounded selected reports
 
@@ -567,10 +606,11 @@ fails the build and exists to guide test investment.
 The Scala 3 compiler options in [build.sbt](build.sbt) follow the recommendations
 from [sbt-typelevel-settings](https://github.com/typelevel/sbt-typelevel),
 with the broader `-Wunused:all` checks and `-Werror`: warnings
-fail both production and test compilation, locally and in CI. On Scala 3.9+
-the build enables `-opt` and `-opt-inline:<sources>`, limiting bytecode inlining
-to the current compilation's sources rather than dependencies. These optimizer
-flags are disabled while the plugin and core target sbt's Scala 3.8.4 runtime.
+fail both production and test compilation, locally and in CI. On Scala 3.9 and
+later the build enables `-opt` and `-opt-inline:<sources>`, limiting bytecode
+inlining to the current compilation's sources rather than dependencies: `core`
+compiles with Scala 3.10.1 and the sbt 2 and Mill plugins with 3.9.0, so all three
+are optimized; the sbt 1 plugin, on Scala 2.12.20, compiles without them.
 
 On pull requests each workflow posts its results, passing and failing alike, as
 one comment that is edited in place on every push: `ci.yml` the gates with the

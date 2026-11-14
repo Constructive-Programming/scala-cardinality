@@ -10,8 +10,8 @@ import org.specs2.Specification
   * abstract givens, member values, members of anonymous classes, enum-case, abstract-class, trait
   * and given-instance constructors, and secondary constructors — each measured by the rule its kind
   * already has (definitions of a body's inner scopes: `NestedScopesSpec`). Every fixture compiles
-  * with Scala 3.9.0 (`$S/probes/b5/spec`, `$S/probes/b5-fix2/spec`); each expected number is
-  * derived beside it.
+  * with Scala 3.9.0 (session fixtures `b5/spec`, `b5-fix2/spec`); each expected number is derived
+  * beside it.
   */
 class DefinitionInventorySpec extends Specification with InventoryFixtures {
 
@@ -87,7 +87,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
   // An inline given alias is a row read like an inline method (register D27): its body uses no
   // compile-time operation, so it counts as its given twin — a Boolean, 2; a Boolean from b
   // (negation, identity, the two literals), 4 — while one that summons is refused. Fixture
-  // `$S/probes/b5-land/giv.scala` (3.9.0).
+  // Session fixture `b5-land/giv.scala` (3.9.0).
   def inlineGivens = {
     val code =
       """|import scala.compiletime.summonInline
@@ -157,7 +157,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("O.<given@9>") === "2")
   }
 
-  // Each name as 3.9.0's `-Xprint:typer` prints it (fixtures `$S/probes/b5-fix2/gname`). The parser
+  // Each name as 3.9.0's `-Xprint:typer` prints it (session fixtures `b5-fix2/gname`). The parser
   // drops the bound of `Ord[? <: String]` (3.9.0: given_Ord_String), so that name is not known.
   def synthesizedNames = {
     val source = dialects

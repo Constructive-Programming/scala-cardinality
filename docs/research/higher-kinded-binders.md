@@ -155,16 +155,17 @@ either, so the meeting is refused.
 
 - J.-Y. Girard, strong normalisation of System Fω (1972) — **classical**.
 - R. Atkey, *Relational Parametricity for Higher Kinds*, CSL 2012, DOI 10.4230/LIPIcs.CSL.2012.46 —
-  **metadata-verified** (design memo session); a model, not a counting algorithm.
+  **metadata-verified** (the abstract reports a model of relational parametricity for System Fω); a
+  model, not a counting algorithm.
 - D. Vytiniotis & S. Weirich, *Parametricity, Type Equality and Higher-order Polymorphism*, JFP
-  20(2), 2010, DOI 10.1017/S0956796810000079 — **metadata-verified**; equality is inhabited only by
-  the identity, which justifies rewriting under `=:=`.
-- H. Friedman, *Equality between functionals*, LNM 453, 1975 — **metadata-verified via secondary
-  sources**; D. Dougherty & R. Subrahmanyam, *Equality between functionals in the presence of
-  coproducts*, Inf. Comput. 157, 2000 — **metadata and abstract verified**; completeness of the
-  set-theoretic model for βη (with sums).
+  20(2), 2010, DOI 10.1017/S0956796810000079 — **metadata-verified (design memo session, not
+  re-checked)**; equality is inhabited only by the identity, which justifies rewriting under `=:=`.
+- H. Friedman, *Equality between functionals*, LNM 453, 1975 — **classical**; its publication
+  record was not verified. D. Dougherty & R. Subrahmanyam, *Equality between functionals in the
+  presence of coproducts*, Inf. Comput. 157, 2000 — **classical**, not verified by the metadata
+  pass. Completeness of the set-theoretic model for βη (with sums).
 - B. C. Pierce, *Bounded quantification is undecidable*, Inf. Comput. 112(1), 1994 —
-  **metadata-verified**.
+  **metadata-verified (design memo session, not re-checked)**.
 - Scala 3.9.0 compiler fixtures (this session): context bounds desugar to `using` parameters and
   two same-typed ones are ambiguous (E172); `summon[B]` with `A <: B` evidences of both selects the
   `B` parameter (run); kind-projector placeholders, named context bounds and every positive

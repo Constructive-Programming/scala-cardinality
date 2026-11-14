@@ -194,9 +194,10 @@ class SequenceEliminationSpec extends Specification {
       "sequence elimination: two answers only for empty sequences up to length 2"
     )
 
-  // Cross-check X2 (`xprobe/se`). `n: A => Nothing` makes every nonempty length absurd: c(0) = 2,
-  // c(1) = c(2) = 1, and only the empty sequence can be passed, so the true count is 2 — never ω.
-  // With `Int` elements the sequence is closed data and `n(0)` already proves the context absurd: 1.
+  // Cross-check X2 (session fixture `se`). `n: A => Nothing` makes every nonempty length absurd:
+  // c(0) = 2, c(1) = c(2) = 1, and only the empty sequence can be passed, so the true count is 2 —
+  // never ω. With `Int` elements the sequence is closed data and `n(0)` already proves the context
+  // absurd: 1.
   def absurdElement = {
     val code = """object T {
       |  def varAbsurd[A](n: A => Nothing, xs: A*): Boolean = true

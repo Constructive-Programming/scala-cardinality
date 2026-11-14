@@ -16,7 +16,8 @@ import cardinality.types.Trees.hasCase
   * (the closed-package assumption, docs/research/stdlib-model.md). A package the sources spell only
   * as the prefix of a deeper one (`zzz` for `package zzz.inner`) holds its subpackages and whatever
   * a dependency declares there — Scala 3.9.0 binds a `zzz.Two` of another compilation unit through
-  * `import zzz.*` (probes/review-A7/r14) — so it is open, like a namespace no source supplies.
+  * `import zzz.*` (session fixture review-A7/r14) — so it is open, like a namespace no source
+  * supplies.
   */
 final private[resolution] class SuppliedNamespaces(
     types: List[TypeEntry],

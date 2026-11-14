@@ -193,7 +193,7 @@ private[cardinality] object BodyScopes {
 
   // Scala 3 constrains a type parameter in scope by matching a constructor, typed or stable
   // identifier pattern (an object's), whose type may extend the scrutinee's with arguments of its
-  // own; a binder, a wildcard or a literal adds nothing (3.9.0 fixtures `$S/probes/b5-fix2/refine`).
+  // own; a binder, a wildcard or a literal adds nothing (3.9.0 session fixtures `b5-fix2/refine`).
   private def refining(pat: Pat): Boolean = pat match {
     case _: (Pat.Wildcard | Pat.SeqWildcard | Pat.Var | Pat.Repeated | Lit) => false
     case b: Pat.Bind                                                        => refining(b.rhs)

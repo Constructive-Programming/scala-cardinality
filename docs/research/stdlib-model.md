@@ -50,7 +50,7 @@ goal of `E.A.type` is 1.
 total constructor and public fields, so their values are exactly the products of their fields;
 `Left`'s second parameter is phantom. `NamedTuple` is an opaque alias of its value tuple with
 total conversions both ways (SIP-58), so it holds the values `V` holds. These are the sum
-and product rules of [type-arithmetic.md](../type-arithmetic.md) §2 applied to declarations whose
+and product rules of [counting data](../site/arithmetic/counting-data.md) §2 applied to declarations whose
 representation the language fixes. Every spelling of one entry is one key —
 `Tuple2[X, A]`, `scala.Tuple2[X, A]` and `(X, A)` in override identity, `Either` and
 `scala.util.Either` in evidence identity, `List` and `scala.collection.immutable.List` as the
@@ -58,7 +58,7 @@ argument of a rigid constructor ([higher-kinded binders](higher-kinded-binders.m
 reviewed `Accessor.tupleAccessor.get = 1` keeps its value.
 
 **Sequences.** A strict list is the least fixed point `μX. 1 + E × X ≅ Σₙ Eⁿ`
-([type-arithmetic.md](../type-arithmetic.md) §4, §8; register D4). A pure, total program observes a
+([counting data](../site/arithmetic/counting-data.md) §4, §8; register D4). A pure, total program observes a
 `Vector`, an `IndexedSeq`, an `ArraySeq` or an `Array` only by its length and its elements by
 position — identity and mutation are outside the contract — so one `Repeated` shape loses nothing.
 Introduction is Nil/Cons (in the solver already). An `Array` is built only with its element's
@@ -113,7 +113,7 @@ it:
 - otherwise `?` (`sequence elimination: …`), and `?` past three sequences.
 
 *Derivation.* `Seq[E] ≅ Σₙ Eⁿ`, and a function out of a sum is a product of functions
-(type-arithmetic.md §7: for `List` the shapes are lengths), so an implementation is a family
+([counting data](../site/arithmetic/counting-data.md) §7: for `List` the shapes are lengths), so an implementation is a family
 `(f_n̄)` with `f_n̄` an inhabitant of `Γ(n̄)`, selected by a total length test and positional
 patterns. (1) The empty input is admissible, so `c(0̄) = 0` leaves no total family — which is why
 the fields of a receiver no public constructor builds are what its factories build (register
@@ -234,7 +234,7 @@ does not list, `quotes.reflect` — may bind any name, so the method side reads 
 
 What keeps its reading: a definition of the reading file (in its scope or an outer one, or in
 another block of the same package in that file — a definition of the compilation unit, Scala 3.9.0
-fixture `probes/review-A7/r9`), an inherited member, an explicit import, a wildcard of the same
+session fixture `review-A7/r9`), an inherited member, an explicit import, a wildcard of the same
 scope over a supplied namespace that binds the name, and a `_root_` path. Scala rejects (E049) a
 reference that one of them and an inner or same-scope wildcard both bind, so where the program
 compiles the
@@ -265,7 +265,7 @@ The same reading covers every clause that may bind a name besides a wildcard ove
 
 A path's first name is a term, so a clause over a supplied namespace binds it to a term member
 the clause imports (`TermMembers`; Scala 3 reference, given imports, and the fixtures
-`probes/review-A7/round2/*`, `probes/a7fix2/spec`): a wildcard binds every accessible member but a
+`review-A7/round2/*`, `a7fix2/spec`): a wildcard binds every accessible member but a
 given, a `given` selector the given and implicit ones, and neither binds a private member outside
 where it is accessible. The members are the namespace's own definitions — a package's
 subpackages among them, never a type or a class of the name (`import Lib.*` with `class two`
@@ -294,7 +294,7 @@ path through a parameter whose declared type it refuses (that refusal is the pat
 the conversions an inline body may meet
 — there the supplied declaration a wildcard may hide is what is read, the alternative being a
 declaration outside the sources, which is not read as a conversion (register D27's boundary).
-Scala 3.9.0 fixtures (`probes/a7/prec`, `probes/a7/plain`): `import zzz.w.*` binds `zzz.w.Fst` over
+Scala 3.9.0 session fixtures (`a7/prec`, `a7/plain`): `import zzz.w.*` binds `zzz.w.Fst` over
 another file's `p.Fst`; `import zzz.v.*; import compose.*` binds `zzz.v.compose.Fst`; `import
 zzz.v.*; import dev.other.Y` binds `zzz.v.dev.other.Y`, and the type `dev.r.optics.BijectionIso`
 under `import zzz.syntax.functor.*` is `zzz.syntax.functor.dev.r.optics.BijectionIso` while the

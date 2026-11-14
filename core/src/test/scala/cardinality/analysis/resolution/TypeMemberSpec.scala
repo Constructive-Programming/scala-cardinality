@@ -8,7 +8,7 @@ import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 import org.specs2.execute.Result
 
-// Members M0–M5, MT1′–MT3 and gate G1 (design/members.md). Every fixture is valid Scala 3.9.0
+// Members M0–M5, MT1′–MT3 and gate G1 (type-members design). Every fixture is valid Scala 3.9.0
 // unless marked; the compiler facts the readings rest on are pinned against `memberfixture`.
 class TypeMemberSpec extends Specification {
   import Inhabitation.Count

@@ -10,7 +10,7 @@ import org.specs2.execute.Result
 
 // The scope a member reading binds names in (second review of B2): refinement bodies, fields read
 // for a receiver, templates only some scope may extend. Every fixture is valid Scala 3.9.0 unless
-// marked (`$S/probes/b2fix2/spec`); the compiler facts are pinned against `memberfixture`.
+// marked (session fixture `b2fix2/spec`); the compiler facts are pinned against `memberfixture`.
 class TypeMemberScopeSpec extends Specification {
   import Inhabitation.Count
   import NaturalSyntax.pow

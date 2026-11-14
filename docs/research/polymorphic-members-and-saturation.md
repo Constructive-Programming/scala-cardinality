@@ -6,9 +6,10 @@ although other producers carry reasons. Register entries:
 [D24](code-cardinality-foundations.md#d24-a-polymorphic-capability-member-is-read-up-to-its-free-theorems)
 and
 [D25](code-cardinality-foundations.md#d25-a-supplied-sum-is-eliminated-once-per-argument-and-path).
-Design memo: capabilities.md C8, C10 and C11 (restricted as SYNTHESIS D-capabilities and crosscheck
-X3 require; X7 and X8 are answered below). Regressions: `PolymorphicMemberSpec`,
-`NeutralSaturationSpec` (fixtures compiled with scalac 3.9.0; the C11 fixture is the crosscheck's
+Rules C8, C10 and C11 of the capabilities design (C11 restricted as decision D-capabilities and
+cross-check X3 require, [register appendix](code-cardinality-foundations.md#appendix-cross-check-items);
+X7 and X8 are answered below). Regressions: `PolymorphicMemberSpec`, `NeutralSaturationSpec`
+(fixtures compiled with scalac 3.9.0; the C11 fixture is the cross-check's session fixture
 `c11`), `EnvironmentBinderSpec` (PB5; compiled with scalac 3.9.0), and the updated `OpaqueSumForwardingSpec`, `InhabitationSpec`, `GroundTypesSpec`.
 
 ## Rules
@@ -153,7 +154,7 @@ same maps carry implementations both ways. Why not instantiate naively: `foldMap
 `foldMap(a => foldMap(_ => a)(s))(s)`, … are pairwise distinct terms but one value under
 parametricity (`PolymorphicMemberSpec.fold`: naive ω, true 1).
 
-*PB2.* Instantiation is restricted to binders the goal fixes (crosscheck X7's alternative).
+*PB2.* Instantiation is restricted to binders the goal fixes (cross-check X7's alternative).
 Coverage holds for a member none of whose paths ends in a bare binder. A path the solver
 instantiates then ends in an application of a rigid constructor (`F[M]`), which no long normal form
 eliminates further: every application of it stands at a goal of the solver's graph whose match fixes
@@ -197,13 +198,13 @@ redundant (β and η for sums), so every term equals one that cases on each neut
 exactly once, as soon as its arguments exist: the saturated normal forms of focused proof search.
 Distinct neutral terms are distinct values for some supply of the free producers, so their cases
 combine independently; a case that makes the context absurd is collapsed by the solver's per-node
-absurd rule (crosscheck X8: the empty-type part rests on that rule, never on an at-most-two
+absurd rule (cross-check X8: the empty-type part rests on that rule, never on an at-most-two
 cutoff). Finiteness is checked, not assumed: the argument enumeration and the case-to-argument
 graph refuse every unbounded family.
 
 *C11.* Lower bound: the cycle's terms are pairwise distinct terms of every rule along the path, and
 each sibling has a real term, so there are infinitely many. They stay distinct: further producers
-can merge terms only by making a context absurd (crosscheck X3's `branchAbsurd`) or a sibling empty
+can merge terms only by making a context absurd (cross-check X3's `branchAbsurd`) or a sibling empty
 (`siblingZero`), and both are excluded at every goal on the way. Upper bound: a program text is
 finite (register D2).
 

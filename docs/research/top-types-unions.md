@@ -105,7 +105,8 @@ F[Unit]` in an input for every `F` that passes its place on to its argument — 
 excepted, which Rule P reads as ω. An input `Set[Any]` is `Set[Unit]` too: Rule P (5).
 
 **Derivation.** A type with no operations is the existential `∃X. X` (Mitchell and Plotkin's
-"abstract types have existential type", **classical**). Encoded, `∃X. X ≅ ∀R. (∀X. X → R) → R`.
+"abstract types have existential type", **classical** (C-10); record **metadata-verified**).
+Encoded, `∃X. X ≅ ∀R. (∀X. X → R) → R`.
 For `k : ∀X. X → R` with `R` independent of `X`, the abstraction theorem at the relation
 `{(t, ())} ⊆ T × 1` gives `k[T](t) = k[1](())` (the free theorem `k[U] ∘ g = k[T]` at
 `g = !ₜ : T → 1`; register D3), so `∀X. X → R ≅ R`: a function receiving a top observes nothing of
@@ -290,8 +291,11 @@ universal property of the coproduct, so `U ≅ ΣAᵢ`, which adds in result pos
 only among the alternatives the static type lists and returns each value at the type it was
 injected from — unlike a test on `Any`, which needs a default case and recovers what an upcast hid.
 
-Disjointness is the class-level half of Scala 3's `provablyDisjoint` (`TypeComparer`; SIP-56,
-**classical**), which reduces a match type past a case only for a provably disjoint scrutinee:
+Disjointness is the class-level half of Scala 3's `provablyDisjoint` (SIP-56 [1] and the draft
+specification ch. 3 [29], **Inspected (full text) — bibliographer**; see the
+[bibliography](bibliography.md)), which reduces a match type past a case only for a provably
+disjoint scrutinee; a sealed class counts only when it is "`sealed` without anonymous child", so a
+family with an anonymous child is never disjoint (refused here too):
 final class vs unrelated trait, unrelated classes, sealed trait with final leaves vs open trait,
 object vs `Tuple2` reduce; non-final class vs open trait, two open traits and type parameters stay
 stuck (Scala 3.9.0 compiler fixtures). The deliberate deviation: Scala also separates `Box[Int]`
@@ -386,7 +390,8 @@ parameter (`type Id[A] = A` applied to a union reads the union as written, which
 ## Evidence
 
 - Mitchell and Plotkin 1988, *Abstract types have existential type* (TOPLAS 10(3)) —
-  **classical**.
+  **classical** (C-10); record **metadata-verified**, the abstract reports abstract data type
+  declarations typed as existential types.
 - Reynolds 1983 and Wadler 1989 (register D3) — the abstraction theorem and free theorems behind
   `∀X. X → R ≅ R`.
 - The universal property of the coproduct — **classical**.
