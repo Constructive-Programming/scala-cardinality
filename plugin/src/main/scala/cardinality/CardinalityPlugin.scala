@@ -1,9 +1,7 @@
 package cardinality
 
-import cardinality.analysis.MethodAnalysis
 import cardinality.reporting.{Report, Skill}
-import cardinality.request.{AnalysisQuery, SourceSnapshot}
-import cardinality.tasty.{CompiledTypes, StubFile}
+import cardinality.tasty.CompiledTypes
 import sbt.*
 import sbt.Keys.*
 import sbt.util.CacheImplicits.given
@@ -23,47 +21,22 @@ object CardinalityPlugin extends AutoPlugin {
 
     val cardinalityReportOf = inputKey[Unit](
       "Report the cardinality of the Scala sources at the given paths: files, directories, or a " +
-        "sources jar such as the one a published library ships. The TASTy front end reads a " +
-        "library's binary jar given beside its sources jar.",
+        "sources jar such as the one a published library ships, given beside the library's " +
+        "binary jar, whose compiled classes are read.",
     )
 
     val cardinalityReportSelected =
-      inputKey[Unit]("Bounded implementation report for the given qualified method names.")
+      inputKey[Unit]("The implementation report of the given qualified method names alone.")
 
-    val cardinalityQuerySupport =
-      settingKey[Seq[File]](
-        "Explicit supporting source roots for selected reports; never report targets."
-      )
-
-    val cardinalityQueryBudget =
-      settingKey[AnalysisQuery.Budget]("Logical indexing and per-target/request work limits.")
-
-    val cardinalityQueryLimits =
-      settingKey[MethodAnalysis.Limits]("Type depth and solver state limits for selected reports.")
-
-    val cardinalitySnapshotLimits =
-      settingKey[SourceSnapshot.Limits]("Input acquisition limits for selected reports.")
-
-    // Content-hashed references: the cached stub task below is keyed by the jars' contents.
+    // Content-hashed references, as sbt 2 hands out the dependency jars.
     val cardinalityDependencyClasspath = taskKey[Seq[HashedVirtualFileRef]](
-      "Compiled dependencies whose declarations the reports read; `Nil` reads sources only."
-    )
-
-    val cardinalityDependencyStubs = taskKey[HashedVirtualFileRef](
-      "The dependencies' declarations rendered as stubs: cached by sbt by the jars' contents."
+      "Compiled dependencies the project's compiled classes are read against."
     )
 
     val cardinalityReportFile =
       settingKey[File](
         "Where a report is written, under the project's target directory by default."
       )
-
-    val cardinalityFrontEnd = settingKey[Report.Front](
-      "Which front end reads the sources: `CardinalityFrontEnd.Tasty` reads the compiled classes " +
-        "alone and refuses sources that do not compile."
-    )
-
-    val CardinalityFrontEnd = Report.Front
 
     val cardinalitySkillFile = settingKey[File](
       "Where cardinalitySeedSkill writes the reduction skill, under the build's root by default."
@@ -79,18 +52,8 @@ object CardinalityPlugin extends AutoPlugin {
 
   import autoImport.*
 
-  // The stub file's format (`StubFile.Format`): an input of the cached stub task, so a renderer
-  // whose stubs differ never reads a file an earlier one wrote.
-  private val cardinalityStubFormat =
-    settingKey[String]("The format of the dependency stub file (internal).")
-
   override def projectSettings: Seq[Setting[?]] = dependencySettings ++ Seq(
     cardinalityReportFile := target.value / "cardinality" / "report.txt",
-    cardinalityFrontEnd := Report.Environment().frontEnd,
-    cardinalityQuerySupport := Nil,
-    cardinalityQueryBudget := AnalysisQuery.Budget(),
-    cardinalityQueryLimits := MethodAnalysis.Limits(),
-    cardinalitySnapshotLimits := SourceSnapshot.Limits(),
     // Seeding is a repository-level act: the default lands beside the other agent instructions
     // at the build's root, wherever the task is run from.
     cardinalitySkillFile := (ThisBuild / baseDirectory).value / ".claude" / "skills" /
@@ -108,17 +71,9 @@ object CardinalityPlugin extends AutoPlugin {
     cardinalityReport := Def.uncached {
       val log = streams.value.log
       val scalaSources = (Compile / sources).value
-      val stubs = fileConverter.value.toPath(cardinalityDependencyStubs.value)
       report(
         log,
-        Report.of(
-          scalaSources.map(_.toPath),
-          Report.Environment(
-            stubs = Some(stubs),
-            classes = compiled.value,
-            frontEnd = cardinalityFrontEnd.value
-          )
-        ),
+        Report.of(scalaSources.map(_.toPath), Report.Environment(compiled.value)),
         cardinalityReportFile.value
       )
     },
@@ -135,7 +90,7 @@ object CardinalityPlugin extends AutoPlugin {
           log,
           Report.of(
             paths.map(path => file(path).toPath),
-            Report.Environment(classes = libraryClasses.value, frontEnd = cardinalityFrontEnd.value)
+            Report.Environment(Some(libraryClasses.value))
           ),
           cardinalityReportFile.value
         )
@@ -148,16 +103,8 @@ object CardinalityPlugin extends AutoPlugin {
         val found = Report.query(
           Report.Query(
             (Compile / sources).value.map(_.toPath),
-            cardinalityQuerySupport.value.map(_.toPath),
             names.toSet,
-            cardinalitySnapshotLimits.value,
-            cardinalityQueryLimits.value,
-            cardinalityQueryBudget.value,
-            Report.Environment(
-              stubs = Some(fileConverter.value.toPath(cardinalityDependencyStubs.value)),
-              classes = compiled.value,
-              frontEnd = cardinalityFrontEnd.value
-            )
+            Report.Environment(compiled.value)
           )
         )
         val output = cardinalityReportFile.value
@@ -170,58 +117,30 @@ object CardinalityPlugin extends AutoPlugin {
     },
   )
 
-  // The project's compiled classes and the jars their types refer to: a member written without a
-  // result type reads the compiler's (`CompiledTypes`). `exportedProducts` compiles first, so the
-  // classes match the sources the report reads. Sources that do not compile are still reported
-  // from their syntax alone by the scalameta front end, and refused by the TASTy one.
+  // The project's compiled classes and the jars their types refer to, which the report reads.
+  // `exportedProducts` compiles first, so the classes match the sources the report reads. Sources
+  // that do not compile hand no classes, and the report refuses every one of them.
   private val compiled = Def.task {
     val converter = fileConverter.value
     val classpath = cardinalityDependencyClasspath.value.map(converter.toPath)
-    val front = cardinalityFrontEnd.value
     (Compile / exportedProducts).result.value.toEither match {
       case Right(products) =>
         Some(CompiledTypes.Classes(products.map(entry => converter.toPath(entry.data)), classpath))
       case Left(_) =>
-        streams.value.log.warn(
-          if (front == Report.Front.Tasty)
-            "sources do not compile: the TASTy front end reads none of them"
-          else "sources do not compile: reporting from their syntax alone"
-        )
+        streams.value.log.warn("sources do not compile: the report reads none of them")
         None
     }
   }
 
-  // What a binary jar given to `cardinalityReportOf` is read against: the project's dependencies,
-  // under the TASTy front end only, so that the scalameta one resolves nothing more.
-  private val libraryClasses = Def.taskIf {
-    if (cardinalityFrontEnd.value == Report.Front.Tasty)
-      Some(
-        CompiledTypes
-          .Classes(Nil, cardinalityDependencyClasspath.value.map(fileConverter.value.toPath))
-      )
-    else None
+  // What a binary jar given to `cardinalityReportOf` is read against: the project's dependencies.
+  private val libraryClasses = Def.task {
+    CompiledTypes.Classes(Nil, cardinalityDependencyClasspath.value.map(fileConverter.value.toPath))
   }
 
-  // The dependency declarations the reports read: which jars, and their stubs rendered once.
+  // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
+  // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
   private def dependencySettings: Seq[Setting[?]] = Seq(
-    // The project's own Compile dependencies, never `fullClasspath`: dependency paths stay explicit.
-    // sbt 2 hands out content-addressed jars, so each entry goes through the file converter.
-    cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data),
-    // An sbt 2 cached task: keyed by the jars' content hashes (`HashedVirtualFileRef`) and the stub
-    // format, its file is restored from the machine-wide cache instead of rendered again.
-    cardinalityStubFormat := StubFile.key,
-    cardinalityDependencyStubs := {
-      val converter = fileConverter.value
-      val _ = cardinalityStubFormat.value
-      val jars = cardinalityDependencyClasspath.value.map(converter.toPath).toList.distinct
-      // Under sbt's output root, which the converter writes as `${OUT}`: the declared file is then
-      // a relative reference, restorable on any machine sharing the cache.
-      val out = rootOutputDirectory.value.resolve(s"cardinality/${name.value}/stubs.bin")
-      StubFile.render(jars, out)
-      val file = converter.toVirtualFile(out)
-      Def.declareOutput(file)
-      file: HashedVirtualFileRef
-    }
+    cardinalityDependencyClasspath := (Compile / dependencyClasspath).value.map(_.data)
   )
 
   // Writes the report under `target/`, logs it, and fails the task when a source could not be read

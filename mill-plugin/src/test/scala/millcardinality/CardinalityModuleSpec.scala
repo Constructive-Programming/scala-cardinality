@@ -1,6 +1,5 @@
 package millcardinality
 
-import cardinality.reporting.Report
 import mainargs.Leftover
 import mill.*
 import mill.api.Discover
@@ -13,13 +12,6 @@ class CardinalityModuleSpec extends Specification {
 
     object foo extends CardinalityModule {
       def scalaVersion = "3.9.0"
-    }
-
-    // `foo`'s sources, read by the TASTy front end.
-    object bar extends CardinalityModule {
-      def scalaVersion = "3.9.0"
-      override def sources = foo.sources
-      override def cardinalityFrontEnd = Report.Front.Tasty
     }
 
     lazy val millDiscover = Discover[this.type]
@@ -42,7 +34,7 @@ class CardinalityModuleSpec extends Specification {
   private val fixture = os.Path(sys.props("user.dir")) / "src" / "test" / "resources" / "fixture"
 
   "cardinalityReport" should {
-    "write the module's report: Boolean × Option[Boolean] = 6; the compiler's (Boolean, Boolean) = 4, with either front end" in {
+    "write the module's report: Boolean × Option[Boolean] = 6; the compiler's (Boolean, Boolean) = 4" in {
       UnitTester(build, fixture).scoped { eval =>
         def text(report: Command[PathRef]) = {
           val Right(result) = eval(report): @unchecked
@@ -50,12 +42,10 @@ class CardinalityModuleSpec extends Specification {
         }
         def counted(text: String) =
           (text must contain("6  P.<init>")).and(text must contain("4  Q.pair"))
-        // Only the TASTy front end refuses a source without compiled classes.
+        // A source without compiled classes is refused.
         val uncompiled = Leftover((fixture / "foo" / "src" / "P.scala").toString)
         counted(text(build.foo.cardinalityReport()))
-          .and(counted(text(build.bar.cardinalityReport())))
-          .and(eval(build.foo.cardinalityReportOf(uncompiled)) must beRight)
-          .and(eval(build.bar.cardinalityReportOf(uncompiled)) must beLeft)
+          .and(eval(build.foo.cardinalityReportOf(uncompiled)) must beLeft)
       }
     }
   }

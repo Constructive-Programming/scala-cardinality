@@ -1,14 +1,5 @@
+# The selected report is the module's report filtered by qualified name: the support is compiled
+# with the module, and its rows are not reported.
 > cardinalityReportSelected example.get
 > checkSelected
-> set cardinalityQueryBudget := cardinality.request.AnalysisQuery.Budget(maxRequestWork = 1)
-> cardinalityReportSelected example.get
-> checkBudget
--> cardinalityReportSelected example.missing
-# The TASTy front end reads the selected row from the compiled classes, so the support is compiled
-# with the module; its rows are still not reported.
-> set Compile / unmanagedSourceDirectories += baseDirectory.value / "support"
-> set cardinalityQuerySupport := Nil
-> set cardinalityFrontEnd := CardinalityFrontEnd.Tasty
-> cardinalityReportSelected example.get
-> checkSelectedTasty
 -> cardinalityReportSelected example.missing

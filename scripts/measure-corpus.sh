@@ -8,16 +8,11 @@
 # `bench` project with the heap and stack build.sbt gives it). Only that call is timed: sbt's start,
 # the compile of this checkout and the JVM's start are outside it. Prints every run's `PERF` line,
 # the median with the lowest and highest run for wall time, CPU time and peak heap (the lower of the
-# two middle runs when the count is even), and the first run's `ROWS` and `TYPES` lines; writes the
+# two middle runs when the count is even), and the first run's `ROWS` line; writes the
 # rendered report to <report file>. Fails when two runs render different reports, or when the
 # report read no source.
 #
-# The `TYPES` line is the check that the corpus's sources and classes match. `inferred` above 0, or
-# `ascribed=0`, has three possible causes: the sources are not at the paths their TASTy records or
-# the classes are another version's; a compiled type has no spelling in source; or writing the
-# types into a source left it unparseable, which drops every type of that source. Only the first
-# is a fault of the corpus. A corpus whose reported members are all written with their types
-# shows nothing either way. Compare two reports with
+# Compare two reports with
 # `.claude/skills/cardinality-reduction/report-diff.scala` (`--rows` lists the rows that moved).
 #
 # Run it on a machine doing nothing else: the report uses every core. Paths may not hold spaces
@@ -64,7 +59,6 @@ spread() {
 grep '^PERF ' "$log"
 echo "MEDIAN of $runs: wall=$(spread wall) s cpu=$(spread cpu) s peakHeap=$(spread peakHeap) GiB"
 grep -m 1 '^ROWS ' "$log"
-grep -m 1 '^TYPES ' "$log"
 if grep -q '^ROWS sources=0 ' "$log"; then
   echo "the report read no source under $corpus" >&2
   rm "$log"

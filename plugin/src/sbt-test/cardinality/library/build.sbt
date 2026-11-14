@@ -34,7 +34,7 @@ librarySources := Def.uncached {
 // The test project itself, which does not aggregate the library's: a report runs once.
 lazy val root = project.in(file("."))
 
-// Stand-in for the library's binary jar, compiled here from the same sources: the TASTy front end
+// Stand-in for the library's binary jar, compiled here from the same sources: the report
 // reads it beside the sources jar.
 lazy val lib = project.settings(
   scalaVersion := "3.8.4",
@@ -48,7 +48,7 @@ libraryBinary := Def.uncached {
   out
 }
 
-// The rows the TASTy front end reads, as the sources jar places them. The sealed family `Optic` is
+// The rows the report reads, as the sources jar places them. The sealed family `Optic` is
 // not checked: its row is not read from compiled classes yet.
 val checkTasty = taskKey[Unit]("Check the rows read from the library's binary jar.")
 checkTasty := {

@@ -35,10 +35,6 @@ addSbtPlugin("io.stryker-mutator" % "sbt-stryker4s" % "1.1.1")
 libraryDependencies +=
   "org.typelevel" %% "laika-io" % "1.3.2"
 
-// Benchmarks. JMH drives the `bench` module (not aggregated: never part of CI); run with
-// `sbt "bench/Jmh/run"` and the inputs named in bench/README.md.
-addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.8")
-
 // Signing for Maven Central (`publishSigned`; the release workflow imports the key).
 addSbtPlugin("com.github.sbt" % "sbt-pgp" % "2.3.2")
 

@@ -6,7 +6,6 @@ import cardinality.analysis.MethodAnalysis
 import cardinality.analysis.inhabitation.Inhabitation
 import cardinality.capacity.*
 import cardinality.compiled.TastyFrontEnd
-import cardinality.request.{AnalysisQuery, SourceSnapshot}
 import cardinality.tasty.CompiledTypes
 import dev.constructive.eo.generics.{lens, prism}
 import java.io.IOException
@@ -72,97 +71,40 @@ final case class Report(
 
 object Report {
 
-  /** Opt-in implementation-only report. Supporting sources affect scope but never become rows.
-    * Snapshot/read/parse failures reject the entire request rather than certify a partial scope.
+  /** A selected report: the method rows of `targets`' report whose qualified name is one of
+    * `targetNames` (all of them when none is given), without the stored-value estimates.
     */
   final case class Query(
       targets: Seq[Path],
-      support: Seq[Path] = Nil,
       targetNames: Set[String] = Set.empty,
-      captureLimits: SourceSnapshot.Limits = SourceSnapshot.Limits(),
-      limits: MethodAnalysis.Limits = MethodAnalysis.Limits(),
-      budget: AnalysisQuery.Budget = AnalysisQuery.Budget(),
       environment: Environment = Environment()
   )
 
-  /** What a report reads beside its sources. `classpath` lists compiled dependencies (jars or class
-    * directories): their classes join the environment as signature stubs (`TastyStubs`), never
-    * measured and never reported. `stubs` names a file of stubs already rendered (`StubFile`), read
-    * instead of the classpath. `classes` is the sources' own compiled output: a member written
-    * without a result type takes the type the compiler gave it (`CompiledTypes`); its output may be
-    * empty where only the classpath is given, for a binary jar among the paths. `frontEnd` picks
-    * the front end that reads the sources; both plugins take their default from this field.
+  /** What a report reads beside its sources: `classes`, the sources' own compiled output and the
+    * dependency classpath it is read against. A source without compiled classes is refused; the
+    * output may be empty where only the classpath is given, for a binary jar among the paths.
     */
-  final case class Environment(
-      classpath: Seq[Path] = Nil,
-      stubs: Option[Path] = None,
-      classes: Option[CompiledTypes.Classes] = None,
-      frontEnd: Front = Front.Tasty
-  )
+  final case class Environment(classes: Option[CompiledTypes.Classes] = None)
 
-  /** The front ends (docs/plans/compiled-own-types.md, "Front end: design and status"). `Scalameta`
-    * reads the sources' syntax; `Tasty` reads the compiled classes alone (the module's, and a
-    * binary jar among the paths) and refuses a source without them.
-    */
-  enum Front {
-    case Scalameta, Tasty
-  }
-
-  final case class QueryResult(
-      report: Report,
-      snapshot: Option[String],
-      analysis: Option[AnalysisQuery.Result],
-      requestKey: Option[String] = None,
-      configuration: Option[String] = None
-  ) {
+  final case class QueryResult(report: Report) {
 
     def render: String =
       (List("Selected implementation analysis (no stored-value estimates)") ++
-        configuration.map(value => s"limits: $value") ++
-        snapshot.map(value => s"snapshot: $value") ++
-        requestKey.map(value => s"request: $value (persistent cache disabled)") ++
-        analysis.toList.flatMap(
-          _.usage.map(u => s"work: ${u.path} ${u.name}: ${u.consumed}/${u.quota}")
-        ) ++
         Report.methods(report.models, report.located) ++
         report.errors.map(Report.failed(_, report.located)) ++
         Report.warned(report.warnings)).mkString("\n")
 
   }
 
-  def query(request: Query): QueryResult = request.environment.frontEnd match {
-    case Front.Tasty     => selected(request)
-    case Front.Scalameta =>
-      val result = try readQuery(request)
-      catch {
-        case scala.util.control.NonFatal(error) =>
-          QueryResult(acquisitionFailed(error), None, None)
-      }
-      result.copy(configuration =
-        Some(
-          s"${request.captureLimits}; ${request.limits}; ${request.budget}"
-        )
-      )
-  }
-
-  // A query that failed before any row was measured: what was thrown, by its class alone.
-  private def acquisitionFailed(error: Throwable): Report =
-    Report(Nil, List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}")))
-
-  // A selected report from the compiled classes: the targets' report, its method rows filtered by
-  // qualified name (all of them when no name is given). The support is compiled with the module,
-  // so its classes are already read and its sources are not needed; the limits and budgets bound
-  // the syntax search only and have no counterpart here. Support sources outside the module are
-  // refused: an overrider there would be missing from the closed world, the count wrong.
-  private def selected(request: Query): QueryResult = {
+  /** The targets' report, its method rows filtered by qualified name. */
+  def query(request: Query): QueryResult = {
     val report =
-      if (request.support.nonEmpty)
-        Report(Nil, List(Error("", Report.SupportUnread)))
-      else
-        try of(request.targets, request.environment)
-        catch {
-          case scala.util.control.NonFatal(error) => acquisitionFailed(error)
-        }
+      try of(request.targets, request.environment)
+      catch {
+        // A query that failed before any row was measured: what was thrown, by its class alone.
+        case scala.util.control.NonFatal(error) =>
+          Report(Nil, List(Error("", s"query acquisition failed: ${error.getClass.getSimpleName}")))
+      }
     def chosen(entry: MethodAnalysis.Entry) =
       request.targetNames.isEmpty || request.targetNames(entry.name)
     // A name is not found only where every source was read: a refused source may hold it.
@@ -176,76 +118,8 @@ object Report {
         sources =
           report.sources.map(source => Source(source.path, Nil, source.methods.filter(chosen))),
         errors = report.errors ++ notFound
-      ),
-      None,
-      None
+      )
     )
-  }
-
-  private def readQuery(request: Query): QueryResult = {
-    val targetRoots = request.targets.map(SourceSnapshot.rootId).toSet
-    SourceSnapshot.capture(request.targets ++ request.support, request.captureLimits) match {
-      case Left(errors) =>
-        QueryResult(Report(Nil, errors.map(e => Error(e.path, e.message))), None, None)
-      case Right(snapshot) =>
-        val parsed = snapshot.sources.map { source =>
-          try ScalametaFrontEnd.parse(source.id -> source.text)
-          catch {
-            case _: StackOverflowError =>
-              Left(Error(source.id, "parser recursion limit exceeded"))
-          }
-        }
-        val errors = parsed.collect { case Left(error) => error }
-        if (!targetRoots.subsetOf(snapshot.roots.keySet))
-          QueryResult(
-            Report(Nil, List(Error("", "snapshot-changed: target roots changed"))),
-            None,
-            None
-          )
-        else if (errors.nonEmpty)
-          QueryResult(Report(Nil, errors), Some(snapshot.digest), None)
-        else {
-          val selected = targetRoots.flatMap(snapshot.roots)
-          val stubs =
-            ScalametaFrontEnd.dependencies(request.environment, snapshot.sources.map(_.text))
-          val (inputs, unread) = ScalametaFrontEnd.ascribed(
-            parsed.collect { case Right(input) => input },
-            request.environment.classes
-          )
-          val found = AnalysisQuery.run(
-            AnalysisQuery.Request(
-              inputs ++ stubs.inputs,
-              selected,
-              request.targetNames,
-              request.limits,
-              request.budget
-            )
-          )
-          val grouped = found.entries.groupBy(_.path)
-          val sources = snapshot.sources
-            .filter(source => selected(source.id))
-            .map(source => Source(source.id, Nil, grouped.getOrElse(source.id, Nil)))
-          QueryResult(
-            Report(
-              sources,
-              found.errors.map(message => Error("", message)),
-              warnings = unsupplied(stubs.errors) ++ unread
-            ),
-            Some(snapshot.digest),
-            Some(found),
-            Option.when(found.key.nonEmpty)(
-              SourceSnapshot.framedHash(
-                List(
-                  "report-query-v1",
-                  snapshot.digest,
-                  found.key,
-                  request.captureLimits.toString
-                )
-              )
-            )
-          )
-        }
-    }
   }
 
   /** One Scala source the report read: where it was read from — a file, or an entry of a sources
@@ -259,10 +133,6 @@ object Report {
 
   /** A source the report could not read or parse, and what went wrong. */
   final case class Error(path: String, message: String)
-
-  /** Why a selected report under the TASTy front end refuses support sources. */
-  val SupportUnread: String =
-    "support sources are not read by the TASTy front end: compile them into the module"
 
   /** One stored-value row as the report reads it: the size cell — `?` for a row with reasons, `—`
     * for a definition with no size of its own — and the summary class the row counts under.
@@ -288,17 +158,13 @@ object Report {
 
   /** Reads every Scala source under `paths` — a file, a directory walked recursively, or a jar such
     * as the `-sources.jar` a library publishes — and measures the definitions it finds, in
-    * `environment`. Under the TASTy front end a jar of compiled classes among `paths` (a library's
-    * binary jar) joins `environment.classes`' output, read against its classpath; the sources still
-    * name and place the rows.
+    * `environment`. A jar of compiled classes among `paths` (a library's binary jar) joins
+    * `environment.classes`' output, read against its classpath; the sources still name and place
+    * the rows.
     */
   def of(paths: Seq[Path], environment: Environment = Environment()): Report = {
     val listed = paths.toList.distinct
-    val (frontEnd, binaries) = environment.frontEnd match {
-      case Front.Scalameta => (ScalametaFrontEnd, Map.empty[Path, Boolean])
-      case Front.Tasty     =>
-        (TastyFrontEnd, listed.flatMap(path => compiledEntries(path).map(path -> _)).toMap)
-    }
+    val binaries = listed.flatMap(path => compiledEntries(path).map(path -> _)).toMap
     // A binary jar that holds no sources is not read, nor placed, as sources.
     val found = listed.filterNot(binaries.get(_).contains(false)).map(path => path -> read(path))
     val sources = found.flatMap(_._2.toOption).flatten
@@ -308,7 +174,7 @@ object Report {
         val module = environment.classes.getOrElse(CompiledTypes.Classes(Nil))
         Some(module.copy(output = module.output ++ listed.filter(binaries.contains)))
       }
-    val rows = frontEnd.rows(FrontEnd.Module(sources, environment.copy(classes = classes)))
+    val rows = TastyFrontEnd.rows(FrontEnd.Module(sources, Environment(classes)))
     // The front end answers each source in order; a path that could not be read stands where it
     // was listed.
     val answers = rows.sources.iterator
@@ -490,10 +356,6 @@ object Report {
   // A source or input that could not be read, placed as a row would be.
   private def failed(error: Error, location: String => String): String =
     s"  could not read ${location(error.path)}: ${error.message}"
-
-  // What a dependency's stubs could not supply, as a warning says it.
-  private[reporting] def unsupplied(stubs: List[String]): List[String] =
-    stubs.map(error => s"dependency stub not read: $error")
 
   // What the report read less of than it was given, after the errors.
   private def warned(warnings: List[String]): List[String] = warnings.map(warning => s"  $warning")

@@ -15,10 +15,9 @@ import cardinality.tasty.CompiledTypes
   * `classes`, the compiled output of exactly those sources (a directory or a jar); and
   * `classpath.txt`, one dependency jar per line.
   *
-  * Only the `Report.of` call is timed. It is given the dependency classpath, so rendering the
-  * dependency stubs is inside the call: a build pays for that too, in a task of its own. The
-  * rendered report goes to the output file; what the run cost and what the report holds go to
-  * standard output as `PERF`, `ROWS` and `TYPES` lines.
+  * Only the `Report.of` call is timed, reading the compiled classes against the dependency
+  * classpath. The rendered report goes to the output file; what the run cost and what the report
+  * holds go to standard output as `PERF` and `ROWS` lines.
   */
 object CorpusRun {
 
@@ -44,7 +43,7 @@ object CorpusRun {
     val cpuBefore = os.getProcessCpuTime
     val start = System.nanoTime
     val report =
-      Report.of(List(root), Report.Environment(classpath = classpath, classes = Some(classes)))
+      Report.of(List(root), Report.Environment(Some(classes)))
     val wall = (System.nanoTime - start) / 1e9
     val cpu = (os.getProcessCpuTime - cpuBefore) / 1e9
     val gc = (collectors.map(_.getCollectionTime).sum - gcBefore) / 1e3
@@ -69,7 +68,6 @@ object CorpusRun {
         .formatLocal(Locale.ROOT, wall, cpu, gc, heap, rss)
     )
     println(s"ROWS ${rows(report)}")
-    println(s"TYPES ${types(report)}")
   }
 
   // Rows by kind. A method row is finite, countably infinite, beyond countable or `?`; a stored
@@ -96,18 +94,6 @@ object CorpusRun {
       s"definitions=${report.definitionRows.size} finite=${definitions("finite")} " +
       s"countable=${definitions("countable")} beyond=${definitions("beyond")} " +
       s"unresolved=${definitions("?")} abstract=${definitions("—")}"
-  }
-
-  // What the report shows of the compiled types, read from its method rows' signatures (the
-  // analyzer reports no count of its own). `ascribed`: the rows whose signature spells a type from
-  // `_root_`, as the compiler's are written and sources rarely write. `inferred`: the rows still
-  // printed `<inferred>`, a member that took no compiled type. `errors` and `warnings`: the
-  // sources that did not parse, and what the report could not read (compiled types included).
-  private def types(report: Report): String = {
-    val signatures = report.methods.map(_.signature)
-    s"ascribed=${signatures.count(_.contains(": _root_."))} " +
-      s"inferred=${signatures.count(_.contains("<inferred>"))} " +
-      s"errors=${report.errors.size} warnings=${report.warnings.size}"
   }
 
 }

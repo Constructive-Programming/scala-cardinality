@@ -1,12 +1,9 @@
-# A library's published sources jar: cardinalityReportOf reports on sources the build does not
-# compile itself, which is how a dependency's types get measured.
+# A library's published jars: cardinalityReportOf reads the library's binary jar, its sources jar
+# naming and placing the rows, which is how a dependency's types get measured without vendoring
+# them into this build. Either jar alone is refused.
 > librarySources
-> cardinalityReportOf library-sources.jar
-$ must-mirror report.txt expected/report.txt
-# The TASTy front end reads the library's binary jar, its sources jar naming and placing the rows;
-# the binary jar alone is refused.
 > libraryBinary
-> set cardinalityFrontEnd := CardinalityFrontEnd.Tasty
 > cardinalityReportOf library.jar library-sources.jar
 > checkTasty
 -> cardinalityReportOf library.jar
+-> cardinalityReportOf library-sources.jar

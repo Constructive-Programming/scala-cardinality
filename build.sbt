@@ -76,19 +76,16 @@ lazy val core = project
     coverageMinimumStmtTotal := 80
   )
 
-// JMH benchmarks over a real checkout (bench/README.md). Not aggregated by `root`: benchmarks run
-// on demand, never in CI, and publish nothing.
+// Measurement over a frozen corpus (bench/README.md). Not aggregated by `root`: it runs on demand,
+// never in CI, and publishes nothing.
 lazy val bench = project
-  .enablePlugins(JmhPlugin)
-  // Core's tests too: the differential gate of the front-end rewrite (scripts/differential.sh)
-  // lives beside the spec that pins it, as `cardinality.compiled.Differential`, and runs here.
-  .dependsOn(core, core % "compile->test")
+  .dependsOn(core)
   .settings(
     name := "scala-cardinality-bench",
     publish / skip := true,
     coverageEnabled := false,
-    // `bench/runMain cardinality.bench.CorpusRun` (scripts/measure-corpus.sh) and the differential
-    // gate: a JVM of its own per run, with the heap and stack a whole-module report needs.
+    // `bench/runMain cardinality.bench.CorpusRun` (scripts/measure-corpus.sh): a JVM of its own per
+    // run, with the heap and stack a whole-module report needs.
     Compile / run / fork := true,
     Compile / run / javaOptions ++= Seq("-Xmx16g", "-Xss8m")
   )
