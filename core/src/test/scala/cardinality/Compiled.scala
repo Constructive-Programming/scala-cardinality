@@ -244,7 +244,13 @@ object Compiled {
     val sources = inputs // every source, support and units included
     val key =
       digest(
-        Options.mkString(s"$Compiler $ClasspathFile -sourceroot ", " ", "") :: sources.map(part)
+        // The JDK is part of the key: `java.lang` declares more names on newer ones.
+        Options.mkString(
+          s"$Compiler ${Runtime.version.feature} $ClasspathFile -sourceroot ",
+          " ",
+          ""
+        ) ::
+          sources.map(part)
       )
     // Not `computeIfAbsent`: a compile runs outside the map's locks, so compiles run in parallel.
     val out = Option(compiled.get(key)).getOrElse {
