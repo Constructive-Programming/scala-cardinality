@@ -230,9 +230,12 @@ class CardinalitySpec extends Specification {
     mutual lazy streams                        ${src(
       "final class A(h: Boolean, b: => B); final class B(x: Int, a: => A)"
     ) === EffectiveOmega + EffectiveOmega}
-    branching holes saturate at ℵ₀            ${src(
+    holes alone are no choice                  ${src(
       "final class R(l: => R, r: => R)"
-    ) === EffectiveOmega} (computably infinite binary trees)
+    ) === UnitSize} (νX.X·X: the one knot, which read ω)
+    labelled holes branch                      ${src(
+      "final class Rb(b: Boolean, l: => Rb, r: => Rb)"
+    ) === EffectiveEpsilon0} (r holds any Rb, ω of them, each lap: ε₀, which read ω)
     holes with different successors       ${src(
       "final class B7(x: => B7, y: => C7); case class C7(z: Boolean)"
     ) === EffectiveOmega + BooleanSize} (the external tail labels each node; the path stays deterministic)
@@ -244,8 +247,10 @@ class CardinalitySpec extends Specification {
     ) === UnitSize} (the single One-tower; a Void sibling continues nothing)
     function fields continue too          ${src(
       "sealed trait E2; final class One(e: => E2) extends E2; case class Two(i: Int => E2) extends E2"
-    ) === EffectiveOmega + EffectiveOmega} (One(Two(_ => e)) unfolds through Two; branchy ⇒ ℵ₀)
-    pure function-field cycle             ${src("case class F10(k: Int => F10)") === EffectiveOmega}
+    ) === EffectiveEpsilon0 + EffectiveEpsilon0} (Two continues through one input and holds any E2, ω of them, in the others: ε₀ each, which read ω)
+    pure function-field cycle             ${src(
+      "case class F10(k: Int => F10)"
+    ) === UnitSize} (the one knot, which read ω)
     a singleton domain is a thunk in disguise  ${src(
       "case class S10(k: Unit => S10)"
     ) === UnitSize}
@@ -257,7 +262,7 @@ class CardinalitySpec extends Specification {
     ) === NothingSize} (no knot without a lazy tie)
     a strict set beside a lazy field      ${src(
       "final class H9(m: => H9, s: Set[H9])"
-    ) === EffectiveOmega} (`new H9(h, Set())` ties it; a branch per node: ω)
+    ) === EffectiveEpsilon0} (`new H9(h, Set())` ties it; s holds any set of H9s beside the tail: ε₀, which read ω)
     lazy cycle through a sealed abstract  ${src(
       "sealed abstract class Nxt(v: Boolean); final class Go(next: => Nxt) extends Nxt(true)"
     ) === UnitSize}
@@ -270,15 +275,39 @@ class CardinalitySpec extends Specification {
     a unit label beside it is the one knot     ${src(
       "case class Lu(p: (Unit, () => Lu))"
     ) === UnitSize} (νX. X)
-    two thunks in one field branch             ${src(
+    two thunks in one field are one knot       ${src(
       "case class Lw(p: (() => Lw, () => Lw))"
-    ) === EffectiveOmega} (νX. X·X: binary trees)
+    ) === UnitSize} (νX. X·X: the one knot, which read ω)
     a strict field inside the cycle            ${src(
       "case class Out(p: In); case class In(b: Boolean, f: () => Out)"
     ) === EffectiveOmega + EffectiveOmega} (each lap 1 × 2: ω each)
     a sealed parent passes through its children  ${src(
       "sealed trait T; case class A(t: () => T) extends T; case class B(b: Boolean, a: A) extends T"
     ) === EffectiveOmega + EffectiveOmega} (A's thunk returns A or B(b, A): ω each)
+    a lazy child outside the parent's cycle    ${src(
+      "sealed trait Pt; final class Pa(t: => Pt) extends Pt; final class Pb(h: Boolean, t: => Pb) extends Pt"
+    ) === EffectiveOmega + EffectiveOmega} (Pb = 2^ω; Pa = Pt = Pa + Pb: ω, where the one Pa tower read 1)
+    a lazy child under a nested sum           ${src(
+      "sealed trait Ut; sealed trait Ui extends Ut; final class Ua(t: => Ut) extends Ut; final class Ub(h: Boolean, t: => Ub) extends Ui"
+    ) === EffectiveOmega + EffectiveOmega} (Ui = Ub = ω; Ua = Ut = Ua + Ui: ω, where it read 1)
+    a field over a lazy cycle outside it      ${src(
+      "final class Ra(t: => Ra, c: Rc); case class Rc(b: Rb); final class Rb(h: Boolean, t: => Rb)"
+    ) === EffectiveEpsilon0 + EffectiveOmega + EffectiveOmega} (Rc = Rb = ω; Ra streams ω labels: ε₀, where it read 0)
+    a held parent holds its children outside   ${src(
+      "sealed trait Bo; case class Bo1(s: String) extends Bo; final class Bo2(t: => Bo2, b: Bo) extends Bo"
+    ) === EffectiveOmega + EffectiveEpsilon0} (Bo1 = ω; Bo2 streams Bo1 or Bo2 per lap: ε₀, where it read ω)
+    a second hole holds a value outside        ${src(
+      "enum En { case A(s: String); case B(t: () => En, e: En) }"
+    ) === EffectiveEpsilon0} (e may be any A(s) each lap: ε₀, which read ω)
+    a nested parent's outside child            ${src(
+      "sealed trait Np; sealed trait Nq extends Np; case class Nqo(s: String) extends Nq; final class Nc(t: => Nc, p: Np) extends Nq"
+    ) === EffectiveOmega + EffectiveEpsilon0} (Nqo ω; Nc streams Nqo or Nc per lap: ε₀, which read ω)
+    a one-hole arm ends at a value outside     ${src(
+      "sealed trait Cq; case class Cq1(s: String) extends Cq; case class Sh(c: Cq) extends Cq; final class Lh(t: => Cq) extends Cq"
+    ) === EffectiveOmega + EffectiveOmega + EffectiveOmega} (Lh/Sh words ending in a Cq1, or endless: ω each)
+    a capacity label beside one hole           ${src(
+      "case class Ck(p: (Int, () => Ck))"
+    ) === EffectiveOmega} (νX. 2^32·X: one hole, 2^32 labels per lap)
     a list of thunks has infinite arities      ${src(
       "case class Lst(p: List[() => Lst])"
     ) === EffectiveEpsilon0} (each node chooses its arity in ω: ε₀)

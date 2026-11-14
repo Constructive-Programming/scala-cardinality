@@ -3185,7 +3185,7 @@ gone) and completes:
 - per lap, each field read with the cycle as one value (the label space: a deterministic cycle
   raises it to ω, a branch saturates at ω, or ε₀ where the labels are infinite) and as two (a
   field that does not double branches); a definition between nodes (the source front end's
-  alias) is read again at those values.
+  alias) is read again at those values. (The branch rule is superseded by group m7.)
 
 Rows: no corpus row moves on either side. Fixtures, both front ends alike: `Ltd` 0 -> ω, `Lu`
 0 -> 1, `Lw` 0 -> ω, `Pair` 0 -> ω, `Kx` 0 -> ε₀, `H9(m: => H9, s: Set[H9])` 0 -> ω (`new H9(h,
@@ -3224,3 +3224,50 @@ all, so the two disagree on the D26 fixtures (`K` with `import Helpers.???` woul
 wrong number), and emptying the new side alone turns about thirty fixture rows worse, each to list
 as a correction, with `RecordsSpec`/`ReceiversSpec` agreement pins to adjust. Left for a unit of its
 own.
+
+### Group m7: lazy cycles, the sums beside them and an arm's holes (both front ends, `capacity/Fixpoint.scala`)
+
+**A sum's arm outside its cycle.** A cycle's completion read its finite part at μ and kept every
+definition outside the cycles at μ. A sum's arm outside the cycle that holds only lazy values has μ
+0, so it vanished: `sealed trait Pt; Pa(t: => Pt); Pb(h: Boolean, t: => Pb)` stored `Pt` = `Pa` = 1
+where `Pb` = 2^ω = ω and `Pt` holds every `Pb`, ω; `Ra(t: => Ra, c: Rc)`, `Rc(b: Rb)` over the stream
+`Rb` stored `Ra` 0, ε₀. Each refinement round now re-derives a cycle's surroundings (`around`: the
+other completed cycles and the fixed definitions keep their values, the rest is iterated again).
+
+**What a lap may choose (correctness review, owner's ruling on §8).** The infinite part is the lap's
+label space raised to ω; the old saturation of any "branch" at ω is gone. A node's label is the sum
+of its continuing arms' labels, a parent's the number of its children in the cycle. An arm with one
+hole reads the cycle as one value (taking a value outside ends the unfolding: the finite part counts
+it). An arm with two holes or more (two continuations, a field holding the cycle beside one, a
+function field over two inputs or more, a field of degree two) continues through one and holds any
+value of its node in the others, the cycle's own type included: a label like any other (owner's
+ruling). The node's values and the infinite part are read together until they settle. Holes alone
+choose nothing: `R(l: => R, r: => R)`, `F10(k: Int => F10)`, `Lw`, `Fn` are the one knot, 1. An arm's
+degree in the cycle is read from how its fields' width grows with the cycle's at two widths above
+every constant of the arm (at least 2^(2^40), four times the fields' width at one): once per hole,
+past the finite tier for an exponent. Capacity labels (`Int`) leave it readable, so no cycle is
+refused for its holes. Which nodes an arm holds (`holds` in `cycleGroups`) is read the same way:
+the fields at no value against one, a width above every constant and ε₀, since a sum rounds to its
+widest summand (`Either[Int, Option[X]]` hid `X`) and an infinite factor absorbs a finite change; an
+empty factor never changes, and a name all three miss sits beside an infinite term of the fields at
+one (`(String, Set[X])`), where the lap is infinite anyway.
+
+**Rows.** No corpus row moves on either side (all six identical to m3's run). Fixture rows, both
+front ends alike (identical in the differential; the private coverage memory's lines dropped):
+`R`, `R.<init>`, `F10`, `F10.<init>`, `Lw`, `Lw.<init>` ω -> 1 (νX.X·X: every value is the one knot
+`lazy val r: R = R(r, r)`); `E`/`One`/`Two` and `E2`/`One`/`Two` with their constructors ω -> ε₀ (a
+`Two(i: Int => E)` lap continues through one input and holds any `E`, ω of them, at the others);
+`H9`, `H9.<init>` ω -> ε₀ (`s: Set[H9]` beside the tail holds any set of `H9`s); `M3`, `M3.<init>` ω
+-> ε₀ (`o: Option[M3]` holds any `M3`); `Res`, `Res.<init>` (two fixtures) ω -> ε₀ (`k: Int => Res`
+holds any `Res` off the path). Spec pins: `Pt`/`Pa` 1 -> ω, `Ut`/`Ua` 1 -> ω, `Ra` 0 -> ε₀;
+`Bq`/`Bq2`, `Bo`/`Bo2`, `Rx`/`Rp`/`Rp2`, `Np`/`Nq`/`Nc`, `Op`/`Oh`, `Uh`, `Fh`, `En`, `Em`, `Rbt`,
+`Lcf`, `Lsd`, `Fd`, `Bqi`/`Bi` ω -> ε₀ (and a new source pin `Rb(b, l, r)` ε₀); `Gr`, `Nd`, `Ck`,
+`Ci`/`Si`/`Li` ω (a capacity label beside one hole); `Eb`, `Sl`, `Ed` (a wide constant beside the
+cycle) and `Ek7`, `Ek8` (a sum's width hid the held name) ε₀, which read ω, a wrong number; `Tt`, `Nf`, `Fn` ω -> 1; `Ho.<init>`, `Ht.<init>` (rule B) ω
+-> ε₀ (He = 1 + He^(2^32) finitely, and each `Ht` lap holds any `He` at the inputs off the path). `Qt` (child in the parent's own cycle), `Mt` (strict and lazy child together), `Cq`
+(a one-hole strict child: Lh/Sh words, ω) unchanged. Corrected (`corrected.txt`, rule B as
+`Node.<init>`): `Pa.<init>`, `Ua.<init>` ω -> 2. New old numeric rows still uncovered, from a new
+fixture alone: `Ra.<init>` ε₀, `Rc.<init>` ω (`Rb` hides its parameters and the position does not
+reach `Ra`: the coordinator's decision leaves it `?`). Docs: type-arithmetic.md §8 and status, the
+register's D4, the README. Pins: `StoredRecursionSpec` (`lazyArms`, `heldParents`, `holes`),
+`CardinalitySpec`, `ArticleCardinalitySpec`, `StoredValueSoundnessSpec`.

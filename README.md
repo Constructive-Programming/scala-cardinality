@@ -207,10 +207,11 @@ Finite and infinite families still exist, but this approximation deliberately di
 breakdown at the lazy-type boundary; it is not exact cardinal or ordinal arithmetic.
 Enclosing sums and source/signature aggregates are not normalized:
 `Either[LazyList[String], LazyList[String]]` is `2ε₀`.
-Any *branching* cycle saturates at `ω` (the §4 finite-program reading: one program per
-unfolding). Open work: coinduction blocked by a strict
-self argument or a deeply nested mention (kept at a sound under-count), parametric counts and
-sealed hierarchies spanning files — pinned as pending targets in the test suite.
+A cycle's per-lap label space is raised to `ω` (the §4 finite-program reading: one program per
+unfolding); holes alone choose nothing, so `R(l: => R, r: => R)` is the one knot, `1`. Open work:
+coinduction blocked by a strict self argument or a deeply nested mention (kept at a sound
+under-count), parametric counts and sealed hierarchies spanning files — pinned as pending targets in
+the test suite.
 
 ## Documentation
 

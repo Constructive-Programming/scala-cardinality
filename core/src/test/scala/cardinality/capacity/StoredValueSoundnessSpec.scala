@@ -462,7 +462,7 @@ class StoredValueSoundnessSpec extends Specification {
     (found(("UseM", Class)) === negative("M", "MC"))
       .and(found(("UseN", Class)) === negative("N"))
       .and(found(("UseK", Class)) === negative("K", "KC"))
-      .and(found(("Res", Class)) === "ω")
+      .and(found(("Res", Class)) === "ε₀") // each lap holds any Res at the inputs off the path
       .and(constructor("UseN.<init>", "A.scala" -> code) must beLike {
         case Count.Unresolved(_) => ok
       })
