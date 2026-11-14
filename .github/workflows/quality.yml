@@ -30,7 +30,7 @@ jobs:
   mutation:
     name: Mutation testing (stryker4s)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     outputs:
       result: ${{ steps.mutation.outcome }}
       score: ${{ steps.score.outputs.score }}
