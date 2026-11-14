@@ -49,6 +49,9 @@
     }, {
       "name" : "Code Duplication",
       "weight" : 0.0
+    }, {
+      "name" : "Low Cohesion",
+      "weight" : 0.0
     } ]
   } ]
 }
