@@ -110,39 +110,6 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     val c = tree.symbol
     val parents = World.ancestors(c)
     val whole = fixed(c)
-    def fields(k: ClassSymbol) = k.declarations.collect {
-      case field: TermSymbol if field.isParamAccessor => field
-    }
-    // A parent nested in objects alone, or written in a method body that also encloses the
-    // template (objects and packages around both otherwise), holds no instance around it: what
-    // that body captures, the template's members see as well (`Readings.enclosing`).
-    val enclosing = World.owners(c).toSet
-    def instanceFree(parent: ClassSymbol) = World.owners(parent.owner).forall {
-      case k: ClassSymbol => k.isModuleClass
-      case k: TermSymbol  => enclosing(k)
-      case k              => k.isPackage
-    }
-    def why(parent: ClassSymbol): Option[String] =
-      if (!instanceFree(parent)) Some("a parent with constructor parameters or in a class")
-      else
-        parent.tree match {
-          case Some(_) =>
-            // A private field, or one the line answers otherwise than the parameter it was given.
-            val hidden = fields(parent).exists { field =>
-              !field.isPublic ||
-              scala.util
-                .Try(resolved(field, c.linearization, c))
-                .toOption
-                .flatten
-                .exists(_ != field)
-            }
-            Option.when(!passed(c, parent) && hidden)(
-              "a parent with constructor parameters or in a class"
-            )
-          case None if whole           => Some("a parent compiled from Java")
-          case None if !parent.isTrait => Some("a parent without TASTy that is no trait")
-          case None                    => None
-        }
     val overriddenField = (c :: parents).flatMap(fields).find { field =>
       world.overriding(c, field) == ClosedProgram.Overriding.Supplied
     }
@@ -153,11 +120,51 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       .orElse(
         parents
           .filter(parent => !whole || world.ofModule(parent))
-          .flatMap(parent => why(parent).map(reason => s"$reason: ${parent.name}"))
+          .flatMap(parent => why(c, parent, whole).map(reason => s"$reason: ${parent.name}"))
           .headOption
       )
       .toLeft(())
   }
+
+  private def fields(k: ClassSymbol): List[TermSymbol] = k.declarations.collect {
+    case field: TermSymbol if field.isParamAccessor => field
+  }
+
+  // Why `parent` keeps the template `c` from being read (`inherits`), if it does; `whole` where
+  // `c` is fixed.
+  private def why(c: ClassSymbol, parent: ClassSymbol, whole: Boolean): Option[String] =
+    if (!instanceFree(c, parent)) Some("a parent with constructor parameters or in a class")
+    else
+      parent.tree match {
+        case Some(_) =>
+          val hidden = hiddenField(c, parent)
+          Option.when(!passed(c, parent) && hidden)(
+            "a parent with constructor parameters or in a class"
+          )
+        case None if whole           => Some("a parent compiled from Java")
+        case None if !parent.isTrait => Some("a parent without TASTy that is no trait")
+        case None                    => None
+      }
+
+  // A parent nested in objects alone, or written in a method body that also encloses the
+  // template (objects and packages around both otherwise), holds no instance around it: what
+  // that body captures, the template's members see as well (`Readings.enclosing`).
+  private def instanceFree(c: ClassSymbol, parent: ClassSymbol): Boolean = {
+    val enclosing = World.owners(c).toSet
+    World.owners(parent.owner).forall {
+      case k: ClassSymbol => k.isModuleClass
+      case k: TermSymbol  => enclosing(k)
+      case k              => k.isPackage
+    }
+  }
+
+  // A private field of `parent`, or one the line answers otherwise than the parameter it was
+  // given.
+  private def hiddenField(c: ClassSymbol, parent: ClassSymbol): Boolean =
+    fields(parent).exists { field =>
+      !field.isPublic || Try(resolved(field, c.linearization, c)).toOption.flatten
+        .exists(_ != field)
+    }
 
   // Whether the template, or a class it extends, passes the arguments of `parent`'s constructor.
   private def passed(c: ClassSymbol, parent: ClassSymbol): Boolean =
@@ -384,11 +391,11 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     */
   def dependency(
       c: ClassSymbol,
-      abstracts: List[TermSymbol],
-      concrete: List[TermSymbol],
+      record: DependencyClasses.Declared.Record,
       site: TermSymbol,
       env: Shapes.Env
   ): Either[Unread, List[Shape]] = {
+    val DependencyClasses.Declared.Record(abstracts, concrete) = record
     val name = c.displayFullName
     val open = (abstracts ++ concrete.filter(overridden(c, _, site))).filter(Receivers.observes)
     def unread(left: Boolean, why: Unread) = Either.cond(!left, (), why)
@@ -412,7 +419,9 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
         unsettled(c, concrete),
         Uncovered(s"${Receivers.Record} whose overriders are not read: $name")
       )
-      held <- Traversals.sequence(open.map(inheritedCapability(c, _, site, env, value = true)))
+      held <- Traversals.sequence(
+        open.map(inheritedCapability(c, _, Receivers.Asked(site, value = true), env))
+      )
     } yield held.flatten.map(_.shape)
   }
 
@@ -548,11 +557,14 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   ): List[TermSymbol] =
     inherited(c).getOrElse(Nil).collect {
       case member: TermSymbol
-          if (abstractLike(member) || overridden(c, member, measured) || free(c, member)) &&
-            member != measured &&
+          if varies(c, member, measured) && member != measured &&
             !Definite(c, member, measured, value) =>
         member
     }
+
+  // An inherited member a subclass supplies: abstract, overridden, or a free parent field.
+  private def varies(c: ClassSymbol, member: TermSymbol, measured: TermSymbol): Boolean =
+    abstractLike(member) || overridden(c, member, measured) || free(c, member)
 
   // Whether an overridden member may be a behavior of the measured one's own (`Reentry`); a search
   // that meets what the classes read do not resolve may. `including` keeps every member the search
@@ -562,12 +574,13 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   private def reenters(
       c: ClassSymbol,
       member: TermSymbol,
-      measured: TermSymbol,
-      value: Boolean,
+      asked: Receivers.Asked,
       read: => Either[Unread, Option[?]]
-  ): Boolean =
+  ): Boolean = {
+    val Receivers.Asked(measured, value) = asked
     !including && overridden(c, member, measured) && (value || read != Right(None)) &&
-      Try(reentry.may(c, member, measured, instance = !value)).getOrElse(true)
+    Try(reentry.may(c, member, measured, instance = !value)).getOrElse(true)
+  }
 
   // The members of a template's own body a subclass supplies, the measured one aside.
   private def supplies(tree: ClassDef, measured: TermSymbol, value: Boolean): List[ValOrDefDef] = {
@@ -651,27 +664,16 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
     // named with its signature.
     def held(of: ValOrDefDef, shape: Shape) =
       Binding(s"$self.${of.symbol.signedName}", shape, Some(of.name.toString))
+    val asked = Receivers.Asked(measured, value)
     val parameters = Shapes.parameters(template.rhs.constr)
     val capabilities = supplies(template, measured, value).filter(member => kept(member.symbol))
     for {
       _ <- if (evidenceFound) Right(()) else Readings.plainInputs(parameters)
-      // A receiver's constructor parameter was built before it, and is never the receiver: one
-      // whose field no class of the program overrides (with the receiver, say), and not inline
-      // (by-name is read past its arrow, as nothing preceding).
-      fields <- Traversals.sequence(parameters.map { parameter =>
-        val fixed = template.rhs.body.exists {
-          case field: ValDef =>
-            field.name == parameter.name && field.symbol.isParamAccessor &&
-            world.overriding(template.symbol, field.symbol) == ClosedProgram.Overriding.No
-          case _ => false
-        }
-        val before = receiving && fixed && !parameter.symbol.isInline
-        shapes.of(parameter.tpt.toType, env.copy(preceding = before))
-      })
+      fields <- Traversals.sequence(parameters.map(parameterShape(template, _, env, receiving)))
       members <- Traversals.sequence(capabilities.map { member =>
         lazy val shape = shapes.member(member, where, env)
         def left(why: String) = Left(Uncovered(s"$why among the members of $where: ${member.name}"))
-        if (reenters(template.symbol, member.symbol, measured, value, shape))
+        if (reenters(template.symbol, member.symbol, asked, shape))
           left(Receivers.Reenters)
         // A class's extension method is a method of its instance, which a body in it may call on
         // any receiver; a capability record's is not read yet.
@@ -681,9 +683,28 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
       more <- Traversals.sequence(
         inheritedOpen(template.symbol, measured, value)
           .filter(kept)
-          .map(inheritedCapability(template.symbol, _, measured, env, value))
+          .map(inheritedCapability(template.symbol, _, asked, env))
       )
     } yield parameters.lazyZip(fields).map(held) ++ members.flatten ++ more.flatten
+  }
+
+  // A receiver's constructor parameter was built before it, and is never the receiver: one
+  // whose field no class of the program overrides (with the receiver, say), and not inline
+  // (by-name is read past its arrow, as nothing preceding).
+  private def parameterShape(
+      template: ClassDef,
+      parameter: ValDef,
+      env: Shapes.Env,
+      receiving: Boolean
+  ): Either[Unread, Shape] = {
+    val fixed = template.rhs.body.exists {
+      case field: ValDef =>
+        field.name == parameter.name && field.symbol.isParamAccessor &&
+        world.overriding(template.symbol, field.symbol) == ClosedProgram.Overriding.No
+      case _ => false
+    }
+    val before = receiving && fixed && !parameter.symbol.isInline
+    shapes.of(parameter.tpt.toType, env.copy(preceding = before))
   }
 
   // An inherited member a subclass supplies (abstract, overridden, or a free parent field) as a
@@ -692,62 +713,61 @@ final private[compiled] class Receivers(world: World, shapes: Shapes, including:
   private def inheritedCapability(
       c: ClassSymbol,
       member: TermSymbol,
-      measured: TermSymbol,
-      env: Shapes.Env,
-      value: Boolean
+      asked: Receivers.Asked,
+      env: Shapes.Env
   ): Either[Unread, Option[Binding]] = {
-    val name = member.name.toString
-    val where = if (value) Receivers.Record else "an enclosing class"
     // Overloads an ancestor declares are capabilities of their own: each is named with its
     // signature.
     val identity = s"${c.displayFullName}.${member.signedName}"
+    lazy val binding = capability(c, member, env, identity)
+    val where = if (asked.value) Receivers.Record else "an enclosing class"
+    unreadCapability(c, member, asked, binding).left
+      .map(what => Uncovered(s"$what among the members of $where: ${member.name}"))
+      .flatMap(_ => binding)
+  }
+
+  // Why an inherited capability is not read, if it is not.
+  private def unreadCapability(
+      c: ClassSymbol,
+      member: TermSymbol,
+      asked: Receivers.Asked,
+      binding: => Either[Unread, Option[Binding]]
+  ): Either[String, Unit] =
+    if (reenters(c, member, asked, binding)) Left(Receivers.Reenters)
+    // An extension method of a class is a method of its instance, which a body in it may call
+    // on any receiver; a capability record's is not read yet.
+    else if (member.isExtensionMethod && asked.value) Left("an extension method")
+    else if (Readings.contextual(member) && member.name.toString.startsWith("given_"))
+      Left("an anonymous given")
+    else if (member.isInline) Left("a deferred inline member")
+    else Readings.later(member)
+
+  private def capability(
+      c: ClassSymbol,
+      member: TermSymbol,
+      env: Shapes.Env,
+      identity: String
+  ): Either[Unread, Option[Binding]] = {
+    val name = member.name.toString
     // Its own type parameters, read at their symbols as a declared member's are (`Shapes.member`),
     // with the bounds it declares: a bound the subclass makes trivial still refuses.
     val own = member.paramSymss.flatMap(_.toOption.toList.flatten)
-    def clauses(tpe: TypeOrMethodic, read: List[Type]): Either[Unread, (List[Type], Type)] =
-      tpe match {
-        case poly: PolyType if poly.paramNames.sizeIs == own.size =>
-          clauses(poly.instantiate(own.map(_.localRef)), read)
-        case _: PolyType =>
-          Left(Uncovered(s"a capability with several clauses of type parameters: $name"))
-        case method: MethodType
-            if method.isImplicitOrContextual && method.paramNames.exists(
-              _.toString.contains("$")
-            ) =>
-          Left(Uncovered(s"an anonymous contextual parameter of: $name"))
-        case method: MethodType => clauses(method.resultType, read ++ method.paramTypes)
-        // A result that names a parameter has no shape: `shapes.of` leaves it uncovered.
-        case result: Type => Right((read, result))
+    val seen = member.typeAsSeenFrom(c.thisType)
+    if (!member.isMethod)
+      seen match {
+        case tpe: Type =>
+          shapes.of(tpe, env).map(s => Some(Binding(identity, s, Some(name))))
+        case _ => Left(Uncovered(s"a value of a method type: $name"))
       }
-    lazy val binding: Either[Unread, Option[Binding]] = {
-      val seen = member.typeAsSeenFrom(c.thisType)
-      if (!member.isMethod)
-        seen match {
-          case tpe: Type =>
-            shapes.of(tpe, env).map(s => Some(Binding(identity, s, Some(name))))
-          case _ => Left(Uncovered(s"a value of a method type: $name"))
-        }
-      else
-        clauses(seen, Nil).flatMap { (parameters, result) =>
-          Capabilities
-            .method(member, own, env)(
-              shapes.of(result, _),
-              inside => Traversals.sequence(parameters.map(shapes.of(_, inside)))
-            )
-            .map(_.map(Binding(identity, _, Some(name))))
-        }
-    }
-    val unread =
-      if (reenters(c, member, measured, value, binding)) Left(Receivers.Reenters)
-      // An extension method of a class is a method of its instance, which a body in it may call
-      // on any receiver; a capability record's is not read yet.
-      else if (member.isExtensionMethod && value) Left("an extension method")
-      else if (Readings.contextual(member) && name.startsWith("given_")) Left("an anonymous given")
-      else if (member.isInline) Left("a deferred inline member")
-      else Readings.later(member)
-    unread.left
-      .map(what => Uncovered(s"$what among the members of $where: $name"))
-      .flatMap(_ => binding)
+    else
+      Receivers.clauses(seen, Nil, own, name).flatMap { (parameters, result) =>
+        Capabilities
+          .method(member, own, env)(
+            shapes.of(result, _),
+            inside => Traversals.sequence(parameters.map(shapes.of(_, inside)))
+          )
+          .map(_.map(Binding(identity, _, Some(name))))
+      }
   }
 
 }
@@ -787,6 +807,32 @@ private[compiled] object Receivers {
   def whole(c: ClassSymbol): String = s"<receiver ${c.displayFullName.replace("$.", ".")}>"
 
   private val Record = "a capability record"
+
+  // What a reading asks of a template: the member it measures, and whether it reads a value of a
+  // capability record (else a receiver).
+  final private case class Asked(measured: TermSymbol, value: Boolean)
+
+  // A capability method's parameter types, all clauses in order, and its result.
+  private def clauses(
+      tpe: TypeOrMethodic,
+      read: List[Type],
+      own: List[TypeParamSymbol],
+      name: String
+  )(using Context): Either[Unread, (List[Type], Type)] =
+    tpe match {
+      case poly: PolyType if poly.paramNames.sizeIs == own.size =>
+        clauses(poly.instantiate(own.map(_.localRef)), read, own, name)
+      case _: PolyType =>
+        Left(Unread.Uncovered(s"a capability with several clauses of type parameters: $name"))
+      case method: MethodType
+          if method.isImplicitOrContextual && method.paramNames.exists(
+            _.toString.contains("$")
+          ) =>
+        Left(Unread.Uncovered(s"an anonymous contextual parameter of: $name"))
+      case method: MethodType => clauses(method.resultType, read ++ method.paramTypes, own, name)
+      // A result that names a parameter has no shape: `shapes.of` leaves it uncovered.
+      case result: Type => Right((read, result))
+    }
 
   /** Whether a member observes a value of a capability record: synthetic members, setters and
     * members restating one every value has (`World.restates`) do not.

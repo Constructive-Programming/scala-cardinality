@@ -19,58 +19,62 @@ final private[compiled] class Observers(
   /** Whether the site observes a final class's constructor parameter as itself (rule B: only the
     * fields the site observes count).
     */
-  def exposed(
-      c: ClassSymbol,
-      template: ClassDef,
-      parameter: Symbol,
-      site: TermSymbol,
-      env: Env
-  ): Boolean = {
-    lazy val shape = field(template, parameter).flatMap(seen(_, c, env))
-    observed(c, template, parameter, site, env, shape)
+  def exposed(template: ClassDef, parameter: Symbol, site: TermSymbol, env: Env): Boolean =
+    new Exposure(template, parameter, site, env).observed(template, parameter)
+
+  // What the site observes of the template's parameter `asked`, read in `env`.
+  final private class Exposure(template: ClassDef, asked: Symbol, site: TermSymbol, env: Env) {
+    private val c = template.symbol
+    private lazy val shape = field(template, asked).flatMap(seen(_, c, env))
+
+    // Whether the site observes the parameter of `level` as itself: a field of `level` it may
+    // select (one of the template, or one of `shape` as `c` sees it), a member of `level` it may
+    // call of `shape` whose body is the field (an alias) or applies it to the member's own
+    // parameters (an η-alias), or the argument a parent's primary constructor takes verbatim and
+    // observes in turn. `shape` is the template's parameter's, so a wider observer is none. An
+    // observer a class between `c` and `level` declares again is overridden there.
+    def observed(level: ClassDef, parameter: Symbol): Boolean =
+      field(level, parameter).exists { field =>
+        selected(level, field, parameter) || aliased(level, field) ||
+        passed(level, parameter).exists((parent, p) => observed(parent, p))
+      }
+
+    private def unoverridden(level: ClassDef, member: TermSymbol) =
+      c.linearization.takeWhile(_ != level.symbol).forall(member.overridingSymbol(_).isEmpty)
+
+    private def typed(member: TermSymbol) = shape.exists(seen(member, c, env).contains)
+
+    private def reached(level: ClassDef, member: TermSymbol) =
+      World.callable(member, site) && unoverridden(level, member)
+
+    private def selected(level: ClassDef, field: TermSymbol, parameter: Symbol) =
+      unoverridden(level, field) && (level.symbol == c || typed(field)) &&
+        (World.selectable(field, site) || readOnThis(level, field, parameter))
+
+    // Of `c`'s own field, one selected on `this` alone (a plain parameter, `protected[this]`)
+    // only where a member the site may select reads it, or in `c`'s own constructor, whose
+    // position keeps the stored side's estimate (`Constructors`).
+    private def readOnThis(level: ClassDef, field: TermSymbol, parameter: Symbol) =
+      level.symbol == c && World.callable(field, site) &&
+        (World.isConstructor(site) && site.owner == c ||
+          read(level, site).exists(_.symbol == parameter))
+
+    private def aliased(level: ClassDef, field: TermSymbol) = level.rhs.body.exists {
+      case alias: ValOrDefDef if candidate(alias, field) =>
+        aliases(alias, field) && reached(level, alias.symbol) &&
+        World.selectable(alias.symbol, site) && typed(alias.symbol)
+      case _ => false
+    }
+
   }
 
-  // Whether the site observes the parameter of `level` as itself: a field of `level` it may select
-  // (one of the template, or one of `shape` as `c` sees it), a member of `level` it may call of
-  // `shape` whose body is the field (an alias) or applies it to the member's own parameters (an
-  // η-alias), or the argument a parent's primary constructor takes verbatim and observes in turn.
-  // `shape` is the template's parameter's, so a wider observer is none. An observer a class between `c` and
-  // `level` declares again is overridden there.
-  private def observed(
-      c: ClassSymbol,
-      level: ClassDef,
-      parameter: Symbol,
-      site: TermSymbol,
-      env: Env,
-      shape: => Option[Shape]
-  ): Boolean = {
-    def unoverridden(member: TermSymbol) =
-      c.linearization.takeWhile(_ != level.symbol).forall(member.overridingSymbol(_).isEmpty)
-    def typed(member: TermSymbol) = shape.exists(seen(member, c, env).contains)
-    def reached(member: TermSymbol) = World.callable(member, site) && unoverridden(member)
-    field(level, parameter).exists { field =>
-      // Of `c`'s own field, one selected on `this` alone (a plain parameter, `protected[this]`)
-      // only where a member the site may select reads it, or in `c`'s own constructor, whose
-      // position keeps the stored side's estimate (`Constructors`).
-      def own = World.isConstructor(site) && site.owner == c
-      def selected = unoverridden(field) && (level.symbol == c || typed(field)) &&
-        (World.selectable(field, site) || level.symbol == c && World.callable(field, site) &&
-          (own || read(level, site).exists(_.symbol == parameter)))
-      def aliased = level.rhs.body.exists {
-        case alias: ValOrDefDef
-            if alias.symbol != field && !alias.symbol.isParamAccessor &&
-              !alias.symbol.isSynthetic =>
-          World
-            .rhs(alias)
-            .exists(body => Shapes.named(body).contains(field) || eta(alias, body, field)) &&
-          reached(alias.symbol) && World.selectable(alias.symbol, site) && typed(alias.symbol)
-        case _ => false
-      }
-      def inherited =
-        passed(level, parameter).exists((parent, p) => observed(c, parent, p, site, env, shape))
-      selected || aliased || inherited
-    }
-  }
+  // A member other than the field that may alias it: written, and no field itself.
+  private def candidate(alias: ValOrDefDef, field: TermSymbol): Boolean =
+    alias.symbol != field && !alias.symbol.isParamAccessor && !alias.symbol.isSynthetic
+
+  // Whether a member's body is the field, or applies it to the member's own parameters.
+  private def aliases(alias: ValOrDefDef, field: TermSymbol): Boolean =
+    World.rhs(alias).exists(body => Shapes.named(body).contains(field) || eta(alias, body, field))
 
   // The field of a constructor parameter of `level`.
   private def field(level: ClassDef, parameter: Symbol): Option[TermSymbol] =
@@ -110,42 +114,48 @@ final private[compiled] class Observers(
 
   // The parents of `level` whose primary constructor takes `parameter` verbatim, each with the
   // parameter that takes it: arguments in order only, as one call of its clauses.
-  private def passed(level: ClassDef, parameter: Symbol): List[(ClassDef, Symbol)] = {
-    def named(argument: TermTree) = argument match {
+  private def passed(level: ClassDef, parameter: Symbol): List[(ClassDef, Symbol)] =
+    level.rhs.parents.flatMap {
+      case call: Apply => taking(call, level, parameter)
+      case _           => Nil
+    }
+
+  // The parameters of the parent constructor `call` runs that take `parameter` verbatim.
+  private def taking(call: Apply, level: ClassDef, parameter: Symbol): List[(ClassDef, Symbol)] = {
+    val taken = Bodies.passed(call)
+    parentTemplate(call.fun).toList.flatMap { parent =>
+      val parameters = Shapes.parameters(parent.rhs.constr)
+      if (
+        !constructor(call.fun).contains(parent.rhs.constr.symbol) || parameters.sizeIs != taken.size
+      ) Nil
+      else
+        taken.zip(parameters).collect {
+          case (argument, p) if named(argument, parameter, level) => parent -> p.symbol
+        }
+    }
+  }
+
+  // Whether an argument names `parameter`, or the field of `level` it is.
+  private def named(argument: TermTree, parameter: Symbol, level: ClassDef): Boolean =
+    argument match {
       case ident: Ident =>
         World.named(ident).exists { s =>
           s == parameter || s.isParamAccessor && s.owner == level.symbol && s.name == parameter.name
         }
       case _ => false
     }
-    def constructor(fun: TermTree): Option[TermSymbol] = fun match {
-      case Apply(inner, _)     => constructor(inner)
-      case TypeApply(inner, _) => constructor(inner)
-      case other               => World.named(other)
-    }
-    level.rhs.parents.flatMap {
-      case call: Apply =>
-        val taken = Bodies.passed(call)
-        constructor(call.fun)
-          .flatMap(_.owner match {
-            case parent: ClassSymbol => parent.tree
-            case _                   => None
-          })
-          .toList
-          .flatMap { parent =>
-            val parameters = Shapes.parameters(parent.rhs.constr)
-            if (
-              !constructor(call.fun).contains(
-                parent.rhs.constr.symbol
-              ) || parameters.sizeIs != taken.size
-            ) Nil
-            else
-              taken.zip(parameters).collect {
-                case (argument, p) if named(argument) => parent -> p.symbol
-              }
-          }
-      case _ => Nil
-    }
+
+  // The template of the class whose constructor a parent call runs.
+  private def parentTemplate(fun: TermTree): Option[ClassDef] =
+    constructor(fun).flatMap(_.owner match {
+      case parent: ClassSymbol => parent.tree
+      case _                   => None
+    })
+
+  private def constructor(fun: TermTree): Option[TermSymbol] = fun match {
+    case Apply(inner, _)     => constructor(inner)
+    case TypeApply(inner, _) => constructor(inner)
+    case other               => World.named(other)
   }
 
 }
