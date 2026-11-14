@@ -17,7 +17,7 @@ class PolyLambdaCardinalitySpec extends Specification {
       keeps nested lambda shadowing lexical                      $shadowing
       measures constructor fields through beta reduction          $constructor
       refuses an external constructor inside the lambda           $external
-      refuses constrained lambda binders                         ${Pending.resolvedRefusal(bounds)}
+      reduces a constrained lambda the compiler applied           $bounds
       refuses unapplied lambdas and wrong arity                    ${Pending.rejectedFixture(arity)}
       resolves an alias body in its declaration's scope            $aliasScope
     Closed polymorphic identity
@@ -69,8 +69,9 @@ class PolyLambdaCardinalitySpec extends Specification {
       "ZIO"
     )
 
+  // `([x <: A] =>> x)[A]` is A, its bound met: use is A => A — 1.
   def bounds =
-    unresolved("def use[A](x: A): ([x <: A] =>> x)[A] = ???", "constrained type lambda")
+    count("def use[A](x: A): ([x <: A] =>> x)[A] = ???") === Count.Finite(1)
 
   def arity =
     unresolved("def use: [x] =>> x = ???", "unapplied type lambda").and(

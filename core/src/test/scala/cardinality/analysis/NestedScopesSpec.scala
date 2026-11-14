@@ -19,9 +19,7 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       a case pattern or guard leaves the typing context as it is      ${Pending.knownLoss(
       casePatterns
     )}
-      every control-flow form is read alike                           ${Pending.oldBehavior(
-      flowForms
-    )}
+      every control-flow form is read alike                           $flowForms
       a pattern that may refine a type refuses every count            ${Pending.knownLoss(
       typeRefinement
     )}
@@ -31,13 +29,11 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       a given binder of a case clause is refused                      ${Pending.knownLoss(
       givenBinders
     )}
-      a comprehension's binder is refused, never counted              ${Pending.oldBehavior(
+      a comprehension's binder is a lambda parameter                  ${Pending.knownLoss(
       comprehensionBinders
     )}
       a function literal's parameter is a parameter                   $lambdaParameters
-      a polymorphic function literal binds its type parameters        ${Pending.oldBehavior(
-      polyLambda
-    )}
+      a polymorphic function literal binds its type parameters        $polyLambda
       an untyped function literal parameter has the compiler's type   $untypedLambda
       a scope of an inline method shares the method's verdict         $inlineOwners
   """
@@ -144,6 +140,7 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
   // While, `||`, a dotted `&&`, a match spelled `b.match`, a dead branch, a by-name argument, a
   // comprehension's guard and a default the callee may never evaluate all leave the context as it
   // is: a Boolean function of one Boolean, 4; of two, 16; of an Option[Boolean]'s 3 values, 2^3.
+  // Rows are named by the compiled tree: the comprehension's yield is a lambda's case.
   def flowForms = {
     val found = rendered(
       """|object Flow {
@@ -165,7 +162,7 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       .and(found("Flow.s.<case#1>.g") === "4")
       .and(found("Flow.dead.<block#1>.g") === "4")
       .and(found("Flow.byName.<block#1>.g") === "4")
-      .and(found("Flow.guard.<for#1>.<block#1>.g") === "4")
+      .and(found("Flow.guard.<lambda#1>.<case#1>.g") === "4")
       .and(found("Flow.lazily.<block#1>.g") === "8")
   }
 
@@ -260,21 +257,21 @@ class NestedScopesSpec extends Specification with InventoryFixtures {
       .and(refused(found("Givens.pfBool.<case#1>.g"), reason + "Boolean"))
   }
 
+  // The comprehension is `xs.foreach(x => …)`: x is a lambda parameter, as in `lambdaParameters`. g
+  // is a Boolean of u, x and the captured xs, an infinite space: ω. The reading still refuses a
+  // definition under a comprehension's binder.
   def comprehensionBinders =
-    refused(
-      rows("""|object Comp {
-              |  def f(xs: List[Int]): Int = {
-              |    for (x <- xs) { def g(u: Unit): Boolean = true; () }
-              |    0
-              |  }
-              |}""".stripMargin)("Comp.f.<for#1>.<block#1>.g"),
-      "binder of an enclosing for-comprehension not read: x"
-    )
+    rows("""|object Comp {
+            |  def f(xs: List[Int]): Int = {
+            |    for (x <- xs) { def g(u: Unit): Boolean = true; () }
+            |    0
+            |  }
+            |}""".stripMargin)("Comp.f.<lambda#1>.g") === inhabitation.Inhabitation.Count.Countable
 
   // The type parameter is a binder of the literal, its value parameter a parameter: a alone, 1.
   def polyLambda =
     rendered("object Poly { val h: [A] => A => A = [A] => (a: A) => { def g: A = a; g } }")(
-      "Poly.h.<lambda#1>.<lambda#1>.g"
+      "Poly.h.<lambda#1>.g"
     ) === "1"
 
   def lambdaParameters = {

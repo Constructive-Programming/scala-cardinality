@@ -48,16 +48,12 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       a member without a result type that may override is kept      $overridingResult
       an empty type is read from its structure                      $emptyTypes
       a constructor that only throws builds no instance             $construction
-      an alias nested out of reach does not stand for a parent      ${Pending.resolvedRefusal(
-      constructionReach
-    )}
+      an alias nested out of reach does not stand for a parent      $constructionReach
       a fixed member that only throws is concrete code              $fixedThrowing
       top-level vals are built with their file's definitions        $topLevel
       a member object carries the instance it belongs to            $memberObjects
       a level's body binds names in its own scope                   $bindingScope
-      a sealed case or enum built by a throwing body is refused      ${Pending.resolvedRefusal(
-      sealedConstruction
-    )}
+      a sealed case or enum built by a throwing body has no value    $sealedConstruction
       a template an object encloses does not build the object       $staticNesting
       an empty block is no throw                                    $emptyBlock
       a throw this reading does not recognize stays unresolved      $throwLimits
@@ -76,9 +72,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       a final subclass is the record of its parameters              $finalSubclass
       a source class named Throwable shadows the model              $shadowedThrowable
       an unsupplied wildcard import rebinds no builtin name         $wildcardThrowable
-      a union with Exception has no runtime class to test           ${Pending.resolvedRefusal(
-      exceptionUnion
-    )}
+      a union with Exception is a sum of disjoint classes           $exceptionUnion
   """
 
   private def each(found: Map[String, Count], expected: Count)(names: String*) =
@@ -442,9 +436,8 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   // empty (0), and its members are never called (1). A lazy val or a method runs only when
   // called: LK2 and DK2 are the record (boom, m) of two Booleans, 2^4 = 16. A member named `???`
   // is no throw: Mem.m ranges over functions of (b, x, ???), never 1.
-  // The construction check reads a parent by its simple name, so an alias of that name may stand
-  // for any type - but only an alias a bare name can denote there: one nested in an object of
-  // another file is named only through that object (an import of it, or an export).
+  // A parent is the class the compiler resolved: S's Base is the package's own trait, which a
+  // wildcard import's alias of that name does not shadow, so S is S1 alone either way — s is 2^1.
   def constructionReach = {
     val family = "trait Base\nsealed trait S extends Base\ncase object S1 extends S\n" +
       "object U { def s(x: S): Boolean = ??? }"
@@ -452,7 +445,7 @@ class PureCodeSpec extends Specification with InventoryFixtures {
     val apart = counts(compat, "a.scala" -> s"package na\n$family")
     val imported = counts(compat, "a.scala" -> s"package na\nimport nlib.Compat.*\n$family")
     (apart("na.U.s") === Count.Finite(2))
-      .and(refused(imported("na.U.s"), "sealed family construction not resolved: S"))
+      .and(imported("na.U.s") === Count.Finite(2))
   }
 
   def construction = {
@@ -583,8 +576,9 @@ class PureCodeSpec extends Specification with InventoryFixtures {
   }
 
   // A sealed case, family or enum whose construction only throws has no value — A's case is empty,
-  // R and E have none — but the family reading resolves no term names, so it refuses for that gap
-  // rather than count 2^3 = 8 (or 2^2 for E). Building a case runs every template it extends: M1
+  // R and E have none (decision D5: a construction that only throws builds no value). S is B: 2
+  // Booleans; R, E, G and F are empty, so each function from them is the absurd one, 1, and fg has
+  // no F to return, 0; Q is Q2: 2; M is M2: 2. Building a case runs every template it extends: M1
   // mixes in Boom, and G1 extends G with it, which also fails every singleton case of G (3.9.0
   // runs: `G.G2` throws). Singleton cases are vals of the companion, whose initializer throws for
   // F (a 3.9.0 run: `F.D` throws); a class case is built without it: C's family is C1(x), 4. A lazy
@@ -623,14 +617,9 @@ class PureCodeSpec extends Specification with InventoryFixtures {
       |  def c(x: C): Boolean = ???
       |  def l(x: L): Boolean = ???
       |}""".stripMargin)
-    refused(found("U.s"), "sealed family construction not resolved: A")
-      .and(refused(found("U.r"), "sealed family construction not resolved: R"))
-      .and(refused(found("U.q"), "sealed family construction not resolved: Q1"))
-      .and(refused(found("U.e"), "enum construction not resolved: E"))
-      .and(refused(found("U.m"), "sealed family construction not resolved: M1"))
-      .and(refused(found("U.g"), "enum construction not resolved: G"))
-      .and(refused(found("U.f"), "enum construction not resolved: F"))
-      .and(refused(found("U.fg"), "enum construction not resolved: F"))
+    each(found, Count.Finite(2))("U.s", "U.q", "U.m")
+      .and(each(found, Count.Finite(1))("U.r", "U.e", "U.g", "U.f"))
+      .and(found("U.fg") === Count.Finite(0))
       .and(found("U.c") === Count.Finite(4))
       .and(found("U.l") === Count.Finite(8))
   }
@@ -819,16 +808,11 @@ class PureCodeSpec extends Specification with InventoryFixtures {
         cardinality.Compiled.withheld("package foo\nobject Unsupplied")
     )("W.w") === Count.Countable
 
-  // A class test cannot yet tell an open stdlib class apart from a source class: the union stays
-  // unresolved, with the stdlib class named.
+  // Exception and the final Plan are disjoint classes, so the union is their sum: an Exception is
+  // open data built from any message, ω, beside Plan's 2 — ω results, so u is ω.
   def exceptionUnion =
-    refused(
-      rows(
-        "final class Plan(val n: Boolean)\nobject U { def u(b: Boolean): Exception | Plan = ??? }"
-      )(
-        "U.u"
-      ),
-      "Exception has no runtime class this reading tells apart (stdlib model)"
-    )
+    rows(
+      "final class Plan(val n: Boolean)\nobject U { def u(b: Boolean): Exception | Plan = ??? }"
+    )("U.u") === Count.Countable
 
 }

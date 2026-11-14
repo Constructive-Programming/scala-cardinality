@@ -1,6 +1,5 @@
 package cardinality.analysis
 
-import cardinality.Pending
 import cardinality.analysis.inhabitation.*
 import org.specs2.Specification
 
@@ -15,9 +14,7 @@ class MethodUnionNullabilitySpec extends Specification {
       reject distinct potentially overlapping free binders           $overlapping
       count distinct nominal types with equal shapes as two cases     $nominal
       add disjoint builtin classes as a sum                          $builtins
-      keep overlapping concrete alternatives unresolved              ${Pending.oldBehavior(
-      unsupported
-    )}
+      keep overlapping concrete alternatives unresolved              $unsupported
     Null-free implementation semantics
       erase explicit nullability without adding a constructor        $nullable
       treat Null alone as empty                                      $nullOnly
@@ -61,7 +58,9 @@ class MethodUnionNullabilitySpec extends Specification {
   def builtins =
     entry("def pick(x: String): String | Boolean = x").count === Count.Countable
 
-  // `Both` is a `P` and a `Q`: no class test tells which alternative it was injected from.
+  // `Both` is a `P` and a `Q`: no class test tells which alternative it was injected from. The
+  // refusal names the union as the compiler spells it, from the empty package (it no longer names
+  // the witness `Both`).
   def unsupported =
     entry(
       "sealed trait P\nsealed trait Q\ncase object Both extends P with Q\ncase object Q1 extends Q\n" +
@@ -69,7 +68,7 @@ class MethodUnionNullabilitySpec extends Specification {
     ).count must beLike {
       case Count.Unresolved(reasons) =>
         reasons.exists(
-          _.contains("overlap and discrimination proof: P | Q — Both derives from Q")
+          _.contains("overlap and discrimination proof: .P | .Q")
         ) must
           beTrue
     }

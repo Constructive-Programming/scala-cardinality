@@ -28,13 +28,6 @@ class CompiledSpec extends Specification {
   private lazy val withheld = rows(user._1 -> (user._2 + Compiled.withheld(schema)))
 
   "a fixture with withheld support" should {
-    "compile: a member written without a type takes the compiler's, spelled by its name" in Pending
-      .oldBehavior {
-        withheld.find(_.name == "U.made").map(_.signature) must beSome(
-          contain("made: _root_.ext.Schema")
-        )
-      }
-
     "keep the support out of the analysis: no row of its own, its declaration not supplied" in Pending
       .knownLoss {
         (withheld.map(_.path).distinct === List("U.scala"))
@@ -80,9 +73,10 @@ class CompiledSpec extends Specification {
 
   // `val n = 1` is an Int to scalac and `val n = "s"` a String. The report over the files on disk
   // is given their classes, and matches each source to its own although one path ends the other:
-  // matched to the other's, `n` would have its type.
+  // Top.n counts an Int's 2^32 and Low.n a String's ω; matched to the other's, `n` would have its
+  // type.
   "a report over a fixture's files" should {
-    "write the compiler's types into each source" in Pending.oldBehavior {
+    "read each source with the compiler's types of its own classes" in {
       val rendered = Compiled
         .report(
           "Exp.scala" -> "object Top { val n = 1 }",
@@ -91,8 +85,8 @@ class CompiledSpec extends Specification {
         .render
         .linesIterator
         .toList
-      (rendered.find(_.contains("Top.n ")) must beSome(contain("val n: _root_.scala.Int")))
-        .and(rendered.find(_.contains("Low.n ")) must beSome(contain("String")))
+      (rendered.find(_.contains("Top.n ")) must beSome(startWith("2^32 ")))
+        .and(rendered.find(_.contains("Low.n ")) must beSome(startWith("ω ")))
     }
   }
 

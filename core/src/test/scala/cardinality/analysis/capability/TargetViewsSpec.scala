@@ -47,9 +47,7 @@ class TargetViewsSpec extends Specification {
     )}
     Enclosing templates
       `Outer.this.m` of a final outer is another declaration          $finalOuter
-      `Outer.this.m` of an open outer may be overridden to re-enter   ${Pending.resolvedRefusal(
-      openOuter
-    )}
+      `Outer.this.m` of an open outer is another instance's capability $openOuter
       an enclosing receiver's call through the object path is a view  ${Pending.knownLoss(
       enclosingPath
     )}
@@ -252,14 +250,15 @@ class TargetViewsSpec extends Specification {
       trait InnerM extends Inner { override def m: Boolean = super.m }
     }""")("Outer.Inner.target") === Count.Finite(16)
 
+  // With Outer open (the overriders extend it), Outer.this.target is an overridable member of the
+  // enclosing instance, which no override reaches the inner instance from: a free capability, as m
+  // is in finalOuter. target reads b, the free m and the free Boolean => Boolean (target(true),
+  // target(false)): 2^4 states, 2^16 = 65536.
   def openOuter =
-    view(
-      one("""class Outer {
-        def target(b: Boolean): Boolean = b
-        trait Inner { def target(b: Boolean): Boolean; def m: Boolean = Outer.this.target(true) }
-      }""")("Outer.Inner.target"),
-      "Outer.Inner.m"
-    )
+    one("""class Outer {
+      def target(b: Boolean): Boolean = b
+      trait Inner { def target(b: Boolean): Boolean; def m: Boolean = Outer.this.target(true) }
+    }""")("Outer.Inner.target") === Count.Finite(65536)
 
   // Outer.m runs Inner.target(true) every time: a definite view on the enclosing receiver; b — 4
   // (it read 16, m a free Boolean).

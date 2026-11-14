@@ -27,9 +27,7 @@ class ContextualOverrideIdentitySpec extends Specification {
       does not guess identity across ordinary and contextual clauses   ${Pending.rejectedFixture(
       ordinary
     )}
-      keeps dependent contextual results unresolved                    ${Pending.resolvedRefusal(
-      dependent
-    )}
+      a dependent contextual result is matched by the compiler         $dependent
       keys imported evidence by the path its import binds              ${Pending.knownLoss(
       imported
     )}
@@ -140,14 +138,16 @@ class ContextualOverrideIdentitySpec extends Specification {
       }
     """) === Count.Finite(2)
 
+  // The compiler matches the override, so Base's get is no capability left. ev.Out is an abstract
+  // type no member of Evidence (or anything else supplied) yields: no implementation, 0.
   def dependent =
-    identityUnresolved("""
+    count("""
       trait Evidence[A] { type Out }
       trait Base[A] { def get(a: A)(using ev: Evidence[A]): ev.Out }
       abstract class Instance[A] extends Base[A] {
         def get(a: A)(using ev: Evidence[A]): ev.Out = ???
       }
-    """)
+    """) === Count.Finite(0)
 
   // Both signatures spell `Evidence` under one import, so the parameters are one key
   // (`foreign:external.Evidence`) and Base.get is the measured declaration; what stays unknown is

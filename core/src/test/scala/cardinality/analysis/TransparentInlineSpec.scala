@@ -23,9 +23,7 @@ class TransparentInlineSpec extends Specification {
       a closed transparent result is still narrowed at the call site ${Pending.knownLoss(
       transparentClosed
     )}
-      a transparent function result is refused too                   ${Pending.oldBehavior(
-      transparentFunction
-    )}
+      a transparent function result is refused too                   $transparentFunction
       a narrower class, None, or a declared singleton                ${Pending.knownLoss(
       transparentResults
     )}
@@ -106,17 +104,18 @@ class TransparentInlineSpec extends Specification {
       .and(reasonContains(code, "T.m", "inline method: uses inline match"))
   }
 
-  // An expansion may be a function class with members of its own.
+  // An expansion may be a function class with members of its own: refused by rule X, whatever the
+  // unsupplied parameter type holds. The declared type is spelled as the compiler names it.
   def transparentFunction =
     reasonContains(
       "import ext.Schema\ntransparent inline def tf(s: Schema): Int => Unit = _ => ()" + schema,
       "tf",
-      "declaration not supplied: ext.Schema (named import Schema)"
+      "not the declared scala.Function1[scala.Int, scala.Unit]"
     ).and(
       reasonContains(
         "import ext.Schema\ntransparent inline def t(s: Schema): Unit = ()" + schema,
         "t",
-        "not the declared Unit"
+        "not the declared scala.Unit"
       )
     )
 

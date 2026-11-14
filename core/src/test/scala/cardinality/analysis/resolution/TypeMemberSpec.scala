@@ -36,7 +36,7 @@ class TypeMemberSpec extends Specification {
     Stuck projection match types
       a stuck projection is its own atom                         $projections
       alias-equal projections are one type                       $projCanonical
-      projections without a common instantiation stay open       ${Pending.oldBehavior(projArity)}
+      projections without a common instantiation stay open       $projArity
       an irrefutable first case reduces                          $irrefutable
       projections on a member path                               $projOnPath
       a sealed family with projected fields                      $affineFamily
@@ -365,7 +365,8 @@ class TypeMemberSpec extends Specification {
     ) === Count.Finite(1)
 
   // No instantiation of T is both a pair and a triple: no caller supplies all three, so every
-  // implementation is vacuously one — the atoms' 2 would overcount.
+  // implementation is vacuously one — the atoms' 2 would overcount. The binder is spelled with its
+  // owner, the file's top-level `pick`.
   def projArity =
     refused(
       count(
@@ -373,7 +374,7 @@ class TypeMemberSpec extends Specification {
           "def pick[T](x: Fst[T], y: Fst[T], z: Fst3[T]): Fst[T] = ???",
         "pick"
       ),
-      "stuck match types on T have no common reducing instantiation: arities 2, 3"
+      "stuck match types on Members$package$.pick[T] have no common reducing instantiation: arities 2, 3"
     )
 
   // K[A] = Option[A] for every A: None, Some(x), Some(y) — 3.

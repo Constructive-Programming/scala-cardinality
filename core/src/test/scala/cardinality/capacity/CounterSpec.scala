@@ -1,6 +1,5 @@
 package cardinality.capacity
 
-import cardinality.Pending
 import org.specs2.Specification
 import org.specs2.matcher.MatchResult
 
@@ -11,7 +10,7 @@ class CounterSpec extends Specification {
       Can parse simple products $parseProduct
       Can parse lists $parseListOfSomething
       Looks inside packages $parsePackage
-      Skips unknown statements, bounds unknown types ${Pending.countDiffers(parseUnknown)}
+      Skips unknown statements, refuses unknown types $parseUnknown
       """
 
   def parseProduct: MatchResult[Size] = {
@@ -42,12 +41,15 @@ class CounterSpec extends Specification {
       beEqualTo(TinySize(4))
   }
 
-  def parseUnknown: MatchResult[Size] = {
-    Rows.total(
+  // `Color` is not supplied: X's row names it and has no number (never the ω placeholder), and the
+  // import and the trait add no value.
+  def parseUnknown: MatchResult[String] = {
+    val found = Rows.rows(
       "import a.b\ntrait T\ncase class X(a: Color)" +
         cardinality.Compiled.withheld("class Color\npackage a { object b }")
-    ) must
-      beEqualTo(EffectiveOmega)
+    )
+    (found(("X", Definition.Kind.Class)) must (startWith("unresolved[").and(contain("Color"))))
+      .and(found(("T", Definition.Kind.Abstract)) === "—")
   }
 
 }

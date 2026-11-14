@@ -22,8 +22,9 @@ class TypeMemberBoundarySpec extends Specification {
       a parameter hides an enclosing template's self alias          $selfShadow
       a value fixed by its own definition is no choice              ${Pending.knownLoss(localValue)}
     Members
-      a member some level declares as a class is no atom            ${Pending.resolvedRefusal(
-      classMember
+      a member some level declares as a class is no atom            $classMember
+      a nested class's fields are what a member builds              ${Pending.knownLoss(
+      nestedClassFields
     )}
       a value class or a private constructor fixes its members      ${Pending.knownLoss(
       unsubclassable
@@ -42,17 +43,13 @@ class TypeMemberBoundarySpec extends Specification {
       a member scrutinee is spelled by its path                     ${Pending.knownLoss(
       spelledMember
     )}
-      a bound mentioning the scrutinee refuses                      ${Pending.oldBehavior(
-      boundedScrutinee
-    )}
+      a bound mentioning the scrutinee refuses                      $boundedScrutinee
       a type pattern before `case _` still needs a proof            ${Pending.knownLoss(
       typePattern
     )}
     Gate G1
       a `var` of an intermediate parent implements a `def`          $varImplements
-      a local implementer's captures are refused                    ${Pending.resolvedRefusal(
-      localImplementer
-    )}
+      a local implementer's captures are the body's captures too    $localImplementer
     Closures
       a parent clause's constructor is read with its file's imports $closureImports
   """
@@ -126,10 +123,17 @@ class TypeMemberBoundarySpec extends Specification {
     )
 
   // A class member cannot be overridden (scalac: "class definitions cannot be overridden"), so
-  // C.this.X is always the class: never a free atom (it read 0 for `new X(true)`, 2 for `a, b`).
-  // The class read by its own name is the class: X has no field — 1.
+  // C.this.X is always the class: never a free atom (it read 2 for `a, b`). Read through this or by
+  // its own name, X has no field — one value, 1.
   def classMember = {
-    val found = entries("""
+    val found = entries(classMembers)
+    (found("C.viaThis") === Count.Finite(1)).and(found("C.viaName") === Count.Finite(1))
+  }
+
+  // D's X holds one Boolean: fresh builds `new X(true)` or `new X(false)` — 2 (it read 0).
+  def nestedClassFields = entries(classMembers)("D.fresh") === Count.Finite(2)
+
+  private val classMembers = """
       trait T:
         type X
       class C extends T:
@@ -139,11 +143,7 @@ class TypeMemberBoundarySpec extends Specification {
       class D extends T:
         final class X(val n: Boolean)
         def fresh: this.X = ???
-    """)
-    refused(found("C.viaThis"), "type member is a class: C.this#X")
-      .and(found("C.viaName") === Count.Finite(1))
-      .and(refused(found("D.fresh"), "type member is a class: D.this#X"))
-  }
+    """
 
   // A value class is final ("cannot extend final class V") and a private constructor admits no
   // subclass outside C and its companion (E173): X is never picked, f never applied — vacuously 1,
@@ -319,11 +319,12 @@ class TypeMemberBoundarySpec extends Specification {
       "stuck match types on M.this#X have no common reducing instantiation: arities 2, 3"
     )
 
-  // U <: T constrains T's instantiations: the projection's freedom is not the atom's.
+  // U <: T constrains T's instantiations: the projection's freedom is not the atom's. The binder is
+  // spelled with its owner, the file's top-level `b1`.
   def boundedScrutinee =
     refused(
       entries(projections + "def b1[T, U <: T](x: Fst[T], u: U): Fst[T] = ???")("b1"),
-      "stuck match types on T meet a bound that mentions it"
+      "stuck match types on Members$package$.b1[T] meet a bound that mentions it"
     )
 
   // `case Int` before `case _` needs a disjointness proof the reading does not have (MT2 reduces
@@ -357,10 +358,10 @@ class TypeMemberBoundarySpec extends Specification {
     (found("D.other") === Count.Finite(1)).and(found("D2.other") === Count.Finite(1))
   }
 
-  // Mid's to reads mk's a, which D.other cannot name: refused rather than dropped.
+  // D is local to mk, so other names mk's a and b as captures, and its c; Mid's to, which nothing
+  // overrides, is concrete code returning a: c, a, b — 3.
   def localImplementer =
-    refused(
-      entries("""
+    entries("""
         trait Q[A]:
           def to(a: A): A
         def mk[A](a: A, b: A): Int =
@@ -369,9 +370,7 @@ class TypeMemberBoundarySpec extends Specification {
           final class D extends Mid:
             def other(c: A): A = ???
           0
-      """)("mk.D.other"),
-      "inherited declaration to is implemented in local Mid, whose captures are not read"
-    )
+      """)("mk.D.other") === Count.Finite(3)
 
   // `extends Optic[S, A, Affine, Unit]` with `import q.Affine`: the closure for F is applied with
   // Opt.scala's imports, as the qualified `q.Affine` is — never `unresolved type: Affine`. `to(s)`

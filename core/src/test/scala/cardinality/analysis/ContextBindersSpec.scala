@@ -19,9 +19,7 @@ class ContextBindersSpec extends Specification {
       a deeper binder of the same type hides the outer one           ${Pending.knownLoss(
       deeperBinder
     )}
-      binders of one clause are ambiguous                            ${Pending.oldBehavior(
-      oneClause
-    )}
+      binders of one clause are ambiguous                            $oneClause
       a nested using, given or own binder hides the outer one        ${Pending.knownLoss(
       deeperCandidate
     )}
@@ -87,10 +85,11 @@ class ContextBindersSpec extends Specification {
   }
 
   // `(A, A) ?=> A`: a search for A inside is ambiguous (E172), so gp reads a alone (1), never 3.
+  // The two binders are one type, A, which the refusal names: refused, never counted.
   def oneClause =
     refused(
       rows("object B { def pair[A](a: A): (A, A) ?=> A = { def gp: A = a; gp } }")("B.pair.gp"),
-      "ambiguous anonymous evidence: context function binder A"
+      "ambiguous anonymous evidence: A"
     )
 
   // Fixture r1 prints 10 for each: u's own using, the body's given and k's own binder each hide

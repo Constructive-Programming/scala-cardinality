@@ -27,9 +27,7 @@ class DependencyRowsSpec extends Specification {
       counts as its source does, or refuses                           $parity
       supplies what the module alone cannot name                      ${Pending.knownLoss(supplied)}
       is no row of the module                                         $noRows
-      a compiled inline body is not read: its caller refuses          ${Pending.resolvedRefusal(
-      inlineBody
-    )}
+      a compiled inline body is read: its caller counts               $inlineBody
       an inline override in it is expanded where a receiver may be it $inlineOverride
       a stored value through it is its source's                       $stored
     A Java dependency
@@ -49,9 +47,7 @@ class DependencyRowsSpec extends Specification {
       a sealed class with a child the pickle does not declare refuses $scala2Sealed
     The dependency classpath
       a class two dependencies declare is the first one's             $firstWins
-      a dependency's template is the one of its qualified name        ${Pending.resolvedRefusal(
-      qualified
-    )}
+      a dependency's template is the one of its qualified name        $qualified
       a JDK module other than java.base is read where a source names it ${Pending.knownLoss(
       jdkModule
     )}
@@ -150,13 +146,13 @@ class DependencyRowsSpec extends Specification {
       .and(throughClasses.definitions.map(_.name) === List("t.Holds"))
       .and(throughSource.definitions.map(_.name) must contain("tastyfixtures.Pair"))
 
-  // `picked` expands `Inlines.pick`, an inline method whose body the classes hold and this reading
-  // does not read: refused, naming `pick`, never the 2 its source counts. Without the dependency it
-  // refuses too, for `Inlines`, which it then cannot name.
+  // `picked` expands `Inlines.pick`, an inline method whose body the classes hold and which uses no
+  // compile-time operation: picked is a method (A, A) => A, 2, read through the classes as through
+  // the source. Without the dependency it refuses, for `Inlines`, which it then cannot name.
   def inlineBody =
-    refused(counts(throughClasses)("t.picked"), "pick")
-      .and(refusedThrough(counts(throughClasses)("t.picked"), counts(alone)("t.picked")))
+    (counts(throughClasses)("t.picked") === Count.Finite(2))
       .and(counts(throughSource)("t.picked") === Count.Finite(2))
+      .and(counts(alone)("t.picked") must beAnInstanceOf[Count.Unresolved])
 
   // A dependency's classes are part of the program: `Sub` overrides `f` inline there, a call site
   // may type `b` as one, and `Sub.f` spells the call site's code, so `onParam` is refused, naming
@@ -337,27 +333,27 @@ class DependencyRowsSpec extends Specification {
       .and(first.definitions must beEmpty)
   }
 
-  // A dependency names the parent the compiler resolved. q.D extends q.S (or q.T), not p's
-  // template of that simple name, so D's parent outside the sources, `Iterator`, is not below p.T:
-  // nothing may override p.T's m, which is final, t carries nothing, and target ranges over the
-  // functions of b, 4. Where q.D does extend p.S, that parent is below p.T and may override m:
-  // refused. A source spelling `S` or `T` may mean either template, so with q.D in the module's
-  // sources it is refused too.
+  // A parent is the class the compiler resolved. q.D extends q.S (or q.T), not p's template of that
+  // simple name; where q.D does extend p.S, its other parent `Iterator` is a class the classpath
+  // holds, which declares no m. Either way nothing overrides p.T's m, which is final: t carries
+  // nothing, and target ranges over the functions of b, 4. A source spelling `S` or `T` in package
+  // q means q's template, as the compiler resolves it: 4 too.
   def qualified = {
     val use = "u.scala" -> "object U { def target(t: p.T)(b: Boolean): Boolean = ??? }"
     def target(files: (String, String)*) =
       counts(Compiled.reportOver(Nil, (files :+ use)*))("U.target")
-    val outside = "member may be overridden through a parent outside the sources"
     val p =
       Compiled.dependency("p", "package p\ntrait T { def m: Boolean = true }\ntrait S extends T")
     val q = "package q\ntrait S\ntrait D extends S with Iterator[Int]"
     val owner = "package q\ntrait T\ntrait D extends T with Iterator[Int]"
     val below = "package q\ntrait D extends p.S with Iterator[Int]"
-    (target(p, Compiled.dependency("q", q)) === Count.Finite(4))
-      .and(target(p, Compiled.dependency("q", owner)) === Count.Finite(4))
-      .and(refused(target(p, Compiled.dependency("q", below)), outside))
-      .and(refused(target(p, "q.scala" -> q), outside))
-      .and(refused(target(p, "q.scala" -> owner), outside))
+    List(
+      target(p, Compiled.dependency("q", q)),
+      target(p, Compiled.dependency("q", owner)),
+      target(p, Compiled.dependency("q", below)),
+      target(p, "q.scala" -> q),
+      target(p, "q.scala" -> owner)
+    ).map(_ === Count.Finite(4)).reduce(_ and _)
   }
 
   // `java.sql.ClientInfoStatus` is a Java enum of four constants: 2^4 = 16 predicates. `java.awt`'s

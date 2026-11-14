@@ -31,15 +31,11 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       a literal goal has one implementation                          $literalGoals
       a literal input adds nothing a body cannot write               $literalInputs
       literals inside products and sums                              $literalContainers
-      a union of literals holds its distinct constants               ${Pending.resolvedRefusal(
-      literalUnions
-    )}
+      a union of literals holds its distinct constants               $literalUnions
       a literal domain or codomain is a closed space                 $literalCallables
       a call instantiated with a literal widens it to its class      $literalCalls
       a literal is its own key, by class and constant                $literalKeys
-      a floating zero is not read, its sign being lost               ${Pending.resolvedRefusal(
-      floatingZero
-    )}
+      a floating zero of either sign is the constant written         $floatingZero
     Context functions are functions whose binders are givens
       an input applies like a function                               $contextInputs
       a result builds a literal with named binders                   $contextResults
@@ -51,9 +47,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       local definitions read the enclosing method's binders          ${Pending.knownLoss(
       contextLocals
     )}
-      a binder behind a reading that stops is refused                ${Pending.resolvedRefusal(
-      contextUnread
-    )}
+      a context function's binders are read however the result is spelled $contextUnread
       a call returning a context function is applied                 $contextCalls
       an ascription to a context function is applied                 $contextAscription
     Compile-time and type-revealing evidence is refused
@@ -193,7 +187,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
   // `1 | 2` is {1, 2}, split by literal patterns: 2^2 Booleans of it (4), and two goals; `1 | 1`
   // is one constant (2 Booleans); `1 | "a" | true` three. `1 | Boolean` is {1, true, false}: the
   // literal's class (`Integer`) is not Boolean's, so a class test splits it and 2^3 Booleans of it
-  // remain (8). `1 | Int` is Int, which this reading leaves to the union rule (refused). Constants
+  // remain (8). `1 | Int` is Int, as the compiler reads it: 2^(2^32) Booleans of it. Constants
   // of two classes are two values even where cooperative equality makes `1 == 1L` and `'a' == 97`
   // (fixture a5-gate-review eq: `case 1` matches `1L`): a class test tells them apart (4 each).
   def literalUnions = {
@@ -212,7 +206,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       .and(found("U.once") === Count.Finite(2))
       .and(found("U.mixed") === Count.Finite(3))
       .and(found("U.litBool") === Count.Finite(8))
-      .and(refused(found("U.wide"), "union alternatives require an overlap"))
+      .and(found("U.wide") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 32))))
       .and(found("U.lng") === Count.Finite(4))
       .and(found("U.chi") === Count.Finite(4))
   }
@@ -287,9 +281,12 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       .and(found("K.chr") === Count.Finite(0))
   }
 
-  // scalameta reads `-0.0` as `0.0`, and the two are different types: the zero is not read.
-  def floatingZero =
-    refused(rows("object Z { def zero: 0.0 = 0.0 }")("Z.zero"), "floating zero not read")
+  // TASTy keeps the constant with its sign (scalameta read `-0.0` as `0.0`): each literal goal has
+  // one implementation, 1.
+  def floatingZero = {
+    val found = rows("object Z { def zero: 0.0 = 0.0; def negative: -0.0 = -0.0 }")
+    (found("Z.zero") === Count.Finite(1)).and(found("Z.negative") === Count.Finite(1))
+  }
 
   // ctxIn: a, f(using a), f(using f(using a)), … (ω); ctxIn2: f(using a) alone (1).
   def contextInputs = {
@@ -359,11 +356,12 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       .and(refused(found("L.outer.l2"), "overlaps context function binder A"))
   }
 
-  // Where the reading of an enclosing result stops — a match type that may reduce to a context
-  // function, `ContextFunction1` by name, an applied inherited alias, a path, a name not supplied
-  // or not declared at all — a local definition's environment is unknown. Beside `plain`'s `Int`
-  // result, lp reads b and the captured i: every Boolean of a Boolean and an Int, 2^(2·2^32) =
-  // 2^(2^33).
+  // The compiled tree holds the context function the compiler built, however the result spells it —
+  // a match type reducing to one, `ContextFunction1` by name, an applied inherited alias, a path —
+  // and none where it builds none (an unsupplied `J`, an absent `ext.Unknown`, a plain `Int`). Each
+  // local reads b and its Ints: lp, lf and la the captured i, ln and lv the binder (lv's h, a trait
+  // with no term member, is one value) — every Boolean of a Boolean and an Int, 2^(2·2^32) =
+  // 2^(2^33); lm the captured x and the binder, 2^(2·2^64) = 2^(2^65). lka summons the one Y — 1.
   def contextUnread = {
     val found = rows("""import ext.J
       |type M[T] = T match { case Int => Int ?=> Int }
@@ -379,13 +377,14 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       |}
       |final class C2 extends P2 { def h2[Y]: KA[Y] = { def lka: Y = summon[Y]; lka } }
       |""".stripMargin + cardinality.Compiled.withheld("package ext\nclass J\nclass Unknown"))
-    refused(found("O.viaMatch.lm"), "context function behind a match type not read: M[Int]")
-      .and(refused(found("O.byName.ln"), "context function spelled by name: ContextFunction1"))
-      .and(refused(found("O.foreign.lf"), "declaration not supplied: ext.J"))
-      .and(refused(found("O.absent.la"), "declaration not supplied: ext.Unknown"))
-      .and(found("O.plain.lp") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 33))))
-      .and(refused(found("C2.h2.lka"), "context function behind an inherited alias not read: KA"))
-      .and(refused(found("O.viaPath.lv"), "context function result through a path not read: h.T"))
+    val twoInts = Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 33)))
+    List("O.byName.ln", "O.foreign.lf", "O.absent.la", "O.plain.lp", "O.viaPath.lv")
+      .map(name => found(name) === twoInts)
+      .reduce(_ and _)
+      .and(
+        found("O.viaMatch.lm") === Count.Symbolic(NaturalSyntax.pow(2, NaturalSyntax.pow(2, 65)))
+      )
+      .and(found("C2.h2.lka") === Count.Finite(1))
   }
 
   // Without an expected type Scala applies the returned context function to a given it finds, so

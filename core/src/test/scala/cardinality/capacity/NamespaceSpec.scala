@@ -29,9 +29,7 @@ class NamespaceSpec extends Specification {
       an object's import and its own types shadow the enclosing body's  ${Pending.knownLoss(
       objectShadowing
     )}
-      an open trait of an object is open                          ${Pending.oldBehavior(
-      objectOpenTrait
-    )}
+      an open trait of an object is open                          $objectOpenTrait
       a generic member instantiates                               $objectGeneric
       a member is read with the reasons its value rests on        ${Pending.knownLoss(
       objectReasons
@@ -45,7 +43,7 @@ class NamespaceSpec extends Specification {
       unopenedPath
     )}
       an inner package's subpackage shadows an outer package's object  $packageOrder
-      an enum's cases are not read as a namespace                 ${Pending.oldBehavior(enumCases)}
+      an enum's class case is the type it names                   ${Pending.knownLoss(enumCases)}
 
     Each file of a package reads with what that file adds
       another file's explicit import is not lost across packages  ${Pending.knownLoss(
@@ -200,9 +198,10 @@ class NamespaceSpec extends Specification {
       .and(rowsOf("S.scala" -> innerTrait)(("C#U", Class)) === "open[Foo]")
   }
 
+  // The reason names the trait by its own name, as `innerTrait`'s `open[Foo]` does.
   def objectOpenTrait =
     rows("object Op { trait Open }\nfinal case class UsesOp(o: Op.Open)")(("UsesOp", Class)) ===
-      "open[Op.Open]"
+      "open[Open]"
 
   // `Gen.Pair[Boolean]` is Pair's equation with A = 2: 2 · 2 = 4.
   def objectGeneric =
@@ -271,14 +270,14 @@ class NamespaceSpec extends Specification {
     rowsOf(vec, "F.scala" -> "package dev.app2\ntype V4 = data.Vec")(("dev.app2.V4", Alias)) ===
       "unresolved[data.Vec]"
 
-  // A known limit: an enum's class cases are types (`Shape.Circle`), but the estimate does not
-  // read an enum as a namespace; the reference stays a reason rather than borrowing a name.
+  // An enum's class cases are types: `Shape.Circle` holds its `r: Boolean`, 2, never the top-level
+  // `Circle`'s 2^32. The stored side does not read an enum case's type yet (it refuses it).
   def enumCases =
     rows(
       "final case class Circle(r: Int)\nenum Shape { case Circle(r: Boolean) }\ntype C = Shape.Circle"
     )(
       ("C", Alias)
-    ) === "unresolved[Shape.Circle]"
+    ) === "2"
 
   // `p.X` is the class's member: (Array[Byte], (Array[Byte], Int, Int)) = ω · (ω · 2^32 · 2^32) =
   // ω. `Other.W` is the object's member, Unit: 1 — not the class's `W = Boolean`. Before, the
