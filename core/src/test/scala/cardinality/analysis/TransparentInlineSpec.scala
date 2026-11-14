@@ -14,9 +14,7 @@ class TransparentInlineSpec extends Specification {
 
   def is = s2"""
     A transparent result is what the expansion returns
-      a declared top type hides what callers observe                 ${Pending.knownLoss(
-      transparent
-    )}
+      a declared top type hides what callers observe                 $transparent
       a transparent result of an open class may be a subclass        ${Pending.knownLoss(
       transparentSubclass
     )}
@@ -26,9 +24,7 @@ class TransparentInlineSpec extends Specification {
       a transparent function result is refused too                   ${Pending.oldBehavior(
       transparentFunction
     )}
-      a narrower class, None, or a declared singleton                ${Pending.knownLoss(
-      transparentResults
-    )}
+      a narrower class, None, or a declared singleton                $transparentResults
     An inline method that is not transparent
       an inline parameter of a top type is read only by inline match $inlineTop
   """

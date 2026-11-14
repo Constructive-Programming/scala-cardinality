@@ -97,9 +97,13 @@ final private[compiled] class Sums(world: World, shapes: Shapes)(using Context) 
         .flatMap { isUninhabited =>
           val children = symbol.sealedChildren
           if (isUninhabited) Right(Nil)
-          // An anonymous instance registers the family as its own child.
+          // A local or anonymous subclass registers the family as its own child.
           else if (children.contains(symbol))
-            Left(Refused(s"sealed family has anonymous instances in its file: ${symbol.name}"))
+            Left(
+              Refused(
+                s"sealed family has local or anonymous subclasses in its file: ${symbol.name}"
+              )
+            )
           // A family without subtypes has no value; one something extends has them listed.
           else if (children.isEmpty && world.extended(symbol)) Left(unlisted)
           else Traversals.sequence(children.map(subtype)).map(_.flatten)

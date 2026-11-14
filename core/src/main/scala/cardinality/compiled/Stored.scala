@@ -594,7 +594,12 @@ final private[compiled] class Stored(world: World)(using Context) {
     else if (env.isValue && !world.ofModule(c))
       Left(s"a value of a class of a dependency: ${c.displayFullName}")
     else if (c.isEnum && c.isCaseClass)
-      Right(Held(EffectiveOmega, List(Unbound.Refusal(s"enum case type not read: $name"))))
+      Right(
+        Held(
+          EffectiveOmega,
+          List(Unbound.Refusal(s"enum case type not read: ${c.displayFullName}"))
+        )
+      )
     // Any subtype anywhere may add values to an open trait or abstract class.
     else if (c.isAbstractClass && !c.isEnum && !Shapes.isFamily(c))
       Right(Held(EffectiveOmega, List(Unbound.Open(name))))

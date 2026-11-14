@@ -81,9 +81,7 @@ class HigherKindedBindingSpec extends Specification {
       a foreign evidence names the foreign type                     ${Pending.knownLoss(
       foreignBound
     )}
-      same-typed anonymous evidences are not counted                ${Pending.oldBehavior(
-      ambiguous
-    )}
+      same-typed anonymous evidences are not counted                $ambiguous
       anonymous using parameters do not overwrite each other        $anonymous
       a bounded binder's evidence is not provably unrelated         ${Pending.knownLoss(
       boundedEvidence

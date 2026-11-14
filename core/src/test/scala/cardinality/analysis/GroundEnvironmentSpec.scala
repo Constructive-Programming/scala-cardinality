@@ -49,7 +49,7 @@ class GroundEnvironmentSpec extends Specification {
       exports bind it where they forward                             ${Pending.resolvedRefusal(
       exports
     )}
-      an enum's cases shadow it after a wildcard import              ${Pending.knownLoss(enumCases)}
+      an enum's cases shadow it after a wildcard import              $enumCases
       a wildcard import of a supplied value is refused               ${Pending.resolvedRefusal(
       valueImport
     )}
@@ -79,9 +79,7 @@ class GroundEnvironmentSpec extends Specification {
       symbolicDisagreement
     )}
     Anonymous evidence
-      two anonymous evidences of one ground type are unreachable     ${Pending.oldBehavior(
-      anonymousGround
-    )}
+      two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
       ground evidence endpoints keep the evidence reason             $evidence
       an empty-domain function position has two conventions          $emptyDomain

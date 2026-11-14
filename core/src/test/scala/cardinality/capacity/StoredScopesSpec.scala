@@ -19,15 +19,11 @@ class StoredScopesSpec extends Specification {
 
   def is = s2"""
     An explicit enum companion holds the enum's cases
-      a wildcard, a selector, a path and a bare name bind the case     ${Pending.oldBehavior(
-      enumCompanion
-    )}
+      a wildcard, a selector, a path and a bare name bind the case     $enumCompanion
       a singleton case is a term only, a plain object no enum          ${Pending.oldBehavior(
       enumTerms
     )}
-      constructor slots lent to the method side refuse alike          ${Pending.knownLoss(
-      enumLending
-    )}
+      constructor slots lent to the method side refuse alike          $enumLending
       case parameters read in the companion, the body imports cases    ${Pending.oldBehavior(
       enumCases
     )}

@@ -170,7 +170,9 @@ private[cardinality] object TastyFrontEnd {
               defined.kind,
               defined.params,
               row.toOption.flatMap(_.size),
-              row.fold(why => List(Definition.Unbound.Refusal(s"$Uncovered: $why")), _.unbound),
+              row
+                .fold(why => List(Definition.Unbound.Refusal(s"$Uncovered: $why")), _.unbound)
+                .map(spelled),
               defined.tree.pos.startLine + 1
             )
           },
@@ -182,12 +184,30 @@ private[cardinality] object TastyFrontEnd {
               source.signature(method.shown),
               method.shown.pos.startLine + 1,
               method.kind,
-              read.fold(why => Count.Unresolved(List(s"$Uncovered: $why")), _._1),
+              spelled(read.fold(why => Count.Unresolved(List(s"$Uncovered: $why")), _._1)),
               read.fold(_ => Nil, _._2)
             )
           }
         )
       )
+  }
+
+  // A reason names what it quotes as the source would (`Source.spelled`).
+  private def spelled(count: Count): Count = count match {
+    case Count.Unresolved(reasons) => Count.Unresolved(reasons.map(Source.spelled))
+    case other                     => other
+  }
+
+  private def spelled(unbound: Definition.Unbound): Definition.Unbound = {
+    import Definition.Unbound.*
+    unbound match {
+      case Member(name)  => Member(Source.spelled(name))
+      case Open(name)    => Open(Source.spelled(name))
+      case Unknown(name) => Unknown(Source.spelled(name))
+      case Syntax(what)  => Syntax(Source.spelled(what))
+      case Refusal(what) => Refusal(Source.spelled(what))
+      case other         => other
+    }
   }
 
 }

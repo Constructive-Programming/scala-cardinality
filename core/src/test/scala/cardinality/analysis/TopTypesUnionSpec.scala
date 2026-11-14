@@ -866,7 +866,7 @@ class TopTypesUnionSpec extends Specification {
     reasonContains(
       families + "val a: P = new P {}\nval b: Q = new Q {}\ndef pq(q: Q): P | Q = q",
       "pq",
-      "sealed family has anonymous instances in its file"
+      "sealed family has local or anonymous subclasses in its file"
     )
 
   // P is {P1, E.A}, but its shape reads P1 alone: Q's side proves the pair apart, so only the

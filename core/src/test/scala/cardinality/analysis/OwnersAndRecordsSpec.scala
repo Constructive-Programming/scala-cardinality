@@ -45,9 +45,7 @@ class OwnersAndRecordsSpec extends Specification {
     )}
       a match-type field reduces on the record's tuple argument        $matchField
     Members no subclass overrides
-      a given or a final member an inline body selects is fixed        ${Pending.oldBehavior(
-      fixedSelection
-    )}
+      a given or a final member an inline body selects is fixed        $fixedSelection
       a deferred given is abstract: every class extending it gives one ${Pending.resolvedRefusal(
       deferredGiven
     )}

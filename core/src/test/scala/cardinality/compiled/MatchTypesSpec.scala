@@ -184,7 +184,7 @@ class MatchTypesSpec extends Specification {
       Count.Finite(2),
       Count.Finite(3),
       Count.Finite(2)
-    )).and(count("C.firstOf").toString must contain("a type: (scala.Tuple2[A, A] match"))
+    )).and(count("C.firstOf").toString must contain("a type: (Tuple2[A, A] match"))
 
   // `IsInt[A]` on an abstract A needs the compiler's disjointness of A from `Int`: not read yet.
   // Nor one tasty-query reduces on an abstract scrutinee:
@@ -201,6 +201,6 @@ class MatchTypesSpec extends Specification {
       .and(stored("Sd") must contain("a type: ("))
       .and(count("M.open").toString must contain("a type: (A match"))
       .and(count("M.bounded").toString must contain("a type: (T match"))
-      .and(count("M.nul").toString must contain("a type: (scala.Null match"))
+      .and(count("M.nul").toString must contain("a type: (Null match"))
 
 }

@@ -57,9 +57,7 @@ class SyntaxFeaturesSpec extends Specification with InventoryFixtures {
       a call returning a context function is applied                 $contextCalls
       an ascription to a context function is applied                 $contextAscription
     Compile-time and type-revealing evidence is refused
-      an inline method counts unless its expansion reads its call    ${Pending.knownLoss(
-      inlineMethods
-    )}
+      an inline method counts unless its expansion reads its call    $inlineMethods
       a definition inside an inline method is expanded with it       $inlineNested
       a one-valued inline goal keeps its one implementation          $inlineTerminal
       a transparent named tuple is refused unless it is a singleton  $inlineNamedTuple

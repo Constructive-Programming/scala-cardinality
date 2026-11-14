@@ -64,6 +64,8 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
   // everything it reaches, never assumed to pass.
   private def verdict(method: TermSymbol): Option[String] = verdicts.getOrElseUpdate(
     method, {
+      // The overrides the method's own body reaches by a selection: the member and on what.
+      val selections = mutable.Map.empty[TermSymbol, (TermSymbol, String)]
       @annotation.tailrec
       def first(queue: List[TermSymbol], seen: Set[TermSymbol]): Option[(TermSymbol, String)] =
         queue match {
@@ -74,11 +76,20 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
               case Some(why) => Some(head -> why)
               case None      =>
                 val reached = body.brings.distinct.filterNot(seen)
+                // A selection is the method's own only where its own body makes it.
+                if (head == method)
+                  reached.foreach(m => body.selected.get(m).foreach(selections.update(m, _)))
                 first(rest ++ reached, seen ++ reached)
             }
         }
       first(List(method), Set(method)).map { (at, why) =>
-        if (at == method) why else s"calls inline method ${named(at)}, which $why"
+        if (at == method) why
+        else
+          selections.get(at).fold(s"calls inline method ${named(at)}, which $why") { (member, on) =>
+            s"selects ${member.name} on $on, which a call site may type as a subclass of " +
+              s"${member.owner.name} that overrides ${member.name} inline, and inline method " +
+              s"${named(at)} $why"
+          }
       }
     }
   )
@@ -108,7 +119,13 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
   // One inline method's own definition: why an expansion of it is decided at the call site, and
   // the inline methods an expansion brings along (the ones it calls, and the inline overrides of
   // the members it selects on a parameter or on `this`).
-  final private case class Body(reason: Option[String], brings: List[TermSymbol])
+  // `selected` keeps, for an override brought along, the member selected and what it is selected
+  // on.
+  final private case class Body(
+      reason: Option[String],
+      brings: List[TermSymbol],
+      selected: Map[TermSymbol, (TermSymbol, String)] = Map.empty
+  )
 
   private val bodies = mutable.Map.empty[TermSymbol, Body]
 
@@ -120,7 +137,11 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
         // A default argument is written in the definition, and read with it; the compiler keeps
         // it as a method beside this one.
         (definition :: defaults(method)).foreach(walk.traverse)
-        Body(walk.reason.orElse(Option.when(method.isMacro)("is a macro")), walk.brings.toList)
+        Body(
+          walk.reason.orElse(Option.when(method.isMacro)("is a macro")),
+          walk.brings.toList,
+          walk.selected.toMap
+        )
       // An inline method of a class read without its trees: nothing says what it expands to.
       case _ => Body(Some("has no body in the classes read"), Nil)
     }
@@ -184,6 +205,7 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
   final private class Walk(definition: DefDef) extends Traversers.TreeTraverser {
     var reason: Option[String] = None
     val brings = mutable.ListBuffer.empty[TermSymbol]
+    val selected = mutable.Map.empty[TermSymbol, (TermSymbol, String)]
 
     // What an expansion may type more narrowly than declared: the method's own value parameters,
     // and those of a lambda in its body, which an expansion applied in place binds to its
@@ -258,7 +280,11 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
         if (compileTime(symbol)) stop(s"uses ${named(symbol)}")
         else {
           if (inlineMethod(symbol)) brings += symbol
-          if (onReceiver(reference) && overridable(symbol)) brings ++= overriders(symbol)
+          if (onReceiver(reference) && overridable(symbol)) {
+            val found = overriders(symbol)
+            brings ++= found
+            found.foreach(selected.getOrElseUpdate(_, symbol -> receiver(reference)))
+          }
         }
       case _ => ()
     }
@@ -268,6 +294,13 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
     // an override may narrow, or a receiver whose type an expansion instantiates. An ascription
     // to a type that names no type parameter fixes the receiver's type, and so does such a local
     // value's declaration.
+    // What a member is selected on, as a reason says it.
+    private def receiver(reference: TermReferenceTree): String = reference match {
+      case Select(_: This, _) | _: Ident => "this"
+      case Select(Ident(name), _)        => name.toString
+      case _                             => "a receiver"
+    }
+
     private def onReceiver(reference: TermReferenceTree): Boolean = reference match {
       case Select(qualifier, _) => narrowable(qualifier) || instantiated(qualifier.tpe)
       case _: Ident             => symbolOf(reference).exists(_.owner.isClass)
@@ -352,12 +385,21 @@ final private[compiled] class Inlines(own: Set[ClassSymbol], dependencies: => Li
 
   // A symbol as a reason names it: its path, an object by its own name, and without the object
   // the compiler makes of a file's top-level definitions.
-  private def named(symbol: Symbol): String =
-    symbol.displayFullName
+  // A name as the report spells it: an anonymous given (a compiler-made `given_` name) by its
+  // line, as its row is (`<given@line>`).
+  private def named(symbol: Symbol): String = {
+    val path = symbol.displayFullName
       .replace("$.", ".")
       .split('.')
       .filterNot(_.endsWith("$package"))
-      .mkString(".")
+    symbol match {
+      case g: TermSymbol if g.isGivenOrUsing && g.name.toString.startsWith("given_") =>
+        g.tree.fold(path.mkString("."))(tree =>
+          (path.init :+ s"<given@${tree.pos.startLine + 1}>").mkString(".")
+        )
+      case _ => path.mkString(".")
+    }
+  }
 
 }
 

@@ -537,7 +537,7 @@ class TastyFrontEndSpec extends Specification {
     val expected = List(
       "hidden" -> "sealed subtype hides a parameter",
       "loop" -> "recursive type not read",
-      "anon" -> "sealed family has anonymous instances in its file",
+      "anon" -> "sealed family has local or anonymous subclasses in its file",
       "holder" -> "sealed subtype outside the closed fragment",
       "sm" -> "enum case type not read",
       "giv" -> "sealed family has a given instance outside the fragment",
@@ -708,8 +708,8 @@ class TastyFrontEndSpec extends Specification {
       "made" -> sized("1"),
       "empty" -> sized("1"),
       "none" ->
-        unbound("refusal:value not decided: scala.Function1[scala.Nothing, scala.Boolean]", "1"),
-      "meet" -> unbound("refusal:value not decided: scala.&[scala.Boolean, scala.Matchable]", "1")
+        unbound("refusal:value not decided: Function1[Nothing, Boolean]", "1"),
+      "meet" -> unbound("refusal:value not decided: Boolean & Matchable", "1")
     )
     expected.map((name, _) => name -> row(name)) must_== expected
   }

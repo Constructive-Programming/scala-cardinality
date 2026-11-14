@@ -61,9 +61,7 @@ class InlineScopesSpec extends Specification with InventoryFixtures {
       a qualifier is converted from its own type's implicit scope       ${Pending.resolvedRefusal(
       anchoredConversions
     )}
-      only a template extending the receiver overrides its member       ${Pending.knownLoss(
-      overridingInlines
-    )}
+      only a template extending the receiver overrides its member       $overridingInlines
   """
 
   private def pow2(exponent: Int): Count =

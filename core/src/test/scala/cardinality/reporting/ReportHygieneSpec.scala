@@ -32,7 +32,7 @@ class ReportHygieneSpec extends Specification with AfterAll {
       so is one that only starts like a placeholder         ${Pending.resolvedRefusal(
       placeholderPrefix
     )}
-      a literal type reads as written in rows and reasons   ${Pending.oldBehavior(literalRows)}
+      a literal type reads as written in rows and reasons   $literalRows
       a refinement reads one way however it is laid out     ${Pending.oldBehavior(
       refinementLayouts
     )}

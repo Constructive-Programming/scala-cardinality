@@ -17,12 +17,8 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       keep two anonymous parameters apart                          $anonymousApart
       keep anonymous parameters of two owners apart                $anonymousOwners
       count unrelated anonymous evidence once each                 $anonymousDistinct
-      refuse same-typed evidence a search cannot tell apart        ${Pending.oldBehavior(
-      anonymousAmbiguous
-    )}
-      read an extension's clauses at its method's level            ${Pending.knownLoss(
-      anonymousExtension
-    )}
+      refuse same-typed evidence a search cannot tell apart        $anonymousAmbiguous
+      read an extension's clauses at its method's level            $anonymousExtension
       refuse evidence a nearer or same-level value shadows         ${Pending.knownLoss(
       anonymousShadowed
     )}
@@ -674,7 +670,7 @@ class EnvironmentSoundnessSpec extends Specification with InventoryFixtures {
       |case object W1 extends W
       |object Extra { val extra: W = new W {} }
       |object UseW { def makeW(): W = ??? }""".stripMargin)
-    val reason = "sealed family has anonymous instances in its file"
+    val reason = "sealed family has local or anonymous subclasses in its file"
     refused(found("Use.mk"), s"$reason: Arb")
       .and(refused(found("Use.read"), s"$reason: Arb"))
       .and(refused(found("UseW.makeW"), s"$reason: W"))

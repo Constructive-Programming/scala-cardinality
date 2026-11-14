@@ -110,6 +110,61 @@ final private[compiled] class Source(val path: String, text: String) {
 
 private[compiled] object Source {
 
+  /** A reason as the source would write the names it quotes: no `$package` object, no `$` of a
+    * module class, no `C.this.` prefix, a root-imported name bare (`Int`, `String`, `Option`) and
+    * `&` and `|` infix (`Int & String`, not `scala.&[scala.Int, scala.Predef.String]`).
+    */
+  def spelled(reason: String): String = {
+    val plain = Plain.foldLeft(reason)((text, rule) => rule._1.replaceAllIn(text, rule._2))
+    infix(plain)
+  }
+
+  private val Plain = List(
+    """(?<![^\s(\[,.])[^\s.\[\](),]+\$package\$?\.""".r -> "",
+    """\b\w+\$?\.this\.""".r -> "",
+    """(\w)\$(?=[.\[\],)\s]|$)""".r -> "$1",
+    """(^|[\s(\[,])\.(?=[A-Za-z_])""".r -> "$1",
+    """(?<![\w.$])(?:scala\.Predef|scala|java\.lang)\.([A-Z]\w*)\b(?![.\w])""".r -> "$1"
+  )
+
+  // `scala.&[A, B]` and `scala.|[A, B]` as `A & B` and `A | B`, each side spelled first.
+  private def infix(text: String): String = {
+    val at = List("scala.&[", "scala.|[").map(text.indexOf).filter(_ >= 0).minOption
+    at match {
+      case None        => text
+      case Some(start) =>
+        val open = start + "scala.&".length
+        val parts = arguments(text, open)
+        parts match {
+          case Some((List(left, right), close)) =>
+            val op = text.charAt(start + "scala.".length)
+            def side(part: String) = {
+              val spelled = infix(part.trim)
+              if (op == '&' && spelled.contains(" | ")) s"($spelled)" else spelled
+            }
+            infix(text.take(start) + side(left) + s" $op " + side(right) + text.drop(close + 1))
+          case _ => text
+        }
+    }
+  }
+
+  // The top-level arguments of the bracket at `open`, and where it closes.
+  private def arguments(text: String, open: Int): Option[(List[String], Int)] = {
+    @scala.annotation.tailrec
+    def go(at: Int, depth: Int, start: Int, found: List[String]): Option[(List[String], Int)] =
+      if (at >= text.length) None
+      else
+        text.charAt(at) match {
+          case '[' | '(' | '{'               => go(at + 1, depth + 1, start, found)
+          case ']' | ')' | '}' if depth == 1 =>
+            Some(((text.substring(start, at) :: found).reverse, at))
+          case ']' | ')' | '}'   => go(at + 1, depth - 1, start, found)
+          case ',' if depth == 1 => go(at + 1, depth, at + 1, text.substring(start, at) :: found)
+          case _                 => go(at + 1, depth, start, found)
+        }
+    go(open + 1, 1, open + 1, Nil)
+  }
+
   /** One line, spaced as a signature is printed: a literal or a name in backticks as written; a run
     * of whitespace or comments one space, none inside brackets or between clauses (`f(x: A)(y:
     * A)`); a line break before a member of a refinement or a case `; `; a match type's braceless
