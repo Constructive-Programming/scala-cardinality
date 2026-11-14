@@ -1662,6 +1662,80 @@ binary jar beside the sources jar, either alone refused, D8); `dependencies` has
 expectation (D9): with the dependency classpath cleared, `pick(c: Comparison)` is refused, `a member
 the classpath does not hold: cats`.
 
+## Clean-up after the switch (C1, 2026-11-14)
+
+On branch `tasty-c1`, from `b53f9bf`. No count changes anywhere.
+
+- `de6b770`: about 70 comments in `compiled/` explained a rule as the deleted front end read it;
+  each now states the rule, citing AGENTS.md or this plan. Comments only.
+- `6f8ea28`: `CompiledTypes.readable` links a suffixless sbt 2 jar once per path, not on every
+  read (`CompiledTypesSpec`).
+- `b049c4a`: `cardinalityReportOf` given a sources jar alone gets one error at the jar (give the
+  library's binary jar beside its sources jar), not one per source; both plugins, through
+  `Report.of` (`SourcesJarSpec`, scripted `library`).
+- `3b9b8f8`: a row's signature is the source span as written, on one line (`SignatureSpec`):
+  secondary constructors, backticked names, parenthesized given types, literals, multi-line
+  refinements, braceless match types, curried clauses. 20 corpus rows change text.
+- `e25087e`: reasons spell names as the source would (`Source.spelled`, `ReasonSpellingSpec`);
+  1,855 corpus reason lines change wording, no row's count, name or tally.
+- Dead code: `scripts/dead-code.scala`'s scan (`Dead.scala`) and `Reach.scala` with no cuts, rooted
+  at the plugins alone, find no unreachable main-source symbol (S8 removed it all; the one "never
+  referenced" hit, `compiled.Fixed`, is built through its constructor). Of what a reachability scan
+  does not flag, `Report.DefinitionRow.sizeClass` (written, never read) and `Report.unresolved` (a
+  one-line helper) go in the commit that adds this section.
+
+### Follow-up: API thinning (after the spec rewrites merge)
+
+The S8 reviewers' suggestions and the C1 review's, not done here because specs or the README call
+these names. Line numbers are at that commit. Order: 3 with or before 1 (`FrontEnd.Module` holds an
+`Environment`), 2 with 1.
+
+1. `Report.Environment` goes. With 2, `CompiledClasses` is a top-level case class
+   (`final case class CompiledClasses(output: Seq[Path], classpath: Seq[Path] = Nil)`, the loader
+   functions in its companion), so `Report.of(paths: Seq[Path], classes: Option[CompiledClasses] =
+   None)`. The `Option` stays: `None` is its own refusal, pinned by scripted
+   `report/expected/refused.txt`. `Report.Query` and `QueryResult`'s request object go too:
+   `Report.query(targets: Seq[Path], targetNames: Set[String], classes: Option[CompiledClasses])`
+   (both plugins always pass all three; no spec builds a `Query`). Call sites: Report.scala
+   (`Environment` and `Query` declarations, `query`, `of`, the `FrontEnd.Module` call);
+   CardinalityPlugin.scala `cardinalityReport`, `cardinalityReportOf`, `cardinalityReportSelected`;
+   CardinalityModule.scala the same three; CorpusRun.scala:46; specs: Compiled.scala:165,
+   ProgramRowsSpec.scala:74, TastyFrontEndSpec.scala:881, ReportSpec.scala:279,
+   SourcesJarSpec.scala:19, 46; README's library snippets (`Report.Environment(...)`,
+   `Report.query(Report.Query(...))`); this plan's boundary table (search `Report.Environment`).
+2. `cardinality.tasty.CompiledTypes` becomes `cardinality.tasty.CompiledClasses` (it loads the
+   module's classes and classpath into a tasty-query context; it no longer types anything into
+   sources). Rename the file and every `CompiledTypes`: ClosedProgram.scala (5),
+   DependencyClasses.scala, TastyFrontEnd.scala (7), Report.scala (3), CardinalityPlugin.scala
+   (3), CardinalityModule.scala (3), CorpusRun.scala (2); specs: Compiled.scala (4),
+   InferredResultsSpec, ClosedProgramSpec (2), DependencyClassesSpec (2), InlinesSpec (4),
+   ProgramRowsSpec (2), Programs.scala (8), TastyFrontEndSpec (2), ReportSpec, SourcesJarSpec (3),
+   CompiledTypesSpec (8; renamed CompiledClassesSpec), inferredfixtures/Inferred.scala; README.
+   While there, `unnamed(classes, ofModule: Boolean)` takes the paths it reads instead of a flag.
+3. `reporting.FrontEnd` goes: `Rows(sources, warnings)` moves into `TastyFrontEnd`, and
+   `TastyFrontEnd.rows(sources: List[(String, String)], classes: Option[CompiledClasses]): Rows`, so
+   the specs' `.sources` and `.warnings` reads stay. Delete FrontEnd.scala (17 lines). Call sites:
+   TastyFrontEnd.scala (import at 8; `rows`, `refused`); Report.scala (the `rows` call); specs:
+   Compiled.scala (import 6, call 163), ProgramRowsSpec.scala (import 4, 72), TastyFrontEndSpec.scala
+   (import 7, 859, 881, and the `TastyFrontEnd.rows(...)` calls that take a held `Module`).
+4. `analysis.MethodAnalysis` goes: `Entry` moves to `reporting.Report.Entry` (beside `Source`,
+   which holds it). Delete MethodAnalysis.scala (21 lines; its doc comment moves to `Entry`). Call
+   sites: TastyFrontEnd.scala:5; Report.scala (import, `methods`, `models`, `query`'s filter,
+   `Source.methods`, `entryReasons`, `methods(...)`); specs: CompiledSpec (6, 25), Compiled.scala
+   (3, 303), ReportHygieneSpec (4, 74, 77, 466), EoCaseLedgerSpec:25, MethodAnalysisSpec:75,
+   TopTypesUnionSpec:147, InventoryFixtures:18, MethodUnionNullabilitySpec:28,
+   RepeatedParameterFragmentSpec:32, TargetViewsSpec:94, MethodMatchProjectionSpec:33,
+   SingletonIntersectionMethodSpec:36, GeneralInfixApplicationSpec:26,
+   OverrideIdentityImplementationSpec:32 (the `cardinality.analysis.*` specs use it unimported
+   today and need `import cardinality.reporting.Report`); docs/plans/v1.md:320's link to
+   `MethodAnalysis.scala#L104` (already stale).
+
+Not in the plan, kept as behavior: `Report.query`'s catch-all ("query acquisition failed"), which
+`cardinalityReport` lacks; dropping it changes what a failing query reports.
+
+Gate for each: the six corpora byte-identical through `Report.of` (only the call's spelling
+changes in `CorpusRun`).
+
 ## Switch-over: wiring (2026-11-13)
 
 - One switch: `Report.Environment.frontEnd: Report.Front` (`Scalameta`, the default, or `Tasty`).

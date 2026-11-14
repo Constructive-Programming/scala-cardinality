@@ -134,14 +134,9 @@ object Report {
   final case class Error(path: String, message: String)
 
   /** One stored-value row as the report reads it: the size cell — `?` for a row with reasons, `—`
-    * for a definition with no size of its own — and the summary class the row counts under.
+    * for a definition with no size of its own.
     */
-  final case class DefinitionRow(
-      source: String,
-      definition: Definition,
-      size: String,
-      sizeClass: String
-  )
+  final case class DefinitionRow(source: String, definition: Definition, size: String)
 
   object DefinitionRow {
 
@@ -149,8 +144,7 @@ object Report {
       DefinitionRow(
         source,
         definition,
-        if (unresolved(definition)) "?" else definition.size.fold("—")(_.render),
-        SizeClass(definition).label
+        if (definition.unbound.nonEmpty) "?" else definition.size.fold("—")(_.render)
       )
 
   }
@@ -294,14 +288,6 @@ object Report {
   private def plural(count: Int, noun: String): String =
     s"$count $noun${if (count == 1) "" else "s"}"
 
-  // A row is a question when something in its types is outside the calculator's vocabulary, when
-  // its own parameters are what the size depends on, or when an open abstraction unbounds it. A
-  // countable or ε₀-tier size is not a question by itself: since the solver learned to count
-  // recursive and lazy types, `ω` is the answer for a definition like
-  // `case class St(head: Boolean, tail: => St)`, and an opaque row reads its representation where
-  // it is defined — the kind says the representation is hidden to everyone else.
-  private def unresolved(definition: Definition): Boolean = definition.unbound.nonEmpty
-
   private val entryReasons =
     lens[MethodAnalysis.Entry](_.count)
       .andThen(prism[Inhabitation.Count, Inhabitation.Count.Unresolved])
@@ -399,7 +385,7 @@ object Report {
   // sizes from the largest down — ε₀, then ω, then finite capacities and exact counts — and the
   // definitions with no cardinality of their own — abstract types — last. Names break ties.
   private def order(definition: Definition): (Int, BigInt, BigInt, Int, BigInt, String) =
-    if (unresolved(definition)) (0, BigInt(0), BigInt(0), 0, BigInt(0), definition.name)
+    if (definition.unbound.nonEmpty) (0, BigInt(0), BigInt(0), 0, BigInt(0), definition.name)
     else
       definition.size match {
         case Some(size) =>
