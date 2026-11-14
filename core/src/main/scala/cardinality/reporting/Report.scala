@@ -177,9 +177,14 @@ object Report {
     // The front end answers each source in order; a path that could not be read stands where it
     // was listed.
     val answers = rows.sources.iterator
+    // No compiled classes of the sources' own at all: a sources jar's are missing, not some.
+    val unclassed = binaries.isEmpty && environment.classes.forall(_.output.isEmpty)
     val answered = found.flatMap {
-      case (_, Left(error))    => List(Left(error))
-      case (_, Right(sources)) => sources.map(_ => answers.next())
+      case (_, Left(error))       => List(Left(error))
+      case (path, Right(sources)) =>
+        val mine = sources.map(_ => answers.next())
+        if (unclassed && Locations.jar(path) && !Files.isDirectory(path)) unbuilt(path, mine)
+        else mine
     }
     // The rows of a binary jar are named and placed by its sources, which a sources jar holds.
     val unsourced = Option.when(binaries.nonEmpty && sources.isEmpty)(
@@ -194,6 +199,23 @@ object Report {
       Locations.placed(found.map((path, read) => path -> read.fold(_ => Nil, _.map(_._1)))),
       rows.warnings
     )
+  }
+
+  // A sources jar given with no compiled classes but the classpath: one error, the hint, not one
+  // per source.
+  private def unbuilt(
+      path: Path,
+      answers: List[Either[Error, Source]]
+  ): List[Either[Error, Source]] = {
+    val (uncompiled, rest) = answers.partition(_.left.exists(_.message == TastyFrontEnd.Uncompiled))
+    if (uncompiled.isEmpty) answers
+    else
+      rest :+ Left(
+        Error(
+          path.toString,
+          "no compiled classes for its sources: give the library's binary jar beside its sources jar"
+        )
+      )
   }
 
   // For a jar of compiled classes (TASTy or class files), whether it holds sources too; nothing for

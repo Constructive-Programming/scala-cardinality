@@ -7,3 +7,4 @@
 > checkTasty
 -> cardinalityReportOf library.jar
 -> cardinalityReportOf library-sources.jar
+> checkSourcesAlone

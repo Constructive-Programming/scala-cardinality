@@ -23,6 +23,9 @@ private[cardinality] object TastyFrontEnd {
   /** How a row says that the compiled front end does not read it yet. */
   val Uncovered = "not read from compiled classes yet"
 
+  /** Why a source that defines something and has no compiled classes is not read. */
+  val Uncompiled = "no compiled classes for this source"
+
   def rows(module: FrontEnd.Module): FrontEnd.Rows =
     module.environment.classes match {
       case None          => refused(module.sources, "no compiled classes supplied")
@@ -112,8 +115,8 @@ private[cardinality] object TastyFrontEnd {
         // A source that defines nothing has no classes and no rows; one that defines something
         // and has no classes was not compiled.
         case Nil if Defining.findFirstIn(text).isEmpty => Right(Report.Source(path, Nil, Nil))
-        case Nil     => error("no compiled classes for this source")
-        case several =>
+        case Nil                                       => error(Uncompiled)
+        case several                                   =>
           error(s"compiled from more than one source: ${several.sorted.mkString(", ")}")
       }
     }
