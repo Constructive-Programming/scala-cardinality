@@ -1951,7 +1951,7 @@ Definition rows:
   636 are rows the old front end refuses too. Of the uncovered method rows, 124 are old numbers: 70
   rest on an unsound rule and 54 are known losses.
 - The known losses, 56 rows (22 corpus method rows, 32 fixture method rows, 2 fixture definition
-  rows), are in `core/src/test/resources/compiled/known-losses.txt`, one per line, as `key | old
+  rows), are in `docs/plans/compiled-own-types/known-losses.txt`, one per line, as `key | old
   value: the new front end's reason` (its first reason, without the prefix `not read from compiled
   classes yet: `), corpora first. The owner accepted them as future work (via the coordinator,
   2026-11-14). By
@@ -2617,11 +2617,11 @@ scripts/differential.sh <assets> <output directory> [input ...]
   (another checkout's fixtures, a run over part of the cache). To accept a changed count, delete
   its line. Where two rows share a key (two overloads on one line) the key is kept only when both
   are measured alike.
-- `core/src/test/resources/compiled/derived.txt` lists the better rows past a model limit that
+- `docs/plans/compiled-own-types/derived.txt` lists the better rows past a model limit that
   were derived by hand (`--derived`): the row's key as the run prints it, ` | `, its count, `:`, and
   the rule that makes it countable. The row passes while it has that count. A fixture's key holds
   its digest, so editing the fixture asks for the derivation again.
-- `core/src/test/resources/compiled/corrected.txt` lists the rows whose number changes because
+- `docs/plans/compiled-own-types/corrected.txt` lists the rows whose number changes because
   the old one is derivably wrong (`--corrected`): the row's key, ` | `, `old -> new` as the run
   prints both values, `:`, and the derivation. A worse row passes only while it has both values.
   A line for a source of the run that passes no row fails the run; a key listed twice is read
