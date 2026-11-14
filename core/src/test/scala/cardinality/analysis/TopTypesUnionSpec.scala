@@ -37,9 +37,7 @@ class TopTypesUnionSpec extends Specification {
       an import of Any refuses the builtin                           ${Pending.knownLoss(
       shadowImport
     )}
-      an inherited member named Any is that member                   ${Pending.knownLoss(
-      shadowInherited
-    )}
+      an inherited member named Any is that member                   $shadowInherited
       a wildcard function is still uncallable                        $existential
     A channel to declarations the sources do not supply keeps Any open
       a self type outside the sources                                ${Pending.knownLoss(
@@ -295,13 +293,14 @@ class TopTypesUnionSpec extends Specification {
     )
 
   // Inside O, `Any` is Base's Boolean: no absorption, no unit of `&`, no top result. Red |
-  // Boolean has 4 values over Red's 2 → 4^2; a Boolean over 2 inputs → 2^2.
+  // Boolean has 4 values over Red's 2 → 4^2; a Boolean over 2 inputs → 2^2. Red & Boolean: two
+  // final classes share no instance (`World.meet`), so the result is empty → 0^2 = 0.
   def shadowInherited = {
     val code = colours + "trait Base { type Any = Boolean }\nobject O extends Base { " +
       "def f(x: Red): Red | Any = x; def g(x: Red): Any = ???; def h(x: Red): Red & Any = ??? }"
     (count(code, "O.f") === Count.Finite(16))
       .and(count(code, "O.g") === Count.Finite(4))
-      .and(reasonContains(code, "O.h", "unsupported intersection relationship: Red & Any"))
+      .and(count(code, "O.h") === Count.Finite(0))
   }
 
   // `Function1[Any, R]` is `Any => R`: its Any is the arrow's input, so consume(()) is the one R.
