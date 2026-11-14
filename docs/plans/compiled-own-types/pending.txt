@@ -320,7 +320,6 @@
 (c) known loss | UnsuppliedWildcardSpec | an enum companion's wildcard binds a case class
 (c) known loss | UnsuppliedWildcardSpec | quotes.reflect, whose members are not listed, may bind any
 (c) known loss | UnsuppliedWildcardSpec | refuses Singleton for the marker where a wildcard may bind it
-count differs: to derive, a correction or a bug | StoredValueSoundnessSpec | an intersection of unrelated families is empty
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards incorrect alias arity
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards mutually recursive aliases
 rejected fixture, uncompiled support | AliasOverrideIdentitySpec | guards nearer imports shadowing an outer binder

@@ -625,7 +625,7 @@ class TastyFrontEndSpec extends Specification {
   //     shared state and a case's other parent no matter.
   //   - A tuple multiplies, 2 × 3. `Fn` is a function of its parameter; a constructor alias is a
   //     dash. A union adds, 2 + 1, once where both sides are one type, 2; an intersection is its
-  //     smaller side, 2. A list of strings is ω and one of functions over them ε₀; a function
+  //     narrowest part (`Matchable` is `Any`), 2. A list of strings is ω and one of functions over them ε₀; a function
   //     from `Nothing` is the algebra's 0. `Option` adds one, 3; a map is (1 + 1)^2 = 4 and so is
   //     a partial function; a set is 2^3 = 8; `Either` is 2 + 1; an array of nothing is the empty
   //     one; a literal type is one value. `Rec` is R = 1 + R: from 0, 1, then 2, and a cycle that
@@ -647,8 +647,8 @@ class TastyFrontEndSpec extends Specification {
   //     sealed trait that extends a sealed class is the trait's: `Lvl2` is 1 + 1.
   //     An enum's value case that extends a family makes the row the old estimate's refusal,
   //     whatever its other cases hold: `Mixed` has no size and that reason alone.
-  //   - A top-level value is one value, the empty tuple and a built `Pt` (`made`) too. One of a type
-  //     read as 0, or of an intersection, whose size does not say a value exists, is undecided.
+  //   - A top-level value is one value, the empty tuple, a built `Pt` (`made`) and a `Boolean &
+  //     Matchable`, which is `Boolean` (`meet`), too. One of a type read as 0 is undecided.
   private def stored = {
     def sized(size: String) = (Some(size), Nil)
     def unbound(reason: String, size: String = "ω") = (Some(size), List(reason))
@@ -709,7 +709,7 @@ class TastyFrontEndSpec extends Specification {
       "empty" -> sized("1"),
       "none" ->
         unbound("refusal:value not decided: scala.Function1[scala.Nothing, scala.Boolean]", "1"),
-      "meet" -> unbound("refusal:value not decided: scala.&[scala.Boolean, scala.Matchable]", "1")
+      "meet" -> sized("1")
     )
     expected.map((name, _) => name -> row(name)) must_== expected
   }

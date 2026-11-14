@@ -449,26 +449,27 @@ class StoredRecursionSpec extends Specification {
 
   // `Neg` reaches itself through a function's domain, where the numeric equation is no count
   // (Cantor). `GS[A]` continues through `=> GS[A]`, a class named with arguments: a field the
-  // completion reads with the cycle as one value, A × 1 per lap, the reason its parameter `A`. `X` is
-  // X = 1 + min(X, 2): its rounds grow 1, 2, 3 while `Two` settles, so it is widened to ω, which its
-  // equation does not reach again (1 + min(ω, 2) = 3). `N` and `UN` read `N` at Boolean, then at
-  // pairs of them, 4 values, then 16, ...: no end. `Wt` reads `W` at itself, and `W` reads itself
+  // completion reads with the cycle as one value, A × 1 per lap, the reason its parameter `A`. `N`
+  // and `UN` read `N` at Boolean, then at pairs of them, 4 values, then 16, ...: no end. `Wt` reads `W` at itself, and `W` reads itself
   // at that argument again; `Lb` reads `Lbox` at itself, whose by-name field the ν completion would
   // not see read in place (Lb is the `Lz` knot, 1); `LzB`, `Nb`, `Lc` read `Box` at a function
   // type of themselves, whose knot (`LzB` is `Lz`, 1; `Nb` is ω) the ν completion would not see in
   // place either (it read 0): each a class a system reads through a type argument, refused.
+  // `X` is counted: it holds `Option[X[A] & Two[A]]`, and no class is both an `X` and a `Two` (the
+  // closed world), so X = 1 + 0 = 1 (it read 1 + min(X, 2), widened and refused).
   private def refusals =
-    List("Neg", "GS", "X", "N", "UN", "Wt", "Lb", "LzB", "Nb", "Lc").map(definition) must_== List(
-      "recursion through a function's domain",
-      "A",
-      "a recursion whose widening is not settled",
-      "a class a system reads with ever new type arguments",
-      "a class a system reads with ever new type arguments",
-      "a class a system reads through a type argument",
-      "a class a system reads through a type argument",
-      "a class a system reads through a type argument",
-      "a class a system reads through a type argument",
-      "a class a system reads through a type argument"
+    (definition("X") === "1").and(
+      List("Neg", "GS", "N", "UN", "Wt", "Lb", "LzB", "Nb", "Lc").map(definition) must_== List(
+        "recursion through a function's domain",
+        "A",
+        "a class a system reads with ever new type arguments",
+        "a class a system reads with ever new type arguments",
+        "a class a system reads through a type argument",
+        "a class a system reads through a type argument",
+        "a class a system reads through a type argument",
+        "a class a system reads through a type argument",
+        "a class a system reads through a type argument"
+      )
     )
 
   // A class read with two argument lists, one below the other, is two classes of the system:

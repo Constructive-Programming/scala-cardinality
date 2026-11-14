@@ -1,6 +1,8 @@
 package cardinality.compiled
 
+import cardinality.types.Traversals
 import tastyquery.Contexts.*
+import tastyquery.Modifiers
 import tastyquery.Modifiers.Visibility
 import tastyquery.Names.nme
 import tastyquery.Symbols.*
@@ -106,6 +108,54 @@ final private[compiled] class World(
 
   /** Whether an instance may be of both classes (`ClosedProgram.mixes`). */
   def mixes(left: ClassSymbol, right: ClassSymbol): Boolean = closed.mixes(left, right)
+
+  /** The values of an intersection, each part one no other lies below, as the types of the classes
+    * whose instances they are (AGENTS.md, the closed world). A class that is neither final nor
+    * sealed may be extended beside the program (an open template, which a new body may implement),
+    * so the meet is read only where some part is closed: not open, nor any class below it, all of
+    * them known. Then none where two parts share no instance (`mixes`), otherwise the concrete
+    * classes among that part and those below it that extend every part's class, are ever built
+    * (D26) and lie below every part as written (its arguments and refinements), each an object or a
+    * final class, its own type that of all its instances. A part that names no class, parts that
+    * are all open, and a concrete class that extends every part's class but is extended, generic,
+    * not nested in objects alone or not proven below every part as written are a `Left`.
+    */
+  def meet(parts: List[Type]): Either[String, List[Type]] = {
+    val classes = parts.flatMap(World.instanceClass)
+    lazy val shown = parts.map(_.showBasic).mkString(" & ")
+    def open(k: ClassSymbol) = !finalClass(k) && k.openLevel != Modifiers.OpenLevel.Sealed
+    def own(k: ClassSymbol): Either[String, Option[Type]] = {
+      val tpe = if (k.isModuleClass) k.moduleValue.map(_.staticRef) else Some(k.staticRef)
+      if (!finalClass(k)) Left(s"an intersection whose instances are of an extended class: $shown")
+      else if (k.typeParams.nonEmpty || !World.inObjects(k) || tpe.isEmpty)
+        Left(s"an intersection whose instances are of a generic or inner class: $shown")
+      else if (unbuilt(k)) Right(None)
+      // Its class extends every part's: a part its type is not proven below (an argument or a
+      // refinement, a type parameter in it among them) leaves the meet undecided.
+      else
+        tpe
+          .filter(t => parts.forall(t.isSubType))
+          .map(Some(_))
+          .toRight(
+            s"an intersection whose instances' types are not proven below every part: $shown"
+          )
+    }
+    lazy val closedBelow = classes
+      .filterNot(open)
+      .flatMap(k => below(k).filterNot(_.exists(open)).map(k :: _))
+      .headOption
+    if (classes.sizeIs < parts.size) Left(s"an intersection with a part that is no class: $shown")
+    else
+      closedBelow match {
+        case None => Left(s"an intersection a class outside the program may implement: $shown")
+        case Some(_) if classes.combinations(2).exists(pair => !mixes(pair.head, pair.last)) =>
+          Right(Nil)
+        case Some(listed) =>
+          val concrete =
+            listed.filter(k => !k.isTrait && !k.isAbstractClass && classes.forall(k.isSubClass))
+          Traversals.sequence(concrete.map(own)).map(_.flatten)
+      }
+  }
 
   /** How a class extending `owner` may override `member`, one `owner` declares or inherits. */
   def overriding(owner: ClassSymbol, member: TermOrTypeSymbol): ClosedProgram.Overriding =
@@ -395,6 +445,13 @@ private[compiled] object World {
       case _ => None
     }
 
+  }
+
+  /** The class of a type's instances: an object's for its singleton, else the class it names. */
+  def instanceClass(tpe: Type)(using Context): Option[ClassSymbol] = tpe.dealias match {
+    case path: TermRef =>
+      path.optSymbol.collect { case s: TermSymbol => s }.flatMap(_.moduleClass)
+    case other => classNamed(other)
   }
 
   /** The class a type names, its aliases followed and its arguments left aside. */

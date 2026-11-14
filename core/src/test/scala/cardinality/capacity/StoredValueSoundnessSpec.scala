@@ -21,10 +21,11 @@ class StoredValueSoundnessSpec extends Specification {
       children in the companion, recursion included              $companionFamily
       a parameterised family instantiates through its slots       $parameterisedFamily
       an instantiation is its own least fixed point               $instantiationFixedPoint
-      an intersection of unrelated families is empty              ${Pending.countDiffers(
-      unrelatedIntersection
-    )}
       sealed intermediates are summed once                        $intermediates
+      an intersection of unrelated families is empty              $unrelatedIntersection
+      an intersection is the classes below every part             $intersections
+      an intersection open beside the program is refused         $openIntersections
+      a meet its arguments or a refinement leave open is refused  $undecidedIntersections
       a match type in a subtype reduces on the parent's arguments ${Pending.knownLoss(
       matchThroughFamily
     )}
@@ -127,9 +128,9 @@ class StoredValueSoundnessSpec extends Specification {
 
   // An instantiation solves its own recursion from 0: |L[Nothing]| = μX. 1 + 0·X = 1,
   // |L[Unit]| = μX. 1 + X = ω, |T[Nothing]| = μX. 0 + X·X = 0 (the template's ω would not do).
-  // The method side does not read `M`'s recursion through `&` and refuses `UM`'s constructor.
-  // `Ev[A]` read again inside `Od[A]` inside `Ev[A]` is the joint least fixed point Ev = Od + 1,
-  // Od = Ev: ω (`EZ`, `Even(Odd(EZ))`, …), A unread.
+  // `M[A] & Two[A]` is empty (`unrelatedIntersection`): |M[Boolean]| = |Stop| = 1, and the
+  // constructor reads the same meet. `Ev[A]` read again inside `Od[A]` inside `Ev[A]` is the joint
+  // least fixed point Ev = Od + 1, Od = Ev: ω (`EZ`, `Even(Odd(EZ))`, …), A unread.
   private val fixedPoints =
     """|sealed trait L[+A]
          |case object Nil0 extends L[Nothing]
@@ -155,23 +156,123 @@ class StoredValueSoundnessSpec extends Specification {
   def instantiationFixedPoint = {
     val code = fixedPoints
     val found = rows(code)
-    def refusedWith(name: String, reason: String) =
-      constructor(name, "A.scala" -> code) must beLike {
-        case Count.Unresolved(reasons) => reasons.exists(_.contains(reason)) must beTrue
-      }
     (found(("LN", Class)) === "1")
       .and(found(("LU", Class)) === "ω")
       .and(found(("TN", Class)) === "0")
+      .and(found(("UM", Class)) === "1")
       .and(found(("UE", Class)) === "ω")
-      .and(refusedWith("UM.<init>", "recursive type not read: M"))
+      .and(constructor("UM.<init>", "A.scala" -> code) === Count.Finite(1))
       .and(constructor("UE.<init>", "A.scala" -> code) === Count.Bounded(EffectiveOmega))
   }
 
   // No supplied class extends both `M` and `Two`, so `M[A] & Two[A]` is empty in the closed world:
-  // `Go` is never built and |M[Boolean]| = |Stop| = 1. The TASTy front end reads `&` as `min` and
-  // prints μX. 1 + min(X, 2) = 3 (from 0: 1, 2, 3, 3), an exact-looking number the model does not
-  // give: a wrong number, kept pending (the old front end refused it).
-  def unrelatedIntersection = rows(fixedPoints)(("UM", Class)) === "1"
+  // `Go` is never built and |M[Boolean]| = |Stop| = 1 (it read μX. 1 + min(X, 2) = 3, `&` taken
+  // as `min`). The constructor reads the same empty meet: one argument, one value, 1.
+  def unrelatedIntersection = {
+    val code =
+      """|sealed trait M[A]
+         |final case class Stop[A]() extends M[A]
+         |final case class Go[A](next: M[A] & Two[A]) extends M[A]
+         |sealed trait Two[A]
+         |final case class T1[A]() extends Two[A]
+         |final case class T2[A]() extends Two[A]
+         |final case class UM(m: M[Boolean])
+         |""".stripMargin
+    (rows(code)(("UM", Class)) === "1")
+      .and(constructor("UM.<init>", "A.scala" -> code) === Count.Finite(1))
+  }
+
+  // An intersection holds the values of the classes below every part (the closed world). `A & B`:
+  // C and D, 2 + 1 = 3. `B & U` (a sealed and an unsealed part): D and F, 1 + 1 = 2; `A & U`: D, 1.
+  // `E.type & B`: E extends no B, 0. `Boolean & String`: no class is both, 0. A top is no part:
+  // `A & Any` is |A| = 2 + 1 + 1 = 4, `AnyRef & B` is |B| = 2 + 1 + 1 = 4, so `UT` holds 16, and
+  // `Any & AnyRef` is `Any`, ω. The method side's constructors read the same meets (it reads each
+  // part first, and does not resolve the singleton `E.type` there: `UEB.<init>` is refused).
+  def intersections = {
+    val code =
+      """|sealed trait A
+         |sealed trait B
+         |trait U
+         |final case class C(b: Boolean) extends A, B
+         |case object D extends A, B, U
+         |case object E extends A
+         |final case class F(u: Unit) extends B, U
+         |final case class G(b: Boolean, c: Boolean) extends U
+         |final case class UAB(x: A & B)
+         |final case class UBU(x: B & U)
+         |final case class UAU(x: A & U)
+         |final case class UEB(x: E.type & B)
+         |final case class UPr(x: Boolean & String)
+         |final case class UT(x: A & Any, y: AnyRef & B)
+         |final case class UTop(x: Any & AnyRef)
+         |""".stripMargin
+    val found = rows(code)
+    def method(name: String) = constructor(s"$name.<init>", "A.scala" -> code)
+    (found(("UAB", Class)) === "3")
+      .and(found(("UBU", Class)) === "2")
+      .and(found(("UAU", Class)) === "1")
+      .and(found(("UEB", Class)) === "0")
+      .and(found(("UPr", Class)) === "0")
+      .and(found(("UT", Class)) === "16")
+      .and(found(("UTop", Class)) === "ω")
+      .and(
+        List("UAB", "UBU", "UAU", "UPr", "UT").map(method) must_== List(3, 2, 1, 0, 16)
+          .map(n => Count.Finite(n))
+      )
+  }
+
+  // A class neither final nor sealed may be extended beside the program (a new body may implement
+  // an open template): where every part may be (`V & W`, two JDK interfaces), a class beside the
+  // program may extend them all, so the meet is refused, never 0 nor `min`. So is one below every
+  // part that something extends (`SH`: its own instances beside `SH2`'s) or that is generic (`Both`).
+  def openIntersections = {
+    val code =
+      """|sealed trait B
+         |trait U
+         |trait V
+         |trait W
+         |sealed class SH(val b: Boolean) extends B, U
+         |final class SH2 extends SH(true)
+         |sealed trait P[X]
+         |sealed trait Q[X]
+         |final case class Both[X](x: X) extends P[X], Q[X]
+         |final case class UVW(x: V & W)
+         |final case class UO(x: Runnable & CharSequence)
+         |final case class UH(x: B & U)
+         |final case class UG(x: P[Boolean] & Q[Boolean])
+         |""".stripMargin
+    val found = rows(code)
+    (found(("UVW", Class)) must contain("a class outside the program may implement"))
+      .and(found(("UO", Class)) must contain("a class outside the program may implement"))
+      .and(found(("UH", Class)) must contain("instances are of an extended class"))
+      .and(found(("UG", Class)) must contain("instances are of a generic or inner class"))
+  }
+
+  // A class below every part's class whose type is not proven below every part as written leaves
+  // the meet undecided, never dropped: `L` is a `P[A]` at A = Int (|Use| would be 1, not 0); the
+  // final `Box[A]` is itself in `Box[A] & P[Int]` at A = Int (2^32, not 0); `AnyRef { def k: Int }`
+  // is no top (only `K2` has `k`: 1, not |Two| = 2).
+  def undecidedIntersections = {
+    val code =
+      """|trait P[A]
+         |sealed trait Q
+         |case object L extends Q, P[Int]
+         |final case class Bx[A](x: P[A] & Q)
+         |final case class Use(b: Bx[Int])
+         |sealed trait R[A]
+         |final case class Box[A](a: Int) extends R[A]
+         |final case class Hold[A](x: Box[A] & R[Int])
+         |final case class UseH(h: Hold[Int])
+         |sealed trait Two
+         |case object K1 extends Two
+         |case object K2 extends Two { def k: Int = 1 }
+         |final case class Rf(x: Two & AnyRef { def k: Int })
+         |""".stripMargin
+    val found = rows(code)
+    (found(("Use", Class)) must contain("not proven below every part"))
+      .and(found(("UseH", Class)) must contain("instances are of a generic or inner class"))
+      .and(found(("Rf", Class)) must contain("not proven below every part"))
+  }
 
   // |E| = |Z| + |O| with the sealed intermediate O = μX. |S| + 1 = μX. X + 1 = ω: ω + 1.
   // |Pair[Boolean, Unit]| = |Both| + |Sub| = 2·1 + |Left0[Boolean, Unit]| = 2 + 2 = 4.

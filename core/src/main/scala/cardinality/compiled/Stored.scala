@@ -412,12 +412,16 @@ final private[compiled] class Stored(world: World)(using Context) {
     // path denotes a value.
     case _: ConstantType         => Right(Held(UnitSize))
     case _: (TermRef | ThisType) => Right(Held(UnitSize, undecided = true))
-    // A union adds its sides, once where both are one type; an intersection is no more than its
-    // smaller side.
+    // A union adds its sides, once where both are one type. An intersection is its narrowest part,
+    // or the classes of the closed world whose instances are of every part (`World.meet`).
     case or: OrType =>
       if (or.first.isSameType(or.second)) of(or.first, env)
       else both(or.first, or.second, env)(_ + _)
-    case and: AndType => both(and.first, and.second, env)(_.min(_)).map(_.copy(undecided = true))
+    case and: AndType =>
+      Relations.narrowed(Relations.narrowest(Relations.conjuncts(and)))(of(_, env)) { several =>
+        // An object is one value that is built (`World.meet`), as a family's object case is.
+        Relations.met(world, several)(of(_, env), Held(UnitSize), identity).map(Algebra.sum)
+      }
     case refined: RefinedType        => refinement(refined, env)
     case World.Named(ref, arguments) => named(ref, arguments, env)
     // A type lambda applied is its body at the arguments, as the compiler reduces it.
