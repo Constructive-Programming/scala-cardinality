@@ -54,7 +54,7 @@ class BinderBoundsSpec extends Specification {
 
   private def entries(code: String, path: String = "Bounds.scala"): Map[String, Count] =
     cardinality.Compiled
-      .analyze(List(cardinality.Compiled.Input(path, code)))
+      .analyze(cardinality.Compiled.inputs(path -> code))
       .map(entry => entry.name -> entry.count)
       .toMap
 
@@ -238,12 +238,13 @@ class BinderBoundsSpec extends Specification {
   // one (`Sub` has no cases: x alone; `Explicit`: x or E1); one extending only a universal trait is
   // not (`U1 <: U0 <: Any`). Without a lower bound: a or b.
   // A wildcard over a namespace no source supplies never rebinds a builtin name (the never-shadowed
-  // assumption), so `<: AnyRef` and `<: Any` under `import foreign.*` are the root imports' tops,
-  // as without the wildcard: the twins are the class bound and the no-op, x, On, Off (3).
+  // assumption), so `<: AnyRef` and `<: Any` under `import zzz.*` are the root imports' tops, as
+  // without the wildcard: the twins are the class bound and the no-op, x, On, Off (3). `zzz` is
+  // withheld (compiled against, not analyzed); a bare `foreign` is `java.lang.foreign` on JDK 21+.
   def rebindableTops = {
     val code = flag + """
       object W {
-        import foreign.*
+        import zzz.*
         def ok[A >: Flag <: AnyRef](x: A): A = x
         def obj[A >: Flag <: Object](x: A): A = x
         def top[A >: Flag <: Any](x: A): A = x
@@ -252,7 +253,7 @@ class BinderBoundsSpec extends Specification {
         def ok[A >: Flag <: AnyRef](x: A): A = x
         def top[A >: Flag <: Any](x: A): A = x
       }
-    """
+    """ + cardinality.Compiled.withheld("package zzz\nobject Unsupplied")
     val counts = entries(code)
     (counts("W.ok") === Count.Finite(3))
       .and(counts("W.obj") === Count.Finite(3))
