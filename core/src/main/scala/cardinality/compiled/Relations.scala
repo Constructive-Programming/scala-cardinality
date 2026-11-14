@@ -95,16 +95,19 @@ final private[compiled] class Relations(world: World, of: Relations.Read)(using 
         if !World
           .isConstructor(site) && !env.preceding && (owner == c || world.mixes(owner, c)) =>
       (c :: World.ancestors(c)).flatMap(_.declarations).exists {
-        case declared: TermSymbol =>
-          // An inherited declaration as the record's class sees it: implemented there or not.
-          val member = declared.overridingSymbol(c).getOrElse(declared)
-          !member.isSynthetic && member.name == site.name &&
-          arity(member) == arity(site) &&
-          (member.isAbstractMember ||
-            world.overriding(c, member) == ClosedProgram.Overriding.Supplied)
-        case _ => false
+        case declared: TermSymbol => varies(c, site, declared)
+        case _                    => false
       }
     case _ => false
+  }
+
+  // Whether a declaration of `c` or an ancestor, as `c` sees it (implemented there or not), is a
+  // member of the site's name and arity that varies across instances.
+  private def varies(c: ClassSymbol, site: TermSymbol, declared: TermSymbol): Boolean = {
+    val member = declared.overridingSymbol(c).getOrElse(declared)
+    !member.isSynthetic && member.name == site.name &&
+    arity(member) == arity(site) &&
+    (member.isAbstractMember || world.overriding(c, member) == ClosedProgram.Overriding.Supplied)
   }
 
 }

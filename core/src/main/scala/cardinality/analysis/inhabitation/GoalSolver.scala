@@ -181,18 +181,23 @@ final private[inhabitation] class GoalSolver(
     val grown = (env ++ instances).distinct
     if (grown.size > env.size) instantiated(grown)
     else {
-      val origins = env.flatMap(_.path.inits.collect {
-        case init :+ s"instance:$index:$_" =>
-          (init, index.toInt)
-      })
-      polymorphicPaths(env).foreach { (path, index, poly, producer) =>
-        if (origins.contains((path, index)))
-          PolymorphicMembers.supplied(poly.binders, producer, context).foreach {
-            _.left.foreach(why => throw new Inhabitation.Unsupported(why))
-          }
-      }
+      refuseReopened(env, context)
       env
     }
+  }
+
+  // Refuses each path an instance of another opens afterwards (PB5).
+  private def refuseReopened(env: List[Value], context: PolymorphicMembers.Supply): Unit = {
+    val origins = env.flatMap(_.path.inits.collect {
+      case init :+ s"instance:$index:$_" =>
+        (init, index.toInt)
+    })
+    polymorphicPaths(env).iterator
+      .filter((path, index, _, _) => origins.contains((path, index)))
+      .flatMap((_, _, poly, producer) =>
+        PolymorphicMembers.supplied(poly.binders, producer, context)
+      )
+      .foreach(_.left.foreach(why => throw new Inhabitation.Unsupported(why)))
   }
 
   // Each polymorphic path of a context: the path of its member's value, its index there, the

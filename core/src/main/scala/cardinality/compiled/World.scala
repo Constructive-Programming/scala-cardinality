@@ -124,22 +124,6 @@ final private[compiled] class World(
     val classes = parts.flatMap(World.instanceClass)
     lazy val shown = parts.map(_.showBasic).mkString(" & ")
     def open(k: ClassSymbol) = !finalClass(k) && k.openLevel != Modifiers.OpenLevel.Sealed
-    def own(k: ClassSymbol): Either[String, Option[Type]] = {
-      val tpe = if (k.isModuleClass) k.moduleValue.map(_.staticRef) else Some(k.staticRef)
-      if (!finalClass(k)) Left(s"an intersection whose instances are of an extended class: $shown")
-      else if (k.typeParams.nonEmpty || !World.inObjects(k) || tpe.isEmpty)
-        Left(s"an intersection whose instances are of a generic or inner class: $shown")
-      else if (unbuilt(k)) Right(None)
-      // Its class extends every part's: a part its type is not proven below (an argument or a
-      // refinement, a type parameter in it among them) leaves the meet undecided.
-      else
-        tpe
-          .filter(t => parts.forall(t.isSubType))
-          .map(Some(_))
-          .toRight(
-            s"an intersection whose instances' types are not proven below every part: $shown"
-          )
-    }
     lazy val closedBelow = classes
       .filterNot(open)
       .flatMap(k => below(k).filterNot(_.exists(open)).map(k :: _))
@@ -153,8 +137,28 @@ final private[compiled] class World(
         case Some(listed) =>
           val concrete =
             listed.filter(k => !k.isTrait && !k.isAbstractClass && classes.forall(k.isSubClass))
-          Traversals.sequence(concrete.map(own)).map(_.flatten)
+          Traversals.sequence(concrete.map(own(_, parts, shown))).map(_.flatten)
       }
+  }
+
+  // The type of a concrete class's instances in the meet of `parts`, none if it is never built.
+  private def own(
+      k: ClassSymbol,
+      parts: List[Type],
+      shown: => String
+  ): Either[String, Option[Type]] = {
+    val tpe = if (k.isModuleClass) k.moduleValue.map(_.staticRef) else Some(k.staticRef)
+    if (!finalClass(k)) Left(s"an intersection whose instances are of an extended class: $shown")
+    else if (World.genericOrInner(k) || tpe.isEmpty)
+      Left(s"an intersection whose instances are of a generic or inner class: $shown")
+    else if (unbuilt(k)) Right(None)
+    // Its class extends every part's: a part its type is not proven below (an argument or a
+    // refinement, a type parameter in it among them) leaves the meet undecided.
+    else
+      tpe
+        .filter(t => parts.forall(t.isSubType))
+        .map(Some(_))
+        .toRight(s"an intersection whose instances' types are not proven below every part: $shown")
   }
 
   /** How a class extending `owner` may override `member`, one `owner` declares or inherits. */
@@ -227,6 +231,9 @@ private[compiled] object World {
     case c: ClassSymbol => c.isModuleClass
     case other          => other.isPackage
   }
+
+  /** Whether a class is generic or not nested in objects alone. */
+  private def genericOrInner(c: ClassSymbol): Boolean = c.typeParams.nonEmpty || !inObjects(c)
 
   /** The parents that declare no member a count reads (v1.md §2), the compiler's own for a case
     * class among them.

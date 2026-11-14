@@ -35,24 +35,27 @@ final private[compiled] class DependencyClasses(
   // keeps state its constructors set, which no signature ties to their parameters.
   private def javaClass(c: ClassSymbol): Either[String, Declared] = {
     val (constants, sealedClass) = classFile(c)
-    if (c.isEnum)
-      c.companionClass.toRight(s"a Java enum without its statics: ${c.displayFullName}").flatMap {
-        statics =>
-          val found = constants.flatMap(name =>
-            statics.declarations.collectFirst {
-              case constant: TermSymbol if constant.name.toString == name => constant
-            }
-          )
-          Either.cond(
-            constants.nonEmpty && found.sizeIs == constants.size,
-            Declared.Sum(found),
-            s"a Java enum whose constants are not read: ${c.displayFullName}"
-          )
-      }
+    if (c.isEnum) javaEnum(c, constants)
     else if (sealedClass) Left(s"$SealedJava: ${c.displayFullName}")
     else if (c.isTrait) Right(record(c))
     else Left(s"$HiddenState: ${c.displayFullName}")
   }
+
+  // A Java enum's constants, named by its class file, as its statics declare them.
+  private def javaEnum(c: ClassSymbol, constants: List[String]): Either[String, Declared] =
+    c.companionClass.toRight(s"a Java enum without its statics: ${c.displayFullName}").flatMap {
+      statics =>
+        val found = constants.flatMap(name =>
+          statics.declarations.collectFirst {
+            case constant: TermSymbol if constant.name.toString == name => constant
+          }
+        )
+        Either.cond(
+          constants.nonEmpty && found.sizeIs == constants.size,
+          Declared.Sum(found),
+          s"a Java enum whose constants are not read: ${c.displayFullName}"
+        )
+    }
 
   // A sealed trait or abstract class is its children, each a class or an object a symbol stands
   // for (the pickle records a local or anonymous child as the class itself: read as fewer
@@ -107,7 +110,6 @@ final private[compiled] class DependencyClasses(
   // implementation chooses, the concrete ones code that is not supplied. A Java interface's statics
   // and constants are its companion's, and what `Object` declares is every value's.
   private def record(c: ClassSymbol): Declared.Record = {
-    val line = c.linearization
     val members = World
       .ancestors(c)
       .prepended(c)
@@ -117,25 +119,30 @@ final private[compiled] class DependencyClasses(
             if !member.isPrivate && !World.isConstructor(member) &&
               member.kind != TermSymbolKind.Module &&
               member.matchingSymbol(defn.ObjectClass, c).isEmpty =>
-          val matching = line.flatMap(k => member.matchingSymbol(k, c)).collect {
-            case found: TermSymbol => found
-          }
-          // In Scala a concrete member always wins; a Java interface may declare an inherited
-          // default method abstract again.
-          matching
-            .find(!_.isAbstractMember)
-            .filter(concrete =>
-              c.sourceLanguage != SourceLanguage.Java || matching.headOption.forall { first =>
-                !first.isAbstractMember ||
-                !first.owner.asClass.isSubClass(concrete.owner.asClass)
-              }
-            )
-            .orElse(matching.headOption)
+          resolved(c, member)
       }
       .flatten
       .distinct
     val (abstracts, concrete) = members.partition(_.isAbstractMember)
     Declared.Record(abstracts, concrete)
+  }
+
+  // A member as `c` resolves it, from what matches it in each class of `c`'s linearization. In
+  // Scala a concrete member always wins; a Java interface may declare an inherited default method
+  // abstract again.
+  private def resolved(c: ClassSymbol, member: TermSymbol): Option[TermSymbol] = {
+    val matching = c.linearization.flatMap(member.matchingSymbol(_, c)).collect {
+      case found: TermSymbol => found
+    }
+    matching
+      .find(!_.isAbstractMember)
+      .filter(concrete =>
+        c.sourceLanguage != SourceLanguage.Java || matching.headOption.forall { first =>
+          !first.isAbstractMember ||
+          !first.owner.asClass.isSubClass(concrete.owner.asClass)
+        }
+      )
+      .orElse(matching.headOption)
   }
 
 }

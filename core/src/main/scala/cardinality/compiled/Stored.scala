@@ -696,7 +696,7 @@ final private[compiled] class Stored(world: World)(using Context) {
       eqs = keys.map(k =>
         k -> ((values: Values) => settled(equation(env)(values)(k), NothingSize)(_.size))
       )
-      values = Fixpoint.solve(eqs, Set.empty, Values(), nu, reaches)
+      values = Fixpoint.solve(eqs, Values(), nu, reaches)
       _ <- keys
         .collectFirst {
           case k if values.blocked.contains(k) => values.blocked(k).about(k.cls.displayFullName)

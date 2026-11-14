@@ -20,16 +20,25 @@ private[compiled] object Algebra {
 
   // The standard library's types the algebra models, by the class the compiler bound.
   def standard(name: String, sizes: List[Held], input: Boolean): Either[String, Held] =
+    nullary(name, sizes, input).map(Right(_)).getOrElse(applied(name, sizes, input))
+
+  // The modelled classes without type arguments.
+  private def nullary(name: String, sizes: List[Held], input: Boolean): Option[Held] =
     (name, sizes) match {
       // As the method side reads an input: a top type is one value, and `Null` is empty, since
       // the method side counts no `null` (v1.md §2).
-      case (_, Nil) if input && Tops(name) => Right(Held(UnitSize))
-      case ("scala.Null", Nil) if input    => Right(Held(NothingSize))
-      case (Based(size), Nil)              => Right(Held(size))
+      case (_, Nil) if input && Tops(name) => Some(Held(UnitSize))
+      case ("scala.Null", Nil) if input    => Some(Held(NothingSize))
+      case (Based(size), Nil)              => Some(Held(size))
       // A throwable of the root imports is an open class: any subclass's values are its own.
-      case (Throwables(simple), Nil) =>
-        Right(Held(EffectiveOmega, List(Unbound.Open(simple))))
-      case ("scala.AnyVal", Nil) => Right(Held(EffectiveOmega, List(Unbound.Unknown("AnyVal"))))
+      case (Throwables(simple), Nil) => Some(Held(EffectiveOmega, List(Unbound.Open(simple))))
+      case ("scala.AnyVal", Nil)     => Some(Held(EffectiveOmega, List(Unbound.Unknown("AnyVal"))))
+      case _                         => None
+    }
+
+  // The modelled classes applied to type arguments, and the tuples.
+  private def applied(name: String, sizes: List[Held], input: Boolean): Either[String, Held] =
+    (name, sizes) match {
       case _ if name.matches("""scala\.(Tuple\d+|\*:)""") => Right(product(sizes))
       case (_, parameters :+ result) if name.matches("""scala\.(Context)?Function\d+""") =>
         Right(arrow(result, product(parameters).domain))
@@ -69,9 +78,12 @@ private[compiled] object Algebra {
   // A finite collection holds each one-element collection, so it is never below its element's
   // tier; the method side saturates at ω, and so does a reading compared with it.
   private def lifted(saturating: Boolean)(element: Size, collection: Size): Size =
-    if (!saturating && collection.larger(UnitSize) && element.epsilon > 0)
-      Size.order.max(collection, EffectiveEpsilon0)
+    if (!saturating && rises(element, collection)) Size.order.max(collection, EffectiveEpsilon0)
     else collection
+
+  // Whether a collection above one value holds an element beyond ω's tier.
+  private def rises(element: Size, collection: Size): Boolean =
+    collection.larger(UnitSize) && element.epsilon > 0
 
   // The base types of `BaseTypes` that are classes, by fully qualified name.
   private val Based: Map[String, Size] =
