@@ -73,18 +73,6 @@ final private[compiled] class Evidence(world: World)(using Context) {
       parameters: List[ValDef],
       binders: List[Type]
   ): Either[Unread, Unit] = {
-    def known(c: ClassSymbol) =
-      c != defn.NullClass && (world.readByDeclaration(c) || Shapes.isFinal(c))
-    def nominal(c: ClassSymbol) = !Evidence.Unordered(c.displayFullName) && !Readings.function(c)
-    def told(mine: Type, theirs: Type) =
-      (World.classNamed(mine), World.classNamed(theirs)) match {
-        case (Some(a), Some(b)) if a != b =>
-          known(a) && known(b) && !a.isSubClass(b) && !b.isSubClass(a)
-        case (Some(a), Some(_)) => nominal(a) && Evidence.unrelated(mine, theirs)
-        case (Some(c), None)    => nominal(c) && Readings.rigid(theirs).nonEmpty
-        case (None, Some(c))    => nominal(c) && Readings.rigid(mine).nonEmpty
-        case (None, None)       => Readings.rigid(mine).zip(Readings.rigid(theirs)).exists(_ != _)
-      }
     val contextual = parameters.filter(p => Readings.contextual(p.symbol))
     val verdicts = for {
       p <- evidence
@@ -92,18 +80,41 @@ final private[compiled] class Evidence(world: World)(using Context) {
       (theirs, site) <-
         contextual.filter(_ ne p).map(q => Evidence.seen(q) -> (q.symbol.owner == p.symbol.owner))
           ++ binders.map(Some(_) -> false)
-    } yield (mine, theirs) match {
-      case (Some(m), Some(t)) if site && m.isSameType(t) =>
-        Left(Unread.Refused(s"ambiguous anonymous evidence: ${m.showBasic}"))
-      case (Some(m), Some(t)) if told(m, t) => Right(())
-      case _                                =>
-        Left(Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}"))
-    }
+    } yield verdict(p, mine, theirs, site)
     verdicts
       .collectFirst { case refused @ Left(_: Unread.Refused) => refused }
       .orElse(verdicts.find(_.isLeft))
       .getOrElse(Right(()))
   }
+
+  private def verdict(
+      p: ValDef,
+      mine: Option[Type],
+      theirs: Option[Type],
+      site: Boolean
+  ): Either[Unread, Unit] = (mine, theirs) match {
+    case (Some(m), Some(t)) if site && m.isSameType(t) =>
+      Left(Unread.Refused(s"ambiguous anonymous evidence: ${m.showBasic}"))
+    case (Some(m), Some(t)) if told(m, t) => Right(())
+    case _                                =>
+      Left(Uncovered(s"an anonymous contextual parameter search may not tell apart: ${p.name}"))
+  }
+
+  private def told(mine: Type, theirs: Type): Boolean =
+    (World.classNamed(mine), World.classNamed(theirs)) match {
+      case (Some(a), Some(b)) if a != b => unrelatedClasses(a, b)
+      case (Some(a), Some(_))           => Evidence.nominal(a) && Evidence.unrelated(mine, theirs)
+      case (Some(c), None)              => Evidence.nominal(c) && Readings.rigid(theirs).nonEmpty
+      case (None, Some(c))              => Evidence.nominal(c) && Readings.rigid(mine).nonEmpty
+      case (None, None) => Readings.rigid(mine).zip(Readings.rigid(theirs)).exists(_ != _)
+    }
+
+  // Two different classes, each read, neither extending the other.
+  private def unrelatedClasses(a: ClassSymbol, b: ClassSymbol): Boolean =
+    known(a) && known(b) && !a.isSubClass(b) && !b.isSubClass(a)
+
+  private def known(c: ClassSymbol): Boolean =
+    c != defn.NullClass && (world.readByDeclaration(c) || Shapes.isFinal(c))
 
   // Whether a class's body leaves its constructor's contextual parameters alone in a search from
   // inside it, as a member reads its receiver's (a constructor's own row searches no body):
@@ -158,6 +169,9 @@ private object Evidence {
     "scala.Nothing",
     "scala.Singleton"
   )
+
+  private def nominal(c: ClassSymbol): Boolean =
+    !Unordered(c.displayFullName) && !Readings.function(c)
 
   // A parameter's type as its class's members see it: a primary constructor's parameter names the
   // constructor's copies of the class's type parameters, its field the class's own; none without
