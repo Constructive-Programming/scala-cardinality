@@ -22,9 +22,7 @@ class GroundEnvironmentSpec extends Specification {
       a field is the member it implements                            $fieldAlias
       one member reached along several parents is one value          $restated
       an open template's overridable implementation is a capability  $openImplemented
-      an overload is a second member; another shape is refused      ${Pending.resolvedRefusal(
-      overloaded
-    )}
+      an overload is a second member; a narrower one merges          $overloaded
       an unimplemented declaration of an open template is supplied   $supplied
       nested templates sharing a parent judge it for each receiver   $nestedReceivers
       an open declaration reached from two parents is one member     $openRestated
@@ -40,28 +38,18 @@ class GroundEnvironmentSpec extends Specification {
       a member type named like a builtin is not the builtin          $inheritedBuiltin
       a self type's members shadow the builtin                       ${Pending.knownLoss(selfTypes)}
       a wildcard-imported object's inherited members bind it         $importedInherited
-      a package object's parents shadow it in its package            ${Pending.resolvedRefusal(
-      packageObject
-    )}
+      a package object's parents shadow it in its package            $packageObject
       a parent named through an import declares the member           $importedParents
       a scala.Dynamic parent supplies nothing the count reads        $dynamicParent
       a nested type of the parent's name does not doubt it           $nestedParentName
-      exports bind it where they forward                             ${Pending.resolvedRefusal(
-      exports
-    )}
+      exports bind it where they forward                             $exports
       an enum's cases shadow it after a wildcard import              ${Pending.knownLoss(enumCases)}
-      a wildcard import of a supplied value is refused               ${Pending.resolvedRefusal(
-      valueImport
-    )}
+      a wildcard import of a supplied value binds it                 $valueImport
       a name no builtin spells keeps lookup's own reason             ${Pending.rejectedFixture(
       notBuiltin
     )}
-      aliases, enum bodies, explicit exports and unread steps        ${Pending.resolvedRefusal(
-      moreChannels
-    )}
-      a constructor position reads the inherited member on both sides ${Pending.resolvedRefusal(
-      shadowedPosition
-    )}
+      aliases, enum bodies, explicit exports and unread steps        $moreChannels
+      a constructor position reads the inherited member on both sides $shadowedPosition
       constructor parameters do not see the template's members       $constructorScope
       a foreign wildcard refuses a builtin beside a supplied one     $foreignWildcard
     Name precedence
@@ -75,13 +63,9 @@ class GroundEnvironmentSpec extends Specification {
       a singleton beside a value takes the estimate's reading        ${Pending.knownLoss(
       singletonPositions
     )}
-      a symbolic value space agrees only with a wide estimate        ${Pending.oldBehavior(
-      symbolicDisagreement
-    )}
+      a symbolic value space agrees only with a wide estimate        $symbolicDisagreement
     Anonymous evidence
-      two anonymous evidences of one ground type are unreachable     ${Pending.oldBehavior(
-      anonymousGround
-    )}
+      two anonymous evidences of one ground type are unreachable     $anonymousGround
     Pinned limits
       ground evidence endpoints keep the evidence reason             $evidence
       an empty-domain function position has two conventions          $emptyDomain
@@ -187,7 +171,8 @@ class GroundEnvironmentSpec extends Specification {
 
   // Two overloads are two supplied functions: 2^(|Int => Int| · |Long => Int|) = 2^(2^(2^37 + 2^69)).
   // A parameterless `def` and a `val` of one name and type are one member: n, !n, true, false — 4.
-  // Read at another type (`Any` against `Boolean`) the one member's readings differ: refused.
+  // Declared at `Any` in A and `Boolean` in B, C's one member n has the narrower type the compiler
+  // gives it (Boolean): 4 again.
   def overloaded =
     (count(
       "trait A { def g(x: Int): Int }\ntrait B { def g(x: Long): Int }\n" +
@@ -202,14 +187,11 @@ class GroundEnvironmentSpec extends Specification {
         ) === Count.Finite(4)
       )
       .and(
-        unresolvedOn(
-          count(
-            "trait A { def n: Any }\ntrait B { val n: Boolean }\n" +
-              "trait C extends A with B { def f: Boolean = n }",
-            "C.f"
-          ),
-          "inherited declaration identity not resolved: n"
-        )
+        count(
+          "trait A { def n: Any }\ntrait B { val n: Boolean }\n" +
+            "trait C extends A with B { def f: Boolean = n }",
+          "C.f"
+        ) === Count.Finite(4)
       )
 
   // Two receivers, two members: Outer.this.k and Inner.this.n are independent, 2^(2·2).
@@ -455,13 +437,15 @@ class GroundEnvironmentSpec extends Specification {
       .and(packaged("pv.V.E.length") === Count.Finite(BigInt(2).pow(32)))
   }
 
+  // The package object's inherited `Int = Boolean` is a member of package w10, which outranks the
+  // root import in c.scala as the compiler binds it (D3): a Boolean endomorphism, 4.
   def packageObject = {
     val rows = counts(
       "a.scala" -> "package object w10 extends w10.Base",
       "b.scala" -> s"package w10\n$base",
       "c.scala" -> "package w10\ndef f(x: Int): Int = x"
     )
-    shadowed(rows, "w10.f", "w10.Base.Int (parents of package object w10)")
+    rows("w10.f") === Count.Finite(4)
   }
 
   def importedParents = {
@@ -487,9 +471,9 @@ class GroundEnvironmentSpec extends Specification {
           "import P.*\ndef f(x: Int): Int = x")
     )
     // An export defines an alias of `O.Int = Boolean` where it stands (4); a package-level export
-    // of another file is a member the lookup does not follow, so the builtin is refused there.
+    // of another file is a member of the package too, as the compiler binds it: 4.
     (rows("w17.f") === Count.Finite(4))
-      .and(shadowed(rows, "w18.f", "w18.O.Int (export of package w18)"))
+      .and(rows("w18.f") === Count.Finite(4))
       .and(rows("w19.Q.f") === Count.Finite(4))
       .and(rows("er.f") === Count.Finite(4))
   }
@@ -505,22 +489,19 @@ class GroundEnvironmentSpec extends Specification {
       "enum case type not read: en2.E.Int"
     )
 
+  // `import o.*` binds `o.Int`, the alias `Base.Int = Boolean` read through the stable value o:
+  // a Boolean endomorphism, 4.
   def valueImport =
-    unresolvedOn(
-      count(
-        s"package vi\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Int): Int = x }",
-        "vi.Z.f"
-      ),
-      "path through a value not followed: o"
-    )
+    count(
+      s"package vi\n${base}object Z { val o: Base = new Base {}; import o.*; def f(x: Int): Int = x }",
+      "vi.Z.f"
+    ) === Count.Finite(4)
 
-  // An enum's class case is in scope in its body; an explicit export forwards the member (`ex.f`
-  // reads `O.Int = Boolean`: 4); a refined self type is a step the walk cannot follow, which no
-  // longer refuses the builtin (the never-shadowed assumption) but is refused by the
-  // inherited-member reading, which does not read the refinement either. A parent the
-  // inherited-member reading does not have — an alias of the parent, or an import outside the
-  // sources (`bp` assumes an unsupplied `nowhere`) — may declare `Int`, and is refused there before
-  // any builtin reading (true counts 4).
+  // A parent is the class the compiler resolved: through the alias B it is Base, whose `Int =
+  // Boolean` makes `ap`'s f a Boolean endomorphism (4); `bp`'s `Base` is the one its own file
+  // declares, as scalac binds it beside the import of the unsupplied `nowhere.Base` (4). An enum's
+  // class case is in scope in its body, a type not read: refused. An explicit export forwards the
+  // member (`ex.f` reads `O.Int = Boolean`: 4). A self type is not read yet: refused.
   def moreChannels = {
     val rows = counts(
       "ap.scala" -> s"package ap\n${base}type B = Base\nfinal class Sub extends B { def f(x: Int): Int = x }",
@@ -533,21 +514,11 @@ class GroundEnvironmentSpec extends Specification {
         (s"package bp\n${base}import nowhere.Base\nfinal class Sub extends Base { def f(x: Int): Int = x }" +
           withheld("package nowhere\ntrait Base"))
     )
-    unresolvedOn(rows("ap.Sub.f"), "inherited type member not resolved: Int (unsupplied parent B)")
-      .and(shadowed(rows, "eb.E.f", "eb.E.Int (case of eb.E)"))
+    (rows("ap.Sub.f") === Count.Finite(4))
+      .and(unresolvedOn(rows("eb.E.f"), "enum case type not read: eb.E$.Int"))
       .and(rows("ex.f") === Count.Finite(4))
-      .and(
-        unresolvedOn(
-          rows("rs.Sub.f"),
-          "self type not resolved: Base { type X = Unit }"
-        )
-      )
-      .and(
-        unresolvedOn(
-          rows("bp.Sub.f"),
-          "inherited type member not resolved: Int (unsupplied parent Base)"
-        )
-      )
+      .and(unresolvedOn(rows("rs.Sub.f"), "an enclosing class with a self type: Sub"))
+      .and(rows("bp.Sub.f") === Count.Finite(4))
   }
 
   // `Frame` is no builtin: a wildcard import through the value `o` may bind it, and lookup, which
@@ -561,21 +532,16 @@ class GroundEnvironmentSpec extends Specification {
 
   // `Int` is `Long` inside `O`, so P's value space is 2^64: the method side reads the inherited
   // member, and so does the estimate it is checked against (register D29 — it used to read the
-  // builtin's 2^32, and the disagreement was refused). Through `import O.*` the estimate refuses the
-  // name itself: a wildcard over an object with parents may bind a member it does not read.
+  // builtin's 2^32, and the disagreement was refused). Through `import O.*` the compiler binds the
+  // inherited member too: 2^64.
   def shadowedPosition = {
     val base = "package w12\ntrait Base { type Int = Long }\n"
     (counts("a.scala" -> s"${base}object O extends Base { final case class P(x: Int) }")(
       "w12.O.P.<init>"
     ) === Count.Finite(BigInt(2).pow(64))).and(
-      unresolvedOn(
-        counts(
-          "a.scala" -> s"${base}object O extends Base\nimport O.*\nfinal case class P(x: Int)"
-        )(
-          "w12.P.<init>"
-        ),
-        "unresolved type: Int (may be imported by O.*, an inherited member not followed)"
-      )
+      counts(
+        "a.scala" -> s"${base}object O extends Base\nimport O.*\nfinal case class P(x: Int)"
+      )("w12.P.<init>") === Count.Finite(BigInt(2).pow(64))
     )
   }
 
@@ -755,8 +721,8 @@ class GroundEnvironmentSpec extends Specification {
   // 2^8), not the object `q` (a symbolic space): they agree, at the estimate's 2^8. Where the method
   // side reads `Int` as the member `O` inherits (`Char => Boolean`, 2^(2^16)) and the estimate as the
   // builtin (2^32), the symbolic space is wider than any literal: they cannot be one type. A path
-  // through `a.b`'s `val x: Foo` is no longer read through package `a`'s object: 2^8, as scalac
-  // (printed as the estimate's bound, `≤2^8`).
+  // through `a.b`'s `val x: Foo` is no longer read through package `a`'s object: 2^8, as scalac,
+  // exact.
   def symbolicDisagreement =
     (count(
       "final case class Inner(b: Byte)\nobject O { final case class Inner(f: (Int => Int) => Int) }\n" +
@@ -784,7 +750,7 @@ class GroundEnvironmentSpec extends Specification {
           "w12s.O.P.<init>"
         ) === Count.Symbolic(pow(2, 65536))
       )
-      .and(counts(valPath*)("a.b.UsesT.<init>").render === "≤2^8")
+      .and(counts(valPath*)("a.b.UsesT.<init>").render === "2^8")
 
   // `summon[Int]` is ambiguous between two anonymous `Int`s (3.9.0: E172), so a body reaches
   // neither: the true count of `f` is 2^32 (a literal), not 2^(2^37) (one Int read) or 2^(2^64). One
@@ -795,8 +761,8 @@ class GroundEnvironmentSpec extends Specification {
         ("package r19\ndef f(using Int, Int): Int = 0\ndef g(using Int): Int = summon[Int]\n" +
           "def h(using Boolean, Boolean): Boolean = true\ndef k(x: Int)(using Int): Boolean = true")
     )
-    unresolvedOn(rows("r19.f"), "ambiguous anonymous evidence: Int")
-      .and(unresolvedOn(rows("r19.h"), "ambiguous anonymous evidence: Boolean"))
+    unresolvedOn(rows("r19.f"), "ambiguous anonymous evidence: scala.Int")
+      .and(unresolvedOn(rows("r19.h"), "ambiguous anonymous evidence: scala.Boolean"))
       .and(rows("r19.g") === Count.Symbolic(pow(2, pow(2, 37))))
       .and(rows("r19.k") === Count.Symbolic(pow(2, pow(2, 64))))
   }

@@ -3,22 +3,11 @@
 (a) pins old behavior | CompiledSpec | a fixture with withheld support should compile: a member written without a type takes the compiler's, spelled by its name
 (a) pins old behavior | CompiledSpec | a report over a fixture's files should write the compiler's types into each source
 (a) pins old behavior | ContextBindersSpec | binders of one clause are ambiguous
-(a) pins old behavior | DefinitionInventorySpec | a context-function literal binds its own clause once
-(a) pins old behavior | DefinitionInventorySpec | a secondary constructor chooses the primary's arguments
-(a) pins old behavior | DefinitionInventorySpec | a secondary constructor of an open class reads no record
-(a) pins old behavior | DefinitionInventorySpec | the primary's arguments: by-name, repeated, none, evidence
-(a) pins old behavior | EnvironmentSoundnessSpec | refuse a sealed family extended through an alias
-(a) pins old behavior | EnvironmentSoundnessSpec | refuse a sealed family with a child in any block
-(a) pins old behavior | EnvironmentSoundnessSpec | refuse a sealed family with an inner or local child
-(a) pins old behavior | EnvironmentSoundnessSpec | refuse same-typed evidence a search cannot tell apart
-(a) pins old behavior | GroundEnvironmentSpec | a symbolic value space agrees only with a wide estimate
-(a) pins old behavior | GroundEnvironmentSpec | two anonymous evidences of one ground type are unreachable
 (a) pins old behavior | HigherKindedBindingSpec | same-typed anonymous evidences are not counted
 (a) pins old behavior | InferredResultsSpec | a transparent inline method's result is refused
 (a) pins old behavior | InlineMethodsSpec | the A5 fixtures stay refused
 (a) pins old behavior | MethodUnionNullabilitySpec | keep overlapping concrete alternatives unresolved
-(a) pins old behavior | NamespaceScopingSpec | a generic definition named without arguments has no value space
-(a) pins old behavior | NamespaceScopingSpec | an abstract type member shadows an outer type
+(a) pins old behavior | NamespaceScopingSpec | an object's abstract type member stays open
 (a) pins old behavior | NamespaceSpec | an enum's cases are not read as a namespace
 (a) pins old behavior | NamespaceSpec | an open trait of an object is open
 (a) pins old behavior | NestedScopesSpec | a comprehension's binder is refused, never counted
@@ -44,7 +33,6 @@
 (a) pins old behavior | ThrowableSlotsSpec | every root-import spelling of a throwable is the open class
 (a) pins old behavior | TransparentInlineSpec | a transparent function result is refused too
 (a) pins old behavior | TypeMemberBoundarySpec | a bound mentioning the scrutinee refuses
-(a) pins old behavior | TypeMemberScopeSpec | type evidence about the scrutinee refuses
 (a) pins old behavior | TypeMemberSpec | projections without a common instantiation stay open
 (a) pins old behavior | ValueRowsSpec | an inhabited, undeclared or unresolved type
 (b) pins a refusal the compiled tree resolves | AliasOverrideIdentitySpec | guards bounded alias parameters
@@ -52,36 +40,10 @@
 (b) pins a refusal the compiled tree resolves | AliasOverrideIdentitySpec | guards type-lambda aliases
 (b) pins a refusal the compiled tree resolves | ClosedWorldSpec | a parent outside the sources may override it: refused
 (b) pins a refusal the compiled tree resolves | ContextualOverrideIdentitySpec | keeps dependent contextual results unresolved
-(b) pins a refusal the compiled tree resolves | ConversionClosureSpec | imported into the body's scope
-(b) pins a refusal the compiled tree resolves | ConversionClosureSpec | imported into the body's scope #2
-(b) pins a refusal the compiled tree resolves | ConversionClosureSpec | in the companion of a type the body writes
-(b) pins a refusal the compiled tree resolves | ConversionClosureSpec | reached through a given of a reached companion, transitively
-(b) pins a refusal the compiled tree resolves | ConversionClosureSpec | reached through a referenced member's declared type
-(b) pins a refusal the compiled tree resolves | ConversionClosureSpec | reached through the signature of a given the body may summon
-(b) pins a refusal the compiled tree resolves | DefinitionInventorySpec | a level passing the argument or a body import is not followed
-(b) pins a refusal the compiled tree resolves | DefinitionInventorySpec | an unmatched inherited given leaves the identity unresolved
 (b) pins a refusal the compiled tree resolves | DependencyRowsSpec | a compiled inline body is not read: its caller refuses
 (b) pins a refusal the compiled tree resolves | DependencyRowsSpec | a dependency's template is the one of its qualified name
-(b) pins a refusal the compiled tree resolves | EnvironmentCompletenessSpec | a clause whose prefix is no path refuses the builtin
-(b) pins a refusal the compiled tree resolves | EnvironmentCompletenessSpec | a parent's export refuses only the names it defines
-(b) pins a refusal the compiled tree resolves | EnvironmentCompletenessSpec | a pattern-bound value is no method and no object
-(b) pins a refusal the compiled tree resolves | EnvironmentCompletenessSpec | a wildcard export outside the sources refuses the name
-(b) pins a refusal the compiled tree resolves | EnvironmentCompletenessSpec | an export that hides a local capture is refused
-(b) pins a refusal the compiled tree resolves | EnvironmentCompletenessSpec | an inherited member under type arguments is refused
-(b) pins a refusal the compiled tree resolves | EnvironmentCompletenessSpec | an inner import or inherited member hides a local capture
-(b) pins a refusal the compiled tree resolves | GroundEnvironmentSpec | a constructor position reads the inherited member on both sides
-(b) pins a refusal the compiled tree resolves | GroundEnvironmentSpec | a package object's parents shadow it in its package
-(b) pins a refusal the compiled tree resolves | GroundEnvironmentSpec | a wildcard import of a supplied value is refused
-(b) pins a refusal the compiled tree resolves | GroundEnvironmentSpec | aliases, enum bodies, explicit exports and unread steps
-(b) pins a refusal the compiled tree resolves | GroundEnvironmentSpec | an overload is a second member; another shape is refused
-(b) pins a refusal the compiled tree resolves | GroundEnvironmentSpec | exports bind it where they forward
 (b) pins a refusal the compiled tree resolves | HigherKindedBindingSpec | a class's bound is a position read where it is written
 (b) pins a refusal the compiled tree resolves | HigherKindedBindingSpec | inherited substitution keeps nominal identity
-(b) pins a refusal the compiled tree resolves | ImportClausesSpec | a `given` selector, and a package spelled only as a prefix
-(b) pins a refusal the compiled tree resolves | ImportClausesSpec | a selector binds only the namespaces its member has
-(b) pins a refusal the compiled tree resolves | ImportClausesSpec | a supplied member keeps the name against a wildcard beside it
-(b) pins a refusal the compiled tree resolves | ImportClausesSpec | an import of an inherited member says so
-(b) pins a refusal the compiled tree resolves | ImportClausesSpec | what parents, exports or privacy add to a namespace is not read
 (b) pins a refusal the compiled tree resolves | InlineMethodsSpec | a channel outside the sources refuses all but identities
 (b) pins a refusal the compiled tree resolves | InlineMethodsSpec | a given left to implicit search, summon, valueOf
 (b) pins a refusal the compiled tree resolves | InlineMethodsSpec | an exported or a local conversion is found where it is visible
@@ -89,18 +51,11 @@
 (b) pins a refusal the compiled tree resolves | InlineMethodsSpec | an inline conversion of the sources refuses every body
 (b) pins a refusal the compiled tree resolves | InlineMethodsSpec | library members, extractors, named arguments, overriding
 (b) pins a refusal the compiled tree resolves | InlineMethodsSpec | reasons quote what they name
-(b) pins a refusal the compiled tree resolves | InlineScopesSpec | a conversion private to another package is never inserted
-(b) pins a refusal the compiled tree resolves | InlineScopesSpec | a given whose type a wildcard may hide is read as its declaration
-(b) pins a refusal the compiled tree resolves | InlineScopesSpec | a local type that hides an outer one refuses
-(b) pins a refusal the compiled tree resolves | InlineScopesSpec | a qualifier is converted from its own type's implicit scope
 (b) pins a refusal the compiled tree resolves | LeafFamiliesSpec | an extension, a parent's field, an overload, a later clause
 (b) pins a refusal the compiled tree resolves | MethodAnalysisSpec | do not project an abstract case class as a product
 (b) pins a refusal the compiled tree resolves | MethodAnalysisSpec | keep a file-private type from a sibling file
 (b) pins a refusal the compiled tree resolves | MethodAnalysisSpec | keep an import after the reference from binding it
 (b) pins a refusal the compiled tree resolves | MethodRefinementSpec | do not invent structural object representations
-(b) pins a refusal the compiled tree resolves | NamespaceScopingSpec | a class member's owner binds as any type name does
-(b) pins a refusal the compiled tree resolves | NamespaceScopingSpec | a slot over a type parameter refused for a declaration is `?`
-(b) pins a refusal the compiled tree resolves | NamespaceScopingSpec | packages are solved in the order their reads need
 (b) pins a refusal the compiled tree resolves | OwnersAndRecordsSpec | a deferred given is abstract: every class extending it gives one
 (b) pins a refusal the compiled tree resolves | PolyLambdaCardinalitySpec | refuses constrained lambda binders
 (b) pins a refusal the compiled tree resolves | PureCodeSpec | a sealed case or enum built by a throwing body is refused
@@ -128,14 +83,8 @@
 (b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a floating zero is not read, its sign being lost
 (b) pins a refusal the compiled tree resolves | SyntaxFeaturesSpec | a union of literals holds its distinct constants
 (b) pins a refusal the compiled tree resolves | TargetViewsSpec | `Outer.this.m` of an open outer may be overridden to re-enter
-(b) pins a refusal the compiled tree resolves | TopTypesUnionSpec | a family a child extends through a parameterised alias
-(b) pins a refusal the compiled tree resolves | TopTypesUnionSpec | a top-like alternative
-(b) pins a refusal the compiled tree resolves | TopTypesUnionSpec | a wildcard import or export of an unsupplied namespace
-(b) pins a refusal the compiled tree resolves | TopTypesUnionSpec | a wildcard-imported object with a parent outside the sources
 (b) pins a refusal the compiled tree resolves | TypeMemberBoundarySpec | a local implementer's captures are refused
 (b) pins a refusal the compiled tree resolves | TypeMemberBoundarySpec | a member some level declares as a class is no atom
-(b) pins a refusal the compiled tree resolves | TypeMemberScopeSpec | a projection through `this` or an owner's member is refused
-(b) pins a refusal the compiled tree resolves | TypeMemberScopeSpec | an opaque alias spelled through `this` is not followed
 (b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | ModifyF.map.map and Direct.first are refused
 (b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | Optic.id is refused, a `_root_` twin keeps 1
 (b) pins a refusal the compiled tree resolves | UnsuppliedWildcardSpec | a `given` selector may bind a path's first name
@@ -196,8 +145,10 @@
 (c) known loss | ContextBindersSpec | an infix alias and an applied type lambda wrap
 (c) known loss | ContextBindersSpec | the subclass's alias of an abstract member wraps
 (c) known loss | ContextualOverrideIdentitySpec | keys imported evidence by the path its import binds
+(c) known loss | DefinitionInventorySpec | a body import beside a captured argument
 (c) known loss | DefinitionInventorySpec | a bound's evidence position is named by its evidence
 (c) known loss | DefinitionInventorySpec | a secondary constructor's body sees the class's members
+(c) known loss | DefinitionInventorySpec | an anonymous binder of a context-function literal, summoned
 (c) known loss | DefinitionInventorySpec | hidden parent state a body may not reach is refused
 (c) known loss | DependencyRowsSpec | `Object` is `Any`; a wildcard is read, a raw type is not
 (c) known loss | DependencyRowsSpec | a JDK module other than java.base is read where a source names it
@@ -242,6 +193,7 @@
 (c) known loss | HigherKindedRefusalSpec | distinct union alternatives have no key
 (c) known loss | ImportClausesSpec | a clause the sources do not supply stays its reason
 (c) known loss | ImportClausesSpec | a listed namespace binds only the names it declares
+(c) known loss | ImportClausesSpec | an import of an inherited member reads it at its prefix
 (c) known loss | InferredResultsSpec | a companion apply or a nearer term is the callee
 (c) known loss | InferredResultsSpec | a dependent, extension or context-bound override
 (c) known loss | InferredResultsSpec | an instance of a class outside the sources is read as written
@@ -279,6 +231,7 @@
 (c) known loss | MethodRefinementSpec | preserve non-exact Tuple bounds as diagnostics
 (c) known loss | MethodTypePlaceholderSpec | retains upper and lower existential bounds in diagnostics
 (c) known loss | NameLookupSoundnessSpec | refuse a path an unsupplied parent may bind
+(c) known loss | NamespaceScopingSpec | a bare generic definition named without arguments
 (c) known loss | NamespaceScopingSpec | a family with a subtype outside the body is not summed
 (c) known loss | NamespaceScopingSpec | a ground slot the estimate refuses is the row's reason
 (c) known loss | NamespaceScopingSpec | a refusal names its clause, and an unreduced match type once

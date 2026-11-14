@@ -30,14 +30,14 @@ class NamespaceScopingSpec extends Specification {
 
     Term bindings and type bindings are Scala's
       a package value, a pattern variable and a self alias are first names  $termBindings
-      a class member's owner binds as any type name does          ${Pending.resolvedRefusal(
-      ownerShadowing
+      a class member's owner binds as any type name does          $ownerShadowing
+      an abstract type member shadows an outer type               $abstractMember
+      an object's abstract type member stays open                 ${Pending.oldBehavior(
+      objectMember
     )}
-      an abstract type member shadows an outer type               ${Pending.oldBehavior(
-      abstractMember
-    )}
-      a generic definition named without arguments has no value space  ${Pending.oldBehavior(
-      typeConstructor
+      a generic definition named without arguments has no value space  $typeConstructor
+      a bare generic definition named without arguments           ${Pending.knownLoss(
+      bareConstructor
     )}
       a match type's case body reads where the match type is written  $matchTypeContext
 
@@ -46,15 +46,11 @@ class NamespaceScopingSpec extends Specification {
       partialFamily
     )}
       a lazy field through an alias closes a lazy cycle           $lazyAlias
-      packages are solved in the order their reads need           ${Pending.resolvedRefusal(
-      packageOrder
-    )}
+      packages are solved in the order their reads need           $packageOrder
 
     A refused constructor slot has no number
       a ground slot the estimate refuses is the row's reason       ${Pending.knownLoss(groundSlot)}
-      a slot over a type parameter refused for a declaration is `?`  ${Pending.resolvedRefusal(
-      declarationSlot
-    )}
+      a slot over a type parameter of a read family is counted    $declarationSlot
       a refusal names its clause, and an unreduced match type once  ${Pending.knownLoss(
       refusalReasons
     )}
@@ -210,37 +206,38 @@ class NamespaceScopingSpec extends Specification {
   }
 
   // `p: Prism` reads `p.X` through whatever `Prism` binds where `p` is: `O`'s alias `Prism =
-  // Other`, which has no members of its own here, or `Holder`'s type parameter `Prism <: Other` —
-  // never the package's class `Prism` (`X = Unit`, 1). Both are `?`.
+  // Other`, or `Holder2`'s type parameter `Prism <: Other`, whose `X` is Other's concrete alias (no
+  // subtype may override it) — never the package's class `Prism` (`X = Unit`, 1). Boolean, 2, both.
   def ownerShadowing = {
     val found = rows(
       "final class Prism { type X = Unit }\nclass Other { type X = Boolean }\nobject O { type Prism = Other; final class Holder(val p: Prism) { type Y = p.X } }\nfinal class Holder2[Prism <: Other](val p: Prism) { type Y = p.X }"
     )
-    (found(("O.Holder#Y", Alias)) === "unresolved[p.X]")
-      .and(found(("Holder2#Y", Alias)) === "unresolved[p.X]")
+    (found(("O.Holder#Y", Alias)) === "2").and(found(("Holder2#Y", Alias)) === "2")
   }
 
   // `U(w: W)` inside `Holder` holds `Holder`'s abstract `W` — `this.W`, which each instance
   // chooses (`Impl` puts Ints in it): a function of that choice, as of a parameter, never the outer
   // `W(b: Boolean)` (2). An object's abstract member has one instance and stays open.
-  def abstractMember = {
-    val found = rows(
-      "final case class W(b: Boolean)\ntrait Holder { type W; final case class U(w: W) }\nobject Impl extends Holder { type W = Int }\nobject O { type V; final case class UV(v: V) }"
-    )
-    (found(("Holder#U", Class)) === "instantiation[member W]")
-      .and(found(("O.UV", Class)) === "open[V]")
-  }
+  private val members =
+    "final case class W(b: Boolean)\ntrait Holder { type W; final case class U(w: W) }\nobject Impl extends Holder { type W = Int }\nobject O { type V; final case class UV(v: V) }"
+
+  def abstractMember = rows(members)(("Holder#U", Class)) === "instantiation[member W]"
+
+  def objectMember = rows(members)(("O.UV", Class)) === "open[V]"
 
   // `O.Pair2`, `O.One` and `Pair3` are type constructors: |Pair2[Nothing]| = 0, |Pair2[Boolean]|
   // = 4, so no one number is theirs (before: the template's placeholder ω, and 1).
+  private val constructors =
+    "object O { final case class Pair2[A](a: A, b: A); final case class One[A](u: Unit) }\ntype Qual = O.Pair2\ntype Qual1 = O.One\nfinal case class Pair3[A](a: A, b: A)\ntype Bare = Pair3"
+
   def typeConstructor = {
-    val found = rows(
-      "object O { final case class Pair2[A](a: A, b: A); final case class One[A](u: Unit) }\ntype Qual = O.Pair2\ntype Qual1 = O.One\nfinal case class Pair3[A](a: A, b: A)\ntype Bare = Pair3"
-    )
-    (found(("Qual", Alias)) === "unresolved[type constructor: O.Pair2]")
-      .and(found(("Qual1", Alias)) === "unresolved[type constructor: O.One]")
-      .and(found(("Bare", Alias)) === "unresolved[type constructor: Pair3]")
+    val found = rows(constructors)
+    (found(("Qual", Alias)) === "unresolved[type constructor: Pair2]")
+      .and(found(("Qual1", Alias)) === "unresolved[type constructor: One]")
   }
+
+  def bareConstructor =
+    rows(constructors)(("Bare", Alias)) === "unresolved[type constructor: Pair3]"
 
   // `O.M[Int]` takes `case Int => Span`, and that `Span` is bound where `M` is written: `O.Span(b:
   // Boolean)`, 2 — never the reader's `Span(u: Unit)` (1). Inside `P.Inner[Span]`, `M[Int]` is
@@ -293,7 +290,8 @@ class NamespaceScopingSpec extends Specification {
 
   // A chain of seven packages, each class holding the next, ends in `C7(b: Boolean)`: 2 all the
   // way up, however long the chain (before: four rounds, so `p1.C1` named `p6.C6`). Two packages
-  // whose classes hold each other are a cycle the library does not solve, and say so.
+  // whose classes hold each other are one least fixed point: A = 1 + B, B = 1 + A (an Option each),
+  // every finite alternation of Somes, countably many: ω.
   def packageOrder = {
     val chain = (1 to 6).toList.map(i =>
       s"C$i.scala" -> s"package p$i\nfinal case class C$i(x: p${i + 1}.C${i + 1})"
@@ -304,7 +302,7 @@ class NamespaceScopingSpec extends Specification {
     )
     (rowsOf(chain*)(("p1.C1", Class)) === "2")
       .and(constructor("p1.C1.<init>", chain*) === Count.Finite(2))
-      .and(rowsOf(cycle*)(("p.A", Class)) === "unresolved[cross-package cycle not solved: p.A]")
+      .and(rowsOf(cycle*)(("p.A", Class)) === "ω")
   }
 
   // `U(w: W)` with `W` imported from a supplied package: the estimate follows the import to
@@ -336,17 +334,15 @@ class NamespaceScopingSpec extends Specification {
       )
   }
 
-  // `focus: Fam[A]` is over `A`, the shape model's to count — but the estimate refused it for a
-  // family it does not sum (a plain class beside `Leaf`, final in the closed world, whose shape it
-  // does not read), a declaration of the sources: no number may rest on it.
+  // `focus: Fam[A]` is over `A`, the shape model's to count; the family is read: `Leaf[A](a: A)`
+  // and the plain `Open[A]`, final in the closed world and stateless, A + 1. Beside it `steps:
+  // List[Boolean]`, whose slot is filled from countably many definable functions of the
+  // parameters: ω.
   def declarationSlot =
     constructor(
       "f.P.<init>",
       "F.scala" -> "package f\nsealed trait Fam[A]\nobject Fam { final case class Leaf[A](a: A) extends Fam[A]; class Open[A] extends Fam[A] }\nfinal class P[A](steps: List[Boolean], focus: Fam[A])",
-    ) must beLike {
-      case Count.Unresolved(reasons) =>
-        reasons must contain("sealed subtype shape unreadable: Open")
-    }
+    ).render === "ω"
 
   // The refusal of an imported `Int` names the path the import binds (the method side's reason; the
   // estimate's refusal of the same name is not repeated); a stuck match type slot is named once, by

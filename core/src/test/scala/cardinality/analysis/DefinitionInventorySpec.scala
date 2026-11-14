@@ -17,9 +17,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a given alias is a method of its clauses                        $givenAliases
       an abstract given is a declaration, implemented without itself  $abstractGivens
       a local given alias is a row with clauses, a step without       $localGiven
-      an unmatched inherited given leaves the identity unresolved     ${Pending.resolvedRefusal(
-      givenIdentity
-    )}
+      a given with clauses implementing an inherited one is no slot   $givenIdentity
       an anonymous given is the member of its synthesized name        $anonymousGivens
       an inline given alias is read by the inline-method rule         $inlineGivens
     Member values
@@ -36,13 +34,15 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       hidden parent state a body may not reach is refused             ${Pending.knownLoss(
       hiddenState
     )}
-      a level passing the argument or a body import is not followed   ${Pending.resolvedRefusal(
-      passedLevels
+      a level passing the argument on is followed                     $passedLevels
+      a body import beside a captured argument                        ${Pending.knownLoss(
+      importedLevel
     )}
       a value's or a given's context binders reach its members        $valueBinders
       an untyped value takes an overridden declaration's binders      $overriddenBinders
-      a context-function literal binds its own clause once            ${Pending.oldBehavior(
-      contextLiterals
+      a context-function literal binds its own clause once            $contextLiterals
+      an anonymous binder of a context-function literal, summoned     ${Pending.knownLoss(
+      anonymousLiteral
     )}
       a `summon` between two anonymous binders is refused             ${Pending.rejectedFixture(
       ambiguousLiterals
@@ -55,18 +55,12 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       a bound's evidence position is named by its evidence           ${Pending.knownLoss(
       evidencePosition
     )}
-      a secondary constructor chooses the primary's arguments         ${Pending.oldBehavior(
-      secondaryConstructor
-    )}
-      a secondary constructor of an open class reads no record        ${Pending.oldBehavior(
-      secondaryOpen
-    )}
+      a secondary constructor chooses the primary's arguments         $secondaryConstructor
+      a secondary constructor of an open class reads no record        $secondaryOpen
       a secondary constructor's body sees the class's members         ${Pending.knownLoss(
       secondaryBody
     )}
-      the primary's arguments: by-name, repeated, none, evidence      ${Pending.oldBehavior(
-      primaryArguments
-    )}
+      the primary's arguments: by-name, repeated, none, evidence      $primaryArguments
     Identities
   """
 
@@ -137,18 +131,16 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("Local.local.h") === "4")
   }
 
-  // A given with clauses implementing an inherited one in an open class (D extends it): matching
-  // their parameter types is not done.
+  // A given with clauses implementing an inherited one in an open class (D extends it, without
+  // overriding g): the compiler's symbols say C.g implements T.g, so the declaration is the row
+  // itself, no slot. An A from a alone (b is a B): 1; 2 if the declaration were one more A.
   def givenIdentity =
-    refused(
-      rows(
-        """|trait T[B] { given g[A](using a: A, b: B): A }
-           |class C[B](x: B) extends T[B] { given g[A](using a: A, b: B): A = a }
-           |class D[B](x: B) extends C[B](x)
-           |""".stripMargin
-      )("C.g"),
-      "inherited override identity not resolved: g"
-    )
+    rows(
+      """|trait T[B] { given g[A](using a: A, b: B): A }
+         |class C[B](x: B) extends T[B] { given g[A](using a: A, b: B): A = a }
+         |class D[B](x: B) extends C[B](x)
+         |""".stripMargin
+    )("C.g") === inhabitation.Inhabitation.Count.Finite(1)
 
   // Scala names `given A = a` given_A: in C it implements the parent's abstract given of that name,
   // in D a parent's parameterless def, in the open O the parent's declaration again — never a slot
@@ -291,23 +283,24 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       .and(found("Hidden.plain.<new#1>.seed").render === "2")
   }
 
-  // `peek` returns what Mid passed on, and an import of the body may rebind the argument's name:
-  // neither is followed, so both are refused (a or b, 2, in each, read through the argument).
-  def passedLevels = {
-    val found = rows(
-      """|abstract class Hide[A](h: A) { def peek: A = h; def seed: A }
-         |abstract class Mid[A](x: A) extends Hide[A](x)
-         |object Passed {
-         |  def mid[A](a: A, b: A): Hide[A] = new Mid[A](a) { def seed: A = peek }
-         |  object Box { val a: Boolean = true }
-         |  def imported(a: Boolean, b: Boolean): Hide[Boolean] =
-         |    new Hide[Boolean](a) { import Box.*; def seed: Boolean = peek }
-         |}""".stripMargin
-    )
-    val reason = "open class with hidden constructor state: Hide.h"
-    refused(found("Passed.mid.<new#1>.seed"), reason)
-      .and(refused(found("Passed.imported.<new#1>.seed"), reason))
-  }
+  private lazy val passed = rows(
+    """|abstract class Hide[A](h: A) { def peek: A = h; def seed: A }
+       |abstract class Mid[A](x: A) extends Hide[A](x)
+       |object Passed {
+       |  def mid[A](a: A, b: A): Hide[A] = new Mid[A](a) { def seed: A = peek }
+       |  object Box { val a: Boolean = true }
+       |  def imported(a: Boolean, b: Boolean): Hide[Boolean] =
+       |    new Hide[Boolean](a) { import Box.*; def seed: Boolean = peek }
+       |}""".stripMargin
+  )
+
+  // `peek` returns what Mid passed on, x, which is a: concrete code nothing overrides, so it adds no
+  // value to the captures a and b: 2.
+  def passedLevels = passed("Passed.mid.<new#1>.seed").render === "2"
+
+  // Beside `import Box.*` a reference to `a` is ambiguous (scalac E049), but `peek` still returns
+  // the captured a: any function of the captures a and b (Box.a is the constant true), 2^(2^2) = 16.
+  def importedLevel = passed("Passed.imported.<new#1>.seed").render === "16"
 
   def valueBinders = {
     val found = rendered(
@@ -359,12 +352,14 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
   def contextLiterals = {
     val found = rows(literals)
     (found("Literal.one.<lambda#1>.<new#1>.get").render === "1")
-      .and(found("Literal.anon.<lambda#1>.<new#1>.get").render === "1")
       .and(found("Literal.local.<lambda#1>.g").render === "1")
       .and(found("Literal.named2.<lambda#1>.<new#1>.get").render === "2")
       .and(found("Literal.held.<lambda#1>.<new#1>.get").render === "4")
       .and(found("Literal.lifted.<lambda#1>.<new#1>.get").render === "4")
   }
+
+  // The anonymous binder is the one A `summon` finds: 1, as for `one`.
+  def anonymousLiteral = rows(literals)("Literal.anon.<lambda#1>.<new#1>.get").render === "1"
 
   // Two anonymous binders of one type are ambiguous for `summon`, to scalac as to the reading.
   def ambiguousLiterals = {
@@ -451,11 +446,13 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
       "transparent ground values: evidence Ev[A]"
     )
 
-  private def bySignature(code: String): Map[(String, String), String] =
-    entries(code).map(entry => (entry.kind, entry.signature) -> entry.count.render).toMap
+  // A secondary constructor is the `method` row of its class's `<init>`, the primary the
+  // `constructor` row (each fixture has at most one secondary per class).
+  private def byKind(code: String): Map[(String, String), String] =
+    entries(code).map(entry => (entry.kind, entry.name) -> entry.count.render).toMap
 
   def secondaryConstructor = {
-    val found = bySignature(
+    val found = byKind(
       """|final case class Box[A](a: A, b: A) { def this(a: A) = this(a, a) }
          |final class K[A](val x: A) {
          |  val m: A = x
@@ -465,24 +462,24 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
     // The primary's arguments (A, A) from a alone: (a, a), 1 — the secondary constructor is no
     // member, so Box stays a product. The primary's two slots from two parameters: 4. K's member m
     // is not in scope of the self-invocation (the instance does not exist yet): y alone, 1.
-    (found(("method", "this(a: A): Box[A]")) === "1")
-      .and(found(("constructor", "Box[A](a: A, b: A)")) === "4")
-      .and(found(("method", "this(u: Unit, y: A): K[A]")) === "1")
+    (found(("method", "Box.<init>")) === "1")
+      .and(found(("constructor", "Box.<init>")) === "4")
+      .and(found(("method", "K.<init>")) === "1")
   }
 
   // A secondary constructor calls the primary one with a Boolean from u: 2. Read as a value of the
   // class, an open class's overridable `flag` (or a subclass's override) would double it, 4 — but
   // no constructor chooses a member.
   def secondaryOpen = {
-    val found = bySignature(
+    val found = byKind(
       """|class Open(val n: Boolean) { def this(u: Unit) = this(true); def flag: Boolean = n }
          |abstract class AbsM(val n: Boolean) { def this(u: Unit) = this(true); def flag: Boolean }
          |final class Closed(val n: Boolean) { def this(u: Unit) = this(true) }
          |""".stripMargin
     )
-    (found(("method", "this(u: Unit): Open")) === "2")
-      .and(found(("method", "this(u: Unit): AbsM")) === "2")
-      .and(found(("method", "this(u: Unit): Closed")) === "2")
+    (found(("method", "Open.<init>")) === "2")
+      .and(found(("method", "AbsM.<init>")) === "2")
+      .and(found(("method", "Closed.<init>")) === "2")
   }
 
   // The body after the self-invocation is typed as a function body of the class ([30] Constructor
@@ -510,7 +507,7 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
   // evidence last: (A, Ev[A]) from b and the secondary's own evidence, 1 · 2^2 (an Ev[A] is one of
   // two values, chosen as a function of the evidence's), 4 — 1 without the bound.
   def primaryArguments = {
-    val found = bySignature(
+    val found = byKind(
       """|final class P(f: => Boolean, xs: Boolean*) { def this(u: Unit) = this(true) }
          |final class N() { def this(u: Unit) = this() }
          |final case class Ev[A](flag: Boolean)
@@ -518,10 +515,10 @@ class DefinitionInventorySpec extends Specification with InventoryFixtures {
          |final class R2[A](a: A) { def this(u: Unit, b: A) = this(b) }
          |""".stripMargin
     )
-    (found(("method", "this(u: Unit): P")) === "ω")
-      .and(found(("method", "this(u: Unit): N")) === "1")
-      .and(found(("method", "this(u: Unit, b: A): R[A]")) === "4")
-      .and(found(("method", "this(u: Unit, b: A): R2[A]")) === "1")
+    (found(("method", "P.<init>")) === "ω")
+      .and(found(("method", "N.<init>")) === "1")
+      .and(found(("method", "R.<init>")) === "4")
+      .and(found(("method", "R2.<init>")) === "1")
   }
 
 }
